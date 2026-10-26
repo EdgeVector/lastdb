@@ -38,8 +38,8 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 ## What a pass does
 
-1. The sampler tick starts at most one pass. A pass skips while a backup cut is held or local
-   writes are paused.
+1. The sampler tick starts at most one pass. Each erase batch uses the normal local mutation
+   admission. A snapshot cut keeps that admission until the cut completes.
 2. The pass lists the expired keys of each schema once, hash by hash and oldest first inside a
    hash. The store keeps the rows of one hash in one group, so one batch touches few groups.
    Range discovery reads 256 keys per request through the normal keyed page reader.
@@ -59,8 +59,8 @@ HashRange backfill registers hashes; the range key still defines the age.
 5. The erase spares a Hash or Single key whose tip is newer than the cutoff (see The write-time
    guard).
 6. The sweep holds the local mutation admission for one batch at a time, and rests after each
-   batch (below). The pass stops between batches when the daemon stops, when a backup cut starts,
-   or when local writes pause. The next tick lists the rest again.
+   batch (below). A snapshot cut waits for the admitted batch and blocks later admissions.
+   The pass stops between batches when the daemon stops. The next tick lists the rest again.
 7. A `purge` refuses a batch that names a key which is already gone, for example a key that a
    client, a peer or another purger removed after the re-check. After such a refusal the sweep
    asks which keys of the batch are absent, counts them as done, drops them, and sends the rest.
@@ -336,7 +336,7 @@ on a quiet host and up to 7.8 s on a busy one.
 |---|---|
 | `finished_backlog` | The last pass erased or dropped every key that it listed, in every schema, with no failed schema. |
 | `keys_left` | The keys that the pass listed and had not reached when it ended. |
-| `cut` | The pass ended early: the daemon was stopping, a backup cut was held, or local writes were paused. |
+| `cut` | The pass ended early before it reached all listed keys. |
 | `schemas_failed` | The schemas that this pass skipped. |
 | `missing_dropped` | The keys of a `purge` batch that were already gone. The sweep dropped them. |
 | `schema_failures_total` | The skipped schemas for the life of the process. |

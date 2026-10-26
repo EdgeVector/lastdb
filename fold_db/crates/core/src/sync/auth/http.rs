@@ -1,12 +1,11 @@
 //! Credential ownership and refresh only; no legacy HTTP action transport.
 use super::{AuthClient, SyncAuth, DEFAULT_AUTH_REQUEST_TIMEOUT};
-use reqwest::Client;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
 impl AuthClient {
-    pub fn new(_http: Arc<Client>, base_url: String, auth: SyncAuth) -> Self {
+    pub fn new(base_url: String, auth: SyncAuth) -> Self {
         Self {
             base_url,
             auth: Arc::new(RwLock::new(auth)),
@@ -14,11 +13,6 @@ impl AuthClient {
             request_timeout: DEFAULT_AUTH_REQUEST_TIMEOUT,
         }
     }
-    /// No default database scope or automatic claim exists in the byte transport.
-    pub fn without_db_auto_claim(self) -> Self {
-        self
-    }
-
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
         self

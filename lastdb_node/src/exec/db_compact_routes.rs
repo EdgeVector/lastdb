@@ -136,19 +136,13 @@ pub(super) async fn execute_db_compact_route(
         return error_response(400, "compact: collection must be non-empty", ctx);
     }
     let walk_all = named.is_none();
-    if dry_run {
-        return execute_db_compact_walk(host, ctx, collections, walk_all, true).await;
-    }
-    if host.db.backup_publish_target_is_held().await {
-        return skipped_backup_cut_compact_response(&collections, walk_all, ctx, None);
-    }
-    execute_db_compact_walk(host, ctx, collections, walk_all, false).await
+    execute_db_compact_walk(host, ctx, collections, walk_all, dry_run).await
 }
 
 /// `{ "dry_run": true }`
 ///
 /// Default dry_run=true. Execute stamps successor-history SHAs into pending
-/// purged atom retirements. Skips while a backup cut is held.
+/// purged atom retirements.
 pub(super) async fn execute_db_stamp_purged_atom_retirements_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -176,13 +170,6 @@ pub(super) async fn execute_db_stamp_purged_atom_retirements_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
-    if !dry_run && host.db.backup_publish_target_is_held().await {
-        return error_response(
-            409,
-            "stamp-purged-atom-retirements skipped: backup cut is held",
-            ctx,
-        );
-    }
     let store = host.db.db_ops().namespaced_store();
     let result = if dry_run {
         store.report_committed_successor_history()
@@ -209,66 +196,6 @@ pub(super) async fn execute_db_stamp_purged_atom_retirements_route(
     }
 }
 
-pub(super) fn skipped_backup_cut_compact_response(
-    collections: &[String],
-    walk_all: bool,
-    ctx: &AccessContext,
-    cloud: Option<serde_json::Value>,
-) -> UdsResponse {
-    let reports: Vec<serde_json::Value> = collections
-        .iter()
-        .map(|collection| {
-            serde_json::json!({
-                "collection": collection,
-                "dry_run": false,
-                "live_keys": 0,
-                "bytes_before": 0,
-                "bytes_after": null,
-                "never_compact": false,
-                // A held backup cut is a genuine refusal: this call compacted
-                // nothing and the caller must not read the plane as reclaimable
-                // right now.
-                "compactable_here": false,
-                "executed": false,
-                "skipped_reason": "backup cut is held",
-                "skipped_backup_cut": true,
-            })
-        })
-        .collect();
-    let cloud = cloud.unwrap_or_else(|| {
-        serde_json::json!({
-            "isolation_needed": false,
-            "was_enabled": false,
-            "paused": false,
-            "restored": false,
-            "file_state_before": null,
-            "file_state_after": null,
-            "restore_error": null,
-            "skipped_backup_cut": true,
-        })
-    });
-    let compact_json = if walk_all {
-        serde_json::json!({
-            "all": true,
-            "reports": reports,
-            "skipped_backup_cut": true,
-            "cloud": cloud,
-            "named_only_not_walked": fold_db::storage::laststore::COMPACT_NAMED_ONLY,
-        })
-    } else if let Some(mut compact_json) = reports.into_iter().next() {
-        if let Some(obj) = compact_json.as_object_mut() {
-            obj.insert("cloud".to_string(), cloud);
-        }
-        compact_json
-    } else {
-        serde_json::json!({ "skipped_backup_cut": true, "cloud": cloud })
-    };
-    json_ok(&envelope(
-        &serde_json::json!({ "compact": compact_json }),
-        ctx.user_id.as_str(),
-    ))
-}
-
 pub(super) async fn execute_db_compact_walk(
     host: &Host,
     ctx: &AccessContext,
@@ -277,12 +204,7 @@ pub(super) async fn execute_db_compact_walk(
     dry_run: bool,
 ) -> UdsResponse {
     // Local compaction never changes protected cloud credentials or resumes an engine.
-    let compact = || compact_collections(host, &collections, dry_run);
-    let result = if dry_run {
-        Some(compact().await)
-    } else {
-        host.db.run_unless_backup_publish_target_held(compact).await
-    };
+    let (mut reports, first_error) = compact_collections(host, &collections, dry_run).await;
     let file_state = crate::cloud::cloud_sync_file_state(&host.home);
     let cloud = serde_json::json!({
         "isolation_needed": false,
@@ -294,10 +216,6 @@ pub(super) async fn execute_db_compact_walk(
         "restore_error": null,
         "legacy_cloud_retired": true,
     });
-
-    let Some((mut reports, first_error)) = result else {
-        return skipped_backup_cut_compact_response(&collections, walk_all, ctx, Some(cloud));
-    };
 
     if let Some(e) = first_error {
         let extra = cloud
