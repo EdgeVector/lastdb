@@ -105,15 +105,3 @@ pub(super) async fn execute_query_batch_route(
         ctx,
     )
 }
-
-/// Schema label for the telemetry sample of a batch: the first query's schema,
-/// like a mutation batch names its first mutation. A batch may span schemas.
-pub(super) fn schema_hint(body: &[u8]) -> Option<String> {
-    let first = serde_json::from_slice::<Value>(body)
-        .ok()?
-        .get("queries")?
-        .as_array()?
-        .first()?
-        .clone();
-    crate::request_telemetry::schema_from_body(&serde_json::to_vec(&first).ok()?)
-}
