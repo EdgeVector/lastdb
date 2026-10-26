@@ -58,7 +58,7 @@ pub(super) async fn prepare(
     let gate = runtime.enter_write().await;
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         runtime.require_initialized()?;
         runtime.require_restore_validated()?;
         if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
@@ -204,7 +204,7 @@ pub(super) async fn resume(
     let admission = super::super::NativeCloudWorkGuard::acquire()?;
     let runtime = Arc::clone(runtime);
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
         let state = store.read("job.json")?;
         reopen(runtime, store, state, &key, admission, false)
@@ -221,7 +221,7 @@ pub(super) async fn cancel(
     let runtime = Arc::clone(runtime);
     let begin = begin.clone();
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
         if !store.exists("job.json")? {
             return cancel_intent(&runtime, &store, &begin, &key, None);

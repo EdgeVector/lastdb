@@ -6,8 +6,7 @@
 use crate::gen::Rng;
 use crate::value_gen::{near_json, node_value, other_bytes, text, timestamps, tree};
 use crate::{budget, dir_bytes, Result, MIB};
-use laststore::disk_pack::home::HomeMutation;
-use laststore::disk_run::home::{RunHome, MAX_VALUE_BYTES};
+use laststore::disk_run::home::{HomeMutation, RunHome, MAX_VALUE_BYTES};
 use laststore::disk_run::value::{self, COMPACT_JSON};
 use std::collections::BTreeMap;
 use std::path::Path;

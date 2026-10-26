@@ -61,7 +61,7 @@ pub fn validate_restored_node(
         .map_err(|_| refusal("restored file deletion is active"))?;
     let home = laststore::disk_pack::home::DiskHome::open(&root.join("disk-pack")).map_err(map)?;
     let mut reader = home
-        .read(laststore::disk_pack::ReadBudget {
+        .read(laststore::disk_run::home::ReadBudget {
             pages: 4096,
             blocks: 16384,
             bytes: 8 * 1024 * 1024,
@@ -169,7 +169,7 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
     let validated = validate_snapshot(&physical).map_err(map)?;
     let home = laststore::disk_pack::home::DiskHome::open(&physical).map_err(map)?;
     let mut reader = home
-        .read(laststore::disk_pack::ReadBudget {
+        .read(laststore::disk_run::home::ReadBudget {
             pages: 4096,
             blocks: 16384,
             bytes: 8 * 1024 * 1024,
@@ -235,15 +235,4 @@ pub(super) fn finish_file(file: &mut File, expected: &[u8]) -> StorageResult<()>
 
 fn refusal(detail: &str) -> StorageError {
     StorageError::InvalidOperation(detail.into())
-}
-
-/// Check one offline atom-namespace coordinate with the normal current-key law.
-/// Unknown or retired spellings cannot hide an unexamined file-pointer body.
-pub fn validate_restored_atom_key(key: &str) -> StorageResult<()> {
-    let raw = super::super::laststore::native_routing::decode(key)?;
-    super::super::current_keys::validate("main", &raw)?;
-    if super::super::laststore::native_routing::collection_for_key(&raw) != "atoms" {
-        return Err(refusal("unsupported key in restored atom namespace"));
-    }
-    Ok(())
 }

@@ -3,7 +3,8 @@
 use super::{context, invalid, store::Store, ByteBackupCapture, StorageResult};
 use cloud_backup_protocol::{v2::Begin, NativeRoot};
 use lastdb_storage_policy::BackupResources;
-use laststore::disk_pack::{home::DiskHome, maintenance::SpacePolicy};
+use laststore::disk_pack::home::DiskHome;
+use laststore::space::SpacePolicy;
 use std::{path::Path, sync::Arc};
 
 mod capture;

@@ -3,15 +3,17 @@
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
 use crate::resident::PersistLaneMetrics;
-use laststore::disk_pack::home::{DiskHome, HomeMutation, HomeSnapshot};
-use laststore::disk_pack::maintenance::SpaceReservation;
-use laststore::disk_pack::{Current, ReadBudget};
+use laststore::disk_pack::home::{DiskHome, HomeSnapshot};
+use laststore::disk_pack::Current;
+use laststore::disk_run::home::{HomeMutation, ReadBudget};
+use laststore::space::SpaceReservation;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
 pub mod backup_capture;
+mod blocking;
 mod boundary;
 pub mod byte_backup;
 mod cloud_work;
@@ -31,6 +33,7 @@ pub(crate) mod logical_paths;
 mod maintenance;
 mod memory;
 mod namespace_delete;
+pub(in crate::storage) mod native_routing;
 mod parts;
 mod physical;
 mod physical_v2;
@@ -52,6 +55,7 @@ mod view;
 mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
+pub(in crate::storage) use blocking::run_blocking;
 pub use boundary::CoreNativeBackupBoundary;
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
@@ -59,9 +63,7 @@ pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
-pub use restore::{
-    prepare_restored_node, validate_restored_atom_key, validate_restored_node, RestoredNodeGuard,
-};
+pub use restore::{prepare_restored_node, validate_restored_node, RestoredNodeGuard};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
@@ -92,7 +94,7 @@ pub struct PackRuntime {
     node_home: Option<initialization::NodeHome>,
     // Failed snapshot publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
-    space_policy: laststore::disk_pack::maintenance::SpacePolicy,
+    space_policy: laststore::space::SpacePolicy,
     parts: Arc<parts::PartsLedger>,
 }
 
@@ -256,7 +258,7 @@ impl PackNamespacedStore {
         parts: Arc<parts::PartsLedger>,
         restore_blocked: bool,
         node_home: Option<initialization::NodeHome>,
-        space_policy: laststore::disk_pack::maintenance::SpacePolicy,
+        space_policy: laststore::space::SpacePolicy,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
         Self {
@@ -321,7 +323,7 @@ impl NamespacedStore for PackNamespacedStore {
         let context = read::ReadContext::current(&self.runtime).await?;
         let pending = transaction::PendingBatch::current(&self.runtime);
         let runtime = Arc::clone(&self.runtime);
-        super::laststore::LastStoreKvStore::run_blocking(move || {
+        run_blocking(move || {
             let (rows, complete) = runtime.raw_rows(
                 &context,
                 REGISTRY,

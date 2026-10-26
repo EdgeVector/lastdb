@@ -8,8 +8,7 @@
 
 use crate::gen::{Model, Rng};
 use crate::{check_all, dir_bytes, Result, MIB};
-use laststore::disk_pack::home::HomeMutation;
-use laststore::disk_run::home::{MergeKind, RunHome};
+use laststore::disk_run::home::{HomeMutation, MergeKind, RunHome};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;

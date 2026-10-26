@@ -1,19 +1,9 @@
-use super::{DiskHome, HomeDescriptor};
+use super::{DiskHome, HomeDescriptor, HomeMutation};
 use crate::disk_pack::snapshot::{
     SnapshotMutation, SnapshotMutationShape, SnapshotQuote, SnapshotWriter,
 };
 use crate::disk_pack::Current;
 use crate::Result;
-
-/// Complete native stored mutation. The home derives its physical group.
-pub struct HomeMutation {
-    /// Exact namespace identity, never a filesystem path.
-    pub collection: String,
-    /// Complete encoded LastStore document id.
-    pub key: String,
-    /// Opaque stored body, or None for a tombstone.
-    pub body: Option<Vec<u8>>,
-}
 
 /// Exclusive native snapshot owner. Each stored batch publishes one complete root.
 /// This API does not acknowledge a logical memory mutation or release its token.

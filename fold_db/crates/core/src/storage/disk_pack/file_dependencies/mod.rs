@@ -129,10 +129,21 @@ pub fn is_directory_key(key: &str) -> bool {
         })
 }
 
+/// Check one offline atom-namespace coordinate with the normal current-key law.
+/// Unknown or retired spellings cannot hide an unexamined file-pointer body.
+pub fn validate_restored_atom_key(key: &str) -> StorageResult<()> {
+    let raw = super::native_routing::decode(key)?;
+    super::super::current_keys::validate("main", &raw)?;
+    if super::native_routing::collection_for_key(&raw) != "atoms" {
+        return Err(invalid("unsupported key in restored atom namespace"));
+    }
+    Ok(())
+}
+
 /// Decode the native storage coordinate before its atom identity or scope is used.
 pub fn atom_coordinate(encoded: &str) -> StorageResult<Option<(Option<String>, String)>> {
-    super::validate_restored_atom_key(encoded)?;
-    let raw = super::super::laststore::native_routing::decode(encoded)?;
+    validate_restored_atom_key(encoded)?;
+    let raw = super::native_routing::decode(encoded)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("native atom key encoding"))?;
     let Some(id) = crate::atom::atom_key_codec::body_uuid_of(raw) else {
         return Ok(None);

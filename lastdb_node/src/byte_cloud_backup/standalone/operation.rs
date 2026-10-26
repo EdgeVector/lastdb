@@ -50,7 +50,7 @@ pub(super) async fn run(
         &native,
         &paths.source,
         lastdb_storage_policy::BACKUP_RESOURCES,
-        laststore::disk_pack::maintenance::SpacePolicy::default(),
+        laststore::space::SpacePolicy::default(),
     )?;
     let source = Source::standalone(identity, core)?;
     let client = if terminal.is_none() && needs_client(&action, previous.as_ref()) {

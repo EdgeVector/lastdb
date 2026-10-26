@@ -4,9 +4,10 @@ use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, NativeRoot};
 use laststore::disk_pack::{
     backup::export::{SnapshotExport, SnapshotReader},
     home::{DiskHome, HomeRead},
-    maintenance::SpacePolicy,
-    Current, ReadBudget,
+    Current,
 };
+use laststore::disk_run::home::ReadBudget;
+use laststore::space::SpacePolicy;
 use std::{path::Path, sync::Arc};
 
 #[derive(Clone)]

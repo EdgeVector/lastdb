@@ -1,5 +1,5 @@
 use super::{budget, files, invalid, map, read_budget, Proof, StorageResult};
-use laststore::disk_pack::maintenance::SpacePolicy;
+use laststore::space::SpacePolicy;
 use std::fs::{self, File};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -30,7 +30,7 @@ pub(super) fn verify(proof: &Proof<'_>, dependency: &files::FileDependency) -> S
         let policy = SpacePolicy::default();
         let mut output = files::NativeCasOutput::create(&raw_path, &policy)?;
         let key =
-            crate::storage::laststore::native_routing::encode(dependency.blob_ref().as_bytes());
+            crate::storage::disk_pack::native_routing::encode(dependency.blob_ref().as_bytes());
         let copied = {
             let mut read = proof
                 .cas

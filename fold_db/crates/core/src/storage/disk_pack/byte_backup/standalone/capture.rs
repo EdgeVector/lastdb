@@ -33,7 +33,7 @@ pub(super) async fn prepare(
         .map_err(protocol)?;
     let admission = NativeCloudWorkGuard::acquire()?;
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         let home = CaptureHome::Standalone(Arc::clone(&context));
         let store = context.store()?;
         common::require_v1_cleanup(context.home.path())?;
@@ -81,7 +81,7 @@ pub(super) async fn resume(
 ) -> StorageResult<ByteBackupCapture> {
     let admission = NativeCloudWorkGuard::acquire()?;
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         let home = CaptureHome::Standalone(Arc::clone(&context));
         let store = context.store()?;
         let state: State = store.read("job.json")?;
@@ -106,7 +106,7 @@ pub(super) async fn cancel(
 ) -> StorageResult<()> {
     let admission = NativeCloudWorkGuard::acquire()?;
     let key = zeroize::Zeroizing::new(*key);
-    crate::storage::laststore::LastStoreKvStore::run_blocking(move || {
+    crate::storage::disk_pack::run_blocking(move || {
         let home = CaptureHome::Standalone(Arc::clone(&context));
         let store = context.store()?;
         if !store.exists("job.json")? {

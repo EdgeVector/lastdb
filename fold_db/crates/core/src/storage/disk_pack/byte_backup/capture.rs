@@ -59,7 +59,7 @@ impl PackRuntime {
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
-        super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::super::run_blocking(move || {
             runtime.require_initialized()?;
             if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(invalid("byte capture requires complete writer recovery"));
@@ -121,7 +121,7 @@ impl PackRuntime {
         let admission = super::super::NativeCloudWorkGuard::acquire()?;
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
-        super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::super::run_blocking(move || {
             let home = CaptureHome::writer(&runtime)?;
             let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             let state: State = store.read("job.json")?;

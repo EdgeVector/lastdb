@@ -75,7 +75,7 @@ impl CompactionPlan {
         } else {
             super::quote::tier_bytes(root, current, boundary)?
         };
-        let space = super::space::reserve_replacement(root, policy, reserve)?;
+        let space = crate::space::reserve_replacement(root, policy, reserve)?;
         let mut output = if boundary == 0 {
             super::compact::copy(&self.lock, current, &self.protection)?
         } else {

@@ -3,7 +3,7 @@
 use crate::atom::molecule_key_codec;
 use crate::resident::CoreWarmSet;
 use crate::schema::types::field::build_storage_key;
-use crate::storage::laststore::native_routing;
+use crate::storage::disk_pack::native_routing;
 
 /// Include the base tip affected by generation records and every slot affected
 /// by a structural replacement. Dirty model coverage uses the same controls.

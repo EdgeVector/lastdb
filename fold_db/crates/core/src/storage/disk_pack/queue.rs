@@ -1,7 +1,6 @@
 //! Bounded complete requests share one generation-bound stored publication.
 
 use super::*;
-use crate::storage::laststore::LastStoreKvStore;
 use tracing::Instrument;
 
 const MAX_REQUESTS: usize = 1024;
@@ -171,7 +170,7 @@ impl PackRuntime {
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
         let gate_from = std::time::Instant::now();
         let runtime = Arc::clone(&self);
-        let result = LastStoreKvStore::run_blocking(move || {
+        let result = run_blocking(move || {
             let _preparation = preparation;
             let _gate = gate;
             let result = runtime.commit_queue();

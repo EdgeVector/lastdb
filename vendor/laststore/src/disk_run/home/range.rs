@@ -1,14 +1,21 @@
 //! Ordered ranges under one hash, merged across the held runs.
 
 use super::keys::{prefix_end, run_key, storage_key};
-use super::read::{RunRead, RunReadCosts};
-use crate::disk_pack::{RangeBounds, ReadBudget};
+use super::read::{ReadBudget, RunRead, RunReadCosts};
 use crate::disk_run::{value, Found, MergeIter, MergeSource, RunSequence};
 use crate::{Error, Result};
 use std::ops::Bound;
 use std::path::PathBuf;
 #[path = "range/stream.rs"]
 mod stream;
+
+/// Half-open encoded range suffix bounds within the held hash.
+pub struct RangeBounds {
+    /// Inclusive encoded range suffix; empty means the first range under this hash.
+    pub start: String,
+    /// Exclusive encoded range suffix; None means the exact end of this hash.
+    pub end: Option<String>,
+}
 
 /// One page of live records. Tombstones count as examined keys but do not
 /// appear here.

@@ -5,7 +5,8 @@ use crate::db_operations::molecule_key_store::{
     node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
 };
 use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::{Current, ReadBudget};
+use laststore::disk_pack::Current;
+use laststore::disk_run::home::ReadBudget;
 use std::borrow::Cow;
 use zeroize::Zeroizing;
 
@@ -93,7 +94,7 @@ pub(crate) fn content_key(
     let keys = node_bundle_storage_keys(molecule)?.map(|key| {
         (
             "molecule_keys".into(),
-            crate::storage::laststore::native_routing::encode(key.as_bytes()),
+            crate::storage::disk_pack::native_routing::encode(key.as_bytes()),
         )
     });
     let rows = {

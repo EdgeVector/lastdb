@@ -3,7 +3,6 @@
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
-use crate::disk_pack::home::HomeMutation;
 use crate::disk_run::{merge_runs, value, RunReader, RunSummary, RunWriter};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -16,6 +15,16 @@ pub const MERGE_WIDTH: usize = 8;
 /// Most runs one merge reads. Each input holds one open file, so a level
 /// that grew while merges lagged is merged in slices of its oldest runs.
 pub const MAX_MERGE_INPUTS: usize = 64;
+
+/// Complete native stored mutation. The home derives its physical group.
+pub struct HomeMutation {
+    /// Exact namespace identity, never a filesystem path.
+    pub collection: String,
+    /// Complete encoded LastStore document id.
+    pub key: String,
+    /// Opaque stored body, or None for a tombstone.
+    pub body: Option<Vec<u8>>,
+}
 
 /// One published commit.
 #[derive(Debug, Clone)]

@@ -19,7 +19,7 @@ pub(super) fn verify(
         let mut raw = scratch::input(raw_path)?;
         if proof.collection != "cas_blobs"
             || proof.key
-                != crate::storage::laststore::native_routing::encode(
+                != crate::storage::disk_pack::native_routing::encode(
                     dependency.blob_ref().as_bytes(),
                 )
             || raw.metadata()?.len() != proof.stored_row_bytes

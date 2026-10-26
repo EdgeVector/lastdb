@@ -52,11 +52,15 @@ mod tree_partition;
 mod tree_write;
 mod write_lock;
 
+pub use crate::disk_run::home::{RangeBounds, ReadBudget};
+pub use crate::disk_run::{
+    FEATURE_ATOM_RECORDS, FEATURE_LARGE_BATCHES, FEATURE_SCHEMA_RECORD_REFS,
+};
 pub use build::{ArtifactBuilder, GroupWriter};
-pub use call::{ReadBudget, ReadCall, ReadCosts};
+pub use call::{ReadCall, ReadCosts};
 pub use conversion_select::{resolve_conversion, ResolvedStore};
 pub use current::Current;
-pub use hash_range::{HashRangeCursor, HashScope, RangeBounds, RangePage, RangeRecord};
+pub use hash_range::{HashRangeCursor, HashScope, RangePage, RangeRecord};
 pub use key_limits::{EXTENDED_STORAGE_KEY_BYTES, LEGACY_STORAGE_KEY_BYTES};
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
 pub use publish::PublishedGeneration;
@@ -74,23 +78,9 @@ pub const FEATURE_NATIVE_HOME: u64 = 4;
 /// Homes without this bit retain all files because older readers have no such hold.
 pub const FEATURE_FILE_LIFETIME: u64 = 8;
 
-/// Native schema writers maintain runtime record-R reverse edges. Version-2
-/// completeness is valid only after this bit is durably published in CURRENT.
-pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
-
-/// Native batches admit 16,384 ordered storage operations instead of 4,096.
-/// The initial CURRENT fences older readers before any larger stored batch.
-pub const FEATURE_LARGE_BATCHES: u64 = 32;
-
 /// Locator pages pack complete ordinary keys beside their values.
 /// Older readers reject this feature before they can open a packed-key tree.
 pub const FEATURE_PACKED_KEYS: u64 = 64;
-
-/// Every atom body is one record at `atom:{uuid}\0b` in the `atoms` collection.
-/// A home without this bit used the older flat, partition-prefix, or locator
-/// layouts, and a build that holds this bit refuses it. An older build refuses
-/// a home with this bit.
-pub const FEATURE_ATOM_RECORDS: u64 = 128;
 
 /// Local recovery and reads use the complete immutable snapshot selected by CURRENT.
 /// Old journal-backed homes require explicit conversion and are not opened.

@@ -1,6 +1,5 @@
 //! Range reads that continue across a budget stop in a run of deleted keys.
 
-use super::super::laststore::{native_routing, LastStoreKvStore};
 use super::rows::{cursor, NativeRows};
 use super::*;
 
@@ -47,7 +46,7 @@ impl PackKvStore {
         let context = read::ReadContext::current(&runtime).await?;
         let observed = Arc::clone(&context);
         let collection = collections.into_iter().next().expect("one collection");
-        let result = LastStoreKvStore::run_blocking(move || {
+        let result = run_blocking(move || {
             let (rows, resume) = runtime.raw_rows_yielding(
                 &context,
                 &collection,

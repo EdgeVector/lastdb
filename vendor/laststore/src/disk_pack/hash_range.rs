@@ -1,5 +1,5 @@
 use super::tree_cursor::TreeCursor;
-use super::{corrupt, DirectoryEntry, Location, MutationVersion, ReadCall, Source};
+use super::{corrupt, DirectoryEntry, Location, MutationVersion, RangeBounds, ReadCall, Source};
 use crate::Result;
 
 /// One encoded molecule/hash scope from the caller's held key and placement codecs.
@@ -38,14 +38,6 @@ impl HashScope {
             groups,
         })
     }
-}
-
-/// Half-open encoded range suffix bounds within the held hash.
-pub struct RangeBounds {
-    /// Inclusive encoded range suffix; empty means the first range under this hash.
-    pub start: String,
-    /// Exclusive encoded range suffix; None means the exact end of this hash.
-    pub end: Option<String>,
 }
 
 /// One exact record selected by an ordered hash range.

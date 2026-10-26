@@ -1,7 +1,6 @@
 //! A stopped-home snapshot with no writer, creation, or crash cleanup.
 
-use super::{manifest::Manifest, read_descriptor, RunRead, RunReadCosts};
-use crate::disk_pack::ReadBudget;
+use super::{manifest::Manifest, read_descriptor, ReadBudget, RunRead, RunReadCosts};
 use crate::{Error, Result};
 use std::fs::OpenOptions;
 use std::os::unix::fs::OpenOptionsExt;

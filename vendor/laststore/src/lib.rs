@@ -40,6 +40,7 @@ mod sorted;
 mod sorted_file;
 mod sorted_merge;
 mod sorted_metadata;
+pub mod space;
 mod store;
 
 pub use durability::{sync_stats, SyncStats};

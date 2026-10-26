@@ -1,24 +1,11 @@
 use super::page::{Page, PageAddress};
-use super::{corrupt, resource, Current, DirectoryEntry, Location, Source};
+use super::{corrupt, resource, Current, DirectoryEntry, Location, ReadBudget, Source};
 use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-/// Finite limits shared by all work in one read call. Zero is never unlimited.
-#[derive(Clone, Copy, Debug)]
-pub struct ReadBudget {
-    /// Maximum distinct metadata pages read.
-    pub pages: u64,
-    /// Maximum distinct payload blocks decoded.
-    pub blocks: u64,
-    /// Maximum cumulative file bytes, decoded bytes, and returned body bytes.
-    pub bytes: u64,
-    /// Maximum exact keys or range entries examined.
-    pub keys: u64,
-}
 
 /// Costs specific to bounded disk-pack reads; ordinary I/O also enters DiskReadReceipt.
 #[derive(Clone, Copy, Debug, Default)]

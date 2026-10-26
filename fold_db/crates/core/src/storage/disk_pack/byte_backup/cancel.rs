@@ -22,7 +22,7 @@ impl PackRuntime {
         let runtime = Arc::clone(self);
         let begin = begin.clone();
         let key = zeroize::Zeroizing::new(*key);
-        super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::super::run_blocking(move || {
             if !runtime
                 .physical
                 .path()

@@ -1,8 +1,7 @@
 //! The sweep for part files that no receipt names (see `laststore` reclaim).
 
 use super::*;
-use crate::storage::laststore::LastStoreKvStore;
-use laststore::disk_pack::maintenance::SpacePolicy;
+use laststore::space::SpacePolicy;
 use tracing::Instrument;
 
 impl PackRuntime {
@@ -15,11 +14,8 @@ impl PackRuntime {
     ) -> StorageResult<(u64, u64, bool)> {
         let runtime = Arc::clone(self);
         tokio::spawn(
-            async move {
-                LastStoreKvStore::run_blocking(move || runtime.sweep_orphans_blocking(min_age_ms))
-                    .await
-            }
-            .in_current_span(),
+            async move { run_blocking(move || runtime.sweep_orphans_blocking(min_age_ms)).await }
+                .in_current_span(),
         )
         .await
         .map_err(|error| StorageError::BackendError(format!("native orphan owner: {error}")))?

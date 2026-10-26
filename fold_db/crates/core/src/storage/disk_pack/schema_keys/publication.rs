@@ -8,7 +8,7 @@ use crate::atom::molecule_key_codec::{
     molecule_record_key_from_generation_key, molecule_record_prefix,
 };
 use crate::resident::core_keys::KeyVisibility;
-use crate::storage::laststore::native_routing;
+use crate::storage::disk_pack::native_routing;
 
 impl PackRuntime {
     /// The caller holds the view write lock and publishes the corresponding

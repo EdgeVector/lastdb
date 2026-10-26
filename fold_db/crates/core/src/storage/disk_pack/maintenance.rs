@@ -1,7 +1,8 @@
 //! Native whole-home maintenance through the existing node owner boundary.
 
 use super::*;
-use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy, SpaceUsage};
+use laststore::disk_pack::maintenance::MaintenanceReceipt;
+use laststore::space::{space_usage, SpacePolicy, SpaceUsage};
 use tracing::Instrument;
 
 mod concurrent;
@@ -71,7 +72,7 @@ impl PackRuntime {
             .expect("native complete read view")
             .current
             .required_features()
-            & laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
+            & laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS
             != 0
     }
 
@@ -115,10 +116,8 @@ impl PackRuntime {
                 let _permit = permit;
                 let _progress = copying.then(|| runtime.parts.progress.begin());
                 let measuring = Arc::clone(&runtime);
-                let before = super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    measuring.maintenance_usage(options)
-                })
-                .await?;
+                let before =
+                    super::run_blocking(move || measuring.maintenance_usage(options)).await?;
                 let ready = if copying {
                     let output = runtime
                         .copy_native_pack(options)
@@ -133,15 +132,12 @@ impl PackRuntime {
                     })?
                 } else {
                     let capture = Arc::clone(&runtime);
-                    super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                        capture.capture_native_cleanup()
-                    })
-                    .await?
+                    super::run_blocking(move || capture.capture_native_cleanup()).await?
                 };
                 if copying {
                     runtime.parts.progress.phase(5);
                 }
-                super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                super::run_blocking(move || {
                     runtime.maintain_native_blocking(
                         options,
                         keep_pack_on_reclaim_error,

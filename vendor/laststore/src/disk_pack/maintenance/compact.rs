@@ -1,5 +1,4 @@
 use super::cache::PackCaches;
-use super::space::reserve_replacement;
 use super::stream::RecordBody;
 use super::{MaintenanceReceipt, SpacePolicy};
 use crate::disk_pack::dependency::Dependencies;
@@ -11,6 +10,7 @@ use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{
     artifact, corrupt, generation, publish, Current, DirectoryEntry, Location, Source, TreeKind,
 };
+use crate::space::reserve_replacement;
 use crate::Result;
 
 struct Compactor<'a> {

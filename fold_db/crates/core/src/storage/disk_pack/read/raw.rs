@@ -123,7 +123,7 @@ fn trace_families(coordinates: &[(String, String)]) {
             "db_catalog" => "database_membership",
             _ => {
                 let raw =
-                    crate::storage::laststore::native_routing::decode(key).unwrap_or_default();
+                    crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
                 [
                     b"hcu".as_slice(),
                     b"mgp",

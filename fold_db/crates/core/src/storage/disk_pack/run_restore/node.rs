@@ -1,7 +1,7 @@
 //! Read-only physical and account proof for an inactive disk V2 node.
 use super::{files, invalid, proof, RunBackupProfile, RunRestoreFile, StorageResult};
 use crate::storage::disk_pack::{byte_backup::RunBackupHome, map, run_node, NODE_MARKER};
-use laststore::disk_pack::ReadBudget;
+use laststore::disk_run::home::ReadBudget;
 use laststore::disk_run::home::RunRead;
 use std::fs::File;
 use std::path::{Path, PathBuf};

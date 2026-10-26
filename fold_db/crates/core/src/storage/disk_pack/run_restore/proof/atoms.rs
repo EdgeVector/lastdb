@@ -2,7 +2,7 @@ use super::{budget, files, invalid, map, read_budget, rows::Rows, Proof, Storage
 use crate::atom::Atom;
 use crate::db_operations::atom_store::decode_plain_atom;
 use crate::schema::types::field::build_storage_key;
-use crate::storage::laststore::native_routing;
+use crate::storage::disk_pack::native_routing;
 
 pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<u64> {
     let mut rows = Rows::new(proof.main, "atoms");

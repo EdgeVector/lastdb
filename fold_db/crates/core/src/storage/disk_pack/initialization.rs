@@ -25,10 +25,7 @@ pub(super) fn creation_pending(path: &Path) -> StorageResult<bool> {
 }
 
 impl NodeHome {
-    pub(super) fn open(
-        path: &Path,
-        policy: &laststore::disk_pack::maintenance::SpacePolicy,
-    ) -> StorageResult<Self> {
+    pub(super) fn open(path: &Path, policy: &laststore::space::SpacePolicy) -> StorageResult<Self> {
         std::fs::create_dir_all(path)?;
         let intent = path.join(INITIALIZING);
         let marker = path.join(NODE_MARKER);
@@ -93,7 +90,7 @@ fn prepare_creation(
     root: &Path,
     intent: &Path,
     marker: &mut File,
-    policy: &laststore::disk_pack::maintenance::SpacePolicy,
+    policy: &laststore::space::SpacePolicy,
 ) -> StorageResult<()> {
     require_directory(intent)?;
     for entry in std::fs::read_dir(root)? {
@@ -114,8 +111,7 @@ fn prepare_creation(
         }
         require_directory(&entry.path())?;
     }
-    let _space =
-        laststore::disk_pack::maintenance::reserve_space(root, policy, 1024 * 1024).map_err(map)?;
+    let _space = laststore::space::reserve_space(root, policy, 1024 * 1024).map_err(map)?;
     let mut fence = OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -265,7 +261,7 @@ impl PackRuntime {
         }
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::run_blocking(move || {
             let _gate = gate;
             if runtime.failed.load(Ordering::Acquire) {
                 return Err(refusal("current creation requires a snapshot reopen"));

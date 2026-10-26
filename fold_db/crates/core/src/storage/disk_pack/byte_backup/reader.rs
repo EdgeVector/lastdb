@@ -208,7 +208,7 @@ impl ByteBackupReader {
 fn record_lookup_budget(
     collection: &str,
     key: &str,
-) -> io::Result<laststore::disk_pack::ReadBudget> {
+) -> io::Result<laststore::disk_run::home::ReadBudget> {
     let coordinate = collection
         .len()
         .checked_add(key.len())
@@ -225,7 +225,7 @@ fn record_lookup_budget(
             pages.checked_add(lastdb_storage_policy::backup_decode::NATIVE_STREAM_PAGES)
         })
         .ok_or_else(|| io::Error::other("stored coordinate page admission overflow"))?;
-    Ok(laststore::disk_pack::ReadBudget {
+    Ok(laststore::disk_run::home::ReadBudget {
         pages: overflow.min(bytes / page),
         blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
         bytes,

@@ -2,7 +2,8 @@
 use super::super::file_dependencies as files;
 use super::{invalid, Inner, StorageResult};
 use lastdb_storage_policy::backup_decode as budget;
-use laststore::disk_pack::{home::HomeRead, ReadBudget};
+use laststore::disk_pack::home::HomeRead;
+use laststore::disk_run::home::ReadBudget;
 use std::fs::{self, File};
 
 pub(super) fn read(inner: &Inner, budget: ReadBudget) -> StorageResult<HomeRead> {

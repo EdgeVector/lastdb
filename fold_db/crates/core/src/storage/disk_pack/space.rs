@@ -1,7 +1,7 @@
 //! Native disk-space reservation policy.
 
 use super::*;
-use laststore::disk_pack::maintenance::SpacePolicy;
+use laststore::space::SpacePolicy;
 
 /// An unset cap keeps compatibility; an explicit cap must be a positive byte count.
 pub(super) fn policy_from_env() -> StorageResult<SpacePolicy> {

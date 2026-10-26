@@ -33,8 +33,8 @@ pub(super) fn pending(home: &DiskHome, path: &Path) -> StorageResult<bool> {
     }
     let mut reader = home.read(budget()).map_err(map)?;
     let key = PENDING_KEY.as_bytes();
-    let collection = super::super::laststore::native_routing::collection_for_key(key);
-    let key = super::super::laststore::native_routing::encode(key);
+    let collection = super::native_routing::collection_for_key(key);
+    let key = super::native_routing::encode(key);
     Ok(reader
         .get_bounded(collection, &key, 8192)
         .map_err(map)?

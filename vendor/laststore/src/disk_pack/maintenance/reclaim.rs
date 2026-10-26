@@ -295,7 +295,7 @@ fn retire_receipt(
     // Leave the complete receipt readable until it atomically leaves the live set.
     // A restart can finish deletion in this exclusively owned retirement namespace.
     {
-        let _inventory = super::space::inventory_guard()?;
+        let _inventory = crate::space::inventory_guard()?;
         std::fs::rename(&path, target)?;
     }
     dirty.mark(&root.join("generations"));
