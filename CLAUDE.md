@@ -72,9 +72,10 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 ## CI checks
 
 **The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
-The required gate (`ci-required`) runs fmt, clippy, lints, and builds only, and
-the repo has no test suite to run. CI and the lints do not require tests or
-test coverage.
+The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
+secret scan (`scripts/lints/lint-secrets.py`), and builds only, and the repo
+has no test suite to run. CI and the lints do not require tests or test
+coverage.
 
 Open or update a PR after the source changes. Read the required checks and
 the `LastDB benchmarks` summary in GitHub. Product changes require completed
