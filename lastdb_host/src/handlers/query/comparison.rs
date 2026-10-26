@@ -35,15 +35,14 @@ pub(super) async fn execute<H: HostNode>(
     if let Some(cursor) = cursor.as_ref() {
         rules::validate_cursor_comparison(cursor, binding.as_deref(), comparison.as_deref())?;
     }
-    let cursor = cursor
-        .map(QueryCursor::into_key)
-        .map(|key| {
-            comparison
-                .as_ref()
-                .map_or(Ok(key.clone()), |comparison| comparison.canonical_key(key))
-        })
-        .transpose()
-        .map_err(HostError::from)?;
+    let cursor = cursor.map(QueryCursor::into_key);
+    let cursor = match comparison.as_ref() {
+        Some(comparison) => cursor
+            .map(|key| comparison.canonical_key(key))
+            .transpose()
+            .map_err(HostError::from)?,
+        None => cursor,
+    };
     let run = execute::QueryRun {
         host,
         ctx,

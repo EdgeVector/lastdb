@@ -56,7 +56,7 @@ impl MoleculeKeyStore {
         if !self.is_typed() {
             schema
                 .validate_legacy_key_field_types()
-                .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
+                .map_err(StorageError::InvalidOperation)?;
             return Ok(None);
         }
         schema

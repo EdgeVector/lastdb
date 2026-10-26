@@ -96,11 +96,13 @@ impl MoleculeKeyStore {
             };
             rows.push(KvMutation::put(
                 wrap_key_for(&molecule, NODE_DOMAIN).as_bytes(),
-                serde_json::to_vec(&wrap).map_err(serialization)?,
+                serde_json::to_vec(&wrap)
+                    .map_err(|error| StorageError::SerializationError(error.to_string()))?,
             ));
             rows.push(KvMutation::put(
                 metadata_key(&molecule).as_bytes(),
-                serde_json::to_vec(&metadata).map_err(serialization)?,
+                serde_json::to_vec(&metadata)
+                    .map_err(|error| StorageError::SerializationError(error.to_string()))?,
             ));
             bundles.push((molecule, bundle));
         }
@@ -111,8 +113,4 @@ impl MoleculeKeyStore {
         }
         Ok(())
     }
-}
-
-fn serialization(error: serde_json::Error) -> StorageError {
-    StorageError::SerializationError(error.to_string())
 }

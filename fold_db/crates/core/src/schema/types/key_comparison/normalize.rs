@@ -71,7 +71,7 @@ pub(crate) fn canonical_filter(
     use HashRangeFilter::*;
     match filter.as_mut() {
         Some(HashRangeKey { range, .. } | RangeKey(range)) => {
-            *range = canonical_range(Some(profile), range)?
+            *range = canonical_range(Some(profile), range)?;
         }
         Some(HashRangeKeys(keys)) => {
             for (_, range) in keys {

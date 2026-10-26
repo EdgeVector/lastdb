@@ -40,7 +40,7 @@ impl HashRangeWatchBounds {
             .as_deref()
             .map(|end| comparison.compare(range, end))
             .transpose()?;
-        Ok(lower.is_none_or(|order| !order.is_lt()) && upper.is_none_or(|order| order.is_lt()))
+        Ok(lower.is_none_or(|order| !order.is_lt()) && upper.is_none_or(std::cmp::Ordering::is_lt))
     }
 }
 
