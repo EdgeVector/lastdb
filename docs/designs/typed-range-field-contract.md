@@ -1,14 +1,14 @@
 # Typed range field contract
 
-Status: shared field semantics, captured comparison context, typed key conversion APIs, and a stopped-home inventory command.
-The active node key format stays unchanged. Database conversion and activation remain pending.
-The V2 review below revises the next packages. It activates no key or encryption format.
+Status: the runtime, separate-target converter, paired cloud adapter, and explicit CI comparison are in review.
+Task-owned development homes use the typed format through product commands.
+The primary and fresh-home default retain the legacy format. Primary promotion remains separate.
 
 ## Current state
 
 A schema selects its hash field and range field from its existing fields.
 Each selected field already has a declared type in `field_types`.
-The key path converts scalar values to strings and compares range strings.
+The legacy key path compares range strings. The typed path uses the declared scalar order and its stored molecule profile.
 The shared type contract includes explicit `Date` and `DateTime` types.
 
 ## Date types
@@ -37,15 +37,15 @@ No field changes type because its value looks like a date.
 
 ## Key admission
 
-CAUTION: Current disk formats retain text order. Date keys remain disabled.
+CAUTION: Legacy homes retain text order. They refuse Date and DateTime keys.
 
-Schema admission refuses `Date` and `DateTime` in either key field.
-The refusal also covers nested object or map keys and any temporal branch of a union.
+Typed homes permit Date and DateTime ranges. Temporal hash fields remain unsupported.
+The checks cover nested object or map keys and temporal branches of a union.
 An unrelated date field does not prevent a string field from serving as the key.
 Wire schema loads, runtime field creation, schema-service proposals, and direct schema writes use the same check.
 The schema service resolves canonical types and checks the result before a new schema or expansion reaches storage or memory.
 It also resolves new reference fields before that check, to preserve their existing value validation.
-This refusal prevents an explicit date type from silently using the current string order.
+The stored node format controls admission. A declaration cannot change the order of an existing home.
 
 ## Comparison context and cursors
 
@@ -56,7 +56,7 @@ A nested read refuses a different context. Each codec must match the captured or
 Plain and OPE-v1 files both declare `LegacyUtf8V1`; their current key bytes and range order stay unchanged.
 Raw molecule and maintenance keys retain an explicit storage comparator.
 
-The shared comparison library also defines canonical values for future typed profiles:
+The shared comparison library defines canonical values for the typed profiles:
 
 - String: the complete UTF-8 value.
 - Integer: an exact signed 64-bit value, with no float conversion.
@@ -67,7 +67,7 @@ The shared comparison library also defines canonical values for future typed pro
 Typed comparison refuses unsupported domains and mixed scalar unions.
 A nullable declaration permits its one non-null scalar domain; a required key cannot be null.
 Typed text prefixes require String. Float, Number, and Any have no approved typed order yet.
-These semantic functions do not activate a new disk format or change existing Integer ranges.
+Only explicit offline conversion changes an existing home's range format. Legacy Integer ranges retain text order until that conversion.
 
 New query cursors add an opaque `comparison` identifier beside `hash` and `range`.
 It binds the captured schema/type/format context, selector, projection, sort direction, and database scope.
@@ -83,7 +83,7 @@ No context metadata is stored on each key. The cursor identifier adds bytes to a
 
 ## Compatibility and size
 
-Existing enum names, JSON values, field identities, and key bytes stay unchanged.
+Existing enum names, JSON values, and field identities stay unchanged. Conversion changes range bytes and their explicit storage references.
 Existing `String` fields retain their type, even when they contain dates.
 No existing schema or Schema.org seed changes type automatically.
 The change adds no second molecule, stored key copy, or ordered lookup.
@@ -95,7 +95,7 @@ Older readers cannot accept the new enum variants; they need an upgrade before a
 The shared `RangeStorageProfile` enum defines versioned, reversible range formats.
 An explicit call selects a profile from the selected field's declared type.
 The profile describes one molecule. It adds no type tag to each stored key.
-No schema admission, startup, query, or writer selects these profiles yet.
+The persisted node format and molecule contract select the profile for schema admission, queries, and writes.
 
 `MoleculeRangeProfile` defines the molecule metadata contract.
 `empty_v1` permits only the empty slot of a molecule without a range field.
@@ -105,7 +105,7 @@ The current metadata reader refuses a range profile in a legacy molecule record.
 It does not reinterpret that record or activate a typed reader.
 Schema reads fetch uncached molecule metadata in one batch, then fetch the required key wraps in one batch.
 The reader validates the complete set before it puts key bundles in the memory cache.
-The complete runtime and the offline publication boundary remain required.
+The runtime refuses a missing, incompatible, or incomplete contract before it serves typed records.
 
 The typed metadata uses version 2 and names its key authority explicitly.
 Bundle authority retains the existing independent molecule bundle and its node wrap.
@@ -204,7 +204,7 @@ It does not publish a typed profile, lift the date-key fence, or enable a typed 
 
 ## Stopped-home inventory
 
-The next conversion stage uses the product command:
+The inventory uses the product command:
 
 ```sh
 lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-conversion --source-range-encoding ope_v1 --target-range-encoding plain --json
@@ -253,7 +253,7 @@ The inventory preserves and counts that entry, reports an unresolved reference, 
 It never invents a coordinate or treats the repair representation as malformed data.
 History API coordinates are counted separately; they are not guessed to be storage coordinates.
 The report does not save the captured metadata.
-A future converter must capture it again from the same bound source publication.
+The converter captures it again from the same bound source publication.
 
 For supported molecules, proposed keys preserve exact scope and hash bytes.
 The inventory checks source range encoding, target scalar validation, collisions, and key byte limits.
@@ -287,12 +287,12 @@ This section supersedes any assumption that a V2 atom retains a separate content
 | Stored values | V2 adds a value tag and a compact JSON form. | Use the home reader and writer. Do not parse stored run bytes as JSON. |
 | Read-only inventory | It holds both homes and uses the shared `RunRead` methods. | Keep this path. Its range pages receive decoded metadata values. |
 | Old experimental V2 | The shared descriptor reader refuses the untagged `LDRHOME2` format. | Do not add a fallback. Accepted compact homes use `LDRHOME3`. |
-| Cloud backup | Current client capture still requires disk V1. | Disk V2 capture and restore need the separate client adapter. |
+| Cloud backup | The paired client adapter retains encrypted V2 main and CAS files. | Its version-2 profile binds the typed node and logical markers. |
 
 The inventory does not read atom bodies or CAS values.
 Its compatibility with compact metadata follows from the shared value decoder.
-That source finding does not prove an operational inventory run on a V2 home.
-The next package must obtain that result before a conversion uses the inventory.
+Stopped-home inventory and conversion operations now use CI-built programs on fresh development data.
+The manifest retention alias, original source hashes, and an 8 MiB file also pass those operations.
 
 Relevant code:
 
@@ -315,9 +315,8 @@ A range merges the matching records from the required runs.
 These operations do not require every range key of a schema in memory.
 The block encryption protects the stored keys; the range payload itself needs no OPE for those local operations.
 
-Removal of the legacy OPE form remains a proposed key-format decision.
-This review changes neither that setting nor the current encryption behavior.
-Keep the existing OPE reader for explicit source conversion until that decision and the full reader contract are accepted.
+The explicit converter removes OPE from typed lookup keys. The existing block encryption remains in place.
+The OPE reader remains for legacy sources and historical conflict identifiers.
 Keep legacy String fields as String. Date-shaped text does not authorize a type change.
 
 The inventory and key conversion API now select the target range encoding explicitly.
@@ -349,7 +348,7 @@ A future browser reader needs client-side block navigation and decryption; serve
 Current backup support does not establish that future read capability.
 The disk V2 client adapter must retain and restore both homes across restart before cloud-backed activation is claimed.
 Keep that adapter with its existing cloud work; this range plan adds no service-side LastDB format logic.
-Keep the current disk V2 capture refusal until that adapter is ready.
+The paired adapter uses the existing opaque protocol and validates the typed contract before capture or restore publication.
 The V1 export encrypts metadata and sequence chunks, but leaves record body chunks as their stored bytes.
 An unchanged export of V2 plain atom bodies would lack the run blocks' encryption.
 Prefer the encrypted V2 files: main-home files go to R2, and CAS-home files go to B2.
@@ -380,12 +379,13 @@ It compares every source record with its explicit target form and checks the exa
 The existing product reference verifier checks atoms, counters, molecules, retained records, and files on the inactive target.
 The converter does not create a second reference verifier or a fixture harness.
 The final node marker publishes only after those checks pass.
-The code and its recovery boundaries still require CI results and real operations before merge.
+Product operations cover initial-fence, copy-page, and final-publication interruptions, explicit resume, and wrong-job refusal.
+Normal startup refuses each interrupted target without data-file changes.
 
 A separate target keeps the source unchanged and simplifies recovery.
-The future converter must bind its durable job to the source fingerprint, declared profiles, and explicit encoding configuration.
-It must refuse a target from another job or a different source publication.
-It must not copy the primary or use a copy of the primary.
+The converter binds its durable job to the source fingerprint, declared profiles, and explicit encoding configuration.
+It refuses a target from another job or a different source publication.
+It cannot copy the primary or use a copy of the primary.
 
 The target first receives an unsupported in-progress logical marker.
 Normal startup must refuse that marker, including after an interruption.
@@ -402,17 +402,20 @@ Startup never resumes or activates this typed range conversion.
 The separately selected V1-to-V2 physical conversion retains its own rules.
 Primary promotion remains a separate action.
 
-## Remaining packages
+## Implementation packages
 
-1. Verify the inventory operationally on a stopped compact V2 development home. Record descriptor and codec facts explicitly.
-2. Review the target range choice. Give the key conversion API, inventory, and job identity separate source and target codecs.
-3. Build explicit V2-to-V2 target progress and its unsupported-format fence. Reuse the existing V2 reader, writer, and publication rules.
-4. Define every changed coordinate and API reference, including conflicts and retention. Verify counters, atoms, proteins, files, and the replay floor.
-5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors. Publish profiles and the supported marker last.
+| Package | Result |
+| --- | --- |
+| Inventory and codecs | The source and target choices remain independent. Stopped compact V2 operations preserve all source hashes. |
+| Persistent contract | Node format 4, logical key format 7, and one molecule profile select typed order. Unknown or mismatched contracts receive a refusal. |
+| Runtime | Product operations cover all five scalar domains, exact and range reads, prefixes, counts, cursors, changes, deletes, TTL, flush, and reopen. |
+| Converter | The separate target uses encrypted progress, complete physical collection copies, explicit reference translation, exact verification, and final marker publication. |
+| Cloud | Actual DEV backup and restore survive process interruption and explicit resume. Wrong-account restore receives a refusal before destination creation. |
+| Measurements | The explicit paired CI comparison completes. It records size reductions and repeated speed advisories. Normal review and merge gates remain required. |
 
-Date keys remain disabled until these paths agree. Typed range conversion never runs at startup.
+Typed range conversion never runs at startup.
 V2 keeps its current block encryption and plain atom representation.
-An active range-format change requires a separate review and decision.
+An active primary range-format change requires a separate review and decision.
 The plan adds no separate `range_type` option that can contradict the selected field.
 It does not require a cloud reader now.
 
@@ -426,7 +429,8 @@ The profile version binds the exact node marker and its byte count to the backup
 Typed capture and restore check each schema against its existing molecule profile and key authority at the held roots.
 Those checks use bounded batch reads. They create no key and change no profile.
 Older clients refuse the new profile version.
-The client change remains in review until typed backup, interruption, and fresh restore operations pass.
+Typed backup, interruption, and fresh restore operations pass on the CI-built adapter.
+The bounded historical schema-envelope decoder still requires its current-head CI and review.
 The plan adds no cloud service format logic and no browser reader.
 
 Local checks cover source format, source size, and the diff.
@@ -434,3 +438,51 @@ CI supplies builds, lint results, and the required measurements.
 The retired tests and their replacements stay absent.
 The PR uses the existing merge gates.
 A primary upgrade remains a separate decision.
+
+## Reference and replay audit
+
+| Record or path | Conversion and runtime rule |
+| --- | --- |
+| `mk`, `mgr`, `mgd` | Translate the range suffix. Preserve the scope, hash, molecule, generation, and tip values. |
+| `mgp`, molecule headers | Preserve generation pointers and header identities. The inventory uses the normal generation winner functions. |
+| `rdel` | Translate `DeleteBarrier.mk_key` and recompute its derived barrier key. Preserve the clock and source identity. |
+| Retained records | Translate the exact slot and directory. Preserve history, conflict, queue identities, atom references, and expiry times. |
+| Retained drains | Translate the slot and directory prefix. Recompute only the queue identity derived from that prefix. |
+| History and conflicts | Preserve historical IDs and original field coordinates. Translate only the captured Delete storage reference. Canonicalize API responses separately. |
+| Signed provenance | Preserve original mutation coordinates, UUIDs, signatures, clocks, and provenance. Runtime preparation computes a separate canonical lookup key. |
+| Replay floor | Preserve the existing floor value. Typed startup accepts it only with the matching format marker. Imported clocks retain the existing signature and cutoff checks. |
+| Proteins | Preserve molecule identities, field names, and bindings. Key moves use the selected molecule codec. Source-coordinate checks use typed range equality. |
+| Atoms, counters, file records | Preserve exact logical values. The existing product reference verifier checks the inactive target before publication. |
+| Other collections | The physical snapshot cursor copies every collection. A control record absent from the bound metadata inventory receives a refusal. |
+
+The metadata inventory uses the namespace directory and mandatory molecule collections.
+The complete physical copy does not trust that directory as a collection census.
+Exact record comparison and target counts cover both native homes after reopen.
+These source conclusions do not claim a new live cloud replay operation or a new browser reader.
+
+## Measurement limits and rollout
+
+The [explicit CI comparison](https://github.com/EdgeVector/lastdb/actions/runs/40410695806) uses identical product source on both sides.
+Both sides use the same String schema and values. Only the candidate converts its generated source.
+Every source-file hash remains unchanged. Every measured request completes without an error.
+
+The main sources contain 110,302 physical records. Conversion takes 14.60 to 19.21 seconds.
+The source occupies 24.13 to 24.79 MiB. The typed target occupies 10.57 MiB.
+The retained source-plus-target total occupies 34.70 to 35.35 MiB. Transient merge peaks remain unmeasured.
+The first converter process uses a maximum of 138.60 MiB of memory on that CI host.
+
+Cold single-read p95 changes from 3.748 to 1.504 ms. Cold batch-32 p95 changes from 20.865 to 17.915 ms.
+Two speed advisories repeat: four-client mixed reads and batch-128 inserts.
+Mixed-read p95 changes from 3.864 to 5.388 ms, then from 3.859 to 5.141 ms in the repeat.
+Insert p95 changes from 211.725 to 264.954 ms, then from 230.327 to 347.788 ms in the repeat.
+The artifact includes request phases. These measurements do not establish one cause for the slowdowns.
+
+The memory-growth notice does not repeat its complete threshold. This does not prove a universal memory bound.
+Disk use improves, but update and insert checkpoints still exceed the existing absolute size budget.
+Their maximum ratio changes from 4.460 to 3.829, and from 4.460 to 3.725 in the repeat.
+The limits remain visible for primary rollout review. Speed advisories do not replace required correctness or artifact checks.
+
+The actual typed DEV restore preserves all 13 captured file hashes before the first start.
+Two node starts return all 14 records across six schemas and fetch the complete 8 MiB file with its original hash.
+The recovery home contains credentials only. The restored home contains no cloud credentials.
+The primary remains unchanged. A later primary plan must review capacity, rollback retention, and the measured advisories before activation.
