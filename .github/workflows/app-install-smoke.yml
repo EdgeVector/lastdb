@@ -325,12 +325,12 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Sync schemas with LastDB (pass socket path)
+          # Sync schemas with LastDB (pass socket path to init, it saves to config)
           fbrain init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-init.log" || \
             brain init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-init.log" || true
           
-          # Check schema registration (note: 'schema' not 'schemas')
-          lastdb --data-dir "$LASTDB_HOME" schema list | grep -E "brain|fbrain" | tee "$PROOF_DIR/brain-schemas.txt" || echo "No brain schemas found"
+          # Check schema registration
+          lastdb --data-dir "$LASTDB_HOME" schemas | grep -E "brain|fbrain" | tee "$PROOF_DIR/brain-schemas.txt" || echo "No brain schemas found"
 
       - name: Run Brain health checks
         if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
@@ -338,20 +338,21 @@ jobs:
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt" || fbrain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt"
           
-          # List empty brain
-          brain list --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || \
-            fbrain list --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || \
+          # List empty brain (reads socket from config saved by init)
+          brain list 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || \
+            fbrain list 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || \
             echo "List command not available"
           
           # Write and read test using fbrain (the canonical CLI)
+          # Commands read socket path from config saved by init
           TEST_ID="test-ci-$$"
           echo "Smoke test from CI run ${{ github.run_number }}" | \
-            fbrain put concepts --type concept "$TEST_ID" --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
+            fbrain put concepts --type concept "$TEST_ID" 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
             echo "Brain put failed"
             exit 1
           }
           
-          fbrain get "$TEST_ID" --type concept --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-get-test.txt" || {
+          fbrain get "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-get-test.txt" || {
             echo "Brain get failed"
             exit 1
           }
@@ -387,11 +388,11 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Initialize schemas with socket path
+          # Initialize schemas with socket path (saves to config)
           lastsecrets init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-init.log"
           
-          # Check schema registration (note: 'schema' not 'schemas')
-          lastdb --data-dir "$LASTDB_HOME" schema list | grep -i "lastsecrets" | tee "$PROOF_DIR/lastsecrets-schemas.txt" || echo "No lastsecrets schemas found"
+          # Check schema registration
+          lastdb --data-dir "$LASTDB_HOME" schemas | grep -i "lastsecrets" | tee "$PROOF_DIR/lastsecrets-schemas.txt" || echo "No lastsecrets schemas found"
 
       - name: Run LastSecrets health checks
         if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
