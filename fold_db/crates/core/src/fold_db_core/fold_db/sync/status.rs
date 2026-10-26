@@ -1,12 +1,6 @@
 //! Passive compatibility and local maintenance; no cloud effect is admitted.
 use super::super::FoldDB;
 impl FoldDB {
-    pub async fn sync_state(&self) -> Option<crate::sync::SyncState> {
-        std::future::ready(None).await
-    }
-    pub async fn sync_status(&self) -> Option<crate::sync::SyncStatus> {
-        std::future::ready(None).await
-    }
     pub fn is_sync_enabled(&self) -> bool {
         false
     }

@@ -1,27 +1,9 @@
 use super::*;
 
 gauge_health! {
-    /// File-blob durability counters — the other graceful degradation.
-    ///
-    /// [`IntegrityHealth`] above exists because skipping an unreadable row turns a
-    /// loud failure into a `200` with fewer rows than the index claims. The file
-    /// blob plane has the same shape one layer out: a pointer persists on the row
-    /// and reads back perfectly, and only a fetch discovers the bytes are gone.
-    ///
-    /// The node already knows which of the two it is looking at. `download_file_blob`
-    /// clears the `sync_file_blob_known` memo when a presigned GET *proves* the
-    /// object absent, and it reads that memo before clearing it — so at exactly
-    /// that moment it can tell "a write we accepted and cannot serve back" from "a
-    /// blob we never had". It spent that answer on a `WARN` line.
-    ///
-    /// What that cost: measuring the durability class needed one CAS fetch per
-    /// pointer from outside the node — 356 fetches across 57 repos on 2026-08-17 to
-    /// find 23 dangling. The request-layer error count cannot substitute, because
-    /// both classes are the same `404` by the time it sees them.
-    ///
-    /// Gauges are process-lifetime and wire-transparent: a daemon predating these
-    /// fields deserializes to [`Availability::Unavailable`], never to a measured
-    /// zero, so "this daemon does not count it" cannot read as "nothing is wrong".
+    /// File-blob durability gauges retained in the status response.
+    /// The retired remote-fetch path supplies no current counters. Defaults
+    /// stay unavailable rather than claiming measured zero loss.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FileBlobHealth {
         /// Proven-absent fetch events for blobs this node recorded as uploaded —
@@ -49,28 +31,5 @@ gauge_health! {
         /// True when the node stopped retaining new identities at the cap, so
         /// [`Self::absent_with_memo_distinct`] is a floor rather than a total.
         pub absent_distinct_capped,
-    }
-}
-
-impl From<fold_db::sync::engine::FileBlobDurability> for FileBlobHealth {
-    fn from(d: fold_db::sync::engine::FileBlobDurability) -> Self {
-        Self {
-            absent_with_memo: gauge_measured(
-                d.absent_with_memo,
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            absent_with_memo_distinct: gauge_measured(
-                d.distinct_with_memo,
-                Unit::Named("blob(s)"),
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            absent_without_memo: gauge_measured(
-                d.absent_without_memo,
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            absent_distinct_capped: d.distinct_capped,
-        }
     }
 }
