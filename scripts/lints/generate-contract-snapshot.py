@@ -28,9 +28,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class SnapshotError(Exception):
+    """A contract value the snapshot cannot resolve from the source."""
+
+
+def read_source(path: Path) -> str:
+    """Read one parsed source file, or fail with the path that is missing."""
+    if not path.is_file():
+        raise SnapshotError(f"{path}: file not found")
+    return path.read_text()
+
+
+# Every parser below fails instead of returning an empty surface. An empty
+# base surface hides every removal from the diff, and an empty head surface
+# reports every entry as removed, so either way the check would be wrong.
+
+
 def parse_data_routes(path: Path) -> list[dict[str, Any]]:
     """Extract DataRoute variants from uds_router/data_route.rs."""
-    content = path.read_text()
+    content = read_source(path)
     routes = []
     
     # Find enum DataRoute block
@@ -40,7 +56,7 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
         re.DOTALL
     )
     if not match:
-        return routes
+        raise SnapshotError(f"{path}: no `pub enum DataRoute {{ ... }}` found")
     
     enum_body = match.group(1)
     
@@ -54,12 +70,17 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
             "route_name": variant
         })
     
+    if not routes:
+        raise SnapshotError(
+            f"{path}: no DataRoute variant has a route doc line "
+            "(/// `METHOD /path`)"
+        )
     return routes
 
 
 def parse_index_change_batch(path: Path) -> dict[str, Any]:
     """Extract IndexChangeBatch schema from sink.rs."""
-    content = path.read_text()
+    content = read_source(path)
     
     # Find struct IndexChangeBatch
     match = re.search(
@@ -68,7 +89,9 @@ def parse_index_change_batch(path: Path) -> dict[str, Any]:
         re.DOTALL
     )
     if not match:
-        return {}
+        raise SnapshotError(
+            f"{path}: no `pub struct IndexChangeBatch {{ ... }}` found"
+        )
     
     struct_body = match.group(1)
     fields = {}
@@ -80,6 +103,8 @@ def parse_index_change_batch(path: Path) -> dict[str, Any]:
             name, typ = field_match.groups()
             fields[name] = typ.strip()
     
+    if not fields:
+        raise SnapshotError(f"{path}: IndexChangeBatch has no `pub` fields")
     return {
         "fields": fields,
         "inbox_path": "{LASTDB_HOME}/apps/search/inbox/"
@@ -88,7 +113,7 @@ def parse_index_change_batch(path: Path) -> dict[str, Any]:
 
 def parse_sdk_exports(path: Path) -> list[str]:
     """Extract public exports from lastdb_app_sdk/src/index.ts."""
-    content = path.read_text()
+    content = read_source(path)
     exports = []
     
     # Named exports
@@ -106,11 +131,9 @@ def parse_sdk_exports(path: Path) -> list[str]:
     ):
         exports.append(match.group(1))
     
+    if not exports:
+        raise SnapshotError(f"{path}: no SDK exports found")
     return sorted(set(exports))
-
-
-class SnapshotError(Exception):
-    """A contract value the snapshot cannot resolve from the source."""
 
 
 VERSION_CONSTANTS = (
@@ -193,7 +216,7 @@ def get_version_constants(repo_root: Path) -> dict[str, int]:
 
 def extract_error_kinds(path: Path) -> list[str]:
     """Extract error kind discriminators from errors.ts."""
-    content = path.read_text()
+    content = read_source(path)
     kinds = []
     
     # Error class names
@@ -206,29 +229,21 @@ def extract_error_kinds(path: Path) -> list[str]:
         content,
         re.DOTALL
     )
-    if match:
-        reasons_text = match.group(1)
-        for reason_match in re.finditer(r"'(\w+)'", reasons_text):
-            kinds.append(reason_match.group(1))
+    if not match:
+        raise SnapshotError(f"{path}: no `CAPABILITY_DENIAL_REASONS = [...]` found")
+    reasons = re.findall(r"'(\w+)'", match.group(1))
+    if not reasons:
+        raise SnapshotError(f"{path}: CAPABILITY_DENIAL_REASONS lists no reason")
+    kinds.extend(reasons)
+    if not any(kind.endswith('Error') for kind in kinds):
+        raise SnapshotError(f"{path}: no `export class <Name>Error` found")
     
     return sorted(set(kinds))
 
 
-def main() -> int:
-    """Generate contract snapshot and write to stdout."""
-    args = parse_args()
-    repo_root = args.repo_root
-    
-    # Parse components
-    try:
-        versions = get_version_constants(repo_root)
-    except SnapshotError as error:
-        print(
-            f"generate-contract-snapshot: cannot resolve a contract version: "
-            f"{error}",
-            file=sys.stderr
-        )
-        return 2
+def build_snapshot(repo_root: Path) -> dict[str, Any]:
+    """Parse every contract surface. Raises SnapshotError on any gap."""
+    versions = get_version_constants(repo_root)
 
     routes = parse_data_routes(
         repo_root / 'lastdb_uds' / 'src' / 'uds_router' / 'data_route.rs'
@@ -247,8 +262,7 @@ def main() -> int:
         'db_operations' / 'search_index' / 'sink.rs'
     )
     
-    # Build snapshot
-    snapshot = {
+    return {
         "http_api": {
             "version": versions['CURRENT_API_VERSION'],
             "min_supported": versions['MIN_SUPPORTED_API_VERSION'],
@@ -262,7 +276,20 @@ def main() -> int:
             "schema": outbox_schema
         }
     }
-    
+
+
+def main() -> int:
+    """Generate contract snapshot and write to stdout."""
+    args = parse_args()
+    try:
+        snapshot = build_snapshot(args.repo_root)
+    except SnapshotError as error:
+        print(
+            f"generate-contract-snapshot: cannot read a contract surface: {error}",
+            file=sys.stderr
+        )
+        return 2
+
     print(json.dumps(snapshot, indent=2))
     return 0
 

@@ -19,11 +19,6 @@ primary restart loop (brain: `papercut-lastdb-primary-transient-30gb-footprint-s
 
 ## Related
 
-- `lastdb db reclaim-keep-small-legacy [--execute]` drops the legacy
-  `metadata` group that held the snapshot before it moved to `keep_small`.
-  It reads only the group's key sidecar and never loads the group. A sidecar
-  of a group under half the cold-load cap (1 GiB) is not flushed before its
-  rename, so a power loss can lose it; the command then refuses.
 - The residual sweep that compacted the `keep_small` plane and its two
   `LASTDB_KEEP_SMALL_COMPACT_*` knobs were removed with the LastStore backend
   (2026-10-26). A native home packs only through `lastdb db compact --execute`.
