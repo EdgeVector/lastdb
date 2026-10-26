@@ -213,52 +213,46 @@ impl S3BlobPersistence {
                 }
             }
         };
-        match existing {
-            Some((existing, etag)) => {
-                if existing.generation != record.generation - 1 {
-                    return Err(FoldDbError::Config(format!(
-                        "generation conflict: stored={}, new={}",
-                        existing.generation, record.generation
-                    )));
-                }
-                let body = serde_json::to_vec(record)
-                    .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-                self.client
-                    .put_object()
-                    .bucket(&self.bucket)
-                    .key(key)
-                    .body(ByteStream::from(body))
-                    .content_type("application/json")
-                    .if_match(etag)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        if is_precondition_failed(&e) {
-                            FoldDbError::Config("generation conflict (ETag mismatch)".to_string())
-                        } else {
-                            FoldDbError::Config(format!(
-                                "put S3 object '{key}': {}",
-                                short_error(&e)
-                            ))
-                        }
-                    })?;
+        if let Some((existing, etag)) = existing {
+            if existing.generation != record.generation - 1 {
+                return Err(FoldDbError::Config(format!(
+                    "generation conflict: stored={}, new={}",
+                    existing.generation, record.generation
+                )));
             }
-            None => {
-                let body = serde_json::to_vec(record)
-                    .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-                self.client
-                    .put_object()
-                    .bucket(&self.bucket)
-                    .key(key)
-                    .body(ByteStream::from(body))
-                    .content_type("application/json")
-                    .if_none_match("*")
-                    .send()
-                    .await
-                    .map_err(|e| {
+            let body = serde_json::to_vec(record)
+                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .body(ByteStream::from(body))
+                .content_type("application/json")
+                .if_match(etag)
+                .send()
+                .await
+                .map_err(|e| {
+                    if is_precondition_failed(&e) {
+                        FoldDbError::Config("generation conflict (ETag mismatch)".to_string())
+                    } else {
                         FoldDbError::Config(format!("put S3 object '{key}': {}", short_error(&e)))
-                    })?;
-            }
+                    }
+                })?;
+        } else {
+            let body = serde_json::to_vec(record)
+                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .body(ByteStream::from(body))
+                .content_type("application/json")
+                .if_none_match("*")
+                .send()
+                .await
+                .map_err(|e| {
+                    FoldDbError::Config(format!("put S3 object '{key}': {}", short_error(&e)))
+                })?;
         }
         Ok(())
     }

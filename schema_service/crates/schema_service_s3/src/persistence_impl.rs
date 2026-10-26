@@ -199,7 +199,7 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
-        let key = format!("apps/{}.json", app_id);
+        let key = format!("apps/{app_id}.json");
         let app = self.get_single_object::<AppRecord>(&key).await?;
         if app.is_some() {
             return Ok(app);
