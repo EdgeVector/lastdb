@@ -215,18 +215,20 @@ jobs:
           # List empty brain (should succeed)
           brain list 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-list-empty.txt"
           
-          # Try creating a test concept
+          # Try creating a test concept. put reads the body from stdin.
+          # --content is rejected. The slug is the only positional.
+          # The type is --type.
           TEST_ID="test-concept-ci-$$"
           echo "Testing ${{ matrix.app }} write and read operations with ID: $TEST_ID"
           
-          brain put concepts "$TEST_ID" --content "Test concept from app-install-smoke CI run ${{ github.run_number }}" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
+          printf '%s\n' "Test concept from app-install-smoke CI run ${{ github.run_number }}" | brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
             echo "Brain put failed"
             cat "$PROOF_DIR/${{ matrix.app }}-put-test.txt"
             exit 1
           }
           
-          # Try reading it back
-          brain get concepts "$TEST_ID" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
+          # Try reading it back. get takes the slug, then --type.
+          brain get "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
             echo "Brain get failed"
             cat "$PROOF_DIR/${{ matrix.app }}-get-test.txt"
             exit 1
