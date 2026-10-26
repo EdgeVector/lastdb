@@ -38,7 +38,6 @@ pub mod backup_drain_plan;
 /// Age-based durability health, evaluated with no sync engine running.
 /// Sealed-chunk backup progress math (no network).
 pub mod backup_progress;
-pub mod benchmark_database;
 pub mod canonical;
 pub mod clock;
 pub mod constants;
@@ -69,9 +68,6 @@ pub mod sync_conflict;
 pub mod user_context;
 /// Schema-owner class carried into the warm set across the blocking boundary.
 pub mod warm_admit;
-
-/// Schema support for the product benchmarks.
-pub mod benchmark_support;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};
