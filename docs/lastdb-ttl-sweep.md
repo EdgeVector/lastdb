@@ -40,14 +40,17 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 1. The sampler tick starts at most one pass. Each erase batch uses the normal local mutation
    admission. A snapshot cut keeps that admission until the cut completes.
-2. The pass lists the expired keys of each schema once, hash by hash and oldest first inside a
-   hash. The store keeps the rows of one hash in one group, so one batch touches few groups.
-   Range discovery reads 256 keys per request through the normal keyed page reader.
-   An exclusive key cursor advances across each page, including keys without a valid age.
-   Only an empty page ends discovery. A large expired hash does not require one unbounded read.
+2. The pass keeps schema metadata and exclusive cursors. It fetches one key page for the schema
+   that it serves, then erases that page before it fetches another. Hash and Single use a bounded
+   age-entry read. Range and HashRange use the normal keyed page reader. A page holds at most the
+   configured batch size: 16 keys by default, 64 at most, across all schemas combined.
+   Schema and observed-hash metadata still scale with the configured schemas and hashes.
+   An exclusive cursor advances across stale age entries and keys without a valid range age.
+   Only an empty physical page ends an interval. A short page does not end it.
    The next pass starts from the oldest remaining key; no offset survives an erase.
-3. The pass erases in rounds. Each round takes one batch from each schema that still has keys,
-   in schema name order. A large backlog in one schema cannot starve the others.
+3. Each round serves one page from each schema, in schema name order. A size refusal splits the
+   current page into smaller batches. A failed schema releases its page and retains only its
+   outstanding count. Other schemas continue. The status does not call a failed or cut pass complete.
 4. Before each batch the sweep re-checks its keys, inside the batch admission:
    - Hash and Single keys take their age from the write-time index. One batched read drops every
      key that a client rewrote after the pass listed it. A key with no index row was erased by
@@ -334,6 +337,7 @@ on a quiet host and up to 7.8 s on a busy one.
 
 | Field | Meaning |
 |---|---|
+| `peak_buffered_keys` | The largest expired-key page held by the pass. It excludes schema/hash metadata and temporary query response bytes. |
 | `finished_backlog` | The last pass erased or dropped every key that it listed, in every schema, with no failed schema. |
 | `keys_left` | The keys that the pass listed and had not reached when it ended. |
 | `cut` | The pass ended early before it reached all listed keys. |

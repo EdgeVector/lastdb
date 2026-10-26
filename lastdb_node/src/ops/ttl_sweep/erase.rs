@@ -15,6 +15,8 @@ use fold_db::schema::types::KeyValue;
 
 use super::backlog::Backlog;
 use super::key_is_expired;
+
+mod rounds;
 use super::pace::Pace;
 use super::send::send_with_missing_retry;
 use super::verb::SweepVerb;
@@ -40,6 +42,8 @@ pub(super) struct PassTotals {
     pub(super) schemas: usize,
     /// Schemas that the pass skipped because their listing or a batch failed.
     pub(super) schemas_failed: usize,
+    /// Largest expired-key page held by the worker, across all schemas.
+    pub(super) peak_buffered_keys: usize,
 }
 
 impl PassTotals {
@@ -55,6 +59,7 @@ impl PassTotals {
             cut: self.cut,
             schemas_failed: u32::try_from(self.schemas_failed).unwrap_or(u32::MAX),
             missing_dropped: u64::try_from(self.missing).unwrap_or(u64::MAX),
+            peak_buffered_keys: u64::try_from(self.peak_buffered_keys).unwrap_or(u64::MAX),
         }
     }
 }
@@ -78,7 +83,7 @@ pub(super) async fn purge_round_robin(
         .expect("ttl writer watch")
         .take()
         .unwrap_or_default();
-    totals.cut = erase_rounds(
+    totals.cut = rounds::erase_rounds(
         host,
         &mut backlogs,
         shutdown,
@@ -90,82 +95,6 @@ pub(super) async fn purge_round_robin(
     *WATCH.lock().expect("ttl writer watch") = Some(watch);
     totals.keys_left = backlogs.iter().map(Backlog::left).sum();
     totals
-}
-
-/// Run the rounds. Returns true when the pass was cut.
-async fn erase_rounds(
-    host: &Host,
-    backlogs: &mut [Backlog],
-    shutdown: &AtomicBool,
-    (verb, pace): (SweepVerb, Pace),
-    totals: &mut PassTotals,
-    watch: &mut WriterWatch,
-) -> bool {
-    while backlogs.iter().any(|backlog| !backlog.is_done()) {
-        for index in 0..backlogs.len() {
-            if backlogs[index].is_done() {
-                continue;
-            }
-            if shutdown.load(Ordering::Acquire) {
-                return true;
-            }
-            let size = batch_size(host, &backlogs[index], pace.batch, verb);
-            let chunk = backlogs[index].take(size);
-            let taken = chunk.len();
-            let started = Instant::now();
-            let admitted = crate::maintenance_write_gate::run(
-                host,
-                WriterWatch::measure(run_with_phases(erase_batch(
-                    host,
-                    &mut backlogs[index],
-                    chunk,
-                    verb,
-                ))),
-            )
-            .await;
-            let Some(((outcome, phases, _counts), blocked, scopes)) = admitted else {
-                return true;
-            };
-            let pause = pace.pause_after(blocked, watch.writer_present(scopes));
-            let done = match outcome {
-                Ok(done) => done,
-                Err(error) if taken > 1 && is_size_limit_error(&error) => {
-                    // The bound in `batch_size` is an estimate. A batch that hit
-                    // a size limit changed nothing, so the sweep halves it and
-                    // retries instead of skipping the schema.
-                    tracing::warn!(
-                        target: "lastdbd::ttl_sweep",
-                        schema = %backlogs[index].schema_name,
-                        keys = taken,
-                        error = %error,
-                        "ttl sweep batch hit a size limit; the next batch of this schema is half as big"
-                    );
-                    backlogs[index].shrink_after_limit(taken);
-                    continue;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        target: "lastdbd::ttl_sweep",
-                        schema = %backlogs[index].schema_name,
-                        error = %error,
-                        "ttl sweep skips this schema for the rest of the pass; the other schemas go on"
-                    );
-                    backlogs[index].abandon();
-                    totals.schemas_failed += 1;
-                    continue;
-                }
-            };
-            let took = started.elapsed();
-            totals.erased += done.erased;
-            totals.dropped += done.dropped;
-            totals.missing += done.missing;
-            log_batch(&backlogs[index].schema_name, &done, took, &phases);
-            if backlogs.iter().any(|backlog| !backlog.is_done()) {
-                rest(pause, shutdown, watch).await;
-            }
-        }
-    }
-    false
 }
 
 /// Keys in the next batch of a schema. The pace sets the size. A schema with
