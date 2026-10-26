@@ -36,7 +36,6 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== /v2 Compat-Row Proof (Storage + Signature) ===\n");
-
     let verifier_key_bytes: [u8; 32] = [
         0x9d, 0x2f, 0x1f, 0x4b, 0x8c, 0x8e, 0x9a, 0x0c, 0xfe, 0x3d, 0x1a, 0x8f, 0x6b, 0x5c, 0x7e,
         0x2d, 0xa1, 0xb3, 0xc4, 0xd5, 0xe6, 0xf7, 0x08, 0x19, 0x2a, 0x3b, 0x4c, 0x5d, 0x6e, 0x7f,
@@ -76,7 +75,6 @@ async fn create_state(
 ) -> Result<(Arc<SchemaServiceState>, Arc<S3BlobPersistence>), Box<dyn std::error::Error>> {
     let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "proof-v2".to_string());
     let endpoint = std::env::var("S3_ENDPOINT").ok();
-
     let aws_config = aws_config::from_env().load().await;
     let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config);
     if let Some(ep) = endpoint {
@@ -85,26 +83,21 @@ async fn create_state(
     let s3_config = s3_config_builder.build();
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config);
     let ddb_client = aws_sdk_dynamodb::Client::new(&aws_config);
-
     let _ = s3_client.create_bucket().bucket(&bucket).send().await;
-
     let backend = Arc::new(S3BlobPersistence::new(
         s3_client,
         bucket,
         ddb_client,
         "proof-embeddings".to_string(),
     ));
-
     let embedder = Arc::new(schema_service_core::DisabledEmbeddingModel);
     let state = SchemaServiceState::new_with_external(backend.clone(), embedder).await?;
-
     state.configure_app_identity(AppIdentityConfig {
         deployment_env: Env::Dev,
         trusted_roots: HashMap::new(),
         revoked_dev_pubkeys: Default::default(),
         verifier_pubkey: Some(verifier_pubkey.to_string()),
     });
-
     Ok((Arc::new(state), backend))
 }
 
@@ -130,7 +123,6 @@ async fn seed_data(
         uses: vec![],
     };
     backend.save_app(&app).await?;
-
     let release_id = "aaaa1111222233334444555566667777888899990000aaaabbbbccccddddeeee";
     let release = ReleaseRecord {
         release_id: release_id.to_string(),
@@ -149,13 +141,10 @@ async fn seed_data(
         revocation_reason: None,
     };
     backend.save_release(&release).await?;
-
-    // Load releases into state so write_compat_row can verify the release exists
     state.install_loaded_releases(
         [(release_id.to_string(), release)].into_iter().collect(),
         HashMap::new(),
     )?;
-
     println!("✓ Seeded release {}\n", release_id);
     Ok(release_id.to_string())
 }
