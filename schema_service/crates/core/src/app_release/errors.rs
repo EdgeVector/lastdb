@@ -160,10 +160,9 @@ pub(super) fn record_release_op(env: &str, op: &str, status: &str) {
 pub enum CompatRowError {
     /// Body did not parse or contract_version broke grammar.
     InvalidBody(String),
-    /// The `X-Signature` envelope did not verify against the verifier key.
+    /// The `X-Signature` envelope did not verify against the configured
+    /// verifier key, was missing, or was malformed.
     SignatureInvalid,
-    /// The envelope's signer does not match the configured verifier pubkey.
-    UnauthorizedVerifier,
     /// No verifier pubkey is configured — the deployment cannot accept
     /// compat rows.
     VerifierNotConfigured,
@@ -182,7 +181,6 @@ impl CompatRowError {
                 (400, json!({ "reason": "invalid_body", "detail": detail }))
             }
             Self::SignatureInvalid => (401, json!({ "reason": "signature_invalid" })),
-            Self::UnauthorizedVerifier => (403, json!({ "reason": "unauthorized_verifier" })),
             Self::VerifierNotConfigured => (503, json!({ "reason": "verifier_not_configured" })),
             Self::UnknownRelease(release_id) => (
                 404,
@@ -197,7 +195,6 @@ impl CompatRowError {
         match self {
             Self::InvalidBody(_) => "invalid_body",
             Self::SignatureInvalid => "signature_invalid",
-            Self::UnauthorizedVerifier => "unauthorized_verifier",
             Self::VerifierNotConfigured => "verifier_not_configured",
             Self::UnknownRelease(_) => "unknown_release",
             Self::AlreadyExists => "already_exists",

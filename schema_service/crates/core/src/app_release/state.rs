@@ -499,17 +499,10 @@ impl SchemaServiceState {
             .verify(&body_canonical, &signature)
             .map_err(|_| CompatRowError::SignatureInvalid)?;
 
-        let signer_pubkey_bytes = verifying_key.as_bytes();
-        let signer_pubkey = BASE64.encode(signer_pubkey_bytes);
-
-        if signer_pubkey != *verifier_pubkey {
-            return Err(CompatRowError::UnauthorizedVerifier);
-        }
-
         let record = CompatRow {
             release_id: release_id.to_string(),
             contract_version: request.contract_version,
-            verifier_pubkey: signer_pubkey,
+            verifier_pubkey: verifier_pubkey.clone(),
             verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             verification_url: request.verification_url,
         };
@@ -554,9 +547,8 @@ impl SchemaServiceState {
     /// Ordered by published_at descending (newest first).
     #[must_use]
     pub fn list_releases_for_app(&self, app_id: &str) -> Vec<ReleaseRecord> {
-        let releases = match read_lock(&self.app_releases, "app_releases") {
-            Ok(r) => r,
-            Err(_) => return Vec::new(),
+        let Ok(releases) = read_lock(&self.app_releases, "app_releases") else {
+            return Vec::new();
         };
         let mut filtered: Vec<_> = releases
             .values()

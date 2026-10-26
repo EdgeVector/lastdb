@@ -448,7 +448,10 @@ pub(crate) async fn list_compat_rows(
     }
     match state.list_compat_rows(release_id).await {
         Ok(rows) => {
-            let rows_json: Vec<_> = rows.iter().map(|r| r.to_public_json()).collect();
+            let rows_json: Vec<_> = rows
+                .iter()
+                .map(schema_service_core::app_release::CompatRow::to_public_json)
+                .collect();
             json_response(200, &json!({ "compat_rows": rows_json }))
         }
         Err(e) => {
