@@ -2,9 +2,8 @@
 //!
 //! The canonical identity artifact is a plain 32-byte Ed25519 seed at
 //! `<node-home>/identity.key`, owner-only (`0o600`) — the keyfile-root
-//! decision (no OS keychain, no sealed-tree ceremony for the identity;
-//! decided 2026-07-10, card `fold-unify-node-identity`, superseding the
-//! sealed `node_identity` Sled tree as the identity's source of truth).
+//! decision (no OS keychain, no sealed-store ceremony for the identity;
+//! decided 2026-07-10, card `fold-unify-node-identity`).
 //! The same seed is both the node identity (mutation signer, public key)
 //! and the E2E encryption root (`E2eKeys::from_ed25519_seed`) — the
 //! documented single-key-root path in fold_db core.

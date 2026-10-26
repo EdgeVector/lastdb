@@ -171,9 +171,8 @@ pub(crate) fn inflate_at_rest(compressed: &[u8]) -> CryptoResult<Vec<u8>> {
 
 /// Seal `plaintext` through the raw `ENB:` form, with compression when useful.
 ///
-/// Binary-safe nested containers use this entry point. It does not consult the
-/// direct-store writer switch because the caller already selected a byte
-/// container that can carry the result.
+/// Binary-safe nested containers use this entry point. The caller already
+/// selected a byte container that can carry the result.
 pub fn seal_at_rest_deflate_raw(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
     seal_at_rest_deflate_with_format(
         key,

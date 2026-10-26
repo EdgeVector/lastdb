@@ -11,7 +11,7 @@
 //! billing path), so per-schema attribution can only be computed client-side
 //! here, where the decrypted store and the schema definitions both live. It is
 //! an approximation of the cloud footprint, deliberately high-level: encryption
-//! overhead, Sled page padding, and the sync log/snapshot framing are not
+//! overhead, disk file framing, and the sync log/snapshot framing are not
 //! modeled. Tom confirmed approximate/high-level is fine for the storage
 //! breakdown view.
 

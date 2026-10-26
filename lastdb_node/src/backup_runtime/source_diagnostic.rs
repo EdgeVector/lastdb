@@ -17,7 +17,6 @@ pub(super) fn report(error: &StorageError) {
         StorageError::IoError(_) => ("io", None),
         StorageError::DownloadFailed(detail) => ("download_failed", Some(detail.as_str())),
         StorageError::UploadFailed(detail) => ("upload_failed", Some(detail.as_str())),
-        StorageError::SledError(detail) => ("sled", Some(detail.as_str())),
         StorageError::StorageFull { detail } => ("storage_full", Some(detail.as_str())),
         StorageError::CaptureQueueFull { .. } => ("capture_queue_full", None),
         StorageError::ConfigurationError(detail) => ("configuration", Some(detail.as_str())),

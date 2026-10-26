@@ -23,7 +23,7 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 /// - **`key_id`** makes "which key sealed this?" a *lookup* (via
 ///   [`peek_envelope`]) instead of trial decryption — the precondition
 ///   for the wrapped-DEK keyring and cheap key rotation (Gap G5).
-/// - **AAD** *can* bind each ciphertext to its location (namespace + Sled
+/// - **AAD** *can* bind each ciphertext to its location (namespace + storage
 ///   key), so that a ciphertext cannot be swapped to another slot within
 ///   the store and still decrypt. This is a capability of the codec — it
 ///   is only realized when the caller actually supplies that storage
@@ -182,7 +182,7 @@ pub fn decrypt_envelope(key: &[u8; 32], envelope: &[u8]) -> CryptoResult<Vec<u8>
 /// version (a v2→v1 downgrade) or the key_id is caught by the tag check
 /// even if the same key is somehow selected.
 ///
-/// `aad` (the storage context — namespace + Sled key) is NOT stored in
+/// `aad` (the storage context — namespace + storage key) is NOT stored in
 /// the envelope; the decryptor must supply byte-identical context or the
 /// tag check fails, which is what binds the ciphertext to its location.
 /// Use the empty slice when there is no context to bind.

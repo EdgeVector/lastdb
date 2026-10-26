@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Repeated enough, every module grew its own private wrapper — `kv_err`,
-//! `cache_err`, historical `sled_err`, … — each reinventing the same shape but
+//! `cache_err`, … — each reinventing the same shape but
 //! bound to a different target error type, so none of them could be shared.
 //! That is why the same "collapse N map_err closures into a helper" refactor
 //! kept landing module by module.
