@@ -6,7 +6,8 @@ use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::range_inventory::{
     convert_typed_ranges, InventoryLimits, RangeConversionOptions,
 };
-use std::os::unix::fs::DirBuilderExt;
+use std::io::{Read, Seek, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 pub struct RangeConversionArgs<'a> {
@@ -102,23 +103,11 @@ fn target_path(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn prepare_target(home: &Path, seed: &[u8; 32], resume: bool) -> Result<(), String> {
-    if resume {
+    if resume && home.try_exists().map_err(|error| error.to_string())? {
         if crate::crash_attribution::live_daemon_pid_alive(home) {
             return Err("target has a live daemon".into());
         }
-        let existing = zeroize::Zeroizing::new(
-            lastdb_identity::load_seed(home)?.ok_or("target identity is absent")?,
-        );
-        if *existing != *seed {
-            return Err("target identity differs from its source".into());
-        }
-        if !std::fs::symlink_metadata(home.join("data"))
-            .map_err(|error| error.to_string())?
-            .is_dir()
-        {
-            return Err("target data root is not a real directory".into());
-        }
-        return Ok(());
+        return resume_target(home, seed);
     }
     std::fs::DirBuilder::new()
         .mode(0o700)
@@ -132,5 +121,79 @@ fn prepare_target(home: &Path, seed: &[u8; 32], resume: bool) -> Result<(), Stri
     std::fs::File::open(home)
         .and_then(|file| file.sync_all())
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn resume_target(home: &Path, seed: &[u8; 32]) -> Result<(), String> {
+    let owner = std::fs::File::open(home).map_err(|error| error.to_string())?;
+    owner
+        .try_lock()
+        .map_err(|_| "another converter owns the target identity")?;
+    let path = lastdb_identity::seed_path(home);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= 32 => {
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(&path)
+                .map_err(|_| "cannot open the target identity")?;
+            let mut existing = zeroize::Zeroizing::new(Vec::new());
+            (&mut file)
+                .take(33)
+                .read_to_end(&mut existing)
+                .map_err(|_| "cannot read the target identity")?;
+            if !seed.starts_with(&existing) {
+                return Err("target identity differs from its source".into());
+            }
+            if existing.len() != 32 {
+                require_initial_home(home)?;
+                file.rewind()
+                    .map_err(|_| "cannot finish the target identity")?;
+                file.write_all(seed)
+                    .and_then(|()| file.sync_all())
+                    .map_err(|_| "cannot finish the target identity")?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            require_initial_home(home)?;
+            lastdb_identity::write_seed(home, seed)?;
+        }
+        _ => return Err("target identity is invalid".into()),
+    }
+    match std::fs::symlink_metadata(home.join("data")) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            require_initial_home(home)?;
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(home.join("data"))
+                .map_err(|error| error.to_string())?;
+        }
+        _ => return Err("target data root is not a real directory".into()),
+    }
+    owner.sync_all().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn require_initial_home(home: &Path) -> Result<(), String> {
+    for entry in std::fs::read_dir(home).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        if name == lastdb_identity::IDENTITY_KEY_FILE && kind.is_file() {
+            continue;
+        }
+        if name == "data"
+            && kind.is_dir()
+            && std::fs::read_dir(entry.path())
+                .map_err(|error| error.to_string())?
+                .next()
+                .is_none()
+        {
+            continue;
+        }
+        return Err("an incomplete identity cannot resume beside existing data".into());
+    }
     Ok(())
 }
