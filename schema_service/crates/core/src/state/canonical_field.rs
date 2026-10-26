@@ -70,9 +70,9 @@ impl SchemaServiceState {
         // Persist the embedding to the sibling blob. Best-effort: a
         // failure here leaves the in-memory embeddings ahead of S3
         // (fine — the blob is a cache), and the next
-        // `warm-embeddings` run will re-populate. External-only; Sled
-        // backends don't have an embeddings blob, but calling the
-        // trait method is still a no-op-if-not-wired pattern.
+        // `warm-embeddings` run will re-populate. Every backend
+        // implements the trait method; the in-memory dev backend keeps
+        // the vector in a map.
         if let Some(vec) = embedding {
             let backend = self.storage.backend();
             if let Err(e) = backend.save_canonical_field_embedding(name, &vec).await {

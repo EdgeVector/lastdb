@@ -114,7 +114,7 @@ struct IngestReport {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("==> Bootstrapping schema service state with real embedder …");
     let embedder: Arc<dyn Embedder> = Arc::new(FoldDbFastEmbedder::new());
-    let state = SchemaServiceState::new(embedder)?;
+    let state = SchemaServiceState::new_in_memory(embedder)?;
 
     eprintln!("==> Seeding curated canonical fields (the 151 hand-reviewed entries) …");
     builtin_canonical_fields::seed(&state).await?;

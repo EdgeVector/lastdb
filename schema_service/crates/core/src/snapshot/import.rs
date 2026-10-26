@@ -94,7 +94,7 @@ impl SchemaServiceState {
         // server; S3 backends return "unsupported" and the caller should
         // hydrate cloud via normal write paths instead).
         // `import_snapshot` is sync (callers include non-async paths); run the
-        // async backend ops on a dedicated thread like `SchemaServiceState::new`.
+        // async backend ops on a dedicated thread like `SchemaServiceState::new_in_memory`.
         let backend = self.storage.backend().clone();
         let schemas = envelope.schemas.clone();
         let cf_batch: Vec<(String, _)> = envelope

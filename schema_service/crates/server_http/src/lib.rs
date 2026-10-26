@@ -210,7 +210,7 @@ impl SchemaServiceServer {
     /// `new_with_builtins` for the production constructor.
     fn new(bind_address: &str) -> FoldDbResult<Self> {
         let embedder = default_embedder();
-        let state = SchemaServiceState::new(embedder)?;
+        let state = SchemaServiceState::new_in_memory(embedder)?;
         // App-identity verification config (app_identity v3.1, Lane B2b).
         // Empty unless APP_IDENTITY_ROOT_PUBKEYS is set — the dev binary
         // is then a passthrough, matching pre-app-identity behavior.

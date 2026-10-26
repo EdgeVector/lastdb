@@ -16,10 +16,9 @@ impl SchemaServiceState {
         Ok(())
     }
 
-    /// Persist many schemas to the storage backend in one batch: a single
-    /// sled pass with one flush locally, or one batched call (one blob RMW
-    /// on the S3 backend) externally — instead of one full round-trip per
-    /// schema.
+    /// Persist many schemas to the storage backend in one batch: one
+    /// batched call (one blob RMW on the S3 backend) instead of one full
+    /// round-trip per schema.
     pub(crate) async fn persist_schemas(&self, schemas_to_persist: &[Schema]) -> FoldDbResult<()> {
         if schemas_to_persist.is_empty() {
             return Ok(());
@@ -40,9 +39,9 @@ impl SchemaServiceState {
     /// Persist an owner-authenticated metadata update to an existing app
     /// (app_identity v3.1, `PUT /v1/apps/{id}`). The in-memory registry
     /// already verified the signer is the owner and that `display_name`
-    /// is unchanged; sled overwrites in place and the External backend
-    /// is asked to preserve `owner_dev_pubkey` / `registered_at` while
-    /// swapping `metadata`.
+    /// is unchanged; the backend is asked to preserve `owner_dev_pubkey` /
+    /// `registered_at` while swapping `metadata` (the in-memory backend
+    /// overwrites the record in place).
     pub(crate) async fn persist_app_update(&self, app: &AppRecord) -> FoldDbResult<()> {
         match &self.storage {
             SchemaStorage::External(backend) => {

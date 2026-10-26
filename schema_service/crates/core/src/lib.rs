@@ -5,9 +5,9 @@
 //! `projects/extract-schema-service-repo`.
 //!
 //! This crate has ZERO fastembed/ONNX dependencies — callers inject an
-//! [`Embedder`] implementation via [`SchemaServiceState::new`] (local path
-//! opens a **Last Store** home; cloud Lambda uses S3 via
-//! [`SchemaServiceState::new_with_external`]).
+//! [`Embedder`] implementation via [`SchemaServiceState::new_in_memory`]
+//! (local tools use [`InMemorySchemaPersistence`]; data is lost on restart)
+//! or [`SchemaServiceState::new_with_external`] (cloud Lambda uses S3).
 //!
 //! # Immutability contract
 //!

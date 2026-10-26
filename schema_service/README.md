@@ -44,7 +44,8 @@ no GitHub release tarballs, no `cargo install` end-user path.
 | `crates/client`                      | Typed HTTP client (`schema_service_client`). Consumed by `fold_db_node`.                                                             |
 
 The `core` crate has **no** `fastembed`/`ONNX` dependencies — callers
-inject an `Arc<dyn Embedder>` into `SchemaServiceState::new()`, so a
+inject an `Arc<dyn Embedder>` into `SchemaServiceState::new_in_memory()` or
+`SchemaServiceState::new_with_external()`, so a
 Lambda deployment can swap embedder implementations without touching core.
 Default local/dev binaries inject a disabled embedder: exact matching,
 resolver packs, imported embedding artifacts, and test-injected embedders

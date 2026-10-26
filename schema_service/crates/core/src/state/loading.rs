@@ -2,8 +2,10 @@ use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 impl SchemaServiceState {
-    /// Create a new schema service state with the **in-memory** registry
-    /// backend ([`InMemorySchemaPersistence`]). Nothing survives a restart.
+    /// Create a schema service state whose data lives only in memory.
+    ///
+    /// Backed by [`InMemorySchemaPersistence`]: nothing survives a restart,
+    /// so a deployed service must never call this.
     ///
     /// Used by the dev server, the eval tool and the offline seed generator.
     /// Lambda uses [`Self::new_with_external`] with S3 instead.
@@ -15,7 +17,7 @@ impl SchemaServiceState {
     ///
     /// Safe to call inside a runtime: init runs on a dedicated thread so we
     /// never nest `block_on` on the caller's runtime.
-    pub fn new(embedder: Arc<dyn Embedder>) -> FoldDbResult<Self> {
+    pub fn new_in_memory(embedder: Arc<dyn Embedder>) -> FoldDbResult<Self> {
         let backend = Arc::new(InMemorySchemaPersistence::default());
         Self::new_from_backend_blocking(backend, embedder)
     }
