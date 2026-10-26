@@ -114,6 +114,18 @@ A share refuses node authority. It never copies account keys into a shareable bu
 A normal mutation refuses a missing profile. Only schema publication can create a new typed molecule contract.
 The existing three-key bundle wire form stays unchanged.
 
+Historical conflict IDs retain their source key domain after conversion.
+The existing molecule metadata names that domain once. No second range copy enters each key.
+The runtime uses that domain only to reproduce retained conflict IDs.
+An old OPE domain therefore remains available for this compatibility calculation, never for a typed lookup key.
+Existing history supplies an original key spelling when canonical conversion changes that spelling.
+The existing slot directory locates those history rows with bounded reads.
+A repeated conflict preserves its old row, atom references, and resolved state.
+The runtime refuses inconsistent history or an exceeded allowance.
+New molecules use the current stored coordinate for their conflict IDs.
+History responses use canonical API keys. Stored history and signed provenance retain their original bytes.
+The converter preserves the replay floor and all retained history IDs.
+
 Range TTL retains its existing 20-digit timestamp prefix in a String range.
 Typed Integer, Date, DateTime, and Boolean ranges do not inherit that TTL rule.
 Their range-TTL policies receive a refusal until an explicit retention-policy conversion defines the expiry clock.

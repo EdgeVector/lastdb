@@ -5,6 +5,7 @@
 //! small metadata record (`mkb:`) and one encrypted wrap per access domain
 //! (`mkw:`). Catalog sharing adds a wrap; it never reseals molecule data.
 
+use crate::atom::molecule_key_codec::ConflictKeyIdentity;
 use crate::crypto::{is_sealed_at_rest, seal_at_rest_utf8};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
@@ -40,6 +41,7 @@ pub use bundle::MoleculeKeyBundle;
 pub(crate) struct CachedMoleculeContract {
     range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
     bundle: Option<MoleculeKeyBundle>,
+    conflict_identity: Option<ConflictKeyIdentity>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -58,6 +60,8 @@ struct BundleMetadata {
     range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     key_authority: Option<KeyAuthority>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conflict_identity: Option<ConflictKeyIdentity>,
 }
 
 impl BundleMetadata {
@@ -68,6 +72,7 @@ impl BundleMetadata {
             && self.molecule_uuid == molecule
             && self.range_profile.is_none()
             && self.key_authority.is_none()
+            && self.conflict_identity.is_none()
     }
 }
 
@@ -158,6 +163,7 @@ impl MoleculeKeyStore {
                     molecule_uuid: molecule_uuid.to_string(),
                     range_profile: None,
                     key_authority: None,
+                    conflict_identity: None,
                 },
             )
             .await?;

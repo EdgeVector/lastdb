@@ -1,8 +1,8 @@
 //! The node format and every schema must agree with the one stored profile.
 
 use super::{
-    schema_molecule_uuids, BundleMetadata, KeyAuthority, MoleculeKeyStore, StorageError,
-    StorageResult,
+    schema_molecule_uuids, BundleMetadata, ConflictKeyIdentity, KeyAuthority, MoleculeKeyStore,
+    StorageError, StorageResult,
 };
 use crate::schema::Schema;
 use schema_types::key_comparison::KeyOrderVersion;
@@ -21,10 +21,14 @@ impl MoleculeKeyStore {
         &self,
         molecule: &str,
         metadata: &BundleMetadata,
-    ) -> StorageResult<(Option<MoleculeRangeProfile>, KeyAuthority)> {
+    ) -> StorageResult<(
+        Option<MoleculeRangeProfile>,
+        KeyAuthority,
+        Option<ConflictKeyIdentity>,
+    )> {
         if !self.is_typed() {
             return if metadata.is_legacy_for(molecule) {
-                Ok((None, KeyAuthority::Bundle))
+                Ok((None, KeyAuthority::Bundle, None))
             } else {
                 Err(invalid())
             };
@@ -35,7 +39,8 @@ impl MoleculeKeyStore {
         let profile = metadata.range_profile.ok_or_else(invalid)?;
         profile.validate().map_err(|_| invalid())?;
         let authority = metadata.key_authority.ok_or_else(invalid)?;
-        Ok((Some(profile), authority))
+        let identity = metadata.conflict_identity.ok_or_else(invalid)?;
+        Ok((Some(profile), authority, Some(identity)))
     }
 
     pub(super) fn validate_metadata(

@@ -17,7 +17,9 @@
 
 use crate::crypto::E2eKeys;
 
+mod conflict_identity;
 pub mod conversion;
+pub use conflict_identity::ConflictKeyIdentity;
 mod profile;
 mod range_decode;
 pub mod storage_profile;
@@ -33,6 +35,7 @@ pub struct MoleculeKeyCodec {
     hash_encoding: HashKeyEncoding,
     range_encoding: RangeKeyEncoding,
     range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    conflict_identity: ConflictKeyIdentity,
     /// Required when hash encoding is blind.
     index_key: Option<[u8; 32]>,
     /// Required when range encoding is OPE.
@@ -45,6 +48,7 @@ impl std::fmt::Debug for MoleculeKeyCodec {
             .field("hash_encoding", &self.hash_encoding)
             .field("range_encoding", &self.range_encoding)
             .field("range_profile", &self.range_profile)
+            .field("conflict_identity", &self.conflict_identity)
             .finish_non_exhaustive()
     }
 }
@@ -55,6 +59,7 @@ impl Default for MoleculeKeyCodec {
             hash_encoding: HashKeyEncoding::Plain,
             range_encoding: RangeKeyEncoding::Plain,
             range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key: None,
             ope_key: None,
         }
@@ -69,6 +74,7 @@ impl MoleculeKeyCodec {
             hash_encoding: encoding,
             range_encoding: RangeKeyEncoding::Plain,
             range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key,
             ope_key: None,
         }
@@ -86,6 +92,7 @@ impl MoleculeKeyCodec {
             hash_encoding,
             range_encoding,
             range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key,
             ope_key,
         }

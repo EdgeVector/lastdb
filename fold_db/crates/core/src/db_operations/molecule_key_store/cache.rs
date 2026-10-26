@@ -1,7 +1,8 @@
 //! Key material stays private until its complete native write publishes.
 
 use super::{
-    CachedMoleculeContract, MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult,
+    CachedMoleculeContract, ConflictKeyIdentity, MoleculeKeyBundle, MoleculeKeyStore, StorageError,
+    StorageResult,
 };
 use crate::atom::MoleculeKeyCodec;
 use crate::storage::disk_pack::transaction::publication;
@@ -46,29 +47,36 @@ impl MoleculeKeyStore {
             .bundle
             .as_ref()
             .map_or_else(|| configured.clone(), |bundle| bundle.key_codec(configured));
-        match contract.range_profile {
-            None => Ok(Some(codec)),
-            Some(profile) => codec
+        match (contract.range_profile, contract.conflict_identity) {
+            (None, None) => Ok(Some(codec)),
+            (Some(profile), Some(identity)) => codec
                 .for_typed_home()
                 .with_range_profile(profile)
-                .map(Some)
+                .map(|codec| Some(codec.with_conflict_identity(identity)))
                 .map_err(|_| {
                     StorageError::InvalidOperation("the molecule range profile is invalid".into())
                 }),
+            _ => Err(StorageError::InvalidOperation(
+                "the molecule history identity is missing".into(),
+            )),
         }
     }
 
     pub(super) fn remember(&self, molecule: &str, bundle: MoleculeKeyBundle) -> StorageResult<()> {
-        self.remember_contract(molecule, None, Some(bundle))
+        self.remember_contract(molecule, None, None, Some(bundle))
     }
 
     pub(super) fn remember_contract(
         &self,
         molecule: &str,
         profile: Option<MoleculeRangeProfile>,
+        identity: Option<ConflictKeyIdentity>,
         bundle: Option<MoleculeKeyBundle>,
     ) -> StorageResult<()> {
-        if self.is_typed() != profile.is_some() || (profile.is_none() && bundle.is_none()) {
+        if self.is_typed() != profile.is_some()
+            || profile.is_some() != identity.is_some()
+            || (profile.is_none() && bundle.is_none())
+        {
             return Err(StorageError::InvalidOperation(
                 "invalid molecule memory contract".into(),
             ));
@@ -79,6 +87,7 @@ impl MoleculeKeyStore {
         let contract = CachedMoleculeContract {
             range_profile: profile,
             bundle,
+            conflict_identity: identity,
         };
         let cache = Arc::clone(&self.cache);
         let molecule = molecule.to_owned();

@@ -12,12 +12,35 @@ impl AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<MutationEvent>, SchemaError> {
-        Ok(self
-            .get_mutation_event_rows(molecule_uuid, storage_prefix)
+        if self.typed_ranges {
+            self.load_molecule_key_bundle(molecule_uuid).await?;
+        }
+        self.get_mutation_event_rows(molecule_uuid, storage_prefix)
             .await?
             .into_iter()
-            .map(|(_, event)| event)
-            .collect())
+            .map(|(_, mut event)| {
+                event.field_key =
+                    self.canonical_history_field_key(molecule_uuid, &event.field_key)?;
+                Ok(event)
+            })
+            .collect()
+    }
+
+    /// Canonical API coordinates for a history response. Stored history and
+    /// signed provenance retain their original bytes.
+    pub fn canonical_history_field_key(
+        &self,
+        molecule_uuid: &str,
+        key: &crate::atom::FieldKey,
+    ) -> Result<crate::atom::FieldKey, SchemaError> {
+        let mut key = key.clone();
+        if let Some(range) = &mut key.range {
+            *range = self
+                .key_codec_for_molecule(molecule_uuid)?
+                .canonical_api_range(range)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        }
+        Ok(key)
     }
 
     /// Load mutation history with each authoritative storage key intact.

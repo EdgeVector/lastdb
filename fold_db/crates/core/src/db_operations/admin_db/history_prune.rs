@@ -25,7 +25,8 @@ fn keeps_conflicting_write(ev: &MutationEvent) -> bool {
 fn plan_history_deletes(
     events_with_keys: &[(String, MutationEvent)],
     keep: usize,
-) -> (Vec<String>, HashMap<String, u64>) {
+    codec: &crate::atom::MoleculeKeyCodec,
+) -> Result<(Vec<String>, HashMap<String, u64>), SchemaError> {
     let mut to_delete: Vec<String> = Vec::new();
     let mut key_bytes: HashMap<String, u64> = HashMap::new();
 
@@ -35,16 +36,17 @@ fn plan_history_deletes(
             key_bytes.insert(storage_key.clone(), history_row_bytes(storage_key, ev));
             to_delete.push(storage_key.clone());
         }
-        return (to_delete, key_bytes);
+        return Ok((to_delete, key_bytes));
     }
 
     // Group by field_key; keep newest `keep` events per key.
-    let mut by_key: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+    let mut by_key: HashMap<(String, String), Vec<(String, i64)>> = HashMap::new();
     for (storage_key, ev) in events_with_keys {
-        let fk = format!(
-            "{}|{}",
-            ev.field_key.hash.as_deref().unwrap_or(""),
-            ev.field_key.range.as_deref().unwrap_or("")
+        let fk = (
+            ev.field_key.hash.as_deref().unwrap_or("").to_owned(),
+            codec
+                .canonical_api_range(ev.field_key.range.as_deref().unwrap_or(""))
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
         );
         let ts = ev.timestamp.timestamp_nanos_opt().unwrap_or(0);
         by_key
@@ -62,7 +64,7 @@ fn plan_history_deletes(
             }
         }
     }
-    (to_delete, key_bytes)
+    Ok((to_delete, key_bytes))
 }
 
 impl AtomStore {
@@ -113,7 +115,11 @@ impl AtomStore {
                     continue;
                 }
 
-                let (to_delete, key_bytes) = plan_history_deletes(&events_with_keys, keep);
+                if self.typed_ranges {
+                    self.load_molecule_key_bundle(mol).await?;
+                }
+                let codec = self.key_codec_for_molecule(mol)?;
+                let (to_delete, key_bytes) = plan_history_deletes(&events_with_keys, keep, &codec)?;
 
                 for k in &to_delete {
                     schema_deleted += 1;

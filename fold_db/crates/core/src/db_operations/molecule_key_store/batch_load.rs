@@ -45,7 +45,7 @@ impl MoleculeKeyStore {
             .into_iter()
             .zip(wraps)
             .map(|((molecule, contract), wrap)| {
-                let Some((profile, authority)) = contract else {
+                let Some((profile, authority, identity)) = contract else {
                     return if wrap.is_none() {
                         Ok(None)
                     } else {
@@ -65,11 +65,11 @@ impl MoleculeKeyStore {
                         ))
                     }
                 };
-                Ok(Some((molecule, profile, bundle)))
+                Ok(Some((molecule, profile, identity, bundle)))
             })
             .collect::<StorageResult<Vec<_>>>()?;
-        for (molecule, profile, bundle) in contracts.into_iter().flatten() {
-            self.remember_contract(molecule, profile, bundle)?;
+        for (molecule, profile, identity, bundle) in contracts.into_iter().flatten() {
+            self.remember_contract(molecule, profile, identity, bundle)?;
         }
         Ok(())
     }

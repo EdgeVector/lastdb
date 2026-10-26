@@ -2,8 +2,8 @@
 
 use super::{
     contracts::TYPED_METADATA_VERSION, make_wrap, metadata_key, schema_molecule_uuids,
-    validate_identity, wrap_key_for, BundleMetadata, KeyAuthority, MoleculeKeyBundle,
-    MoleculeKeyStore, StorageError, StorageResult, BUNDLE_VERSION, NODE_DOMAIN,
+    validate_identity, wrap_key_for, BundleMetadata, ConflictKeyIdentity, KeyAuthority,
+    MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult, BUNDLE_VERSION, NODE_DOMAIN,
 };
 use crate::schema::Schema;
 use crate::storage::KvMutation;
@@ -93,6 +93,7 @@ impl MoleculeKeyStore {
                 molecule_uuid: molecule.clone(),
                 range_profile: profile,
                 key_authority: profile.map(|_| KeyAuthority::Bundle),
+                conflict_identity: profile.map(|_| ConflictKeyIdentity::StoredV1),
             };
             rows.push(KvMutation::put(
                 wrap_key_for(&molecule, NODE_DOMAIN).as_bytes(),
@@ -109,7 +110,12 @@ impl MoleculeKeyStore {
         self.entries.inner().batch_mutate(rows).await?;
         self.entries.inner().flush().await?;
         for (molecule, bundle) in bundles {
-            self.remember_contract(&molecule, profile, Some(bundle))?;
+            self.remember_contract(
+                &molecule,
+                profile,
+                profile.map(|_| ConflictKeyIdentity::StoredV1),
+                Some(bundle),
+            )?;
         }
         Ok(())
     }
