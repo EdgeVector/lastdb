@@ -6,7 +6,7 @@ from node import save
 
 
 def suspects(comparison, kind):
-    if kind == "growth":
+    if kind in ("growth", "disk"):
         return {(case, name) for case, item in comparison.items() for name in item["advisories"]}
     return {(case, name) for case, item in comparison.items()
             for name, limit in (("p95_ms", 20), ("requests_per_second", -20))
@@ -47,9 +47,11 @@ def confirm(output, manifest, comparison, compare, kind, status):
     return decision
 
 
-def values(pair, kind):
-    divisor = 2**20 if kind == "growth" else 1
-    unit = " MiB" if kind == "growth" else ""
+def values(pair, kind, metric=""):
+    if metric.endswith("_ratio"):
+        return " → ".join(f"{pair[label]:.3f}×" for label in ("baseline", "candidate"))
+    divisor = 2**20 if kind in ("growth", "disk") else 1
+    unit = " MiB" if kind in ("growth", "disk") else ""
     return " → ".join(f"{pair[label] / divisor:.3f}" for label in ("baseline", "candidate")) + unit
 
 
@@ -63,8 +65,8 @@ def lines(decision):
                    "|---|---|---:|---:|---|"])
     for row in decision["results"]:
         state = "Confirmed advisory" if row["confirmed"] else "Did not repeat; no warning"
-        result.append(f"| {row['case']} | {row['metric']} | {values(row['initial'], decision['kind'])} | "
-                      f"{values(row['repeat'], decision['kind'])} | {state} |")
+        result.append(f"| {row['case']} | {row['metric']} | {values(row['initial'], decision['kind'], row['metric'])} | "
+                      f"{values(row['repeat'], decision['kind'], row['metric'])} | {state} |")
     result.extend(["", "A measure first above its limit in the repeat has no confirmation and produces no warning.",
                    "Both comparisons remain in the artifact. Confirmed changes stay advisory.", ""])
     return "\n".join(result)
@@ -74,5 +76,6 @@ def notices(decision):
     for row in decision["results"]:
         if row["confirmed"]:
             print(f"::warning title=Confirmed advisory {decision['kind']} change::{row['case']}: {row['metric']}; "
-                  f"first {values(row['initial'], decision['kind'])}; repeat {values(row['repeat'], decision['kind'])}. "
+                  f"first {values(row['initial'], decision['kind'], row['metric'])}; "
+                  f"repeat {values(row['repeat'], decision['kind'], row['metric'])}. "
                   "Both comparisons crossed the advisory limit. This does not block merge.")

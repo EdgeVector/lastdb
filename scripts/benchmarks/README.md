@@ -226,7 +226,7 @@ Every change appears in the summary, even below the notice threshold.
 CI repeats the resource suite once when a measure crosses both limits.
 Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
-Each resource pass has a 40-minute limit. The complete job has a 270-minute limit for larger nightly work and confirmation.
+Each resource pass has a 40-minute limit. The complete job has a 350-minute limit for larger nightly work and confirmation.
 Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
@@ -235,6 +235,40 @@ CAUTION: A positive slope alone does not establish a memory leak or unwanted dis
 Inserts increase the record count. Memory allocators can retain space, and automatic maintenance can change disk use.
 Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
 The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
+
+### V2 disk size budget
+
+Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
+This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
+It selects `LASTDB_DISK_FORMAT=2` for both generated homes and verifies the format-3 node marker.
+The ordinary speed and resource passes keep the product default format.
+An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
+
+The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
+It uses two alternating pairs on PRs and three at night. Reads, updates, and inserts use the same four generated fields.
+Each checkpoint requires a durable flush and exact keyed reads of all live values.
+The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
+The v2 engine keeps its default automatic run merges. The pass does not request the v1 compaction command.
+
+The ratio is retained disk bytes divided by logical atom bytes:
+
+- Retained disk uses the greater of whole-home file lengths and allocated file blocks.
+- Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
+  This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
+  It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
+- Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
+
+The advisory ceiling is **1.5×**. Equality is within the budget.
+CI also notes a final retained-disk increase of **at least 10% and 64 KiB** against the base commit.
+That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
+Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
+Only the same case and measure above its limit in both comparisons produces a warning.
+Excess size stays advisory. Invalid measurements, an unstable checkpoint, and failed uploads block `benchmark-complete`.
+CI warns above 1.5× even when the base also exceeds that ceiling. This states current excess, not PR causation.
+
+The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
+This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
+Do not compare these ratios with the v1 growth pass or with a different workload.
 
 ## Request phases
 

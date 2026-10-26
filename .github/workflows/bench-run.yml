@@ -42,7 +42,7 @@ jobs:
   measure:
     name: Reads, durable writes, and concurrency (advisory)
     runs-on: ubuntu-24.04
-    timeout-minutes: 270
+    timeout-minutes: 350
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
@@ -290,6 +290,30 @@ jobs:
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
 
+      - name: Measure v2 disk size against logical atom bytes
+        id: disk-budget
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/run.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --baseline-workers "$BENCH_BASELINE_WORKERS" \
+              --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
+              --driver-revision "$DRIVER_SHA" \
+              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
+
+      - name: Repeat v2 disk size only when a size limit is crossed
+        id: disk-budget-confirmation
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/confirm.py --kind disk --output "$BENCH_OUTPUT/disk-budget"
+
       - name: Capture native phases in separate generated homes
         if: inputs.investigation
         env:
@@ -358,6 +382,16 @@ jobs:
         run: |
           python3 driver/scripts/benchmarks/growth_report.py \
             --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME" \
+            --confirmation-status "$CONFIRMATION_OUTCOME"
+
+      - name: Publish the advisory v2 disk size budget
+        if: always()
+        env:
+          GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}
+          CONFIRMATION_OUTCOME: ${{ steps.disk-budget-confirmation.outcome }}
+        run: |
+          python3 driver/scripts/benchmarks/disk_budget_report.py \
+            --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME" \
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Upload measurements and build receipts
