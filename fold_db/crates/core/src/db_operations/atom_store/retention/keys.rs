@@ -63,7 +63,7 @@ fn slot_suffix(molecule: &str, hash: &str, range: &str) -> String {
 }
 
 /// The prefix of the directory entries of one slot.
-pub(super) fn slot_dir_prefix(
+pub(crate) fn slot_dir_prefix(
     scope: Option<&str>,
     molecule: &str,
     hash: &str,

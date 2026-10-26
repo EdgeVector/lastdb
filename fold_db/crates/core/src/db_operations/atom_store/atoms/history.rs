@@ -1,6 +1,16 @@
 use super::*;
 
 impl AtomStore {
+    pub(crate) async fn history_key_codec(
+        &self,
+        molecule_uuid: &str,
+    ) -> Result<crate::atom::MoleculeKeyCodec, SchemaError> {
+        if self.typed_ranges {
+            self.load_molecule_key_bundle(molecule_uuid).await?;
+        }
+        self.key_codec_for_molecule(molecule_uuid)
+    }
+
     /// Load all mutation events for a molecule, sorted chronologically.
     ///
     /// The exact prefix is `history\0{molecule}:`, with the requested storage

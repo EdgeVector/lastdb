@@ -115,10 +115,7 @@ impl AtomStore {
                     continue;
                 }
 
-                if self.typed_ranges {
-                    self.load_molecule_key_bundle(mol).await?;
-                }
-                let codec = self.key_codec_for_molecule(mol)?;
+                let codec = self.history_key_codec(mol).await?;
                 let (to_delete, key_bytes) = plan_history_deletes(&events_with_keys, keep, &codec)?;
 
                 for k in &to_delete {
