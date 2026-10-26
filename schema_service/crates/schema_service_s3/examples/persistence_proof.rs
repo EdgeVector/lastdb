@@ -5,6 +5,8 @@
 //! S3_ENDPOINT=http://localhost:5000 S3_BUCKET=test-bucket \
 //! cargo run --example persistence_proof
 
+// lint:file-size-ok comprehensive proof covering 7 test scenarios (concurrent create, owner isolation, persistence, generation conflict, legacy takeover, revocation preservation, domain layer checks)
+
 use std::collections::BTreeMap;
 
 use aws_config::BehaviorVersion;
