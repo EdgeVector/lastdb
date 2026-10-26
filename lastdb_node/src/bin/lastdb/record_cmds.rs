@@ -13,7 +13,6 @@ pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Res
             key_range_prefix,
             must_exist,
             durable,
-            cloud_publication,
             json: _,
         } => mutate_command(
             data_dir,
@@ -25,7 +24,6 @@ pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Res
             MutateRequestOptions {
                 must_exist,
                 durable,
-                cloud_publication,
             },
         ),
         Command::List {
