@@ -198,9 +198,9 @@ fn verify(source: &FrozenSource, plan: &ConversionPlan, target: &Target) -> Stor
         return Err(invalid("V2 source is required"));
     };
     let sources = [main, cas.as_ref()];
-    for slot in 0..2 {
+    for (slot, input) in sources.into_iter().enumerate() {
         source.check_binding()?;
-        let checked = conversion_copy::verify(sources[slot], &target.homes[slot], plan, slot)?;
+        let checked = conversion_copy::verify(input, &target.homes[slot], plan, slot)?;
         if checked != target.checkpoint.records[slot] {
             return Err(invalid(
                 "verified source count differs from encrypted progress",

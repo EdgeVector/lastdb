@@ -33,7 +33,7 @@ pub(super) fn admit(root: &Path, job: &str, resume: bool) -> StorageResult<bool>
         match marker.as_deref() {
             Some(bytes) if bytes == IN_PROGRESS || bytes == TYPED_NODE_BYTES => {}
             Some(bytes) if IN_PROGRESS.starts_with(bytes) && only_initial_markers(root)? => {
-                finish(&root.join(NODE_MARKER), IN_PROGRESS)?
+                finish(&root.join(NODE_MARKER), IN_PROGRESS)?;
             }
             None if only_initial_markers(root)? => write_new(&root.join(NODE_MARKER), IN_PROGRESS)?,
             _ => return Err(invalid("target conversion marker differs")),
