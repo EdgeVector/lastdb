@@ -85,6 +85,8 @@ The numeric logs separate requests, native write scopes, physical commits, and
 background compaction. Nested stages and concurrent work overlap. Do not add
 their durations. Request duration excludes the socket queue wait. Diagnostics
 add work, so these times do not establish the uninstrumented write limit.
+Request JSON omits zero phase fields. A request stage mean uses only records
+with that field present; the report shows this count beside the total count.
 The deliberate crash can interrupt a log record. Its exact log byte interval
 is excluded and reported; load capture and request count checks remain strict.
 The separate recovered-key check still requires the last acknowledged version.

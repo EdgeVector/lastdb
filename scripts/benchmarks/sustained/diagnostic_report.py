@@ -19,6 +19,7 @@ def timing_lines(report):
              "Concurrent durations overlap. Nested stages overlap their parents. Do not add stage or layer totals.",
              "Background merge events are observed in a phase window; they are not assigned to particular writes.",
              "Request total excludes socket queue wait. Scope durable wait overlaps physical commits.",
+             "Request JSON omits zero phase fields. Request stage means and percentiles use only events with the field present.",
              "Histogram percentiles are upper bounds from approximately 10% bins.", "",
              "| Interval / layer | Events | Expected HTTP writes | Mean capture ms | Covered total ms | Unassigned total ms | Crossing events |",
              "|---|---:|---:|---:|---:|---:|---:|"]
@@ -44,7 +45,7 @@ def timing_lines(report):
                 lines.append(f"| {stage} | {item['reported']}/{family['events']} | {value(item['total'], 1000)} | "
                              f"{value(item['mean'], 1000)} | {value(item.get('p50'), 1000)} | "
                              f"{value(item.get('p95'), 1000)} | {value(item['max'], 1000)} |")
-            lines += ["", "| Numeric count | Reported / events | Total | Mean per reported event |", "|---|---:|---:|---:|"]
+            lines += ["", "| Emitted numeric field (units in name) | Reported / events | Total | Mean per reported event |", "|---|---:|---:|---:|"]
             for count, item in sorted(family["counts"].items()):
                 if item["total"]:
                     lines.append(f"| {count} | {item['reported']}/{family['events']} | {item['total']} | {value(item['mean'])} |")

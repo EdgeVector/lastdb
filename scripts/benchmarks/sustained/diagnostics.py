@@ -110,7 +110,8 @@ def validate_event(event, allowed):
         if event.get(name) is not None:
             integer(event[name])
     if "covered_us" in event or "unassigned_us" in event:
-        if event.get("covered_us", -1) + event.get("unassigned_us", -1) != event["total_us"]:
+        if ("covered_us" not in event or "unassigned_us" not in event
+                or event["covered_us"] + event["unassigned_us"] != event["total_us"]):
             raise ValueError("Covered and unassigned time differ from capture time")
     for name in ("background", "ok", "work"):
         if name in event and type(event[name]) is not bool:

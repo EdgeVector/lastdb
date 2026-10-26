@@ -185,7 +185,8 @@ def corpus(args, size):
             try:
                 report["resources"] = telemetry.finish()
             except Exception as error:
-                report["error"] = f"resource finish: {error}"
+                report["resource_error"] = str(error)[:1200]
+                report.setdefault("error", f"resource finish: {error}")
         try:
             node.close()
         except Exception as error:
