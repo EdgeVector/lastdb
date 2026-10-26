@@ -35,7 +35,7 @@ cargo build -p fold_db
 cargo clippy -p fold_db --all-targets -- -D warnings
 ```
 
-- Storage: LastStore (vendored under monorepo `vendor/`)
+- Storage: LastStore (vendored under monorepo `vendor/laststore`)
 - Optional cloud sync (feature-gated; Mini hosts opt in)
 - Observability helpers in `crates/observability`
 

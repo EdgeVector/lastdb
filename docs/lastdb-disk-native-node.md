@@ -7,10 +7,7 @@ The [storage parts guide](lastdb-storage-parts.md) describes packed files and au
 The native packed engine is the sole logical LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
 An empty home initializes directly. Startup refuses an unsupported older format before logical namespace access and performs no conversion.
-The separate owner command [lastdb-native-transfer](../vendor/laststore/src/bin/lastdb-native-transfer.rs) supports explicit record export, import, and verification.
-A compatible source reader exports records; the destination writer imports them into a nonexistent target.
-This requires a cleanly stopped source, compatible native record codecs, and retained identity and encryption keys.
-It is not an automatic startup migration or a converter for arbitrary older formats.
+The disk format v1 removal deleted the separate owner command `lastdb-native-transfer` on 2026-10-26.
 Legacy Cloud Sync activation receives an explicit error.
 Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
 

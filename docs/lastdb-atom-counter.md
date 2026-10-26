@@ -589,7 +589,7 @@ each one.
 | a queue bucket without directory row (outside the queue) | entries that no reader lists | the safety net, `verify-refs`, `recount --execute` |
 | a conflict record with no queue entry | a record that the janitor never releases | `verify-refs` finds it; `recount --execute` writes the entry |
 | a writer that bypassed the planner | a count that is wrong | `verify-refs`, then `recount --execute` |
-| a kill during pack or reclaim | files that no receipt names, an unfinished generation directory | `lastdb-pack-maintain reclaim`, the automatic sweep (`docs/lastdb-storage-parts.md`) |
+| a kill during pack or reclaim | files that no receipt names, an unfinished generation directory | the automatic sweep (`docs/lastdb-storage-parts.md`) |
 | a row without an at-rest envelope | the row reads as absent | `lastdb db reap-unsealed`, then `recount` |
 
 A leak and a loss do not come from a crash. They come from a defect in the planner or in a

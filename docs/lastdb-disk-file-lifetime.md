@@ -102,14 +102,7 @@ New, incomplete, or unknown output stays outside its removal plan.
 
 ## Product commands
 
-`lastdb-pack-maintain` requires an explicit native `--home`.
-Its commands are `compact`, `reclaim`, `inventory`, `reference`, `references`, `release`, `hold`, `hold-writer`, and `records`.
-`records` prints body hashes and original mutation versions through the supported administrative stream.
-`hold` retains a read generation for a bounded period.
-`hold-writer` reports the local hold costs and retains the writer lease after the snapshot handle ends.
-The mutation commands require the exclusive native writer lease.
-They refuse a writer that already owns that home.
-No command stops a node or activates this format on the primary.
+The disk format v1 removal deleted the `lastdb-pack-maintain` command on 2026-10-26.
 
 ## Native node maintenance
 
