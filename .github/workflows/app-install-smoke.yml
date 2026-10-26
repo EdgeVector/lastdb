@@ -360,6 +360,47 @@ jobs:
       - name: Run Brain health checks
         if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
+          # Diagnostic output before attempting connection
+          echo "=== PRE-CONNECTION DIAGNOSTICS ==="
+          echo "1. Daemon process check:"
+          pgrep -a lastdb || echo "No lastdb processes found"
+          echo "Expected daemon PID: $LASTDBD_PID"
+          if [ -n "$LASTDBD_PID" ]; then
+            if ps -p "$LASTDBD_PID" > /dev/null 2>&1; then
+              echo "✓ Daemon PID $LASTDBD_PID is still running"
+            else
+              echo "✗ Daemon PID $LASTDBD_PID is NOT running"
+            fi
+          fi
+          
+          echo ""
+          echo "2. Socket file check:"
+          ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
+          
+          echo ""
+          echo "3. Environment variables:"
+          env | grep -i -E 'sock|fbrain|lastsecrets|lastdb|test_home' | sort
+          
+          echo ""
+          echo "4. Brain config resolution:"
+          BRAIN_CONFIG="${BRAIN_CONFIG:-${FBRAIN_CONFIG:-$HOME/.brain/config.json}}"
+          echo "Brain would use config at: $BRAIN_CONFIG"
+          if [ -f "$BRAIN_CONFIG" ]; then
+            echo "Config exists, nodeSocketPath value:"
+            cat "$BRAIN_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
+          else
+            echo "Config does not exist yet"
+          fi
+          echo "FBRAIN_FOLDDB_SOCKET env var: ${FBRAIN_FOLDDB_SOCKET:-not set}"
+          
+          echo ""
+          echo "5. LastDB status check:"
+          lastdb --data-dir "$LASTDB_HOME" status 2>&1 || echo "lastdb status failed"
+          
+          echo ""
+          echo "=== END DIAGNOSTICS ==="
+          echo ""
+          
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt"
           
@@ -372,6 +413,10 @@ jobs:
           echo "Smoke test from CI run ${{ github.run_number }}" | \
             brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
             echo "Brain put failed"
+            echo ""
+            echo "=== POST-FAILURE DIAGNOSTICS ==="
+            pgrep -a lastdb || echo "No lastdb processes found"
+            ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
             exit 1
           }
           
@@ -429,6 +474,47 @@ jobs:
       - name: Run LastSecrets health checks
         if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
+          # Diagnostic output before attempting connection
+          echo "=== PRE-CONNECTION DIAGNOSTICS ==="
+          echo "1. Daemon process check:"
+          pgrep -a lastdb || echo "No lastdb processes found"
+          echo "Expected daemon PID: $LASTDBD_PID"
+          if [ -n "$LASTDBD_PID" ]; then
+            if ps -p "$LASTDBD_PID" > /dev/null 2>&1; then
+              echo "✓ Daemon PID $LASTDBD_PID is still running"
+            else
+              echo "✗ Daemon PID $LASTDBD_PID is NOT running"
+            fi
+          fi
+          
+          echo ""
+          echo "2. Socket file check:"
+          ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
+          
+          echo ""
+          echo "3. Environment variables:"
+          env | grep -i -E 'sock|fbrain|lastsecrets|lastdb|test_home' | sort
+          
+          echo ""
+          echo "4. LastSecrets config resolution:"
+          LASTSECRETS_CONFIG="${LASTSECRETS_CONFIG:-$HOME/.lastsecrets/config.json}"
+          echo "LastSecrets would use config at: $LASTSECRETS_CONFIG"
+          if [ -f "$LASTSECRETS_CONFIG" ]; then
+            echo "Config exists, nodeSocketPath value:"
+            cat "$LASTSECRETS_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
+          else
+            echo "Config does not exist yet"
+          fi
+          echo "LASTSECRETS_SOCKET_PATH env var: ${LASTSECRETS_SOCKET_PATH:-not set}"
+          
+          echo ""
+          echo "5. LastDB status check:"
+          lastdb --data-dir "$LASTDB_HOME" status 2>&1 || echo "lastdb status failed"
+          
+          echo ""
+          echo "=== END DIAGNOSTICS ==="
+          echo ""
+          
           lastsecrets --version 2>&1 | tee "$PROOF_DIR/lastsecrets-version.txt" || echo "No version flag"
           
           # List empty secrets
