@@ -32,6 +32,17 @@ pub enum FoldDbError {
     /// Errors related to security operations
     SecurityError(String),
 
+    /// App already exists with a different owner (typed for proper error mapping).
+    /// Contains the current owner's dev public key.
+    AppOwnerConflict { current_owner_dev_pubkey: String },
+
+    /// Channel generation conflict (typed for proper error mapping).
+    /// Contains the expected and supplied generation values.
+    GenerationConflict { expected: u64, supplied: u64 },
+
+    /// S3/storage operation error (string form).
+    S3(String),
+
     /// Other errors that don't fit into the above categories
     Other(String),
 }
@@ -46,6 +57,17 @@ impl fmt::Display for FoldDbError {
             Self::Io(err) => write!(f, "IO error: {err}"),
             Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
             Self::SecurityError(msg) => write!(f, "Security error: {msg}"),
+            Self::AppOwnerConflict {
+                current_owner_dev_pubkey,
+            } => write!(
+                f,
+                "App already exists with different owner: {current_owner_dev_pubkey}"
+            ),
+            Self::GenerationConflict { expected, supplied } => write!(
+                f,
+                "Generation conflict: expected {expected}, supplied {supplied}"
+            ),
+            Self::S3(msg) => write!(f, "S3 error: {msg}"),
             Self::Other(msg) => write!(f, "Error: {msg}"),
         }
     }

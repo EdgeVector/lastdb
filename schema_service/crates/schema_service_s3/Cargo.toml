@@ -19,6 +19,11 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tracing = "0.1"
 
+[dev-dependencies]
+aws-config = { workspace = true }
+chrono = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 [lints]
 workspace = true
 
