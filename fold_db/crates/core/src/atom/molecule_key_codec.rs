@@ -18,8 +18,12 @@
 use crate::crypto::E2eKeys;
 
 pub mod conversion;
+mod profile;
 mod range_decode;
 pub mod storage_profile;
+
+/// Logical typed-range format; physical run blocks keep their existing format.
+pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
 
 /// Chokepoint: API HashKey/RangeKey → storage segments.
 ///
@@ -28,6 +32,7 @@ pub mod storage_profile;
 pub struct MoleculeKeyCodec {
     hash_encoding: HashKeyEncoding,
     range_encoding: RangeKeyEncoding,
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
     /// Required when hash encoding is blind.
     index_key: Option<[u8; 32]>,
     /// Required when range encoding is OPE.
@@ -39,6 +44,7 @@ impl std::fmt::Debug for MoleculeKeyCodec {
         f.debug_struct("MoleculeKeyCodec")
             .field("hash_encoding", &self.hash_encoding)
             .field("range_encoding", &self.range_encoding)
+            .field("range_profile", &self.range_profile)
             .finish_non_exhaustive()
     }
 }
@@ -48,6 +54,7 @@ impl Default for MoleculeKeyCodec {
         Self {
             hash_encoding: HashKeyEncoding::Plain,
             range_encoding: RangeKeyEncoding::Plain,
+            range_profile: None,
             index_key: None,
             ope_key: None,
         }
@@ -61,6 +68,7 @@ impl MoleculeKeyCodec {
         Self {
             hash_encoding: encoding,
             range_encoding: RangeKeyEncoding::Plain,
+            range_profile: None,
             index_key,
             ope_key: None,
         }
@@ -77,6 +85,7 @@ impl MoleculeKeyCodec {
         Self {
             hash_encoding,
             range_encoding,
+            range_profile: None,
             index_key,
             ope_key,
         }
@@ -98,17 +107,30 @@ impl MoleculeKeyCodec {
     }
 
     /// Select a range representation without changing hash encoding or keys.
-    #[must_use]
-    pub fn with_range_encoding(&self, range_encoding: RangeKeyEncoding) -> Self {
-        Self {
+    pub fn with_range_encoding(
+        &self,
+        range_encoding: RangeKeyEncoding,
+    ) -> Result<Self, MoleculeKeyCodecError> {
+        if self.range_profile.is_some() && range_encoding != RangeKeyEncoding::Plain {
+            return Err(MoleculeKeyCodecError::InvalidRange(
+                "a typed molecule range cannot use OPE".into(),
+            ));
+        }
+        Ok(Self {
             range_encoding,
             ..self.clone()
-        }
+        })
     }
 
     /// Public format identity only; no encryption key material enters a cursor.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {
+        if self.range_profile.is_some() {
+            return match self.hash_encoding {
+                HashKeyEncoding::Plain => "plain/plain:typed-scalar-v1",
+                HashKeyEncoding::BlindV1 => "blind-v1/plain:typed-scalar-v1",
+            };
+        }
         match (self.hash_encoding, self.range_encoding) {
             (HashKeyEncoding::Plain, RangeKeyEncoding::Plain) => "plain/plain:utf8-v1",
             (HashKeyEncoding::Plain, RangeKeyEncoding::OpeV1) => "plain/ope-v1:utf8-v1",
@@ -119,6 +141,9 @@ impl MoleculeKeyCodec {
 
     #[must_use]
     pub fn key_order(&self) -> schema_types::key_comparison::KeyOrderVersion {
+        if self.range_profile.is_some() {
+            return schema_types::key_comparison::KeyOrderVersion::TypedScalarV1;
+        }
         match self.range_encoding {
             RangeKeyEncoding::Plain | RangeKeyEncoding::OpeV1 => {
                 schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1
@@ -157,6 +182,11 @@ impl MoleculeKeyCodec {
         molecule_uuid: &str,
         api_range: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
+        if let Some(profile) = self.range_profile {
+            return profile
+                .encode_value(api_range)
+                .map_err(MoleculeKeyCodecError::InvalidRange);
+        }
         if api_range.is_empty() {
             return Ok(String::new());
         }

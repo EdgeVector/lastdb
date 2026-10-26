@@ -44,6 +44,24 @@ impl MoleculeRangeProfile {
         Ok(())
     }
 
+    /// Direct field reads use this domain without a second schema lookup.
+    pub fn comparison_type(self) -> Result<FieldValueType, String> {
+        self.validate()?;
+        match self {
+            Self::EmptyV1 => Ok(FieldValueType::String),
+            Self::TypedV1 { scalar } => match scalar {
+                RangeStorageProfile::StringUtf8V1 => Ok(FieldValueType::String),
+                RangeStorageProfile::IntegerI64V1 => Ok(FieldValueType::Integer),
+                RangeStorageProfile::DateDaysV1 => Ok(FieldValueType::Date),
+                RangeStorageProfile::DateTimeNanosV1 => Ok(FieldValueType::DateTime),
+                RangeStorageProfile::BooleanV1 => Ok(FieldValueType::Boolean),
+                RangeStorageProfile::LegacyUtf8V1 => {
+                    Err("a typed profile cannot use legacy order".into())
+                }
+            },
+        }
+    }
+
     pub fn encode_value(self, api: &str) -> Result<String, String> {
         self.validate()?;
         match self {

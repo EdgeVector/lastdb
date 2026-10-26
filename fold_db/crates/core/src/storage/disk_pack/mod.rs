@@ -44,6 +44,7 @@ mod restore;
 pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
+mod run_admission;
 mod run_commit;
 mod run_node;
 pub mod run_restore;

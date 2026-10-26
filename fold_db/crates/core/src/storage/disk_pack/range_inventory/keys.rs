@@ -220,7 +220,10 @@ pub(super) fn validate_conversion(
         .map(|key| key.len() as u64)
         .sum();
     let source = ProfiledRangeCodec::new(RangeStorageProfile::LegacyUtf8V1, &molecule.codec);
-    let target_codec = molecule.codec.with_range_encoding(target_range_encoding);
+    let target_codec = molecule
+        .codec
+        .with_range_encoding(target_range_encoding)
+        .map_err(|_| invalid("the target range representation is incompatible"))?;
     let target = report
         .proposed_profile
         .filter(|_| report.blockers.is_empty())

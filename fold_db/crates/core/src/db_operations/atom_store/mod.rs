@@ -173,6 +173,7 @@ pub struct AtomStore {
     /// content seal and no molecule key bundle name. The block seal of each
     /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
     plain_content: bool,
+    typed_ranges: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
