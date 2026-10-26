@@ -58,56 +58,14 @@ impl SchemaServiceState {
             ));
         }
 
-        if request.contract_version.is_empty()
-            || request.contract_version.len() > 64
-            || !request
-                .contract_version
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == 'x')
-        {
-            return Err(CompatRowError::InvalidBody(
-                "contract_version must be 1-64 chars matching [a-zA-Z0-9.-x]+".to_string(),
-            ));
-        }
+        validate_contract_version(&request.contract_version)?;
 
         if self.get_release(release_id).is_none() {
             return Err(CompatRowError::UnknownRelease(release_id.to_string()));
         }
 
-        use app_identity_crypto::{compute_payload_hash, verifying_key_from_base64};
-        use base64::engine::general_purpose::STANDARD as BASE64;
-        use base64::Engine as _;
-
-        let envelope: app_identity_crypto::SignatureEnvelope =
-            serde_json::from_str(sig_header).map_err(|_| CompatRowError::SignatureInvalid)?;
-
-        let verifying_key = verifying_key_from_base64(verifier_pubkey)
-            .map_err(|_| CompatRowError::VerifierNotConfigured)?;
-
-        let envelope_payload_hash = envelope.payload_hash.as_str();
-        let computed_hash =
-            compute_payload_hash(body).map_err(|_| CompatRowError::SignatureInvalid)?;
-
-        if envelope_payload_hash != computed_hash {
-            return Err(CompatRowError::SignatureInvalid);
-        }
-
-        let sig_b64 = envelope
-            .sig
-            .as_ref()
-            .ok_or(CompatRowError::SignatureInvalid)?;
-        let sig_bytes = BASE64
-            .decode(sig_b64.as_bytes())
-            .map_err(|_| CompatRowError::SignatureInvalid)?;
-        let signature = ::ed25519_dalek::Signature::from_slice(&sig_bytes)
-            .map_err(|_| CompatRowError::SignatureInvalid)?;
-
-        use ::ed25519_dalek::Verifier;
-        let body_canonical = app_identity_crypto::canonicalize(body)
-            .map_err(|_| CompatRowError::SignatureInvalid)?;
-        verifying_key
-            .verify(&body_canonical, &signature)
-            .map_err(|_| CompatRowError::SignatureInvalid)?;
+        let (payload_hash, signature) =
+            verify_compat_signature(verifier_pubkey, sig_header, body)?;
 
         let record = CompatRow {
             release_id: release_id.to_string(),
@@ -115,8 +73,8 @@ impl SchemaServiceState {
             verifier_pubkey: verifier_pubkey.clone(),
             verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             verification_url: request.verification_url,
-            payload_hash: envelope.payload_hash.clone(),
-            signature: sig_b64.clone(),
+            payload_hash,
+            signature,
         };
 
         self.storage
@@ -133,4 +91,60 @@ impl SchemaServiceState {
 
         Ok(record)
     }
+}
+
+fn validate_contract_version(version: &str) -> Result<(), CompatRowError> {
+    if version.is_empty()
+        || version.len() > 64
+        || !version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == 'x')
+    {
+        return Err(CompatRowError::InvalidBody(
+            "contract_version must be 1-64 chars matching [a-zA-Z0-9.-x]+".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_compat_signature(
+    verifier_pubkey: &str,
+    sig_header: &str,
+    body: &Value,
+) -> Result<(String, String), CompatRowError> {
+    use app_identity_crypto::{compute_payload_hash, verifying_key_from_base64};
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine as _;
+
+    let envelope: app_identity_crypto::SignatureEnvelope =
+        serde_json::from_str(sig_header).map_err(|_| CompatRowError::SignatureInvalid)?;
+
+    let verifying_key =
+        verifying_key_from_base64(verifier_pubkey).map_err(|_| CompatRowError::VerifierNotConfigured)?;
+
+    let envelope_payload_hash = envelope.payload_hash.as_str();
+    let computed_hash = compute_payload_hash(body).map_err(|_| CompatRowError::SignatureInvalid)?;
+
+    if envelope_payload_hash != computed_hash {
+        return Err(CompatRowError::SignatureInvalid);
+    }
+
+    let sig_b64 = envelope
+        .sig
+        .as_ref()
+        .ok_or(CompatRowError::SignatureInvalid)?;
+    let sig_bytes = BASE64
+        .decode(sig_b64.as_bytes())
+        .map_err(|_| CompatRowError::SignatureInvalid)?;
+    let signature = ::ed25519_dalek::Signature::from_slice(&sig_bytes)
+        .map_err(|_| CompatRowError::SignatureInvalid)?;
+
+    use ::ed25519_dalek::Verifier;
+    let body_canonical =
+        app_identity_crypto::canonicalize(body).map_err(|_| CompatRowError::SignatureInvalid)?;
+    verifying_key
+        .verify(&body_canonical, &signature)
+        .map_err(|_| CompatRowError::SignatureInvalid)?;
+
+    Ok((envelope.payload_hash, sig_b64.clone()))
 }
