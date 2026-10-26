@@ -180,6 +180,7 @@ jobs:
       - name: Install ${{ matrix.app }} from registry
         if: env.SKIP_BASELINE != 'true'
         run: |
+          set -o pipefail  # Make pipe failures detectable
           cd "$TEST_HOME"
           
           # Attempt install
