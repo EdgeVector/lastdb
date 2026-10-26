@@ -1,8 +1,8 @@
 //! Two batch reads resolve all uncached molecule contracts for one schema.
 
 use super::{
-    metadata_key, open_wrap, validate_identity, wrap_key_for, BundleMetadata, BundleWrap,
-    MoleculeKeyStore, StorageError, StorageResult, NODE_DOMAIN,
+    open_wrap, validate_identity, wrap_key_for, BundleWrap, MoleculeKeyStore, StorageError,
+    StorageResult, NODE_DOMAIN,
 };
 
 impl MoleculeKeyStore {
@@ -11,7 +11,7 @@ impl MoleculeKeyStore {
         for molecule in molecules {
             validate_identity(molecule, NODE_DOMAIN)?;
             if self.cached_bundle(molecule)?.is_none() {
-                missing.push(molecule);
+                missing.push(molecule.as_str());
             }
         }
         let Some(wrap_key) = self.node_wrap_key.as_ref() else {
@@ -20,17 +20,7 @@ impl MoleculeKeyStore {
         if missing.is_empty() {
             return Ok(());
         }
-        let metadata_keys: Vec<_> = missing
-            .iter()
-            .map(|molecule| metadata_key(molecule))
-            .collect();
-        let metadata = self
-            .entries
-            .get_items::<BundleMetadata>(&metadata_keys)
-            .await?;
-        if metadata.len() != missing.len() {
-            return Err(incomplete());
-        }
+        let metadata = self.metadata_batch_from_memory(&missing).await?;
         let mut present = Vec::new();
         for (molecule, metadata) in missing.into_iter().zip(metadata) {
             if let Some(metadata) = metadata {

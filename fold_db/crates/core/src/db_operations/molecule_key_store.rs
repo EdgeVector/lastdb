@@ -26,6 +26,7 @@ mod batch_load;
 mod cache;
 mod frozen;
 mod metadata;
+mod metadata_batch;
 
 pub(crate) use frozen::{
     node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
