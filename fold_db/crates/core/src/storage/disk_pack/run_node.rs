@@ -9,12 +9,14 @@
 //! The CAS files are separate files so that a backup can send them to a
 //! different store (B2) than the rest of the data (R2).
 //!
-//! Creation is explicit in this release: [`PackNamespacedStore::create_run`],
-//! or `LASTDB_DISK_FORMAT=2` when a node opens an absent or empty home. An
-//! empty home that opens without either still becomes a v1 home. The same
-//! setting converts an existing v1 home once (see `convert_v2`). The run home
-//! is complete before the marker appears, so a crash during creation leaves a
-//! home that open refuses as not empty; the owner deletes it and creates again.
+//! Every new node home is v2: a node that opens an absent or empty home
+//! creates one (see `is_new_home`), and [`PackNamespacedStore::create_run`]
+//! creates one on request. Both need the node encryption key. An existing v1
+//! home still opens as v1; `LASTDB_DISK_FORMAT=2` converts it once (see
+//! `convert_v2`). The run home is complete before the marker appears, so a
+//! crash during creation leaves the creation intent without a marker. Open
+//! refuses that home, which holds no data; the owner deletes it and starts
+//! the node again.
 //!
 //! As in a v1 home, a new home holds an intent file until the node writes its
 //! key-format proofs. Until then the runtime admits only that first batch;
@@ -25,6 +27,7 @@
 
 use super::*;
 use laststore::disk_run::home::RunHome;
+use rand::{rngs::OsRng, RngCore};
 use std::io::Write;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\ncas=disk-cas\n";
@@ -53,18 +56,27 @@ pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
     Ok(marker.as_deref() == Some(RUN_NODE_BYTES))
 }
 
-/// True when the owner asked for format v2 and `path` is absent or empty.
-pub(super) fn wants_new_run_node(path: &Path) -> StorageResult<bool> {
-    let asked = std::env::var("LASTDB_DISK_FORMAT").as_deref() == Ok("2");
-    if !asked {
-        return Ok(asked);
-    }
+/// True when `path` is absent or empty: a new node home, which is v2.
+pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
     let entries = match std::fs::read_dir(path) {
         Ok(entries) => Some(entries),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
+}
+
+/// Refuse a v2 home whose creation stopped before the node marker. The
+/// runtime opens only after the marker, so such a home holds no data.
+pub(super) fn refuse_interrupted_creation(path: &Path) -> StorageResult<()> {
+    if path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()? {
+        return Err(StorageError::InvalidOperation(
+            "a format v2 node home creation stopped before its node marker; the home holds \
+             no data, so delete it and start the node again"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// The main run home key: HKDF-SHA256 of the node encryption key. The copy
@@ -89,7 +101,7 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
 pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
-            "a format v2 node home needs the node encryption key to open".into(),
+            "a format v2 node home needs the node encryption key; every new node home is v2".into(),
         )
     })
 }
@@ -119,6 +131,16 @@ impl PackNamespacedStore {
         std::fs::rename(&staged, path.join(NODE_MARKER))?;
         std::fs::File::open(path)?.sync_all()?;
         Self::open_run(path, Some(node_key))
+    }
+
+    /// Create a new format v2 node home in `path`, which must be absent or
+    /// empty, under a random node key that no one keeps: no later open can
+    /// read the home. For in-process callers without a node identity, such as
+    /// a benchmark on a temporary directory.
+    pub fn create_ephemeral(path: &Path) -> StorageResult<Self> {
+        let mut node_key = zeroize::Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(node_key.as_mut());
+        Self::create_run(path, &node_key)
     }
 
     pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {

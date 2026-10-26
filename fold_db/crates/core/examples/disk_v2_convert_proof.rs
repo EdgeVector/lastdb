@@ -18,6 +18,8 @@
 //!
 //! Each step opens the database operations with the node key, as the daemon
 //! does, so the v1 home holds the content key proof that the conversion checks.
+//! A node makes every new home v2, so the first step creates the v1 home with
+//! the hidden `PackNamespacedStore::create_v1_home`.
 //!
 //! Each open runs in its own child process of this program, as a daemon
 //! restart does: a closed v1 store keeps background tasks until its process
@@ -217,7 +219,11 @@ fn child(name: &str, node: &Path, node_key: &str, convert: bool) -> Result<()> {
 /// One child: one open of the node home, then the process ends.
 async fn step(name: &str, node: &Path, node_key: &str) -> Result<()> {
     let node_key = unhex(node_key)?;
-    let opened = PackNamespacedStore::open_keyed(node, Some(&node_key));
+    let opened = if name == "write-v1" {
+        PackNamespacedStore::create_v1_home(node)
+    } else {
+        PackNamespacedStore::open_keyed(node, Some(&node_key))
+    };
     if name == "refused" {
         return match opened {
             Ok(_) => Err("the open was not refused".into()),

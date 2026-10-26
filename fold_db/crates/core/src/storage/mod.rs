@@ -12,7 +12,8 @@
 //! EncryptingNamespacedStore (local CAS records only)
 //!         │
 //!         ▼
-//! disk_pack::PackNamespacedStore (native packed files)
+//! disk_pack::PackNamespacedStore (native node home: format v2 run files
+//!         for every new home, v1 packed files for an older home)
 //! ```
 //!
 //! Cloud multi-device export is **not** a KvStore decorator. Store-level

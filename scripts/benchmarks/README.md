@@ -242,6 +242,7 @@ Every measured PR update, merge group, main push, and nightly run also checks th
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
 It selects `LASTDB_DISK_FORMAT=2` for both generated homes and verifies the format-3 node marker.
 The ordinary speed and resource passes keep the product default format.
+Since phase V3, the product default for a new home is v2. The setting stays so that a baseline program from before V3 also makes a v2 home.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
