@@ -172,7 +172,7 @@ impl AtomStore {
                 return Ok(None);
             };
             let keys = next?
-                .into_iter()
+                .iter()
                 .map(|key| {
                     ReadyTipKey::new(
                         &source.molecule,

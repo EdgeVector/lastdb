@@ -28,7 +28,7 @@ struct ReadyTipKey {
 impl ReadyTipKey {
     fn new(
         molecule: &str,
-        key: CoreStoredKey,
+        key: &CoreStoredKey,
         api: Option<(&str, &crate::atom::MoleculeKeyCodec)>,
     ) -> Result<Self, SchemaError> {
         let base = molecule_key_codec::hash_range_record_key(molecule, &key.hash, &key.range);

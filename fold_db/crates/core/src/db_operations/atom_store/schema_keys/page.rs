@@ -40,7 +40,7 @@ impl AtomStore {
             }
             let selected = page
                 .keys
-                .into_iter()
+                .iter()
                 .map(|key| ReadyTipKey::new(molecule, key, None))
                 .collect::<Result<_, SchemaError>>()?;
             let visible = self

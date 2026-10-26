@@ -35,7 +35,7 @@ impl AtomStore {
             };
             let (selected, frontier) = selected?;
             let selected = selected
-                .into_iter()
+                .iter()
                 .map(|key| ReadyTipKey::new(molecule, key, Some((selection.api_hash, &codec))))
                 .collect::<Result<_, SchemaError>>()?;
             let rows = self
