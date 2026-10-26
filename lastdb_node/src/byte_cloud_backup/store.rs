@@ -200,9 +200,9 @@ fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
             Err(error) => return Err(error.into()),
         }
     }
-    let _space = laststore::disk_pack::maintenance::reserve_space(
+    let _space = laststore::space::reserve_space(
         parent,
-        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+        &laststore::space::SpacePolicy::default(),
         2 * MAX_JSON + 65536,
     )
     .map_err(|_| BackupError::Disk)?;

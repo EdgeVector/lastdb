@@ -12,7 +12,8 @@
 
 pub(super) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLLECTION, V2_FEATURES};
 use super::*;
-use laststore::disk_pack::{HashRangeCursor, RangeBounds, ReadCosts};
+use laststore::disk_pack::{HashRangeCursor, ReadCosts};
+use laststore::disk_run::home::RangeBounds;
 use laststore::disk_run::home::RunHashRange;
 
 /// Most operations in one v2 commit; the same ceiling as a v1 native home.

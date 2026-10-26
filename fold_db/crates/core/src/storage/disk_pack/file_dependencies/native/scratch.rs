@@ -1,6 +1,6 @@
 //! Private disk output with free-space admission before each bounded write.
 use super::{invalid, StorageResult};
-use laststore::disk_pack::maintenance::{reserve_space, SpacePolicy, SpaceReservation};
+use laststore::space::{reserve_space, SpacePolicy, SpaceReservation};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, Write};
 use std::os::unix::fs::OpenOptionsExt;

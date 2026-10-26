@@ -7,7 +7,8 @@ use lastdb_storage_policy::backup_decode::{
     FILE_COVERAGE_MEMORY_BYTES, NATIVE_STREAM_BLOCKS,
 };
 use laststore::disk_pack::home::DiskHome;
-use laststore::disk_pack::{Current, ReadBudget};
+use laststore::disk_pack::Current;
+use laststore::disk_run::home::ReadBudget;
 use std::collections::BTreeSet;
 mod native_file;
 

@@ -4,9 +4,10 @@
 use super::{map, StorageError, StorageResult};
 use crate::crypto::{at_rest::open_at_rest_bounded, content_key_proof as proof, is_sealed_at_rest};
 use crate::db_operations::atom_store::{key_format, AtomStore};
-use crate::storage::{encrypting_namespaced_store::CATALOG_NAMESPACES, laststore::native_routing};
-use laststore::disk_pack::home::{DiskHome, HomeMutation, HomeRead, HomeSnapshot};
-use laststore::disk_pack::{maintenance::visit_generation, ReadBudget};
+use crate::storage::{disk_pack::native_routing, encrypting_namespaced_store::CATALOG_NAMESPACES};
+use laststore::disk_pack::home::{DiskHome, HomeRead, HomeSnapshot};
+use laststore::disk_pack::maintenance::visit_generation;
+use laststore::disk_run::home::{HomeMutation, ReadBudget};
 use std::io::Read;
 use std::path::Path;
 
@@ -134,7 +135,7 @@ fn commit(writer: &mut HomeSnapshot, batch: Vec<HomeMutation>) -> laststore::Res
     let reservation = writer.reserve_mutation(&batch)?;
     let _space = writer.reserve_space(
         reservation.quote().physical_bytes(),
-        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+        &laststore::space::SpacePolicy::default(),
     )?;
     writer.commit_mutation(batch, reservation)?;
     Ok(())

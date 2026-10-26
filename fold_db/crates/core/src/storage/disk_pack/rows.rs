@@ -1,7 +1,6 @@
-use super::super::laststore::{native_routing, LastStoreKvStore};
 use super::physical::{PhysicalCursor, PhysicalRead};
 use super::*;
-use laststore::disk_pack::RangeBounds;
+use laststore::disk_run::home::RangeBounds;
 use std::collections::VecDeque;
 
 pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
@@ -33,7 +32,7 @@ impl PackKvStore {
         let pending = transaction::PendingBatch::current(&runtime);
         let namespace = self.namespace.clone();
         let observed = Arc::clone(&context);
-        let result = LastStoreKvStore::run_blocking(move || {
+        let result = run_blocking(move || {
             let mut combined = Vec::new();
             let collections = if namespace == "main" {
                 native_routing::prefix_collections(prefix.as_bytes())
@@ -105,7 +104,7 @@ impl PackKvStore {
             vec![self.namespace.clone()]
         };
         let observed = Arc::clone(&context);
-        let result = LastStoreKvStore::run_blocking(move || {
+        let result = run_blocking(move || {
             let mut out = Vec::new();
             for collection in collections {
                 let (rows, exhausted) = runtime.raw_rows(

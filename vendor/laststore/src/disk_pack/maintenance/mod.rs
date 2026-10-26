@@ -7,7 +7,6 @@ mod concurrent;
 mod merge;
 mod quote;
 mod reclaim;
-mod space;
 mod staged;
 mod stream;
 mod tier;
@@ -15,7 +14,7 @@ mod tier_policy;
 mod tier_quote;
 mod visit;
 
-pub use space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};
+pub use crate::space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};
 pub use visit::{visit_generation, visit_generation_streaming, StoredRecord};
 
 /// Work performed by one complete maintenance call.

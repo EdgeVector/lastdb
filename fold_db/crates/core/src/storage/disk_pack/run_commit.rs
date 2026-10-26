@@ -44,11 +44,9 @@ impl PackRuntime {
             Some(previous) => previous
                 .space()
                 .reserve_extension(&self.space_policy, batch_bytes),
-            None => laststore::disk_pack::maintenance::reserve_space(
-                v2.home.path(),
-                &self.space_policy,
-                batch_bytes,
-            ),
+            None => {
+                laststore::space::reserve_space(v2.home.path(), &self.space_policy, batch_bytes)
+            }
         }
         .map_err(map)?;
         Ok(write::PreparedCommit::for_run(

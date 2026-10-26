@@ -137,7 +137,7 @@ impl ReadContext {
             ));
         }
         let runtime = Arc::clone(runtime);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || Self::new(&runtime)).await
+        super::run_blocking(move || Self::new(&runtime)).await
     }
 
     pub(super) fn remember<T>(&self, result: &StorageResult<T>) {
@@ -261,10 +261,8 @@ pub(super) async fn write_scope<T>(
     pending: Arc<transaction::PendingBatch>,
     future: impl std::future::Future<Output = T>,
 ) -> StorageResult<T> {
-    let context = super::super::laststore::LastStoreKvStore::run_blocking(move || {
-        ReadContext::capture(&runtime, Some(pending))
-    })
-    .await?;
+    let context =
+        super::run_blocking(move || ReadContext::capture(&runtime, Some(pending))).await?;
     let scope = PackReadScope { context };
     let result = scope.run(future).await;
     if let Some(error) = scope.context.error() {

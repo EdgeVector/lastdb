@@ -44,12 +44,12 @@ pub(super) fn certified_source(
     else {
         return Ok(None);
     };
-    let raw = crate::storage::laststore::native_routing::decode(&certificate.source.key)?;
+    let raw = crate::storage::disk_pack::native_routing::decode(&certificate.source.key)?;
     let Ok(key) = String::from_utf8(raw) else {
         return Ok(None);
     };
     if certificate.source.collection
-        != crate::storage::laststore::native_routing::collection_for_key(key.as_bytes())
+        != crate::storage::disk_pack::native_routing::collection_for_key(key.as_bytes())
         || !same_scope(&key, scope)
         || crate::atom::atom_key_codec::body_uuid_of(&key) != Some(atom.uuid())
         || certificate.fingerprint != proof::fingerprint(atom)?

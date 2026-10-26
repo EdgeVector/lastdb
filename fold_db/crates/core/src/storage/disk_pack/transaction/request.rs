@@ -1,7 +1,6 @@
 //! Complete accepted requests share one bounded queue and disk owner.
 
 use super::*;
-use crate::storage::laststore::LastStoreKvStore;
 
 pub(crate) async fn request_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
@@ -82,10 +81,8 @@ where
     let publication = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.
-    let (prepared, gate, publication) = LastStoreKvStore::run_blocking(move || {
-        Ok((owner.prepare_queued(operations)?, gate, publication))
-    })
-    .await?;
+    let (prepared, gate, publication) =
+        run_blocking(move || Ok((owner.prepare_queued(operations)?, gate, publication))).await?;
     super::super::timing::mark(&mut timing, "capacity_prepare_us");
     protect_paths(&runtime, &pending)?;
     // Every caller waits for the complete snapshot and clean core publication.

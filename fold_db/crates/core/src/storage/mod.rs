@@ -30,7 +30,6 @@ pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;
 pub mod error;
-pub mod laststore;
 pub mod reap_unsealed;
 pub mod reseal_at_rest;
 pub mod traits;

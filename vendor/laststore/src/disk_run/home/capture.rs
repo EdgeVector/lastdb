@@ -1,8 +1,8 @@
 //! Durable flat holds of unchanged run-home files. Never a second owner.
 use super::{
-    manifest::Manifest, read_descriptor_file, RunHome, RunRead, RunReadCosts, RUN_HOME_MARKER,
+    manifest::Manifest, read_descriptor_file, ReadBudget, RunHome, RunRead, RunReadCosts,
+    RUN_HOME_MARKER,
 };
-use crate::disk_pack::ReadBudget;
 use crate::durability::sync_directory;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,15 @@ pub struct CapturedRunFile {
     /// Exact unchanged file length.
     pub bytes: u64,
 }
+/// One original immutable file, or an exact generated snapshot selector.
+#[derive(Clone, Debug)]
+pub struct SnapshotFile {
+    /// Exact path relative to the native home, including snapshot selectors.
+    pub path: PathBuf,
+    /// Complete stored file length, at most one native part.
+    pub bytes: u64,
+}
+
 /// A durable exact run-home cut. Drop never releases its hardlinks.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

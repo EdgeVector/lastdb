@@ -13,27 +13,24 @@ pub(super) struct Store {
     pub root: PathBuf,
     bytes: AtomicU64,
     coordinator: AtomicU64,
-    policy: laststore::disk_pack::maintenance::SpacePolicy,
+    policy: laststore::space::SpacePolicy,
     space_root: PathBuf,
 }
 impl Store {
-    pub fn open(
-        home: &Path,
-        policy: &laststore::disk_pack::maintenance::SpacePolicy,
-    ) -> StorageResult<Self> {
+    pub fn open(home: &Path, policy: &laststore::space::SpacePolicy) -> StorageResult<Self> {
         let root = home.join("cloud-byte-source-v2");
         Self::open_root(&root, home, policy)
     }
     pub(super) fn open_external(
         root: &Path,
-        policy: &laststore::disk_pack::maintenance::SpacePolicy,
+        policy: &laststore::space::SpacePolicy,
     ) -> StorageResult<Self> {
         Self::open_root(root, root, policy)
     }
     fn open_root(
         root: &Path,
         space_root: &Path,
-        policy: &laststore::disk_pack::maintenance::SpacePolicy,
+        policy: &laststore::space::SpacePolicy,
     ) -> StorageResult<Self> {
         match fs::DirBuilder::new().mode(0o700).create(root) {
             Ok(()) => File::open(
@@ -153,12 +150,9 @@ impl Store {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
             Err(error) => return Err(error.into()),
         };
-        let _space = laststore::disk_pack::maintenance::reserve_space(
-            &self.space_root,
-            &self.policy,
-            bytes.len() as u64,
-        )
-        .map_err(super::super::map)?;
+        let _space =
+            laststore::space::reserve_space(&self.space_root, &self.policy, bytes.len() as u64)
+                .map_err(super::super::map)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -202,9 +196,8 @@ impl Store {
         let pending = self.root.join(format!("{name}.pending"));
         self.remove_path(&pending)?;
         self.admit(total)?;
-        let _space =
-            laststore::disk_pack::maintenance::reserve_space(&self.space_root, &self.policy, total)
-                .map_err(super::super::map)?;
+        let _space = laststore::space::reserve_space(&self.space_root, &self.policy, total)
+            .map_err(super::super::map)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)

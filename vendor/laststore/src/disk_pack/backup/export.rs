@@ -9,21 +9,13 @@ use crate::disk_pack::lifetime::{
     DurableReference, GenerationHold, ReferencePurpose, WriterReadLease,
 };
 use crate::disk_pack::{corrupt, Current, ReadBudget, PART_BYTES};
+use crate::disk_run::home::SnapshotFile;
 use crate::Result;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const MAX_FILES: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
-
-/// One original immutable file, or an exact generated snapshot selector.
-#[derive(Clone, Debug)]
-pub struct SnapshotFile {
-    /// Exact path relative to the native home, including snapshot selectors.
-    pub path: PathBuf,
-    /// Complete stored file length, at most one native part.
-    pub bytes: u64,
-}
 
 /// A complete file inventory bound to one durable cloud-recovery reference.
 pub struct SnapshotExport {

@@ -34,7 +34,7 @@ use crate::crypto::{at_rest::open_at_rest_bounded, content_key_proof as proof, i
 use crate::db_operations::atom_store::{
     decode_plain_atom, encode_plain_atom, key_format, AtomStore,
 };
-use crate::storage::{encrypting_namespaced_store::CATALOG_NAMESPACES, laststore::native_routing};
+use crate::storage::{disk_pack::native_routing, encrypting_namespaced_store::CATALOG_NAMESPACES};
 use laststore::disk_pack::home::HomeSnapshot;
 use std::collections::{BTreeMap, HashMap};
 use zeroize::Zeroizing;

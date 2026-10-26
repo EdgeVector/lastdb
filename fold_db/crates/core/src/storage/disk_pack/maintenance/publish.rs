@@ -24,49 +24,48 @@ impl PackRuntime {
             output = next;
             self.parts.progress.phase(4);
             let runtime = Arc::clone(self);
-            let (next, result) =
-                super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    // Join the same FIFO as clients from inside the blocking
-                    // worker. Waiting owns no gate, and a busy client does not
-                    // discard prepared files before the exact-root check.
-                    let waiting = std::time::Instant::now();
-                    let boundary = runtime.write_gate.blocking_lock();
-                    let wait_ms = millis_since(waiting);
-                    let started = std::time::Instant::now();
-                    let mut output = Some(output);
-                    let mut result = runtime.attempt_native_pack(
-                        output.as_mut().expect("private compaction"),
-                        &mut staged,
-                        started,
-                        retry,
-                    );
-                    if matches!(&result, Ok(Attempt::Changed)) {
-                        match runtime
-                            .offer_pack_merge(output.take().expect("private compaction"), retry)
-                        {
-                            super::handoff::Offer::Retry(next) => output = Some(*next),
-                            super::handoff::Offer::Queued(receive) => {
-                                result = Ok(Attempt::Handoff(receive));
-                            }
+            let (next, result) = super::super::run_blocking(move || {
+                // Join the same FIFO as clients from inside the blocking
+                // worker. Waiting owns no gate, and a busy client does not
+                // discard prepared files before the exact-root check.
+                let waiting = std::time::Instant::now();
+                let boundary = runtime.write_gate.blocking_lock();
+                let wait_ms = millis_since(waiting);
+                let started = std::time::Instant::now();
+                let mut output = Some(output);
+                let mut result = runtime.attempt_native_pack(
+                    output.as_mut().expect("private compaction"),
+                    &mut staged,
+                    started,
+                    retry,
+                );
+                if matches!(&result, Ok(Attempt::Changed)) {
+                    match runtime
+                        .offer_pack_merge(output.take().expect("private compaction"), retry)
+                    {
+                        super::handoff::Offer::Retry(next) => output = Some(*next),
+                        super::handoff::Offer::Queued(receive) => {
+                            result = Ok(Attempt::Handoff(receive));
                         }
                     }
-                    drop(boundary);
-                    tracing::debug!(target: "fold_db::compaction", retry,
+                }
+                drop(boundary);
+                tracing::debug!(target: "fold_db::compaction", retry,
                         wait_ms,
                         changed = matches!(&result, Ok(Attempt::Changed)),
                         ready = matches!(&result, Ok(Attempt::Ready(_))),
                         handoff = matches!(&result, Ok(Attempt::Handoff(..))),
                         held_ms = millis_since(started), "compaction publication attempted");
-                    if let Ok(Attempt::Ready(ready)) = &mut result {
-                        let held = millis_since(started);
-                        ready.1 = ready.0.copy_millis.saturating_add(held);
-                        runtime.parts.progress.completed(&ready.0, held);
-                    }
-                    // Large path maps and temporary files never drop under the gate.
-                    drop(staged);
-                    Ok((output, result))
-                })
-                .await?;
+                if let Ok(Attempt::Ready(ready)) = &mut result {
+                    let held = millis_since(started);
+                    ready.1 = ready.0.copy_millis.saturating_add(held);
+                    runtime.parts.progress.completed(&ready.0, held);
+                }
+                // Large path maps and temporary files never drop under the gate.
+                drop(staged);
+                Ok((output, result))
+            })
+            .await?;
             match result? {
                 Attempt::Ready(ready) => return Ok(*ready),
                 Attempt::Handoff(receive) => {
@@ -94,7 +93,7 @@ impl PackRuntime {
         retry: u64,
     ) -> StorageResult<(PreparedCompaction, CompactionPublication)> {
         let runtime = Arc::clone(self);
-        super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::super::run_blocking(move || {
             output.clear_merge_capture();
             runtime.physical.release_idle();
             let capturing = std::time::Instant::now();

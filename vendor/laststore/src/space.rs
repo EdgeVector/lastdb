@@ -1,8 +1,16 @@
-use crate::disk_pack::corrupt;
+//! Disk space policy, write reservations, and the bounded native-root inventory.
+//!
+//! One process-wide ledger admits every native write against these limits.
+
 use crate::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, RwLock};
+
+// Keeps the error text of `disk_pack::corrupt`, so callers see no change.
+fn corrupt(reason: &'static str) -> crate::Error {
+    crate::Error::Corrupt(format!("disk-pack v1: {reason}"))
+}
 
 static RESERVATIONS: OnceLock<Mutex<HashMap<PathBuf, ReservationState>>> = OnceLock::new();
 static INVENTORY: RwLock<()> = RwLock::new(());
@@ -69,7 +77,7 @@ impl Drop for ReservationInventory {
 
 /// Only receipt renames need to serialize with a capped inventory. Deletions
 /// merely shrink the inventory; in-flight output retains its space reservation.
-pub(super) fn inventory_guard() -> Result<std::sync::RwLockWriteGuard<'static, ()>> {
+pub(crate) fn inventory_guard() -> Result<std::sync::RwLockWriteGuard<'static, ()>> {
     INVENTORY
         .write()
         .map_err(|_| corrupt("space inventory lock is poisoned"))
@@ -161,7 +169,7 @@ pub fn reserve_space(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<Sp
     reserve(root, policy, bytes, false)
 }
 
-pub(in crate::disk_pack) fn reserve_replacement(
+pub(crate) fn reserve_replacement(
     root: &Path,
     policy: &SpacePolicy,
     bytes: u64,
@@ -297,7 +305,7 @@ fn count(path: &Path, depth: usize, limit: usize, out: &mut SpaceUsage) -> Resul
         } else if metadata.is_file() {
             out.files += 1;
             if out.files > limit as u64 {
-                return Err(crate::disk_pack::resource());
+                return Err(crate::Error::ReadBudgetExceeded);
             }
             out.bytes = out
                 .bytes

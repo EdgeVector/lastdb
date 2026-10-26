@@ -23,13 +23,14 @@ mod stream;
 pub mod transfer;
 mod write;
 
+pub use crate::disk_run::home::HomeMutation;
 pub use admission::MutationReservation;
 pub use build::{HomeBuilder, HomeGroupWriter};
 pub use merge::PackMerge;
 pub use mutation_quote::MutationQuote;
 pub use read::HomeRead;
 pub use stream::StreamedRecord;
-pub use write::{HomeMutation, HomeSnapshot};
+pub use write::HomeSnapshot;
 
 pub(super) const MARKER: &str = "laststore-pack-home-v1";
 /// FNV-1a-64, 1024 groups, first-NUL-inclusive hash prefix, configured 1..16 fanout.

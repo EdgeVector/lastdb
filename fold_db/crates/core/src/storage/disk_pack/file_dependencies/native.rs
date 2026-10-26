@@ -3,7 +3,7 @@ use crate::sharing::delivery_wire::{
     FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1, FILE_BLOB_CIPHER_SUITE_LEGACY,
 };
 use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::maintenance::SpacePolicy;
+use laststore::space::SpacePolicy;
 use std::io::Write;
 use std::path::Path;
 
@@ -30,8 +30,7 @@ pub fn read_native_cas(
     dependency: &FileDependency,
     output: &mut impl Write,
 ) -> StorageResult<Option<NativeCasProof>> {
-    let key =
-        super::super::super::laststore::native_routing::encode(dependency.blob_ref().as_bytes());
+    let key = super::super::native_routing::encode(dependency.blob_ref().as_bytes());
     let Some(stored) = read
         .copy_body_to("cas_blobs", &key, output)
         .map_err(super::super::map)?
@@ -99,9 +98,8 @@ pub fn read_directories(
                 &directory_key(atom_id, *kind),
             );
             (
-                super::super::super::laststore::native_routing::collection_for_key(raw.as_bytes())
-                    .into(),
-                super::super::super::laststore::native_routing::encode(raw.as_bytes()),
+                super::super::native_routing::collection_for_key(raw.as_bytes()).into(),
+                super::super::native_routing::encode(raw.as_bytes()),
             )
         })
         .collect();

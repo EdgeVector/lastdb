@@ -21,7 +21,7 @@ impl PackRuntime {
             }
             let runtime = Arc::clone(self);
             let collection = name.to_string();
-            let operations = super::super::laststore::LastStoreKvStore::run_blocking(move || {
+            let operations = super::run_blocking(move || {
                 let (rows, complete) = runtime.raw_rows(
                     &context,
                     &collection,

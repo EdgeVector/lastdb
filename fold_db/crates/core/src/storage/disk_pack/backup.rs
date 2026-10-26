@@ -15,7 +15,7 @@ impl PackRuntime {
         self.flush().await?;
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
         let runtime = Arc::clone(self);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::run_blocking(move || {
             runtime.require_initialized()?;
             if runtime.failed.load(Ordering::Acquire) {
                 return Err(StorageError::BackendError(

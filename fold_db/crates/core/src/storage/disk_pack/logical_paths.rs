@@ -152,10 +152,10 @@ impl LogicalPathRecord {
             if self.slot.is_some()
                 && crate::atom::atom_key_codec::body_uuid_of(base) == Some(self.path.atom.as_str())
             {
-                let collection = crate::storage::laststore::native_routing::collection_for_key(
+                let collection = crate::storage::disk_pack::native_routing::collection_for_key(
                     source.as_bytes(),
                 );
-                let encoded = crate::storage::laststore::native_routing::encode(source.as_bytes());
+                let encoded = crate::storage::disk_pack::native_routing::encode(source.as_bytes());
                 sources.push((collection.to_owned(), encoded));
                 body = true;
             } else if crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(base)

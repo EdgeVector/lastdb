@@ -3,7 +3,7 @@
 //! Batch `n` always holds the same operations, so a parent process can
 //! rebuild the state a killed child left after any number of commits.
 
-use laststore::disk_pack::home::HomeMutation;
+use laststore::disk_run::home::HomeMutation;
 use std::collections::BTreeMap;
 
 /// Expected visible state per (collection, key); `None` is a deleted key.

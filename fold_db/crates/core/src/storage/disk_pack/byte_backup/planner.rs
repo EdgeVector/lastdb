@@ -9,7 +9,7 @@ use cloud_backup_protocol::v2::{
     Object, Version,
 };
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
-use laststore::disk_pack::backup::export::SnapshotFile;
+use laststore::disk_run::home::SnapshotFile;
 use sha2::{Digest as _, Sha256};
 use std::io::Read;
 

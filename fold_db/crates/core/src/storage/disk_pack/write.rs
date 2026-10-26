@@ -147,7 +147,7 @@ impl PackRuntime {
         let gate = self.enter_write().await;
         self.require_restore_validated()?;
         let runtime = Arc::clone(self);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || {
+        super::run_blocking(move || {
             let result = runtime.commit(operations);
             drop(gate);
             runtime.physical.release_idle();

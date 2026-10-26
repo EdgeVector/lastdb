@@ -83,7 +83,7 @@ fn verify_inner(
         path,
         key,
         dependency,
-        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+        &laststore::space::SpacePolicy::default(),
     )
     .map_err(|_| RestoreError::Invalid("native file proof"))?;
     Ok(true)

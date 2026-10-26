@@ -6,8 +6,8 @@ pub(super) fn require_validated(inner: &Inner) -> StorageResult<()> {
         run.runtime.require_restore_validated()?;
         let (mut main, _) = run.reads(super::super::budget())?;
         let key = super::super::restore_safety::PENDING_KEY.as_bytes();
-        let collection = crate::storage::laststore::native_routing::collection_for_key(key);
-        let key = crate::storage::laststore::native_routing::encode(key);
+        let collection = crate::storage::disk_pack::native_routing::collection_for_key(key);
+        let key = crate::storage::disk_pack::native_routing::encode(key);
         if main
             .get_bounded(collection, &key, 8192)
             .map_err(super::super::map)?
@@ -33,8 +33,8 @@ pub(super) fn require_validated(inner: &Inner) -> StorageResult<()> {
     // Read the same lifecycle marker under that cut's own generation hold.
     let mut reader = inner.home.read(source, super::super::budget())?;
     let key = super::super::restore_safety::PENDING_KEY.as_bytes();
-    let collection = crate::storage::laststore::native_routing::collection_for_key(key);
-    let key = crate::storage::laststore::native_routing::encode(key);
+    let collection = crate::storage::disk_pack::native_routing::collection_for_key(key);
+    let key = crate::storage::disk_pack::native_routing::encode(key);
     if reader
         .get_bounded(collection, &key, 8192)
         .map_err(super::super::map)?

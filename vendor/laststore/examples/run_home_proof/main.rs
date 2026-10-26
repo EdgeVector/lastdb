@@ -18,9 +18,7 @@ mod value_gen;
 mod values;
 
 use gen::{apply, batch, logical_bytes, overwrite_batch, tip_key, Model, TIP_SCHEMAS};
-use laststore::disk_pack::home::HomeMutation;
-use laststore::disk_pack::{RangeBounds, ReadBudget};
-use laststore::disk_run::home::{RunHome, RunRead};
+use laststore::disk_run::home::{HomeMutation, RangeBounds, ReadBudget, RunHome, RunRead};
 use laststore::disk_run::{RunOptions, RunWriter};
 use std::fs;
 use std::io::Read;

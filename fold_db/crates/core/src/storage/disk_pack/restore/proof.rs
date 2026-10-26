@@ -3,7 +3,7 @@
 use super::{map, refusal, StorageResult};
 use crate::crypto::content_key_proof as proof;
 use crate::db_operations::atom_store::{key_format, AtomStore};
-use crate::storage::laststore::native_routing;
+use crate::storage::disk_pack::native_routing;
 use laststore::disk_pack::home::HomeRead;
 
 pub(super) fn verify(reader: &mut HomeRead, account_key: &[u8; 32]) -> StorageResult<()> {

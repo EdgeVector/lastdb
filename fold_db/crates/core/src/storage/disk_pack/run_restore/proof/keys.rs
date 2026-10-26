@@ -1,8 +1,8 @@
 use super::{invalid, map, read_budget, RunRead, StorageResult};
 use crate::crypto::content_key_proof;
 use crate::db_operations::atom_store::{key_format, AtomStore};
+use crate::storage::disk_pack::native_routing;
 use crate::storage::disk_pack::restore_safety;
-use crate::storage::laststore::native_routing;
 use lastdb_storage_policy::backup_decode as budget;
 
 pub(super) fn verify(main: &RunRead, account_key: &[u8; 32]) -> StorageResult<()> {

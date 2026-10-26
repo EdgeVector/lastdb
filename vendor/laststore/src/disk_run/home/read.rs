@@ -3,7 +3,6 @@
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile};
 use super::{RunHome, MAX_VALUE_BYTES};
-use crate::disk_pack::ReadBudget;
 use crate::disk_run::{value, Found, RunReader};
 use crate::{Error, Result};
 use std::sync::Arc;
@@ -13,6 +12,19 @@ pub use stream::CopiedRunBody;
 
 /// Most coordinates one batch read accepts.
 const MAX_BATCH_KEYS: usize = 10_000;
+
+/// Finite limits shared by all work in one read call. Zero is never unlimited.
+#[derive(Clone, Copy, Debug)]
+pub struct ReadBudget {
+    /// Maximum distinct metadata pages read.
+    pub pages: u64,
+    /// Maximum distinct payload blocks decoded.
+    pub blocks: u64,
+    /// Maximum cumulative file bytes, decoded bytes, and returned body bytes.
+    pub bytes: u64,
+    /// Maximum exact keys or range entries examined.
+    pub keys: u64,
+}
 
 /// Work one read call did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
