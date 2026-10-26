@@ -35,7 +35,7 @@ deleted the desktop node on **2026-07-12**.
 ├── schema_service/             # cloud schema registry
 │   ├── crates/{core,client,server_shared,server_http,server_lambda,worker,…}
 │   └── openapi.yaml
-├── vendor/{laststore,lastdb_docstore}/
+├── vendor/laststore/
 └── docs/                       # operator + release docs (Mini / Homebrew)
 ```
 
