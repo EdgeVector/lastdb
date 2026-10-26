@@ -41,7 +41,6 @@ fn static_reason(mut detail: &str) -> &'static str {
             ("laststore: ", "laststore_other"),
             ("corrupt: ", "laststore_corrupt_other"),
             ("config: ", "laststore_config_other"),
-            ("disk-pack v1: ", "native_pack_other"),
         ]
         .into_iter()
         .find_map(|(prefix, code)| detail.strip_prefix(prefix).map(|tail| (tail, code)));

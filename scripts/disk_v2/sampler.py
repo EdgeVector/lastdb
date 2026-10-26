@@ -1,18 +1,16 @@
 """Size samples of a node folder, read in a thread while the proof runs.
 
-Each sample walks the node folder (`<home>/data`) and separates the v1
-entries from the rest. Before the switch the rest is the v2 build folders;
-after it, the v2 node folder. A walk is torn when a file or folder that it
-listed goes away before its stat (a merge or the switch removed it): such a
-walk can miss both the old and the new file, so it reads low. A torn walk
-runs again, up to WALK_TRIES times, and a sample that stays torn is not used.
+Each sample walks the v2 node folder (`<home>/data`). A walk is torn when a
+file or folder that it listed goes away before its stat (a merge removed
+it): such a walk can miss both the old and the new file, so it reads low. A
+torn walk runs again, up to WALK_TRIES times, and a sample that stays torn is
+not used.
 """
 
 import os
 import threading
 import time
 
-V1_ENTRIES = ("disk-pack", "laststore-layout-v1")
 MAX_DEPTH = 16
 WALK_TRIES = 5
 
@@ -44,10 +42,9 @@ def tree(path, depth):
 
 
 def walk(data):
-    """One walk of the node folder: all of it, its v1 entries, each entry,
-    and the count of entries that went away during the walk."""
-    sizes = {"apparent": 0, "allocated": 0, "files": 0, "v1_apparent": 0,
-             "v1_allocated": 0, "entries": {}, "torn": 0}
+    """One walk of the node folder: all of it, each entry, and the count of
+    entries that went away during the walk."""
+    sizes = {"apparent": 0, "allocated": 0, "files": 0, "entries": {}, "torn": 0}
     try:
         entries = list(os.scandir(data))
     except FileNotFoundError:
@@ -66,9 +63,6 @@ def walk(data):
         sizes["allocated"] += allocated
         sizes["files"] += files
         sizes["torn"] += torn
-        if entry.name in V1_ENTRIES:
-            sizes["v1_apparent"] += apparent
-            sizes["v1_allocated"] += allocated
         sizes["entries"][entry.name] = allocated
     return sizes
 
@@ -84,9 +78,8 @@ def folder_sizes(data):
 
 
 def v2_bytes(sizes):
-    """The node folder without its v1 entries: the larger of the two counts."""
-    return max(sizes["apparent"] - sizes["v1_apparent"],
-               sizes["allocated"] - sizes["v1_allocated"])
+    """The v2 node folder: the larger of the two counts."""
+    return max(sizes["apparent"], sizes["allocated"])
 
 
 class Progress:

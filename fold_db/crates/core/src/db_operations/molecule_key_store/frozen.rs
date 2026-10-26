@@ -6,7 +6,7 @@ use super::{
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
-pub(crate) const NODE_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
+const NODE_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
 const MOLECULE_ID_MAX_BYTES: usize = 1024;
 
 /// These are the normal node-global keys, independent of an atom's body scope.

@@ -1,7 +1,5 @@
 use super::*;
-use crate::storage::disk_pack::byte_backup::{
-    codec, Bootstrap, ClientPage, ClientPageReference, ClientRoot,
-};
+use crate::storage::disk_pack::byte_backup::{codec, ClientPage, ClientPageReference, ClientRoot};
 
 pub(super) fn finish(
     inner: &Inner,
@@ -12,13 +10,12 @@ pub(super) fn finish(
     let mut index = content;
     let mut pages = Vec::new();
     let mut page = ClientPage {
-        version: if state.run.is_some() { 3 } else { 1 },
+        version: codec::CLIENT_VERSION,
         page_index: 0,
         begin_sha256: state.begin.input_sha256().map_err(protocol)?,
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
         native_files: Vec::new(),
         external_dependencies: Vec::new(),
-        stored_chunks: Vec::new(),
     };
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -55,19 +52,14 @@ pub(super) fn finish(
         begin_sha256: page.begin_sha256,
         descriptor_sha256: page.descriptor_sha256,
         native_root: state.native_root.clone(),
-        recovery: if state.run.is_some() {
-            state
-                .recovery
-                .clone()
-                .ok_or_else(|| invalid("run recovery missing"))?
-        } else {
-            Bootstrap::from_descriptor(&state.begin.descriptor)?.recovery
-        },
+        recovery: state
+            .recovery
+            .clone()
+            .ok_or_else(|| invalid("run recovery missing"))?,
         native_file_count: files,
         native_bytes: bytes,
         external_dependency_count: 0,
         pages,
-        records: None,
         run: state.run.clone(),
     };
     root.validate_for(&state.begin)?;
@@ -124,10 +116,7 @@ pub(in crate::storage::disk_pack::byte_backup) fn freeze(
         Object {
             sha256: bytes_sha256(&encrypted),
             bytes: DecimalU64::new(encrypted.len() as u64),
-            destination: state
-                .recovery
-                .as_ref()
-                .map(|_| cloud_backup_protocol::v2::Destination::R2),
+            destination: Some(cloud_backup_protocol::v2::Destination::R2),
         },
     )?;
     let record = ObjectRecord {
@@ -137,8 +126,6 @@ pub(in crate::storage::disk_pack::byte_backup) fn freeze(
         metadata_pack: false,
         ciphertext: Some(name),
         receipt: None,
-        record_segments: Vec::new(),
-        client_stream: None,
     };
     save(inner, state, index, record.clone())?;
     Ok(record)

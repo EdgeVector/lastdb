@@ -84,7 +84,6 @@ pub mod backup_decode {
     pub const NATIVE_STREAM_LOOKUP_READ_BYTES: u64 = 128 * 1024 * 1024;
     pub const NATIVE_STREAM_BLOCKS: u64 = 16_384;
     pub const FILE_COVERAGE_MEMORY_BYTES: usize = 8 * 1024 * 1024;
-    pub const FILE_COVERAGE_IDENTITY_BYTES: usize = 192;
     pub const JSON_PAGE_RESERVE_BYTES: u64 = 4 * 1024 * 1024;
     pub const RESTORE_SPOOL_RESERVE_BYTES: u64 = 16 * 1024 * 1024;
     pub const RECEIPT_MEMORY_BYTES: u64 = 512;

@@ -352,7 +352,7 @@ Keep operating system cache state explicit; fresh-process reads do not establish
 - [Current storage capabilities](../fold_db/crates/core/src/storage/traits/namespaced.rs): engine-specific flush, read, and backup access.
 - [Native read capture](../fold_db/crates/core/src/storage/disk_pack/read.rs): one captured disk and accepted-memory view.
 - [Native write admission](../fold_db/crates/core/src/storage/disk_pack/write.rs): reservation and complete publication work.
-- [Space policy](../vendor/laststore/src/disk_pack/maintenance/space.rs): disabled default hard cap and reservation rules.
+- [Space policy](../vendor/laststore/src/space.rs): disabled default hard cap and reservation rules.
 - [Atom identity](../fold_db/crates/core/src/atom/atom_def.rs): content UUID inputs.
 - [Earlier storage decision](https://github.com/EdgeVector/lastdb/blob/dd4fb20d35a4681d4806f2c34adfd764db08ca80/vendor/laststore/docs/DECISION_BRIEF_VS_SLED.md): disk reclaim as a reason for the previous engine change. The disk format v1 removal deleted this file on 2026-10-26; the link names its last version.
 - [redb design](https://github.com/cberner/redb/blob/master/docs/design.md): one example of keys and values in managed pages.

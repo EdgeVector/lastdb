@@ -121,24 +121,14 @@ def measure(binary, revision, output, state, clients, maintenance):
     output.mkdir()
     node = Node(binary, revision, output, environment={"LASTDB_TTL_SWEEP": "0",
                 "LASTDB_SELF_METRICS_SAMPLE_SECS": "1"})
-    result, compact = {"complete": False}, None
+    result = {"complete": False}
     try:
         node.start()
         seed(node, state)
         # A v2 home has no explicit compaction; its run merges are automatic.
-        explicit = state.endswith("compact") and node.disk_format() == 1
-        if state.endswith("compact") and not explicit:
+        if state.endswith("compact"):
             save(output / "compaction.json", {"format": 2, "automatic_merges": True})
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            if explicit:
-                compact = pool.submit(compact_during_writes, node)
-            metric = writes(node, clients, output)
-            if compact:
-                evidence = compact.result(timeout=120)
-                save(output / "compaction.json", evidence)
-                if not (evidence["first_unix"] < metric["last_unix"]
-                        and evidence["last_unix"] > metric["first_unix"]):
-                    raise RuntimeError("Compaction did not overlap the write window")
+        metric = writes(node, clients, output)
         ledger = node.call("/api/db/delete-ledger")[0]["delete_ledger"]
         entries = [e for e in ledger["entries"] if e["caller"] == "ttl-sweep-purge" and e["committed"]]
         overlap = [e for e in entries if metric["first_unix"] <=
@@ -162,17 +152,6 @@ def measure(binary, revision, output, state, clients, maintenance):
         node.close()
         save(output / "result.json", result)
     return result
-
-
-def compact_during_writes(node):
-    time.sleep(1)
-    first = time.time()
-    response = node.call("/api/db/compact", {"dry_run": False, "full_copy": True})[0]
-    report = response["compact"]["native_disk"]
-    if (report.get("dry_run") is not False or report.get("executed") is not True
-            or report.get("records_copied", 0) <= 0):
-        raise RuntimeError("The compaction response is only a preview")
-    return {"first_unix": first, "last_unix": time.time(), "response": response}
 
 
 def interrupted(_signum, _frame):

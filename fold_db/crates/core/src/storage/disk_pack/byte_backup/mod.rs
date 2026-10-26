@@ -1,21 +1,16 @@
-//! Additive Mini format and retained source for opaque V2 byte backups.
-//! V1 jobs, wire identities and saved capture records remain independent.
+//! The Mini format and retained source of a byte backup of a disk format v2
+//! home: its run files, unchanged. Wire identities and saved capture records
+//! are independent of the cloud protocol's own version names.
 mod cancel;
 mod capture;
-mod certify;
 mod codec;
-mod context;
 mod counters;
 mod model;
 mod planner;
 mod reader;
-mod record_codec;
-mod record_plan;
-mod record_reassembly;
 mod run_capture;
 mod run_codec;
 mod run_source;
-mod standalone;
 mod store;
 mod terminal;
 
@@ -26,12 +21,8 @@ use cloud_backup_protocol::v2::{
 };
 use cloud_backup_protocol::{Digest, ProtocolError};
 pub use codec::*;
-use laststore::disk_pack::backup::export::SnapshotExport;
 pub use reader::ByteBackupReader;
-pub use record_codec::*;
-pub use record_reassembly::ReassembledRecordStream;
 pub use run_codec::*;
-pub use standalone::{read_stopped_native_root, StandaloneByteBackupSource};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -56,35 +47,22 @@ pub struct ByteBackupCapture {
     inner: Arc<Inner>,
 }
 struct Inner {
-    home: context::CaptureHome,
+    runtime: Arc<PackRuntime>,
     store: store::Store,
     state: Mutex<model::State>,
-    source: Option<SnapshotExport>,
+    /// The held run files; none after release or local cancel.
     run: Option<run_source::RunSource>,
     readers: std::sync::atomic::AtomicUsize,
     _admission: super::NativeCloudWorkGuard,
 }
 impl ByteBackupCapture {
-    /// Large native keys share the central backup allowance with lookup buffers.
+    /// A run file read holds no lookup buffer, so every stream of the central
+    /// backup allowance is available.
     pub fn recommended_parallelism(&self) -> StorageResult<usize> {
-        let bytes = self.lock()?.max_coordinate_bytes;
-        let resources = lastdb_storage_policy::BACKUP_RESOURCES;
-        Ok(
-            if bytes.saturating_mul(2 * resources.concurrent_streams as u64)
-                > resources.decoded_values_bytes
-            {
-                1
-            } else {
-                resources.concurrent_streams
-            },
-        )
+        Ok(lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams)
     }
     pub fn begin(&self) -> StorageResult<Begin> {
         Ok(self.lock()?.begin.clone())
-    }
-    /// Exact captured identity remains available after terminal source cleanup.
-    pub fn native_root(&self) -> StorageResult<cloud_backup_protocol::NativeRoot> {
-        Ok(self.lock()?.native_root.clone())
     }
     pub fn object_count(&self) -> StorageResult<u64> {
         let state = self.lock()?;

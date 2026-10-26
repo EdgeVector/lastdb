@@ -3,19 +3,15 @@
 //! The directory contains no file keys. It is encrypted by the normal account
 //! store and changes in the same native batch as the immutable atom body.
 
-mod atom;
 mod budget_json;
 mod metadata;
 mod native;
 mod select;
 
-pub use atom::open_atom;
-pub(crate) use atom::{content_key, open_atom_with};
 pub use cloud_backup_protocol::FileDependencyKind;
-pub use metadata::verify_metadata_coverage;
 pub(crate) use metadata::{MetadataProof, MetadataRead};
 pub(crate) use native::scratch::Scratch as NativeCasOutput;
-pub use native::{read_directories, read_native_cas, verify_native_cas, NativeCasProof};
+pub use native::{verify_native_cas, NativeCasProof};
 pub use select::expected;
 
 /// Reuse the bounded JSON decoder for another physical snapshot reader.
@@ -30,21 +26,7 @@ use serde::{Deserialize, Serialize};
 
 /// Declared source bound is independent of buffers and external transport.
 pub const FILE_DEPENDENCY_MAX_STORED_BYTES: u64 = lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES;
-pub const NATIVE_CAS_ROW_MAX_BYTES: u64 = lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES;
 pub const DIRECTORY_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
-pub const ATOM_INVENTORY_READ_BYTES: u64 =
-    lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES;
-
-/// The complete native atom coordinate range. Empty end means an empty range
-/// in the physical reader, so both capture and restore use this exact boundary.
-pub fn atom_inventory<'a>(
-    read: &'a mut laststore::disk_pack::home::HomeRead,
-    group: u16,
-    start: &[u8],
-) -> StorageResult<laststore::disk_pack::HashRangeCursor<'a>> {
-    read.administrative_group_range("atoms", group, start, &[0xff])
-        .map_err(super::map)
-}
 
 /// Nonsecret pointer identity. No ciphertext/body digest is guessed at mutation time.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

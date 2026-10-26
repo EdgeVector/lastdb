@@ -7,15 +7,12 @@
 //! Unrelated tips rows over four MiB explicitly refuse this bounded source profile.
 //! Unsupported metadata on a losing overlay also refuses before selection; no
 //! stale reference is copied or silently treated as covered.
-use super::{budget_json, expected, invalid, open_atom, read_directories, StorageResult};
+use super::{budget_json, expected, invalid, StorageResult};
 use crate::atom::{atom_key_codec, file_pointer, KeyMetadata};
 use crate::db_operations::atom_store::PerKeyRecord;
 use crate::schema::types::field::build_storage_key;
 use crate::storage::disk_pack::native_routing;
 use cloud_backup_protocol::Digest;
-use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::Current;
-use laststore::disk_run::home::ReadBudget;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -36,98 +33,8 @@ pub(crate) trait MetadataRead {
     ) -> StorageResult<()>;
 }
 
-/// Run after complete atom/directory/file-byte proof, against that same CURRENT.
-/// Each native reader and metadata tree drops before the atom decoder starts.
-pub fn verify_metadata_coverage(
-    current: &Current,
-    account_key: &[u8; 32],
-    read: impl FnMut(ReadBudget) -> StorageResult<HomeRead>,
-) -> StorageResult<u64> {
-    let mut proof = MetadataProof::new(NativeMetadata {
-        current,
-        key: account_key,
-        read,
-    });
-    let mut checked = 0u64;
-    for group in 0..1024u16 {
-        let mut start = Vec::new();
-        loop {
-            let page = {
-                let mut read = proof.source.reader(32 * 1024 * 1024, 10000)?;
-                let mut cursor = read
-                    .administrative_group_range("tips", group, &start, &[0xff])
-                    .map_err(super::super::map)?;
-                cursor
-                    .next_page_yielding_bounded(1, 0, 0, ROW_MAX)
-                    .map_err(super::super::map)?
-            };
-            let next = page
-                .resume
-                .clone()
-                .or_else(|| page.records.last().map(|row| row.key.as_bytes().to_vec()));
-            for row in page.records {
-                checked = checked
-                    .checked_add(u64::from(proof.row(&row.key, row.body)?))
-                    .ok_or_else(|| invalid("metadata proof count overflow"))?;
-            }
-            if page.exhausted {
-                break;
-            }
-            let mut next = next.ok_or_else(|| invalid("metadata proof continuation"))?;
-            if next.len() >= 65535 || (!start.is_empty() && next < start) {
-                return Err(invalid("metadata proof continuation differs"));
-            }
-            next.push(0);
-            start = next;
-        }
-    }
-    Ok(checked)
-}
-
-struct NativeMetadata<'a, F> {
-    current: &'a Current,
-    key: &'a [u8; 32],
-    read: F,
-}
-impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> NativeMetadata<'_, F> {
-    fn reader(&mut self, bytes: u64, keys: u64) -> StorageResult<HomeRead> {
-        let read = (self.read)(ReadBudget {
-            pages: 512,
-            blocks: 8192,
-            bytes,
-            keys,
-        })?;
-        if read.current() != self.current {
-            return Err(invalid("metadata proof root differs"));
-        }
-        Ok(read)
-    }
-}
-
-impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> MetadataRead for NativeMetadata<'_, F> {
-    fn get(&mut self, collection: &str, key: &str) -> StorageResult<Option<Vec<u8>>> {
-        self.reader(24 * 1024 * 1024, 1)?
-            .get_bounded(collection, key, ROW_MAX)
-            .map_err(super::super::map)
-    }
-
-    fn open_atom(&mut self, stored: &[u8]) -> StorageResult<crate::atom::Atom> {
-        open_atom(self.key, stored, self.current, &mut self.read)
-    }
-
-    fn directories(
-        &mut self,
-        scope: Option<&str>,
-        atom_id: &str,
-        dependencies: &[super::FileDependency],
-    ) -> StorageResult<()> {
-        let mut read = self.reader(8 * 1024 * 1024, 3)?;
-        read_directories(&mut read, scope, atom_id, dependencies).map(|_| ())
-    }
-}
-
-/// The same live/generation selection and file-pointer coverage for either
-/// physical format. The caller supplies complete, bounded metadata pages.
+/// The live/generation selection and file-pointer coverage. The caller
+/// supplies complete, bounded metadata pages.
 pub(crate) struct MetadataProof<R> {
     source: R,
 }

@@ -1,4 +1,4 @@
-//! Clap subcommands for `lastdb db`: space reclaim, GC and compaction verbs.
+//! Clap subcommands for `lastdb db`: space reclaim and GC verbs.
 
 use super::*;
 
@@ -18,29 +18,6 @@ pub(crate) enum DbReclaimCommand {
         max_keys: u16,
         #[arg(long)]
         execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Pack the native home and reclaim the files that no generation needs.
-    ///
-    /// Without `--execute`, show a preview report and change nothing.
-    /// With `--execute`, the node copies every live record into new parts and
-    /// reclaims old files. The native route works on the whole home, so it
-    /// refuses `--collection` with HTTP 400. The node also runs this work by
-    /// itself when the dependency part count passes its mark
-    /// (`docs/lastdb-storage-parts.md`).
-    Compact {
-        /// One collection. A native home refuses it with HTTP 400: omit it.
-        #[arg(long)]
-        collection: Option<String>,
-        /// The whole home. A native home is always packed as a whole, so this
-        /// changes nothing.
-        #[arg(long)]
-        all: bool,
-        /// Actually pack and reclaim (without this flag, only a preview).
-        #[arg(long)]
-        execute: bool,
-        /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
     },

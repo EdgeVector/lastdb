@@ -9,19 +9,19 @@
 //! The CAS files are separate files so that a backup can send them to a
 //! different store (B2) than the rest of the data (R2).
 //!
-//! Every new node home is v2: a node that opens an absent or empty home
-//! creates one (see `is_new_home`), and [`PackNamespacedStore::create_run`]
-//! creates one on request. Both need the node encryption key. An existing v1
-//! home still opens as v1; `LASTDB_DISK_FORMAT=2` converts it once (see
-//! `convert_v2`). The run homes are complete before the marker appears, so a
-//! crash during creation leaves the creation intent without a marker. The
+//! Every node home is v2: a node that opens an absent or empty home creates
+//! one (see `is_new_home`), and [`PackNamespacedStore::create_run`] creates
+//! one on request. Both need the node encryption key. A home in any other
+//! format is refused (see `not_v2`). The run homes are complete before the
+//! marker appears, so a crash during creation leaves the creation intent
+//! without a marker. The
 //! runtime opens only after the marker, so that home holds no data: the next
 //! open removes the partial run homes and creates the home again. A lock on
 //! the node folder serializes creators, and a creator holds it until its
 //! runtime is open, so the partial state of a live creator is never removed.
 //!
-//! As in a v1 home, a new home holds an intent file until the node writes its
-//! key-format proofs. Until then the runtime admits only that first batch;
+//! A new home holds an intent file until the node writes its key-format
+//! proofs. Until then the runtime admits only that first batch;
 //! a crash before it leaves the intent, and the next open retries it.
 //!
 //! Each run home key derives from the node encryption key with its own label
@@ -142,6 +142,15 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
+/// The refusal for a node home that is not disk format v2, such as a format
+/// v1 home. This program has no reader and no converter for another format.
+pub(super) fn not_v2(path: &Path) -> StorageError {
+    StorageError::InvalidOperation(format!(
+        "{} is not a disk format v2 node home; this program opens only format v2",
+        path.display()
+    ))
+}
+
 pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32]> {
     node_key.ok_or_else(|| {
         StorageError::InvalidOperation(
@@ -219,21 +228,14 @@ impl PackNamespacedStore {
             frontier: root.frontier(),
         })
         .0;
-        let parts = parts::PartsLedger::from_env(0, root.generation(), root.frontier());
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(
-            physical::Physical::V2(v2),
-            physical::PhysicalRoot::V2(root),
+            v2,
+            root,
             native_backup_boundary,
-            parts,
-            false,
-            None,
+            initializing,
             space::policy_from_env()?,
         );
-        store
-            .runtime
-            .initializing
-            .store(initializing, Ordering::Release);
         store.runtime.resume_merges();
         Ok(store)
     }

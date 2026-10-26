@@ -282,14 +282,6 @@ pub enum DataRoute {
     /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
     /// `keep_last: 0` = full purge (latest tip only).
     DbClearHistory,
-    /// `POST /api/db/compact` — compact one allowlisted LastStore collection
-    /// (`schemas`, `schema_states`, `schema_index`). OWNER only. Body:
-    /// `{ collection: string, dry_run?: bool }` (default dry_run=true).
-    /// Execute skips while a backup cut is held.
-    DbCompact,
-    /// `POST /api/db/native-backup` — local native data bundle at a new absolute
-    /// destination. OWNER only. Node identity material is excluded.
-    DbNativeBackup,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,

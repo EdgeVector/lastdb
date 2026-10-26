@@ -1,6 +1,6 @@
 use super::{BackupError, Result};
 use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Commit};
-use cloud_backup_protocol::{AccountId, Id, NativeRoot};
+use cloud_backup_protocol::{AccountId, Id};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -33,14 +33,6 @@ pub enum Phase {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StandaloneBinding {
-    pub source_home: std::path::PathBuf,
-    pub native_root: Option<NativeRoot>,
-    pub capture_started_at: Option<u64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct Saved {
     pub format: u32,
     pub request_id: Id,
@@ -59,8 +51,6 @@ pub(super) struct Saved {
     pub native_bytes: u64,
     pub retained_source_bytes: Option<u64>,
     pub blocked_reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub standalone: Option<StandaloneBinding>,
 }
 
 impl Saved {
@@ -75,23 +65,6 @@ impl Saved {
         }
         if self.multi_file_pack_objects > self.metadata_pack_objects {
             return Err(BackupError::Invalid);
-        }
-        if let Some(binding) = &self.standalone {
-            if !binding.source_home.is_absolute()
-                || binding.capture_started_at == Some(0)
-                || (binding.native_root.is_some() && binding.capture_started_at.is_none())
-            {
-                return Err(BackupError::Invalid);
-            }
-            if let Some(root) = &binding.native_root {
-                fold_db::storage::disk_pack::byte_backup::validate_client_native_root(root)
-                    .map_err(|_| BackupError::Invalid)?;
-                if root.home_id != self.source_home {
-                    return Err(BackupError::Identity);
-                }
-            } else if self.begin_submitted {
-                return Err(BackupError::Invalid);
-            }
         }
         if let Some(begin) = &self.begin {
             begin.validate()?;

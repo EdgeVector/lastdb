@@ -42,7 +42,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/db/reclaim-keep-small-snapshot` and `POST /api/db/pin-log-audit`.
 /// No app-socket route and no request key changed, so a client that requires
 /// `1` still works; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 2;
+///
+/// `3` (2026-10-26) removes the two disk format v1 owner-socket routes
+/// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
+/// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 3;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

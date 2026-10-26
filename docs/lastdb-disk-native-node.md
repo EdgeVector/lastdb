@@ -1,5 +1,8 @@
 # Native disk node path
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 Current source: main `8a0a40b4f`, reviewed 2026-10-24.
 The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
 The [storage parts guide](lastdb-storage-parts.md) describes packed files and automatic maintenance.

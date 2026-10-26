@@ -21,4 +21,4 @@ primary restart loop (brain: `papercut-lastdb-primary-transient-30gb-footprint-s
 
 - The residual sweep that compacted the `keep_small` plane and its two
   `LASTDB_KEEP_SMALL_COMPACT_*` knobs were removed with the LastStore backend
-  (2026-10-26). A native home packs only through `lastdb db compact --execute`.
+  (2026-10-26). A disk format v2 home merges its run files automatically.

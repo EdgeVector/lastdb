@@ -37,17 +37,6 @@ pub(super) async fn run(
     }
     setup(source, store, saved, client, pause).await?;
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?.clone();
-    if let Some(binding) = &mut saved.standalone {
-        if binding.capture_started_at.is_none() {
-            binding.capture_started_at = Some(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| BackupError::Invalid)?
-                    .as_secs(),
-            );
-            store.save(saved)?;
-        }
-    }
     let capture = source.prepare(begin.clone()).await?;
     refresh(&capture, store, saved)?;
     source.validate(saved)?;
@@ -261,13 +250,6 @@ async fn drive(
 }
 
 fn refresh(capture: &ByteBackupCapture, store: &Store, saved: &mut Saved) -> Result<()> {
-    if let Some(binding) = &mut saved.standalone {
-        let root = capture.native_root()?;
-        if binding.native_root.as_ref().is_some_and(|old| *old != root) {
-            return Err(BackupError::Identity);
-        }
-        binding.native_root = Some(root);
-    }
     let status = capture.status()?;
     saved.objects_verified = status.verified_objects;
     saved.metadata_pack_objects = status.metadata_pack_objects;

@@ -53,8 +53,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/storage/schemas", Scope::Owner, "GET", DataRoute::SchemaStorageReport),
     row("/api/storage/liveness/explain", Scope::Owner, "POST", DataRoute::LivenessExplain),
     row("/api/db/clear-history", Scope::Owner, "POST", DataRoute::DbClearHistory),
-    row("/api/db/compact", Scope::Owner, "POST", DataRoute::DbCompact),
-    row("/api/db/native-backup", Scope::Owner, "POST", DataRoute::DbNativeBackup),
     row("/api/db/flush", Scope::Owner, "POST", DataRoute::DbFlush),
     row("/api/db/native-status", Scope::Owner, "GET", DataRoute::DbNativeStatus),
     row("/api/db/gc-proteins", Scope::Owner, "POST", DataRoute::DbGcProteins),

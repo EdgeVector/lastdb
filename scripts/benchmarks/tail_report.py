@@ -48,8 +48,7 @@ def update_tail_lines(output, manifest):
              "Process CPU and I/O counters include every daemon thread and concurrent maintenance.",
              "Host CPU and pressure counters cover the whole CI machine, including other processes.",
              "Thread runqueue totals can overlap across CPUs. Do not derive wait as wall time minus CPU time.",
-             "Missing counters have explicit reason codes. Their absence is not a measured zero.",
-             "Native status observations occur outside the case and cannot locate maintenance within one call.", "",
+             "Missing counters have explicit reason codes. Their absence is not a measured zero.", "",
              "| Run | Calls | p50 ms | p95 ms | p99 ms | Exact phase matches |",
              "|---|---:|---:|---:|---:|---:|"]
     for run, metric, samples in runs:
@@ -57,12 +56,9 @@ def update_tail_lines(output, manifest):
         lines.append(f"| {run['directory']} | {len(samples)} | {metric['p50_ms']:.3f} | "
                      f"{metric['p95_ms']:.3f} | {metric['p99_ms']:.3f} | "
                      f"{coverage.get('matched', 'unreported')}/{len(samples)} |")
-    for run, metric, samples in runs:
+    for run, _, samples in runs:
         lines.extend(["", f"### {run['directory']}", "",
-                      "Cumulative native status before and after the case:", "", "```json",
-                      json.dumps({"before": metric.get("native_before"),
-                                  "after": metric.get("native_after")}, separators=(",", ":"), sort_keys=True),
-                      "```", "", "Five slowest calls, with their own phases, stages, and counter deltas:",
+                      "Five slowest calls, with their own phases, stages, and counter deltas:",
                       "", "```jsonl"])
         lines.extend(json.dumps(row, separators=(",", ":"), sort_keys=True) for row in tail_calls(samples))
         lines.append("```")

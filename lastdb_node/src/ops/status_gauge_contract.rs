@@ -614,7 +614,6 @@ fn default_status_snapshot(
         atom_counters: None,
         blob_counters: None,
         conflict_retention: None,
-        storage_parts: None,
         at_rest_compression: None,
         codec_policy: None,
     }

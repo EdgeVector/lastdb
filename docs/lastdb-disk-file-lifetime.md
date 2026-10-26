@@ -1,5 +1,8 @@
 # Native disk file lifetime and packing
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 The native snapshot writer uses a shared file lifetime protocol and explicit file maintenance.
 The [active snapshot protocol](lastdb-snapshot-commits.md) defines the complete commit and reopen boundary.
 This document reflects the reclaim handoff from PR 267 and the later journal removal.

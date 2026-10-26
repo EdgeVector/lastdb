@@ -1,5 +1,8 @@
 # Storage parts and automatic maintenance
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 The [native route summary](lastdb-disk-native-node.md) describes writes, reads, and their memory boundary.
 The [snapshot protocol](lastdb-snapshot-commits.md) describes durable root publication.
 

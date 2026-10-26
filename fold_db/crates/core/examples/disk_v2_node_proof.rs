@@ -55,9 +55,6 @@ async fn main() -> Result<()> {
 
     let store = PackNamespacedStore::create_run(&node, &node_key)?;
     let runtime = store.disk_pack_runtime().ok_or("no native runtime")?;
-    if !runtime.is_disk_format_v2() {
-        return Err("create_run did not open a v2 home".into());
-    }
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
     println!("node database operations: opened on a new v2 home");

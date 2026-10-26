@@ -186,48 +186,13 @@ pub(super) fn status_json(
 
 /// `status` lines describing the home's durable physical placement.
 ///
-/// Silent when the home has no native layout to read (one never opened) —
+/// Silent when the home has no disk format v2 node marker (one never opened):
 /// `status` should not invent a layout it cannot see.
 pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
-    match native_layout_status_line(store_root) {
-        Ok(Some(line)) => vec![line],
-        Ok(None) => Vec::new(),
-        Err(error) => vec![format!("Layout: unreadable ({error})")],
-    }
+    run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The native fence deliberately rejects the legacy descriptor parser. Inspect
-/// its exact format through read-only metadata opens, without a reader lease or
-/// writer: `status` must not create files or contend with the serving node.
-fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String> {
-    use laststore::disk_pack::home::{DiskHome, LEGACY_FENCE_BYTES};
-
-    let fence = match std::fs::File::open(store_root.join("laststore-layout-v1")) {
-        Ok(file) => file,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Ok(run_layout_status_line(store_root));
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut bytes = Vec::new();
-    fence
-        .take(LEGACY_FENCE_BYTES.len() as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes != LEGACY_FENCE_BYTES {
-        return Ok(None);
-    }
-    // Open validates the descriptor checksum, supported codecs, and CURRENT's
-    // binding to that descriptor. Real native corruption remains an error.
-    let home = DiskHome::open(&store_root.join("disk-pack")).map_err(|error| error.to_string())?;
-    let descriptor = home.descriptor();
-    Ok(Some(format!(
-        "Layout: native packed storage key=hash-prefix epoch={} groups=1024 fanout={}",
-        descriptor.layout_epoch, descriptor.hash_fanout
-    )))
-}
-
-/// A disk format v2 home has no layout file; its node marker names the run home.
+/// The node marker of a disk format v2 home names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
     (marker == b"format=3\nhome=disk-run\ncas=disk-cas\n").then(|| {

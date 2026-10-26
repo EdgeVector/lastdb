@@ -1,59 +1,22 @@
 //! Mini-owned encrypted metadata. The byte service never interprets these values.
+//!
+//! A backup of a disk format v2 home has version 3 metadata: a run profile in
+//! the root and run file paths in the pages. Versions 1 and 2 described a
+//! format v1 home, and this program refuses them.
 use super::{invalid, protocol, StorageResult};
-use cloud_backup_protocol::v2::{Begin, ClientDescriptor};
+use cloud_backup_protocol::v2::Begin;
 use cloud_backup_protocol::{
-    DecimalU64, Digest, ExternalFileDependency, NativeRoot, RecoveryDescriptor, RelativePath, Text,
+    DecimalU64, Digest, ExternalFileDependency, NativeRoot, RecoveryDescriptor, RelativePath,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub const CODEC_PLAINTEXT_MAX_BYTES: u64 = 256 * 1024;
 pub const CODEC_ENVELOPE_MAX_BYTES: u64 = CODEC_PLAINTEXT_MAX_BYTES + 29;
-pub const CLIENT_FORMAT_ID: &str = "lastdb-mini-native";
+/// The metadata version of a run backup.
+pub const CLIENT_VERSION: u16 = 3;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
 pub const MAX_FILE_EXTENTS: usize = 16384;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Bootstrap {
-    pub recovery: RecoveryDescriptor,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyDescriptor {
-    format_id: Text<128>,
-    format_version: DecimalU64,
-    public_bootstrap: Text<{ 16 * 1024 }>,
-}
-impl Bootstrap {
-    pub fn descriptor(&self) -> StorageResult<ClientDescriptor> {
-        let text = serde_json::to_string(self).map_err(|_| invalid("byte bootstrap encoding"))?;
-        let legacy = LegacyDescriptor {
-            format_id: Text::try_from(CLIENT_FORMAT_ID.to_owned()).map_err(protocol)?,
-            format_version: DecimalU64::new(1),
-            public_bootstrap: Text::try_from(text).map_err(protocol)?,
-        };
-        let descriptor = ClientDescriptor::new(
-            serde_json::to_value(legacy).map_err(|_| invalid("byte bootstrap encoding"))?,
-        )
-        .map_err(protocol)?;
-        descriptor.validate().map_err(protocol)?;
-        Ok(descriptor)
-    }
-    pub fn from_descriptor(descriptor: &ClientDescriptor) -> StorageResult<Self> {
-        descriptor.validate().map_err(protocol)?;
-        let legacy: LegacyDescriptor = descriptor.parse().map_err(protocol)?;
-        if legacy.format_id.as_str() != CLIENT_FORMAT_ID || legacy.format_version.get() != 1 {
-            return Err(invalid("unsupported byte client format"));
-        }
-        let value: Self = serde_json::from_str(legacy.public_bootstrap.as_str())
-            .map_err(|_| invalid("byte bootstrap format"))?;
-        if value.descriptor()? != *descriptor {
-            return Err(invalid("byte bootstrap canonical identity"));
-        }
-        Ok(value)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,8 +80,6 @@ pub struct ClientPage {
     pub descriptor_sha256: Digest,
     pub native_files: Vec<ClientNativeFile>,
     pub external_dependencies: Vec<ExternalFileDependency>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub stored_chunks: Vec<super::ClientStreamChunk>,
 }
 impl ClientPage {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
@@ -129,28 +90,20 @@ impl ClientPage {
             begin,
         )?;
         if self.page_index as usize >= MAX_CLIENT_PAGES
-            || (self.version != 2 && self.native_files.is_empty())
+            || self.native_files.is_empty()
             || self.native_files.len() > MAX_PAGE_FILES
             || !self.external_dependencies.is_empty()
-            || (self.version != 2 && !self.stored_chunks.is_empty())
-            || (self.version == 2 && !self.native_files.is_empty())
-            || self.stored_chunks.len() > cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES
         {
             return Err(invalid("byte page unsupported entries or bounds"));
         }
         let mut previous = None;
         for file in &self.native_files {
             file.validate()?;
-            if self.version == 3 {
-                super::run_backup_destination(file.path.as_str())?;
-            }
+            super::run_backup_destination(file.path.as_str())?;
             if previous.is_some_and(|path| path >= file.path.as_str()) {
                 return Err(invalid("byte page path order"));
             }
             previous = Some(file.path.as_str());
-        }
-        for chunk in &self.stored_chunks {
-            chunk.validate()?;
         }
         encode(self).map(|_| ())
     }
@@ -174,8 +127,6 @@ pub struct ClientRoot {
     pub external_dependency_count: u64,
     pub pages: Vec<ClientPageReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub records: Option<super::StoredRecordProfile>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<super::RunBackupProfile>,
 }
 impl ClientRoot {
@@ -186,58 +137,35 @@ impl ClientRoot {
             &self.descriptor_sha256,
             begin,
         )?;
-        if self.version == 3 {
-            self.run
-                .as_ref()
-                .ok_or_else(|| invalid("run root profile missing"))?
-                .validate_root(&self.native_root)?;
-        } else if self.version == 2 {
-            super::validate_client_native_root(&self.native_root)?;
-        } else {
-            self.native_root.validate().map_err(protocol)?;
-        }
+        let profile = self
+            .run
+            .as_ref()
+            .ok_or_else(|| invalid("run root profile missing"))?;
+        profile.validate_root(&self.native_root)?;
         self.recovery
             .validate_for(&begin.job.stream.scope)
             .map_err(protocol)?;
-        let legacy = self.version == 1;
-        if (legacy && Bootstrap::from_descriptor(&begin.descriptor)?.recovery != self.recovery)
-            || (self.version == 2) != self.records.is_some()
-            || (self.version == 3) != self.run.is_some()
-            || self.native_file_count == 0
+        if self.native_file_count == 0
             || self.native_bytes == 0
             || self.pages.is_empty()
             || self.pages.len() > MAX_CLIENT_PAGES
-            || (self.version != 2
-                && self.native_file_count > (self.pages.len() * MAX_PAGE_FILES) as u64)
+            || self.native_file_count > (self.pages.len() * MAX_PAGE_FILES) as u64
             || self.external_dependency_count != 0
         {
             return Err(invalid("byte root identity or bounds"));
         }
-        if let Some(profile) = &self.records {
-            profile.validate()?;
-            if profile.header.required_features() != self.native_root.required_features.get()
-                || profile.header.frontier() != self.native_root.frontier.get()
-                || profile.header.source_generation() != self.native_root.generation.get()
-                || uuid::Uuid::from_bytes(profile.header.source_home_id()).to_string()
-                    != self.native_root.home_id.as_str()
-            {
-                return Err(invalid("stored record source features differ"));
-            }
-        }
-        if let Some(profile) = &self.run {
-            let files = profile
-                .main
-                .files
-                .checked_add(profile.cas.files)
-                .and_then(|n| n.checked_add(1));
-            let bytes = profile
-                .main
-                .bytes
-                .checked_add(profile.cas.bytes)
-                .and_then(|n| n.checked_add(super::super::run_node::RUN_NODE_BYTES.len() as u64));
-            if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
-                return Err(invalid("run root exact native totals"));
-            }
+        let files = profile
+            .main
+            .files
+            .checked_add(profile.cas.files)
+            .and_then(|n| n.checked_add(1));
+        let bytes = profile
+            .main
+            .bytes
+            .checked_add(profile.cas.bytes)
+            .and_then(|n| n.checked_add(super::super::run_node::RUN_NODE_BYTES.len() as u64));
+        if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
+            return Err(invalid("run root exact native totals"));
         }
         for (index, page) in self.pages.iter().enumerate() {
             if page.page_index as usize != index
@@ -267,8 +195,8 @@ impl ClientRoot {
 }
 fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;
-    if !matches!(version, 1..=3)
-        || (version != 1 && !begin.descriptor.as_value().is_null())
+    if version != CLIENT_VERSION
+        || !begin.descriptor.as_value().is_null()
         || *digest != begin.input_sha256().map_err(protocol)?
         || *descriptor != begin.descriptor.commitment().map_err(protocol)?
     {
