@@ -29,6 +29,10 @@ pub enum Phase {
     Committing,
     Published,
     Closed,
+    /// A disk format v1 job that a new start replaced. No program after
+    /// decision D1 can resume or close it. This program sent nothing to the
+    /// cloud for it and keeps the record for status only.
+    AbandonedFormatV1,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,11 +90,21 @@ impl Saved {
         if self.phase == Phase::Published && self.accepted.is_none() {
             return Err(BackupError::Invalid);
         }
+        if self.phase == Phase::AbandonedFormatV1 && !self.format_v1() {
+            return Err(BackupError::Invalid);
+        }
         Ok(())
     }
     pub fn terminal(&self) -> bool {
-        matches!(self.phase, Phase::Published | Phase::Closed)
-            && self.retained_source_bytes == Some(0)
+        self.phase == Phase::AbandonedFormatV1
+            || (matches!(self.phase, Phase::Published | Phase::Closed)
+                && self.retained_source_bytes == Some(0))
+    }
+    /// A disk format v1 home wrote a pack descriptor into the begin.
+    pub fn format_v1(&self) -> bool {
+        self.begin
+            .as_ref()
+            .is_some_and(|begin| !begin.descriptor.as_value().is_null())
     }
 }
 

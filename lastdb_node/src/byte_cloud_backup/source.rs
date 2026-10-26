@@ -70,11 +70,10 @@ impl Source {
         if saved.account != self.account || saved.source_home != self.source_home {
             return Err(BackupError::Identity);
         }
+        if saved.format_v1() {
+            return Err(BackupError::FormatV1Job);
+        }
         if let Some(begin) = &saved.begin {
-            // A disk format v1 home wrote a pack descriptor into the begin.
-            if !begin.descriptor.as_value().is_null() {
-                return Err(BackupError::FormatV1Job);
-            }
             if begin.required_destinations != [Destination::R2, Destination::B2] {
                 return Err(BackupError::Identity);
             }
