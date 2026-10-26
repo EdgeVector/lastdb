@@ -142,8 +142,8 @@ fn validate_restored_credentials(
     api_key: &str,
     account: &str,
 ) -> Result<(), String> {
-    use fold_db::sync::auth::{byte_backup::ByteBackupClient, AuthClient, SyncAuth};
-    let auth = AuthClient::new(api_url.to_owned(), SyncAuth::ApiKey(api_key.to_owned()));
+    use fold_db::sync::auth::{byte_backup::ByteBackupClient, AuthClient};
+    let auth = AuthClient::new(api_url.to_owned(), api_key.to_owned());
     let client = ByteBackupClient::from_auth(auth)
         .map_err(|_| "invalid restored native account endpoint")?;
     let account = cloud_backup_protocol::AccountId::try_from(account.to_owned())

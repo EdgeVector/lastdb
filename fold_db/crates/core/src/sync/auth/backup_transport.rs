@@ -1,5 +1,5 @@
 //! Format-neutral bounded byte transport. No legacy wire operation is admitted.
-use super::AuthClient;
+use super::{AuthClient, DEFAULT_AUTH_REQUEST_TIMEOUT};
 use cloud_backup_protocol::Digest;
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Serialize};
@@ -40,11 +40,11 @@ pub(super) struct BackupTransport {
     uploads: Arc<tokio::sync::Semaphore>,
 }
 impl BackupTransport {
-    /// Use only explicit credentials, endpoint, refresh callback and deadlines.
+    /// Use explicit API-key credentials, endpoint, and the fixed request deadline.
     pub fn from_auth(auth: AuthClient) -> Result<Self> {
         let base = urls::https(&auth.base_url)?;
-        if base.query().is_some() || auth.request_timeout.is_zero() {
-            return Err(BackupTransportError::Configuration("endpoint or deadline"));
+        if base.query().is_some() {
+            return Err(BackupTransportError::Configuration("endpoint"));
         }
         // trace-egress: propagate (control); skip-s3 (presigned object methods).
         let http = Client::builder()
@@ -54,11 +54,11 @@ impl BackupTransport {
             .no_brotli()
             .no_deflate()
             .no_zstd()
-            .connect_timeout(auth.request_timeout)
+            .connect_timeout(DEFAULT_AUTH_REQUEST_TIMEOUT)
             .build()
             .map_err(|_| BackupTransportError::Configuration("HTTP client"))?;
         Ok(Self {
-            timeout: auth.request_timeout,
+            timeout: DEFAULT_AUTH_REQUEST_TIMEOUT,
             auth,
             http: Arc::new(http),
             base,

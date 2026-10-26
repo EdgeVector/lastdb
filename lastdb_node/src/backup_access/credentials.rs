@@ -1,4 +1,4 @@
-use fold_db::sync::auth::{AuthClient, SyncAuth};
+use fold_db::sync::auth::AuthClient;
 use serde::Deserialize;
 use std::fs::{self, OpenOptions};
 use std::io::Read;
@@ -51,7 +51,7 @@ pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
     if credentials.api_key.is_empty() {
         return Err("native backup credential is empty".into());
     }
-    let auth = AuthClient::new(credentials.api_url, SyncAuth::ApiKey(credentials.api_key));
+    let auth = AuthClient::new(credentials.api_url, credentials.api_key);
     Ok(auth)
 }
 

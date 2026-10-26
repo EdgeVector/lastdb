@@ -1,12 +1,12 @@
 # Cloud transport egress
 
-`AuthClient` holds the endpoint, credentials, refresh callback, and request
-deadline. Its constructor starts no request and accepts no HTTP client.
+`AuthClient` holds the endpoint and one immutable API key. Its constructor
+starts no request and accepts no HTTP client, token mode, or refresh callback.
 
 `BackupTransport::from_auth` creates the bounded HTTPS client for V2 control
 requests and signed provider grants. It disables redirects and automatic
-decompression. Transfer limits, stream limits, and request deadlines remain
-required.
+decompression. The control request and connection deadline stay at 30 seconds.
+Transfer byte limits, stream limits, and provider-grant expiry checks remain.
 
 The control request in `sync/auth/backup_transport/http.rs` uses
 `observability::propagation::inject_w3c` before the request leaves the client.
