@@ -6,7 +6,6 @@ pub mod cloud_share;
 pub mod engine;
 pub mod error;
 pub mod log;
-pub(crate) mod mutation_intent;
 mod retired_cloud_repair;
 pub mod snapshot_log;
 pub use error::{SyncError, SyncResult};

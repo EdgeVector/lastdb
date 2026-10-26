@@ -35,13 +35,11 @@ mod retention_move;
 mod retention_page;
 mod retention_recheck;
 mod retention_sharing;
-mod retired_replay;
 mod write;
 
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
 pub use replay_probe::ReplayAuthorityProbe;
-pub(crate) use retired_replay::RetiredReplayProof;
 
 use catalog_keys::*;
 

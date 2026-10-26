@@ -1,8 +1,12 @@
-//! Exact source ownership and target-keyed retention lookups; no journal walk.
+//! Target-keyed retired-intent blob root lookups. No journal walk.
 
-use super::*;
+use super::super::AtomStore;
+use super::{refused, source_id_valid, TargetOwners, RETIRED_INTENT_RETENTION_NAMESPACE};
+use crate::schema::SchemaError;
 use crate::storage::traits::KvStore;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeSet, HashSet};
+use std::sync::Arc;
 
 const ROOT_BATCH_KEYS: usize = 512;
 
@@ -111,51 +115,4 @@ impl AtomStore {
         }
         Ok(retained)
     }
-
-    pub(super) async fn verify_retired_source_roots(
-        &self,
-        source: &SourceRoots,
-    ) -> Result<(), SchemaError> {
-        let store = self.retired_root_store().await?;
-        let targets = source_targets(source);
-        let mut keys: Vec<_> = targets
-            .iter()
-            .map(|row| target_key(&row.kind, row.storage_prefix.as_deref(), &row.target))
-            .collect();
-        keys.push(format!("source:{}", source.source_id).into_bytes());
-        let mut rows = read_many(store.as_ref(), &keys).await?;
-        let raw = rows
-            .pop()
-            .flatten()
-            .ok_or_else(|| refused("retired intent source root is absent"))?;
-        let owner: SourceRoots = serde_json::from_slice(&raw)
-            .map_err(|_| refused("retired intent source root is malformed"))?;
-        if owner != *source {
-            return Err(refused("retired intent source dependency identity differs"));
-        }
-        for (expected, raw) in targets.iter().zip(rows) {
-            let raw = raw.ok_or_else(|| refused("retired intent target root is absent"))?;
-            if !decode_target(&raw, expected)?
-                .owners
-                .contains(&source.source_id)
-            {
-                return Err(refused("retired intent target owner differs"));
-            }
-        }
-        Ok(())
-    }
-}
-
-fn source_targets(source: &SourceRoots) -> Vec<TargetOwners> {
-    let mut targets = Vec::new();
-    for scope in &source.scopes {
-        targets.extend(
-            scope
-                .atoms
-                .iter()
-                .map(|id| target_shape("atom", scope.storage_prefix.as_deref(), id)),
-        );
-    }
-    targets.extend(source.blobs.iter().map(|id| target_shape("blob", None, id)));
-    targets
 }
