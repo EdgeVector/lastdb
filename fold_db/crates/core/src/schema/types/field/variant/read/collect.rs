@@ -73,14 +73,15 @@ impl FieldVariant {
             }
             None => self.apply_filter(Some(effective_filter)),
         };
-        let source_codec = if range_form == MoleculeRangeForm::Storage {
-            let molecule = self.common().molecule_uuid().ok_or_else(|| {
-                SchemaError::InvalidData("stored field range has no molecule identity".into())
-            })?;
-            Some((molecule, db_ops.atoms().key_codec_for_molecule(molecule)?))
-        } else {
-            None
-        };
+        let source_codec =
+            if range_form == MoleculeRangeForm::Storage && !results.matches.is_empty() {
+                let molecule = self.common().molecule_uuid().ok_or_else(|| {
+                    SchemaError::InvalidData("stored field range has no molecule identity".into())
+                })?;
+                Some((molecule, db_ops.atoms().key_codec_for_molecule(molecule)?))
+            } else {
+                None
+            };
 
         let mut matches_with_meta: Vec<KeyedAtomMatch> = results
             .matches

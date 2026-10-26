@@ -71,9 +71,7 @@ impl FieldVariant {
             let (_decoded_hash, decoded_range) =
                 crate::atom::molecule_key_codec::decode_hash_range(&storage_key, molecule)
                     .ok_or_else(|| {
-                        SchemaError::InvalidData(format!(
-                            "malformed hash-range record key: {storage_key}"
-                        ))
+                        SchemaError::InvalidData("malformed hash-range record key".into())
                     })?;
             let range = codec
                 .api_range(molecule, &decoded_range)
