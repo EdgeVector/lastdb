@@ -270,7 +270,7 @@ impl S3BlobPersistence {
             Ok(resp) => {
                 let etag = resp.e_tag().map(String::from);
                 let body = resp.body.collect().await.map_err(|e| {
-                    FoldDbError::Config(format!("Failed to read S3 body for '{key}': {e}"))
+                    FoldDbError::S3(format!("Failed to read S3 body for '{key}': {e}"))
                 })?;
                 let bytes = body.into_bytes();
                 if bytes.is_empty() {
@@ -285,7 +285,7 @@ impl S3BlobPersistence {
                 if error_code(&e).as_deref() == Some("NoSuchKey") {
                     Ok((DomainBlob::default(), None))
                 } else {
-                    Err(FoldDbError::Config(format!(
+                    Err(FoldDbError::S3(format!(
                         "Failed to get S3 object '{}': {}",
                         key,
                         short_error(&e)
@@ -336,7 +336,7 @@ impl S3BlobPersistence {
                     continue;
                 }
                 Err(e) => {
-                    return Err(FoldDbError::Config(format!(
+                    return Err(FoldDbError::S3(format!(
                         "Failed to put S3 object '{}': {}",
                         key,
                         short_error(&e)
@@ -344,7 +344,7 @@ impl S3BlobPersistence {
                 }
             }
         }
-        Err(FoldDbError::Config(format!(
+        Err(FoldDbError::S3(format!(
             "Exceeded {MAX_RMW_RETRIES} retries updating S3 blob '{key}' (ETag contention)"
         )))
     }

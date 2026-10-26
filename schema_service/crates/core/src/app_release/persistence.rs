@@ -16,23 +16,11 @@ impl SchemaServiceState {
             .backend()
             .save_channel(record)
             .await
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("generation conflict") {
-                    if let Some(stored) = msg
-                        .split("stored=")
-                        .nth(1)
-                        .and_then(|s| s.split(',').next())
-                    {
-                        if let Ok(expected) = stored.parse::<u64>() {
-                            return ReleaseError::GenerationConflict {
-                                expected,
-                                supplied: record.generation,
-                            };
-                        }
-                    }
+            .map_err(|e| match e {
+                schema_types::FoldDbError::GenerationConflict { expected, supplied } => {
+                    ReleaseError::GenerationConflict { expected, supplied }
                 }
-                ReleaseError::Internal(msg)
+                other => ReleaseError::Internal(other.to_string()),
             })
     }
 

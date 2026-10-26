@@ -32,9 +32,9 @@ impl S3BlobPersistence {
         if use_conditional {
             put = put.if_none_match("*");
         }
-        put.send().await.map_err(|e| {
-            FoldDbError::Config(format!("put S3 object '{key}': {}", short_error(&e)))
-        })?;
+        put.send()
+            .await
+            .map_err(|e| FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e))))?;
         Ok(())
     }
 
@@ -55,7 +55,7 @@ impl S3BlobPersistence {
                     .body
                     .collect()
                     .await
-                    .map_err(|e| FoldDbError::Config(format!("read S3 body '{key}': {e}")))?;
+                    .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
                 let bytes = body.into_bytes();
                 let record: T = serde_json::from_slice(&bytes)
                     .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
@@ -65,7 +65,7 @@ impl S3BlobPersistence {
                 if error_code(&e).as_deref() == Some("NoSuchKey") {
                     Ok(None)
                 } else {
-                    Err(FoldDbError::Config(format!(
+                    Err(FoldDbError::S3(format!(
                         "get S3 object '{key}': {}",
                         short_error(&e)
                     )))
@@ -89,7 +89,7 @@ impl S3BlobPersistence {
                 req = req.continuation_token(token);
             }
             let resp = req.send().await.map_err(|e| {
-                FoldDbError::Config(format!("list S3 'releases/': {}", short_error(&e)))
+                FoldDbError::S3(format!("list S3 'releases/': {}", short_error(&e)))
             })?;
             for obj in resp.contents() {
                 let Some(key) = obj.key() else { continue };
@@ -122,7 +122,7 @@ impl S3BlobPersistence {
                 req = req.continuation_token(token);
             }
             let resp = req.send().await.map_err(|e| {
-                FoldDbError::Config(format!("list S3 'channels/': {}", short_error(&e)))
+                FoldDbError::S3(format!("list S3 'channels/': {}", short_error(&e)))
             })?;
             for obj in resp.contents() {
                 let Some(key) = obj.key() else { continue };
@@ -154,9 +154,10 @@ impl S3BlobPersistence {
             if let Some(token) = continuation {
                 req = req.continuation_token(token);
             }
-            let resp = req.send().await.map_err(|e| {
-                FoldDbError::Config(format!("list S3 'apps/': {}", short_error(&e)))
-            })?;
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| FoldDbError::S3(format!("list S3 'apps/': {}", short_error(&e))))?;
             for obj in resp.contents() {
                 let Some(key) = obj.key() else { continue };
                 let Some(rec) = self.get_single_object::<AppRecord>(key).await? else {
@@ -190,12 +191,13 @@ impl S3BlobPersistence {
                 Ok(resp) => {
                     let etag = resp
                         .e_tag()
-                        .ok_or_else(|| FoldDbError::Config(format!("no ETag for '{key}'")))?
+                        .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
                         .to_string();
-                    let body =
-                        resp.body.collect().await.map_err(|e| {
-                            FoldDbError::Config(format!("read S3 body '{key}': {e}"))
-                        })?;
+                    let body = resp
+                        .body
+                        .collect()
+                        .await
+                        .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
                     let bytes = body.into_bytes();
                     let existing: ChannelRecord = serde_json::from_slice(&bytes)
                         .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
@@ -205,7 +207,7 @@ impl S3BlobPersistence {
                     if error_code(&e).as_deref() == Some("NoSuchKey") {
                         None
                     } else {
-                        return Err(FoldDbError::Config(format!(
+                        return Err(FoldDbError::S3(format!(
                             "get S3 object '{key}': {}",
                             short_error(&e)
                         )));
@@ -221,11 +223,12 @@ impl S3BlobPersistence {
                 ))
             })?;
             if existing.generation != expected {
-                return Err(FoldDbError::Config(format!(
-                    "generation conflict: stored={}, new={}",
-                    existing.generation, record.generation
-                )));
+                return Err(FoldDbError::GenerationConflict {
+                    expected: existing.generation,
+                    supplied: record.generation,
+                });
             }
+            let stored_generation = existing.generation;
             let body = serde_json::to_vec(record)
                 .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
             self.client
@@ -239,9 +242,12 @@ impl S3BlobPersistence {
                 .await
                 .map_err(|e| {
                     if is_precondition_failed(&e) {
-                        FoldDbError::Config("generation conflict (ETag mismatch)".to_string())
+                        FoldDbError::GenerationConflict {
+                            expected: stored_generation,
+                            supplied: record.generation,
+                        }
                     } else {
-                        FoldDbError::Config(format!("put S3 object '{key}': {}", short_error(&e)))
+                        FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
                     }
                 })?;
         } else {
@@ -257,7 +263,7 @@ impl S3BlobPersistence {
                 .send()
                 .await
                 .map_err(|e| {
-                    FoldDbError::Config(format!("put S3 object '{key}': {}", short_error(&e)))
+                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
                 })?;
         }
         Ok(())

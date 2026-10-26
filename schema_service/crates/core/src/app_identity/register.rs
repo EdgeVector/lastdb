@@ -129,13 +129,14 @@ impl SchemaServiceState {
                     if let Ok(mut apps) = self.apps.write() {
                         apps.remove(&record.app_id);
                     }
-                    let msg = e.to_string();
-                    if let Some(owner) = msg.strip_prefix("app_owner_conflict:") {
-                        return Err(AppRegisterError::Conflict {
-                            current_owner_dev_pubkey: owner.to_string(),
-                        });
-                    }
-                    return Err(AppRegisterError::Internal(msg));
+                    return Err(match e {
+                        schema_types::FoldDbError::AppOwnerConflict {
+                            current_owner_dev_pubkey,
+                        } => AppRegisterError::Conflict {
+                            current_owner_dev_pubkey,
+                        },
+                        other => AppRegisterError::Internal(other.to_string()),
+                    });
                 }
                 self.bump_state_version();
                 Ok(AppRegisterOutcome::Created(record))

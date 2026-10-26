@@ -117,9 +117,9 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
             if existing.owner_dev_pubkey == app.owner_dev_pubkey {
                 return Ok(());
             }
-            return Err(FoldDbError::Config(
-                "app already exists with different owner".to_string(),
-            ));
+            return Err(FoldDbError::AppOwnerConflict {
+                current_owner_dev_pubkey: existing.owner_dev_pubkey,
+            });
         }
         let key = format!("apps/{}.json", app.app_id);
         let body = serde_json::to_vec(app)
@@ -140,16 +140,15 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
                 let existing: Option<AppRecord> = self.get_single_object(&key).await?;
                 match existing {
                     Some(existing) if existing.owner_dev_pubkey == app.owner_dev_pubkey => Ok(()),
-                    Some(existing) => Err(FoldDbError::Config(format!(
-                        "app_owner_conflict:{}",
-                        existing.owner_dev_pubkey
-                    ))),
+                    Some(existing) => Err(FoldDbError::AppOwnerConflict {
+                        current_owner_dev_pubkey: existing.owner_dev_pubkey,
+                    }),
                     None => Err(FoldDbError::Config(
                         "app create conflict but not found on re-read".to_string(),
                     )),
                 }
             }
-            Err(e) => Err(FoldDbError::Config(format!(
+            Err(e) => Err(FoldDbError::S3(format!(
                 "put S3 object '{key}': {}",
                 short_error(&e)
             ))),
