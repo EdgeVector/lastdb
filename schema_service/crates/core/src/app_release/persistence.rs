@@ -16,7 +16,24 @@ impl SchemaServiceState {
             .backend()
             .save_channel(record)
             .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.contains("generation conflict") {
+                    if let Some(stored) = msg
+                        .split("stored=")
+                        .nth(1)
+                        .and_then(|s| s.split(',').next())
+                    {
+                        if let Ok(expected) = stored.parse::<u64>() {
+                            return ReleaseError::GenerationConflict {
+                                expected,
+                                supplied: record.generation,
+                            };
+                        }
+                    }
+                }
+                ReleaseError::Internal(msg)
+            })
     }
 
     /// Replace the in-memory release + channel stores from a backend load.

@@ -26,7 +26,7 @@ use schema_service_core::app_release::{
     channel_key, ChannelRecord, ReleaseManifest, ReleaseRecord,
 };
 use schema_service_core::external_persistence::ExternalSchemaPersistence;
-use schema_service_core::snapshot::AppRecord;
+use schema_service_core::snapshot::{AppMetadata, AppRecord, AppTier};
 use schema_service_s3::S3BlobPersistence;
 
 #[tokio::main]

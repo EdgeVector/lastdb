@@ -4690,14 +4690,17 @@ name = "schema_service_s3"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-s3",
+ "chrono",
  "schema_service_core",
  "schema_types",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
