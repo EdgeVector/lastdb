@@ -10,7 +10,7 @@ pub(super) type DirectoryOutput = (TreeRoot, u64, Vec<u32>, Changes);
 type Outputs = (Vec<LocatorOutput>, DirectoryOutput);
 
 #[cfg(target_os = "linux")]
-const PARALLEL_LINUX_FINISH: bool = true;
+const PARALLEL_LINUX_FINISH: bool = false;
 
 pub(super) fn finish(locators: LocatorChanges, directory: TreeEdit) -> Result<Outputs> {
     // Apple barriers use thread-local ordering state; keep that path on its caller.
