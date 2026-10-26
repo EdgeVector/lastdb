@@ -27,28 +27,8 @@ pub(super) async fn execute<H: HostNode>(
                 .map_err(HostError::from)
         })
         .transpose()?;
-    if let Some(received) = cursor
-        .as_ref()
-        .and_then(|cursor| cursor.comparison.as_ref())
-    {
-        if binding.as_ref() != Some(received) {
-            return Err(HostError::new(
-                409,
-                "cursor comparison context changed; restart from the first page",
-            ));
-        }
-    }
-    if cursor
-        .as_ref()
-        .is_some_and(|cursor| cursor.comparison.is_none())
-        && comparison
-            .as_ref()
-            .is_some_and(|comparison| !comparison.accepts_legacy_cursor())
-    {
-        return Err(HostError::new(
-            409,
-            "legacy cursor cannot continue this key order; restart from the first page",
-        ));
+    if let Some(cursor) = cursor.as_ref() {
+        rules::validate_cursor_comparison(cursor, binding.as_deref(), comparison.as_deref())?;
     }
     let cursor = cursor.map(QueryCursor::into_key);
     let run = execute::QueryRun {
