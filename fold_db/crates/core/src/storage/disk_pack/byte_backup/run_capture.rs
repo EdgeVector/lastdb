@@ -133,7 +133,15 @@ fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         .ok_or_else(|| invalid("run node parent"))?
         .join("laststore-pack-node-v1");
     let meta = fs::symlink_metadata(&node)?;
-    if !meta.is_file() || meta.len() != super::super::run_node::RUN_NODE_BYTES.len() as u64 {
+    let expected = match homes.range_order {
+        schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1 => {
+            super::super::run_node::RUN_NODE_BYTES
+        }
+        schema_types::key_comparison::KeyOrderVersion::TypedScalarV1 => {
+            super::super::run_admission::TYPED_NODE_BYTES
+        }
+    };
+    if !meta.is_file() || meta.len() != expected.len() as u64 || fs::read(&node)? != expected {
         return Err(invalid("run source node marker"));
     }
     fs::hard_link(&node, root.join("node"))?;

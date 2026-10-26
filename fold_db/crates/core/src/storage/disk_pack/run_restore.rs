@@ -68,7 +68,13 @@ pub fn verify(
     if native.profile != *profile {
         return Err(invalid("run restore captured profile differs"));
     }
-    let atoms = verify_readers(&native.main, &native.cas, account_key, scratch_root)?;
+    let atoms = verify_readers_for_profile(
+        &native.main,
+        &native.cas,
+        account_key,
+        scratch_root,
+        native.profile.version,
+    )?;
     let guard = RunRestoreGuard { native, atoms };
     guard.check_binding()?;
     Ok(guard)
@@ -81,8 +87,18 @@ pub fn verify_readers(
     account_key: &[u8; 32],
     scratch_root: &Path,
 ) -> StorageResult<u64> {
+    verify_readers_for_profile(main, cas, account_key, scratch_root, 1)
+}
+
+pub(crate) fn verify_readers_for_profile(
+    main: &RunRead,
+    cas: &RunRead,
+    account_key: &[u8; 32],
+    scratch_root: &Path,
+    version: u16,
+) -> StorageResult<u64> {
     files::directory(scratch_root)?;
-    proof::verify(main, cas, account_key, scratch_root)
+    proof::verify(main, cas, account_key, scratch_root, version)
 }
 
 fn invalid(message: &str) -> StorageError {

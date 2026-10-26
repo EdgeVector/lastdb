@@ -23,6 +23,9 @@ impl RunNodeGuard {
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
         files::node_marker(&self.root)?;
+        if files::profile_version(&self.root)? != Some(self.profile.version) {
+            return Err(invalid("run restore logical profile changed"));
+        }
         for (binding, name) in self
             .homes
             .iter()
@@ -48,6 +51,8 @@ impl RunNodeGuard {
             .try_lock()
             .map_err(|_| invalid("run restore node is owned"))?;
         files::node_marker(root)?;
+        let version = files::profile_version(root)?
+            .ok_or_else(|| invalid("run restore logical profile is absent"))?;
         let homes = [
             files::prepare_home(root, run_node::RUN_DIR)?,
             files::prepare_home(root, run_node::CAS_DIR)?,
@@ -72,18 +77,18 @@ impl RunNodeGuard {
         .map_err(map)?;
         reserve_pair(&mut main, &mut cas)?;
         let profile = RunBackupProfile {
-            version: 1,
+            version,
             main: files::profile_home(root, run_node::RUN_DIR, &main)?,
             cas: files::profile_home(root, run_node::CAS_DIR, &cas)?,
         };
         profile.validate()?;
         let mut entries = vec![RunRestoreFile {
             path: NODE_MARKER.into(),
-            bytes: run_node::RUN_NODE_BYTES.len() as u64,
+            bytes: profile.node_marker()?.len() as u64,
         }];
         entries.extend(check_home(root, run_node::RUN_DIR, &main, &profile.main)?);
         entries.extend(check_home(root, run_node::CAS_DIR, &cas, &profile.cas)?);
-        proof::verify_account(&main, key)?;
+        proof::verify_account(&main, key, version)?;
         let guard = Self {
             root: root.to_path_buf(),
             directory,

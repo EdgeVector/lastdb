@@ -32,7 +32,7 @@ mod share;
 
 pub(crate) use frozen::{
     node_bundle_storage_keys, open_frozen_node_bundle, typed_frozen_metadata,
-    NODE_KEY_ROW_MAX_BYTES,
+    verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, CachedMoleculeContract>>>;

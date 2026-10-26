@@ -67,6 +67,42 @@ pub(crate) fn open_frozen_node_bundle(
     open_wrap(&wrap, molecule_uuid, NODE_DOMAIN, account_key)
 }
 
+/// Verify a typed schema's existing molecule contract at a held root.
+/// This reads no cache, creates no key, and never turns node keys into a bundle.
+pub(crate) fn verify_frozen_typed_profile(
+    molecule: &str,
+    expected: MoleculeRangeProfile,
+    account_key: &[u8; 32],
+    metadata: Option<&[u8]>,
+    wrap: Option<&[u8]>,
+) -> StorageResult<()> {
+    validate_molecule(molecule)?;
+    expected
+        .validate()
+        .map_err(StorageError::InvalidOperation)?;
+    let metadata: BundleMetadata = decode(
+        account_key,
+        metadata.ok_or_else(|| invalid("typed molecule metadata is absent"))?,
+    )?;
+    if metadata.version != super::contracts::TYPED_METADATA_VERSION
+        || metadata.molecule_uuid != molecule
+        || metadata.range_profile != Some(expected)
+        || metadata.conflict_identity.is_none()
+    {
+        return Err(invalid("typed molecule metadata differs from its schema"));
+    }
+    match (metadata.key_authority, wrap) {
+        (Some(super::KeyAuthority::Node), None) => Ok(()),
+        (Some(super::KeyAuthority::Bundle), Some(bytes)) => {
+            let wrap: BundleWrap = decode(account_key, bytes)?;
+            open_wrap(&wrap, molecule, NODE_DOMAIN, account_key).map(drop)
+        }
+        _ => Err(invalid(
+            "typed molecule key authority differs from its node wrap",
+        )),
+    }
+}
+
 fn decode<T: DeserializeOwned>(key: &[u8; 32], stored: &[u8]) -> StorageResult<T> {
     if stored.len() as u64 > NODE_KEY_ROW_MAX_BYTES {
         return Err(invalid("native molecule key record exceeds its bound"));
