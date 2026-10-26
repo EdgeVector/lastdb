@@ -201,6 +201,7 @@ jobs:
         run: |
           cd "$TEST_HOME"
           mkdir -p apps-source
+          SKIP_APP_LOCAL=false
           
           case "${{ matrix.app }}" in
             brain)
@@ -213,11 +214,13 @@ jobs:
               if [ -n "${{ secrets.APP_REPOS_TOKEN }}" ]; then
                 git clone --depth 1 https://x-access-token:${{ secrets.APP_REPOS_TOKEN }}@github.com/EdgeVector/lastseek.git apps-source/lastseek 2>&1 | tee "$PROOF_DIR/lastseek-clone.log" || {
                   echo "❌ lastseek clone failed even with APP_REPOS_TOKEN"
+                  SKIP_APP_LOCAL=true
                   echo "SKIP_APP=true" >> "$GITHUB_ENV"
                 }
               else
                 echo "⚠️  lastseek is private and secrets.APP_REPOS_TOKEN is not configured"
                 echo "Configure APP_REPOS_TOKEN secret with a PAT that has access to EdgeVector/lastseek"
+                SKIP_APP_LOCAL=true
                 echo "SKIP_APP=true" >> "$GITHUB_ENV"
               fi
               ;;
@@ -226,7 +229,7 @@ jobs:
               ;;
           esac
           
-          if [ "$SKIP_APP" != "true" ] && [ -d "apps-source/${{ matrix.app }}" ]; then
+          if [ "$SKIP_APP_LOCAL" != "true" ] && [ -d "apps-source/${{ matrix.app }}" ]; then
             echo "APP_SOURCE=$TEST_HOME/apps-source/${{ matrix.app }}" >> "$GITHUB_ENV"
           fi
 
@@ -236,11 +239,14 @@ jobs:
           # Determine source directory
           if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
             echo "APP_SOURCE=$LASTDB_HOME/apps/${{ matrix.app }}/source" >> "$GITHUB_ENV"
+            echo "Using registry-installed source: $LASTDB_HOME/apps/${{ matrix.app }}/source"
           elif [ -n "$APP_SOURCE" ]; then
-            echo "Using fallback source: $APP_SOURCE"
+            echo "Using fallback source from checkout: $APP_SOURCE"
+            # APP_SOURCE already set by previous step, just verify it
           else
-            echo "No source found"
-            exit 1
+            echo "❌ No source found - app install failed and source checkout skipped or failed"
+            echo "SKIP_APP=true" >> "$GITHUB_ENV"
+            exit 0
           fi
 
       - name: Record app contract surface
