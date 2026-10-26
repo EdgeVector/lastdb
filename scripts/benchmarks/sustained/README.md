@@ -4,7 +4,8 @@ This benchmark measures the real daemon through its Unix socket. The workflow
 uses one standard `ubuntu-24.04` machine in the public repository. It does not
 select paid machines, create cloud resources, or use the primary.
 
-The ready PR runs the full recipe. After merge, use GitHub Actions →
+The ready PR validates the driver with a 1 GiB seed and 30 seconds at each rate.
+That short run provides no sustained-capacity claim. For the full recipe, use GitHub Actions →
 **V2 sustained write measurement** → **Run workflow** for later runs.
 Manual inputs select 1 or 10 GiB, the phase duration, and the seed duration cap.
 The default recipe offers 100, 1,000, and 5,000 record updates per second for

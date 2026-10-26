@@ -51,10 +51,12 @@ jobs:
     timeout-minutes: 350
     env:
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      REQUEST_GIB: ${{ inputs.gib || '1' }}
-      REQUEST_SECONDS: ${{ inputs.seconds || '1800' }}
+      # PRs check the driver and recovery on 1 GiB with short load phases.
+      # Full 30-minute capacity phases and the guarded 10 GiB attempt are manual.
+      REQUEST_GIB: ${{ github.event_name == 'workflow_dispatch' && inputs.gib || '1' }}
+      REQUEST_SECONDS: ${{ github.event_name == 'pull_request' && '30' || inputs.seconds || '1800' }}
       REQUEST_SEED_SECONDS: ${{ inputs.seed_seconds || '1800' }}
-      REQUEST_TRY_LARGE: ${{ github.event_name == 'pull_request' || inputs.try_large }}
+      REQUEST_TRY_LARGE: ${{ github.event_name == 'workflow_dispatch' && inputs.try_large }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
       NO_COLOR: '1'
