@@ -169,24 +169,6 @@ jobs:
             echo "$bin --version -> $actual"
           done
 
-      # UPGRADE-DECRYPT GATE (incident 2026-07-13 / v0.22.6):
-      # HARD BREAK for the 0.23 line (Tom 2026-07-24): sled was removed after
-      # public 0.22.9; there are no other production users. Skip predecessor
-      # seed/boot. Re-enable against a laststore-era previous tag when multi-user
-      # in-place upgrade matters again. Script remains for local/manual use.
-      - name: Upgrade-decrypt gate (skipped — 0.23 hard break from sled 0.22.x)
-        if: false
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/release/validate-mini-upgrade-decrypt.sh \
-            --previous-tag v0.22.9 \
-            --candidate-built "target/${{ matrix.target }}/release" \
-            --triple "${{ matrix.target }}" \
-            --report-dir "${RUNNER_TEMP}/upgrade-decrypt-report"
-          echo "upgrade-decrypt report:"
-          cat "${RUNNER_TEMP}/upgrade-decrypt-report/result.txt"
-
       # Fresh-install / first-run gate: boot candidate lastdbd on a pristine
       # throwaway home, exercise /api/schemas/declare + /api/apps/declare-schema
       # (brain/kanban init path), mutation/query, semantic search, restart.

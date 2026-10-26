@@ -13,7 +13,7 @@
 | Date | 2026-09-21 |
 | Scope | LastDB Mini owner maintenance |
 | Canonical model | `docs/lastdb-canonical-model.md` |
-| Related work | `docs/physical-atom-delete-proof.md`, `fold_db/docs/DELETE_RETURNS_BYTES.md` |
+| Related work | `fold_db/docs/DELETE_RETURNS_BYTES.md` |
 | Delivery plan | `docs/designs/schema-root-data-attribution-delivery-plan.md` (also superseded) |
 
 ## Decision
@@ -490,8 +490,6 @@ then on a supervised live run.
   those paths explicit and durable.
 - `DELETE_RETURNS_BYTES` already defines the delete-to-compaction chain. This
   design supplies the schema-root proof before the chain begins.
-- `physical-atom-delete-proof` already requires a physical positive control.
-  This design requires that proof before a cross-replica delete claim.
 - `reap-dropped-schema` remains useful for legacy residue. The new reclaim
   command replaces its limited dropped-tip proof with a complete lifecycle
   proof.
