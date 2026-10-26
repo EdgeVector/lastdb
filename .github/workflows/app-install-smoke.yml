@@ -311,6 +311,9 @@ jobs:
           # Install Bun
           brew install bun
           
+          # Add Bun's global bin directory to PATH
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/brain-deps-install.log"
           
@@ -365,6 +368,9 @@ jobs:
           
           # Install Bun
           brew install bun
+          
+          # Add Bun's global bin directory to PATH
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/lastsecrets-deps-install.log"
@@ -478,6 +484,9 @@ jobs:
           
           # Install Bun
           brew install bun
+          
+          # Add Bun's global bin directory to PATH
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/search-deps-install.log"
