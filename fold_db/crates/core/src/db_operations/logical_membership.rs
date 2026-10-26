@@ -2,11 +2,13 @@
 
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
+use crate::schema::types::key_comparison::normalize::canonical_range;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_paths::field::FieldScope;
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -32,6 +34,7 @@ pub(crate) async fn logical_key_membership(
     if !schema.runtime_fields.contains_key(hash_name) {
         return Ok(matches);
     }
+    let profile = db_ops.molecule_keys().schema_profile(schema)?;
     let hash_values = field_values(db_ops, schema, hash_name, keys, storage_prefix).await?;
     let mut range_keys = Vec::new();
     let mut range_indices = Vec::new();
@@ -44,7 +47,7 @@ pub(crate) async fn logical_key_membership(
             continue;
         }
         if layout.range_field.as_deref() == Some(hash_name) {
-            matches[index] = scalar_key_coordinate(&value).as_deref() == key.range.as_deref();
+            matches[index] = range_matches_scalar(profile, key, &value)?;
         } else {
             range_keys.push(key.clone());
             range_indices.push(index);
@@ -65,10 +68,24 @@ pub(crate) async fn logical_key_membership(
     };
     let range_values = field_values(db_ops, schema, range, &range_keys, storage_prefix).await?;
     for ((index, key), value) in range_indices.into_iter().zip(range_keys).zip(range_values) {
-        matches[index] = value
-            .is_some_and(|value| scalar_key_coordinate(&value).as_deref() == key.range.as_deref());
+        matches[index] = match value {
+            Some(value) => range_matches_scalar(profile, &key, &value)?,
+            None => false,
+        };
     }
     Ok(matches)
+}
+
+fn range_matches_scalar(
+    profile: Option<MoleculeRangeProfile>,
+    key: &KeyValue,
+    value: &Value,
+) -> Result<bool, SchemaError> {
+    let (Some(range), Some(coordinate)) = (key.range.as_deref(), scalar_key_coordinate(value))
+    else {
+        return Ok(false);
+    };
+    Ok(canonical_range(profile, &coordinate)? == canonical_range(profile, range)?)
 }
 
 /// Select each tip once under its actual field binding. Current reads reuse
