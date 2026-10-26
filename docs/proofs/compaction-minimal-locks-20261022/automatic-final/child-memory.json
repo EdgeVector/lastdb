@@ -1,7 +1,0 @@
-{
-  "child_processes": "one owned node",
-  "maxrss_raw": 175456256,
-  "platform": "darwin",
-  "raw_unit": "bytes",
-  "scope": "observed node peak over seed and all later phases; no process-memory cap claim"
-}

@@ -1,6 +1,0 @@
-{
-  "acceptance_claim_from_failed_result": false,
-  "classification": "procedure-diagnostic",
-  "original_result_preserved": true,
-  "reason": "The procedure compares the raw Hash key object and stops because range:null differs from an omitted range property. Existing logical.coordinates normalization validates both captured known/missing responses. The two reserved schema declarations and removed route also explicitly refuse. Original result remains false."
-}

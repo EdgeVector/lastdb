@@ -1,1 +1,0 @@
-{"benchmark_result":false,"complete":false,"error":"RuntimeError: A partial key move replaces an unchanged shared content UUID","operation_counts":{"core-owned-write":1,"failure":1,"native-status":1,"owned-node-start":1,"owned-node-stop":1,"request":7},"role":"candidate","workflow":"logical"}

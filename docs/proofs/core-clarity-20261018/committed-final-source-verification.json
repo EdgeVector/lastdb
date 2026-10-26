@@ -1,9 +1,0 @@
-{
-  "checked_utc": "2026-10-18T20:36:09.848229+00:00",
-  "commit": "a60b27d43f11fd6d1f3cf514d1579229d2256d5c",
-  "tree": "9c8d8dd75a5d2ebe8848b04808796db2ea87a386",
-  "source_inputs_checked": 1883,
-  "method": "Captured SHA256 and size, current bytes, and Git blob SHA1 all match the exact committed tree.",
-  "errors": [],
-  "passed": true
-}

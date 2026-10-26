@@ -1,2 +1,0 @@
-Function size check passed.
-exit=0

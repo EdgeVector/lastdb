@@ -178,7 +178,7 @@ A queued reply alone does not establish a memory-only ACK.
 Sample the accepted and completed sequences, pending batches, and dirty paths immediately after the reply.
 Explicit durable requests wait for disk.
 A queued request can also wait for disk when its reservation or typed coverage is insufficient.
-The [cutover receipts](proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
+The [cutover receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
 `lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
 The logical key line reports the record count cap. A byte allowance does not replace that count cap.

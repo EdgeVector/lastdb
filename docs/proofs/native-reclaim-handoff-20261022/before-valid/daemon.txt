@@ -1,6 +1,0 @@
-=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
-2026-10-22T16:44:15.917927Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=1
-lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/pr.CoU0Kt/r1/data/folddb.sock
-  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/pr.CoU0Kt/r1
-  Owner:  d13c8f042f56ff4344872d01cfdc4377
-2026-10-22T16:45:15.947680Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"

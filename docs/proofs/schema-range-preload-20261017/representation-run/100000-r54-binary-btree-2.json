@@ -1,1 +1,0 @@
-{"operation":"load","layout":"btree","representation":"binary","keys":100000,"retained_keys":100000,"characters":54,"key_bytes":216,"file_bytes":21600000,"open_ms":0.012208,"read_ms":1.005087,"build_ms":25.801537,"total_ms":26.826667}

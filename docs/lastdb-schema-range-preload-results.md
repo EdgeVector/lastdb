@@ -8,13 +8,13 @@ Captured reads now retain the batch owner for each memory reservation.
 Repeated secondary reads now retain the selected atom location.
 The first review executable is `ff832181fa11303c3c8675c2b4eb4158536d788459555ca9b6ba0b1c6d33dce9`.
 The elapsed times below still describe candidate 5, before these two fixes.
-The [first review receipts](proofs/schema-preload-review-fixes-20261017/review-result.json) record the checks, their limits, and a separate memory-cap problem.
+The [first review receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-review-fixes-20261017/review-result.json) record the checks, their limits, and a separate memory-cap problem.
 
 The next review fix closes that memory-cap problem.
 Writes without a sufficient memory reservation stay private until their disk commit.
 The commit updates the warm set and range keys together.
 The new executable is `739ab5e80e0cd915e4c42c2a13cd0e168f22410ceed0df4581aa0e2e1f92ffbb`.
-The [durable-write review receipts](proofs/schema-preload-durable-review-fix-20261017/review-result.json) record the source review, build, and ordinary product checks.
+The [durable-write review receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-durable-review-fix-20261017/review-result.json) record the source review, build, and ordinary product checks.
 No elapsed-time comparison for this executable appears in this report.
 
 The final program returns correct values in the completed ordinary workloads.
@@ -38,7 +38,7 @@ Each run creates a fresh private synthetic home.
 No existing data home supplies the data.
 Each candidate run copies its executable into its private root before node start.
 Final off and on runs use the same executable hash.
-The [final identity check](proofs/schema-preload-product-20261017/candidate5-final-identity-check.json) records 1,656 source hashes with zero mismatches.
+The [final identity check](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/candidate5-final-identity-check.json) records 1,656 source hashes with zero mismatches.
 
 Each generated record has four fields: a hash, a range, a title, and a body.
 The range has 54 bytes; the body has 1 KiB.
@@ -258,7 +258,7 @@ The low-cap case is separate from the normal 10,000-path measurements.
 
 ## Additional ordinary product evidence
 
-The [extra product report](proofs/schema-preload-product-20261017/EXTRA_PRODUCT.md) uses the same final executable.
+The [extra product report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/EXTRA_PRODUCT.md) uses the same final executable.
 Its Hash-only, record-envelope, page, bound, filter, sample, delete, flush, reopen, and physical LastDB compaction operations pass.
 Hash-only calls start no key load, even when the policy names that schema.
 Record-envelope reads add their required complete domains.
@@ -275,7 +275,7 @@ They check that source before warm reuse.
 A full optional receipt cache cannot silently remove a required file hint; the required-source refusal returns an explicit resource error.
 These checks preserve the captured read boundary when another write publishes.
 
-The [validation report](proofs/schema-preload-product-20261017/VALIDATION.md) records release build, Clippy, format, and source checks.
+The [validation report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/VALIDATION.md) records release build, Clippy, format, and source checks.
 These source checks do not replace ordinary product evidence.
 
 ## Separate existing size limit
@@ -289,7 +289,7 @@ This failure is separate from the four-field matched benchmark and its normal sh
 The relevant limit exists in the reference source and stays unchanged.
 No paired reference run of that five-field case occurs.
 This work does not raise the guard.
-The [size-limit audit](proofs/schema-preload-product-20261017/KEEP_SMALL_LIMIT.md) records the source linkage and failure receipts.
+The [size-limit audit](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/KEEP_SMALL_LIMIT.md) records the source linkage and failure receipts.
 The per-schema record size limit remains.
 
 ## Limits and receipts
@@ -308,4 +308,4 @@ Earlier candidates remain labelled diagnostic; their measurements do not enter t
 All final measurement nodes stop normally, and reviewed supported cleanup removes each final synthetic data root.
 The reference source and executable identities remain in `reference.json` after the comparison.
 The clean temporary reference checkout and executable are reclaimed through normal Git worktree removal without force.
-The [receipt directory](proofs/schema-preload-product-20261017/README.md) contains commands, full request results, sources, identities, refusals, and cleanup results.
+The [receipt directory](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/README.md) contains commands, full request results, sources, identities, refusals, and cleanup results.

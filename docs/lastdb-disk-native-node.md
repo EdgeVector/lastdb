@@ -11,7 +11,7 @@ The disk format v1 removal deleted the separate owner command `lastdb-native-tra
 Legacy Cloud Sync activation receives an explicit error.
 Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
 
-The [cutover results](proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.
+The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.
 The [logical warm-set plan](lastdb-logical-warm-set-plan.md) records the current component boundaries.
 The primary and its archive do not participate in these checks.
 
@@ -112,8 +112,8 @@ and [backup capture](../fold_db/crates/core/src/storage/disk_pack/backup_capture
 
 ## Historical receipts
 
-The [October 15 receipt](proofs/disk-native-node-20261015/report.md) records the earlier development path and its debug comparison.
+The [October 15 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-native-node-20261015/report.md) records the earlier development path and its debug comparison.
 That step required explicit engine activation. Its controls and measurements describe only its recorded source.
-The [7110c7f5 receipt](proofs/layer2-completion-20261016/node-final-off-summary.json) measures a later historical candidate.
+The [7110c7f5 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-summary.json) measures a later historical candidate.
 The [October 16 status report](lastdb-disk-rollout-status.md) describes that candidate's earlier limits.
 Neither receipt establishes current performance, primary behavior, or upgrade readiness.

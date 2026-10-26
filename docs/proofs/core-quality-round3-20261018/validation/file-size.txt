@@ -1,5 +1,0 @@
-Source: 894c459d1e235aa928973fc6f479182acf459ef3
-Base: origin/main (8c0531e6ca032bbc1e5b11379792c3a120f170a6)
-Command: python3 scripts/lints/lint-diff-file-size.py --base origin/main --head 894c459d1e235aa928973fc6f479182acf459ef3
-Exit: 0
-File size check passed (10 changed file(s) examined).

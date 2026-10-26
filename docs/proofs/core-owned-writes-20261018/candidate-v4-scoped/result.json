@@ -1,1 +1,0 @@
-{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-queue-drained":1,"core-owned-read":24,"core-owned-scoped-complete":1,"core-owned-write":5,"flush":1,"native-status":5,"owned-node-start":2,"owned-node-stop":2,"request":41},"role":"candidate","workflow":"scoped"}

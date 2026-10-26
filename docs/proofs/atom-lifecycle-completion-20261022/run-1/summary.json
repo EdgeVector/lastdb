@@ -1,7 +1,0 @@
-{
-  "complete": false,
-  "error": "JSONDecodeError on a new long-key write after concurrent compaction; graceful shutdown also reported an incomplete accepted queue",
-  "all_owned_processes_stopped": true,
-  "scope": "Failed first capture; retained for diagnosis and candidate recovery",
-  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al0.vnrS0e"
-}

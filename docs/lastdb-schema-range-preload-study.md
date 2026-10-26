@@ -3,7 +3,7 @@
 Status: source review and synthetic component measurements, 2026-10-17.
 This document preserves the earlier component study.
 The branch now contains the complete-key loader and read routes.
-The [product receipts](proofs/schema-preload-product-20261017/) keep their separate before and after measurements.
+The [product receipts](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/) keep their separate before and after measurements.
 Tom selected the [first-query preload design](lastdb-schema-range-preload-design.md) after this study.
 The measurements below remain component evidence, not a complete preload result.
 
@@ -99,7 +99,7 @@ At 100,000 board-shaped keys, binary tree memory is 28.66 MiB; hexadecimal tree 
 The binary array uses 22.25 MiB and loads in 1.78 ms under the same cached-input conditions.
 Those array results do not justify a flat mutable array for production writes.
 
-Full methods and raw receipts: [representation report](proofs/schema-range-preload-20261017/representation-report.md) and [case summary](proofs/schema-range-preload-20261017/representation-summary.json).
+Full methods and raw receipts: [representation report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-range-preload-20261017/representation-report.md) and [case summary](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-range-preload-20261017/representation-summary.json).
 
 ## App-shaped estimates
 
@@ -127,7 +127,7 @@ For one million 40-byte ranges, the tree prototype uses about 209 MiB before rea
 A 50% reserve brings that estimate to about 313 MiB.
 A 128 MiB cap therefore cannot promise a complete preload for that case.
 
-Calculation source and assumptions: [arithmetic source](proofs/schema-range-preload-20261017/calculate_estimates.py), [results](proofs/schema-range-preload-20261017/estimates.json).
+Calculation source and assumptions: [arithmetic source](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-range-preload-20261017/calculate_estimates.py), [results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-range-preload-20261017/estimates.json).
 
 ## First schema use: the disk cost matters
 
@@ -165,7 +165,7 @@ It is not implemented or measured here.
 Measure its complete key load before a promise of subsecond schema preload.
 The memory results establish feasibility; the disk results identify work that precedes a fast first use.
 
-Native CLI source, binary identity, counters, responses, and cleanup: [disk receipt](proofs/schema-range-preload-20261017/disk-component.json).
+Native CLI source, binary identity, counters, responses, and cleanup: [disk receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-range-preload-20261017/disk-component.json).
 
 ## Required behavior
 

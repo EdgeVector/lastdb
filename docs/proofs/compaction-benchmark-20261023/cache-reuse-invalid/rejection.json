@@ -1,7 +1,0 @@
-{
-  "rejected": true,
-  "at_ns": 1792774288023774000,
-  "reason": "Shared Cargo target reused the before storage library for the after node; new compaction binary markers and API status absent. No measurements from this directory enter the comparison.",
-  "all_owned_nodes_stopped": true,
-  "series_interrupted": true
-}

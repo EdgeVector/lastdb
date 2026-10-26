@@ -1,4 +1,0 @@
-{
-  "type": "RuntimeError",
-  "message": "explicit concurrent compaction failed; preserve its receipt"
-}

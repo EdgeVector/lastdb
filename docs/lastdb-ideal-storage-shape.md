@@ -10,7 +10,7 @@
 > is the only authority for an atom body (`docs/lastdb-atom-counter.md`).
 
 Historical July 29 layout proposal. The [current memory and disk design](lastdb-rehydrate.md)
-and [native cutover results](proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.
+and [native cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.
 The metadata below records the earlier plan. Use the current design for implementation work.
 
 | Field | Value |

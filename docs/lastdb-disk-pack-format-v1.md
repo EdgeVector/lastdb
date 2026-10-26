@@ -170,7 +170,7 @@ The 128 MiB batch cap, suffix limits, part sizes, and dependency bounds remain u
 The extension neither splits a logical batch nor removes ordered operations.
 The `lastdb-disk-home` JSON command retains its separate 4,096-operation input limit.
 The node can produce more stored operations from one logical request through the native capability.
-The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-receipts.jsonl) record a complete 256-record durable update and normal reopen.
+The [7110c7f5 node receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-receipts.jsonl) record a complete 256-record durable update and normal reopen.
 
 JOURNAL_TAIL is also exactly 4,096 bytes. Its proposed magic is `LDJTL1\0\0`.
 Offsets 8 through 15 use the same version, length, and flags fields as CURRENT.

@@ -1,8 +1,0 @@
-{
-  "captured_utc": "2026-10-18T04:03:03.114013+00:00",
-  "source_file_count": 1656,
-  "source_mismatches": [],
-  "expected_binary_sha256": "e10f45939488c9f6286fedaca76a32dfb4f0f899f05026b976fa723011ce3ee1",
-  "observed_binary_sha256": "e10f45939488c9f6286fedaca76a32dfb4f0f899f05026b976fa723011ce3ee1",
-  "binary_matches": true
-}

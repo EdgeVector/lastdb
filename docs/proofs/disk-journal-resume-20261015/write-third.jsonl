@@ -1,8 +1,0 @@
-{"committed_frontier":10,"generation":13,"stream_uuid":"2c9176a5-7599-4317-a999-92302b4e6680","writer_opened":true}
-{"batch_durable":true,"encoded_bytes":17195,"marker_sha256":"338868dd6f7cb00378cf9c006cde8d87a08ac8afc17c1b8a22cd1c2fd4e633a5","operations":8,"sequence":11}
-{"batch_durable":true,"encoded_bytes":17196,"marker_sha256":"96da4622eaa3da7a97b7d1b8cc520eb3a6b44aba7ee02b012412b24cc6937c0c","operations":8,"sequence":12}
-{"dependency_parts":46,"frontier":12,"generation":15,"metadata_pages_written":34,"metadata_parts_written":3,"mutations":16,"receipt_uuid":"78b78a1a-55de-4b2a-ad63-57b4b5e5bfa4","root_published":true,"stream_uuid":"152d915a-d5e2-45e9-8fd0-5ddc5ce4642b"}
-{"batch_durable":true,"encoded_bytes":17581,"marker_sha256":"8063a8db46394ba81dadc6ea32e417804cdaefe6d7c6092d3ea4cb7bf2bdfc58","operations":8,"sequence":13}
-{"batch_durable":true,"encoded_bytes":17555,"marker_sha256":"f8a0878c244fe0521e80fbe156a9d3a295f0199af0b5c9b07d28a6f22ac2720c","operations":8,"sequence":14}
-{"dependency_parts":53,"frontier":14,"generation":17,"metadata_pages_written":35,"metadata_parts_written":3,"mutations":16,"receipt_uuid":"0aa38a3e-50db-4ef6-a783-6f67fa815234","root_published":true,"stream_uuid":"2d8f33ed-67ce-4246-9d9b-9a24a8faf555"}
-{"artifact_only":true,"batches":4,"committed_frontier":14,"complete":true,"elapsed_nanos":318711250,"encoded_bytes":0,"first_batch":15,"generation":17,"last_batch":14,"mutations":32,"reserved_suffix_bytes":0,"stream_uuid":"2d8f33ed-67ce-4246-9d9b-9a24a8faf555"}

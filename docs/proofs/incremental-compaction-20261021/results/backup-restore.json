@@ -1,1 +1,0 @@
-{"ev": "backup-restore", "live_parts": 211, "live_locator_objects": 1, "records": 29871, "backup_exit": 0, "restore_exit": 0, "backup_s": 3.3, "restore_s": 2.1, "restored_records": 29871, "records_equal": true, "inventory_equal": true, "equal": true}

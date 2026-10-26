@@ -15,7 +15,7 @@ Commit `e79b71151` implements the bounded cache within each publication.
 Profiles, three controlled pairs, six product operations, and three default-maintenance runs are complete.
 Those results precede this integration and do not measure its performance.
 Tom approved the code merges on October 23. The primary stays unchanged.
-The [integration report](proofs/journal-receipt-integration-20261023/README.md) records the final source checks and their local execution limit.
+The [integration report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-receipt-integration-20261023/README.md) records the final source checks and their local execution limit.
 
 ## Current source
 
@@ -68,7 +68,7 @@ The complete-batch policy cap stays 128 MiB.
 The offline write command now holds a complete disk-space reservation through publication.
 Its default free-space and replacement allowances remain 64 MiB each.
 
-The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) records three pairs against the original journal-backed baseline.
+The [repeat report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-removal-review-benchmark-20261022/RESULTS.md) records three pairs against the original journal-backed baseline.
 All exact-key, range, delete, and graceful-reopen checks pass.
 Process write bytes fall across all four update workloads in all pairs.
 Batch latency and compaction write delay remain mixed.
@@ -139,14 +139,14 @@ A reopen selects only the committed root; private interrupted output remains unu
 Missing or damaged committed dependencies cause an error.
 The code does not infer another root or reconstruct a missing receipt.
 
-The [earlier receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three uncached `a1941e3a8` pairs against journal-free `08d8436cc`.
+The [earlier receipt removal report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three uncached `a1941e3a8` pairs against journal-free `08d8436cc`.
 Durable-single file growth falls from 668.35 to 640.36 KiB per update.
 The durable 32-record batch p50 rises from 99.96 to 164.65 ms; every pair records a slower batch.
 The focused worst write increases from 1.198 to 1.314 seconds.
 That candidate passes the code and six operational checks, but its performance tradeoff does not support a merge recommendation.
 Each changed key in that source creates a fresh resolver, which can repeat map reads for related keys.
 That source path is a possible cause; the earlier report does not claim profile attribution.
-The separate [cache follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
+The separate [cache follow-up report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
 Three fresh baseline/cache pairs show durable-single growth of 670.86 and 639.35 KiB per update.
 The durable batch32 request p50 is 113.33 and 131.24 ms; the focused worst write is 1.249 and 1.488 seconds.
 These are medians across runs, without pooled requests.
@@ -157,8 +157,8 @@ The baseline completes one pack; the cache completes none in this finite window.
 The October 22 recommendation kept PR 273 as a draft pending further review.
 Tom approved the code merges on October 23, with the primary unchanged.
 The integration removes the arbitrary count quotas from the earlier source and preserves main's concurrent compaction paths.
-The follow-up [scale review](proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) describes the frozen source and its former quotas.
-Its [next-change review](proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) proposed one app notice publication per batch.
+The follow-up [scale review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) describes the frozen source and its former quotas.
+Its [next-change review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) proposed one app notice publication per batch.
 Current main already commits those notices with the native values.
 The historical benchmark reports remain useful comparisons for their recorded executables; they do not measure this integration.
 
@@ -170,10 +170,10 @@ The generic legacy converter still refuses native output without the atom-record
 
 ## First product receipt
 
-The [run-1 inputs](proofs/snapshot-commits-20261022/run-1/inputs.json) identify the executable by its SHA-256 and source commit `47088b89c`.
+The [run-1 inputs](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/inputs.json) identify the executable by its SHA-256 and source commit `47088b89c`.
 The run precedes the current fixes after that commit.
-Its [summary](proofs/snapshot-commits-20261022/run-1/summary.json) records completion, no error, and all owned processes stopped.
-The detailed receipts remain in `proofs/snapshot-commits-20261022/run-1/receipts.jsonl`.
+Its [summary](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/summary.json) records completion, no error, and all owned processes stopped.
+The detailed receipts remain in [`docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl`](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl).
 
 The fresh owned home contains 64 generated records with four fields and 1 KiB bodies.
 The run changes all 64 records five times, deletes eight records, and recreates four records.
@@ -193,14 +193,14 @@ It does not exercise old-format refusal or the current fixes after its executabl
 The filesystem cache is uncontrolled.
 No result on the primary is claimed.
 
-The later [backup and restore result](proofs/snapshot-commits-20261022/run-1/backup-restore/result.json) restores the exact snapshot bundle after a source-root rename.
+The later [backup and restore result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/backup-restore/result.json) restores the exact snapshot bundle after a source-root rename.
 The same generated home retains its identity without a read or copy of the identity key bytes.
 Exact and ordered range reads match all 60 current records, including the durable update at key 63.
-The [complete operational report](proofs/snapshot-commits-20261022/RESULTS.md) also records the final physical command checks and cleanup.
+The [complete operational report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/RESULTS.md) also records the final physical command checks and cleanup.
 
 ## Historical performance evidence
 
-The [PR 266 barrier report](proofs/native-commit-barriers-20261022/RESULTS.md) predates journal removal.
+The [PR 266 barrier report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/native-commit-barriers-20261022/RESULTS.md) predates journal removal.
 It compares old main with the barrier candidate on macOS APFS.
 The workload sends 1,000 queued requests across 64 schemas through one client, with 64-byte values.
 
@@ -217,7 +217,7 @@ Memory acks can still wait for an author-clock disk commit.
 The separate durable mutation and forced-process-stop receipt does not establish power-loss behavior.
 This report establishes no benefit from journal removal.
 
-The [October 21 growth receipts](proofs/write-overhead-20261021/summary.json) use revision `8067843c4` and a different 512-record workload.
+The [October 21 growth receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/write-overhead-20261021/summary.json) use revision `8067843c4` and a different 512-record workload.
 Metadata accounts for 94.7% of aggregate growth across its five default update phases.
 Its compaction times also describe that historical revision.
 Neither later run repeats that workload.
@@ -225,7 +225,7 @@ Request speed can change flush groups, so an unchanged file envelope would not e
 
 The old estimate of several removable full device flushes became obsolete with PR 266.
 The new source removes duplicate receipts and root publications from the ordinary commit route.
-The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) compares `6d8aa0d57` with `3b53ece33` in three fresh-home pairs.
+The later [matched benchmark](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-removal-benchmark-20261022/RESULTS.md) compares `6d8aa0d57` with `3b53ece33` in three fresh-home pairs.
 Every write phase completes sooner and records fewer process write bytes in all three pairs.
 Compaction finishes sooner, mainly through reclaim; concurrent write probes establish no consistent pause improvement.
 The controlled comparison disables automatic maintenance and retains the 500 ms flush.

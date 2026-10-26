@@ -1,8 +1,0 @@
-{
-  "driver_pid": 68240,
-  "process_command": "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python docs/proofs/schema-preload-product-20261017/measure.py --binary /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ih84kkje/program-lastdbd --variant after-off --receipt-dir docs/proofs/schema-preload-product-20261017/after-off-main-20000-candidate3 --records-per-hash 5000 --hashes 4 --read-rounds 5 --reads-only --source-commit aa64f61-plus-candidate3-source-json --env LASTDB_SCHEMA_PRELOAD_SCHEMAS= --env LASTDB_SCHEMA_KEY_BYTES=134217728",
-  "reason": "Root confirmed a source-fidelity defect and requested no more candidate3 large timing phases. Normal Python finally cleanup stops the owned node. This is owner cancellation, not a product refusal.",
-  "requested_utc": "2026-10-18T00:18:16.523826+00:00",
-  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7newq0b5",
-  "signal": "SIGINT"
-}

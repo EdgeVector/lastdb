@@ -12,7 +12,7 @@ R5′ finds file positions through directory and locator pages.
 R6′ reads the required bytes from ordinary packed files.
 The final node work reuses these parts and preserves existing atom and tip records.
 Native packed storage is now the startup default. Primary deployment remains a separate decision.
-The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
+The [7110c7f5 node receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
 See the [current source status](lastdb-disk-rollout-status.md) for the supported boundaries.
 
 LastDB decides what a record means and whether it must remain.

@@ -1,1 +1,0 @@
-The before-serial-r1 and coverage-before-concurrent4 cases are separate pilot/functional results. They do not enter the fresh paired comparison. The first pilot completed with one visible accepted batch; the second completed with two. The fresh eight-case comparison uses paired/.

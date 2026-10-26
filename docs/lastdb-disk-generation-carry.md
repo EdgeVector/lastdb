@@ -38,4 +38,4 @@ Those paths must preserve the same immutable-part and reference rules before act
 The inventory remains a bounded conservative superset. Receipt work still grows with the number of retained parts.
 Live dependency closure, compaction, and reclamation remain required before production activation.
 
-The [operational receipt](proofs/disk-generation-carry-20261015/report.md) records generated-home file work, exact reads, ranges, and compatible-node reopen.
+The [operational receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-generation-carry-20261015/report.md) records generated-home file work, exact reads, ranges, and compatible-node reopen.

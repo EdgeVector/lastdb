@@ -108,7 +108,7 @@ The inspection output uses storage-id and body digests.
 It does not print stored bodies or complete storage keys.
 The library returns the original bytes and direct positions to the artifact publisher.
 
-The [operational report](proofs/disk-journal-20261015/report.md) records fresh generated-data results.
+The [operational report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-journal-20261015/report.md) records fresh generated-data results.
 The commands exercise real file barriers and reopen the completed files.
 They do not establish crash behavior or LastDB node recovery.
 
