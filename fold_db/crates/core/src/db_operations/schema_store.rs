@@ -28,7 +28,6 @@ mod native_memory;
 mod read;
 mod read_snapshot;
 mod replay_catalog;
-mod replay_probe;
 mod retention_backfill;
 mod retention_layers;
 mod retention_move;
@@ -39,7 +38,6 @@ mod write;
 
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
-pub use replay_probe::ReplayAuthorityProbe;
 
 use catalog_keys::*;
 
