@@ -297,6 +297,12 @@ A future browser reader needs client-side block navigation and decryption; serve
 Current backup support does not establish that future read capability.
 The disk V2 client adapter must retain and restore both homes across restart before cloud-backed activation is claimed.
 Keep that adapter with its existing cloud work; this range plan adds no service-side LastDB format logic.
+Keep the current disk V2 capture refusal until that adapter is ready.
+The V1 export encrypts metadata and sequence chunks, but leaves record body chunks as their stored bytes.
+An unchanged export of V2 plain atom bodies would lack the run blocks' encryption.
+Prefer the encrypted V2 files: main-home files go to R2, and CAS-home files go to B2.
+The client manifest must retain both roots and their exact dependencies together.
+This preserves the existing block ciphertext and avoids a new per-atom encryption layer for backup.
 
 A separate target temporarily needs space beside its source, retained rollback files, and merge outputs.
 Account for that total before a job starts. Do not claim the normal V2 size ratio covers conversion peaks.
