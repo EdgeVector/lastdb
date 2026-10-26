@@ -56,8 +56,10 @@ pub(super) fn verify_context(
                     .map(|record| record.key.as_bytes().to_vec())
             });
             for record in page.records {
-                fold_db::storage::disk_pack::validate_restored_atom_key(&record.key)
-                    .map_err(|_| RestoreError::Invalid("native atom key format"))?;
+                fold_db::storage::disk_pack::file_dependencies::validate_restored_atom_key(
+                    &record.key,
+                )
+                .map_err(|_| RestoreError::Invalid("native atom key format"))?;
                 let Some((scope, id)) = directory::atom_coordinate(&record.key)
                     .map_err(|_| RestoreError::Invalid("native atom coordinate"))?
                 else {
