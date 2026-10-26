@@ -1,4 +1,4 @@
-//! Explicit DEV identity and paused native credentials. No database writer opens.
+//! Fresh DEV setup and owner-only existing-identity credential import.
 
 use super::*;
 use fold_db::security::Ed25519KeyPair;
@@ -23,6 +23,34 @@ pub(crate) fn is_setup(action: &ByteBackupCommand) -> bool {
 }
 
 pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
+    match action {
+        ByteBackupCommand::Connect {
+            existing: true,
+            env,
+            api_key_stdin,
+            expected_user_hash,
+            dev,
+            invite_code_stdin,
+            restored,
+            json,
+        } => {
+            if !api_key_stdin || dev || invite_code_stdin || restored {
+                return Err(
+                    "existing connection requires only an environment and API key stdin".into(),
+                );
+            }
+            super::existing::run(
+                source.ok_or("existing connection requires an explicit --data-dir")?,
+                env.as_deref().ok_or("existing connection requires --env")?,
+                expected_user_hash.as_deref(),
+                json,
+            )
+        }
+        action => setup_enabled(source, action),
+    }
+}
+
+fn setup_enabled(source: Option<&Path>, action: ByteBackupCommand) -> Result<(), String> {
     lastdb_node::byte_cloud_backup::require_enabled().map_err(|error| error.to_string())?;
     match action {
         ByteBackupCommand::Init {
@@ -40,8 +68,12 @@ pub(crate) fn setup(source: Option<&Path>, action: ByteBackupCommand) -> Result<
             invite_code_stdin,
             restored,
             json,
+            existing,
+            env,
+            api_key_stdin,
+            expected_user_hash,
         } => {
-            if !dev {
+            if !dev || existing || env.is_some() || api_key_stdin || expected_user_hash.is_some() {
                 return Err("native backup connect requires --dev".into());
             }
             if restored && invite_code_stdin {

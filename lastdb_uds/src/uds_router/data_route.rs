@@ -235,6 +235,8 @@ pub enum DataRoute {
     SyncCloudOff,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
+    /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.
+    SyncByteBackupV2Connect,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
     /// byte breakdown. OWNER socket only.
     ///

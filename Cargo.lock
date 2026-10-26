@@ -3124,11 +3124,13 @@ dependencies = [
  "hkdf",
  "lastdb_storage_policy",
  "nix",
+ "openssl",
  "rustix",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "uuid",
+ "zeroize",
  "zstd",
 ]
 

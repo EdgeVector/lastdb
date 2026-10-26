@@ -12,7 +12,7 @@ pub(super) fn finish(
     let mut index = content;
     let mut pages = Vec::new();
     let mut page = ClientPage {
-        version: 1,
+        version: if state.run.is_some() { 3 } else { 1 },
         page_index: 0,
         begin_sha256: state.begin.input_sha256().map_err(protocol)?,
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
@@ -51,16 +51,24 @@ pub(super) fn finish(
         return Err(invalid("byte exact native inventory totals"));
     }
     let root = ClientRoot {
-        version: 1,
+        version: page.version,
         begin_sha256: page.begin_sha256,
         descriptor_sha256: page.descriptor_sha256,
         native_root: state.native_root.clone(),
-        recovery: Bootstrap::from_descriptor(&state.begin.descriptor)?.recovery,
+        recovery: if state.run.is_some() {
+            state
+                .recovery
+                .clone()
+                .ok_or_else(|| invalid("run recovery missing"))?
+        } else {
+            Bootstrap::from_descriptor(&state.begin.descriptor)?.recovery
+        },
         native_file_count: files,
         native_bytes: bytes,
         external_dependency_count: 0,
         pages,
         records: None,
+        run: state.run.clone(),
     };
     root.validate_for(&state.begin)?;
     freeze(inner, state, key, index, &codec::encode(&root)?)?;

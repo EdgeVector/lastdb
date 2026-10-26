@@ -7,6 +7,9 @@ use crate::disk_pack::ReadBudget;
 use crate::disk_run::{value, Found, RunReader};
 use crate::{Error, Result};
 use std::sync::Arc;
+#[path = "stream.rs"]
+mod stream;
+pub use stream::CopiedRunBody;
 
 /// Most coordinates one batch read accepts.
 const MAX_BATCH_KEYS: usize = 10_000;
@@ -48,6 +51,8 @@ impl RunRoot {
 /// reader only until the call ends. The base runs do not overlap, so the
 /// call keeps one base reader at a time: a long base costs one open file.
 pub struct RunRead {
+    pub(super) bounded_streams: bool,
+    pub(super) shared_metadata_bytes: u64,
     pub(super) manifest: Arc<Manifest>,
     /// Every run, newest first, with its reader once opened.
     pub(super) runs: Vec<(Arc<RunFile>, Option<RunReader>)>,
@@ -77,6 +82,8 @@ impl RunHome {
             .map(|run| (Arc::clone(run), None))
             .collect();
         RunRead {
+            bounded_streams: false,
+            shared_metadata_bytes: 0,
             manifest,
             runs,
             key: self.key,
@@ -88,6 +95,34 @@ impl RunHome {
 }
 
 impl RunRead {
+    /// Bytes retained by this call's manifest, reader slots and opened metadata.
+    pub fn retained_bytes(&self) -> u64 {
+        self.manifest.retained_bytes()
+            + (self.runs.capacity() * std::mem::size_of::<(Arc<RunFile>, Option<RunReader>)>())
+                as u64
+    }
+    /// Admit the paired capture metadata shared by subsequent bounded calls.
+    pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
+        if bytes < self.retained_bytes()
+            || bytes > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes
+        {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        self.shared_metadata_bytes = bytes;
+        Ok(())
+    }
+    /// Identity authenticated by this call's selected CURRENT.
+    pub fn home_id(&self) -> uuid::Uuid {
+        self.manifest.home_id
+    }
+
+    /// Every immutable run named by this exact CURRENT, newest first.
+    pub fn referenced_runs(&self) -> impl Iterator<Item = (uuid::Uuid, u64)> + '_ {
+        self.manifest
+            .newest_first()
+            .map(|run| (run.meta.run_id, run.meta.file_bytes))
+    }
+
     /// Generation of the held CURRENT.
     pub fn generation(&self) -> u64 {
         self.manifest.generation
@@ -146,7 +181,17 @@ impl RunRead {
                 }
             }
             let (file, reader) = &mut self.runs[slot];
-            *reader = Some(RunReader::open(&file.path, &self.key)?);
+            *reader = Some(if self.bounded_streams {
+                RunReader::open_bounded(
+                    &file.path,
+                    &self.key,
+                    self.budget
+                        .bytes
+                        .min(lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes),
+                )?
+            } else {
+                RunReader::open(&file.path, &self.key)?
+            });
             self.costs.runs_opened += 1;
         }
         Ok(self.runs[slot].1.as_ref().expect("reader opened"))
@@ -164,6 +209,9 @@ impl RunRead {
         key: &str,
         maximum: u64,
     ) -> Result<Option<Vec<u8>>> {
+        if self.bounded_streams {
+            return self.streamed_value(collection, key, maximum);
+        }
         self.examine(1)?;
         self.charge((collection.len() + key.len()) as u64)?;
         let wanted = run_key(collection, key.as_bytes())?;
@@ -207,6 +255,12 @@ impl RunRead {
     ) -> Result<Vec<Result<Option<Vec<u8>>>>> {
         if coordinates.len() > MAX_BATCH_KEYS {
             return Err(Error::ReadBudgetExceeded);
+        }
+        if self.bounded_streams {
+            return Ok(coordinates
+                .iter()
+                .map(|(collection, key)| self.streamed_value(collection, key, maximum))
+                .collect());
         }
         self.examine(coordinates.len() as u64)?;
         let mut wanted = Vec::with_capacity(coordinates.len());

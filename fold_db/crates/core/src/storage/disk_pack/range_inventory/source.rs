@@ -20,7 +20,7 @@ pub(super) enum Source {
     },
     Runs {
         main: RunRead,
-        _cas: RunRead,
+        _cas: Box<RunRead>,
     },
 }
 
@@ -75,12 +75,14 @@ impl FrozenSource {
                     budget(8 * 1024 * 1024, 8),
                 )
                 .map_err(map)?,
-                _cas: RunRead::open_existing(
-                    &root.join(run_node::CAS_DIR),
-                    &run_node::cas_key(key),
-                    budget(8 * 1024 * 1024, 8),
-                )
-                .map_err(map)?,
+                _cas: Box::new(
+                    RunRead::open_existing(
+                        &root.join(run_node::CAS_DIR),
+                        &run_node::cas_key(key),
+                        budget(8 * 1024 * 1024, 8),
+                    )
+                    .map_err(map)?,
+                ),
             }
         } else if bytes == initialization::NODE_BYTES {
             require_directory(&root.join("disk-pack"))?;

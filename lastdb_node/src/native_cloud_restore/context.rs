@@ -53,6 +53,15 @@ impl VerifiedNativeContext<'_> {
     ) -> Result<RestoreReport> {
         super::install::finish_context(self, keys, inventory, atoms, entry)
     }
+
+    pub fn finish_run(
+        &self,
+        keys: &RecoveryKeys,
+        inventory: NativeInventory,
+        proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
+    ) -> Result<RestoreReport> {
+        super::install::finish_run_context(self, keys, inventory, proof)
+    }
 }
 
 pub(crate) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {

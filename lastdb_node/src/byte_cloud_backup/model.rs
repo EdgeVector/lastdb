@@ -124,6 +124,8 @@ impl Saved {
 #[derive(Clone, Debug, Serialize)]
 pub struct ByteBackupStatus {
     pub enabled: bool,
+    pub automatic_backup_enabled: bool,
+    pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
     pub request_id: Option<Id>,
     pub phase: Option<Phase>,

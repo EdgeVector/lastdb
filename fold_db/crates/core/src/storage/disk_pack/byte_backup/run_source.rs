@@ -1,0 +1,279 @@
+//! Native run snapshot ownership behind the existing opaque file planner.
+use super::{
+    invalid, protocol, Inner, PackRuntime, RunBackupHome, RunBackupProfile, StorageResult,
+};
+use cloud_backup_protocol::{DecimalU64, Digest, Id};
+use laststore::disk_pack::{
+    backup::export::{SnapshotExport, SnapshotFile},
+    ReadBudget,
+};
+use laststore::disk_run::home::{CapturedRunHome, RunRead};
+use sha2::{Digest as _, Sha256};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+pub(super) struct RunSource {
+    pub runtime: Arc<PackRuntime>,
+    pub main: CapturedRunHome,
+    pub cas: CapturedRunHome,
+    pub root: PathBuf,
+    pub files: Vec<SnapshotFile>,
+}
+impl RunSource {
+    pub fn open(runtime: Arc<PackRuntime>, root: PathBuf, key: &[u8; 32]) -> StorageResult<Self> {
+        let resources = lastdb_storage_policy::BACKUP_RESOURCES;
+        // Each transport can hold a producer, queued and HTTP-consumer buffer.
+        // Keep the existing codec's plaintext/ciphertext/JSON work space as well.
+        let workspace = resources
+            .stream_buffer_bytes
+            .checked_mul(resources.concurrent_streams as u64)
+            .and_then(|n| n.checked_mul(3))
+            .and_then(|n| n.checked_add(super::CODEC_PLAINTEXT_MAX_BYTES * 3))
+            .ok_or_else(|| invalid("run capture workspace size overflow"))?;
+        let maximum = resources
+            .working_memory_bytes
+            .checked_sub(workspace)
+            .ok_or_else(|| invalid("run capture workspace allowance"))?;
+        let main = CapturedRunHome::open_bounded(
+            &root.join("main"),
+            &super::super::run_node::home_key(key),
+            maximum,
+        )
+        .map_err(super::super::map)?;
+        let remaining = maximum
+            .checked_sub(main.retained_bytes())
+            .ok_or_else(|| invalid("run paired metadata allowance"))?;
+        let cas = CapturedRunHome::open_bounded(
+            &root.join("cas"),
+            &super::super::run_node::cas_key(key),
+            remaining,
+        )
+        .map_err(super::super::map)?;
+        let mut marker = Self::node_file(&root)?;
+        let mut bytes = Vec::new();
+        (&mut marker).take(37).read_to_end(&mut bytes)?;
+        if bytes != super::super::run_node::RUN_NODE_BYTES {
+            return Err(invalid("run backup node marker"));
+        }
+        let count = main
+            .files
+            .len()
+            .checked_add(cas.files.len())
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| invalid("run capture file count"))?;
+        let inventory = (count * std::mem::size_of::<SnapshotFile>()) as u64
+            + main
+                .files
+                .iter()
+                .chain(&cas.files)
+                .map(|f| f.path.as_os_str().len() as u64 + 9)
+                .sum::<u64>();
+        if main
+            .retained_bytes()
+            .saturating_add(cas.retained_bytes())
+            .saturating_add(inventory)
+            > maximum
+        {
+            return Err(invalid("run paired inventory allowance"));
+        }
+        let mut files = Vec::new();
+        files
+            .try_reserve_exact(count)
+            .map_err(|_| invalid("run inventory allocation"))?;
+        files.push(SnapshotFile {
+            path: "laststore-pack-node-v1".into(),
+            bytes: bytes.len() as u64,
+        });
+        for (prefix, source) in [("disk-run", &main), ("disk-cas", &cas)] {
+            for file in &source.files {
+                files.push(SnapshotFile {
+                    path: Path::new(prefix).join(&file.path),
+                    bytes: file.bytes,
+                });
+            }
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        let source = Self {
+            runtime,
+            main,
+            cas,
+            root,
+            files,
+        };
+        if source.retained_bytes() > maximum {
+            return Err(invalid("run paired retained metadata allowance"));
+        }
+        Ok(source)
+    }
+    fn node_file(root: &Path) -> StorageResult<File> {
+        Ok(OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(root.join("node"))?)
+    }
+    pub fn reader(&self, path: &Path) -> StorageResult<File> {
+        if path == Path::new("laststore-pack-node-v1") {
+            return Self::node_file(&self.root);
+        }
+        for (prefix, source) in [("disk-run", &self.main), ("disk-cas", &self.cas)] {
+            if let Ok(tail) = path.strip_prefix(prefix) {
+                return source.reader(tail).map_err(super::super::map);
+            }
+        }
+        Err(invalid("run backup unknown path"))
+    }
+    pub fn profile(&self) -> StorageResult<RunBackupProfile> {
+        let profile = RunBackupProfile {
+            version: 1,
+            main: self.home_profile("disk-run", &self.main)?,
+            cas: self.home_profile("disk-cas", &self.cas)?,
+        };
+        profile.validate()?;
+        Ok(profile)
+    }
+    fn home_profile(&self, prefix: &str, home: &CapturedRunHome) -> StorageResult<RunBackupHome> {
+        let bytes = home
+            .files
+            .iter()
+            .try_fold(0u64, |n, f| n.checked_add(f.bytes))
+            .ok_or_else(|| invalid("run backup size overflow"))?;
+        Ok(RunBackupHome {
+            home_id: Id::try_from(home.home_id.to_string()).map_err(protocol)?,
+            generation: DecimalU64::new(home.generation),
+            frontier: DecimalU64::new(home.frontier),
+            descriptor_sha256: hash(
+                self.reader(&Path::new(prefix).join("laststore-run-home-v2"))?,
+            )?,
+            current_sha256: hash(self.reader(&Path::new(prefix).join("CURRENT"))?)?,
+            files: home.files.len() as u64,
+            bytes,
+        })
+    }
+    pub fn reads(&self, budget: ReadBudget) -> StorageResult<(RunRead, RunRead)> {
+        let super::super::physical::Physical::V2(homes) = &self.runtime.physical else {
+            return Err(invalid("run capture physical source"));
+        };
+        let retained = self
+            .retained_bytes()
+            .saturating_add(self.main.reader_bytes())
+            .saturating_add(self.cas.reader_bytes());
+        if retained > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes {
+            return Err(invalid("run paired read allowance"));
+        }
+        let mut main = self
+            .main
+            .read(&homes.home, budget)
+            .map_err(super::super::map)?;
+        let mut cas = self
+            .cas
+            .read(&homes.cas, budget)
+            .map_err(super::super::map)?;
+        main.reserve_metadata(retained).map_err(super::super::map)?;
+        cas.reserve_metadata(retained).map_err(super::super::map)?;
+        Ok((main, cas))
+    }
+    fn retained_bytes(&self) -> u64 {
+        self.main.retained_bytes()
+            + self.cas.retained_bytes()
+            + (self.files.capacity() * std::mem::size_of::<SnapshotFile>()
+                + self.files.iter().map(|f| f.path.capacity()).sum::<usize>()) as u64
+    }
+    pub fn release_saved(root: &Path) -> StorageResult<()> {
+        CapturedRunHome::release_saved(&root.join("main")).map_err(super::super::map)?;
+        CapturedRunHome::release_saved(&root.join("cas")).map_err(super::super::map)?;
+        match fs::remove_file(root.join("node")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        match fs::remove_dir(root) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        if let Some(parent) = root.parent().filter(|p| p.exists()) {
+            File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    }
+}
+pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {
+    let source = inner
+        .run
+        .as_ref()
+        .ok_or_else(|| invalid("run source unavailable"))?;
+    let (main, cas) = source.reads(super::super::budget())?;
+    super::super::run_restore::verify_readers(&main, &cas, key, &inner.store.root).map(|_| ())
+}
+fn hash(mut input: File) -> StorageResult<Digest> {
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = input.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buffer[..n]);
+    }
+    Digest::try_from(crate::hex::hex_lower(hash.finalize())).map_err(protocol)
+}
+pub(super) enum NativeReader {
+    Pack(laststore::disk_pack::backup::export::SnapshotReader),
+    Run(File),
+}
+impl NativeReader {
+    pub fn seek_to(&mut self, offset: u64) -> io::Result<()> {
+        match self {
+            Self::Pack(r) => r.seek_to(offset),
+            Self::Run(r) => r.seek(SeekFrom::Start(offset)).map(|_| ()),
+        }
+    }
+}
+impl Read for NativeReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Pack(r) => r.read(buffer),
+            Self::Run(r) => r.read(buffer),
+        }
+    }
+}
+impl Inner {
+    pub fn available(&self) -> bool {
+        self.source.is_some() || self.run.is_some()
+    }
+    pub fn files(&self) -> StorageResult<&[SnapshotFile]> {
+        if let Some(run) = &self.run {
+            return Ok(&run.files);
+        }
+        self.source
+            .as_ref()
+            .map(SnapshotExport::files)
+            .ok_or_else(|| invalid("byte retained source unavailable"))
+    }
+    pub fn file_reader(&self, path: &Path) -> StorageResult<NativeReader> {
+        if let Some(run) = &self.run {
+            return run.reader(path).map(NativeReader::Run);
+        }
+        let source = self
+            .source
+            .as_ref()
+            .ok_or_else(|| invalid("byte retained source unavailable"))?;
+        self.home.reader(source, path).map(NativeReader::Pack)
+    }
+    pub fn destination(
+        &self,
+        path: &Path,
+    ) -> StorageResult<Option<cloud_backup_protocol::v2::Destination>> {
+        if self.run.is_none() {
+            return Ok(None);
+        }
+        super::run_backup_destination(
+            path.to_str()
+                .ok_or_else(|| invalid("run backup path encoding"))?,
+        )
+        .map(Some)
+    }
+}

@@ -32,20 +32,28 @@ pub(super) struct State {
     pub recovery: Option<RecoveryDescriptor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_profile: Option<super::StoredRecordProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<super::RunBackupProfile>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub max_coordinate_bytes: u64,
 }
 impl State {
     pub fn validate(&self) -> StorageResult<()> {
         self.begin.validate().map_err(protocol)?;
-        if self.recovery.is_some() {
+        if let Some(run) = &self.run {
+            run.validate_root(&self.native_root)?;
+        } else if self.recovery.is_some() {
             super::validate_client_native_root(&self.native_root)?;
         } else {
             self.native_root.validate().map_err(protocol)?;
         }
         if self.format != 2
             || self.reference_id.is_nil()
-            || self.current_bytes.len() != 4096
+            || if self.run.is_some() {
+                !self.current_bytes.is_empty()
+            } else {
+                self.current_bytes.len() != 4096
+            }
             || self.objects > MAX_OBJECTS
             || self.verified > self.objects
             || self.multi_file_pack_objects > self.metadata_pack_objects
@@ -65,8 +73,12 @@ impl State {
                 .validate_for(&self.begin.job.stream.scope)
                 .map_err(protocol)?;
         }
-        if self.record_profile.is_some() && self.recovery.is_none()
-            || self.ready && self.recovery.is_some() && self.record_profile.is_none()
+        if self.record_profile.is_some() && (self.recovery.is_none() || self.run.is_some())
+            || self.run.is_some() && self.recovery.is_none()
+            || self.ready
+                && self.recovery.is_some()
+                && self.record_profile.is_none()
+                && self.run.is_none()
         {
             return Err(invalid("byte source stored profile phase"));
         }

@@ -13,11 +13,26 @@ pub(crate) enum ByteBackupCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Register this fresh identity for native backup; keep Cloud Sync Off.
+    /// Connect explicit backup credentials; keep automatic backup and Cloud Sync Off.
     Connect {
         /// Use only the compiled DEV auth endpoint.
-        #[arg(long, required = true)]
+        #[arg(
+            long,
+            required_unless_present = "existing",
+            conflicts_with = "existing"
+        )]
         dev: bool,
+        /// Import a verified API key on the current owner daemon without enrollment.
+        #[arg(long, conflicts_with_all = ["dev", "invite_code_stdin", "restored"], requires_all = ["env", "api_key_stdin"])]
+        existing: bool,
+        #[arg(long, value_parser = ["dev", "prod"], requires = "existing")]
+        env: Option<String>,
+        /// Read the existing account API key only from bounded stdin.
+        #[arg(long, requires = "existing")]
+        api_key_stdin: bool,
+        /// Refuse a daemon whose existing identity differs from this account.
+        #[arg(long, requires = "existing")]
+        expected_user_hash: Option<String>,
         /// Read the first-account invite from bounded stdin, never from an argument.
         #[arg(long)]
         invite_code_stdin: bool,

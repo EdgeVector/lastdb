@@ -1,0 +1,37 @@
+use super::{atoms, budget, files, map, read_budget, rows::Rows, Proof, StorageResult};
+
+struct Source<'a, 'b>(&'a Proof<'b>);
+
+impl files::MetadataRead for Source<'_, '_> {
+    fn get(&mut self, collection: &str, key: &str) -> StorageResult<Option<Vec<u8>>> {
+        let mut read = self
+            .0
+            .main
+            .fork_bounded(read_budget(budget::ATOM_INVENTORY_READ_BYTES, 1))
+            .map_err(map)?;
+        read.get_bounded(collection, key, budget::ATOM_BODY_MAX_BYTES)
+            .map_err(map)
+    }
+
+    fn open_atom(&mut self, stored: &[u8]) -> StorageResult<crate::atom::Atom> {
+        atoms::open(stored)
+    }
+
+    fn directories(
+        &mut self,
+        scope: Option<&str>,
+        atom_id: &str,
+        dependencies: &[files::FileDependency],
+    ) -> StorageResult<()> {
+        atoms::directories(self.0, scope, atom_id, dependencies)
+    }
+}
+
+pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<()> {
+    let mut metadata = files::MetadataProof::new(Source(proof));
+    let mut rows = Rows::new(proof.main, "tips");
+    while let Some((key, body)) = rows.next()? {
+        metadata.row(&key, body)?;
+    }
+    Ok(())
+}

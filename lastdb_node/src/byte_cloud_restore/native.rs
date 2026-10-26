@@ -17,6 +17,16 @@ pub(super) async fn restore_page(
     inventory: &mut Inventory,
     entries: &[ClientNativeFile],
 ) -> Result<()> {
+    restore_at(session, client, inventory, entries, &session.physical()).await
+}
+
+pub(super) async fn restore_at(
+    session: &RestoreSession,
+    client: &ByteBackupClient,
+    inventory: &mut Inventory,
+    entries: &[ClientNativeFile],
+    root: &Path,
+) -> Result<()> {
     let mut ids = BTreeSet::new();
     for entry in entries {
         inventory.path(format!("native:{}", entry.path.as_str()).as_bytes())?;
@@ -32,7 +42,7 @@ pub(super) async fn restore_page(
             }
             inventory.use_receipt(&extent.receipt_id)?;
         }
-        if prepare(session, entry)? {
+        if prepare(session, root, entry)? {
             ids.extend(entry.extents.iter().map(|extent| extent.receipt_id.clone()));
         }
     }
@@ -48,19 +58,19 @@ pub(super) async fn restore_page(
         for (id, grant) in batch.iter().zip(grants) {
             grant.validate_for_receipt(inventory.receipt(id)?)?;
             let object = download::fetch(session, client, &grant, false).await?;
-            copy_object(session, &object, id, entries)?;
+            copy_object(session, root, &object, id, entries)?;
             session.remove_spool_file(&object)?;
         }
     }
     for entry in entries {
-        install(session, entry)?;
+        install(session, root, entry)?;
     }
     Ok(())
 }
 
-fn prepare(session: &RestoreSession, entry: &ClientNativeFile) -> Result<bool> {
-    let path = session.physical().join(entry.path.as_str());
-    create_parents(session, entry.path.as_str())?;
+fn prepare(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> Result<bool> {
+    let path = root.join(entry.path.as_str());
+    create_parents(root, entry.path.as_str())?;
     if path.try_exists()? {
         crate::native_cloud_restore::verify_file(
             &path,
@@ -75,8 +85,8 @@ fn prepare(session: &RestoreSession, entry: &ClientNativeFile) -> Result<bool> {
     Ok(true)
 }
 
-fn create_parents(session: &RestoreSession, path: &str) -> Result<()> {
-    let mut parent = session.physical();
+fn create_parents(root: &Path, path: &str) -> Result<()> {
+    let mut parent = root.to_path_buf();
     let components: Vec<_> = path.split('/').collect();
     for component in &components[..components.len() - 1] {
         parent.push(component);
@@ -94,6 +104,7 @@ fn create_parents(session: &RestoreSession, path: &str) -> Result<()> {
 
 fn copy_object(
     session: &RestoreSession,
+    root: &Path,
     object: &Path,
     id: &Digest,
     entries: &[ClientNativeFile],
@@ -101,7 +112,7 @@ fn copy_object(
     let mut input = File::open(object)?;
     let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
     for entry in entries {
-        if session.physical().join(entry.path.as_str()).try_exists()? {
+        if root.join(entry.path.as_str()).try_exists()? {
             continue;
         }
         let mut offset = 0u64;
@@ -134,8 +145,8 @@ fn copy_object(
     Ok(())
 }
 
-fn install(session: &RestoreSession, entry: &ClientNativeFile) -> Result<()> {
-    let path = session.physical().join(entry.path.as_str());
+fn install(session: &RestoreSession, root: &Path, entry: &ClientNativeFile) -> Result<()> {
+    let path = root.join(entry.path.as_str());
     if !path.try_exists()? {
         let pending = pending(session, entry.path.as_str());
         crate::native_cloud_restore::verify_file(

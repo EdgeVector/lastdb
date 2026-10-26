@@ -43,6 +43,7 @@ mod rows;
 mod rows_yielding;
 mod run_commit;
 mod run_node;
+pub mod run_restore;
 pub(crate) mod schema_keys;
 mod space;
 mod timing;

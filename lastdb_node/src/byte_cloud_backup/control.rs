@@ -1,5 +1,4 @@
 use super::{
-    credentials,
     model::Saved,
     source::Source,
     store::{self, Store},
@@ -43,7 +42,7 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
         super::worker::validate_terminal(previous.as_ref().ok_or(BackupError::Invalid)?, result)?;
     }
     if known_terminal.is_none() && !matches!(action, ByteBackupRequest::Close) {
-        require_enabled()?;
+        super::connection::require_admission(host)?;
     }
     let source = Source::from_host(host)?;
     if matches!(action, ByteBackupRequest::Close) {
@@ -77,7 +76,11 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
         })?;
         return status(host);
     }
-    let client = credentials::client_for_recovery(&host.home).map_err(|_| BackupError::Identity)?;
+    let client = if matches!(action, ByteBackupRequest::Close) {
+        super::credentials::client_for_recovery(&host.home).map_err(|_| BackupError::Identity)?
+    } else {
+        super::connection::client_for_host(host)?
+    };
     let store = Store::open(&host.home, &id)?;
     let mut saved = store
         .state()?
@@ -150,8 +153,11 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         .snapshot()
         .active
         .is_some_and(|active| Some(active.request_id) == id);
+    let connection = super::connection::status(host)?;
     Ok(ByteBackupStatus {
-        enabled: require_enabled().is_ok(),
+        enabled: require_enabled().is_ok() || connection.is_some(),
+        automatic_backup_enabled: false,
+        manual_connection: connection,
         running,
         request_id: id,
         phase: saved.as_ref().map(|s| s.phase),

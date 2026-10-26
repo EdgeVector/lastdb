@@ -58,6 +58,7 @@ pub(super) fn metadata(
         external_dependency_count: 0,
         pages: references,
         records: state.record_profile.clone(),
+        run: None,
     };
     root.validate_for(&state.begin)?;
     planner::metadata::freeze(inner, state, key, index, &codec::encode(&root)?)?;

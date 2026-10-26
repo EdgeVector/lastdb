@@ -85,6 +85,34 @@ pub(super) fn finish_context(
     let _native_lock =
         fold_db::storage::disk_pack::prepare_restored_node(&home.join("data"), &keys.content)
             .map_err(|_| RestoreError::Invalid("native node wrapper"))?;
+    publish_context(session, keys, inventory, atoms)
+}
+
+pub(super) fn finish_run_context(
+    session: &VerifiedNativeContext<'_>,
+    keys: &RecoveryKeys,
+    inventory: NativeInventory,
+    proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
+) -> Result<RestoreReport> {
+    proof
+        .validate_context(&session.data_root(), session.native_root)
+        .map_err(|_| RestoreError::Invalid("verified run publication"))?;
+    let (files, bytes) = proof
+        .totals()
+        .map_err(|_| RestoreError::Invalid("verified run totals"))?;
+    if files != inventory.files || bytes != inventory.bytes || inventory.dependencies != 0 {
+        return Err(RestoreError::Invalid("verified run inventory"));
+    }
+    publish_context(session, keys, inventory, proof.verified_atoms())
+}
+
+fn publish_context(
+    session: &VerifiedNativeContext<'_>,
+    keys: &RecoveryKeys,
+    inventory: NativeInventory,
+    atoms: u64,
+) -> Result<RestoreReport> {
+    let home = session.root.join("home");
     install_identity(&home, keys)?;
     let (config, paused) = crate::cloud::cloud_sync_paths(&home);
     if config.try_exists()? || paused.try_exists()? {

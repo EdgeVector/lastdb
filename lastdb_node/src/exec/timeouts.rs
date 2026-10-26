@@ -235,6 +235,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbRepairHashRangeKeyFields
         | DataRoute::SyncCloudOff
         | DataRoute::SyncByteBackupV2
+        | DataRoute::SyncByteBackupV2Connect
         | DataRoute::AggregateRepair
         | DataRoute::DeclareSchema => admin_handler_timeout(),
 

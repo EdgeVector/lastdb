@@ -119,6 +119,16 @@ impl RestoreSession {
         self.root.join("home/data/disk-pack")
     }
 
+    pub(super) fn prepare_legacy_physical(&self) -> Result<()> {
+        let physical = self.physical();
+        match fs::DirBuilder::new().mode(0o700).create(&physical) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        local::directory(&physical)
+    }
+
     pub async fn restore(
         &mut self,
         client: &ByteBackupClient,
@@ -162,13 +172,7 @@ impl RestoreSession {
 }
 
 fn scaffold(root: &Path) -> Result<()> {
-    for name in [
-        "cache",
-        "entries",
-        "home",
-        "home/data",
-        "home/data/disk-pack",
-    ] {
+    for name in ["cache", "entries", "home", "home/data"] {
         let path = root.join(name);
         match fs::DirBuilder::new().mode(0o700).create(&path) {
             Ok(()) => {}

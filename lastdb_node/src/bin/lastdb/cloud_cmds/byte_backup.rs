@@ -3,6 +3,8 @@ use super::*;
 use cloud_backup_protocol::Id;
 use lastdb_node::byte_cloud_backup::ByteBackupRequest;
 
+#[path = "byte_backup/existing.rs"]
+mod existing;
 #[path = "byte_backup/offline.rs"]
 mod offline;
 #[path = "byte_backup/setup.rs"]

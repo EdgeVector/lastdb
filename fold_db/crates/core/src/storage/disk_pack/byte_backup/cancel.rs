@@ -15,6 +15,9 @@ impl PackRuntime {
         begin: &Begin,
         key: &[u8; 32],
     ) -> StorageResult<()> {
+        if matches!(self.physical, super::super::physical::Physical::V2(_)) {
+            return super::run_capture::cancel(self, begin, key).await;
+        }
         let admission = super::super::NativeCloudWorkGuard::acquire()?;
         let runtime = Arc::clone(self);
         let begin = begin.clone();
@@ -52,6 +55,7 @@ impl PackRuntime {
                     store,
                     state: Mutex::new(state),
                     source: None,
+                    run: None,
                     readers: AtomicUsize::new(0),
                     _admission: admission,
                 }),
