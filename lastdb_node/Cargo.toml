@@ -103,7 +103,7 @@ path = "examples/local_install_proof.rs"
 
 [[example]]
 name = "v2_registry_client_proof"
-path = "../docs/proofs/v2_registry_client_proof.rs"
+path = "examples/v2_registry_client_proof.rs"
 
 [lib]
 test = false

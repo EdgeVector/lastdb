@@ -278,11 +278,14 @@ pub fn verify_compat_row(row: &CompatRowRead, trusted_verifier_pubkey: &str) -> 
         .try_into()
         .map_err(|_| "signature is not 64 bytes".to_string())?;
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "release_id": row.release_id,
         "contract_version": row.contract_version,
-        "verification_url": row.verification_url,
     });
+
+    if let Some(ref url) = row.verification_url {
+        payload["verification_url"] = serde_json::json!(url);
+    }
 
     let canonical_body = app_identity_crypto::canonicalize(&payload)
         .map_err(|e| format!("failed to canonicalize payload: {e}"))?;
