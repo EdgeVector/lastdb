@@ -50,28 +50,7 @@ impl RunSource {
             remaining,
         )
         .map_err(super::super::map)?;
-        let mut marker = Self::node_file(&root)?;
-        let mut bytes = Vec::new();
-        (&mut marker).take(129).read_to_end(&mut bytes)?;
-        let version = match bytes.as_slice() {
-            super::super::run_node::RUN_NODE_BYTES
-                if runtime.range_order()
-                    == schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1 =>
-            {
-                1
-            }
-            super::super::run_admission::TYPED_NODE_BYTES
-                if runtime.range_order()
-                    == schema_types::key_comparison::KeyOrderVersion::TypedScalarV1 =>
-            {
-                2
-            }
-            _ => {
-                return Err(invalid(
-                    "run backup node marker differs from its logical order",
-                ))
-            }
-        };
+        let (version, marker_bytes) = marker_profile(&runtime, &root)?;
         let count = main
             .files
             .len()
@@ -99,7 +78,7 @@ impl RunSource {
             .map_err(|_| invalid("run inventory allocation"))?;
         files.push(SnapshotFile {
             path: "laststore-pack-node-v1".into(),
-            bytes: bytes.len() as u64,
+            bytes: marker_bytes,
         });
         for (prefix, source) in [("disk-run", &main), ("disk-cas", &cas)] {
             for file in &source.files {
@@ -215,6 +194,23 @@ impl RunSource {
         Ok(())
     }
 }
+fn marker_profile(runtime: &PackRuntime, root: &Path) -> StorageResult<(u16, u64)> {
+    use schema_types::key_comparison::KeyOrderVersion;
+    let mut marker = RunSource::node_file(root)?;
+    let mut bytes = Vec::new();
+    (&mut marker).take(129).read_to_end(&mut bytes)?;
+    let version = match (bytes.as_slice(), runtime.range_order()) {
+        (super::super::run_node::RUN_NODE_BYTES, KeyOrderVersion::LegacyUtf8V1) => 1,
+        (super::super::run_admission::TYPED_NODE_BYTES, KeyOrderVersion::TypedScalarV1) => 2,
+        _ => {
+            return Err(invalid(
+                "run backup node marker differs from its logical order",
+            ))
+        }
+    };
+    Ok((version, bytes.len() as u64))
+}
+
 pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {
     let source = inner
         .run
