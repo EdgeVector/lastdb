@@ -107,6 +107,19 @@ Schema reads fetch uncached molecule metadata in one batch, then fetch the requi
 The reader validates the complete set before it puts key bundles in the memory cache.
 The complete runtime and the offline publication boundary remain required.
 
+The typed metadata uses version 2 and names its key authority explicitly.
+Bundle authority retains the existing independent molecule bundle and its node wrap.
+Node authority retains an old account-derived key domain and requires no molecule wrap.
+A share refuses node authority. It never copies account keys into a shareable bundle.
+A normal mutation refuses a missing profile. Only schema publication can create a new typed molecule contract.
+The existing three-key bundle wire form stays unchanged.
+
+Range TTL retains its existing 20-digit timestamp prefix in a String range.
+Typed Integer, Date, DateTime, and Boolean ranges do not inherit that TTL rule.
+Their range-TTL policies receive a refusal until an explicit retention-policy conversion defines the expiry clock.
+Hash and Single schemas retain their existing write-time age records.
+The offline converter must check this policy condition before it publishes a typed target.
+
 | Profile | Ordered payload before the existing range encoding | Bytes |
 | --- | --- | --- |
 | `legacy_utf8_v1` | The existing complete text, with text order | Variable |

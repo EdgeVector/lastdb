@@ -30,6 +30,7 @@ mod read_snapshot;
 mod replay_catalog;
 mod replay_probe;
 mod retention_backfill;
+mod retention_format;
 mod retention_layers;
 mod retention_move;
 mod retention_page;
