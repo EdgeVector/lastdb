@@ -52,6 +52,7 @@ impl Catalog {
         configured: &MoleculeKeyCodec,
         limits: InventoryLimits,
     ) -> StorageResult<Self> {
+        let retention = super::retention::RetentionCatalog::new(records);
         let key_rows = records
             .iter()
             .filter(|row| row.collection == "molecule_keys")
@@ -86,7 +87,7 @@ impl Catalog {
                 .populate_runtime_fields()
                 .map_err(|_| invalid("a schema declaration is invalid"))?;
             catalog.schemas += 1;
-            let retention_blocker = super::retention::blocker(&schema, records, key, limits)?;
+            let retention_blocker = super::retention::blocker(&schema, &retention, key, limits)?;
             let range = schema
                 .key
                 .as_ref()

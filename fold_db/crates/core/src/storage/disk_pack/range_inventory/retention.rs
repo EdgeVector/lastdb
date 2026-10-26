@@ -4,10 +4,25 @@ use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
 use crate::db_operations::schema_store::{frozen_retention_keys, require_typed_range_retention};
 use crate::schema::{Schema, SchemaRetentionPolicy};
 use serde::de::DeserializeOwned;
+use std::collections::BTreeMap;
+
+pub(super) struct RetentionCatalog<'a>(BTreeMap<&'a str, &'a MetadataRecord>);
+
+impl<'a> RetentionCatalog<'a> {
+    pub(super) fn new(records: &'a [MetadataRecord]) -> Self {
+        Self(
+            records
+                .iter()
+                .filter(|row| row.collection == "schema_states")
+                .map(|row| (row.key.as_str(), row))
+                .collect(),
+        )
+    }
+}
 
 pub(super) fn blocker(
     schema: &Schema,
-    records: &[MetadataRecord],
+    records: &RetentionCatalog<'_>,
     key: &[u8; 32],
     limits: InventoryLimits,
 ) -> StorageResult<Option<String>> {
@@ -25,15 +40,12 @@ pub(super) fn blocker(
 }
 
 fn value<T: DeserializeOwned>(
-    records: &[MetadataRecord],
+    records: &RetentionCatalog<'_>,
     name: &str,
     key: &[u8; 32],
     limits: InventoryLimits,
 ) -> StorageResult<Option<T>> {
-    let Some(row) = records
-        .iter()
-        .find(|row| row.collection == "schema_states" && row.key == name)
-    else {
+    let Some(row) = records.0.get(name) else {
         return Ok(None);
     };
     let opened = crate::crypto::is_sealed_at_rest(&row.value)
