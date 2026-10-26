@@ -97,6 +97,14 @@ An explicit call selects a profile from the selected field's declared type.
 The profile describes one molecule. It adds no type tag to each stored key.
 No schema admission, startup, query, or writer selects these profiles yet.
 
+`MoleculeRangeProfile` defines the molecule metadata contract.
+`empty_v1` permits only the empty slot of a molecule without a range field.
+`typed_v1` names one scalar profile and refuses the legacy payload.
+The declared range type must agree with the stored profile.
+The current metadata reader refuses a range profile in a legacy molecule record.
+It does not reinterpret that record or activate a typed reader.
+The complete runtime and the offline publication boundary remain required.
+
 | Profile | Ordered payload before the existing range encoding | Bytes |
 | --- | --- | --- |
 | `legacy_utf8_v1` | The existing complete text, with text order | Variable |

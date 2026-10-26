@@ -77,6 +77,18 @@ impl MoleculeKeyBundle {
 struct BundleMetadata {
     version: u8,
     molecule_uuid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+}
+
+impl BundleMetadata {
+    /// Current homes have no typed profile. Refuse a profile rather than ignore
+    /// it until the complete typed runtime and logical format are published.
+    fn is_legacy_for(&self, molecule: &str) -> bool {
+        self.version == BUNDLE_VERSION
+            && self.molecule_uuid == molecule
+            && self.range_profile.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -175,6 +187,7 @@ impl MoleculeKeyStore {
                 &BundleMetadata {
                     version: BUNDLE_VERSION,
                     molecule_uuid: molecule_uuid.to_string(),
+                    range_profile: None,
                 },
             )
             .await?;
