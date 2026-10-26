@@ -9,8 +9,6 @@ primary restart loop (brain: `papercut-lastdb-primary-transient-30gb-footprint-s
 | `LASTDB_KEEP_SMALL_PERSIST_SECS` | `30` | Minimum seconds between durable writes of the storage-meters snapshot (`keep_small` plane). `0` writes it inline on every put. Each persist writes a small header plus shards for schemas that changed; a whole-map rewrite of every schema filled the plane at ~1.2 MB/s. |
 | `LASTDB_MAX_COLD_GROUP_LOAD_BYTES` | 2 GiB (1 GiB before 2026-09-25) | HARD cap. A cold hash group larger than this is refused with `ColdGroupTooLarge` instead of read, decrypted and parsed whole. Plain byte count; `0` or unset keeps the default. The largest legitimate group on the primary is under 100 MB. |
 | `LASTDB_SOFT_COLD_GROUP_LOAD_BYTES` | 1 GiB | SOFT cap. A cold group over it (and under the hard cap) still loads and logs `LASTSTORE_COLD_GROUP_OVER_SOFT_CAP`; the plane compactors reclaim it under the backup publish-target lock. Added 2026-09-25 so a group of superseded copies cannot make a node unbootable or unupgradeable. |
-| `LASTDB_KEEP_SMALL_COMPACT_PROBE_INTERVAL_SECS` | `120` | How often the residual sweep probes the `keep_small` plane (other residual planes: hourly). Dirty-schema shards still append superseded copies, so the plane needs a fast probe to stay near one live copy per key. |
-| `LASTDB_KEEP_SMALL_COMPACT_MIN_OVERHANG_BYTES` | 32 MiB | Reclaim floor for the `keep_small` plane (other residual planes: 256 MiB). An explicit `LASTDB_RESIDUAL_PLANE_COMPACT_MIN_OVERHANG_BYTES=0` still disables keep_small rewrites too. |
 | `LASTDB_ATTRIBUTION_SOURCE_EVENTS` | off | `1` turns on the attribution source boundary from #2134: a durable pending scope before each write batch, then an event append and scope clear in one durable batch. That is two flushes per write batch. The pre-batching safe-upgrade latency bar measured a hot `brain put` at 1,065 ms with it on against 210 ms with it off. With it off, attribution never calls a walk complete and copy reclaim stays fail-closed. |
 
 ## How to read a slow write
@@ -26,5 +24,6 @@ primary restart loop (brain: `papercut-lastdb-primary-transient-30gb-footprint-s
   It reads only the group's key sidecar and never loads the group. A sidecar
   of a group under half the cold-load cap (1 GiB) is not flushed before its
   rename, so a power loss can lose it; the command then refuses.
-- `lastdb db compact --collection keep_small` reclaims superseded snapshot
-  versions; the residual sweep does this on its own above the overhang trigger.
+- The residual sweep that compacted the `keep_small` plane and its two
+  `LASTDB_KEEP_SMALL_COMPACT_*` knobs were removed with the LastStore backend
+  (2026-10-26). A native home packs only through `lastdb db compact --execute`.

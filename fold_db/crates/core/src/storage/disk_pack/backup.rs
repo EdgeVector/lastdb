@@ -22,19 +22,17 @@ impl PackRuntime {
                     "native backup requires writer recovery".into(),
                 ));
             }
-            let writer = runtime
-                .writer
-                .lock()
-                .expect("native backup snapshot writer");
+            let v1 = runtime.v1()?;
+            let writer = v1.writer.lock().expect("native backup snapshot writer");
             let reference = DurableReference::create(
-                runtime.home.path(),
+                runtime.physical.path(),
                 writer.current(),
                 ReferencePurpose::Backup,
                 0,
             )
             .map_err(map)?;
             let prepared =
-                prepare_referenced_backup(&runtime.home, reference, &destination).map_err(map)?;
+                prepare_referenced_backup(&v1.home, reference, &destination).map_err(map)?;
             let backup = prepared
                 .reserve(&writer, &runtime.space_policy)
                 .map_err(map)?;

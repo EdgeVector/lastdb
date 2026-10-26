@@ -15,7 +15,26 @@ impl BackupTransport {
         grant: TemporaryGrant<'_>,
         source: Box<dyn Read + Send>,
     ) -> Result<UploadObservation> {
-        let url = urls::signed(grant.url, true)?;
+        self.upload_mode(object, grant, source, false).await
+    }
+
+    pub(in crate::sync::auth) async fn upload_part(
+        &self,
+        object: StoredObject<'_>,
+        grant: TemporaryGrant<'_>,
+        source: Box<dyn Read + Send>,
+    ) -> Result<UploadObservation> {
+        self.upload_mode(object, grant, source, true).await
+    }
+
+    async fn upload_mode(
+        &self,
+        object: StoredObject<'_>,
+        grant: TemporaryGrant<'_>,
+        source: Box<dyn Read + Send>,
+        multipart_part: bool,
+    ) -> Result<UploadObservation> {
+        let url = urls::upload(grant.url, multipart_part)?;
         let timeout = self.transfer_timeout(object.bytes, grant.expires_ms)?;
         let deadline = tokio::time::Instant::now() + timeout;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
@@ -26,16 +45,14 @@ impl BackupTransport {
             feed::start(source, object.bytes, object.sha256.clone(), permit);
         // The deadline owns only the transport future. The feeder remains owned
         // here so every timeout/error cancels and joins it before source release.
-        let response = tokio::time::timeout_at(
-            deadline,
-            self.http
-                .put(url)
-                .header(reqwest::header::CONTENT_LENGTH, object.bytes)
-                .header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH)
-                .body(body)
-                .send(),
-        )
-        .await;
+        let mut request = self
+            .http
+            .put(url)
+            .header(reqwest::header::CONTENT_LENGTH, object.bytes);
+        if !multipart_part {
+            request = request.header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH);
+        }
+        let response = tokio::time::timeout_at(deadline, request.body(body).send()).await;
         let response = match response {
             Ok(Ok(response)) => response,
             result => {

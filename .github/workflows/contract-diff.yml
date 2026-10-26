@@ -1,0 +1,170 @@
+name: Contract Diff Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'lastdb_node/src/version.rs'
+      - 'lastdb_uds/src/uds_router/**'
+      - 'lastdb_app_sdk/src/**'
+      - 'fold_db/crates/core/src/db_operations/search_index/sink.rs'
+      - '.github/workflows/contract-diff.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  contract-diff:
+    name: Contract Surface Diff
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Copy scripts to temp location
+        run: |
+          mkdir -p $RUNNER_TEMP/contract-scripts
+          cp scripts/lints/generate-contract-snapshot.py $RUNNER_TEMP/contract-scripts/
+          cp scripts/lints/diff-contract-snapshots.py $RUNNER_TEMP/contract-scripts/
+          chmod +x $RUNNER_TEMP/contract-scripts/*.py
+      
+      - name: Generate HEAD snapshot
+        run: |
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            > /tmp/contract-head.json
+          echo "HEAD snapshot:"
+          cat /tmp/contract-head.json
+      
+      - name: Checkout base branch
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git checkout origin/${{ github.base_ref }}
+      
+      - name: Generate BASE snapshot
+        run: |
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            > /tmp/contract-base.json
+          echo "BASE snapshot:"
+          cat /tmp/contract-base.json
+      
+      - name: Return to PR head
+        run: |
+          git checkout ${{ github.event.pull_request.head.sha }}
+      
+      - name: Diff contract snapshots
+        id: diff
+        run: |
+          python3 $RUNNER_TEMP/contract-scripts/diff-contract-snapshots.py \
+            /tmp/contract-base.json \
+            /tmp/contract-head.json \
+            > /tmp/contract-diff.txt
+          
+          cat /tmp/contract-diff.txt
+          
+          # Read versions
+          BASE_API=$(jq -r '.http_api.version' /tmp/contract-base.json)
+          HEAD_API=$(jq -r '.http_api.version' /tmp/contract-head.json)
+          BASE_OUTBOX=$(jq -r '.outbox.version' /tmp/contract-base.json)
+          HEAD_OUTBOX=$(jq -r '.outbox.version' /tmp/contract-head.json)
+          
+          echo "base_api_version=$BASE_API" >> $GITHUB_OUTPUT
+          echo "head_api_version=$HEAD_API" >> $GITHUB_OUTPUT
+          echo "base_outbox_version=$BASE_OUTBOX" >> $GITHUB_OUTPUT
+          echo "head_outbox_version=$HEAD_OUTBOX" >> $GITHUB_OUTPUT
+          
+          # Check for breaking changes
+          if grep -q "BREAKING:" /tmp/contract-diff.txt; then
+            echo "has_breaking=true" >> $GITHUB_OUTPUT
+            
+            if grep -q "BREAKING:.*http_api" /tmp/contract-diff.txt; then
+              echo "breaking_http=true" >> $GITHUB_OUTPUT
+            else
+              echo "breaking_http=false" >> $GITHUB_OUTPUT
+            fi
+            
+            if grep -q "BREAKING:.*outbox" /tmp/contract-diff.txt; then
+              echo "breaking_outbox=true" >> $GITHUB_OUTPUT
+            else
+              echo "breaking_outbox=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has_breaking=false" >> $GITHUB_OUTPUT
+            echo "breaking_http=false" >> $GITHUB_OUTPUT
+            echo "breaking_outbox=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check version bump (REQUIRED for breaking changes)
+        if: steps.diff.outputs.has_breaking == 'true'
+        run: |
+          BREAKING_HTTP=${{ steps.diff.outputs.breaking_http }}
+          BREAKING_OUTBOX=${{ steps.diff.outputs.breaking_outbox }}
+          
+          BASE_API=${{ steps.diff.outputs.base_api_version }}
+          HEAD_API=${{ steps.diff.outputs.head_api_version }}
+          BASE_OUTBOX=${{ steps.diff.outputs.base_outbox_version }}
+          HEAD_OUTBOX=${{ steps.diff.outputs.head_outbox_version }}
+          
+          FAIL=false
+          
+          # Check HTTP API version bump if HTTP breaking changes
+          if [ "$BREAKING_HTTP" = "true" ]; then
+            if [ "$HEAD_API" -le "$BASE_API" ]; then
+              echo "❌ Breaking HTTP API changes without CURRENT_API_VERSION bump"
+              echo "   Base: $BASE_API, Head: $HEAD_API"
+              FAIL=true
+            else
+              echo "✓ CURRENT_API_VERSION bumped: $BASE_API → $HEAD_API"
+            fi
+          fi
+          
+          # Check outbox version bump if outbox breaking changes
+          if [ "$BREAKING_OUTBOX" = "true" ]; then
+            if [ "$HEAD_OUTBOX" -le "$BASE_OUTBOX" ]; then
+              echo "❌ Breaking outbox changes without CURRENT_OUTBOX_FORMAT_VERSION bump"
+              echo "   Base: $BASE_OUTBOX, Head: $HEAD_OUTBOX"
+              FAIL=true
+            else
+              echo "✓ CURRENT_OUTBOX_FORMAT_VERSION bumped: $BASE_OUTBOX → $HEAD_OUTBOX"
+            fi
+          fi
+          
+          # FAIL: Breaking changes REQUIRE version bump (no label override)
+          if [ "$FAIL" = "true" ]; then
+            echo ""
+            cat /tmp/contract-diff.txt
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Breaking changes detected. Version bump required:"
+            echo ""
+            if [ "$BREAKING_HTTP" = "true" ]; then
+              echo "  → Bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
+            fi
+            if [ "$BREAKING_OUTBOX" = "true" ]; then
+              echo "  → Bump CURRENT_OUTBOX_FORMAT_VERSION in lastdb_node/src/version.rs"
+            fi
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+      
+      - name: Upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-snapshots
+          path: |
+            /tmp/contract-base.json
+            /tmp/contract-head.json
+            /tmp/contract-diff.txt
+          retention-days: 7

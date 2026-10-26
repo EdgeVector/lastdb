@@ -9,6 +9,8 @@ impl SchemaServiceState {
         schema: &mut Schema,
         schema_name: &str,
     ) -> FoldDbResult<()> {
+        // Resolve inherited types before any durable write or cache publication.
+        self.apply_canonical_types(schema)?;
         let schema_name = schema_name.to_string();
         // Persist to storage backend
         self.persist_schema(schema).await?;
@@ -68,8 +70,7 @@ impl SchemaServiceState {
         // Fails if classification cannot be determined (no ANTHROPIC_API_KEY for new fields).
         self.register_canonical_fields(schema).await?;
 
-        // Propagate canonical field types, classifications, and interest categories to the schema
-        self.apply_canonical_types(schema);
+        // Propagate classifications and interest categories for the new fields.
         self.apply_canonical_classifications(schema);
         self.apply_canonical_interest_categories(schema);
 

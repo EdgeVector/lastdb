@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use super::mutation_manager::MutationManager;
 use super::query::QueryExecutor;
-use super::sync_coordinator::SyncCoordinator;
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
 
@@ -56,16 +55,9 @@ pub struct FoldDB {
     pub(crate) background_conflict_janitor: super::conflict_janitor::BackgroundConflictJanitorTask,
     /// Paced removal of dead molecules. See [`super::molecule_drain`].
     pub(crate) background_molecule_drain: super::molecule_drain::BackgroundMoleculeDrainTask,
-    /// Owns local maintenance cadences and their shared packing lock.
-    /// The optional cloud engine is absent during the native cutover.
-    sync_coordinator: SyncCoordinator,
     /// Post-commit mutation-log capture engine slot. Present on factory-built
     /// stores even while Cloud Sync is off so live enable can start capture.
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
-    /// Exclusive one-shot restore policy; never enabled by a serving factory.
-    /// Optional configuration store for runtime node config.
-    /// Uses RwLock for interior mutability so FoldDB doesn't need &mut self.
-    config_store: std::sync::RwLock<Option<crate::storage::NodeConfigStore>>,
 }
 
 impl Drop for FoldDB {
@@ -78,8 +70,5 @@ impl Drop for FoldDB {
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
         self.background_molecule_drain.stop();
-        // Abort the background sync task to prevent tokio panic:
-        // "Cannot drop a runtime in a context where blocking is not allowed"
-        self.sync_coordinator.abort_task();
     }
 }

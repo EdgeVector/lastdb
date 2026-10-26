@@ -37,6 +37,12 @@ export interface KeyValue {
   range: string | null;
 }
 
+/** Pass the complete cursor back unchanged. Values stay strings, including large integers and dates. */
+export interface QueryCursor extends KeyValue {
+  /** Opaque schema, field-type, key-format, and query compatibility identifier. */
+  comparison?: string;
+}
+
 /** Options for the keys-only {@link LastDbClient.list} membership page. */
 export interface ListOptions {
   /** Page size sent to Mini (default 100, clamped by Mini to 1000). */
@@ -346,7 +352,7 @@ export interface QueryFilter {
    * The node refuses unsupported cursor combinations. Such reads use offsets
    * and return `next_cursor: null`.
    */
-  cursor?: KeyValue;
+  cursor?: QueryCursor;
   /**
    * Two-pass field predicates, forwarded as the request's top-level `where`
    * (`fold_db` `Query.field_predicates`). Multiple predicates are AND'd.
@@ -474,7 +480,7 @@ export interface QueryPage {
   /** True when more records exist beyond the returned page. */
   hasMore: boolean;
   /** Cursor to pass as `QueryFilter.cursor` for the next page, when available. */
-  nextCursor: KeyValue | null;
+  nextCursor: QueryCursor | null;
 }
 
 /** `POST /api/query` success body. */

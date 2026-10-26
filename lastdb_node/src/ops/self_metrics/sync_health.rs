@@ -3,7 +3,7 @@ use super::*;
 
 /// Cloud Sync operator vitals. Numeric counts/timestamps/lag are wire-transparent
 /// gauges (bare u64 / null); bools/strings/JSON blobs stay bare.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SyncHealth {
     pub enabled: bool,
     /// Why the sync section is unavailable. `None` means the section came from
@@ -12,19 +12,28 @@ pub struct SyncHealth {
     pub local_writable: Option<bool>,
     pub sync_degraded: Option<bool>,
     pub state: Option<String>,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_success_ts: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub pending_count: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub durable_outbox_count: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub upload_queue_count: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub upload_queue_max: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub durable_outbox_max: Gauge,
     pub last_error: Option<String>,
     /// Unix timestamp (seconds) when `last_error` was recorded. Read with
     /// `last_error`: an undated message hides how stale it is.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_error_at: Gauge,
     /// Consecutive failed sync cycles (0 when the last cycle succeeded).
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub consecutive_sync_failures: Gauge,
     /// Unix timestamp (seconds) of the first failure in the current streak.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub failing_since: Gauge,
     /// Machine-readable reasons `sync_degraded` is set.
     pub degraded_reasons: Option<Vec<String>>,
@@ -43,34 +52,43 @@ pub struct SyncHealth {
     /// `incremental` | `snapshot_reconcile` while intentionally off; null when on.
     pub reenable_strategy: Option<String>,
     /// Unix timestamp (seconds) when Cloud Sync was intentionally disabled.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub cloud_sync_disabled_at: Gauge,
     /// Configured temporary-off grace window in seconds (default 3600).
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub sync_off_grace_secs: Gauge,
-    /// Continuous mutation-log plane active (CaptureMode::MutationLog).
+    /// Retained continuous mutation-log plane activity flag.
     pub mutation_log_active: Option<bool>,
     /// Writer/device id for the local continuous mutation-log stream.
     pub mutation_log_writer_id: Option<String>,
     /// Published frontier F for continuous mutation-log upload.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_frontier_f: Gauge,
     /// Cloud-confirmed published frontier. NOT an alias for F: `frontier_f` is
     /// the max across writers after the plane-vector merge, which includes
     /// frontiers sealed locally by other writers and never cloud-confirmed.
     /// `frontier_f - published_through` is the publish gap.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_published_through: Gauge,
     /// Highest frontier group-committed to the durable local mutation log.
     /// Emitted so `mutation_log_lag` is verifiable from this document.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_last_durable_frontier: Gauge,
     /// Seconds since the oldest writer's cloud-confirmed recovery point.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_recovery_point_age_secs: Gauge,
     /// Log lag: durable frontier minus published F.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_lag: Gauge,
     /// Segments sealed+uploaded this process under continuous log plane.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub mutation_log_segments_uploaded: Gauge,
     /// True when log lag is at/above the configured degraded threshold.
     pub mutation_log_lag_degraded: Option<bool>,
     /// Whether the active mutation-log plane has a registered capture runtime.
     pub mutation_log_capture_registered: Option<bool>,
     /// A process estimate. Zero alone does not prove an empty marker plane.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub capture_reexport_pending_count_estimate: Gauge,
     /// `null` means unverified after restart; false requires an empty physical lap.
     /// This does not prove historical Async writes reached cloud after a crash.
@@ -137,104 +155,6 @@ impl Default for SyncHealth {
             mutation_log_last_quarantine_reason: None,
             capture: None,
         }
-    }
-}
-
-impl Serialize for SyncHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("SyncHealth", 41)?;
-        s.serialize_field("enabled", &self.enabled)?;
-        s.serialize_field(
-            "snapshot_unavailable_reason",
-            &self.snapshot_unavailable_reason,
-        )?;
-        s.serialize_field("local_writable", &self.local_writable)?;
-        s.serialize_field("sync_degraded", &self.sync_degraded)?;
-        s.serialize_field("state", &self.state)?;
-        s.serialize_field("last_success_ts", &wire_u64(&self.last_success_ts))?;
-        s.serialize_field("pending_count", &wire_u64(&self.pending_count))?;
-        s.serialize_field(
-            "durable_outbox_count",
-            &wire_u64(&self.durable_outbox_count),
-        )?;
-        s.serialize_field("upload_queue_count", &wire_u64(&self.upload_queue_count))?;
-        s.serialize_field("upload_queue_max", &wire_u64(&self.upload_queue_max))?;
-        s.serialize_field("durable_outbox_max", &wire_u64(&self.durable_outbox_max))?;
-        s.serialize_field("last_error", &self.last_error)?;
-        s.serialize_field("last_error_at", &wire_u64(&self.last_error_at))?;
-        s.serialize_field(
-            "consecutive_sync_failures",
-            &wire_u64(&self.consecutive_sync_failures),
-        )?;
-        s.serialize_field("failing_since", &wire_u64(&self.failing_since))?;
-        s.serialize_field("degraded_reasons", &self.degraded_reasons)?;
-        s.serialize_field("replay_blocker", &self.replay_blocker)?;
-        s.serialize_field("last_download", &self.last_download)?;
-        s.serialize_field("upload_policy", &self.upload_policy)?;
-        s.serialize_field("backup_upload_concurrency", &self.backup_upload_concurrency)?;
-        s.serialize_field("recording_local_changes", &self.recording_local_changes)?;
-        s.serialize_field("sync_off_grace_expired", &self.sync_off_grace_expired)?;
-        s.serialize_field("reenable_strategy", &self.reenable_strategy)?;
-        s.serialize_field(
-            "cloud_sync_disabled_at",
-            &wire_u64(&self.cloud_sync_disabled_at),
-        )?;
-        s.serialize_field("sync_off_grace_secs", &wire_u64(&self.sync_off_grace_secs))?;
-        s.serialize_field("mutation_log_active", &self.mutation_log_active)?;
-        s.serialize_field("mutation_log_writer_id", &self.mutation_log_writer_id)?;
-        s.serialize_field(
-            "mutation_log_frontier_f",
-            &wire_u64(&self.mutation_log_frontier_f),
-        )?;
-        s.serialize_field(
-            "mutation_log_published_through",
-            &wire_u64(&self.mutation_log_published_through),
-        )?;
-        s.serialize_field(
-            "mutation_log_last_durable_frontier",
-            &wire_u64(&self.mutation_log_last_durable_frontier),
-        )?;
-        s.serialize_field(
-            "mutation_log_recovery_point_age_secs",
-            &wire_u64(&self.mutation_log_recovery_point_age_secs),
-        )?;
-        s.serialize_field("mutation_log_lag", &wire_u64(&self.mutation_log_lag))?;
-        s.serialize_field(
-            "mutation_log_segments_uploaded",
-            &wire_u64(&self.mutation_log_segments_uploaded),
-        )?;
-        s.serialize_field("mutation_log_lag_degraded", &self.mutation_log_lag_degraded)?;
-        s.serialize_field(
-            "mutation_log_capture_registered",
-            &self.mutation_log_capture_registered,
-        )?;
-        s.serialize_field(
-            "capture_reexport_pending_count_estimate",
-            &wire_u64(&self.capture_reexport_pending_count_estimate),
-        )?;
-        s.serialize_field(
-            "capture_reexport_pending_known_nonempty",
-            &self.capture_reexport_pending_known_nonempty,
-        )?;
-        s.serialize_field(
-            "mutation_log_peer_segments_applied",
-            &self.mutation_log_peer_segments_applied,
-        )?;
-        s.serialize_field(
-            "mutation_log_peer_records_applied",
-            &self.mutation_log_peer_records_applied,
-        )?;
-        s.serialize_field(
-            "mutation_log_records_quarantined",
-            &self.mutation_log_records_quarantined,
-        )?;
-        s.serialize_field(
-            "mutation_log_last_quarantine_reason",
-            &self.mutation_log_last_quarantine_reason,
-        )?;
-        s.serialize_field("capture", &self.capture)?;
-        s.end()
     }
 }
 

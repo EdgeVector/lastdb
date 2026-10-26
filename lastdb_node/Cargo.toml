@@ -27,12 +27,6 @@ test = false
 name = "lastdb"
 path = "src/bin/lastdb.rs"
 
-[[bin]]
-bench = false
-test = false
-name = "lastdb_storage_recovery_rollback_proof"
-path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
-
 [features]
 # Sentry crash/unclean-exit telemetry is compiled in by default (DSN-gated at
 # runtime: no OBS_SENTRY_DSN ⇒ no client ⇒ every send is a structural no-op),
@@ -102,6 +96,10 @@ bench = false
 test = false
 name = "received_range_seed"
 path = "src/bin/received_range_seed.rs"
+
+[[example]]
+name = "local_install_proof"
+path = "examples/local_install_proof.rs"
 
 [lib]
 test = false

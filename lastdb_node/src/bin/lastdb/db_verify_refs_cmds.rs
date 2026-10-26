@@ -106,11 +106,11 @@ fn run_scope(
 
 /// Check the personal scope and each scope that the catalog names.
 fn verify_all_scopes(socket: &Path, opts: &VerifyRefsOpts) -> Result<(), String> {
-    let req = format!(
-        "GET /api/db/verify-refs/scopes HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), admin_scan_client_timeout())?;
+    let response = get_path(
+        socket,
+        "/api/db/verify-refs/scopes",
+        admin_scan_client_timeout(),
+    )?;
     let value = parse_json_response(&response, "verify-refs scopes")?;
     let named: Vec<String> = value
         .get("scopes")
@@ -207,11 +207,7 @@ fn verdict(report: &Value) -> Option<String> {
 }
 
 fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
-    let req = format!(
-        "GET /api/db/verify-refs HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), admin_scan_client_timeout())?;
+    let response = get_path(socket, "/api/db/verify-refs", admin_scan_client_timeout())?;
     let value = parse_json_response(&response, "verify-refs")?;
     let summary = value
         .get("verify_refs")

@@ -23,6 +23,8 @@ mod slots;
 /// A read-only cut captured before a complete generation snapshot is built.
 /// Ordinary writes continue after this value is created.
 pub(crate) struct PreparedMoleculeGeneration {
+    // Covers the complete cut-to-activation lifetime, including source reads.
+    _cleanup_guard: std::sync::Arc<tokio::sync::OwnedRwLockReadGuard<()>>,
     generation: String,
     observed: HashMap<(String, String), PerKeyRecord>,
     previous_generation: Option<String>,

@@ -1,5 +1,8 @@
 use super::*;
 
+mod rules;
+pub(super) use rules::target_ids;
+
 /// `POST /api/storage/liveness/explain` — one target partition only.
 pub(super) async fn execute_liveness_explain_route(
     req: &UdsRequest,
@@ -73,12 +76,9 @@ async fn explain_atoms(
     ctx: &AccessContext,
     storage_prefix: Option<&str>,
     id: &str,
-    mut ids: Vec<String>,
+    ids: Vec<String>,
 ) -> UdsResponse {
-    if !id.is_empty() {
-        ids.insert(0, id.to_string());
-    }
-    ids.truncate(10_000);
+    let ids = target_ids(id, ids);
     match host
         .db
         .db_ops()
@@ -86,31 +86,7 @@ async fn explain_atoms(
         .atom_counter_views(&ids, storage_prefix)
         .await
     {
-        Ok(views) => {
-            let rows: Vec<serde_json::Value> = views
-                .iter()
-                .map(|view| {
-                    let state = match (view.refs, view.body_present, view.suspect) {
-                        (Some(_), _, true) => "suspect",
-                        (Some(_), true, false) => "live",
-                        (Some(_), false, false) | (None, true, _) => "inconsistent",
-                        (None, false, _) => "absent",
-                    };
-                    serde_json::json!({
-                        "atom": view.atom,
-                        "refs": view.refs,
-                        "suspect": view.suspect,
-                        "blobs": view.blobs,
-                        "body_present": view.body_present,
-                        "state": state,
-                    })
-                })
-                .collect();
-            json_ok(&envelope(
-                &serde_json::json!({ "liveness": { "class": "atom", "atoms": rows } }),
-                ctx.user_id.as_str(),
-            ))
-        }
+        Ok(views) => json_ok(&envelope(&rules::atom_reply(&views), ctx.user_id.as_str())),
         Err(error) => mapped_error_response(
             "liveness explain failed",
             fold_db::error::FoldDbError::Schema(error),
@@ -126,51 +102,14 @@ async fn explain_blobs(
     host: &Host,
     ctx: &AccessContext,
     id: &str,
-    mut ids: Vec<String>,
+    ids: Vec<String>,
 ) -> UdsResponse {
-    if !id.is_empty() {
-        ids.insert(0, id.to_string());
-    }
-    ids.truncate(10_000);
+    let ids = target_ids(id, ids);
     match host.db.db_ops().atoms().blob_counter_views(&ids).await {
         Ok(views) => {
-            let rows: Vec<serde_json::Value> = views
-                .iter()
-                .map(|view| {
-                    let state = match (view.refs, view.zero_since, view.suspect) {
-                        _ if view.unreadable => "unreadable",
-                        (Some(_), _, true) => "suspect",
-                        // Atoms name the blob and the store has no row for it: a
-                        // write named the blob after its dwell deleted it.
-                        (Some(refs), _, false) if refs > 0 && !view.row_present => {
-                            "referenced_row_missing"
-                        }
-                        (Some(refs), _, false) if refs > 0 => "referenced",
-                        (Some(_), Some(_), false) => "in_dwell",
-                        (Some(_), None, false) => "inconsistent",
-                        (None, _, _) if view.row_present => "row_without_counter",
-                        (None, _, _) => "absent",
-                    };
-                    serde_json::json!({
-                        "blob": view.blob,
-                        "refs": view.refs,
-                        "zero_since_unix_ms": view.zero_since,
-                        "suspect": view.suspect,
-                        "queued": view.queued,
-                        "row_present": view.row_present,
-                        "unreadable": view.unreadable,
-                        "state": state,
-                    })
-                })
-                .collect();
+            let dwell_secs = host.db.db_ops().atoms().blob_counter_report().dwell_secs;
             json_ok(&envelope(
-                &serde_json::json!({
-                    "liveness": {
-                        "class": "blob",
-                        "dwell_secs": host.db.db_ops().atoms().blob_counter_report().dwell_secs,
-                        "blobs": rows,
-                    }
-                }),
+                &rules::blob_reply(&views, dwell_secs),
                 ctx.user_id.as_str(),
             ))
         }

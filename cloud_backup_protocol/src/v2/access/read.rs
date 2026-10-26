@@ -1,6 +1,6 @@
 use super::super::inventory::InventoryProof;
 use super::super::transfer::ObjectReceipt;
-use super::super::{limits, AcceptedBackup, Job, Object, Version};
+use super::super::{limits, AcceptedBackup, Destination, Job, Object, Version};
 use crate::{DecimalU64, Digest, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +44,8 @@ pub struct ReadGrant {
     pub bytes: DecimalU64,
     pub expires_ms: DecimalU64,
     pub url: Text<8192>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<Destination>,
 }
 impl ReadGrant {
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -55,7 +57,10 @@ impl ReadGrant {
     pub fn validate_for_receipt(&self, receipt: &ObjectReceipt) -> Result<(), ProtocolError> {
         self.validate()?;
         receipt.validate()?;
-        if self.sha256 != receipt.object.sha256 || self.bytes != receipt.object.bytes {
+        if self.sha256 != receipt.object.sha256
+            || self.bytes != receipt.object.bytes
+            || self.destination != receipt.object.destination
+        {
             return Err(ProtocolError::invalid("v2.read_grant.receipt"));
         }
         Ok(())
@@ -91,11 +96,13 @@ impl ReadGrantItemResult {
                     object: Object {
                         sha256: grant.sha256.clone(),
                         bytes: grant.bytes,
+                        destination: grant.destination,
                     },
                 }
                 .validate()?,
                 ReadSelector::InventoryIndex { sha256 } => {
-                    if sha256 != &accepted.inventory_root.sha256
+                    if grant.destination == Some(Destination::B2)
+                        || sha256 != &accepted.inventory_root.sha256
                         || sha256 != &grant.sha256
                         || grant.bytes.get() > limits::INVENTORY_JSON_MAX_BYTES
                     {
@@ -103,7 +110,8 @@ impl ReadGrantItemResult {
                     }
                 }
                 ReadSelector::InventoryPage { sha256 } => {
-                    if sha256 != &grant.sha256
+                    if grant.destination == Some(Destination::B2)
+                        || sha256 != &grant.sha256
                         || grant.bytes.get() > limits::INVENTORY_JSON_MAX_BYTES
                     {
                         return Err(ProtocolError::invalid("v2.read_grant.page"));

@@ -16,9 +16,37 @@ impl PackRuntime {
         begin: Begin,
         key: &[u8; 32],
     ) -> StorageResult<ByteBackupCapture> {
+        self.prepare_capture(begin, key, None).await
+    }
+    pub async fn prepare_record_backup_capture(
+        self: &Arc<Self>,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: cloud_backup_protocol::RecoveryDescriptor,
+    ) -> StorageResult<ByteBackupCapture> {
+        self.prepare_capture(begin, key, Some(recovery)).await
+    }
+    async fn prepare_capture(
+        self: &Arc<Self>,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: Option<cloud_backup_protocol::RecoveryDescriptor>,
+    ) -> StorageResult<ByteBackupCapture> {
         begin.validate().map_err(protocol)?;
-        Bootstrap::from_descriptor(&begin.descriptor)?
-            .recovery
+        let recovery = if begin.descriptor.as_value().is_null() {
+            Some(recovery.ok_or_else(|| invalid("record capture recovery identity missing"))?)
+        } else {
+            if recovery.is_some() {
+                return Err(invalid("record capture requires opaque empty descriptor"));
+            }
+            None
+        };
+        recovery
+            .clone()
+            .map_or_else(
+                || Bootstrap::from_descriptor(&begin.descriptor).map(|b| b.recovery),
+                Ok,
+            )?
             .validate_for(&begin.job.stream.scope)
             .map_err(protocol)?;
         if super::super::transaction::PendingBatch::current(self).is_some() {
@@ -33,9 +61,10 @@ impl PackRuntime {
             if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(invalid("byte capture requires complete writer recovery"));
             }
-            require_v1_cleanup(runtime.home.path())?;
-            let home = CaptureHome::Writer(Arc::clone(&runtime));
-            let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
+            runtime.v1()?;
+            require_v1_cleanup(runtime.physical.path())?;
+            let home = CaptureHome::writer(&runtime)?;
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             if store.exists("job.json")? {
                 let old: State = store.read("job.json")?;
                 old.validate()?;
@@ -72,11 +101,13 @@ impl PackRuntime {
                 clear_previous(&store, &old)?;
             }
             let writer = runtime
+                .v1()?
                 .writer
                 .lock()
                 .map_err(|_| invalid("byte writer lock"))?;
             let current = writer.current().clone();
-            let state = new_state(&home, begin, &key, &current)?;
+            let mut state = new_state(&home, begin, &key, &current)?;
+            state.recovery = recovery;
             store.write("job.json", &state)?;
             let reference = retain(&home, &state)?;
             drop(writer);
@@ -103,8 +134,8 @@ impl PackRuntime {
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let home = CaptureHome::Writer(Arc::clone(&runtime));
-            let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
+            let home = CaptureHome::writer(&runtime)?;
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             let state: State = store.read("job.json")?;
             state.validate()?;
             validate_cut(&home, &state)?;
@@ -169,7 +200,11 @@ pub(super) fn finish(
     // Content APIs recheck eligibility before they expose the retained cut.
     if !state.ready && active && eligible && inner.source.is_some() {
         super::certify::certify(&inner, key)?;
-        super::planner::build(&inner, &mut state, key)?;
+        if state.recovery.is_some() {
+            super::record_plan::build(&inner, &mut state, key)?;
+        } else {
+            super::planner::build(&inner, &mut state, key)?;
+        }
     }
     inner.advance(&mut state)?;
     drop(state);
@@ -235,6 +270,9 @@ pub(super) fn clear_previous(store: &Store, state: &State) -> StorageResult<()> 
             store.remove(&format!("{name}.pending"))?;
         }
     }
+    if state.recovery.is_some() {
+        store.clear_coordinates()?;
+    }
     Ok(())
 }
 
@@ -261,5 +299,8 @@ pub(super) fn new_state(
         terminal: None,
         local_cancelled: false,
         released: false,
+        recovery: None,
+        record_profile: None,
+        max_coordinate_bytes: 0,
     })
 }

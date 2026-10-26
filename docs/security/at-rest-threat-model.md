@@ -12,6 +12,13 @@ cancelled in favor of identity.key + cloud restore. Sections below that still
 describe passphrase / multi-root KEK resolution are **historical design notes**
 from 2026-06, not current Mini product code.
 
+**Current `node_config` status:** The unused database-namespace wrapper and its
+factory attachment have been retired. It had no active identity/config readers
+or writers and held a redundant copy of the content key. The `node_config` rows
+below describe the historical design. Active node identity remains the
+owner-only `identity.key` seed managed by `lastdb_identity`; runtime JSON
+configuration uses its existing file-backed configuration path.
+
 Target posture (2026-06 design): **password-manager grade**. A fold_db node
 holds a user's private data the way a password manager holds their secrets, so
 it inherits the same bar: all user data encrypted at rest, no plaintext

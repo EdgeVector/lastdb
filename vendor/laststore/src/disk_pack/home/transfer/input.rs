@@ -36,6 +36,7 @@ pub(super) fn read_records(
                 }
             }
             actual.include(&row)?;
+            drop(row);
             pending = stream.next_record(maximum)?;
             let Some(next) = pending.as_ref() else {
                 break;

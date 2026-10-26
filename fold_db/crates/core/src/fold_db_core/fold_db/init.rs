@@ -14,18 +14,22 @@ use crate::fold_db_core::mutation_manager::MutationManager;
 use crate::fold_db_core::query::QueryExecutor;
 
 impl FoldDB {
-    /// Creates a new FoldDB instance with the specified storage path.
+    /// Creates a new FoldDB instance in a new home at the specified path.
     ///
     /// This is a native convenience path for in-process callers
     /// that do not have a persistent node identity (e.g., ephemeral
     /// `tempdir` storage). It generates a fresh Ed25519 signing keypair
-    /// on the fly. **Production callers must go through
+    /// and a fresh node encryption key on the fly, so the path must be
+    /// absent or empty and no later open can read the home.
+    /// **Production callers must go through
     /// [`crate::fold_db_core::factory::create_fold_db`] and pass in a
     /// signer loaded from the node's persistent identity** — otherwise
     /// every boot produces a different signing key and molecule
     /// signatures will not match the node's public identity.
     pub async fn new(path: &str) -> Result<Self, StorageError> {
-        let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
+        let store = Arc::new(PackNamespacedStore::create_ephemeral(
+            std::path::Path::new(path),
+        )?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
             None,
@@ -35,12 +39,18 @@ impl FoldDB {
 
     /// Create an embedded database with durable per-molecule key bundles.
     ///
-    /// The caller must supply the same wrap key each time it opens this path.
+    /// The caller must supply the same node key and wrap key each time it
+    /// opens this path. A new home is format v2, whose run home keys derive
+    /// from the node key.
     pub async fn new_with_molecule_wrap_key(
         path: &str,
+        node_key: &[u8; 32],
         molecule_wrap_key: [u8; 32],
     ) -> Result<Self, StorageError> {
-        let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
+        let store = Arc::new(PackNamespacedStore::open_keyed(
+            std::path::Path::new(path),
+            Some(node_key),
+        )?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
             Some(molecule_wrap_key),
@@ -239,8 +249,6 @@ impl FoldDB {
 
         let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
 
-        let sync_coordinator = Self::start_sync_coordinator(&db_ops, offline_maintenance);
-
         Ok(Self {
             schema_manager,
             db_ops,
@@ -251,9 +259,7 @@ impl FoldDB {
             background_protein_reaper,
             background_conflict_janitor,
             background_molecule_drain,
-            sync_coordinator,
             mutation_log_capture,
-            config_store: std::sync::RwLock::new(None),
         })
     }
 }

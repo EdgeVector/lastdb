@@ -1,4 +1,3 @@
-//! Read-only cloud control contract and bounded transport metadata.
+//! Account identity for a foreign receiver binding.
 
-pub mod inventory;
 pub mod protocol;

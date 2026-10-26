@@ -8,7 +8,6 @@ use crate::db_operations::DbOperations;
 use crate::storage::StorageError;
 
 use super::FoldDB;
-use crate::fold_db_core::sync_coordinator::SyncCoordinator;
 
 impl FoldDB {
     /// Point-load the device clock once at boot. A mutation ACK must not
@@ -33,7 +32,7 @@ impl FoldDB {
     }
 
     /// Memory-first mutations: skip sync fsync on finalize by default;
-    /// periodic flusher + shutdown cover durability (sled-like cadence).
+    /// periodic flusher + shutdown cover durability.
     pub(super) fn start_background_flush(
         db_ops: &Arc<DbOperations>,
         offline_maintenance: bool,
@@ -157,17 +156,5 @@ impl FoldDB {
             ),
             None => super::super::molecule_drain::BackgroundMoleculeDrainTask::disabled(),
         }
-    }
-
-    pub(super) fn start_sync_coordinator(
-        db_ops: &Arc<DbOperations>,
-        offline_maintenance: bool,
-    ) -> SyncCoordinator {
-        let coordinator = SyncCoordinator::new();
-        // Local compaction starts independently of credentials or a cloud service.
-        if !offline_maintenance {
-            coordinator.start_automatic_plane_compaction(db_ops);
-        }
-        coordinator
     }
 }

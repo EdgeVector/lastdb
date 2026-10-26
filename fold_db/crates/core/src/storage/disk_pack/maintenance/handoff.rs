@@ -62,7 +62,7 @@ impl PackRuntime {
             async move {
                 let result = runtime.wait_pack_handoff(handoff, receive).await;
                 let _ = complete.send(result);
-                runtime.capture_cleanup.release_idle();
+                runtime.physical.release_idle();
             }
             .in_current_span(),
         );
@@ -142,7 +142,7 @@ impl PackRuntime {
                 let _ = send.send(result);
             };
         }
-        self.capture_cleanup.release_idle();
+        self.physical.release_idle();
     }
 }
 

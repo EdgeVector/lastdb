@@ -3,13 +3,32 @@
 use super::reader::{IndexBlock, RunReader};
 use super::Found;
 use crate::Result;
-use std::ops::Bound;
+use std::ops::{Bound, Deref};
+use std::sync::Arc;
+
+/// The reader of a range: borrowed for one call, or shared, so a merge
+/// source can open its runs one at a time and keep each range alone.
+pub(super) enum ReaderRef<'a> {
+    Borrowed(&'a RunReader),
+    Shared(Arc<RunReader>),
+}
+
+impl Deref for ReaderRef<'_> {
+    type Target = RunReader;
+
+    fn deref(&self) -> &RunReader {
+        match self {
+            Self::Borrowed(reader) => reader,
+            Self::Shared(reader) => reader,
+        }
+    }
+}
 
 /// Records of one run inside key bounds, in key order. It reads one index
 /// block and one data block at a time and starts at the block that holds
 /// the lower bound, so a bounded range never reads the whole run.
 pub struct RunRange<'a> {
-    reader: &'a RunReader,
+    reader: ReaderRef<'a>,
     lower: Bound<Vec<u8>>,
     upper: Bound<Vec<u8>>,
     next_index: usize,
@@ -21,7 +40,7 @@ pub struct RunRange<'a> {
 }
 
 impl<'a> RunRange<'a> {
-    pub(super) fn new(reader: &'a RunReader, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Self {
+    pub(super) fn new(reader: ReaderRef<'a>, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Self {
         let next_index = match lower {
             Bound::Included(key) | Bound::Excluded(key) => reader.index_for(key).unwrap_or(0),
             Bound::Unbounded => 0,

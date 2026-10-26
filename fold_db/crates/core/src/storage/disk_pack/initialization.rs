@@ -18,6 +18,12 @@ pub(super) struct NodeHome {
     pub(super) initializing: bool,
 }
 
+/// True while a v1 home holds its creation intent: from the start of its
+/// creation until the node writes its key-format proofs.
+pub(super) fn creation_pending(path: &Path) -> StorageResult<bool> {
+    Ok(path.join(INITIALIZING).try_exists()?)
+}
+
 impl NodeHome {
     pub(super) fn open(
         path: &Path,
@@ -265,11 +271,13 @@ impl PackRuntime {
                 return Err(refusal("current creation requires a snapshot reopen"));
             }
             if runtime.fresh_initialization_pending() {
-                runtime
-                    .node_home
-                    .as_ref()
-                    .ok_or_else(|| refusal("current creation has no held node owner"))?
-                    .complete()?;
+                match runtime.node_home.as_ref() {
+                    Some(home) => home.complete()?,
+                    None if runtime.is_disk_format_v2() => {
+                        super::run_node::complete_initialization(runtime.physical.path())?;
+                    }
+                    None => return Err(refusal("current creation has no held node owner")),
+                }
                 runtime.initializing.store(false, Ordering::Release);
             }
             Ok(())

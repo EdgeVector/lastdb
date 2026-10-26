@@ -1,76 +1,28 @@
-# Egress classification notes
+# Cloud transport egress
 
-Cross-Phase 2 notes on `// trace-egress: <class>` classifier comments and
-`observability::propagation::inject_w3c` wrapping. One file per repo where
-ambiguous or awkward sites land. Future Phase 2 sweeps in sibling repos
-should append.
+`AuthClient` holds the endpoint and one immutable API key. Its constructor
+starts no request and accepts no HTTP client, token mode, or refresh callback.
 
-Classes:
+`BackupTransport::from_auth` creates the bounded HTTPS client for V2 control
+requests and signed provider grants. It disables redirects and automatic
+decompression. The control request and connection deadline stay at 30 seconds.
+Transfer byte limits, stream limits, and provider-grant expiry checks remain.
 
-- `propagate` — call goes to one of our own services. Wrap eventual
-  `.send()` callers with `observability::propagation::inject_w3c(builder)`.
-- `loopback` — same as propagate but for internal localhost loopback or
-  test scaffolds. Wrap if the call actually emits.
-- `skip-s3` — presigned-URL S3 calls. DO NOT wrap; injecting headers
-  breaks the SigV4 signature.
-- `skip-3p` — third-party (Stripe, OpenRouter, etc.) that doesn't honour
-  traceparent. DO NOT wrap.
+The control request in `sync/auth/backup_transport/http.rs` uses
+`observability::propagation::inject_w3c` before the request leaves the client.
+The provider upload, download, and feed requests preserve the signed grant
+headers. They add no trace header that can invalidate the grant.
 
-## fold_db (this repo) — Phase 2 / T4 sweep
+The account registration path uses `build_shared_http_client` separately.
+It keeps HTTPS, the redirect refusal, and the connection timeout.
 
-### Shared `Arc<reqwest::Client>` between `propagate` (auth Lambda) and `skip-s3` (presigned URLs)
+The egress source comments use these classes:
 
-Two production sites construct a single `Arc<reqwest::Client>` that flows
-into BOTH consumer types:
+- `propagate`: a request to an owned service carries the W3C trace context.
+- `loopback`: a local request carries the trace context when it emits a request.
+- `skip-s3`: a signed provider request preserves its approved headers.
+- `skip-3p`: a third-party request omits unsupported trace headers.
 
-- `crates/core/src/fold_db_core/factory.rs:157` (`build_database`)
-- `crates/core/src/fold_db_core/fold_db.rs:243` (`enable_sync_with_setup`)
-
-Each construction is `let http = Arc::new(reqwest::Client::new())` and is
-immediately handed to:
-
-1. `crate::sync::auth::AuthClient::new(http.clone(), ...)` — talks to our
-   auth Lambda via `POST {base_url}{path}`. Classified `propagate`.
-2. `crate::sync::s3::S3Client::new(http.clone())` — talks to S3 via
-   presigned URLs (PUT/GET/DELETE on `presigned.url`). Classified `skip-s3`.
-
-We classify the **construction** as `propagate` (the active class — it is
-the one with required wrapping). Per-call wrapping happens in
-`AuthClient::post` (`crates/core/src/sync/auth.rs`) via `inject_w3c`.
-`S3Client::{upload,download,delete}` deliberately do NOT call `inject_w3c` —
-attaching a `traceparent` header would change the canonical request and
-invalidate the presigned URL signature.
-
-If this gets confusing in future, the cleanup is to split into two distinct
-`Arc<reqwest::Client>` — one classified `propagate` for `AuthClient`, one
-classified `skip-s3` for `S3Client`. Today they share a single connection
-pool, which is desirable; the structural split would only be cosmetic.
-
-### Test scaffolding inside `src/`
-
-Test modules under `src/` may contain `reqwest::Client::new()` calls that
-build `AuthClient`/`S3Client` pointed at unreachable localhost addresses
-(`http://localhost:0`, `http://127.0.0.1:1`) and never emit real egress at
-runtime. They carry `// trace-egress: loopback` classifiers — a
-documentation-only tag — to keep the lint passable without teaching it to
-grep-skip `#[cfg(test)]` blocks. (Write-path `syncing_*` store modules were
-removed in the store-level-log redesign; capture/engine tests remain.)
-
-The plan's note (`projects/observability-phase-2-propagation`) says egress
-classification "matters at runtime, not in test scaffolding"; the lint
-chooses simplicity over cleverness here.
-
-## Cross-repo consistency
-
-When Phase 2 sweeps run in `fold_db_node`, `schema_service`, and
-`exemem-infra`, follow the same conventions:
-
-- One classifier comment per construction, on one of the 3 lines
-  immediately preceding `reqwest::(Client|ClientBuilder)::(new|default|builder)()`.
-- For `propagate` / `loopback` clients with multiple call sites, prefer
-  wrapping inside the lowest-level helper that builds the request (e.g.
-  the `post()`/`get()` helper on a typed client struct), so adding a new
-  endpoint method doesn't require remembering to wrap.
-- For shared-client awkwardness (like the `propagate` + `skip-s3` case
-  here), document it in this file under a per-repo heading rather than
-  splitting clients prematurely.
+Place the classification comment immediately before the HTTP construction.
+Keep propagation inside the common request helper so each control endpoint
+uses the same rule.

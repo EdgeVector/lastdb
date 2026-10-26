@@ -1,4 +1,4 @@
-use super::{limits, Version};
+use super::{limits, Destination, Version};
 use crate::{AccountId, CloudScope, ProtocolError};
 use serde::{Deserialize, Serialize};
 
@@ -7,9 +7,12 @@ use serde::{Deserialize, Serialize};
 pub struct ContextReadRequest {
     pub version: Version,
     pub account_id: AccountId,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_destinations: Vec<Destination>,
 }
 impl ContextReadRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
+        super::common::validate_destinations(&self.required_destinations)?;
         if self.account_id.as_str().len() != 32 {
             return Err(ProtocolError::invalid("v2.context.account_id"));
         }

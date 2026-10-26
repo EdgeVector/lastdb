@@ -26,7 +26,7 @@ impl SnapshotRestoreReport {
 /// scrub it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UndecryptableRow {
-    /// Namespace (Sled tree) the row lives in.
+    /// Namespace (storage collection) the row lives in.
     pub namespace: String,
     /// Base64-encoded storage key (keys are plaintext at the at-rest layer).
     pub key_b64: String,

@@ -12,10 +12,23 @@ pub(super) async fn prepare(
     context: Arc<StandaloneContext>,
     begin: Begin,
     key: &[u8; 32],
+    recovery: Option<cloud_backup_protocol::RecoveryDescriptor>,
 ) -> StorageResult<ByteBackupCapture> {
     begin.validate().map_err(protocol)?;
-    Bootstrap::from_descriptor(&begin.descriptor)?
-        .recovery
+    let recovery = if begin.descriptor.as_value().is_null() {
+        Some(recovery.ok_or_else(|| invalid("record capture recovery identity missing"))?)
+    } else {
+        if recovery.is_some() {
+            return Err(invalid("record capture requires opaque empty descriptor"));
+        }
+        None
+    };
+    recovery
+        .clone()
+        .map_or_else(
+            || Bootstrap::from_descriptor(&begin.descriptor).map(|b| b.recovery),
+            Ok,
+        )?
         .validate_for(&begin.job.stream.scope)
         .map_err(protocol)?;
     let admission = NativeCloudWorkGuard::acquire()?;
@@ -48,7 +61,8 @@ pub(super) async fn prepare(
         // until the externally saved intent's exact named reference is durable.
         let (current, hold) =
             GenerationHold::capture(context.home.path()).map_err(super::super::super::map)?;
-        let state = common::new_state(&home, begin, &key, &current)?;
+        let mut state = common::new_state(&home, begin, &key, &current)?;
+        state.recovery = recovery;
         store.write("job.json", &state)?;
         let reference = common::retain(&home, &state)?;
         drop(hold);

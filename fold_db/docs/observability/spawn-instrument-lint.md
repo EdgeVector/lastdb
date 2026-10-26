@@ -98,7 +98,6 @@ in `docs/observability/tokio-spawn-instrument-notes.md`:
    downstream code as work flows through. Examples:
    - `SledPool::start_idle_reaper` — the idle reaper.
    - `FoldDB::new` — the `TriggerRunner` scheduler loop.
-   - `SyncCoordinator::start_background_sync`.
 
 2. **`#[cfg(test)]` scaffolding.** Test driver tasks that advance a
    `MockClock` or block on a gate so the test can exercise concurrent

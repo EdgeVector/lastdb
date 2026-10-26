@@ -1,5 +1,5 @@
 use crate::disk_pack::record::record_header;
-use crate::disk_pack::{artifact, corrupt, Location, ReadCall, BLOCK_BYTES};
+use crate::disk_pack::{artifact, corrupt, Location, ReadBudget, ReadCall, BLOCK_BYTES};
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::io::{self, Read};
@@ -11,6 +11,7 @@ pub(super) struct RecordBody<'a> {
     position: u64,
     hash: Sha256,
     block: Option<u64>,
+    retained: Option<(ReadBudget, u64)>,
 }
 
 impl<'a> RecordBody<'a> {
@@ -20,29 +21,7 @@ impl<'a> RecordBody<'a> {
         key: &str,
         location: Location,
     ) -> Result<Self> {
-        let body_bytes = location
-            .record_bytes
-            .checked_sub(96 + key.len() as u64)
-            .ok_or_else(|| corrupt("compaction record is shorter than its key"))?;
-        let end = location
-            .first_block
-            .checked_mul(BLOCK_BYTES as u64)
-            .and_then(|n| n.checked_add(u64::from(location.first_position)))
-            .and_then(|n| n.checked_add(location.record_bytes))
-            .ok_or_else(|| corrupt("compaction record offset overflow"))?;
-        if call
-            .object_metadata(&location)?
-            .map_or(true, |object| end > object.logical_bytes)
-        {
-            return Err(corrupt("compaction record outside its object"));
-        }
-        let mut stream = Self {
-            call,
-            location,
-            position: 0,
-            hash: Sha256::new(),
-            block: None,
-        };
+        let (mut stream, body_bytes) = Self::start(call, key.len(), location, None)?;
         let mut prefix = vec![0; 96 + key.len()];
         stream.read_exact(&mut prefix)?;
         if prefix[..96]
@@ -58,6 +37,84 @@ impl<'a> RecordBody<'a> {
             return Err(corrupt("compaction record identity or mutation version"));
         }
         Ok(stream)
+    }
+
+    pub(super) fn open_with_retained(
+        call: &'a mut ReadCall,
+        collection: &str,
+        key: &str,
+        location: Location,
+        retained: Option<u64>,
+    ) -> Result<Self> {
+        if retained.is_none() {
+            return Self::open(call, collection, key, location);
+        }
+        let (mut stream, body_bytes) = Self::start(call, key.len(), location, retained)?;
+        stream.verify_bounded_prefix(collection, key, body_bytes)?;
+        Ok(stream)
+    }
+
+    fn start(
+        call: &'a mut ReadCall,
+        key_bytes: usize,
+        location: Location,
+        retained: Option<u64>,
+    ) -> Result<(Self, u64)> {
+        let body_bytes = location
+            .record_bytes
+            .checked_sub(96 + key_bytes as u64)
+            .ok_or_else(|| corrupt("compaction record is shorter than its key"))?;
+        let end = location
+            .first_block
+            .checked_mul(BLOCK_BYTES as u64)
+            .and_then(|n| n.checked_add(u64::from(location.first_position)))
+            .and_then(|n| n.checked_add(location.record_bytes))
+            .ok_or_else(|| corrupt("compaction record offset overflow"))?;
+        if call
+            .object_metadata(&location)?
+            .map_or(true, |object| end > object.logical_bytes)
+        {
+            return Err(corrupt("compaction record outside its object"));
+        }
+        let retained = retained.map(|bytes| (call.budget, bytes));
+        let stream = Self {
+            call,
+            location,
+            position: 0,
+            hash: Sha256::new(),
+            block: None,
+            retained,
+        };
+        Ok((stream, body_bytes))
+    }
+
+    fn verify_bounded_prefix(
+        &mut self,
+        collection: &str,
+        key: &str,
+        body_bytes: u64,
+    ) -> Result<()> {
+        let mut header = [0; 96];
+        self.read_exact(&mut header)?;
+        if header
+            != record_header(
+                collection,
+                key,
+                body_bytes,
+                self.location.version,
+                self.call.current.required_features,
+            )?
+        {
+            return Err(corrupt("compaction record identity or mutation version"));
+        }
+        let mut prefix = [0; 65536];
+        for expected in key.as_bytes().chunks(prefix.len()) {
+            self.read_exact(&mut prefix[..expected.len()])?;
+            if prefix[..expected.len()] != *expected {
+                return Err(corrupt("compaction record complete key differs"));
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn body_bytes(&self) -> u64 {
@@ -78,6 +135,12 @@ impl Read for RecordBody<'_> {
         // caller's bounded caches and metadata checks.
         if self.block.is_some_and(|previous| previous != ordinal) {
             *self.call = artifact::metadata_call(&self.call.root, self.call.current.clone());
+            if let Some((budget, retained)) = self.retained {
+                self.call.budget = budget;
+                self.call
+                    .charge(retained)
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+            }
         }
         self.block = Some(ordinal);
         let block = self

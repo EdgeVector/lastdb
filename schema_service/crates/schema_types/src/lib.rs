@@ -10,7 +10,9 @@ pub mod error;
 pub mod field_identity;
 pub mod field_value_type;
 pub mod hex;
+pub mod key_comparison;
 pub mod key_config;
+pub mod range_storage_profile;
 pub mod schema_type;
 
 pub use data_classification::{

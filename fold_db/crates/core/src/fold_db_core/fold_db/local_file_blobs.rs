@@ -6,19 +6,13 @@
 //! `$lastdb_file` pointer. The caller writes the pointer into a record of its
 //! choice, in a batch it controls (for example together with a commit marker).
 
-use std::sync::Arc;
-
 use serde_json::Value;
 
-use crate::durable_flush::{self, BatchPlacementLog};
 use crate::error::FoldDbError;
 use crate::sharing::blob_cas::{self, SealedPutOutcome};
 use crate::sharing::delivery_wire::lastdb_file_pointer_with_access_and_thumbnail;
 
 use super::FoldDB;
-
-/// The namespace that holds the rows. Must match `blob_cas`.
-const CAS_BLOBS_NAMESPACE: &str = "cas_blobs";
 
 /// Result of [`FoldDB::put_local_file_blob`].
 #[derive(Debug, Clone)]
@@ -50,10 +44,8 @@ impl FoldDB {
     /// - The pointer carries no `name` or `media_type` unless the caller passes
     ///   them. Without them, identical bytes in one schema give the same atom,
     ///   so a second record that holds the pointer adds one tip and no atom.
-    /// - The row is on disk before this returns. A durable record batch only
-    ///   flushes the groups it wrote, not `cas_blobs`, so without this barrier a
-    ///   crash could keep the record that names the blob and lose the blob. The
-    ///   barrier syncs the one group that holds the row, not the whole store.
+    /// - The native request commits the row and upload counter before returning.
+    ///   The explicit store flush also remains before returning the pointer.
     /// - A repeat put of bytes that are already stored does not append a second
     ///   copy; see [`blob_cas::put_blob_sealed_with_access_dedup_in_ops`].
     /// - The native record format, pending memory and disk space admit the write.
@@ -93,23 +85,16 @@ impl FoldDB {
         }
         let (blob_ref, envelope) = self.db_ops().atoms().seal_local_file_blob(plaintext)?;
         let access = blob_ref.to_access();
-        // Record which group the write lands in, so the barrier below syncs
-        // that group and not every dirty group on the node.
-        let placements = BatchPlacementLog::shared();
-        let outcome = durable_flush::scope(
-            Arc::clone(&placements),
-            blob_cas::put_blob_sealed_with_access_dedup_in_ops(
-                self.db_ops(),
-                plaintext.len() as u64,
-                media_type.map(str::to_string),
-                name.map(str::to_string),
-                &access,
-                &envelope,
-            ),
+        let outcome = blob_cas::put_blob_sealed_with_access_dedup_in_ops(
+            self.db_ops(),
+            plaintext.len() as u64,
+            media_type.map(str::to_string),
+            name.map(str::to_string),
+            &access,
+            &envelope,
         )
         .await?;
-        self.flush_local_blob_row(&placements, &blob_ref.blob_ref)
-            .await?;
+        self.db_ops().flush().await?;
         let pointer = lastdb_file_pointer_with_access_and_thumbnail(
             &blob_ref.blob_ref,
             name,
@@ -124,32 +109,5 @@ impl FoldDB {
             bytes: plaintext.len(),
             outcome,
         })
-    }
-
-    /// Make the row for `blob_ref` durable.
-    ///
-    /// A put that wrote placed its group in `placements`. A put that found an
-    /// intact young row wrote nothing, but that row may itself be unflushed (a
-    /// cloud-cache write or a delivery import has no barrier), so its group is
-    /// named from the key. Only a store with no LastStore falls back to the
-    /// store-wide flush.
-    async fn flush_local_blob_row(
-        &self,
-        placements: &BatchPlacementLog,
-        blob_ref: &str,
-    ) -> Result<(), FoldDbError> {
-        let mut written = placements.written_keys();
-        if written.is_empty() {
-            written.extend(
-                self.db_ops()
-                    .namespace_row_group(CAS_BLOBS_NAMESPACE, blob_ref),
-            );
-        }
-        if written.is_empty() {
-            self.db_ops().flush().await?;
-        } else {
-            self.db_ops().flush_dirty_scope(&written).await?;
-        }
-        Ok(())
     }
 }

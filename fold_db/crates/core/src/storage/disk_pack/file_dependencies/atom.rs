@@ -18,6 +18,19 @@ pub fn open_atom(
     current: &Current,
     read: impl FnOnce(ReadBudget) -> StorageResult<HomeRead>,
 ) -> StorageResult<Atom> {
+    open_atom_with(key, stored, |molecule| {
+        content_key(key, molecule, current, read)
+    })
+}
+
+/// Open a stored atom record. `bundle_key` gives the content key of the
+/// molecule key bundle that the record names; a record that names no bundle
+/// uses `key`.
+pub(crate) fn open_atom_with(
+    key: &[u8; 32],
+    stored: &[u8],
+    bundle_key: impl FnOnce(&str) -> StorageResult<Zeroizing<[u8; 32]>>,
+) -> StorageResult<Atom> {
     if stored.len() as u64 > VALUE_MAX {
         return Err(invalid("native atom record exceeds its bound"));
     }
@@ -56,7 +69,7 @@ pub fn open_atom(
             let molecule = value
                 .as_str()
                 .ok_or(invalid("native molecule key selector"))?;
-            content_key(key, molecule, current, read)
+            bundle_key(molecule)
         })
         .transpose()?;
     let content_key = bundle_key.as_deref().unwrap_or(key);
@@ -70,7 +83,8 @@ pub fn open_atom(
     serde_json::from_value::<Atom>(header).map_err(|_| invalid("native atom fields"))
 }
 
-fn content_key(
+/// The content key of the molecule key bundle of `molecule` at `current`.
+pub(crate) fn content_key(
     key: &[u8; 32],
     molecule: &str,
     current: &Current,

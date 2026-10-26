@@ -169,19 +169,14 @@ pub enum SyncError {
     #[error("snapshot too large: {size_bytes} bytes")]
     SnapshotTooLarge { size_bytes: u64 },
 
-    /// Bootstrap found NO snapshot (`latest.enc`) for a target whose cloud log
-    /// prefix already holds history. Replaying only the log tail would restore a
-    /// silently hollow (near-empty) store — the "missing snapshot" migration
-    /// trap: a device restoring an existing identity must not come up hollow
-    /// when its snapshot is missing or its upload failed. Pass an explicit
-    /// accept-fresh opt-in (`SyncConfig::accept_fresh_bootstrap`) to start fresh
-    /// on purpose despite the detected history.
+    /// Legacy bootstrap history lacks its required base snapshot. Refusing a
+    /// log-tail-only restore prevents a silently hollow store. The legacy
+    /// accept-fresh override is retired; recovery requires a complete backup.
     #[error(
         "missing snapshot for target '{target}': no snapshot (latest.enc) found, \
          but the cloud log prefix already holds {log_entries} log entries — \
          replaying only the log tail would restore a hollow store. Refusing to \
-         bootstrap; set accept_fresh (SyncConfig::accept_fresh_bootstrap) to \
-         start fresh anyway."
+         bootstrap; recover from a complete backup."
     )]
     MissingSnapshot { target: String, log_entries: usize },
 

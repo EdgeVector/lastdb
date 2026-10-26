@@ -8,6 +8,7 @@ import {
   ChangesResult,
   JsonValue,
   KeyValue,
+  QueryCursor,
   ListResult,
   LoadedSchema,
   NodeVersion,
@@ -113,7 +114,7 @@ export function parseQueryPage(body: unknown, returnedRows: number): QueryPage |
   const limit = body['limit'];
   const offset = body['offset'];
   const hasMore = body['has_more'];
-  const nextCursor = parseKeyValue(body['next_cursor']);
+  const nextCursor = parseQueryCursor(body['next_cursor']);
   if (
     typeof limit !== 'number' ||
     typeof offset !== 'number' ||
@@ -440,6 +441,26 @@ export function parseKeyValue(rawKey: unknown): KeyValue | null {
   const hash = typeof rawKey['hash'] === 'string' ? (rawKey['hash'] as string) : null;
   const range = typeof rawKey['range'] === 'string' ? (rawKey['range'] as string) : null;
   return hash !== null || range !== null ? { hash, range } : null;
+}
+
+function parseQueryCursor(raw: unknown): QueryCursor | null {
+  if (raw === null || raw === undefined) return null;
+  const key = parseKeyValue(raw);
+  if (!key || !isObject(raw)) {
+    throw new UnexpectedResponseError('query returned an invalid cursor', 200, raw);
+  }
+  for (const name of ['hash', 'range']) {
+    const value = raw[name];
+    if (value !== null && value !== undefined && typeof value !== 'string') {
+      throw new UnexpectedResponseError('query returned an invalid cursor coordinate', 200, raw);
+    }
+  }
+  const comparison = raw['comparison'];
+  if (comparison === null || comparison === undefined) return key;
+  if (typeof comparison !== 'string' || comparison.length === 0) {
+    throw new UnexpectedResponseError('query returned an invalid comparison cursor', 200, raw);
+  }
+  return { ...key, comparison };
 }
 
 /** Parse a successful `POST /api/app/changes` cursor page. */

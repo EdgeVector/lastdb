@@ -299,21 +299,6 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     );
 }
 
-fn collect_durability(out: &mut Vec<GaugeContractEntry>, d: &DurabilityHealth) {
-    push_gauge(
-        out,
-        "durability.backup_manifest_counter",
-        &d.backup_manifest_counter,
-    );
-    push_gauge(
-        out,
-        "durability.last_backup_commit_ts",
-        &d.last_backup_commit_ts,
-    );
-    push_gauge(out, "durability.backup_age_secs", &d.backup_age_secs);
-    push_gauge(out, "durability.max_age_secs", &d.max_age_secs);
-}
-
 fn collect_backup_storage(out: &mut Vec<GaugeContractEntry>, b: &BackupStorageHealth) {
     push_gauge(out, "backup_storage.referenced_bytes", &b.referenced_bytes);
     push_gauge(out, "backup_storage.billed_bytes", &b.billed_bytes);
@@ -463,7 +448,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     if let Some(ref bs) = snapshot.backup_storage {
         collect_backup_storage(&mut gauges, bs);
     }
-    collect_durability(&mut gauges, &snapshot.durability);
     collect_sampler(&mut gauges, &snapshot.sampler);
     collect_qos(&mut gauges, &snapshot.qos);
     collect_uds(&mut gauges, &snapshot.uds);

@@ -1,133 +1,68 @@
 use super::*;
 
-/// Age of the last committed backup manifest, from the durable on-disk marker.
-///
-/// Engine-independent by design: `BackupProgressHealth` and every
-/// `SyncHealth` failure counter go `null` when the uploader is switched off, so
-/// a monitor keyed on them cannot distinguish "backed up minutes ago" from
-/// "nothing has left this machine in nine days". This can.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Redacted V2 job observation. A receipt is not a proof of current coverage.
+/// Standalone coordinators remain separate and cannot be inferred from a missing local job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DurabilityHealth {
-    /// Highest committed backup manifest counter, when the marker was readable.
-    pub backup_manifest_counter: Gauge,
-    /// Unix seconds of the last committed manifest, when known.
-    pub last_backup_commit_ts: Gauge,
-    /// Age of that commit in seconds, when known.
-    pub backup_age_secs: Gauge,
-    /// Threshold in force (`LASTDB_BACKUP_MAX_AGE_SECS`); `0` disables the age
-    /// check.
-    pub max_age_secs: Gauge,
-    /// Whether durability needs attention. True for stale, never, and unknown.
-    pub degraded: bool,
-    /// Machine-readable reason codes, empty when healthy.
+    pub observed: bool,
+    pub automatic_enabled: bool,
+    pub running: bool,
+    pub phase: Option<crate::byte_cloud_backup::Phase>,
+    pub accepted_backup_recorded: bool,
+    pub degraded: Option<bool>,
     pub reasons: Vec<String>,
 }
 
 impl Default for DurabilityHealth {
-    /// Un-evaluated durability is **degraded**, not healthy.
-    ///
-    /// This is the `#[serde(default)]` value for a snapshot written before the
-    /// field existed, and the value a caller gets by forgetting to evaluate.
-    /// Either way we cannot show the data is covered, and a durability signal
-    /// whose default reads green is the exact failure being fixed here.
     fn default() -> Self {
         Self {
-            backup_manifest_counter: Gauge::field_not_served(
-                Unit::Named("manifest"),
-                GAUGE_INSTANT,
-            ),
-            last_backup_commit_ts: Gauge::field_not_served(Unit::Named("unix_s"), GAUGE_INSTANT),
-            backup_age_secs: Gauge::field_not_served(Unit::Named("sec(s)"), GAUGE_INSTANT),
-            max_age_secs: g_instant(
-                fold_db::backup_durability::DEFAULT_MAX_BACKUP_AGE_SECS,
-                Unit::Named("sec(s)"),
-            ),
-            degraded: true,
-            reasons: vec![fold_db::backup_durability::reason::NO_MARKER.to_string()],
+            observed: false,
+            automatic_enabled: false,
+            running: false,
+            phase: None,
+            accepted_backup_recorded: false,
+            degraded: None,
+            reasons: vec!["v2_status_unavailable".into()],
         }
     }
 }
 
-impl From<fold_db::backup_durability::BackupDurabilityHealth> for DurabilityHealth {
-    fn from(h: fold_db::backup_durability::BackupDurabilityHealth) -> Self {
+impl From<crate::byte_cloud_backup::ByteBackupStatus> for DurabilityHealth {
+    fn from(status: crate::byte_cloud_backup::ByteBackupStatus) -> Self {
+        let blocked = status.blocked_reason.is_some();
         Self {
-            backup_manifest_counter: g_instant_wire(
-                h.backup_manifest_counter,
-                Unit::Named("manifest"),
-            ),
-            last_backup_commit_ts: g_instant_wire(h.last_backup_commit_ts, Unit::Named("unix_s")),
-            backup_age_secs: g_instant_wire(h.age_secs, Unit::Named("sec(s)")),
-            max_age_secs: g_instant(h.max_age_secs, Unit::Named("sec(s)")),
-            degraded: h.degraded,
-            reasons: h.reasons,
-        }
-    }
-}
-
-impl Serialize for DurabilityHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("DurabilityHealth", 6)?;
-        s.serialize_field(
-            "backup_manifest_counter",
-            &wire_u64(&self.backup_manifest_counter),
-        )?;
-        s.serialize_field(
-            "last_backup_commit_ts",
-            &wire_u64(&self.last_backup_commit_ts),
-        )?;
-        s.serialize_field("backup_age_secs", &wire_u64(&self.backup_age_secs))?;
-        s.serialize_field("max_age_secs", &wire_u64(&self.max_age_secs))?;
-        s.serialize_field("degraded", &self.degraded)?;
-        s.serialize_field("reasons", &self.reasons)?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for DurabilityHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            backup_manifest_counter: Option<u64>,
-            #[serde(default)]
-            last_backup_commit_ts: Option<u64>,
-            #[serde(default)]
-            backup_age_secs: Option<u64>,
-            #[serde(default)]
-            max_age_secs: Option<u64>,
-            #[serde(default)]
-            degraded: Option<bool>,
-            #[serde(default)]
-            reasons: Option<Vec<String>>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        // Missing degraded/reasons on older wire → treat as unevaluated degraded.
-        let degraded = raw.degraded.unwrap_or(true);
-        let reasons = raw.reasons.unwrap_or_else(|| {
-            if degraded {
-                vec![fold_db::backup_durability::reason::NO_MARKER.to_string()]
+            observed: true,
+            automatic_enabled: false,
+            running: status.running,
+            phase: status.phase,
+            accepted_backup_recorded: status.last_accepted_backup.is_some(),
+            // No capture time or current-source equivalence is available here.
+            // Never turn an accepted historical receipt into a fresh-coverage claim.
+            degraded: blocked.then_some(true),
+            reasons: vec![if blocked {
+                "v2_job_blocked".into()
             } else {
-                Vec::new()
-            }
-        });
-        Ok(Self {
-            backup_manifest_counter: g_instant_wire(
-                raw.backup_manifest_counter,
-                Unit::Named("manifest"),
-            ),
-            last_backup_commit_ts: g_instant_wire(raw.last_backup_commit_ts, Unit::Named("unix_s")),
-            backup_age_secs: g_instant_wire(raw.backup_age_secs, Unit::Named("sec(s)")),
-            max_age_secs: match raw.max_age_secs {
-                Some(n) => g_instant(n, Unit::Named("sec(s)")),
-                None => g_instant(
-                    fold_db::backup_durability::DEFAULT_MAX_BACKUP_AGE_SECS,
-                    Unit::Named("sec(s)"),
-                ),
-            },
-            degraded,
-            reasons,
-        })
+                "v2_freshness_unmeasured".into()
+            }],
+        }
+    }
+}
+
+impl DurabilityHealth {
+    pub(super) fn status_line(&self) -> String {
+        let state = if !self.observed {
+            "status unavailable; use cloud backup-v2 status"
+        } else if self.degraded == Some(true) {
+            "job blocked; use cloud backup-v2 status"
+        } else if self.running {
+            "job active; use cloud backup-v2 status"
+        } else if self.accepted_backup_recorded {
+            "accepted backup recorded; current coverage is not measured"
+        } else {
+            "no receipt in this node; check any external coordinator separately"
+        };
+        format!("Manual V2 backup: {state}")
     }
 }
 
@@ -149,34 +84,27 @@ gauge_health! {
     }
 }
 
-impl From<fold_db::storage::laststore::BackupStorageFootprint> for BackupStorageHealth {
-    fn from(fp: fold_db::storage::laststore::BackupStorageFootprint) -> Self {
-        Self {
-            referenced_bytes: g_instant(fp.referenced_bytes, Unit::Bytes),
-            billed_bytes: g_instant(fp.billed_bytes, Unit::Bytes),
-            reclaimable_bytes: g_instant(fp.reclaimable_bytes, Unit::Bytes),
-            referenced_chunks: g_instant(fp.referenced_chunks, Unit::Chunks),
-            billed_chunks: g_instant(fp.billed_chunks, Unit::Chunks),
-            reclaimable_chunks: g_instant(fp.reclaimable_chunks, Unit::Chunks),
-        }
-    }
-}
-
 /// Operator-facing sealed-chunk backup progress (from continuous publisher).
 ///
 /// Chunk/byte/cycle counters are wire-transparent gauges (bare u64 / null).
 /// f64 EWMA fields and bools stay bare.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackupProgressHealth {
     pub enabled: bool,
     pub complete: bool,
     pub show_progress: bool,
     pub percent: Option<f64>,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_total: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_present: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_remaining: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub bytes_remaining: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub elapsed_secs: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub eta_secs: Gauge,
     pub ewma_upload_bps: Option<f64>,
     /// True link rate (bytes per second of transfer). `eta_secs` charges
@@ -186,48 +114,67 @@ pub struct BackupProgressHealth {
     pub ewma_link_bps: Option<f64>,
     /// Per-cycle walk overhead in seconds, charged once per remaining cycle.
     pub ewma_overhead_secs: Option<f64>,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_cycle_uploaded: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_cycle_already_present: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_cycle_bytes_uploaded: Gauge,
     /// Chunks whose presign/upload/confirm failed in the last drain cycle.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_cycle_failed: Gauge,
     /// Chunks of the current cut with no local sealed file, so the cut can
     /// never publish.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_source_missing: Gauge,
     /// Chunks NAMED BY THE CUT'S MANIFEST with no local candidate to upload
     /// them from. Disjoint from `chunks_source_missing` and equally terminal —
     /// see `fold_db::backup_progress::BackupProgressSnapshot`.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_unbackable_manifest: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub cas_counter: Gauge,
     pub phase: String,
     /// Unix seconds of the last publish cycle that completed without error.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_success_unix: Gauge,
     /// Age of that success. Absent when none has happened.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_success_age_secs: Gauge,
     /// Consecutive failed publish cycles since the last success.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub consecutive_failures: Gauge,
     /// Redacted text of the most recent cycle failure.
     pub last_error: Option<String>,
     /// Chunks that entered the cloud-present set since the current cut started.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_gained: Gauge,
     /// Chunks that LEFT it — uploaded bytes invalidated by sealed-chunk reseal.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub chunks_erased: Gauge,
     /// Whether the current cut is net-progressing.
     pub net_progressing: bool,
     /// Chunks gained over the recent window that decides `net_progressing`.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub recent_gained: Gauge,
     /// Chunks erased over that same window.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub recent_erased: Gauge,
     /// How many cycles that window spans.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub net_progress_window_cycles: Gauge,
     /// Cycles since one last gained ground. Zero while gaining.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub cycles_since_net_gain: Gauge,
     /// Manifest counter of the cut currently being drained.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub target_generation: Gauge,
     /// Unix seconds of the last successful CAS — the last time this home
     /// actually became restorable.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_publish_unix: Gauge,
     /// Age of that publish. Absent when nothing has ever landed.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub last_publish_age_secs: Gauge,
 }
 
@@ -273,76 +220,6 @@ impl From<fold_db::backup_progress::BackupProgressSnapshot> for BackupProgressHe
             last_publish_unix: g_instant_wire(s.last_publish_unix, Unit::Named("unix_s")),
             last_publish_age_secs: g_instant_wire(s.last_publish_age_secs, Unit::Named("sec(s)")),
         }
-    }
-}
-
-impl Serialize for BackupProgressHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("BackupProgressHealth", 33)?;
-        s.serialize_field("enabled", &self.enabled)?;
-        s.serialize_field("complete", &self.complete)?;
-        s.serialize_field("show_progress", &self.show_progress)?;
-        s.serialize_field("percent", &self.percent)?;
-        s.serialize_field("chunks_total", &wire_u64(&self.chunks_total))?;
-        s.serialize_field("chunks_present", &wire_u64(&self.chunks_present))?;
-        s.serialize_field("chunks_remaining", &wire_u64(&self.chunks_remaining))?;
-        s.serialize_field("bytes_remaining", &wire_u64(&self.bytes_remaining))?;
-        s.serialize_field("elapsed_secs", &wire_u64(&self.elapsed_secs))?;
-        s.serialize_field("eta_secs", &wire_u64(&self.eta_secs))?;
-        s.serialize_field("ewma_upload_bps", &self.ewma_upload_bps)?;
-        s.serialize_field("ewma_link_bps", &self.ewma_link_bps)?;
-        s.serialize_field("ewma_overhead_secs", &self.ewma_overhead_secs)?;
-        s.serialize_field("last_cycle_uploaded", &wire_u64(&self.last_cycle_uploaded))?;
-        s.serialize_field(
-            "last_cycle_already_present",
-            &wire_u64(&self.last_cycle_already_present),
-        )?;
-        s.serialize_field(
-            "last_cycle_bytes_uploaded",
-            &wire_u64(&self.last_cycle_bytes_uploaded),
-        )?;
-        s.serialize_field("last_cycle_failed", &wire_u64(&self.last_cycle_failed))?;
-        s.serialize_field(
-            "chunks_source_missing",
-            &wire_u64(&self.chunks_source_missing),
-        )?;
-        s.serialize_field(
-            "chunks_unbackable_manifest",
-            &wire_u64(&self.chunks_unbackable_manifest),
-        )?;
-        s.serialize_field("cas_counter", &wire_u64(&self.cas_counter))?;
-        s.serialize_field("phase", &self.phase)?;
-        s.serialize_field("last_success_unix", &wire_u64(&self.last_success_unix))?;
-        s.serialize_field(
-            "last_success_age_secs",
-            &wire_u64(&self.last_success_age_secs),
-        )?;
-        s.serialize_field(
-            "consecutive_failures",
-            &wire_u64(&self.consecutive_failures),
-        )?;
-        s.serialize_field("last_error", &self.last_error)?;
-        s.serialize_field("chunks_gained", &wire_u64(&self.chunks_gained))?;
-        s.serialize_field("chunks_erased", &wire_u64(&self.chunks_erased))?;
-        s.serialize_field("net_progressing", &self.net_progressing)?;
-        s.serialize_field("recent_gained", &wire_u64(&self.recent_gained))?;
-        s.serialize_field("recent_erased", &wire_u64(&self.recent_erased))?;
-        s.serialize_field(
-            "net_progress_window_cycles",
-            &wire_u64(&self.net_progress_window_cycles),
-        )?;
-        s.serialize_field(
-            "cycles_since_net_gain",
-            &wire_u64(&self.cycles_since_net_gain),
-        )?;
-        s.serialize_field("target_generation", &wire_u64(&self.target_generation))?;
-        s.serialize_field("last_publish_unix", &wire_u64(&self.last_publish_unix))?;
-        s.serialize_field(
-            "last_publish_age_secs",
-            &wire_u64(&self.last_publish_age_secs),
-        )?;
-        s.end()
     }
 }
 

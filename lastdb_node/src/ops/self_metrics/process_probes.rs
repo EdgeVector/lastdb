@@ -171,22 +171,37 @@ pub(super) fn memory_guard_metric() -> MemoryGuardMetric {
     }
 }
 
+/// Bytes the filesystem has allocated to one file — what `du` reports.
+///
+/// `len()` is the apparent size and is the wrong number for a capacity gauge:
+/// a file held open for append can own extents past its written end, and the
+/// volume charges that space. Measured on the primary 2026-08-03: 7.94 GiB
+/// apparent against 9.63 GiB allocated (17.5%).
+fn allocated_bytes(meta: &std::fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        // st_blocks is defined in 512-byte units regardless of the fs block size.
+        meta.blocks().saturating_mul(512)
+    }
+    #[cfg(not(unix))]
+    {
+        meta.len()
+    }
+}
+
 /// Disk consumed by the node home, in allocated blocks.
 ///
 /// This reports what the volume has actually given the store, not the summed
-/// length of its records — see
-/// [`fold_db::mini_cutover::plane_roles::allocated_bytes`] for why those differ
-/// (measured 17.5% on the primary) and why a capacity gauge must use the
-/// former.
+/// length of its records — see [`allocated_bytes`] for why those differ and
+/// why a capacity gauge must use the former.
 pub(super) fn dir_size_bytes(path: &Path) -> std::io::Result<u64> {
     let metadata = std::fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() {
         return Ok(0);
     }
     if metadata.is_file() {
-        return Ok(fold_db::mini_cutover::plane_roles::allocated_bytes(
-            &metadata,
-        ));
+        return Ok(allocated_bytes(&metadata));
     }
     if !metadata.is_dir() {
         return Ok(0);

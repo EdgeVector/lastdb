@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub(crate) mod temporal;
+
 /// Strongly typed value types for schema fields.
 ///
 /// Types are declared on canonical fields in the schema service and
@@ -41,6 +43,12 @@ pub enum FieldValueType {
     /// Accepts any JSON value. Used for backward compatibility
     /// with existing schemas that have no type declarations.
     Any,
+
+    // Append new variants to retain the existing enum discriminants.
+    /// Gregorian calendar date, encoded as a strict `YYYY-MM-DD` JSON string.
+    Date,
+    /// RFC 3339 instant with an offset and at most nine fractional digits.
+    DateTime,
 }
 
 impl FieldValueType {
@@ -49,6 +57,8 @@ impl FieldValueType {
     pub fn validate(&self, value: &serde_json::Value) -> Result<(), String> {
         match self {
             Self::Any => Ok(()),
+            Self::Date => temporal::validate_date(value),
+            Self::DateTime => temporal::validate_datetime(value),
             Self::Null => value
                 .is_null()
                 .then_some(())
@@ -211,6 +221,8 @@ impl std::fmt::Display for FieldValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::String => write!(f, "String"),
+            Self::Date => write!(f, "Date"),
+            Self::DateTime => write!(f, "DateTime"),
             Self::Integer => write!(f, "Integer"),
             Self::Float => write!(f, "Float"),
             Self::Number => write!(f, "Number"),

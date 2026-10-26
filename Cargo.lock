@@ -3015,24 +3015,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
 
 [[package]]
-name = "lastdb_docstore"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "hex",
- "laststore",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 1.0.69",
- "uuid",
- "zeroize",
- "zstd",
-]
-
-[[package]]
 name = "lastdb_host"
 version = "0.1.0"
 dependencies = [
@@ -4776,6 +4758,7 @@ name = "schema_types"
 version = "0.1.0"
 dependencies = [
  "app_identity_crypto",
+ "chrono",
  "serde",
  "serde_json",
  "sha2 0.10.9",

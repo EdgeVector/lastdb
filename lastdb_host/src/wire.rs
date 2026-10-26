@@ -13,7 +13,7 @@
 //! [`crate::reject`] for why naming the rule keeps I4 intact.
 
 use fold_db::schema::types::operations::{MutationConvergence, Operation};
-use fold_db::schema::types::{KeyValue, Query};
+use fold_db::schema::types::{Query, QueryCursor};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use serde::Deserialize;
 use serde_json::Value;
@@ -44,7 +44,7 @@ pub struct QueryRequest {
     pub query: Query,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
-    pub cursor: Option<KeyValue>,
+    pub cursor: Option<QueryCursor>,
 }
 
 /// Decode a query body before any schema lookup, admission, or record read.
@@ -240,14 +240,14 @@ pub fn first_missing_key(
 /// `400` when `cursor` is present, non-null, and not a key object.
 pub fn take_cursor(
     obj: &mut serde_json::Map<String, Value>,
-) -> Result<Option<KeyValue>, UdsResponse> {
+) -> Result<Option<QueryCursor>, UdsResponse> {
     let Some(raw) = obj.remove(WireKey::Cursor.as_str()) else {
         return Ok(None);
     };
     if raw.is_null() {
         return Ok(None);
     }
-    serde_json::from_value::<KeyValue>(raw)
+    serde_json::from_value::<QueryCursor>(raw)
         .map(Some)
         .map_err(|_| Reject::invalid(WireKey::Cursor).response())
 }

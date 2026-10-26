@@ -2,11 +2,13 @@ use super::*;
 
 /// Operator-visible sampler vitals. `sample_count` / `retention_max_samples`
 /// are wire-transparent gauges (bare u64 / null).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SamplerStatus {
     pub last_sample_at: Option<u64>,
     pub last_error: Option<String>,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub sample_count: Gauge,
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub retention_max_samples: Gauge,
     /// Whether this daemon persists telemetry into LastDB at all
     /// (`LASTDB_SELF_METRICS_TO_DB`, default **false**).
@@ -33,22 +35,6 @@ impl Default for SamplerStatus {
             retention_max_samples: Gauge::field_not_served(Unit::Named("sample(s)"), GAUGE_INSTANT),
             db_write_enabled: None,
         }
-    }
-}
-
-impl Serialize for SamplerStatus {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("SamplerStatus", 5)?;
-        s.serialize_field("last_sample_at", &self.last_sample_at)?;
-        s.serialize_field("last_error", &self.last_error)?;
-        s.serialize_field("sample_count", &wire_u64(&self.sample_count))?;
-        s.serialize_field(
-            "retention_max_samples",
-            &wire_u64(&self.retention_max_samples),
-        )?;
-        s.serialize_field("db_write_enabled", &self.db_write_enabled)?;
-        s.end()
     }
 }
 

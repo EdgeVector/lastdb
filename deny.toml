@@ -77,8 +77,6 @@ ignore = [
   # Yanked-crate match for core2 (the unmaintained advisory above only
   # silences the unmaintained warning, not the separate yanked check).
   { crate = "core2", reason = "core2 0.4.0 yanked; same root cause as RUSTSEC-2026-0105; transitive via image" },
-  { id = "RUSTSEC-2025-0057", reason = "fxhash unmaintained; transitive via fxprof-processed-profile; not on our hot path" },
-  { id = "RUSTSEC-2024-0384", reason = "instant unmaintained; transitive via parking_lot 0.11 in old deps; suggested replacement web-time needs upstream uptake" },
   { id = "RUSTSEC-2025-0119", reason = "number_prefix unmaintained; transitive via indicatif; cosmetic progress-bar dep" },
   { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via macro_rules_attribute; widely used, no security exposure" },
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error unmaintained; transitive via utoipa-gen; build-time only, no runtime exposure" },

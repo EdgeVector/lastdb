@@ -36,7 +36,6 @@ pub use resident::{
 /// Pure continuous-backup drain planner (no network).
 pub mod backup_drain_plan;
 /// Age-based durability health, evaluated with no sync engine running.
-pub mod backup_durability;
 /// Sealed-chunk backup progress math (no network).
 pub mod backup_progress;
 pub mod benchmark_database;
@@ -87,5 +86,4 @@ pub use schema::SchemaState;
 
 // Re-export storage types
 pub use storage::DatabaseConfig;
-pub use storage::NodeConfigStore;
 pub use sync_conflict::SyncConflict;

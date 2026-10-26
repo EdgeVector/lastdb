@@ -11,7 +11,6 @@ use crate::error::{FoldDbError, FoldDbResult};
 use crate::fold_db_core::fold_db::FoldDbInit;
 use crate::fold_db_core::FoldDB;
 use crate::security::Ed25519KeyPair;
-use crate::storage::node_config_store::NodeConfigStore;
 use std::sync::Arc;
 
 use super::boot::map_boot_decrypt_error;
@@ -48,9 +47,8 @@ pub(super) async fn create_local_fold_db(
     signer: Arc<Ed25519KeyPair>,
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
-    let base_store = open_store::open_primary_store(path)?;
     let store_stack = store_stack::build_store_stack(
-        Arc::clone(&base_store),
+        open_store::open_primary_store(path, &e2e_keys.encryption_key())?,
         e2e_keys,
         options.at_rest_keyring.as_ref(),
     );
@@ -59,12 +57,6 @@ pub(super) async fn create_local_fold_db(
     )
     .await
     .map_err(|error| FoldDbError::Config(error.to_string()))?;
-    let config_store = NodeConfigStore::with_namespaced_store(
-        Arc::clone(&base_store),
-        Some(e2e_keys.encryption_key()),
-    )
-    .await
-    .map_err(|e| FoldDbError::Config(format!("Failed to open config store: {e}")))?;
     let db_ops = open_db_operations(store_stack.store, e2e_keys).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),
@@ -75,6 +67,5 @@ pub(super) async fn create_local_fold_db(
     })
     .await
     .map_err(|e| map_boot_decrypt_error(e.to_string()))?;
-    fold_db.set_config_store(config_store);
     Ok(Arc::new(fold_db))
 }

@@ -7,10 +7,7 @@ The [storage parts guide](lastdb-storage-parts.md) describes packed files and au
 The native packed engine is the sole logical LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
 An empty home initializes directly. Startup refuses an unsupported older format before logical namespace access and performs no conversion.
-The separate owner command [lastdb-native-transfer](../vendor/laststore/src/bin/lastdb-native-transfer.rs) supports explicit record export, import, and verification.
-A compatible source reader exports records; the destination writer imports them into a nonexistent target.
-This requires a cleanly stopped source, compatible native record codecs, and retained identity and encryption keys.
-It is not an automatic startup migration or a converter for arbitrary older formats.
+The disk format v1 removal deleted the separate owner command `lastdb-native-transfer` on 2026-10-26.
 Legacy Cloud Sync activation receives an explicit error.
 Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
 
@@ -34,6 +31,9 @@ Those allowances do not define a whole-process memory maximum.
 
 Every native write waits for its complete disk commit and clean core publication before the ack.
 No native route returns an early memory ack.
+Logical requests no longer carry the legacy LastStore placement log across task
+scopes and blocking calls. The serialized `touched_group_ids` field remains empty
+for native writes. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
 The retained dirty-record fields remain zero for compatibility.
@@ -51,6 +51,10 @@ Ordinary reads cannot inspect that queue. Private write preparation can inspect 
 The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and compaction handoff.
 
 ## Home fence
+
+Since disk format v2 phase V3, every new node home is v2.
+Its `laststore-pack-node-v1` marker holds `format=3\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
+The rest of this section describes the v1 fence of an older home, which still opens as v1.
 
 The node store contains `laststore-pack-node-v1`, with the exact bytes `format=1\nhome=disk-pack\n`.
 The native physical home resides in its fixed `disk-pack` child directory.

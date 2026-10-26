@@ -14,6 +14,7 @@ mod paging;
 pub(in crate::handlers) use self::paging::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
+mod comparison;
 mod execute;
 mod rules;
 
@@ -34,7 +35,7 @@ pub async fn execute_query<H: HostNode>(
     query: Query,
     limit: Option<usize>,
     offset: Option<usize>,
-    cursor: Option<KeyValue>,
+    cursor: Option<QueryCursor>,
     ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
@@ -62,7 +63,7 @@ async fn execute_query_scoped<H: HostNode>(
     mut query: Query,
     limit: Option<usize>,
     offset: Option<usize>,
-    cursor: Option<KeyValue>,
+    cursor: Option<QueryCursor>,
     ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
@@ -108,29 +109,7 @@ async fn execute_query_scoped<H: HostNode>(
         ));
     }
 
-    rules::validate_query_options(&query, cursor.as_ref())?;
-
-    let limit = clamp_request_limit(limit);
-    let offset = offset.unwrap_or(0);
-    let run = execute::QueryRun {
-        host,
-        ctx,
-        limit,
-        offset,
-        cursor,
-    };
-    if let Some(payload) = run.caller_supplied_page(&query).await? {
-        return Ok(payload);
-    }
-    if rules::can_push_down_key_restricted(&query) {
-        return run.key_restricted(query).await;
-    }
-    if rules::can_push_down(&query) {
-        if let Some(payload) = run.unfiltered_pushdown(&query).await? {
-            return Ok(payload);
-        }
-    }
-    run.bounded_fallback(query).await
+    comparison::execute(host, query, limit, offset, cursor, ctx).await
 }
 
 pub(super) fn is_app_owned_schema_ref(name: &str) -> bool {

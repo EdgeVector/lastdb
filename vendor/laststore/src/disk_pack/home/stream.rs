@@ -8,6 +8,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 
+mod range;
+pub(super) use range::copy_body_range_to;
+
 const RUN_BLOCKS: u32 = lastdb_storage_policy::native_read::STREAM_RUN_BLOCKS;
 
 /// Positive evidence only after the complete stored record identity validates.

@@ -3,14 +3,7 @@
 use super::*;
 
 pub(crate) fn db_unresolved_atoms(socket: &Path, json_only: bool) -> Result<(), String> {
-    let req = format!(
-        "GET /api/db/unresolved-atoms HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Connection: close\r\n\
-         \r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), Duration::from_secs(30))?;
+    let response = get_path(socket, "/api/db/unresolved-atoms", Duration::from_secs(30))?;
     let value = parse_json_response(&response, "/api/db/unresolved-atoms")?;
     let report = value
         .get("unresolved_atoms")

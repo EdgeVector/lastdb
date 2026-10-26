@@ -1,20 +1,19 @@
-//! Shared synchronous at-rest value codec for direct-Sled-tree stores that
-//! bypass the [`EncryptingNamespacedStore`](crate::storage) seam.
+//! Shared synchronous at-rest value codec for values sealed under a raw
+//! 32-byte key, outside the [`EncryptingNamespacedStore`](crate::storage)
+//! seam.
 //!
-//! Several stores open a Sled tree directly instead of routing through the
-//! namespaced encryption seam — the node-config store, the app-consent
-//! ledger, the revocation ledger, the job tracker, the trigger-runner's
-//! per-view state, and the sync engine's download-cursor bookkeeping (see
-//! `docs/security/at-rest-threat-model.md` §5.3). Each must encrypt its
-//! values at rest, and before this module each hand-rolled the *same*
-//! `ENC:<base64>` framing — exactly the per-store drift the threat model
-//! warns about ("N stores × N implementations of the same wrapper; no
-//! single audit point").
+//! Some values are sealed inside a record or a field rather than by the
+//! namespaced encryption seam: atom content (`crate::atom::content_at_rest`),
+//! molecule key bundles, and sharing delivery blobs. Each must encrypt its
+//! value at rest with the same framing, so every one of them seals and opens
+//! through this module rather than its own wrapper (see
+//! `docs/security/at-rest-threat-model.md`). The schema store only opens old
+//! `ENC:` catalog values through it.
 //!
 //! This is that single audit point. It is deliberately **synchronous** —
 //! keyed directly on the 32-byte E2E content key rather than the async
 //! [`CryptoProvider`](super::CryptoProvider) trait — so the sync read paths
-//! of those stores can adopt it without an async cascade, and it reuses the
+//! of those callers can use it without an async cascade, and it reuses the
 //! same [`encrypt_envelope`]/[`decrypt_envelope`] AES-256-GCM primitive the
 //! rest of the crate uses (no second crypto implementation).
 //!
@@ -63,12 +62,10 @@
 
 mod compress;
 mod config;
-mod owned;
 mod stats;
 
 pub use compress::*;
 pub use config::*;
-pub use owned::open_at_rest_bounded_owned;
 pub use stats::*;
 
 use super::envelope::decrypt_envelope;
@@ -104,23 +101,11 @@ pub fn is_sealed_at_rest(value: &[u8]) -> bool {
         || value.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes())
 }
 
-/// Seal `plaintext` under the 32-byte content key.
-///
-/// `LASTDB_AT_REST_RAW=1` emits the binary `ENB:` form. The default remains
-/// the legacy UTF-8 `ENC:` form so the read side can ship before any node
-/// writes the new wire format.
-pub fn seal_at_rest(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-    if at_rest_raw_enabled() {
-        return seal_at_rest_raw(key, plaintext);
-    }
-    seal_at_rest_utf8(key, plaintext)
-}
-
 /// Seal `plaintext` as legacy UTF-8 `ENC:` + base64(envelope).
 ///
 /// Use this only at a storage boundary that requires a JSON/string value.
-/// Byte-oriented stores should use [`seal_at_rest`] so the binary write switch
-/// can remove the base64 tax after the fleet can read `ENB:`.
+/// Byte-oriented stores should use [`seal_at_rest_raw`] or
+/// [`seal_at_rest_deflate_raw`], which carry no base64 tax.
 pub fn seal_at_rest_utf8(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
     let ciphertext = encrypt_envelope(key, plaintext)?;
     let encoded = B64.encode(&ciphertext);
@@ -228,8 +213,8 @@ where
     }
     let deflated = stored.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
     if !deflated && !stored.starts_with(AT_REST_ENC_PREFIX.as_bytes()) {
-        // Legacy plaintext written before this tree was sealed. Dual-read
-        // keeps it readable; the next write through `seal_at_rest` re-seals it.
+        // Legacy plaintext written before its store was sealed. Dual-read
+        // keeps it readable; the next write through a seal entry point re-seals it.
         return Ok(stored.to_vec());
     }
     // Both markers are the same width, so one slice serves both.

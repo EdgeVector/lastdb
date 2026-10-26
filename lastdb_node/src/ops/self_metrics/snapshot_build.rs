@@ -20,10 +20,10 @@ pub(super) async fn build_snapshot(
         RequestPhase::StatusRequestOps,
         request_ops_started.elapsed(),
     );
-    let sync = timed_sync_health(host, refresh_sync).await;
+    let sync = timed_sync_health(host, refresh_sync);
     // Retired cloud engines do not provide progress or provider inventory gauges.
     let (backup, backup_storage) = (None, None);
-    let durability = durability_health(host, sampled_at);
+    let durability = durability_health(host);
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let runtime_memory = footprint.map(|footprint| observe_runtime_memory(host, footprint));
@@ -143,10 +143,10 @@ impl DirReport {
     }
 }
 
-async fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
+fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
     let sync_started = Instant::now();
     let sync = if refresh_sync {
-        let health = sync_health(host).await;
+        let health = sync_health();
         // A timed-out / unsampled probe must not replace a last-known snapshot
         // with empty gauges. Those empty gauges render as last_success=never
         // and "log plane not recording" — false durability-outage sentences.
@@ -161,17 +161,13 @@ async fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
     sync
 }
 
-fn durability_health(host: &Host, sampled_at: u64) -> DurabilityHealth {
-    // Preserve historical backup-marker evidence independently of cloud retirement.
-    let durability_started = Instant::now();
-    let durability_health = fold_db::backup_durability::evaluate_store(
-        &host.data_dir,
-        sampled_at,
-        fold_db::backup_durability::max_backup_age_secs_from_env(),
-    );
-    let durability = DurabilityHealth::from(durability_health);
-    request_phases::add_phase(RequestPhase::StatusDurability, durability_started.elapsed());
-    durability
+fn durability_health(host: &Host) -> DurabilityHealth {
+    let started = Instant::now();
+    let health = crate::byte_cloud_backup::status(host)
+        .map(DurabilityHealth::from)
+        .unwrap_or_default();
+    request_phases::add_phase(RequestPhase::StatusDurability, started.elapsed());
+    health
 }
 
 fn integrity_health(host: &Host) -> IntegrityHealth {

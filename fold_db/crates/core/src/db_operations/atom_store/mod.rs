@@ -33,6 +33,7 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod delete_marker_cleanup;
 mod delete_replay;
 pub use delete_replay::DeletePruneReport;
 mod erase_meters;
@@ -40,6 +41,7 @@ mod file_blob_seal;
 mod filter;
 mod helpers;
 mod keep_small;
+mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
 mod molecule_bindings;
@@ -61,6 +63,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
+pub(crate) use codec::{decode_plain_atom, encode_plain_atom};
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -81,7 +84,9 @@ pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolec
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
+pub(crate) use retention::{
+    record_digest, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
+};
 pub(crate) use retired_intent_retention::RetiredIntentRetentionProof;
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
@@ -135,6 +140,9 @@ async fn lock_target_stripes(
 
 type ExactTipLocks =
     Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
+type GenerationCleanupLocks = Arc<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::RwLock<()>>>>,
+>;
 
 /// Domain store for atoms, molecules, mutation events, and sync conflicts.
 ///
@@ -161,6 +169,10 @@ pub struct AtomStore {
     content_key: Option<[u8; 32]>,
     /// New-write format for nested atom content. Readers accept both formats.
     atom_content_binary: bool,
+    /// True over a disk format v2 home: atom rows are plain JSON with no
+    /// content seal and no molecule key bundle name. The block seal of each
+    /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
+    plain_content: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
@@ -184,6 +196,8 @@ pub struct AtomStore {
     /// the two cannot deadlock.
     molecule_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
+    /// Per-molecule generation cuts exclude marker cleanup until activation ends.
+    generation_cleanup_locks: GenerationCleanupLocks,
     /// Exact durable-tip locks. These make the read/compare/put winner rule
     /// atomic per `mk:` row without coupling writes to different slots.
     tip_commit_locks: ExactTipLocks,
@@ -312,13 +326,17 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
-        let Some(store) = self.molecule_keys.as_ref() else {
-            return Ok(self.key_codec.clone());
+        let codec = match self.molecule_keys.as_ref() {
+            Some(store) => store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
+                || self.key_codec.clone(),
+                |bundle| bundle.key_codec(&self.key_codec),
+            ),
+            None => self.key_codec.clone(),
         };
-        Ok(store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
-            || self.key_codec.clone(),
-            |bundle| bundle.key_codec(&self.key_codec),
-        ))
+        crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
+            codec.key_order(),
+        )?;
+        Ok(codec)
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for

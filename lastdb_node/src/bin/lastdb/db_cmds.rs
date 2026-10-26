@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "db_delete_marker_cmds.rs"]
+mod db_delete_marker_cmds;
+pub(crate) use db_delete_marker_cmds::*;
+
 #[path = "db_reap_unsealed_cmds.rs"]
 mod db_reap_unsealed_cmds;
 pub(crate) use db_reap_unsealed_cmds::*;
@@ -55,7 +59,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         ));
     }
     match action {
-        DbCommand::Inspect(action) => db_inspect_command(&home, &socket, action),
+        DbCommand::Inspect(action) => db_inspect_command(&socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
@@ -90,6 +94,22 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
+        DbOfflineCommand::InspectRangeConversion {
+            source_range_encoding,
+            target_range_encoding,
+            max_records,
+            max_metadata_mib,
+            json,
+        } => lastdb_node::offline_range_inventory::inspect(
+            &lastdb_node::offline_range_inventory::RangeInventoryArgs {
+                home,
+                source_range_encoding: &source_range_encoding,
+                target_range_encoding: &target_range_encoding,
+                max_records,
+                max_metadata_mib,
+                json,
+            },
+        ),
         DbOfflineCommand::PrepareNativeTransfer {
             source_home,
             i_know_this_is_primary,

@@ -19,26 +19,9 @@ impl BackupTransport {
         if bytes.len() as u64 > maximum {
             return Err(BackupTransportError::Configuration("request bytes"));
         }
-        let mut refreshes = 0;
-        loop {
-            let result = tokio::time::timeout(self.timeout, self.once(&url, &bytes, maximum))
-                .await
-                .map_err(|_| BackupTransportError::Timeout)?;
-            if !matches!(result, Err(BackupTransportError::Authentication))
-                || refreshes == super::super::MAX_AUTH_REFRESH_RETRIES
-            {
-                return result;
-            }
-            let Some(refresh) = &self.auth.auth_refresh else {
-                return result;
-            };
-            let auth = tokio::time::timeout(self.timeout, refresh())
-                .await
-                .map_err(|_| BackupTransportError::Timeout)?
-                .map_err(|_| BackupTransportError::Authentication)?;
-            self.auth.update_auth(auth).await;
-            refreshes += 1;
-        }
+        tokio::time::timeout(self.timeout, self.once(&url, &bytes, maximum))
+            .await
+            .map_err(|_| BackupTransportError::Timeout)?
     }
 
     async fn once<R: DeserializeOwned>(&self, url: &Url, bytes: &[u8], maximum: u64) -> Result<R> {
@@ -47,7 +30,7 @@ impl BackupTransport {
             .post(url.clone())
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .body(bytes.to_vec());
-        let request = self.auth.apply_auth(request).await;
+        let request = self.auth.apply_auth(request);
         let response = observability::propagation::inject_w3c(request)
             .send()
             .await

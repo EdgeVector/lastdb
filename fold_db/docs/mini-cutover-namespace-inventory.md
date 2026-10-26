@@ -6,6 +6,12 @@ and migrator can be planned without rediscovery.
 
 Source baseline: `origin/main` at `df72a3bc5` (merge of fold PR #666).
 
+Current note: the `node_config` wrapper and its factory attachment have been
+retired after all identity/config callers moved away. The row and source paths
+below describe the historical baseline. Active node identity uses
+`<node-home>/identity.key` through `lastdb_identity`; existing namespace records
+remain available to generic storage maintenance and restore tooling.
+
 ## Storage Stack
 
 `SledPool` owns one Sled database path and lazily opens the underlying database

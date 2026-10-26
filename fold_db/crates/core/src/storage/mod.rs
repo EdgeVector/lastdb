@@ -12,16 +12,16 @@
 //! EncryptingNamespacedStore (local CAS records only)
 //!         │
 //!         ▼
-//! disk_pack::PackNamespacedStore (native packed files)
+//! disk_pack::PackNamespacedStore (native node home: format v2 run files
+//!         for every new home, v1 packed files for an older home)
 //! ```
 //!
 //! Cloud multi-device export is **not** a KvStore decorator. Store-level
 //! capture lives under `crate::sync::capture`. Native cloud activation remains
 //! disabled; no cloud engine attaches to the normal local router.
 //!
-//! [`LastStoreNamespacedStore`] remains available to explicit physical format
-//! maintenance and restore tools. Normal logical constructors use the native
-//! packed engine and refuse older nonempty formats without migration.
+//! Normal logical constructors use the native packed engine and refuse older
+//! nonempty formats without migration.
 
 pub mod config;
 pub(crate) mod current_keys;
@@ -31,7 +31,6 @@ pub mod encrypting_namespaced_store;
 pub(crate) mod encrypting_store;
 pub mod error;
 pub mod laststore;
-pub mod node_config_store;
 pub mod reap_unsealed;
 pub mod reseal_at_rest;
 pub mod traits;
@@ -39,16 +38,11 @@ pub mod traits;
 // Re-exports for convenience
 pub use config::{CloudSyncConfig, DatabaseConfig, P2pSyncConfig, StorageEngine};
 pub use error::StorageError;
-pub use laststore::LastStoreNamespacedStore;
 
 pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};
-pub use node_config_store::NodeConfigStore;
 pub use reap_unsealed::{ReapUnsealedCheckpoint, ReapUnsealedOptions, ReapUnsealedReport};
 pub use reseal_at_rest::{
     collection_is_allowed, ResealAtRestCheckpoint, ResealAtRestOptions, ResealAtRestReport,
     ResealAtRestTarget, RESEAL_AT_REST_ALLOWLIST,
 };
-pub use traits::{
-    ExecutionModel, FlushBehavior, KvMutation, KvStore, NamespacedStore, PartitionedScan,
-    TypedKvStore,
-};
+pub use traits::{KvMutation, KvStore, NamespacedStore, PartitionedScan, TypedKvStore};

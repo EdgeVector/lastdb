@@ -1,4 +1,4 @@
-use super::{hash, limits, AcceptedBackup, ClientDescriptor, Head, Job, Version};
+use super::{hash, limits, AcceptedBackup, ClientDescriptor, Destination, Head, Job, Version};
 use crate::{DecimalU64, Digest, ProtocolError};
 use serde::{Deserialize, Serialize};
 
@@ -8,10 +8,14 @@ pub struct Begin {
     pub version: Version,
     pub job: Job,
     pub descriptor: ClientDescriptor,
+    /// An empty list preserves legacy admission and provider identities.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_destinations: Vec<Destination>,
     pub predecessor: Option<Head>,
 }
 impl Begin {
     pub fn validate(&self) -> Result<(), ProtocolError> {
+        super::common::validate_destinations(&self.required_destinations)?;
         self.job.validate()?;
         self.descriptor.validate()?;
         if let Some(head) = &self.predecessor {

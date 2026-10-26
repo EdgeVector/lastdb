@@ -6,7 +6,7 @@ use async_trait::async_trait;
 /// Core key-value storage trait
 ///
 /// This is the fundamental storage interface that all backends must implement.
-/// Operations are async to support both local (Sled) and remote backends.
+/// Operations are async so a backend can bridge blocking disk work.
 #[async_trait]
 pub trait KvStore: Send + Sync {
     /// Get a value by key
@@ -107,7 +107,7 @@ pub trait KvStore: Send + Sync {
     /// (re-enable thrash 2026-07-14: `outbox_meta` called `scan_prefix` and
     /// held ~all outbox payloads). The default implementation still materialises
     /// values via [`scan_prefix`] then drops them — backends with lazy iterators
-    /// (Sled) should override to never accumulate value buffers.
+    /// should override to never accumulate value buffers.
     async fn scan_prefix_keys(&self, prefix: &[u8]) -> StorageResult<Vec<Vec<u8>>> {
         Ok(self
             .scan_prefix(prefix)
@@ -130,9 +130,8 @@ pub trait KvStore: Send + Sync {
     /// The default implementation scans the full prefix, sorts by key (so it is
     /// correct on the hash-backed in-memory store, whose `scan_prefix` is
     /// unordered), then truncates. That is correct everywhere but only *bounds*
-    /// the work on backends that override it with a native lazy scan: Sled's
-    /// `scan_prefix` is a lazy ordered iterator, so its override takes only the
-    /// first `limit` rows off the iterator and never visits the rest.
+    /// the work on backends that override it with a native lazy scan, which takes
+    /// only the first `limit` rows and never visits the rest.
     ///
     /// `limit == 0` yields an empty result without scanning.
     async fn scan_prefix_paged(
@@ -165,7 +164,7 @@ pub trait KvStore: Send + Sync {
     /// memory. That keeps every backend correct with no per-backend work, and
     /// is already bounded for the common case (e.g. a date range
     /// `2025-01-01..2025-12-31` shares the `2025-` prefix). Backends with a
-    /// native ordered range (Sled) override this with a true range scan.
+    /// native ordered range override this with a true range scan.
     ///
     /// `start >= end` yields an empty result (an inverted/empty range matches
     /// nothing) rather than scanning.
@@ -376,16 +375,4 @@ pub trait KvStore: Send + Sync {
 
     /// Get storage backend name (for debugging/metrics)
     fn backend_name(&self) -> &'static str;
-
-    /// Get the execution model of this backend
-    ///
-    /// This describes whether the backend is truly async (network I/O)
-    /// or sync wrapped in async (local I/O).
-    fn execution_model(&self) -> ExecutionModel;
-
-    /// Get the flush behavior of this backend
-    ///
-    /// This describes whether flush is a no-op (eventually consistent)
-    /// or performs actual persistence (strongly consistent).
-    fn flush_behavior(&self) -> FlushBehavior;
 }

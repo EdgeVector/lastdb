@@ -9,14 +9,6 @@ use std::collections::BTreeMap;
 pub const RECEIVER_BINDINGS_NAMESPACE: &str = "sync_foreign_share_bindings";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShareTargetReadBinding {
-    pub generation: u64,
-    pub data_generation: u64,
-    pub storage_prefix: String,
-    pub share_grant: Option<crate::sharing::types::ShareAccessGrant>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiverBinding {
     pub format_version: u32,
     pub sender_hash: String,
@@ -70,18 +62,6 @@ impl ReceiverBinding {
         }
         Ok(())
     }
-
-    pub fn target(
-        &self,
-        share_grant: Option<crate::sharing::types::ShareAccessGrant>,
-    ) -> ShareTargetReadBinding {
-        ShareTargetReadBinding {
-            generation: self.generation,
-            data_generation: self.data_generation,
-            storage_prefix: self.storage_prefix.clone(),
-            share_grant,
-        }
-    }
 }
 
 pub fn sender_hash(prefix: &str) -> Option<&str> {
@@ -113,34 +93,6 @@ pub(crate) fn receiver_prefix(
     let identity =
         crate::hex::sha256_hex(serde_json::to_vec(&(data_generation, roots, snapshots))?);
     Ok(format!("from:{sender}:cloud:{identity}"))
-}
-
-pub fn validate_grant(target: &crate::sync::SyncTarget) -> SyncResult<()> {
-    let grant = target
-        .read_binding
-        .as_ref()
-        .and_then(|binding| binding.share_grant.as_ref())
-        .ok_or_else(|| held("the retained share has no signed cloud read grant"))?;
-    let public = crate::security::Ed25519PublicKey::from_base64(&grant.sender_pubkey)
-        .map_err(|_| held("the retained share grant public key is invalid"))?;
-    let signature = crate::security::KeyUtils::signature_from_base64(&grant.signature)
-        .map_err(|_| held("the retained share grant signature is invalid"))?;
-    let owner = crate::hex::sha256_hex(public.to_bytes());
-    if grant.share_prefix != target.prefix
-        || sender_hash(&target.prefix) != Some(&owner[..32])
-        || grant.expires_at
-            <= std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| held("the clock precedes the share grant epoch"))?
-                .as_secs()
-        || !public.verify(
-            &crate::sharing::signing::share_access_grant_canonical_bytes(grant),
-            &signature,
-        )
-    {
-        return Err(held("the retained share cloud grant is invalid or expired"));
-    }
-    Ok(())
 }
 
 pub async fn read_bindings(
@@ -179,19 +131,4 @@ pub async fn read_bindings(
 
 pub(crate) fn held(message: &str) -> SyncError {
     SyncError::CloudPurgeHeld(message.into())
-}
-
-/// Every received record uses the same exact physical namespace as its seed.
-pub fn rewrite_key(key: &[u8], root: &str, receiver: &str) -> SyncResult<Vec<u8>> {
-    for native in ["", "emb:", "graveyard:emb:"] {
-        let prefix = format!("{native}{root}:");
-        if let Some(bare) = key.strip_prefix(prefix.as_bytes()) {
-            let mut rewritten = format!("{native}{receiver}:").into_bytes();
-            rewritten.extend_from_slice(bare);
-            return Ok(rewritten);
-        }
-    }
-    Err(held(
-        "a foreign share record escaped its exact signed scope",
-    ))
 }

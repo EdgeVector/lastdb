@@ -167,7 +167,7 @@ pub fn unsealed_reaped_totals() -> (u64, u64) {
 /// `preference-lastdb-storage-compress-atoms-and-blobs`.
 ///
 /// **Scope: both seals.** Every site that can emit `ENZ:` counts through
-/// `compress_for_seal`, so these totals cover the direct-Sled-tree codec here
+/// `compress_for_seal`, so these totals cover the raw-key codec here
 /// *and* the namespaced KV seam
 /// (`EncryptingKvStore`) that wraps the
 /// product store. A reading of "0 compressed / N plain" while

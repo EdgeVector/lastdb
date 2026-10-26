@@ -3,21 +3,23 @@
 use super::bloom::{key_hash, Filter};
 use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
-use super::range::RunRange;
+use super::range::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
 use crate::frame::{decode_frame_bounded, min_encoded_len};
+use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
-use std::fs::File;
 use std::ops::Bound;
-use std::os::unix::fs::FileExt;
 use std::path::Path;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
-/// them and dropped after.
+/// them and dropped after. The read receipt of the call counts each open,
+/// status, and read: the footer, top, and index blocks as footer bytes, the
+/// data blocks as payload bytes.
 pub struct RunReader {
-    file: File,
+    file: MeasuredFile,
     data_key: [u8; 32],
     footer: Footer,
     top: Top,
@@ -49,13 +51,14 @@ impl RunReader {
         let Some(named) = named else {
             return Err(corrupt("run file name is not <run id>.ldrun"));
         };
-        let file = File::open(path)?;
+        let file = measured::open(path)?;
         let len = file.metadata()?.len();
         if len < FOOTER_BYTES as u64 {
             return Err(corrupt("file shorter than a footer"));
         }
+        let _class = ReadClass::Footer.enter();
         let mut raw = [0u8; FOOTER_BYTES];
-        file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
+        measured::read_exact_at(&file, &mut raw, len - FOOTER_BYTES as u64)?;
         let footer = Footer::decode(&raw)?;
         if footer.run_id != named {
             return Err(corrupt("run file name and run id disagree"));
@@ -120,7 +123,7 @@ impl RunReader {
             return Err(corrupt("stored block length over its limit"));
         }
         let mut frame = vec![0u8; len as usize];
-        self.file.read_exact_at(&mut frame, offset)?;
+        measured::read_exact_at(&self.file, &mut frame, offset)?;
         let decoded = decode_frame_bounded(&self.data_key, &frame, max)?;
         if decoded.header.chunk_uuid != self.footer.run_id || decoded.header.counter != counter {
             return Err(corrupt("block belongs to another place"));
@@ -137,6 +140,7 @@ impl RunReader {
     }
 
     pub(super) fn read_index(&self, number: usize) -> Result<IndexBlock> {
+        let _class = ReadClass::Footer.enter();
         let entry = &self.top.indexes[number];
         let payload = self.read_frame(
             entry.offset,
@@ -161,6 +165,7 @@ impl RunReader {
     }
 
     pub(super) fn read_data(&self, block: &BlockRef) -> Result<BlockRecords> {
+        let _class = ReadClass::Payload.enter();
         let payload = self.read_frame(block.offset, block.len, block.number, self.block_limit())?;
         let records = decode_block(&payload)?;
         if records.first().map(|(k, _)| k) != Some(&block.first_key) {
@@ -191,9 +196,25 @@ impl RunReader {
     /// Looks up many keys with one read of each index and data block they
     /// need. Results come back in the order of `keys`.
     pub fn get_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<Found>>> {
+        self.lookup_many(keys, Found::clone)
+    }
+
+    /// The stored size of many keys: key and value bytes, or the key alone
+    /// for a tombstone. It returns no value; the lookup holds the decoded
+    /// records of one data block at a time.
+    pub fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
+        let sizes = self.lookup_many(keys, |found| found.value().map_or(0, <[u8]>::len))?;
+        Ok(sizes
+            .into_iter()
+            .zip(keys)
+            .map(|(size, key)| size.map(|size| (size + key.len()) as u64))
+            .collect())
+    }
+
+    fn lookup_many<T>(&self, keys: &[&[u8]], pick: impl Fn(&Found) -> T) -> Result<Vec<Option<T>>> {
         let mut order: Vec<usize> = (0..keys.len()).collect();
         order.sort_by(|a, b| keys[*a].cmp(keys[*b]));
-        let mut out = vec![None; keys.len()];
+        let mut out: Vec<Option<T>> = keys.iter().map(|_| None).collect();
         let mut index: Option<(usize, IndexBlock)> = None;
         let mut data: Option<(u64, BlockRecords)> = None;
         for slot in order {
@@ -215,14 +236,24 @@ impl RunReader {
                 data = Some((block.number, self.read_data(block)?));
             }
             let (_, records) = data.as_ref().expect("block loaded");
-            out[slot] = find(records, key);
+            out[slot] = find(records, key, &pick);
         }
         Ok(out)
     }
 
     /// Records with keys inside the bounds, in key order.
     pub fn range(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> RunRange<'_> {
-        RunRange::new(self, lower, upper)
+        RunRange::new(ReaderRef::Borrowed(self), lower, upper)
+    }
+
+    /// Records inside the bounds from a shared reader, so the range can
+    /// outlive the caller's handle.
+    pub fn shared_range(
+        self: Arc<Self>,
+        lower: Bound<&[u8]>,
+        upper: Bound<&[u8]>,
+    ) -> RunRange<'static> {
+        RunRange::new(ReaderRef::Shared(self), lower, upper)
     }
 
     /// Every record of the run, in key order.
@@ -238,7 +269,7 @@ fn lookup_in(reader: &RunReader, index: &IndexBlock, key: &[u8]) -> Result<Optio
     let Some(block) = block_for(index, key) else {
         return Ok(None);
     };
-    Ok(find(&reader.read_data(block)?, key))
+    Ok(find(&reader.read_data(block)?, key, Found::clone))
 }
 
 pub(super) fn block_for<'a>(index: &'a IndexBlock, key: &[u8]) -> Option<&'a BlockRef> {
@@ -248,9 +279,9 @@ pub(super) fn block_for<'a>(index: &'a IndexBlock, key: &[u8]) -> Option<&'a Blo
     n.checked_sub(1).map(|n| &index.blocks[n])
 }
 
-fn find(records: &[(Vec<u8>, Found)], key: &[u8]) -> Option<Found> {
+fn find<T>(records: &[(Vec<u8>, Found)], key: &[u8], pick: impl Fn(&Found) -> T) -> Option<T> {
     records
         .binary_search_by(|(k, _)| k.as_slice().cmp(key))
         .ok()
-        .map(|n| records[n].1.clone())
+        .map(|n| pick(&records[n].1))
 }

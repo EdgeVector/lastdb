@@ -28,19 +28,6 @@ zstd = "0.13"
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
-[[example]]
-bench = false
-test = false
-name = "basic"
-path = "examples/basic.rs"
-
-# Tom's 2026-10-24 exception permits this one CI-only native storage proof.
-[[example]]
-bench = false
-test = false
-name = "extended_keys_proof"
-path = "examples/extended_keys_proof.rs"
-
 # Design spike for docs/design-lastdb-disk-size-20261024. CI only; it measures
 # bytes on disk for a synthetic brain-shaped seed. It is not a test.
 [[example]]
@@ -57,52 +44,18 @@ test = false
 name = "disk_run_proof"
 path = "examples/disk_run_proof/main.rs"
 
-[[bin]]
+# The same approval covers the V2 gate: commits, merges, held reads, crash
+# leftovers, and kill -9 recovery of laststore::disk_run::home. CI only.
+[[example]]
 bench = false
 test = false
-name = "lastdb-maintenance"
-path = "src/bin/lastdb-maintenance.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-pack"
-path = "src/bin/lastdb-pack.rs"
+name = "run_home_proof"
+path = "examples/run_home_proof/main.rs"
 
 [lib]
 test = false
 doctest = false
 bench = false
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-range"
-path = "src/bin/lastdb-range.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-disk-home"
-path = "src/bin/lastdb-disk-home.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-disk-recovery"
-path = "src/bin/lastdb-disk-recovery.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-pack-maintain"
-path = "src/bin/lastdb-pack-maintain.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-native-transfer"
-path = "src/bin/lastdb-native-transfer.rs"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.30", default-features = false, features = ["fs"] }

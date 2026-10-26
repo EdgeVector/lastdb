@@ -90,6 +90,10 @@ impl HomeBuilder {
         })
     }
 
+    pub(super) fn use_bounded_key_order(&mut self) {
+        self.inner.use_bounded_key_order();
+    }
+
     /// Publish the complete directory and its immutable dependency receipt.
     pub fn finish(self) -> Result<Current> {
         let current = self.inner.finish()?;

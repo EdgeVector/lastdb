@@ -78,21 +78,7 @@ fn reap_unsealed_call(
     if let Some(max_secs) = opts.max_secs {
         body["max_secs"] = serde_json::json!(max_secs);
     }
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|e| format!("serialize reap-unsealed body: {e}"))?;
-    let header = format!(
-        "POST /api/db/reap-unsealed HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, deadline)?;
+    let response = post_json_with_timeout(socket, "/api/db/reap-unsealed", &body, deadline)?;
     let value = parse_json_response(&response, "reap-unsealed")?;
     value
         .get("reap_unsealed")

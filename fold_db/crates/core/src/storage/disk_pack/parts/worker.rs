@@ -35,7 +35,9 @@ impl PackRuntime {
     /// Start the maintenance worker on first use. A runtime that opened above the
     /// trigger starts its first run here. A supervisor restarts the worker after a panic.
     pub(in crate::storage::disk_pack) fn ensure_parts_worker(self: &Arc<Self>) {
+        // A v2 home has no dependency parts; its merges run after commits.
         if !self.parts.auto
+            || self.is_disk_format_v2()
             || self.parts.worker.load(Relaxed)
             || self.parts.worker.swap(true, Relaxed)
         {

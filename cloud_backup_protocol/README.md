@@ -1,34 +1,19 @@
 # cloud_backup_protocol
 
-Canonical version-one native cloud backup wire types, unreleased draft revision 3.
-The [protocol specification](../docs/designs/native-cloud-backup-protocol-v1.md) defines the required authority and provider effects.
+The crate supplies canonical cloud backup types to the client and service.
+It performs no I/O and enables no runtime capability.
+The [V2 contract](../docs/designs/cloud-byte-transport-v2.md) defines the active backup protocol.
+The service consumes this source through its pinned LastDB submodule.
+Do not duplicate the wire types in the service.
 
-The crate contains strict scalars, byte limits, job results, object receipts, manifest and recovery types, and one accepted backup result.
-Pure validators check local consistency and exact request/result linkage.
-They do not verify provider bytes, account authority, durable effects, complete native inventories, or successful recovery.
+Shared recovery types and saved V1 state validators remain where V2 still uses them.
+Those types do not enable a V1 capture, upload, restore, or scheduler.
+Keep completion checks, retained bytes, and unresolved provider obligations until their exact saved state proves release is safe.
 
-The initial manifest read binds its grant to the accepted receipt ID through `ReadGrantResponse::manifest_index_grant_for`.
-Private upload targets use the complete frozen transfer digest, so separate jobs keep separate physical allocations.
-
-The dependency-light `lastdb_storage_policy` crate supplies native V1 sizes and shared source resource values.
-The [resource policy](../docs/designs/native-backup-resource-policy-v1.md) separates fixed eight MiB native parts from editable buffer and metadata allowances.
-These source values are not runtime memory settings.
-Cloud objects remain at most 64 MiB, with at most 512 ordered extents per external ciphertext and complete manifest byte bounds.
-The new disk-stream source path removes the former backup authentication size guards without a wire or encryption format change.
-
-Runtime support remains disabled.
-The native backup capture code, Mini importer, and service Lambda consume this source with runtime activation disabled.
-Private worker records, provider locations, multipart uploads, external retention holds, and future sync types stay outside this wire contract.
-
-The service consumes this exact package through its existing `fold` submodule in its S1 DEV worktree.
-Do not duplicate its types in the service.
-Compile the storage Lambda explicitly through its manifest path.
-The [source status](../docs/designs/native-cloud-backup-wave-two.md) records the current boundaries and remaining work.
-
-Allowed local checks:
+Builds, lint, and required benchmarks run in GitHub CI.
+Tests are retired. Do not run local builds, clippy, benchmarks, or host build-lock helpers.
+Local Rust formatting remains permitted:
 
 ```sh
 cargo fmt -p cloud_backup_protocol --check
-scripts/ci/with-fold-host-cargo-lock.sh --timeout 60 -- cargo build -p cloud_backup_protocol --lib
-scripts/ci/with-fold-host-cargo-lock.sh --timeout 60 -- cargo clippy -p cloud_backup_protocol --lib -- -D warnings
 ```

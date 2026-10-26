@@ -48,7 +48,7 @@ type Refusal = (u16, String);
 /// - Otherwise a JSON body `{ "bytes_b64": ..., "name"?, "media_type"? }`.
 ///
 fn parse_put_blob_local(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, LocalBlobMetadata), Refusal> {
-    if is_media_type(req, "content-type", "application/octet-stream") {
+    if is_media_type(req.header("content-type"), "application/octet-stream") {
         let metadata = match req.header(FILE_BLOB_METADATA_HEADER) {
             Some(raw) => serde_json::from_str(raw)
                 .map_err(|e| (400, format!("invalid local blob metadata header: {e}")))?,
@@ -143,17 +143,4 @@ pub(super) async fn execute_db_put_blob_local_route(
             ctx.user_id.as_str(),
         ))
     }
-}
-
-/// Read and verify the local bytes a `$lastdb_file` pointer names.
-pub(super) async fn resolve_pointer_bytes(
-    host: &Host,
-    pointer: &Value,
-) -> Result<Option<Vec<u8>>, fold_db::error::FoldDbError> {
-    fold_db::sharing::query_slice::resolve_file_bytes(&host.db, pointer).await
-}
-
-/// The 404 text for a pointer whose blob is not on this node.
-pub(super) fn fetch_miss_message() -> &'static str {
-    "file blob was not found locally"
 }

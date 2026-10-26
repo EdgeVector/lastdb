@@ -8,7 +8,6 @@
 //! - [`purge`] — schema/data purge
 //! - [`orchestration`] — coordination helpers
 //! - [`pending_task_tracker`] — background task bookkeeping
-//! - [`sync_coordinator`] — local automatic compaction lifecycle
 
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
@@ -24,7 +23,6 @@ pub mod query;
 
 pub mod mutation_manager;
 pub mod purge;
-pub mod sync_coordinator;
 
 pub use query::QueryExecutor;
 pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent};
@@ -44,7 +42,6 @@ pub use protein_reaper::{
     BackgroundProteinReaperTask, ProteinReaperPolicy, DEFAULT_PROTEIN_REAPER_MS,
     PROTEIN_REAPER_MS_ENV,
 };
-pub use sync_coordinator::SyncCoordinator;
 
 pub use fold_db::{
     CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB, HashRangeKeyFieldRepairReport,

@@ -54,31 +54,10 @@ The caller must retain the selected generation for the complete read call.
 
 ## Product command
 
-`lastdb-pack` accepts explicit paths.
-It has no primary-home default and no network dependency.
-The command supports one named collection and group per artifact import.
-The library supports more groups in exact encoded directory-key order.
-
-```sh
-lastdb-pack build --artifact NEW_PATH --input records.jsonl \
-  --collection COLLECTION --group GROUP --frontier FRONTIER
-lastdb-pack read --artifact PATH --input keys.jsonl \
-  --collection COLLECTION --group GROUP \
-  --pages 512 --blocks 1024 --bytes 16777216 --keys 256
-```
-
-A build input line contains `key`, `batch`, `operation`, and `body_hex`.
-A tombstone uses `deleted: true` and omits `body_hex`.
-Keys must use strict byte order.
-Each input line is at most 2,200,000 bytes in this command.
+The disk format v1 removal deleted the `lastdb-pack` command on 2026-10-26.
+The library supports more than one group in exact encoded directory-key order.
 The streaming library retains the legacy body ceiling of `u32::MAX`.
-A read input line contains one JSON string with an exact storage key.
-The result preserves request order, repeated keys, empty bodies, and valid absence.
-
-The codec arguments default to identifier 1 for separate artifact use.
-These values do not allocate a production home codec or feature bit.
-The future LastDB integration must obtain both identifiers and the group from the held home descriptor.
-The reader checks that CURRENT contains the expected identifiers.
+The reader checks that CURRENT contains the expected codec identifiers.
 
 ## Operational receipts
 

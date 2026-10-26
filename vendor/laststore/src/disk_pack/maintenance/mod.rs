@@ -16,7 +16,7 @@ mod tier_quote;
 mod visit;
 
 pub use space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};
-pub use visit::{visit_generation, StoredRecord};
+pub use visit::{visit_generation, visit_generation_streaming, StoredRecord};
 
 /// Work performed by one complete maintenance call.
 #[derive(Default, Debug)]

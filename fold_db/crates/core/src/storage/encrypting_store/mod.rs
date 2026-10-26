@@ -1,8 +1,5 @@
 use super::error::{StorageError, StorageResult};
-use super::traits::{
-    ExecutionModel, FlushBehavior, KvMutation, KvStore, PartitionedScan, PhysicalScanCursor,
-    PhysicalScanPage,
-};
+use super::traits::{KvMutation, KvStore, PartitionedScan, PhysicalScanCursor, PhysicalScanPage};
 use crate::crypto::at_rest::{
     at_rest_max_inflated_bytes, compress_for_seal, decode_binary_ciphertext,
     encode_binary_ciphertext, inflate_at_rest, kv_at_rest_compress_min_bytes,

@@ -1,7 +1,7 @@
 use super::super::limits::{
     encoded as encoded_json_bytes, CONTROL_JSON_MAX_BYTES as REQUEST_JSON_MAX_BYTES,
 };
-use super::super::{Job, Version};
+use super::super::{Destination, Job, Version};
 use super::{TransferInput, TransferView, MAX_BATCH_ITEMS};
 use crate::{DecimalU64, Digest, Id, ProtocolError, Text};
 use serde::{Deserialize, Serialize};
@@ -99,13 +99,23 @@ impl TransferIdentityRequest {
 pub type TransferResumeRequest = TransferIdentityRequest;
 pub type TransferCompleteRequest = TransferIdentityRequest;
 
-/// Temporary create-once PUT authority. Never save this URL in a durable record.
-/// The client sends signed If-None-Match: * and the input's exact Content-Length.
+/// A single presigned multipart UploadPart, with partNumber=1 and one exact uploadId.
+/// Its signed headers are content-length and host; completion stays service-owned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferMode {
+    MultipartPart,
+}
+
+/// Temporary upload authority. Never save this URL in a durable record.
+/// Absent mode preserves the signed conditional PUT and exact Content-Length.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UploadGrant {
     pub url: Text<8192>,
     pub expires_ms: DecimalU64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_mode: Option<TransferMode>,
 }
 
 impl UploadGrant {
@@ -114,6 +124,18 @@ impl UploadGrant {
             return Err(ProtocolError::invalid("upload_grant.expires_ms"));
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES)
+    }
+    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
+        self.validate()?;
+        input.validate()?;
+        if !matches!(
+            (input.object.destination, self.transfer_mode),
+            (None | Some(Destination::R2), None)
+                | (Some(Destination::B2), Some(TransferMode::MultipartPart))
+        ) {
+            return Err(ProtocolError::invalid("v2.upload_grant.transfer_mode"));
+        }
+        Ok(())
     }
 }
 
@@ -130,7 +152,7 @@ pub struct TransferResumeResponse {
 impl TransferResumeResponse {
     pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
         input.validate()?;
-        self.grant.validate()?;
+        self.grant.validate_for(input)?;
         if self.job != input.job
             || self.request_id != input.request_id
             || self.input_sha256 != input.input_sha256()?

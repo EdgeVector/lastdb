@@ -288,20 +288,22 @@ pub async fn rebuild_search_outbox_into_inbox(
 /// from — a home it was never given. Prefer when the daemon is stopped
 /// (exclusive open) or against an ephemeral/restored home. Never call from the
 /// mutation hot path.
+///
+/// `node_key` is the node encryption key of `home`: a format v2 home derives
+/// its run home keys from it. The rebuild opens the home with
+/// [`PackNamespacedStore::open_existing`], so it never creates or converts a
+/// node home.
 pub async fn run_search_rebuild_for_home(
     home: &Path,
+    node_key: &[u8; 32],
     page_size: usize,
 ) -> Result<SearchRebuildReport, SchemaError> {
     let inbox = resolve_search_inbox_dir_for_home(home);
-    let data = home.join("data");
-    fs::create_dir_all(&data)
-        .map_err(|e| SchemaError::InvalidData(format!("search rebuild create data dir: {e}")))?;
-    fs::create_dir_all(&inbox)
-        .map_err(|e| SchemaError::InvalidData(format!("search rebuild create inbox: {e}")))?;
-
-    let store = PackNamespacedStore::open(&data).map_err(|e| {
+    let store = PackNamespacedStore::open_existing(&home.join("data"), node_key).map_err(|e| {
         SchemaError::InvalidData(format!("open native store for search rebuild: {e}"))
     })?;
+    fs::create_dir_all(&inbox)
+        .map_err(|e| SchemaError::InvalidData(format!("search rebuild create inbox: {e}")))?;
     let ops = DbOperations::from_namespaced_store(Arc::new(store) as Arc<dyn NamespacedStore>)
         .await
         .map_err(|e| {

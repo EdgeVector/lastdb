@@ -64,7 +64,6 @@ fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store
 
 fold_db/crates/core/src/storage/encrypting_store/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
 
-fold_db/crates/core/src/storage/laststore/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
 
 fold_db/crates/core/src/storage/traits/kv.rs|restore_batch_put|T C B N|store trait: default restore of one row
 
@@ -103,12 +102,6 @@ fold_db/crates/core/src/storage/traits/kv.rs|restore_batch_put|T C B N|store tra
 
 lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-only generated share_subscriptions controls in an isolated owned home; mutation manager owns all tip, atom, and counter writes
 
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_basic_write_read|-|storage recovery proof tool; it writes its own test keys to a store it creates
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_multiversion_mixed|-|storage recovery proof tool; it writes its own test keys to a store it creates
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_negative_acked_write_loss|-|storage recovery proof tool; it writes its own test keys to a store it creates
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_range_read|-|storage recovery proof tool; it writes its own test keys to a store it creates
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_reference_audit|-|storage recovery proof tool; it writes its own test keys to a store it creates
-lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_rollback_after_crash|-|storage recovery proof tool; it writes its own test keys to a store it creates
 
 
 fold_db/crates/core/src/db_operations/atom_store/key_format.rs|initialize_key_format|-|key format marker of a new empty home

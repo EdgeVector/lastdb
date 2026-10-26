@@ -15,9 +15,19 @@ pub(super) enum CaptureHome {
     Standalone(Arc<StandaloneContext>),
 }
 impl CaptureHome {
+    /// A capture home over the live writer. Byte backup exists only in format v1.
+    pub fn writer(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
+        runtime.v1()?;
+        Ok(Self::Writer(Arc::clone(runtime)))
+    }
+    fn v1(runtime: &PackRuntime) -> &super::super::physical::V1Home {
+        runtime
+            .v1()
+            .expect("a writer capture home is built only over a v1 home")
+    }
     pub fn home(&self) -> &DiskHome {
         match self {
-            Self::Writer(runtime) => &runtime.home,
+            Self::Writer(runtime) => &Self::v1(runtime).home,
             Self::Standalone(context) => &context.home,
         }
     }
@@ -37,7 +47,8 @@ impl CaptureHome {
         self.validate()?;
         match self {
             Self::Writer(runtime) => {
-                source.read_retained(&runtime.home, budget, &runtime.read_lease)
+                let v1 = Self::v1(runtime);
+                source.read_retained(&v1.home, budget, &v1.read_lease)
             }
             Self::Standalone(context) => source.read_committed(&context.home, budget),
         }
@@ -46,7 +57,7 @@ impl CaptureHome {
     pub fn reader(&self, source: &SnapshotExport, path: &Path) -> StorageResult<SnapshotReader> {
         self.validate()?;
         match self {
-            Self::Writer(runtime) => source.reader(path, &runtime.read_lease),
+            Self::Writer(runtime) => source.reader(path, &Self::v1(runtime).read_lease),
             Self::Standalone(_) => source.standalone_reader(path),
         }
         .map_err(super::super::map)
@@ -67,7 +78,7 @@ pub(super) fn native_root(home: &DiskHome, current: &Current) -> StorageResult<N
         frontier: DecimalU64::new(current.frontier),
         required_features: DecimalU64::new(current.required_features),
     };
-    root.validate().map_err(super::protocol)?;
+    super::validate_client_native_root(&root)?;
     Ok(root)
 }
 pub(super) fn require_resources(

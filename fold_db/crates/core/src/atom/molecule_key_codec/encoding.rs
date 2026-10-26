@@ -62,6 +62,15 @@ pub enum RangeKeyEncoding {
 }
 
 impl RangeKeyEncoding {
+    /// Stable public name for explicit conversion configuration and reports.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::OpeV1 => "ope_v1",
+        }
+    }
+
     /// Parse `LASTDB_RANGE_KEY_ENCODING` (`plain` | `ope_v1`).
     ///
     /// - **Unset** → [`Self::OpeV1`] (fresh install: encode ranges from start)

@@ -102,11 +102,21 @@ pub(super) fn validate(
         return Err(BackupError::Identity);
     }
     if let Some(begin) = &saved.begin {
-        let expected = fold_db::storage::disk_pack::byte_backup::Bootstrap {
-            recovery: identity.recovery().clone(),
-        }
-        .descriptor()?;
-        if begin.descriptor != expected {
+        let valid = if begin.descriptor.as_value().is_null() {
+            begin.required_destinations
+                == [
+                    cloud_backup_protocol::v2::Destination::R2,
+                    cloud_backup_protocol::v2::Destination::B2,
+                ]
+        } else {
+            begin.required_destinations.is_empty()
+                && fold_db::storage::disk_pack::byte_backup::Bootstrap::from_descriptor(
+                    &begin.descriptor,
+                )?
+                .recovery
+                    == *identity.recovery()
+        };
+        if !valid {
             return Err(BackupError::Identity);
         }
     }

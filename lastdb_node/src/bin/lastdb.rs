@@ -18,10 +18,6 @@ mod schema_record_cmds;
 use schema_record_cmds::*;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
-#[path = "lastdb/replay_schema_probe_cmd.rs"]
-mod replay_schema_probe_cmd;
-#[path = "lastdb/retired_intent_probe_cmd.rs"]
-mod retired_intent_probe_cmd;
 use record_get_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
@@ -158,13 +154,6 @@ fn schema_inspect_dispatch(
     action: SchemaInspectCommand,
 ) -> Result<(), String> {
     match action {
-        SchemaInspectCommand::RetiredIntent { command } => {
-            retired_intent_probe_cmd::run(data_dir, command)
-        }
-        SchemaInspectCommand::ReplayAuthorityProbe {
-            schema_name_stdin,
-            closed_owned_copy,
-        } => replay_schema_probe_cmd::run(data_dir, schema_name_stdin, closed_owned_copy),
         SchemaInspectCommand::Storage { schema, json } => {
             schema_storage_command(data_dir, &schema, json)
         }

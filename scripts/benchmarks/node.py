@@ -13,6 +13,10 @@ import tempfile
 import time
 
 
+# The node marker of a disk format v2 home. Every new home is v2.
+RUN_NODE_MARKER = "format=3\nhome=disk-run\ncas=disk-cas\n"
+
+
 def save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
@@ -37,10 +41,14 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class Node:
-    def __init__(self, binary, revision, output, native_timing=False, workers=0):
+    def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
+                 start_seconds=120):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
+        self.environment = environment or {}
+        # A start that converts the disk format finishes before the first health reply.
+        self.start_seconds = start_seconds
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
@@ -67,8 +75,13 @@ class Node:
             raw = response.read()
             elapsed = (time.perf_counter_ns() - started) / 1e6
             cost = response.getheader("x-lastdb-read-receipt")
-            result = json.loads(raw)
-            if response.status != 200 or result.get("ok") is False:
+            if response.status != 200:
+                raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(f"{path}: HTTP {response.status} returned non-JSON: {raw[:600]!r}") from error
+            if result.get("ok") is False:
                 raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
             return result.get("data", result), elapsed, json.loads(cost) if cost else None
         finally:
@@ -82,6 +95,7 @@ class Node:
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
                            LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home),
                            RUST_MIN_STACK="16777216")
+        environment.update(self.environment)
         if self.native_timing:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         if self.workers:
@@ -91,7 +105,7 @@ class Node:
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
              "--full-socket-path", str(self.root / "f.sock")],
             env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + self.start_seconds
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 raise RuntimeError("The owned daemon exited before health; inspect node.log")
@@ -161,6 +175,11 @@ class Node:
             if line.startswith("VmRSS:"):
                 return int(line.split()[1]) * 1024
         return None
+
+    def disk_format(self):
+        """2 for a v2 run home, 1 for an older pack home; the marker exists after the first start."""
+        marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
+        return 2 if marker == RUN_NODE_MARKER else 1
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]

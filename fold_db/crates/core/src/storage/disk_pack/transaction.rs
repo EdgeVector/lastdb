@@ -54,7 +54,7 @@ tokio::task_local! {
 impl PendingBatch {
     fn new(runtime: &PackRuntime) -> Self {
         Self {
-            identity: runtime.home.descriptor().identity,
+            identity: runtime.home_identity(),
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
@@ -81,7 +81,7 @@ impl PendingBatch {
         WRITE
             .try_with(Arc::clone)
             .ok()
-            .filter(|batch| batch.identity == runtime.home.descriptor().identity)
+            .filter(|batch| batch.identity == runtime.home_identity())
     }
 
     pub(super) fn lookup(&self, collection: &str, key: &str) -> Option<Arc<PendingRecord>> {
