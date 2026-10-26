@@ -69,13 +69,13 @@ impl AtomStore {
         hash: &str,
         prefix: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        // Both supported encodings preserve the caller's byte prefix.
+        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        codec.require_text_range_prefix().map_err(codec_error)?;
         if prefix.is_empty() {
             return self
                 .scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
                 .await;
         }
-        let codec = self.key_codec_for_molecule(molecule_uuid)?;
         let storage_hash = codec
             .storage_hash(molecule_uuid, hash)
             .map_err(codec_error)?;
@@ -104,9 +104,6 @@ impl AtomStore {
         start: &str,
         end: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        if start >= end {
-            return Ok(Vec::new());
-        }
         let codec = self.key_codec_for_molecule(molecule_uuid)?;
         let storage_hash = codec
             .storage_hash(molecule_uuid, hash)
@@ -117,6 +114,9 @@ impl AtomStore {
         let end = codec
             .storage_range(molecule_uuid, end)
             .map_err(codec_error)?;
+        if start >= end {
+            return Ok(Vec::new());
+        }
         let start = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &start);
         let end = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &end);
         match self

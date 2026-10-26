@@ -2,6 +2,7 @@
 
 use super::{FieldValueType, KeyValue, Schema, SchemaError};
 pub use schema_types::key_comparison::{KeyOrderVersion, RangeKeyComparison};
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use sha2::{Digest, Sha256};
 use std::{
     cmp::Ordering,
@@ -13,11 +14,15 @@ tokio::task_local! {
     static COMPARISON: Arc<KeyComparisonContext>;
 }
 
+mod field;
+pub(crate) mod normalize;
+
 #[derive(Debug, Clone)]
 pub struct KeyComparisonContext {
     identity: String,
     range: RangeKeyComparison,
     failure: OnceLock<String>,
+    profile: Option<MoleculeRangeProfile>,
 }
 
 impl KeyComparisonContext {
@@ -56,6 +61,14 @@ impl KeyComparisonContext {
                 RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?
             }
         };
+        let profile = if order == KeyOrderVersion::TypedScalarV1 {
+            Some(
+                MoleculeRangeProfile::for_field_type(range.map(|_| &range_comparison.field_type))
+                    .map_err(SchemaError::InvalidData)?,
+            )
+        } else {
+            None
+        };
         let bytes = serde_json::to_vec(&(
             "lastdb-key-comparison-v1",
             &schema.name,
@@ -74,6 +87,7 @@ impl KeyComparisonContext {
             identity: format!("kc1:{:x}", Sha256::digest(bytes)),
             range: range_comparison,
             failure: OnceLock::new(),
+            profile,
         })
     }
 

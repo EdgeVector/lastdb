@@ -49,7 +49,7 @@ impl MoleculeKeyStore {
         Ok(())
     }
 
-    pub(super) fn schema_profile(
+    pub(crate) fn schema_profile(
         &self,
         schema: &Schema,
     ) -> StorageResult<Option<MoleculeRangeProfile>> {
@@ -70,6 +70,18 @@ impl MoleculeKeyStore {
         MoleculeRangeProfile::for_field_type(field_type.as_ref())
             .map(Some)
             .map_err(StorageError::InvalidOperation)
+    }
+
+    pub(crate) fn canonical_key(
+        &self,
+        schema: &Schema,
+        mut key: crate::schema::types::KeyValue,
+    ) -> Result<crate::schema::types::KeyValue, crate::schema::SchemaError> {
+        crate::schema::types::key_comparison::normalize::canonical_key(
+            self.schema_profile(schema)?,
+            &mut key,
+        )?;
+        Ok(key)
     }
 
     pub(super) fn require_schema_profiles(&self, schema: &Schema) -> StorageResult<()> {

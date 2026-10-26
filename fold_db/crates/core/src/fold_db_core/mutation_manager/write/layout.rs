@@ -65,7 +65,7 @@ impl MutationManager {
                     entry.insert(schema)
                 }
             };
-            Self::resolve_mutation_key_value(name, schema, mutation)?;
+            self.resolve_mutation_key_value(name, schema, mutation)?;
         }
         Ok(())
     }

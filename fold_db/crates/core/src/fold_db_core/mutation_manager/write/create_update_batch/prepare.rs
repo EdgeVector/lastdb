@@ -183,7 +183,7 @@ impl MutationManager {
             let mut keys = std::collections::HashSet::new();
             let mut current = Vec::new();
             for mutation in mutations {
-                let key = Self::resolve_mutation_key_value(&name, &schema, &mutation)?;
+                let key = self.resolve_mutation_key_value(&name, &schema, &mutation)?;
                 if !keys.insert(key.clone()) {
                     result.push((name.clone(), std::mem::take(&mut current)));
                     keys.clear();

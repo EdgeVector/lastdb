@@ -67,7 +67,7 @@ impl MutationManager {
         schema_checks::check_source_payload(source, &source_schema)?;
         schema_checks::check_source_has_non_key_field(source, &source_schema)?;
         let source_key =
-            Self::resolve_mutation_key_value(&source.schema_name, &source_schema, source)?;
+            self.resolve_mutation_key_value(&source.schema_name, &source_schema, source)?;
         if source_key.hash.is_none() {
             return Err(SchemaError::InvalidData(
                 "aggregate source key has no hash partition".into(),
@@ -104,7 +104,7 @@ impl MutationManager {
             aggregate.target_schema_name.clone(),
             aggregate.target_key_value.clone(),
         );
-        let target_key = Self::resolve_mutation_key_value(
+        let target_key = self.resolve_mutation_key_value(
             &aggregate.target_schema_name,
             &target_schema,
             &target_probe,
@@ -162,7 +162,7 @@ impl MutationManager {
             aggregate.member_schema_name.clone(),
             aggregate.member_key_value.clone(),
         );
-        let member_key = Self::resolve_mutation_key_value(
+        let member_key = self.resolve_mutation_key_value(
             &aggregate.member_schema_name,
             &member_schema,
             &member_probe,

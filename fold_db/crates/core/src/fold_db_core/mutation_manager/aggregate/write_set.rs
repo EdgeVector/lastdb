@@ -125,7 +125,7 @@ impl MutationManager {
             ) {
                 continue;
             }
-            let key = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+            let key = self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
             let Some(source_hash) = key.hash.clone() else {
                 continue;
             };

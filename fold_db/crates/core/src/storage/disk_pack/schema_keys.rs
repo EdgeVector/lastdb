@@ -214,6 +214,17 @@ impl PackRuntime {
 
 fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, SchemaError> {
     let codec = db_ops.atoms().key_codec_for_molecule(molecule)?;
+    if let Some(profile) = codec.range_profile() {
+        return Ok(format!(
+            "{:?}/{:?}/{:?}/{}",
+            codec.encoding(),
+            codec.range_encoding(),
+            codec
+                .storage_hash(molecule, "schema-preload-identity")
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
+            profile.format_id().map_err(SchemaError::InvalidData)?,
+        ));
+    }
     // Sentinel outputs identify the fixed molecule key pair without
     // retaining encryption keys. They are never used as database coordinates.
     Ok(format!(
