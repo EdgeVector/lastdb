@@ -1,133 +1,68 @@
 use super::*;
 
-/// Age of the last committed backup manifest, from the durable on-disk marker.
-///
-/// Engine-independent by design: `BackupProgressHealth` and every
-/// `SyncHealth` failure counter go `null` when the uploader is switched off, so
-/// a monitor keyed on them cannot distinguish "backed up minutes ago" from
-/// "nothing has left this machine in nine days". This can.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Redacted V2 job observation. A receipt is not a proof of current coverage.
+/// Standalone coordinators remain separate and cannot be inferred from a missing local job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DurabilityHealth {
-    /// Highest committed backup manifest counter, when the marker was readable.
-    pub backup_manifest_counter: Gauge,
-    /// Unix seconds of the last committed manifest, when known.
-    pub last_backup_commit_ts: Gauge,
-    /// Age of that commit in seconds, when known.
-    pub backup_age_secs: Gauge,
-    /// Threshold in force (`LASTDB_BACKUP_MAX_AGE_SECS`); `0` disables the age
-    /// check.
-    pub max_age_secs: Gauge,
-    /// Whether durability needs attention. True for stale, never, and unknown.
-    pub degraded: bool,
-    /// Machine-readable reason codes, empty when healthy.
+    pub observed: bool,
+    pub automatic_enabled: bool,
+    pub running: bool,
+    pub phase: Option<crate::byte_cloud_backup::Phase>,
+    pub accepted_backup_recorded: bool,
+    pub degraded: Option<bool>,
     pub reasons: Vec<String>,
 }
 
 impl Default for DurabilityHealth {
-    /// Un-evaluated durability is **degraded**, not healthy.
-    ///
-    /// This is the `#[serde(default)]` value for a snapshot written before the
-    /// field existed, and the value a caller gets by forgetting to evaluate.
-    /// Either way we cannot show the data is covered, and a durability signal
-    /// whose default reads green is the exact failure being fixed here.
     fn default() -> Self {
         Self {
-            backup_manifest_counter: Gauge::field_not_served(
-                Unit::Named("manifest"),
-                GAUGE_INSTANT,
-            ),
-            last_backup_commit_ts: Gauge::field_not_served(Unit::Named("unix_s"), GAUGE_INSTANT),
-            backup_age_secs: Gauge::field_not_served(Unit::Named("sec(s)"), GAUGE_INSTANT),
-            max_age_secs: g_instant(
-                fold_db::backup_durability::DEFAULT_MAX_BACKUP_AGE_SECS,
-                Unit::Named("sec(s)"),
-            ),
-            degraded: true,
-            reasons: vec![fold_db::backup_durability::reason::NO_MARKER.to_string()],
+            observed: false,
+            automatic_enabled: false,
+            running: false,
+            phase: None,
+            accepted_backup_recorded: false,
+            degraded: None,
+            reasons: vec!["v2_status_unavailable".into()],
         }
     }
 }
 
-impl From<fold_db::backup_durability::BackupDurabilityHealth> for DurabilityHealth {
-    fn from(h: fold_db::backup_durability::BackupDurabilityHealth) -> Self {
+impl From<crate::byte_cloud_backup::ByteBackupStatus> for DurabilityHealth {
+    fn from(status: crate::byte_cloud_backup::ByteBackupStatus) -> Self {
+        let blocked = status.blocked_reason.is_some();
         Self {
-            backup_manifest_counter: g_instant_wire(
-                h.backup_manifest_counter,
-                Unit::Named("manifest"),
-            ),
-            last_backup_commit_ts: g_instant_wire(h.last_backup_commit_ts, Unit::Named("unix_s")),
-            backup_age_secs: g_instant_wire(h.age_secs, Unit::Named("sec(s)")),
-            max_age_secs: g_instant(h.max_age_secs, Unit::Named("sec(s)")),
-            degraded: h.degraded,
-            reasons: h.reasons,
-        }
-    }
-}
-
-impl Serialize for DurabilityHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("DurabilityHealth", 6)?;
-        s.serialize_field(
-            "backup_manifest_counter",
-            &wire_u64(&self.backup_manifest_counter),
-        )?;
-        s.serialize_field(
-            "last_backup_commit_ts",
-            &wire_u64(&self.last_backup_commit_ts),
-        )?;
-        s.serialize_field("backup_age_secs", &wire_u64(&self.backup_age_secs))?;
-        s.serialize_field("max_age_secs", &wire_u64(&self.max_age_secs))?;
-        s.serialize_field("degraded", &self.degraded)?;
-        s.serialize_field("reasons", &self.reasons)?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for DurabilityHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            backup_manifest_counter: Option<u64>,
-            #[serde(default)]
-            last_backup_commit_ts: Option<u64>,
-            #[serde(default)]
-            backup_age_secs: Option<u64>,
-            #[serde(default)]
-            max_age_secs: Option<u64>,
-            #[serde(default)]
-            degraded: Option<bool>,
-            #[serde(default)]
-            reasons: Option<Vec<String>>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        // Missing degraded/reasons on older wire → treat as unevaluated degraded.
-        let degraded = raw.degraded.unwrap_or(true);
-        let reasons = raw.reasons.unwrap_or_else(|| {
-            if degraded {
-                vec![fold_db::backup_durability::reason::NO_MARKER.to_string()]
+            observed: true,
+            automatic_enabled: false,
+            running: status.running,
+            phase: status.phase,
+            accepted_backup_recorded: status.last_accepted_backup.is_some(),
+            // No capture time or current-source equivalence is available here.
+            // Never turn an accepted historical receipt into a fresh-coverage claim.
+            degraded: blocked.then_some(true),
+            reasons: vec![if blocked {
+                "v2_job_blocked".into()
             } else {
-                Vec::new()
-            }
-        });
-        Ok(Self {
-            backup_manifest_counter: g_instant_wire(
-                raw.backup_manifest_counter,
-                Unit::Named("manifest"),
-            ),
-            last_backup_commit_ts: g_instant_wire(raw.last_backup_commit_ts, Unit::Named("unix_s")),
-            backup_age_secs: g_instant_wire(raw.backup_age_secs, Unit::Named("sec(s)")),
-            max_age_secs: match raw.max_age_secs {
-                Some(n) => g_instant(n, Unit::Named("sec(s)")),
-                None => g_instant(
-                    fold_db::backup_durability::DEFAULT_MAX_BACKUP_AGE_SECS,
-                    Unit::Named("sec(s)"),
-                ),
-            },
-            degraded,
-            reasons,
-        })
+                "v2_freshness_unmeasured".into()
+            }],
+        }
+    }
+}
+
+impl DurabilityHealth {
+    pub(super) fn status_line(&self) -> String {
+        let state = if !self.observed {
+            "status unavailable; use cloud backup-v2 status"
+        } else if self.degraded == Some(true) {
+            "job blocked; use cloud backup-v2 status"
+        } else if self.running {
+            "job active; use cloud backup-v2 status"
+        } else if self.accepted_backup_recorded {
+            "accepted backup recorded; current coverage is not measured"
+        } else {
+            "no receipt in this node; check any external coordinator separately"
+        };
+        format!("Manual V2 backup: {state}")
     }
 }
 

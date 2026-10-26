@@ -133,7 +133,12 @@ impl Store {
         self.write_raw(name, &bytes)
     }
     pub fn write_raw(&self, name: &str, bytes: &[u8]) -> StorageResult<()> {
-        if bytes.len() as u64 > RECORD_MAX + 29 {
+        let maximum = if name.starts_with("payload-") && name.ends_with(".enc") {
+            lastdb_storage_policy::backup_transport::METADATA_PACK_BYTES + 29
+        } else {
+            RECORD_MAX + 29
+        };
+        if bytes.len() as u64 > maximum {
             return Err(invalid("byte source value bound"));
         }
         let path = self.root.join(name);
@@ -172,8 +177,81 @@ impl Store {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
+    pub(super) fn write_parts(&self, name: &str, parts: &[&[u8]]) -> StorageResult<()> {
+        let total = parts
+            .iter()
+            .try_fold(0u64, |n, p| n.checked_add(p.len() as u64))
+            .ok_or_else(|| invalid("source coordinate length overflow"))?;
+        let path = self.root.join(name);
+        if self.exists(name)? {
+            let mut file = input(&path)?;
+            if file.metadata()?.len() != total {
+                return Err(invalid("source coordinate length changed"));
+            }
+            let mut buffer = [0; 65536];
+            for part in parts {
+                for chunk in part.chunks(buffer.len()) {
+                    file.read_exact(&mut buffer[..chunk.len()])?;
+                    if buffer[..chunk.len()] != *chunk {
+                        return Err(invalid("source coordinate changed"));
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let pending = self.root.join(format!("{name}.pending"));
+        self.remove_path(&pending)?;
+        self.admit(total)?;
+        let _space =
+            laststore::disk_pack::maintenance::reserve_space(&self.space_root, &self.policy, total)
+                .map_err(super::super::map)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&pending)?;
+        let result = (|| {
+            for part in parts {
+                file.write_all(part)?;
+            }
+            file.sync_all()
+        })();
+        self.bytes
+            .fetch_add(file.metadata()?.len(), Ordering::AcqRel);
+        result?;
+        fs::rename(&pending, &path)?;
+        File::open(&self.root)?.sync_all()?;
+        Ok(())
+    }
     pub fn remove(&self, name: &str) -> StorageResult<()> {
         self.remove_path(&self.root.join(name))
+    }
+    pub(super) fn clear_coordinates(&self) -> StorageResult<()> {
+        for (index, entry) in fs::read_dir(&self.root)?.enumerate() {
+            if index >= MAX_FILES {
+                return Err(invalid("source coordinate file count"));
+            }
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                return Err(invalid("source coordinate file name"));
+            };
+            let Some(tail) = name.strip_prefix("coordinate-") else {
+                continue;
+            };
+            let Some(digest) = tail
+                .strip_suffix(".raw")
+                .or_else(|| tail.strip_suffix(".raw.pending"))
+            else {
+                continue;
+            };
+            if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(invalid("source coordinate digest name"));
+            }
+            self.remove_path(&entry.path())?;
+        }
+        Ok(())
     }
     fn remove_path(&self, path: &Path) -> StorageResult<()> {
         match fs::symlink_metadata(path) {

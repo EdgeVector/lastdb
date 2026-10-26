@@ -143,14 +143,7 @@ fn validate_restored_credentials(
     account: &str,
 ) -> Result<(), String> {
     use fold_db::sync::auth::{byte_backup::ByteBackupClient, AuthClient, SyncAuth};
-    let http = fold_db::sync::build_shared_http_client()
-        .map_err(|_| "cannot construct restored credential transport")?;
-    let auth = AuthClient::new(
-        std::sync::Arc::new(http),
-        api_url.to_owned(),
-        SyncAuth::ApiKey(api_key.to_owned()),
-    )
-    .without_db_auto_claim();
+    let auth = AuthClient::new(api_url.to_owned(), SyncAuth::ApiKey(api_key.to_owned()));
     let client = ByteBackupClient::from_auth(auth)
         .map_err(|_| "invalid restored native account endpoint")?;
     let account = cloud_backup_protocol::AccountId::try_from(account.to_owned())
@@ -164,6 +157,7 @@ fn validate_restored_credentials(
             client.context(&cloud_backup_protocol::v2::context::ContextReadRequest {
                 version: cloud_backup_protocol::v2::Version::V2,
                 account_id: account,
+                required_destinations: Vec::new(),
             }),
         )
         .map(|_| ())

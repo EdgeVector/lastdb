@@ -303,13 +303,9 @@ pub(super) fn schema_storage_report_command(
     json_only: bool,
 ) -> Result<(), String> {
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    let req = format!(
-        "GET /api/storage/schemas HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(
+    let response = get_path(
         &socket,
-        req.as_bytes(),
+        "/api/storage/schemas",
         lastdb_node::exec::admin_handler_timeout(),
     )?;
     let value = parse_json_response(&response, "schema storage report")?;

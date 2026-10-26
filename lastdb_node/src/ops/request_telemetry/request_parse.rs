@@ -80,13 +80,30 @@ pub fn request_id_from_request(req: &UdsRequest) -> Option<String> {
     }
 }
 
-/// Best-effort schema name from a JSON request body (`schema_name` or `schema`).
+/// The route supplies the body shape; label extraction does not infer a route.
+#[derive(Clone, Copy)]
+pub enum SchemaBodyShape {
+    Single,
+    MutationBatch,
+    QueryBatch,
+}
+
+/// Best-effort schema label from the selected request or first batch item.
+/// Keep `schema_name` precedence even when its value is not a string.
 #[must_use]
-pub fn schema_from_body(body: &[u8]) -> Option<String> {
+pub fn schema_from_body(body: &[u8], shape: SchemaBodyShape) -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let name = value
+    let item = match shape {
+        SchemaBodyShape::Single => &value,
+        SchemaBodyShape::MutationBatch => value
+            .as_array()
+            .or_else(|| value.get("mutations")?.as_array())?
+            .first()?,
+        SchemaBodyShape::QueryBatch => value.get("queries")?.as_array()?.first()?,
+    };
+    let name = item
         .get("schema_name")
-        .or_else(|| value.get("schema"))
+        .or_else(|| item.get("schema"))
         .and_then(|v| v.as_str())?;
     Some(sanitize_label(name, MAX_SCHEMA_LEN, "unknown"))
 }
@@ -132,24 +149,6 @@ pub fn peer_detail(peer_pid: Option<i32>, peer_comm: Option<&str>) -> String {
         (None, Some(comm)) if !comm.is_empty() => format!(" comm={comm}"),
         _ => String::new(),
     }
-}
-
-/// For mutation-batch bodies, report the first mutation's schema (if any).
-#[must_use]
-pub fn schema_from_batch_body(body: &[u8]) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let first = match &value {
-        serde_json::Value::Array(items) => items.first(),
-        other => other
-            .get("mutations")
-            .and_then(|m| m.as_array())
-            .and_then(|a| a.first()),
-    }?;
-    let name = first
-        .get("schema_name")
-        .or_else(|| first.get("schema"))
-        .and_then(|v| v.as_str())?;
-    Some(sanitize_label(name, MAX_SCHEMA_LEN, "unknown"))
 }
 
 /// Pull `returned_count` / `results.len()` from a successful JSON response body.

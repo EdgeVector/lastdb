@@ -25,6 +25,13 @@ pub struct RunSummary {
     pub run_id: Uuid,
     /// Records, tombstones included.
     pub records: u64,
+    /// Tombstones among the records.
+    pub tombstones: u64,
+    /// Key and value bytes of the records before compression; a tombstone
+    /// counts its key.
+    pub record_bytes: u64,
+    /// Key bytes of the tombstones.
+    pub tombstone_bytes: u64,
     /// Size of the run file.
     pub file_bytes: u64,
     /// Smallest key, or `None` for an empty run.
@@ -57,6 +64,9 @@ pub struct RunWriter {
     first_key: Option<Vec<u8>>,
     last_key: Option<Vec<u8>>,
     records: u64,
+    tombstones: u64,
+    record_bytes: u64,
+    tombstone_bytes: u64,
     max_payload: usize,
     /// Set when a block write fails: the block's records are gone and the
     /// file offset is unknown, so the writer refuses every later call.
@@ -97,6 +107,9 @@ impl RunWriter {
             first_key: None,
             last_key: None,
             records: 0,
+            tombstones: 0,
+            record_bytes: 0,
+            tombstone_bytes: 0,
             max_payload: 0,
             failed: false,
             finished: false,
@@ -111,6 +124,12 @@ impl RunWriter {
     /// Records pushed so far.
     pub fn records(&self) -> u64 {
         self.records
+    }
+
+    /// Bytes written to the file so far, plus the open block before its
+    /// compression. The finished file adds its index, top block and footer.
+    pub fn bytes_written(&self) -> u64 {
+        self.offset + self.block.len() as u64
     }
 
     /// Appends one record. `None` writes a tombstone. Keys must be strictly
@@ -143,6 +162,11 @@ impl RunWriter {
         self.block_prev.extend_from_slice(key);
         self.index_hashes.push(key_hash(key));
         self.records += 1;
+        self.record_bytes += (key.len() + value.map_or(0, <[u8]>::len)) as u64;
+        if value.is_none() {
+            self.tombstones += 1;
+            self.tombstone_bytes += key.len() as u64;
+        }
         if self.first_key.is_none() {
             self.first_key = Some(key.to_vec());
         }
@@ -276,6 +300,9 @@ impl RunWriter {
             path,
             run_id: self.run_id,
             records: self.records,
+            tombstones: self.tombstones,
+            record_bytes: self.record_bytes,
+            tombstone_bytes: self.tombstone_bytes,
             file_bytes: self.offset + super::footer::FOOTER_BYTES as u64,
             first_key: self.first_key.take(),
             last_key: self.last_key.take(),

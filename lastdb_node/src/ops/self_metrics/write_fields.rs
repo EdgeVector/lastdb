@@ -164,20 +164,17 @@ pub(super) fn insert_backup_durability_fields(
     fields: &mut HashMap<String, Value>,
     snapshot: &StatusSnapshot,
 ) {
-    // Durability is emitted unconditionally so a time-series alarm can be
-    // written against backup *age*. Every sync_* field above goes null when the
-    // uploader is off, which is precisely when nobody notices.
     fields.insert(
-        "backup_age_secs".to_string(),
-        json!(wire_u64(&snapshot.durability.backup_age_secs)),
+        "backup_v2_observed".into(),
+        json!(snapshot.durability.observed),
     );
     fields.insert(
-        "backup_last_commit_ts".to_string(),
-        json!(wire_u64(&snapshot.durability.last_backup_commit_ts)),
+        "backup_v2_accepted_backup_recorded".into(),
+        json!(snapshot.durability.accepted_backup_recorded),
     );
     fields.insert(
-        "backup_manifest_counter".to_string(),
-        json!(wire_u64(&snapshot.durability.backup_manifest_counter)),
+        "backup_automatic_enabled".into(),
+        json!(snapshot.durability.automatic_enabled),
     );
     fields.insert(
         "backup_durability_degraded".to_string(),

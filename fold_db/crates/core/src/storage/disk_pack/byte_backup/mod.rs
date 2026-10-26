@@ -9,6 +9,9 @@ mod counters;
 mod model;
 mod planner;
 mod reader;
+mod record_codec;
+mod record_plan;
+mod record_reassembly;
 mod standalone;
 mod store;
 mod terminal;
@@ -22,6 +25,8 @@ use cloud_backup_protocol::{Digest, ProtocolError};
 pub use codec::*;
 use laststore::disk_pack::backup::export::SnapshotExport;
 pub use reader::ByteBackupReader;
+pub use record_codec::*;
+pub use record_reassembly::ReassembledRecordStream;
 pub use standalone::{read_stopped_native_root, StandaloneByteBackupSource};
 use std::sync::{Arc, Mutex};
 
@@ -55,6 +60,20 @@ struct Inner {
     _admission: super::NativeCloudWorkGuard,
 }
 impl ByteBackupCapture {
+    /// Large native keys share the central backup allowance with lookup buffers.
+    pub fn recommended_parallelism(&self) -> StorageResult<usize> {
+        let bytes = self.lock()?.max_coordinate_bytes;
+        let resources = lastdb_storage_policy::BACKUP_RESOURCES;
+        Ok(
+            if bytes.saturating_mul(2 * resources.concurrent_streams as u64)
+                > resources.decoded_values_bytes
+            {
+                1
+            } else {
+                resources.concurrent_streams
+            },
+        )
+    }
     pub fn begin(&self) -> StorageResult<Begin> {
         Ok(self.lock()?.begin.clone())
     }

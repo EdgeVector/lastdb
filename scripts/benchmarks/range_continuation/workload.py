@@ -116,7 +116,7 @@ class Workload:
             for ordinal in range(32):
                 first = ordinal * (COUNT - 128) // 31
                 value = walk(self.node, self.expected, query(HASH, key(first), key(first + 128), 64),
-                             "matched-narrow-" + str(ordinal))
+                             "matched-narrow-" + str(ordinal), legacy_cursor=True)
                 measured.extend(value["samples"])
         finally:
             self.node.capture_process = False

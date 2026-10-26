@@ -39,8 +39,8 @@ struct QueryBatchRequest {
 /// Items run [`QUERY_BATCH_CONCURRENCY`] at a time inside this task (not
 /// spawned), so the task-local request phases still add up for the whole batch.
 /// They may finish in any order: a slow item does not hold back the start of the
-/// next one. Each item carries its request index, and [`query_batch_results`]
-/// sorts by it, so the reply order never depends on completion order.
+/// next one. [`batch_results`](super::query_read_receipt::batch_results) uses
+/// each item's request index to restore reply order.
 pub(super) async fn execute_query_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -99,36 +99,9 @@ pub(super) async fn execute_query_batch_route(
         .collect();
     let finished: Vec<(usize, UdsResponse)> = scope.run_shared(future).await;
 
-    let results = query_batch_results(finished);
+    let results = super::query_read_receipt::batch_results(finished);
     render(
         Ok(serde_json::json!({ "count": results.len(), "results": results })),
         ctx,
     )
-}
-
-/// Reply entries of a query batch, in request order, from items that finished in
-/// any order. Each entry is `{"status": S, "response": <the /api/query reply>}`.
-fn query_batch_results(mut finished: Vec<(usize, UdsResponse)>) -> Vec<Value> {
-    finished.sort_by_key(|(index, _)| *index);
-    finished
-        .iter()
-        .map(|(_, response)| {
-            let body = serde_json::from_slice::<Value>(&response.body).unwrap_or_else(|_| {
-                Value::String(String::from_utf8_lossy(&response.body).into_owned())
-            });
-            super::query_read_receipt::batch_entry(response, &body)
-        })
-        .collect()
-}
-
-/// Schema label for the telemetry sample of a batch: the first query's schema,
-/// like a mutation batch names its first mutation. A batch may span schemas.
-pub(super) fn schema_hint(body: &[u8]) -> Option<String> {
-    let first = serde_json::from_slice::<Value>(body)
-        .ok()?
-        .get("queries")?
-        .as_array()?
-        .first()?
-        .clone();
-    crate::request_telemetry::schema_from_body(&serde_json::to_vec(&first).ok()?)
 }

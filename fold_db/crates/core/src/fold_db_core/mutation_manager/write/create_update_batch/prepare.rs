@@ -48,7 +48,7 @@ impl MutationManager {
             durability: Self::commit_durability(force_durable),
             cloud: None,
             stages,
-            touched_group_ids: crate::durable_flush::current_touched_groups(),
+            touched_group_ids: Vec::new(),
         })
     }
 

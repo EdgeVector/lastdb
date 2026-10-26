@@ -187,41 +187,4 @@ impl DbOperations {
         self.lineage_index.flush().await?;
         Ok(())
     }
-
-    /// One barrier for the groups this batch wrote.
-    ///
-    /// The namespace stores share one LastStore. Eight scoped flushes would
-    /// still be eight barriers. `written` is deduped here; fanout siblings
-    /// are not part of it.
-    pub async fn flush_dirty_scope(
-        &self,
-        written: &[laststore::ShardKey],
-    ) -> Result<(), SchemaError> {
-        let mut scope = written.to_vec();
-        scope.sort_unstable();
-        scope.dedup();
-        let last_store = self.store.raw_last_store();
-        // No LastStore means no group barrier. `flush_written_keys` then
-        // defaults to a no-op, and a Durable receipt would return while the
-        // idempotency row is still pending. The namespace flush is that barrier.
-        let Some(store) = last_store else {
-            return self.flush().await;
-        };
-        let foreign = crate::durable_flush::foreign_group_count(&scope, written);
-        store.set_flush_foreign_groups(foreign);
-        crate::durable_flush::warn_if_flush_foreign(foreign);
-        self.store
-            .flush_written_keys(&scope)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("scoped flush failed: {error}")))?;
-        Ok(())
-    }
-
-    /// The LastStore group that holds `key` of namespace `name` (pure; no read or
-    /// write). `None` without a LastStore or for a `b64:` key: use [`Self::flush`].
-    #[must_use]
-    pub fn namespace_row_group(&self, name: &str, key: &str) -> Option<laststore::ShardKey> {
-        let store = self.store.raw_last_store()?;
-        (!key.starts_with("b64:")).then(|| store.shard_key_of(name, key))
-    }
 }

@@ -4,7 +4,6 @@ use std::fs::{self, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
-use std::sync::Arc;
 
 #[derive(Deserialize)]
 struct Credentials {
@@ -52,14 +51,7 @@ pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
     if credentials.api_key.is_empty() {
         return Err("native backup credential is empty".into());
     }
-    let http = fold_db::sync::build_shared_http_client()
-        .map_err(|_| "cannot construct native backup transport".to_owned())?;
-    let auth = AuthClient::new(
-        Arc::new(http),
-        credentials.api_url,
-        SyncAuth::ApiKey(credentials.api_key),
-    )
-    .without_db_auto_claim();
+    let auth = AuthClient::new(credentials.api_url, SyncAuth::ApiKey(credentials.api_key));
     Ok(auth)
 }
 

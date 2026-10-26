@@ -109,7 +109,7 @@ fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
     Ok(())
 }
 
-fn status(host: &crate::host::Host) -> Result<ByteBackupStatus> {
+pub(crate) fn status(host: &crate::host::Host) -> Result<ByteBackupStatus> {
     let id = Store::active(&host.home)?;
     status_for(host, id)
 }

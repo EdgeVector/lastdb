@@ -211,6 +211,9 @@ pub fn mark_never_indexed(_home: &Path) {}
 /// before the collection walk.
 const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 
+/// The node marker. Every native node home has it, in disk format v1 and v2.
+const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
+
 /// Whether `<home>/data` already holds a store (Last Store collections or leftover files).
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 ///
@@ -222,6 +225,10 @@ const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
     // LastStore: `<data>/laststore-layout-v1` + `<data>/data/<collection>/…`.
     if data_path.join(LASTSTORE_LAYOUT_FILE).is_file() {
+        return true;
+    }
+    // A disk format v2 home has the node marker and no layout file.
+    if data_path.join(NODE_MARKER_FILE).is_file() {
         return true;
     }
     let collections = data_path.join("data");

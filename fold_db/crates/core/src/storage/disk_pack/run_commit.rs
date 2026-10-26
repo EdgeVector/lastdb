@@ -2,10 +2,23 @@
 //!
 //! A commit writes one level-0 run and installs its root as the readable
 //! state. A merge publishes a root with the same frontier, so it holds the
-//! same data; reads adopt it the next time they capture a root, and the
-//! merged input files go when the last read of the older root ends.
+//! same data. The merge thread installs it after each step, and reads also
+//! adopt it when they capture a root. The merged input files go when the
+//! last read of the older root ends, so the disk does not keep them until
+//! the next read.
+//!
+//! A read holds its root for its whole call, and a write request holds one
+//! while it prepares, so the thread waits before its next step while such
+//! reads keep more than 1/16 of a home in replaced runs. Without the wait a
+//! base merge rewrote much of the base during one request, and the disk v2
+//! node proof peaked at 2.03x to 2.06x of its atom bytes on macOS.
+//!
+//! The CAS files have their own run home. A commit that holds CAS changes
+//! writes up to three runs in this order: new CAS files, then the other
+//! records, then CAS deletes. A crash between them can leave a CAS file that
+//! nothing references, but never a reference to a CAS file that is not there.
 
-use super::physical::{Physical, PhysicalRoot, V2Home};
+use super::physical::{Physical, PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
 use super::*;
 use laststore::disk_run::home::RunHome;
 
@@ -55,26 +68,37 @@ impl PackRuntime {
         (hidden_changes, key_changes): Changes<'_>,
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        let commit = match v2.home.commit(operations) {
-            Ok(commit) => commit,
-            Err(error) => {
-                self.failed.store(true, Ordering::Release);
-                *self.failed_write.lock().expect("native failed write owner") = Some(space);
-                return Err(map(error));
-            }
-        };
+        if let Err(error) = commit_split(v2, operations) {
+            self.failed.store(true, Ordering::Release);
+            *self.failed_write.lock().expect("native failed write owner") = Some(space);
+            return Err(map(error));
+        }
+        // The current roots hold this commit; a merge root holds the same data.
+        let root = v2.current_root();
         let _timing = laststore::commit_timing::stage("memory_publication_us");
+        let (generation, frontier) = (root.generation(), root.frontier());
         self.install_committed(
-            PhysicalRoot::V2(commit.root),
+            PhysicalRoot::V2(root),
             hidden_changes,
             key_changes,
             requests,
         )?;
-        self.parts.observe_root(commit.generation, commit.frontier);
+        self.parts.observe_root(generation, frontier);
         drop(space);
         self.failed.store(false, Ordering::Release);
-        start_merges(v2);
+        start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
         Ok(())
+    }
+
+    /// Start the merge thread when a home needs a merge, as after a crash
+    /// during a base merge. Otherwise each commit starts it.
+    pub(super) fn resume_merges(&self) {
+        let Physical::V2(v2) = &self.physical else {
+            return;
+        };
+        if v2.home.needs_merge() || v2.cas.needs_merge() {
+            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
+        }
     }
 
     /// Replace the readable root with a merged root of the same frontier.
@@ -83,25 +107,77 @@ impl PackRuntime {
         let Physical::V2(v2) = &self.physical else {
             return;
         };
-        let latest = v2.home.current_root();
-        let Ok(mut view) = self.view.try_write() else {
-            return;
-        };
-        if let PhysicalRoot::V2(held) = &view.current {
-            if held.frontier() == latest.frontier() && held.generation() < latest.generation() {
-                self.parts
-                    .observe_root(latest.generation(), latest.frontier());
-                view.current = PhysicalRoot::V2(latest);
-            }
-        }
+        let replaced = self
+            .view
+            .try_write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, v2.current_root(), &self.parts));
+        drop(replaced);
     }
 }
 
-/// Run merge steps on one background thread until no level is full. The
-/// thread holds the home only during a step. Closing the node store stops
-/// the thread and waits for its current step, so the home and its owner lock
-/// are free when the close returns.
-fn start_merges(v2: &V2Home) {
+/// Install `latest` when it holds the same commits as the view's root and is
+/// newer: a merge root. Returns the replaced root. Drop it after the view
+/// lock: its last drop deletes retired run files.
+fn adopt(
+    view: &mut view::NativeReadView,
+    latest: V2Root,
+    parts: &parts::PartsLedger,
+) -> Option<PhysicalRoot> {
+    let PhysicalRoot::V2(held) = &view.current else {
+        return None;
+    };
+    if held.frontier() != latest.frontier() || held.generation() >= latest.generation() {
+        return None;
+    }
+    parts.observe_root(latest.generation(), latest.frontier());
+    Some(std::mem::replace(
+        &mut view.current,
+        PhysicalRoot::V2(latest),
+    ))
+}
+
+/// Commit one batch across the main and CAS homes in the safe order. For a
+/// CAS key named twice in the batch, the later operation wins, as in one
+/// run home commit.
+fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result<()> {
+    if !operations.iter().any(|op| op.collection == CAS_COLLECTION) {
+        return v2.home.commit(operations).map(drop);
+    }
+    let (cas, main): (Vec<_>, Vec<_>) = operations
+        .into_iter()
+        .partition(|op| op.collection == CAS_COLLECTION);
+    let mut last = std::collections::BTreeMap::new();
+    for op in cas {
+        last.insert(op.key.clone(), op);
+    }
+    let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
+    for (home, batch) in [(&v2.cas, puts), (&v2.home, main)] {
+        if !batch.is_empty() {
+            home.commit(batch)?;
+        }
+    }
+    // The other records are durable now, so the commit has succeeded. A
+    // failed CAS delete leaves files that nothing references; a poisoned
+    // CAS home refuses the next CAS commit.
+    if !deletes.is_empty() {
+        if let Err(error) = v2.cas.commit(deletes) {
+            tracing::warn!(%error, "disk run CAS delete failed after its commit; unreferenced CAS files remain");
+        }
+    }
+    Ok(())
+}
+
+/// Run merge steps on one background thread until no home needs a merge.
+/// The thread holds a home only during a step, and installs the merged root
+/// in `view` after each step. Closing the node store stops the thread and
+/// waits for its current step, so the home and its owner lock are free when
+/// the close returns.
+fn start_merges(
+    v2: &V2Home,
+    view: Arc<RwLock<view::NativeReadView>>,
+    parts: Arc<parts::PartsLedger>,
+) {
     let waiting = v2
         .retry_after
         .lock()
@@ -110,13 +186,16 @@ fn start_merges(v2: &V2Home) {
     if waiting || v2.merging.swap(true, Ordering::AcqRel) {
         return;
     }
-    let home = Arc::downgrade(&v2.home);
+    let homes = [Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
     let merging = Arc::clone(&v2.merging);
     let stop = Arc::clone(&v2.stop);
     let retry_after = Arc::clone(&v2.retry_after);
     let spawned = std::thread::Builder::new()
         .name("lastdb-run-merge".into())
-        .spawn(move || merge_until_settled(&home, &merging, &stop, &retry_after));
+        .spawn(move || {
+            let adopted = Adopted { view, parts };
+            merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after);
+        });
     match spawned {
         Ok(handle) => {
             let mut merger = v2.merger.lock().expect("disk run merge thread");
@@ -136,42 +215,111 @@ fn start_merges(v2: &V2Home) {
 /// fails each time (a full disk) does not start a thread on each commit.
 const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The thread waits before its next step while the replaced runs that reads
+/// still hold are more than this share of the home's run files.
+const HELD_SHARE: u64 = 16;
+/// The smallest wait budget, so a small home does not wait at each step.
+const MIN_HELD_BYTES: u64 = 1 << 20;
+/// The longest wait for reads: a longer read keeps its runs, and the merge
+/// goes on.
+const HELD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
+
+/// Where the merge thread installs merged roots.
+struct Adopted {
+    view: Arc<RwLock<view::NativeReadView>>,
+    parts: Arc<parts::PartsLedger>,
+}
+
+impl Adopted {
+    /// Install the current roots of both homes. It waits for the view: the
+    /// thread holds no other lock, and a read holds the view only briefly.
+    fn install(&self, homes: &[std::sync::Weak<RunHome>]) {
+        let (Some(main), Some(cas)) = (homes[0].upgrade(), homes[1].upgrade()) else {
+            return;
+        };
+        let latest = V2Root {
+            main: main.current_root(),
+            cas: cas.current_root(),
+        };
+        let replaced = self
+            .view
+            .write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, latest, &self.parts));
+        drop(replaced);
+    }
+}
+
 fn merge_until_settled(
-    home: &std::sync::Weak<RunHome>,
+    homes: &[std::sync::Weak<RunHome>; 2],
+    adopted: &Adopted,
     merging: &AtomicBool,
     stop: &AtomicBool,
     retry_after: &Mutex<Option<std::time::Instant>>,
 ) {
     loop {
-        while !stop.load(Ordering::Acquire) {
-            let Some(home) = home.upgrade() else { break };
-            match home.merge_step() {
-                Ok(Some(_)) => {}
-                Ok(None) => break,
-                Err(error) => {
-                    // A failed merge leaves its inputs in force; a poisoned
-                    // home refuses the next commit, which fails the runtime.
-                    tracing::warn!(%error, "disk run merge failed");
-                    *retry_after.lock().expect("disk run merge retry") =
-                        Some(std::time::Instant::now() + MERGE_RETRY);
-                    merging.store(false, Ordering::Release);
-                    return;
+        'steps: while !stop.load(Ordering::Acquire) {
+            let mut merged = false;
+            for weak in homes {
+                let Some(home) = weak.upgrade() else {
+                    break 'steps;
+                };
+                match home.merge_step() {
+                    Ok(Some(_)) => {
+                        merged = true;
+                        drop(home);
+                        adopted.install(homes);
+                        // The view holds the merged root now, so only reads
+                        // that captured an older root keep the replaced runs.
+                        wait_for_held_runs(weak, stop);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        // A failed merge leaves its inputs in force; a poisoned
+                        // home refuses the next commit, which fails the runtime.
+                        tracing::warn!(%error, "disk run merge failed");
+                        *retry_after.lock().expect("disk run merge retry") =
+                            Some(std::time::Instant::now() + MERGE_RETRY);
+                        merging.store(false, Ordering::Release);
+                        return;
+                    }
                 }
+            }
+            if !merged {
+                break;
             }
         }
         merging.store(false, Ordering::Release);
         // A commit between the last step and the clear saw the mark set and
-        // started no thread. Take the mark again when a level became full.
-        let full = !stop.load(Ordering::Acquire)
-            && home.upgrade().is_some_and(|home| {
-                home.status()
-                    .levels
-                    .iter()
-                    .any(|(runs, _, _)| *runs >= laststore::disk_run::home::MERGE_WIDTH)
-            });
-        if !full || merging.swap(true, Ordering::AcqRel) {
+        // started no thread. Take the mark again when a home needs a merge.
+        let needed = !stop.load(Ordering::Acquire)
+            && homes
+                .iter()
+                .any(|home| home.upgrade().is_some_and(|home| home.needs_merge()));
+        if !needed || merging.swap(true, Ordering::AcqRel) {
             return;
         }
+    }
+}
+
+/// Wait while reads keep more than 1/[`HELD_SHARE`] of `home` in runs that
+/// merges replaced, for at most [`HELD_WAIT`]. The thread holds the home
+/// only for each check, and a close ends the wait.
+fn wait_for_held_runs(home: &std::sync::Weak<RunHome>, stop: &AtomicBool) {
+    let until = std::time::Instant::now() + HELD_WAIT;
+    let mut limit = None;
+    while let Some(home) = home.upgrade() {
+        let budget = *limit
+            .get_or_insert_with(|| (home.status().file_bytes() / HELD_SHARE).max(MIN_HELD_BYTES));
+        if home.retired_bytes() <= budget
+            || stop.load(Ordering::Acquire)
+            || std::time::Instant::now() >= until
+        {
+            return;
+        }
+        drop(home);
+        std::thread::sleep(HELD_POLL);
     }
 }
 

@@ -114,7 +114,7 @@ impl Inventory {
         Ok(())
     }
 
-    fn charge(&mut self, bytes: u64) -> Result<()> {
+    pub(super) fn charge(&mut self, bytes: u64) -> Result<()> {
         self.charged = self
             .charged
             .checked_add(bytes)

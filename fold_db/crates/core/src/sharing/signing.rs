@@ -11,12 +11,7 @@
 //! sharing does NOT reject unsigned or invalid rules yet. Signing is added
 //! first so the wire format is future-proof; enforcement lands in a follow-up.
 
-use super::types::{ShareAccessGrant, ShareRule};
-
-/// Domain-separation tag for [`ShareAccessGrant`] signatures. Prevents a
-/// signature minted for another message type (or another version) from ever
-/// verifying as an access grant.
-pub const SHARE_ACCESS_GRANT_DOMAIN: &[u8] = b"folddb:share_access_grant:v1";
+use super::types::ShareRule;
 
 /// Canonical byte serialization used for both signing and verification.
 ///
@@ -31,7 +26,7 @@ pub const SHARE_ACCESS_GRANT_DOMAIN: &[u8] = b"folddb:share_access_grant:v1";
 /// With a separator, an attacker could shift bytes across the
 /// share_prefix/share_e2e_secret boundary so two semantically-different
 /// rules produce identical canonical bytes — letting one signature verify
-/// both. See `nul_in_secret_does_not_collide_with_shifted_prefix`.
+/// both.
 ///
 /// The `signature`, `writer_pubkey`, `recipient_display_name`, `active`, and
 /// `scope` fields are NOT included — display name / scope are mutable policy,
@@ -51,36 +46,5 @@ pub fn canonical_bytes(rule: &ShareRule) -> Vec<u8> {
     .field(rule.share_prefix.as_bytes())
     .field(&rule.share_e2e_secret)
     .u64(rule.created_at)
-    .finish()
-}
-
-/// Canonical byte serialization for a [`ShareAccessGrant`].
-///
-/// Fixed field order, each variable field length-prefixed (see
-/// [`crate::canonical`]):
-/// `SHARE_ACCESS_GRANT_DOMAIN || share_prefix || sender_pubkey ||
-///  expires_at.to_be_bytes()`.
-///
-/// The `share_e2e_secret` is intentionally **absent** — a grant is an
-/// authorization to read the (already-encrypted) log, not a key. The
-/// `signature` field is excluded (it is the binding itself).
-///
-/// The storage service re-implements this exact framing to verify the grant
-/// without linking `fold_db`; any change here MUST be mirrored in
-/// `exemem_service/lambdas/storage_service` (see its `share_access` module) or
-/// recipient reads will start failing signature verification. See
-/// `SHARE_ACCESS_CONTRACT.md`.
-pub fn share_access_grant_canonical_bytes(grant: &ShareAccessGrant) -> Vec<u8> {
-    crate::canonical::CanonicalWriter::with_capacity(
-        SHARE_ACCESS_GRANT_DOMAIN.len()
-            + grant.share_prefix.len()
-            + grant.sender_pubkey.len()
-            + 8
-            + 3 * 4,
-    )
-    .field(SHARE_ACCESS_GRANT_DOMAIN)
-    .field(grant.share_prefix.as_bytes())
-    .field(grant.sender_pubkey.as_bytes())
-    .u64(grant.expires_at)
     .finish()
 }

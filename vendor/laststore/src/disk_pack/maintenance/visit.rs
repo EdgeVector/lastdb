@@ -2,7 +2,7 @@ use super::stream::RecordBody;
 use crate::disk_pack::lifetime::GenerationHold;
 use crate::disk_pack::tree_cursor::TreeCursor;
 use crate::disk_pack::{
-    artifact, corrupt, Current, DirectoryEntry, Location, MutationVersion, Source,
+    artifact, corrupt, Current, DirectoryEntry, Location, MutationVersion, ReadCall, Source,
 };
 use crate::Result;
 use std::io::Read;
@@ -30,26 +30,63 @@ pub struct StoredRecord<'a> {
 pub fn visit_generation(
     root: &Path,
     current: &Current,
+    visitor: impl FnMut(StoredRecord<'_>) -> Result<()>,
+) -> Result<()> {
+    visit(root, current, Some(1_000_000), visitor)
+}
+
+/// Stream a complete held generation with finite per-record cursor and I/O state.
+/// Unlike the administrative call, this export has no logical record-count cap.
+pub fn visit_generation_streaming(
+    root: &Path,
+    current: &Current,
+    visitor: impl FnMut(StoredRecord<'_>) -> Result<()>,
+) -> Result<()> {
+    visit(root, current, None, visitor)
+}
+
+fn visit(
+    root: &Path,
+    current: &Current,
+    maximum: Option<u64>,
     mut visitor: impl FnMut(StoredRecord<'_>) -> Result<()>,
 ) -> Result<()> {
     let _hold = GenerationHold::acquire(root, current)?;
-    let mut call = artifact::metadata_call(root, current.clone());
+    let mut call = selected_call(root, current, maximum, 0)?;
     let mut directory = TreeCursor::seek(&mut call, current.directory.clone(), b"")?;
     let mut count = 0u64;
     while let Some((key, value)) = directory.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
         let collection = super::compact::collection(&key, entry.group)?;
+        let directory_bytes = key.capacity() as u64 + collection.capacity() as u64;
+        if maximum.is_none() {
+            call = selected_call(
+                root,
+                current,
+                maximum,
+                directory.retained_bytes()? + directory_bytes,
+            )?;
+        }
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
-        while let Some((key, value)) = cursor.next(&mut call)? {
-            count += 1;
-            if count > 1_000_000 {
+        while let Some((key_bytes, value)) = cursor.next(&mut call)? {
+            count = count
+                .checked_add(1)
+                .ok_or_else(crate::disk_pack::resource)?;
+            if maximum.is_some_and(|maximum| count > maximum) {
                 return Err(crate::disk_pack::resource());
             }
             let location = Location::decode_for_current(&value, current)?;
             if location.version.batch > current.frontier {
                 return Err(corrupt("visit record beyond selected frontier"));
             }
-            let key = std::str::from_utf8(&key).map_err(|_| corrupt("visit key is not UTF-8"))?;
+            let retained = if maximum.is_none() {
+                directory.retained_bytes()? + directory_bytes + cursor.retained_bytes()?
+            } else {
+                0
+            };
+            let active = retained + key_bytes.capacity() as u64;
+            let key =
+                std::str::from_utf8(&key_bytes).map_err(|_| corrupt("visit key is not UTF-8"))?;
             let version = location.version;
             if location.source == Source::Tombstone {
                 visitor(StoredRecord {
@@ -61,7 +98,13 @@ pub fn visit_generation(
                     body: None,
                 })?;
             } else {
-                let mut body = RecordBody::open(&mut call, &collection, key, location)?;
+                let mut body = RecordBody::open_with_retained(
+                    &mut call,
+                    &collection,
+                    key,
+                    location,
+                    maximum.is_none().then_some(active),
+                )?;
                 visitor(StoredRecord {
                     collection: &collection,
                     group: entry.group,
@@ -76,8 +119,29 @@ pub fn visit_generation(
                     ));
                 }
             }
-            call = artifact::metadata_call(root, current.clone());
+            drop(key_bytes);
+            call = selected_call(root, current, maximum, retained)?;
+        }
+        drop(cursor);
+        drop(collection);
+        drop(key);
+        if maximum.is_none() {
+            call = selected_call(root, current, maximum, directory.retained_bytes()?)?;
         }
     }
     Ok(())
+}
+
+fn selected_call(
+    root: &Path,
+    current: &Current,
+    maximum: Option<u64>,
+    retained: u64,
+) -> Result<ReadCall> {
+    let mut call = artifact::metadata_call(root, current.clone());
+    if maximum.is_none() {
+        call.budget.bytes = lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes;
+        call.charge(retained)?;
+    }
+    Ok(call)
 }

@@ -16,10 +16,15 @@ mod boundary;
 pub mod byte_backup;
 mod cloud_work;
 mod convert_envelopes;
+mod convert_v2;
+mod convert_v2_copy;
+mod convert_v2_records;
+mod convert_v2_switch;
 pub mod file_dependencies;
 pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
 pub use convert_envelopes::convert_transferred_node;
+pub use convert_v2::{kept_v1_path, DiskConversionReport};
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
@@ -28,7 +33,9 @@ mod memory;
 mod namespace_delete;
 mod parts;
 mod physical;
+mod physical_v2;
 mod queue;
+pub mod range_inventory;
 mod read;
 mod restore;
 pub(crate) mod restore_safety;
@@ -65,7 +72,8 @@ const NAMESPACES: &str = "namespaces\0";
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     physical: physical::Physical,
-    view: RwLock<view::NativeReadView>,
+    /// Shared with the v2 merge thread, which installs merged roots.
+    view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     restore_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
@@ -131,10 +139,14 @@ impl PackNamespacedStore {
     }
 
     /// Open a node store with the node encryption key. A v2 run home needs
-    /// the key: its home key derives from it. A v1 home ignores it.
+    /// the key: its home key derives from it. With the key and
+    /// `LASTDB_DISK_FORMAT=2`, a v1 home is converted to v2 once first.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
+        if let Some(node_key) = node_key {
+            convert_v2::resume_or_convert(path, node_key)?;
+        }
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
@@ -206,10 +218,10 @@ impl PackNamespacedStore {
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
-                view: RwLock::new(view::NativeReadView {
+                view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
-                }),
+                })),
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
                 restore_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),

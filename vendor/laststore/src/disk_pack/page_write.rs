@@ -6,6 +6,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+mod order;
+
 pub(super) fn directory(path: &Path) -> Result<()> {
     let _timing = crate::commit_timing::stage("metadata_namespace_create_us");
     fs::create_dir(path)?;

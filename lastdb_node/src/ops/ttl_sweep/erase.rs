@@ -14,12 +14,12 @@ use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
 use super::backlog::Backlog;
+use super::key_is_expired;
 
 mod rounds;
 use super::pace::Pace;
 use super::send::send_with_missing_retry;
 use super::verb::SweepVerb;
-use super::{backup_cut_is_held, key_is_expired};
 use crate::host::Host;
 use crate::self_metrics::TtlPassReport;
 
@@ -36,8 +36,7 @@ pub(super) struct PassTotals {
     pub(super) missing: usize,
     /// Keys that the pass listed and had not reached when it ended.
     pub(super) keys_left: usize,
-    /// The pass ended early: the node was stopping, a backup cut was held, or
-    /// local writes were paused.
+    /// The pass ended early: the node was stopping or local writes were paused.
     pub(super) cut: bool,
     /// Schemas with a policy that the pass tried.
     pub(super) schemas: usize,
@@ -68,8 +67,9 @@ impl PassTotals {
 /// Erase the backlogs in rounds: one batch from each schema that still has
 /// keys, then the rest, then the next round. A schema whose batch fails is
 /// skipped for the rest of the pass, logged once, and the others go on. The
-/// pass ends early, without an error, when the node stops, pauses local writes
-/// or holds a backup cut. The next sampler tick lists the rest again.
+/// pass ends early, without an error, when the node stops or pauses local
+/// writes. Snapshot cuts retain the normal mutation admission for each batch.
+/// The next sampler tick lists the rest again.
 pub(super) async fn purge_round_robin(
     host: &Host,
     mut backlogs: Vec<Backlog>,

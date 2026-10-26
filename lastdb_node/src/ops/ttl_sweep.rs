@@ -20,7 +20,6 @@
 //!
 //! Safety properties borrowed from `drain_orphaned_telemetry`:
 //! - never create an absent schema
-//! - skip while a backup cut is held
 //! - bounded batches
 //! - report a completed no-op, but recheck on the next sampler tick because
 //!   time and local policy can change without a daemon restart
@@ -96,14 +95,6 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
     if !ttl_sweep_enabled() {
         return;
     }
-    if backup_cut_is_held(host).await {
-        tracing::info!(
-            target: "lastdbd::ttl_sweep",
-            "ttl sweep skipped: backup cut is held"
-        );
-        return;
-    }
-
     let started = std::time::Instant::now();
     match sweep_ttl_inner(host, shutdown).await {
         Ok(totals) => finish_pass(host, &totals, started),
@@ -155,10 +146,6 @@ fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Inst
             "ttl sweep pass ended with listed keys left over; the next pass lists them again"
         );
     }
-}
-
-async fn backup_cut_is_held(host: &Host) -> bool {
-    host.db.backup_publish_target_is_held().await
 }
 
 async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::PassTotals, String> {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-mod temporal;
+pub(crate) mod temporal;
 
 /// Strongly typed value types for schema fields.
 ///

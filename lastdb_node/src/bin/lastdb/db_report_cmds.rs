@@ -19,11 +19,7 @@ pub(crate) fn db_inventory(
             deadline.as_secs().max(1)
         );
     }
-    let req = format!(
-        "GET /api/db/inventory HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), deadline)?;
+    let response = get_path(socket, "/api/db/inventory", deadline)?;
     let value = parse_json_response(&response, "inventory")?;
     let mut inventory = value
         .get("inventory")
@@ -77,11 +73,7 @@ pub(crate) fn db_schemas(
             deadline.as_secs().max(1)
         );
     }
-    let req = format!(
-        "GET /api/db/schemas HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(socket, req.as_bytes(), deadline)?;
+    let response = get_path(socket, "/api/db/schemas", deadline)?;
     let value = parse_json_response(&response, "schema storage")?;
     let report = value
         .get("schema_storage")

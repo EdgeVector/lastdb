@@ -33,6 +33,47 @@ pub(super) struct TreeCursor {
 }
 
 impl TreeCursor {
+    /// Account the unique keys and pages that survive a per-record call reset.
+    pub(super) fn retained_bytes(&self) -> Result<u64> {
+        let mut bytes = self
+            .previous
+            .as_ref()
+            .map_or(0, |key| key.capacity() as u64);
+        let mut keys = Vec::new();
+        for key in [&self.lower, &self.upper]
+            .into_iter()
+            .chain(
+                self.branches
+                    .iter()
+                    .flat_map(|branch| [&branch.lower, &branch.upper]),
+            )
+            .flatten()
+        {
+            let identity = Arc::as_ptr(key);
+            if !keys.contains(&identity) {
+                keys.push(identity);
+                bytes = bytes
+                    .checked_add(key.capacity() as u64)
+                    .ok_or_else(super::resource)?;
+            }
+        }
+        let mut pages = Vec::new();
+        for page in self
+            .leaf
+            .iter()
+            .chain(self.branches.iter().map(|branch| &branch.page))
+        {
+            let identity = Arc::as_ptr(page);
+            if !pages.contains(&identity) {
+                pages.push(identity);
+                bytes = bytes
+                    .checked_add(super::PAGE_BYTES as u64)
+                    .ok_or_else(super::resource)?;
+            }
+        }
+        Ok(bytes)
+    }
+
     pub(super) fn seek(call: &mut ReadCall, tree: TreeRoot, key: &[u8]) -> Result<Self> {
         Self::seek_inner(call, tree, key, 0)
     }

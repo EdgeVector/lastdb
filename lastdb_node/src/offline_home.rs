@@ -32,6 +32,23 @@ pub fn refuse_primary(path: &Path) -> Result<(), String> {
     refuse_primary_under(&user_home()?, path)
 }
 
+/// The range-conversion inventory never accepts a primary or an archive,
+/// including through a symlink. It has no primary override.
+pub fn refuse_primary_or_archive(path: &Path) -> Result<(), String> {
+    refuse_primary(path).map_err(|_| {
+        "refusing a primary or legacy home; select a stopped development home".to_string()
+    })?;
+    let selected = canonicalize_lenient(path);
+    if selected.components().any(|part| {
+        part.as_os_str()
+            .to_string_lossy()
+            .starts_with(".primary-lastdb-archive-")
+    }) {
+        return Err("refusing an archived primary; select a stopped development home".into());
+    }
+    Ok(())
+}
+
 fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     let abs = canonicalize_lenient(path);
     for name in PRIMARY_HOME_DIR_NAMES {
@@ -106,6 +123,15 @@ pub fn preflight_stopped_home(
     home: &Path,
     store_root: &Path,
 ) -> Result<(Preflight, std::fs::File), String> {
+    let mut preflight = preflight_read_only_home(home, store_root)?;
+    let lock = take_maintenance_lock(store_root)?;
+    preflight.maintenance_lock = "held";
+    Ok((preflight, lock))
+}
+
+/// Check the stopped session without creating or truncating maintenance.lock.
+/// The read-only storage snapshot must subsequently hold the native owner lock.
+pub fn preflight_read_only_home(home: &Path, store_root: &Path) -> Result<Preflight, String> {
     if crate::crash_attribution::live_daemon_pid_alive(home) {
         return Err("refusing: a daemon is alive for this home; stop it first".to_string());
     }
@@ -132,17 +158,13 @@ pub fn preflight_stopped_home(
              gracefully, then retry."
         ));
     }
-    let lock = take_maintenance_lock(store_root)?;
-    Ok((
-        Preflight {
-            daemon_alive: false,
-            sockets_closed: true,
-            last_session_clean: true,
-            shutdown_flush_receipt: true,
-            maintenance_lock: "held",
-        },
-        lock,
-    ))
+    Ok(Preflight {
+        daemon_alive: false,
+        sockets_closed: true,
+        last_session_clean: true,
+        shutdown_flush_receipt: true,
+        maintenance_lock: "native owner lock required by snapshot",
+    })
 }
 
 fn take_maintenance_lock(store_root: &Path) -> Result<std::fs::File, String> {

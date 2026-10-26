@@ -37,11 +37,14 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class Node:
-    def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None):
+    def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
+                 start_seconds=120):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
         self.environment = environment or {}
+        # A start that converts the disk format finishes before the first health reply.
+        self.start_seconds = start_seconds
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
@@ -98,7 +101,7 @@ class Node:
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
              "--full-socket-path", str(self.root / "f.sock")],
             env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + self.start_seconds
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 raise RuntimeError("The owned daemon exited before health; inspect node.log")

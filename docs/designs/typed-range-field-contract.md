@@ -1,17 +1,18 @@
 # Typed range field contract
 
-Status: first implementation package. The active key format stays unchanged.
+Status: shared field semantics, captured comparison context, typed key conversion APIs, and a stopped-home inventory command.
+The active node key format stays unchanged. Database conversion and activation remain pending.
 
 ## Current state
 
 A schema selects its hash field and range field from its existing fields.
 Each selected field already has a declared type in `field_types`.
 The key path converts scalar values to strings and compares range strings.
-The current shared type contract has no date type.
+The shared type contract includes explicit `Date` and `DateTime` types.
 
 ## Date types
 
-This package adds `Date` and `DateTime` to the shared `FieldValueType` enum.
+`Date` and `DateTime` belong to the shared `FieldValueType` enum.
 Both types use JSON strings. Validation preserves each original value.
 
 | Type | Accepted value |
@@ -35,7 +36,7 @@ No field changes type because its value looks like a date.
 
 ## Key admission
 
-CAUTION: This package does not enable date keys or typed range comparisons.
+CAUTION: Current disk formats retain text order. Date keys remain disabled.
 
 Schema admission refuses `Date` and `DateTime` in either key field.
 The refusal also covers nested object or map keys and any temporal branch of a union.
@@ -44,6 +45,40 @@ Wire schema loads, runtime field creation, schema-service proposals, and direct 
 The schema service resolves canonical types and checks the result before a new schema or expansion reaches storage or memory.
 It also resolves new reference fields before that check, to preserve their existing value validation.
 This refusal prevents an explicit date type from silently using the current string order.
+
+## Comparison context and cursors
+
+Each schema read captures its declared key types, molecule bindings, and actual storage formats.
+Object paths, map values, and union branches supply their declared types. Unknown declarations remain `Any`.
+The read keeps this context through memory selection, disk reads, counts, and final response order.
+A nested read refuses a different context. Each codec must match the captured order version.
+Plain and OPE-v1 files both declare `LegacyUtf8V1`; their current key bytes and range order stay unchanged.
+Raw molecule and maintenance keys retain an explicit storage comparator.
+
+The shared comparison library also defines canonical values for future typed profiles:
+
+- String: the complete UTF-8 value.
+- Integer: an exact signed 64-bit value, with no float conversion.
+- Date: the signed Gregorian day ordinal, where `0001-01-01` is day 1.
+- DateTime: signed 128-bit nanoseconds from the Unix epoch, normalized to UTC.
+- Boolean: false before true.
+
+Typed comparison refuses unsupported domains and mixed scalar unions.
+A nullable declaration permits its one non-null scalar domain; a required key cannot be null.
+Typed text prefixes require String. Float, Number, and Any have no approved typed order yet.
+These semantic functions do not activate a new disk format or change existing Integer ranges.
+
+New query cursors add an opaque `comparison` identifier beside `hash` and `range`.
+It binds the captured schema/type/format context, selector, projection, sort direction, and database scope.
+A different identifier receives a refusal with a request to restart the page sequence.
+The identifier is a compatibility hash. It is not an authentication token.
+Older bare cursors remain accepted for the current UTF-8 format only.
+The SDK preserves the full cursor and its string coordinates without date or numeric conversion.
+Malformed cursor metadata receives a refusal. The range consumers retain the exact coordinate checks and verify a stable identifier when present.
+Broad operations return the full cursor to the node. Paired latency operations use identical supported legacy requests on both program versions.
+The paired input and final-value checks remain unchanged.
+
+No context metadata is stored on each key. The cursor identifier adds bytes to a page response only.
 
 ## Compatibility and size
 
@@ -54,15 +89,164 @@ The change adds no second molecule, stored key copy, or ordered lookup.
 The schema declaration alone carries the new type name.
 Older readers cannot accept the new enum variants; they need an upgrade before a new date declaration reaches them.
 
-## Next packages
+## Typed storage profiles
 
-1. Carry the declared field type through key creation, comparisons, bounds, and cursors.
-2. Define date order by calendar day and datetime order by UTC instant.
-3. Use a wide enough time value for nanosecond precision across the full year domain.
-4. Select a compact, reviewed encryption profile for each supported key type.
-5. Define one versioned key representation per molecule, with explicit conversion and recovery.
+The shared `RangeStorageProfile` enum defines versioned, reversible range formats.
+An explicit call selects a profile from the selected field's declared type.
+The profile describes one molecule. It adds no type tag to each stored key.
+No schema admission, startup, query, or writer selects these profiles yet.
 
-Date keys remain disabled until these paths agree.
+| Profile | Ordered payload before the existing range encoding | Bytes |
+| --- | --- | --- |
+| `legacy_utf8_v1` | The existing complete text, with text order | Variable |
+| `string_utf8_v1` | The complete UTF-8 string, with byte order | Variable |
+| `integer_i64_v1` | The signed 64-bit integer with a sign bias, in fixed-width lowercase hex | 16 |
+| `date_days_v1` | The Gregorian day offset from `0000-01-01`, in fixed-width lowercase hex | 6 |
+| `date_time_nanos_v1` | The UTC nanosecond offset from `0000-01-01T00:00:00Z`, in fixed-width lowercase hex | 18 |
+| `boolean_v1` | `0` for false, `1` for true | 1 |
+
+Equal integer values produce the same payload, even when their source text differs.
+Equal datetime instants produce the same payload, even when their written offsets differ.
+The datetime profile keeps all nine fractional digits through the full UTC year domain.
+Decode returns canonical integer text, date text, or UTC datetime text with nine fractional digits.
+Atom content retains its original value. Conversion cannot restore a discarded key spelling without the source snapshot.
+String values retain every byte, including control bytes and Unicode.
+Only the String and legacy profiles permit text prefixes.
+Unsupported types, mixed scalar unions, unknown versions, and malformed fixed-width payloads receive a refusal.
+
+`ProfiledRangeCodec` composes these payloads with the existing plain or OPE-v1 range encoding.
+It retains the existing molecule keys and encryption modes.
+Plain ranges keep the payload bytes. OPE-v1 retains its existing eightfold byte expansion and existing security limits.
+This package does not select or claim a stronger encryption scheme.
+Some integer keys grow under the fixed-width format; the profile does not promise a size decrease for every type.
+No second lookup key or original range copy enters storage.
+The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes.
+
+## Explicit key conversion
+
+`RangeKeyConversion` converts a caller-supplied set of current `mk:` range keys for one molecule.
+The caller selects both source and target profiles and supplies the existing encryption configuration.
+The converter retains the exact hash bytes, including a blinded hash.
+It changes only the range portion and returns the complete mapping in target byte order.
+It never calls storage or writes an atom, tip, profile record, or format marker.
+
+The converter refuses duplicate inputs and canonical collisions under the same hash.
+The same range under different hashes remains distinct.
+It also refuses malformed framing, another molecule, invalid values, and exceeded key-count or byte limits.
+The byte limits account for the current range encoding's expansion before the target allocation.
+The plan retains source and target key strings in bounded temporary memory.
+Atom values do not enter the plan.
+No partial mapping reaches a publication callback because the API has no such callback.
+
+Decode uses the selected format. It never guesses encryption from a hex-shaped string.
+OPE-v1 decode also checks a full re-encoding with the supplied molecule and key.
+This check detects format or key mismatch. It does not authenticate the legacy encoding.
+Codec diagnostic text excludes encryption keys.
+
+CAUTION: A key conversion plan does not prove that the supplied set contains every key in a home.
+
+The caller must supply real range values from one fixed logical snapshot.
+Absent range slots for hash-only and Single fields need separate layout treatment.
+The current API does not enumerate disk generations, delete markers, conflicts, or captured mutation keys.
+It does not publish a typed profile, lift the date-key fence, or enable a typed node reader.
+
+## Stopped-home inventory
+
+The next conversion stage uses the product command:
+
+```sh
+lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-conversion --source-range-encoding ope_v1 --json
+```
+
+The source range encoding is an explicit assertion about the old node configuration.
+The command accepts `plain` or `ope_v1`. It never guesses a format from key appearance.
+The report includes that assertion and its count and byte limits.
+The command refuses the primary, legacy primary, and archived primary paths, including aliases.
+It has no primary override. It does not create a database, start a node, or copy a home.
+
+The source must stop cleanly and retain its shutdown flush receipt.
+The command holds the existing native owner locks and one fixed publication.
+It supports both the packed and run-file disk formats.
+The run-file reader uses an existing lock and authenticated CURRENT without the writer's orphan cleanup.
+The packed reader requires an existing lifetime lock before it opens a read.
+No maintenance lock is created or truncated.
+Publication and descriptor identities are checked again before the report returns.
+An account-key proof and the normal replay-floor check precede the metadata inventory.
+
+The inventory captures all metadata collections that the native namespace directory names, plus the current authoritative molecule collections.
+It excludes atom bodies/counters and CAS bytes from the in-memory metadata set.
+The packed visitor consumes excluded payloads without their retention in memory.
+It streams the complete held generation; the capture limits count selected metadata only.
+Run-file reads use bounded calls and resume strictly after the last examined key at the same fixed root.
+Tombstones do not consume a cumulative allowance for live metadata.
+The namespace directory uses the same continuation rule.
+The report binds the source publications and captured metadata with SHA-256 fingerprints.
+These fingerprints identify a snapshot. They are not authentication or permission tokens.
+
+The schema catalog supplies each field's actual molecule identity and declared range type.
+Mapped fields, shared molecules, absent range slots, and undeclared molecules remain explicit.
+Different declared range domains on one molecule produce a blocker.
+Unsupported range types and missing declarations produce blockers; no String field changes type automatically.
+Existing per-molecule bundles supply the same range keys as the normal reader.
+Missing bundle halves, malformed metadata, and source-format mismatches receive a refusal.
+
+The inventory includes direct tips, every stored generation, sparse generation deletes, and Delete barriers.
+It resolves current generation winners with the normal reader's functions.
+It also captures history, conflict, retention, catalog, idempotency, and other control records in the metadata fingerprint and family counts.
+Explicit Delete references and retention/drain slot pointers join the distinct key set, even without a live tip.
+Retention repair can leave a valid queue entry with no slot or directory pointer.
+The inventory preserves and counts that entry, reports an unresolved reference, and blocks its typed proposal.
+It never invents a coordinate or treats the repair representation as malformed data.
+History API coordinates are counted separately; they are not guessed to be storage coordinates.
+The report does not save the captured metadata.
+A future converter must capture it again from the same bound source publication.
+
+For supported molecules, proposed keys preserve exact scope and hash bytes.
+The inventory checks source range encoding, target scalar validation, collisions, and key byte limits.
+Repeated references to the same stored coordinate count once.
+The same coordinate under different scopes stays separate.
+Counts distinguish checked source ranges from checked target mappings.
+An unsupported proposal does not report a zero-byte target.
+Key byte totals describe distinct normalized molecule coordinates; they do not predict final database size.
+They exclude generation prefixes, barrier encodings, pointer values, counters, atoms, and files.
+
+The default limits are one million metadata records, 128 MiB of captured metadata, and 64 KiB per key.
+The command refuses an incomplete inventory when a limit is exceeded.
+These limits bound captured data and key plans, not total process memory or temporary reader buffers.
+The report always keeps `database_converted` and `activation_ready` false.
+It does not certify counter integrity, classify every opaque control value, or authorize a file rewrite.
+
+## Conversion and recovery boundary
+
+A separate target keeps the source unchanged and simplifies recovery.
+The future converter must bind its durable job to the source fingerprint, declared profiles, and explicit encoding configuration.
+It must refuse a target from another job or a different source publication.
+It must not copy the primary or use a copy of the primary.
+
+The target first receives an unsupported in-progress logical marker.
+Normal startup must refuse that marker, including after an interruption.
+The converter then builds target records from the fixed source and records durable progress.
+Every changed generation, barrier, retention pointer, and captured key reference needs an explicit format rule.
+Opaque values must not receive speculative text substitutions.
+Verification must cover all original records, atom references, counters, protein bindings, file references, and the replay floor.
+Profile metadata and the final supported format marker publish only after those checks succeed.
+
+An interrupted job resumes only through the explicit converter and the same bound source.
+A failed source check leaves the target closed.
+An abort discards only the exact owned target after its identity checks.
+Startup never resumes or activates a conversion.
+Primary promotion remains a separate action.
+
+## Remaining packages
+
+1. Implement durable target progress and its unsupported-format fence.
+2. Define transformations for the captured physical and API key references, including conflict identity and retention pointers.
+3. Publish a complete converted target and its molecule profiles with explicit resume and recovery.
+4. Verify counters, atom references, protein bindings, files, and the replay floor through that publication.
+5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors before activation.
+
+Date keys remain disabled until these paths agree. Conversion never runs at startup.
+The current encryption stays in use. A replacement requires a separate review and decision.
 The plan adds no separate `range_type` option that can contradict the selected field.
 It does not require a cloud reader now.
 

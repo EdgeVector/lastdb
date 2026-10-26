@@ -14,6 +14,7 @@ mod worker;
 
 pub use crate::backup_runtime::{BackupError, BackupRuntime};
 pub use control::request;
+pub(crate) use control::status;
 pub use credentials::client_from_home;
 pub use model::{ByteBackupRequest, ByteBackupStatus, Phase};
 pub type Result<T> = std::result::Result<T, BackupError>;

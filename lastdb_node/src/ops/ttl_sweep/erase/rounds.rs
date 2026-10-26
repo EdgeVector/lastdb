@@ -15,7 +15,7 @@ pub(super) async fn erase_rounds(
             if backlog.is_done() {
                 continue;
             }
-            if shutdown.load(Ordering::Acquire) || backup_cut_is_held(host).await {
+            if shutdown.load(Ordering::Acquire) {
                 return true;
             }
             let size = batch_size(host, backlog, options.1.batch, options.0);
@@ -49,7 +49,7 @@ async fn erase_page(
     watch: &mut WriterWatch,
 ) -> bool {
     while backlog.page_left() > 0 {
-        if shutdown.load(Ordering::Acquire) || backup_cut_is_held(host).await {
+        if shutdown.load(Ordering::Acquire) {
             return true;
         }
         let size = batch_size(host, backlog, pace.batch, verb);

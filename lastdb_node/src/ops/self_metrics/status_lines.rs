@@ -342,7 +342,7 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         log_streams_line(&snapshot.logs),
         molecule_edge_status_line(&snapshot.molecule_edges),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
-        recoverability_status_line(snapshot.sampled_at, &snapshot.sync, &snapshot.durability),
+        "Automatic backup: disabled".to_string(),
         sync_status_line(snapshot.sampled_at, &snapshot.sync),
         upload_policy_status_line(&snapshot.sync),
     ];
@@ -369,14 +369,7 @@ fn backup_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(storage) = snapshot.backup_storage.as_ref() {
         lines.push(backup_storage_status_line(storage));
     }
-    // Unconditional: the progress line above is suppressed whenever the
-    // uploader is off or caught up, and "off" read identically to "healthy"
-    // for the nine days the primary had no off-machine copy.
-    lines.push(durability_status_line(
-        &snapshot.durability,
-        snapshot.sync.enabled,
-        mutation_log_plane_recording(&snapshot.sync),
-    ));
+    lines.push(durability_status_line(&snapshot.durability));
     lines
 }
 

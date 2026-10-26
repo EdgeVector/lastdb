@@ -52,21 +52,7 @@ pub(crate) fn db_reseal_at_rest(
     if let Some(max_secs) = max_secs {
         body["max_secs"] = serde_json::json!(max_secs);
     }
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|e| format!("serialize reseal-at-rest body: {e}"))?;
-    let header = format!(
-        "POST /api/db/reseal-at-rest HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, deadline)?;
+    let response = post_json_with_timeout(socket, "/api/db/reseal-at-rest", &body, deadline)?;
     let value = parse_json_response(&response, "reseal-at-rest")?;
     let report = value
         .get("reseal_at_rest")

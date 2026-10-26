@@ -1,9 +1,8 @@
 # Cloud byte transport V2
 
-Status: the wire contract and HTTP client are accepted code.
-This change adds the native client adapter, manual backup worker, and restore path.
-The separate service change remains subject to CI and DEV deployment approval.
-No V2 backup or restore operation is proven yet.
+Status: the manual V2 backup and restore path is accepted code.
+This change adds explicit R2 and B2 destinations and a client record export.
+CI and a real provider backup and restore must verify this change before activation.
 The route namespace is `/api/cloud/backups/v2/`.
 
 The retired legacy engine's nonserialized `SyncConfig` and `CaptureMode` Rust
@@ -16,6 +15,7 @@ models keep their existing definitions; those status models are passive metadata
 The cloud stores exact opaque bytes and returns verified receipts.
 The client defines its format, encryption, native home, durable frontier, files, and recovery rules.
 The service does not decode CURRENT, native features, file kinds, or recovery keys.
+The client sends file blob bytes to B2 and all other bytes to R2.
 The local pack format and file encryption do not change.
 
 The canonical types are in `cloud_backup_protocol/src/v2/`.
@@ -32,18 +32,24 @@ Every V2 version field is the JSON integer `2`.
 The scope contains the authenticated personal account and its account generation.
 Provider resources and credential authority remain private service state.
 Context reads bind the requested account to its current scope and return `new_work_allowed`.
+The client can require R2 and B2 before it starts a local capture.
+Begin freezes that same destination requirement.
 This value is advisory. Mutation transactions still enforce exact current authority.
 
-`Object` contains a SHA-256 digest and a positive canonical decimal byte count.
+`Object` contains a SHA-256 digest, a positive canonical decimal byte count, and an optional destination.
+New routed objects require an explicit `r2` or `b2` destination.
+The service uses the destination without knowledge of the object contents.
 The count permits the positive `u64` range.
 The wire type imposes no native file-size limit.
 The provider, quota, and resource policy must admit each object before an effect starts.
 Clients can split large files into objects without a cloud file-kind field.
 
-`ClientDescriptor` contains `format_id`, nonzero `format_version`, and `public_bootstrap`.
-The bootstrap is bounded public UTF8 text. It contains no secret keys.
-The service preserves the exact string value without interpretation or normalization.
-The client checks its own format support and bootstrap meaning before restore.
+`ClientDescriptor` is an opaque bounded JSON value.
+The service preserves the value without knowledge of its fields.
+Old descriptors retain their exact JSON shape and identity.
+New LastDB backups use a null descriptor.
+The encrypted client root contains the client format and recovery information.
+The recovery phrase identifies the account before the client decrypts that root.
 
 Canonical JSON uses `json-canon` over the complete typed value.
 Identity hashes frame the domain length as big-endian `u32`, then the domain bytes.
@@ -55,28 +61,38 @@ Stored object and canonical inventory byte digests use plain SHA-256.
 
 ## Job and object sequence
 
-1. Save one job UUID, the descriptor, and the exact predecessor before the first request.
+1. Save one job UUID, the descriptor, the destinations, and the exact predecessor before the first request.
 2. Submit `Begin` with those immutable values. Retry with the same input.
 3. Save exact object bytes and immutable transfer inputs before a PUT.
 4. Prepare at most four transfers from one job per request.
-5. Use a temporary create-once PUT grant with signed `If-None-Match: *` and exact `Content-Length`.
+5. Use the exact upload grant and its mode, with a signed `Content-Length`.
 6. Complete each transfer. Poll its saved identity while verification remains pending.
 7. Receive authoritative receipts only after exact length and SHA-256 verification or verified canonical reuse.
 8. Upload and verify the client root object before the final inventory.
 9. Include its ordinary receipt once, then freeze the complete inventory and submit `Commit`.
 
-Each transfer input binds its request UUID, complete job, object digest, and object byte count.
+Each transfer input binds its request UUID, complete job, destination, object digest, and object byte count.
 Resume and complete select that exact saved input digest.
 The private provider target must bind the full transfer digest, so independent requests cannot alias an untracked target.
 Canonical reuse requires the saved verified allocation, not a caller-computed receipt hash.
+The target identity separates R2 and B2 allocations, credentials, and target epochs.
 The service must save each authoritative receipt before acceptance.
 
 `Pending` means awaiting bytes, verification, or an unknown outcome.
 A timeout does not prove failure. The client preserves the same input and byte source.
-An explicit resume may retry one exact conditional PUT and complete request.
+An explicit resume may retry one exact upload grant and complete request.
 Status polls do not repeat PUT or queue admission.
 The existing generic terminal failure codes describe only permanent frozen-input failures.
 They do not authorize format interpretation or release unresolved reservations.
+
+R2 grants use a conditional PUT with signed `If-None-Match: *`.
+B2 grants permit only part one of a service-owned multipart upload.
+The service alone creates and completes that upload.
+It saves the upload identity before it grants access to the part.
+It verifies the exact part, then binds reads to the completed object version.
+An unknown provider outcome retains the reservation and requires reconciliation.
+The service does not repeat an unknown create or completion to assume success.
+The B2 part limit applies to one upload object, not to a local file.
 
 ## Finite inventory and publication
 
@@ -129,7 +145,7 @@ The service grants reads only after exact accepted membership checks.
 A caller-supplied digest alone never authorizes a read.
 
 The root grant can precede inventory downloads because the accepted record names its receipt.
-The grant's digest and byte count must reconstruct that same canonical receipt identity.
+The grant's destination, digest, and byte count must reconstruct that same canonical receipt identity.
 The client then verifies all inventory pages and the root's exact membership.
 Before install, the client compares its complete used receipt set with the accepted inventory, including the root.
 It refuses missing receipts, extra receipts, duplicate receipts, or unchecked bytes.
@@ -140,7 +156,7 @@ Restore retains the same accepted selection after restart.
 
 V2 caps control JSON and each canonical inventory value at 256 KiB.
 It caps a page at 512 receipts and an index at 1024 page descriptors.
-It caps format IDs at 128 UTF8 bytes and bootstrap text at 16 KiB.
+It caps an opaque descriptor at 256 KiB.
 The complete request must also fit the control cap; an envelope can reduce the effective metadata capacity.
 Transfers and read grants use batches of one to four. Discovery permits at most 100 streams per page.
 Transport code must cap input bytes before JSON decode and cap output bytes before response decode.
@@ -160,6 +176,12 @@ V1 messages, routes, hashes, receipts, plans, and unfinished jobs remain unchang
 The V2 route namespace is separate from V1.
 The client completes V1 terminal cleanup before it creates a fresh V2 stream.
 V1 restore remains available. No conversion invents V2 authority from V1 hashes.
+Old V2 Begin values omit destinations and keep their exact identity.
+Old V2 object and read values omit destinations and keep their exact identity.
+Those jobs retain their saved AWS target, even after the service enables R2 and B2.
+New configuration cannot move an old receipt or change an accepted backup.
+Inventory pages and the inventory index use R2 for routed jobs.
+The service keeps provider credentials in secret references, outside the protocol.
 DEV deployment and real DEV recovery remain separate operational work.
 
 ## Client adoption
@@ -171,30 +193,46 @@ The V1 wrappers retain their exact validators, limits, routes, and public method
 The V2 upload requires an exact resume response. Commit requires the concrete inventory proof.
 Read grants require the frozen accepted record. The client does not choose a newer head during restore.
 
-The native client format lives in `storage::disk_pack::byte_backup`.
-Its public descriptor identifies format version 1 and the account public key.
+The client format lives in `storage::disk_pack::byte_backup`.
 Its encrypted root and pages bind the exact Begin and descriptor digests.
-The root describes the native cut and pages. Pages describe paths, file digests, lengths, and object extents.
-The service does not read those values.
+Only the client interprets their contents.
 
-The adapter retains one durable native cut before it hashes files or starts network work.
+A native pack can contain both file blob bytes and other records in one compressed block.
+One destination for that whole pack cannot separate those bytes.
+The client therefore exports the stored records through the existing native transfer format.
+This export does not change the local pack format, stored bytes, or encryption keys.
+It does not create a second home or copy the primary.
+
+The client uses four ordered streams:
+
+1. Metadata contains the existing transfer header, record prefixes, and footer. It goes to R2.
+2. R2 bodies contain the exact stored bytes for all records outside `cas_blobs`.
+3. B2 bodies contain the exact stored bytes for `cas_blobs`.
+4. Sequence contains the stream choice and byte count for each transfer run. It goes to R2.
+
+The existing client metadata encryption protects the metadata and sequence chunks, root, and pages.
+Body bytes retain their existing encryption. The client adds no file encryption layer.
+Client pages describe chunk order and receipt identities without a record-count cap.
+The cloud sees only opaque objects and their destinations.
+
+The adapter retains one durable native cut before the export and network work.
 A retry keeps that cut, job UUID, transfer UUIDs, and object bytes.
-Small native files share raw upload objects. Larger files use bounded upload chunks.
-The native pack format and file bytes stay unchanged.
-The existing account key protects the root and pages. Files receive no extra encryption.
-The root object precedes the complete receipt inventory.
-
-The transport policy lives in `lastdb_storage_policy::backup_transport`.
-It sets a 64 MiB upload chunk, an 8 MiB small-file pack, and a 64 KiB small-file threshold.
-It permits at most 512 files in one upload pack.
-These values control the upload plan. They impose no native file-size cap.
-The existing shared backup allowance controls memory, stream count, and temporary disk space.
-The source retains files until exact cloud terminal authority permits release.
-Local cancellation uses a separate state and requires proof that Begin was not submitted.
+Body objects combine adjacent stored bodies and split at the existing 64 MiB upload chunk size.
+Metadata and sequence chunks use the central 1 MiB stream buffer size.
+These chunk sizes impose no local file-size limit.
+The existing shared allowance controls memory, concurrent streams, and temporary disk space.
+Large keys reduce upload concurrency within that allowance.
+Encrypted metadata and source coordinates use the existing bounded source spool.
+The source retains its files until exact cloud terminal authority permits release.
+Local cancellation requires proof that Begin was not submitted.
 
 The manual command is `lastdb --data-dir <absolute-home> cloud backup-v2`.
 The node requires `LASTDB_BYTE_BACKUP_V2_ENABLED=true` for new manual work.
 Status and exact close operations remain available without that flag.
+The node status reports V2 manual work and disables automatic backup claims.
+It reads only the local V2 coordinator and reports unknown freshness separately.
+A missing local receipt cannot prove that an external coordinator backup is absent.
+The health check keeps unknown freshness distinct from a healthy or failed backup.
 Start, resume, status, and close use the owner-only local socket route.
 The worker has a separate controller and participates in normal node shutdown.
 The V1 backup, restore, automatic controller, and legacy cloud activation commands are retired.
@@ -215,14 +253,32 @@ A failed batch keeps verified sibling receipts. Other control failures keep the 
 A daemon exit retains the saved job and cut. An explicit resume uses their exact identities and bytes.
 
 Restore freezes one accepted V2 backup and verifies every inventory page and downloaded byte.
-It reconstructs each native file from its exact extents, then checks the complete file digest and length.
-It checks the complete used receipt set before native record, key, and metadata checks.
-The existing native validator and fresh-destination installer run after those V2 checks.
-The initial client profile requires all file dependencies in the native cut.
-It refuses remote-only files before backup eligibility. It does not omit them.
+The client verifies the complete chunk order, stream digests, and used receipt set.
+Four bounded streams reconstruct the existing native transfer input.
+The existing importer rebuilds a fresh home and checks the complete stored record receipt.
+The rebuilt home preserves stored records, versions, deletions, account keys, and native format.
+Its physical file names and home identity can differ from the source.
+The client checks that rebuilt home through the existing native validator and fresh-destination installer.
+All feeder tasks and the importer settle before any failure returns.
 
-Next, use the exact CI client and service packages for one fresh DEV account.
-Back up normal records, packed files, and a file larger than one upload chunk.
-Stop the source node. Restore into a fresh destination without source files or caches.
-Verify normal record reads and exact file bytes on the restored node.
-Defer old account recovery, historical reconciliation, PROD, and primary changes until that proof succeeds.
+A durable completion marker binds the accepted backup and fully verified import.
+A resumed restore rechecks the concrete pages and rebuilt record receipt before installation.
+A partial import without that marker requires a fresh restore session.
+The old client profile still restores native files through their exact extents and file digests.
+Neither restore path reads source files or the primary.
+The client refuses remote-only dependencies before backup eligibility.
+
+Use exact CI client and service packages for the real DEV proof.
+Verify B2 file blob objects, R2 other objects, a 100 MiB file, and interrupted upload recovery.
+Stop the source and restore a fresh home. Verify normal reads and complete file bytes after two boots.
+Verify old accepted backup reads through their saved target.
+Activate PROD only after the DEV proof succeeds.
+
+The unused sealed-chunk backup progress tracker, cycle samples, and ETA estimator are removed.
+The legacy progress snapshot and shared CLI formatter retain their status behavior.
+Active V2 byte-backup progress does not use that tracker.
+
+The client capture currently supports disk V1 packs only.
+The existing format check refuses disk V2 run homes before capture.
+A separate client adapter must retain both disk V2 homes across restart.
+The generic cloud contract requires no change for that adapter.

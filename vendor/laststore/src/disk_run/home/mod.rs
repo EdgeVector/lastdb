@@ -3,7 +3,7 @@
 //! ```text
 //! <root>/laststore-run-home-v2   64 B clear descriptor: magic, home id, CRC
 //! <root>/LOCK                    exclusive owner lock (flock)
-//! <root>/CURRENT                 sealed list of runs by level + frontier
+//! <root>/CURRENT                 sealed list of runs + frontier
 //! <root>/runs/<run id>.ldrun     immutable run files
 //! ```
 //!
@@ -12,25 +12,34 @@
 //! CURRENT for its whole call and searches the runs newest first, so it
 //! sees one complete commit boundary and never a part of a commit.
 //!
-//! [`RunHome::merge_step`] merges the runs of a full level (eight runs) into
-//! one run on the next level. A merge into the deepest level drops
-//! tombstones. A read that holds an older CURRENT keeps the merged runs
-//! alive; the last holder deletes their files.
+//! The runs are tiered levels, then the runs of a base merge in progress,
+//! then the base: the oldest data, each live key once, in key order.
+//! [`RunHome::merge_step`] merges a full level (eight runs) into one run on
+//! the next level, and moves the oldest tiered runs into the base when they
+//! or the stale versions grow past a fixed share of the home. The `plan`
+//! module states the size bound. A read that holds an older CURRENT keeps
+//! the merged runs alive; the last holder deletes their files.
+//! [`RunHome::retired_bytes`] reports how much of that is still on disk, so
+//! an owner whose reads are long can pace its merge steps.
 //!
 //! After a crash, the owner deletes temporary files and run files that
 //! CURRENT does not name when it opens the home. Nothing is replayed: the
 //! last CURRENT is the complete state.
 //!
-//! Values are stored as given. The block seal of every run is the
+//! A commit stores each value in its [`crate::disk_run::value`] form, and a
+//! read returns the value as given. The block seal of every run is the
 //! encryption at rest; the home key protects every run and CURRENT.
 
 mod commit;
 mod keys;
 mod manifest;
+mod plan;
 mod range;
 mod read;
+mod read_only;
 
-pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use commit::{MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{RunRead, RunReadCosts, RunRoot};
 
@@ -38,20 +47,26 @@ use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
-use manifest::{Manifest, RUNS};
+use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use uuid::Uuid;
 
 /// File name of the clear home descriptor. Its presence selects format v2.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME2";
+/// `LDRHOME3`: values in their tagged stored form. An `LDRHOME2` home stored
+/// values as given; no user data is in one, and this program refuses it.
+const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME3";
+const UNTAGGED_MAGIC: &[u8; 8] = b"LDRHOME2";
 const DESCRIPTOR_BYTES: usize = 64;
+
+/// Largest value that a commit accepts: its stored form adds one tag byte.
+pub const MAX_VALUE_BYTES: usize = super::MAX_RUN_VALUE_BYTES - 1;
 
 /// Level and size facts of the published CURRENT.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,8 +75,46 @@ pub struct RunHomeStatus {
     pub generation: u64,
     /// Complete commits.
     pub frontier: u64,
-    /// For each level: runs, records (tombstones included), file bytes.
+    /// For each tiered level: runs, records (tombstones included), file bytes.
     pub levels: Vec<(usize, u64, u64)>,
+    /// The runs of a base merge in progress: runs, records, file bytes.
+    pub merging: (usize, u64, u64),
+    /// The base: runs, records, file bytes.
+    pub base: (usize, u64, u64),
+    /// Key and value bytes of every run before compression.
+    pub record_bytes: u64,
+    /// Older versions that newer tiered records hide, and the tiered
+    /// tombstones, in record bytes; `None` while a new run is not counted.
+    pub stale_bytes: Option<u64>,
+}
+
+impl RunHomeStatus {
+    fn parts(&self) -> impl Iterator<Item = &(usize, u64, u64)> {
+        self.levels.iter().chain([&self.merging, &self.base])
+    }
+
+    /// Runs that CURRENT names.
+    pub fn runs(&self) -> usize {
+        self.parts().map(|part| part.0).sum()
+    }
+
+    /// Records of every run, tombstones and hidden versions included.
+    pub fn records(&self) -> u64 {
+        self.parts().map(|part| part.1).sum()
+    }
+
+    /// File bytes of every run.
+    pub fn file_bytes(&self) -> u64 {
+        self.parts().map(|part| part.2).sum()
+    }
+}
+
+fn totals(runs: &[Arc<RunFile>]) -> (usize, u64, u64) {
+    (
+        runs.len(),
+        runs.iter().map(|run| run.meta.records).sum(),
+        runs.iter().map(|run| run.meta.file_bytes).sum(),
+    )
 }
 
 /// An open v2 home. One process owns it; reads and writes share it.
@@ -77,8 +130,12 @@ pub struct RunHome {
     commit: Mutex<()>,
     /// Serializes CURRENT publication.
     publish: Mutex<()>,
-    /// Serializes merges, so a merge's inputs stay in CURRENT until it ends.
+    /// Serializes merge steps and hidden byte counts, so a step's inputs
+    /// stay in CURRENT until it ends.
     merge: Mutex<()>,
+    /// The runs that merges replaced. A run's file stays until the last
+    /// root or read that names it ends; a dead handle is pruned.
+    retired: Mutex<Vec<Weak<RunFile>>>,
     /// Set when a publish fails after its rename: the durable state is unknown.
     poisoned: AtomicBool,
     /// The owner lock. Each read holds a clone, so no other owner can open
@@ -157,6 +214,7 @@ impl RunHome {
             commit: Mutex::new(()),
             publish: Mutex::new(()),
             merge: Mutex::new(()),
+            retired: Mutex::new(Vec::new()),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
         })
@@ -183,16 +241,41 @@ impl RunHome {
         RunHomeStatus {
             generation: current.generation,
             frontier: current.frontier,
-            levels: current
-                .levels
-                .iter()
-                .map(|level| {
-                    let records: u64 = level.iter().map(|run| run.meta.records).sum();
-                    let bytes: u64 = level.iter().map(|run| run.meta.file_bytes).sum();
-                    (level.len(), records, bytes)
+            levels: current.levels.iter().map(|level| totals(level)).collect(),
+            merging: totals(&current.merging),
+            base: totals(&current.base),
+            record_bytes: current
+                .newest_first()
+                .map(|run| run.meta.record_bytes)
+                .sum(),
+            stale_bytes: current
+                .tiered()
+                .map(|run| {
+                    run.hidden()
+                        .map(|hidden| hidden.saturating_add(run.meta.tombstone_bytes))
                 })
-                .collect(),
+                .sum(),
         }
+    }
+
+    /// File bytes of the runs that merges replaced and that a held root or
+    /// a read still keeps on disk. They go when the last holder ends.
+    pub fn retired_bytes(&self) -> u64 {
+        let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        retired.retain(|run| run.strong_count() > 0);
+        // A handle can be the last one: its drop then deletes the file.
+        retired
+            .iter()
+            .filter_map(Weak::upgrade)
+            .map(|run| run.meta.file_bytes)
+            .sum()
+    }
+
+    /// Record the runs that a merge step just retired.
+    fn note_retired(&self, runs: &[Arc<RunFile>]) {
+        let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        retired.retain(|run| run.strong_count() > 0);
+        retired.extend(runs.iter().map(Arc::downgrade));
     }
 
     fn held(&self) -> Arc<Manifest> {
@@ -254,6 +337,13 @@ fn read_descriptor(root: &Path) -> Result<Uuid> {
     let mut bytes = [0u8; DESCRIPTOR_BYTES];
     file.read_exact(&mut bytes)?;
     let crc = u32::from_le_bytes(bytes[60..].try_into().expect("4 bytes"));
+    if &bytes[..8] == UNTAGGED_MAGIC {
+        return Err(Error::Config(
+            "disk run home: this home stores untagged values from an earlier v2 build; \
+             create a new home"
+                .into(),
+        ));
+    }
     if &bytes[..8] != DESCRIPTOR_MAGIC
         || bytes[8..12] != 1u32.to_le_bytes()
         || crc != crc32fast::hash(&bytes[..60])

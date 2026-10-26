@@ -38,6 +38,7 @@ impl HashRangeQueryProcessor {
         options: FieldQueryOptions<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         Self::require_supported_query(schema, filter.as_ref())?;
+        let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
         let query = QuerySelection {
             schema,
             fields,
@@ -46,8 +47,11 @@ impl HashRangeQueryProcessor {
             include_tombstones: options.include_tombstones,
             request_concurrency: options.secondary_concurrency,
         };
-        self.current_query_scope(self.predicate_query_captured(query, options).boxed())
-            .await
+        self.current_query_scope(
+            comparison,
+            self.predicate_query_captured(query, options).boxed(),
+        )
+        .await
     }
 
     async fn predicate_query_captured(

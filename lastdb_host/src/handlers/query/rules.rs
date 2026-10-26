@@ -1,9 +1,9 @@
-//! Pure query selection, admission, keyed-page, and row-order rules.
-//! No host, storage, or task access.
+//! Query selection, admission, keyed pages, and captured-context row order.
 
 use std::cmp::Ordering;
 
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
 use fold_db::schema::types::KeyValue;
 use serde_json::Value;
@@ -13,24 +13,21 @@ use crate::HostError;
 
 /// Check options after schema resolution and the product keyed-access check,
 /// preserving the order in which invalid combinations are rejected.
-pub(super) fn validate_query_options(
-    query: &Query,
-    cursor: Option<&KeyValue>,
-) -> Result<(), HostError> {
+pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<(), HostError> {
     if query.expected_total_count.is_some() && !can_push_down_key_restricted(query) {
         return Err(HostError::new(
             400,
             "expected_total_count requires a keyed query with no post-key filters".to_string(),
         ));
     }
-    if cursor.is_some() && !is_key_restricted_filter(query.filter.as_ref()) {
+    if has_cursor && !is_key_restricted_filter(query.filter.as_ref()) {
         return Err(HostError::new(
             400,
             "Cross-hash query cursors are unsupported; use an offset or query one hash with a cursor"
                 .to_string(),
         ));
     }
-    if cursor.is_some()
+    if has_cursor
         && (!can_push_down_key_restricted(query)
             || matches!(query.sort_order, Some(SortOrder::Desc)))
     {
@@ -91,7 +88,7 @@ pub(super) fn keyed_window(
     Ok(Some(window))
 }
 
-/// Compare response rows independently of reads, formatting, and phase timers.
+/// Compare response rows using only the supplied values and range rule.
 /// Field ordering uses the core's JSON order; otherwise the range is primary.
 /// Equal primary values use ascending range and then ascending hash ties, even
 /// when the caller requests descending order.
@@ -100,7 +97,12 @@ pub(super) fn compare_rows(
     b: &Value,
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
+    range_comparison: Option<&RangeKeyComparison>,
 ) -> Ordering {
+    let compare_ranges = |left: &str, right: &str| match range_comparison {
+        Some(comparison) => comparison.compare(left, right),
+        None => left.cmp(right),
+    };
     let primary = if let Some(order_by) = order_by {
         let af = a
             .get("fields")
@@ -117,15 +119,15 @@ pub(super) fn compare_rows(
         let a_range = a["key"]["range"].as_str().unwrap_or("");
         let b_range = b["key"]["range"].as_str().unwrap_or("");
         match sort_order {
-            Some(SortOrder::Desc) => b_range.cmp(a_range),
-            _ => a_range.cmp(b_range),
+            Some(SortOrder::Desc) => compare_ranges(b_range, a_range),
+            _ => compare_ranges(a_range, b_range),
         }
     };
     primary
         .then_with(|| {
             let a_range = a["key"]["range"].as_str().unwrap_or("");
             let b_range = b["key"]["range"].as_str().unwrap_or("");
-            a_range.cmp(b_range)
+            compare_ranges(a_range, b_range)
         })
         .then_with(|| {
             let a_hash = a["key"]["hash"].as_str().unwrap_or("");

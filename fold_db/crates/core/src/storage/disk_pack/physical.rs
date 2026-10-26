@@ -5,15 +5,16 @@
 //! that exists only in format v1 (parts, maintenance, byte backup, restore,
 //! file dependencies) takes the v1 home through [`PackRuntime::v1`], which
 //! refuses a v2 home.
+//!
+//! A v2 node keeps the CAS files (the `cas_blobs` collection) in their own
+//! run home, so they are separate files that a backup can send to a
+//! different store than the rest of the data.
 
+pub(super) use super::physical_v2::{V2Home, V2Read, V2Root, CAS_COLLECTION, V2_FEATURES};
 use super::*;
 use laststore::disk_pack::{HashRangeCursor, RangeBounds, ReadCosts};
-use laststore::disk_run::home::{RunHashRange, RunHome, RunRead, RunRoot};
+use laststore::disk_run::home::RunHashRange;
 
-/// Logical format features that every v2 home has from its creation.
-const V2_FEATURES: u64 = laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
-    | laststore::disk_pack::FEATURE_LARGE_BATCHES
-    | laststore::disk_pack::FEATURE_ATOM_RECORDS;
 /// Most operations in one v2 commit; the same ceiling as a v1 native home.
 const V2_BATCH_OPERATIONS: usize = 16_384;
 
@@ -23,30 +24,6 @@ pub(super) struct V1Home {
     pub(super) writer: Mutex<HomeSnapshot>,
     pub(super) read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     pub(super) capture_cleanup: laststore::disk_pack::snapshot::CaptureCleanup,
-}
-
-/// The v2 run home and its background merge thread.
-pub(super) struct V2Home {
-    pub(super) home: Arc<RunHome>,
-    /// Set while a merge thread runs; at most one runs at a time.
-    pub(super) merging: Arc<AtomicBool>,
-    /// Set when the node store closes; the thread stops after its step.
-    pub(super) stop: Arc<AtomicBool>,
-    pub(super) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// After a failed merge, no new merge thread starts before this time.
-    pub(super) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
-}
-
-impl V2Home {
-    pub(super) fn new(home: Arc<RunHome>) -> Self {
-        Self {
-            home,
-            merging: Arc::default(),
-            stop: Arc::default(),
-            merger: Mutex::new(None),
-            retry_after: Arc::default(),
-        }
-    }
 }
 
 pub(super) enum Physical {
@@ -81,7 +58,7 @@ impl Physical {
 #[derive(Clone)]
 pub(super) enum PhysicalRoot {
     V1(Current),
-    V2(RunRoot),
+    V2(V2Root),
 }
 
 impl PhysicalRoot {
@@ -151,7 +128,7 @@ pub(super) enum ReadMode {
 /// One read call against one held root of either format.
 pub(super) enum PhysicalRead {
     V1(Box<laststore::disk_pack::home::HomeRead>),
-    V2(RunRead),
+    V2(Box<V2Read>),
 }
 
 impl PhysicalRead {
@@ -159,10 +136,10 @@ impl PhysicalRead {
         match self {
             Self::V1(read) => read.costs().into(),
             Self::V2(read) => {
-                let costs = read.costs();
+                let (main, cas) = (read.main.costs(), read.cas.costs());
                 PhysicalCosts {
-                    examined_keys: costs.examined_keys,
-                    budget_bytes: costs.budget_bytes,
+                    examined_keys: main.examined_keys + cas.examined_keys,
+                    budget_bytes: main.budget_bytes + cas.budget_bytes,
                     payload_blocks: 0,
                     metadata_pages: 0,
                 }
@@ -173,7 +150,7 @@ impl PhysicalRead {
     pub(super) fn budget(&self) -> ReadBudget {
         match self {
             Self::V1(read) => read.budget(),
-            Self::V2(read) => read.budget(),
+            Self::V2(read) => read.main.budget(),
         }
     }
 
@@ -184,7 +161,7 @@ impl PhysicalRead {
     ) -> laststore::Result<()> {
         match self {
             Self::V1(read) => read.account_memory_record(key_bytes, body_bytes),
-            Self::V2(read) => read.account_memory_record(key_bytes, body_bytes),
+            Self::V2(read) => read.main.account_memory_record(key_bytes, body_bytes),
         }
     }
 
@@ -209,6 +186,7 @@ impl PhysicalRead {
                 .hash_range(collection, prefix, bounds)
                 .map(PhysicalCursor::V1),
             Self::V2(read) => read
+                .home(collection)
                 .hash_range(collection, prefix, bounds)
                 .map(PhysicalCursor::V2),
         }
@@ -225,6 +203,7 @@ impl PhysicalRead {
                 .administrative_range(collection, start, end)
                 .map(PhysicalCursor::V1),
             Self::V2(read) => read
+                .home(collection)
                 .administrative_range(collection, start, end)
                 .map(PhysicalCursor::V2),
         }
@@ -347,7 +326,10 @@ impl PackRuntime {
                         ..budget()
                     },
                 };
-                Ok(PhysicalRead::V2(v2.home.read_root(root, limits)))
+                Ok(PhysicalRead::V2(Box::new(V2Read {
+                    main: v2.home.read_root(&root.main, limits),
+                    cas: v2.cas.read_root(&root.cas, limits),
+                })))
             }
             _ => Err(StorageError::BackendError(
                 "native root and physical home use different formats".into(),

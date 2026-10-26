@@ -80,28 +80,20 @@ pub(crate) fn app_storage(
 ) -> Result<(), String> {
     if reconcile {
         let body = match page_size {
-            Some(n) => format!(r#"{{"page_size":{n}}}"#),
-            None => "{}".to_string(),
+            Some(n) => serde_json::json!({ "page_size": n }),
+            None => serde_json::json!({}),
         };
-        let req = format!(
-            "POST /api/storage/app/reconcile HTTP/1.1\r\nHost: localhost\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            client_headers(),
-            body.len()
-        );
-        let response = request_with_timeout(
+        let response = post_json_with_timeout(
             socket,
-            req.as_bytes(),
+            "/api/storage/app/reconcile",
+            &body,
             Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
         )?;
         let _ = parse_json_response(&response, "app storage reconcile")?;
     }
-    let req = format!(
-        "GET /api/storage/app HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    let response = request_with_timeout(
+    let response = get_path(
         socket,
-        req.as_bytes(),
+        "/api/storage/app",
         Duration::from_secs(lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS),
     )?;
     let value = parse_json_response(&response, "app storage")?;

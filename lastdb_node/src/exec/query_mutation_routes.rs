@@ -1,4 +1,5 @@
 use super::mutation_notifications::{single_mutation_id, MutationWatchHint};
+use super::query_filters::LocalWatchRequest;
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -126,16 +127,14 @@ pub(super) fn execute_local_watch_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let target = req.target.as_str();
-    let after_seq = query_u64(target, "after_seq").unwrap_or(0);
-    let timeout_ms = query_u64(target, "timeout_ms").unwrap_or(0);
-    let schemas = query_schema_filter(target);
-    let hash = query_string_filter(target, "hash");
-    let range_start = query_string_filter_any(target, &["start", "range_start"]);
-    let range_end = query_string_filter_any(target, &["end", "range_end"]);
-    let timeout = std::time::Duration::from_millis(
-        timeout_ms.min(crate::local_outbox::MAX_POLL_TIMEOUT.as_millis() as u64),
-    );
+    let LocalWatchRequest {
+        after_seq,
+        timeout,
+        schemas,
+        hash,
+        range_start,
+        range_end,
+    } = LocalWatchRequest::parse(&req.target, crate::local_outbox::MAX_POLL_TIMEOUT);
     // A blocking wait parks THIS UDS worker thread for the whole timeout and
     // takes no QoS permit, so uncapped watchers can occupy the entire pool
     // while `lastdb status` still reports the node idle. Admit through the

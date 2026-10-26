@@ -41,6 +41,7 @@ mod file_blob_seal;
 mod filter;
 mod helpers;
 mod keep_small;
+mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
 mod molecule_bindings;
@@ -62,6 +63,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
+pub(crate) use codec::{decode_plain_atom, encode_plain_atom};
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -82,7 +84,9 @@ pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolec
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
+pub(crate) use retention::{
+    record_digest, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
+};
 pub(crate) use retired_intent_retention::RetiredIntentRetentionProof;
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
@@ -165,6 +169,10 @@ pub struct AtomStore {
     content_key: Option<[u8; 32]>,
     /// New-write format for nested atom content. Readers accept both formats.
     atom_content_binary: bool,
+    /// True over a disk format v2 home: atom rows are plain JSON with no
+    /// content seal and no molecule key bundle name. The block seal of each
+    /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
+    plain_content: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
@@ -318,13 +326,17 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
-        let Some(store) = self.molecule_keys.as_ref() else {
-            return Ok(self.key_codec.clone());
+        let codec = match self.molecule_keys.as_ref() {
+            Some(store) => store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
+                || self.key_codec.clone(),
+                |bundle| bundle.key_codec(&self.key_codec),
+            ),
+            None => self.key_codec.clone(),
         };
-        Ok(store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
-            || self.key_codec.clone(),
-            |bundle| bundle.key_codec(&self.key_codec),
-        ))
+        crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
+            codec.key_order(),
+        )?;
+        Ok(codec)
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for

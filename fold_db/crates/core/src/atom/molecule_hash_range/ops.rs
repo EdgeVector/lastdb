@@ -172,7 +172,7 @@ impl MoleculeHashRange {
             .iter_all_atoms()
             .map(|(hash, range, _)| KeyValue::new(Some(hash.clone()), Some(range.clone())))
             .collect();
-        keys.sort_by(KeyValue::cmp_page_order);
+        keys.sort_by(KeyValue::cmp_storage_order);
         keys.truncate(n);
         keys
     }
