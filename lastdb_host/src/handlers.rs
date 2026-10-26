@@ -29,7 +29,6 @@ use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::operations::{Query, SortOrder};
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
-use fold_db::schema::SchemaState;
 use futures::StreamExt;
 use lastdb_uds::uds_http::UdsResponse;
 use serde_json::Value;
