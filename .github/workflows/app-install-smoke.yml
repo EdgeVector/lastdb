@@ -17,6 +17,9 @@ on:
         description: 'Apps to test (comma-separated: brain,lastsecrets,lastseek,search or "all")'
         required: false
         default: 'all'
+  pull_request:
+    paths:
+      - '.github/workflows/app-install-smoke.yml'
   schedule:
     # Daily at 09:00 UTC - catch app/lastdb compatibility breakage
     - cron: '0 9 * * *'
@@ -29,7 +32,7 @@ env:
 
 jobs:
   app-install-smoke:
-    name: install-${{ matrix.app }}
+    name: install-${{ matrix.app }}-${{ matrix.version }}
     runs-on: macos-14  # Apple Silicon like production
     timeout-minutes: 60
     strategy:
@@ -40,21 +43,50 @@ jobs:
           - lastsecrets
           - lastseek
           - search
+        version:
+          - current
+          - baseline
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # Need tags for baseline resolution
+
+      - name: Resolve and checkout version
+        run: |
+          if [ "${{ matrix.version }}" = "baseline" ]; then
+            # Find the most recent tag that looks like a version
+            BASELINE_TAG=$(git tag --list 'v0.*' | grep -v '\-rc\.' | sort -V | tail -1)
+            
+            if [ -z "$BASELINE_TAG" ]; then
+              echo "⚠️  No baseline version tag found to test against"
+              echo "SKIP_BASELINE=true" >> "$GITHUB_ENV"
+              echo "LASTDB_VERSION=none" >> "$GITHUB_ENV"
+            else
+              echo "Testing against baseline: $BASELINE_TAG"
+              git checkout "$BASELINE_TAG"
+              echo "LASTDB_VERSION=$BASELINE_TAG" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "Testing against current build: ${{ github.sha }}"
+            echo "LASTDB_VERSION=current-${{ github.sha }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure git for private dependencies
+        if: env.SKIP_BASELINE != 'true'
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
+        if: env.SKIP_BASELINE != 'true'
         run: rustup show active-toolchain
 
       - name: Cache Rust artifacts
+        if: env.SKIP_BASELINE != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          key: app-smoke-macos-aarch64
+          key: app-smoke-macos-aarch64-${{ matrix.version }}
 
       - name: Build LastDB Mini binaries
+        if: env.SKIP_BASELINE != 'true'
         run: |
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
           
@@ -63,6 +95,7 @@ jobs:
           target/debug/lastdbd --version
 
       - name: Set up test environment
+        if: env.SKIP_BASELINE != 'true'
         run: |
           # Fresh isolated home for this test
           export TEST_HOME="${HOME}/app-smoke-test-$$"
@@ -78,6 +111,7 @@ jobs:
           echo "PROOF_DIR=$TEST_HOME/proof" >> "$GITHUB_ENV"
 
       - name: Start LastDB daemon
+        if: env.SKIP_BASELINE != 'true'
         run: |
           cd "$TEST_HOME"
           
@@ -106,6 +140,7 @@ jobs:
           lastdb --version | tee "$PROOF_DIR/lastdb-version.txt"
 
       - name: Record node contract versions
+        if: env.SKIP_BASELINE != 'true'
         run: |
           cd "$PROOF_DIR"
           
@@ -129,6 +164,7 @@ jobs:
           cat node-contract-versions.txt
 
       - name: Query static registry
+        if: env.SKIP_BASELINE != 'true'
         run: |
           cd "$TEST_HOME"
           
@@ -142,6 +178,7 @@ jobs:
           lastdb app resolve ${{ matrix.app }} --json 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json" || echo "Resolution failed (may not be in registry)"
 
       - name: Install ${{ matrix.app }} from registry
+        if: env.SKIP_BASELINE != 'true'
         run: |
           cd "$TEST_HOME"
           
@@ -160,7 +197,7 @@ jobs:
           fi
 
       - name: Checkout app source (fallback if not in registry)
-        if: env.INSTALLED == 'false'
+        if: env.INSTALLED == 'false' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$TEST_HOME"
           mkdir -p apps-source
@@ -173,20 +210,28 @@ jobs:
               git clone --depth 1 https://github.com/EdgeVector/lastsecrets.git apps-source/lastsecrets
               ;;
             lastseek)
-              echo "❌ lastseek repository is not accessible"
-              echo "SKIP_APP=true" >> "$GITHUB_ENV"
+              if [ -n "${{ secrets.APP_REPOS_TOKEN }}" ]; then
+                git clone --depth 1 https://x-access-token:${{ secrets.APP_REPOS_TOKEN }}@github.com/EdgeVector/lastseek.git apps-source/lastseek 2>&1 | tee "$PROOF_DIR/lastseek-clone.log" || {
+                  echo "❌ lastseek clone failed even with APP_REPOS_TOKEN"
+                  echo "SKIP_APP=true" >> "$GITHUB_ENV"
+                }
+              else
+                echo "⚠️  lastseek is private and secrets.APP_REPOS_TOKEN is not configured"
+                echo "Configure APP_REPOS_TOKEN secret with a PAT that has access to EdgeVector/lastseek"
+                echo "SKIP_APP=true" >> "$GITHUB_ENV"
+              fi
               ;;
             search)
               git clone --depth 1 https://github.com/EdgeVector/search.git apps-source/search
               ;;
           esac
           
-          if [ "${{ matrix.app }}" != "lastseek" ] && [ -d "apps-source/${{ matrix.app }}" ]; then
+          if [ "$SKIP_APP" != "true" ] && [ -d "apps-source/${{ matrix.app }}" ]; then
             echo "APP_SOURCE=$TEST_HOME/apps-source/${{ matrix.app }}" >> "$GITHUB_ENV"
           fi
 
       - name: Set up app source path
-        if: env.SKIP_APP != 'true'
+        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           # Determine source directory
           if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
@@ -199,7 +244,7 @@ jobs:
           fi
 
       - name: Record app contract surface
-        if: env.SKIP_APP != 'true'
+        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$PROOF_DIR"
           
@@ -244,7 +289,7 @@ jobs:
 
       # === Brain (HTTP API) ===
       - name: Set up Brain dependencies
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -258,7 +303,7 @@ jobs:
           bun link 2>&1 | tee "$PROOF_DIR/brain-link.log"
 
       - name: Initialize Brain schemas
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -269,7 +314,7 @@ jobs:
           lastdb --data-dir "$LASTDB_HOME" schemas list | grep -E "brain|fbrain" | tee "$PROOF_DIR/brain-schemas.txt" || echo "No brain schemas found"
 
       - name: Run Brain health checks
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt"
@@ -299,7 +344,7 @@ jobs:
 
       # === LastSecrets (HTTP API) ===
       - name: Set up LastSecrets dependencies
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -313,7 +358,7 @@ jobs:
           bun link 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log"
 
       - name: Initialize LastSecrets
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -324,7 +369,7 @@ jobs:
           lastdb --data-dir "$LASTDB_HOME" schemas list | grep -i "lastsecrets" | tee "$PROOF_DIR/lastsecrets-schemas.txt" || echo "No lastsecrets schemas found"
 
       - name: Run LastSecrets health checks
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           lastsecrets --version 2>&1 | tee "$PROOF_DIR/lastsecrets-version.txt" || echo "No version flag"
           
@@ -354,7 +399,7 @@ jobs:
 
       # === lastseek (Outbox) ===
       - name: Set up lastseek dependencies
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -365,7 +410,7 @@ jobs:
           cp target/release/lastseek "$HOME/.cargo/bin/" || cp target/release/lastseek /usr/local/bin/
 
       - name: Initialize lastseek and seed outbox
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           # Create inbox directory
           mkdir -p "$LASTDB_HOME/apps/search/inbox"
@@ -398,7 +443,7 @@ jobs:
           lastseek --version 2>&1 | tee "$PROOF_DIR/lastseek-version.txt"
 
       - name: Run lastseek health checks
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           # Test consuming the inbox (without --consume to preserve the file)
           lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" 2>&1 | tee "$PROOF_DIR/lastseek-ingest-test.txt"
@@ -412,7 +457,7 @@ jobs:
 
       # === Search (Outbox) ===
       - name: Set up Search dependencies
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -423,7 +468,7 @@ jobs:
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/search-deps-install.log"
 
       - name: Initialize Search and seed outbox
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -462,7 +507,7 @@ jobs:
           search --version 2>&1 | tee "$PROOF_DIR/search-version.txt" || echo "No version flag"
 
       - name: Run Search health checks
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -480,7 +525,7 @@ jobs:
           fi
 
       - name: Final health check
-        if: env.SKIP_APP != 'true'
+        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
           # Check LastDB status after all operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-final.txt"
@@ -488,6 +533,22 @@ jobs:
       - name: Collect proof summary
         if: always()
         run: |
+          # Handle skipped baseline
+          if [ "$SKIP_BASELINE" = "true" ]; then
+            mkdir -p "$HOME/proof-skip"
+            cat > "$HOME/proof-skip/baseline-skip-notice.txt" <<EOF
+          Baseline version test skipped
+          =============================
+          Reason: No buildable baseline version tag found in repository
+          Current tags: $(git tag --list 'v0.*' | tr '\n' ', ' | sed 's/, $//')
+          
+          This is expected for early development before the first release.
+          EOF
+            cat "$HOME/proof-skip/baseline-skip-notice.txt"
+            echo "PROOF_DIR=$HOME/proof-skip" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          
           cd "$PROOF_DIR"
           
           # Get LastDB build info
@@ -517,11 +578,13 @@ jobs:
           ==============================
           Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           App: ${{ matrix.app }}
+          Version: ${{ matrix.version }}
           Runner: macos-14 (Apple Silicon)
           CI Run: ${{ github.run_number }}
           
           LastDB Build:
           $LASTDB_VERSION
+          Tested version: $LASTDB_VERSION
           
           Node Contract Versions:
           - HTTP API version: $NODE_API
@@ -588,14 +651,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-install-smoke-${{ matrix.app }}-${{ github.run_number }}
+          name: app-install-smoke-${{ matrix.app }}-${{ matrix.version }}-${{ github.run_number }}
           path: ${{ env.PROOF_DIR }}
           if-no-files-found: warn
 
       - name: Add summary to job output
         if: always()
         run: |
-          echo "## App Install Smoke: ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
+          echo "## App Install Smoke: ${{ matrix.app }} (${{ matrix.version }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat "$PROOF_DIR/smoke-summary.txt" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Summary not available" >> $GITHUB_STEP_SUMMARY
