@@ -84,8 +84,22 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     println!("✓ Server listening on {}\n", service_url);
 
-    println!("--- Health Check: GET /v2/apps ---");
+    health_check(&service_url).await?;
+    post_compat_rows(&service_url, &release_id, &verifier_key).await?;
+
     let client = ReleaseRegistryClient::new(&service_url);
+    verify_all_rows(&client, &release_id, &verifier_pubkey_b64).await?;
+    test_tampered_row(&client, &release_id, &verifier_pubkey_b64).await?;
+    test_wrong_key(&release_id, &wrong_key, &verifier_pubkey_b64).await?;
+    test_unreachable_service().await?;
+
+    println!("=== ✅ All end-to-end tests passed ===");
+    Ok(())
+}
+
+async fn health_check(service_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- Health Check: GET /v2/apps ---");
+    let client = ReleaseRegistryClient::new(service_url);
     match client.list_apps().await {
         Ok(_) => println!("✓ Service is reachable\n"),
         Err(e) => {
@@ -93,7 +107,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
+    Ok(())
+}
 
+async fn post_compat_rows(
+    service_url: &str,
+    release_id: &str,
+    verifier_key: &ed25519_dalek::SigningKey,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("--- POST Compat Rows ---");
 
     let body_with_url = json!({
@@ -101,32 +122,35 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "contract_version": "1.2.3",
         "verification_url": "https://github.com/EdgeVector/lastdb/actions/runs/456"
     });
-    let sig_with_url = roundtrip::sign_body(&verifier_key, &body_with_url)?;
+    let sig_with_url = roundtrip::sign_body(verifier_key, &body_with_url)?;
     let status1 =
-        roundtrip::post_compat_row(&service_url, &release_id, &sig_with_url, &body_with_url)
-            .await?;
+        roundtrip::post_compat_row(service_url, release_id, &sig_with_url, &body_with_url).await?;
     println!("✓ POST with verification_url: HTTP {}", status1);
 
     let body_without_url = json!({
         "release_id": release_id,
         "contract_version": "1.2.4",
     });
-    let sig_without_url = roundtrip::sign_body(&verifier_key, &body_without_url)?;
-    let status2 = roundtrip::post_compat_row(
-        &service_url,
-        &release_id,
-        &sig_without_url,
-        &body_without_url,
-    )
-    .await?;
+    let sig_without_url = roundtrip::sign_body(verifier_key, &body_without_url)?;
+    let status2 =
+        roundtrip::post_compat_row(service_url, release_id, &sig_without_url, &body_without_url)
+            .await?;
     println!("✓ POST without verification_url: HTTP {}\n", status2);
 
+    Ok(())
+}
+
+async fn verify_all_rows(
+    client: &ReleaseRegistryClient,
+    release_id: &str,
+    verifier_pubkey: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Read Back and Verify Signatures ---");
-    let rows = client.list_compat_rows(&release_id).await?;
+    let rows = client.list_compat_rows(release_id).await?;
     println!("Retrieved {} compat rows", rows.len());
 
     for row in &rows {
-        match verify_compat_row(row, &verifier_pubkey_b64) {
+        match verify_compat_row(row, verifier_pubkey) {
             Ok(()) => {
                 println!(
                     "✓ Row verified: contract_version={}, verification_url={:?}",
@@ -140,33 +164,47 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     println!();
+    Ok(())
+}
 
+async fn test_tampered_row(
+    client: &ReleaseRegistryClient,
+    release_id: &str,
+    verifier_pubkey: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Tamper Test: Alter Stored Row ---");
-    seed::tamper_stored_row(&release_id, "1.2.3").await?;
-    let tampered_rows = client.list_compat_rows(&release_id).await?;
+    seed::tamper_stored_row(release_id, "1.2.3").await?;
+    let tampered_rows = client.list_compat_rows(release_id).await?;
     let tampered = tampered_rows
         .iter()
         .find(|r| r.contract_version == "1.2.3")
         .ok_or("Tampered row not found")?;
 
-    match verify_compat_row(tampered, &verifier_pubkey_b64) {
+    match verify_compat_row(tampered, verifier_pubkey) {
         Ok(()) => return Err("Tampered row should have failed verification".into()),
         Err(e) => {
             println!("✓ Tampered row rejected");
             println!("  error: {}\n", e);
         }
     }
+    Ok(())
+}
 
+async fn test_wrong_key(
+    release_id: &str,
+    wrong_key: &ed25519_dalek::SigningKey,
+    verifier_pubkey: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Wrong-Key Test ---");
     let wrong_key_body = json!({
         "release_id": release_id,
         "contract_version": "9.9.9",
     });
-    let wrong_sig = roundtrip::sign_body(&wrong_key, &wrong_key_body)?;
+    let wrong_sig = roundtrip::sign_body(wrong_key, &wrong_key_body)?;
     let wrong_key_pubkey = BASE64.encode(wrong_key.verifying_key().as_bytes());
 
     let wrong_row = CompatRowRead {
-        release_id: release_id.clone(),
+        release_id: release_id.to_string(),
         contract_version: "9.9.9".to_string(),
         verifier_pubkey: wrong_key_pubkey.clone(),
         verified_at: chrono::Utc::now().to_rfc3339(),
@@ -175,14 +213,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         signature: roundtrip::extract_signature(&wrong_sig)?,
     };
 
-    match verify_compat_row(&wrong_row, &verifier_pubkey_b64) {
+    match verify_compat_row(&wrong_row, verifier_pubkey) {
         Ok(()) => return Err("Wrong-key row should have been rejected".into()),
         Err(e) => {
             println!("✓ Wrong-key row rejected");
             println!("  error: {}\n", e);
         }
     }
+    Ok(())
+}
 
+async fn test_unreachable_service() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- Unreachable Service Test ---");
     let unreachable_client = ReleaseRegistryClient::new("http://127.0.0.1:1");
     match unreachable_client.list_apps().await {
@@ -192,7 +233,5 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("  error: {}\n", e);
         }
     }
-
-    println!("=== ✅ All end-to-end tests passed ===");
     Ok(())
 }
