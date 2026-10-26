@@ -132,18 +132,3 @@ pub async fn read_bindings(
 pub(crate) fn held(message: &str) -> SyncError {
     SyncError::CloudPurgeHeld(message.into())
 }
-
-/// Every received record uses the same exact physical namespace as its seed.
-pub fn rewrite_key(key: &[u8], root: &str, receiver: &str) -> SyncResult<Vec<u8>> {
-    for native in ["", "emb:", "graveyard:emb:"] {
-        let prefix = format!("{native}{root}:");
-        if let Some(bare) = key.strip_prefix(prefix.as_bytes()) {
-            let mut rewritten = format!("{native}{receiver}:").into_bytes();
-            rewritten.extend_from_slice(bare);
-            return Ok(rewritten);
-        }
-    }
-    Err(held(
-        "a foreign share record escaped its exact signed scope",
-    ))
-}
