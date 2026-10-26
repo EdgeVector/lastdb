@@ -325,8 +325,8 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Sync schemas with LastDB (pass socket path to init, it saves to config)
-          brain init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-init.log"
+          # Sync schemas with LastDB (uses LASTDB_HOME env var to find socket)
+          brain init 2>&1 | tee "$PROOF_DIR/brain-init.log"
           
           # Schema registration check is optional - just note it in logs
           echo "Brain schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/brain-schemas.txt"
@@ -385,8 +385,8 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Initialize schemas with socket path (saves to config)
-          lastsecrets init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-init.log"
+          # Initialize schemas (uses LASTDB_HOME env var to find socket)
+          lastsecrets init 2>&1 | tee "$PROOF_DIR/lastsecrets-init.log"
           
           # Schema registration check is optional - just note it in logs
           echo "LastSecrets schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/lastsecrets-schemas.txt"
