@@ -325,8 +325,8 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Sync schemas with LastDB (uses LASTDB_HOME env var to find socket)
-          brain init 2>&1 | tee "$PROOF_DIR/brain-init.log"
+          # Sync schemas with LastDB - must specify socket path explicitly
+          brain init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-init.log"
           
           # Schema registration check is optional - just note it in logs
           echo "Brain schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/brain-schemas.txt"
@@ -337,19 +337,19 @@ jobs:
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt"
           
-          # List empty brain (reads socket from config saved by init)
-          brain list 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || echo "List command not available"
+          # List empty brain (specify socket explicitly)
+          brain list --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || echo "List command not available"
           
           # Write and read test
-          # Commands read socket path from config saved by init
+          # Slug must be positional first, then --type
           TEST_ID="test-ci-$$"
           echo "Smoke test from CI run ${{ github.run_number }}" | \
-            brain put concepts --type concept "$TEST_ID" 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
+            brain put "$TEST_ID" --type concept --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
             echo "Brain put failed"
             exit 1
           }
           
-          brain get "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-get-test.txt" || {
+          brain get "$TEST_ID" --type concept --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/brain-get-test.txt" || {
             echo "Brain get failed"
             exit 1
           }
@@ -385,8 +385,8 @@ jobs:
         run: |
           cd "$APP_SOURCE"
           
-          # Initialize schemas (uses LASTDB_HOME env var to find socket)
-          lastsecrets init 2>&1 | tee "$PROOF_DIR/lastsecrets-init.log"
+          # Initialize schemas - must specify socket path explicitly
+          lastsecrets init --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-init.log"
           
           # Schema registration check is optional - just note it in logs
           echo "LastSecrets schemas initialized (check lastdb for details)" | tee "$PROOF_DIR/lastsecrets-schemas.txt"
@@ -396,8 +396,8 @@ jobs:
         run: |
           lastsecrets --version 2>&1 | tee "$PROOF_DIR/lastsecrets-version.txt" || echo "No version flag"
           
-          # List empty secrets
-          lastsecrets list 2>&1 | tee "$PROOF_DIR/lastsecrets-list-empty.txt"
+          # List empty secrets (specify socket explicitly)
+          lastsecrets list --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-list-empty.txt"
           
           # Store and retrieve a test secret
           TEST_SLUG="test-secret-ci-$$"
@@ -407,10 +407,11 @@ jobs:
               --provider test \
               --purpose ci-smoke \
               --env test \
-              --value-stdin 2>&1 | tee "$PROOF_DIR/lastsecrets-put-test.txt"
+              --value-stdin \
+              --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-put-test.txt"
           
           # Retrieve it
-          lastsecrets get "$TEST_SLUG" 2>&1 | tee "$PROOF_DIR/lastsecrets-get-test.txt"
+          lastsecrets get "$TEST_SLUG" --socket "$LASTDB_HOME/data/folddb.sock" 2>&1 | tee "$PROOF_DIR/lastsecrets-get-test.txt"
           
           # Verify
           if grep -q "test-value-${{ github.run_number }}" "$PROOF_DIR/lastsecrets-get-test.txt"; then
