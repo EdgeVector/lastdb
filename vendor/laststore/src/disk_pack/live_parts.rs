@@ -107,6 +107,7 @@ impl LiveParts {
     }
 
     pub(super) fn apply(&mut self, root: &Path, current: &Current, changes: Changes) -> Result<()> {
+        let _timing = crate::commit_timing::stage("live_parts_apply_us");
         self.apply_checked(root, current, changes, None, &mut Work::publication())
     }
 

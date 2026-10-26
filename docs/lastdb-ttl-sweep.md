@@ -404,6 +404,14 @@ These intervals overlap enclosing tree and reference stages; short calls still r
 No allocation, output byte, split, error check, I/O, checksum, private-page readback, or durability barrier changes.
 Normal diagnostics remain off. The measurements diagnose the remaining work and establish no wait reduction.
 
+The unused-parent-payload experiment also stays out of this branch because its matched active-four-client wait did not fall.
+Further opt-in numeric stages separate full page encoding, full page decoding, page writes, and sparse-page reservation.
+Two live-part stages distinguish private-part observation from final reference-count application.
+The page-decode interval retains the complete checksum, reserved-byte, shape, and packed-key validation.
+Page-write intervals cover the existing full-page write calls. Reservation includes its existing open, allocation, and sync work.
+These intervals overlap the enclosing tree, live-part, checksum, and sync stages. They cannot be added together.
+The new guards change no operation, output byte, error check, cache, resource charge, or durability barrier.
+
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
 

@@ -84,10 +84,12 @@ impl PageWriter {
             );
         }
         let bytes = encode_page(self.object, self.generation, self.next, fields, payload)?;
+        let write = crate::commit_timing::stage("metadata_page_write_us");
         self.file
             .as_mut()
             .expect("open metadata part")
             .write_all(&bytes)?;
+        drop(write);
         super::page_usage::written(&bytes);
         let number = self.next;
         self.next = self
@@ -165,6 +167,7 @@ pub(super) fn encode_page(
     fields: PageFields,
     payload: &[u8],
 ) -> Result<Vec<u8>> {
+    let _timing = crate::commit_timing::stage("metadata_page_encode_us");
     if payload.len() > PAGE_PAYLOAD {
         return Err(corrupt("page write payload too large"));
     }

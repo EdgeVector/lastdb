@@ -140,6 +140,7 @@ impl SparsePages {
 
 impl TreePages for SparsePages {
     fn reserve(&mut self, count: usize) -> Result<u64> {
+        let _timing = crate::commit_timing::stage("metadata_sparse_reserve_us");
         if !(1..=crate::disk_pack::PAGES_PER_PART as usize).contains(&count) {
             return Err(corrupt("invalid contiguous metadata reservation"));
         }
@@ -158,10 +159,12 @@ impl TreePages for SparsePages {
         self.reserve(1)?;
         let number = self.next;
         let bytes = encode_page(self.object, self.generation, number, fields, payload)?;
+        let write = crate::commit_timing::stage("metadata_page_write_us");
         self.file
             .as_mut()
             .expect("private metadata part")
             .write_all(&bytes)?;
+        drop(write);
         super::page_usage::written(&bytes);
         self.written_pages += 1;
         self.next += 1;

@@ -37,6 +37,7 @@ impl Page {
         generation: u64,
         features: u64,
     ) -> Result<Self> {
+        let _timing = crate::commit_timing::stage("metadata_page_decode_us");
         let bytes = &buffer.bytes;
         if bytes.len() != PAGE_BYTES
             || &bytes[..8] != b"LDPAGE1\0"
