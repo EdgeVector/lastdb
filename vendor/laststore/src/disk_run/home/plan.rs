@@ -15,19 +15,30 @@
 //!   runs stay until the last step.
 //!
 //! The bound, in record bytes (keys and values before compression), with L
-//! the live bytes: outside a base merge the stale bytes are at most an
-//! eighth of the total, so the home holds at most 8/7 L. A base merge adds
-//! at most its merging runs (1/16 of the total when it starts) and two base
-//! runs of 1/64 of the base each, so the peak is about 1.25 L. Each trigger
-//! needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that much more.
+//! the live record bytes: outside a base merge the stale bytes are at most
+//! an eighth of the total, so the home holds at most 8/7 L. A base merge
+//! adds at most its merging runs (1/16 of the total when it starts) and two
+//! base runs of 1/64 of the base each, so the peak is about 1.25 L. The file
+//! bytes follow when the runs compress alike. The bound leaves out the run
+//! of one large commit and the runs of commits during a base merge, and each
+//! trigger needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that
+//! much more.
+//!
+//! The bound also takes a replaced run off the disk at once. A read that
+//! holds an older CURRENT keeps the runs that later steps replace, so one
+//! read through many steps keeps old and new base runs on disk together.
+//! [`RunHome::retired_bytes`] counts them, and an owner with long reads
+//! waits for them before its next step.
 //!
 //! The shares serve the 2x limit of a node over its logical atom bytes, not
-//! only over the live bytes of its home: with small atoms a node's
-//! compressed records take about 1.45 bytes per logical atom byte (the disk
-//! v2 node proof), which leaves the merges about 0.38 L. With a quarter and
-//! an eighth that proof peaked at 2.03x to 2.12x of the atom bytes during
-//! writes. Base merges now start about twice as often, and each one
-//! rewrites the base.
+//! only over its live bytes: with small atoms a node's files take about 1.45
+//! bytes per logical atom byte (the disk v2 node proof), which leaves the
+//! merges about 0.38 of the live file bytes. That proof peaked during writes
+//! at 2.03x to 2.12x of the atom bytes with shares of a quarter and an
+//! eighth, and at 1.95x to 2.06x with an eighth and a sixteenth: most of
+//! each peak was replaced runs that a node's write requests still held.
+//! Base merges start about twice as often as with the first shares, and
+//! each one rewrites the base.
 //!
 //! The stale bytes are counted, not estimated, so the bound holds for any
 //! value sizes. Each tiered run knows the record bytes of the older versions
@@ -305,10 +316,12 @@ impl RunHome {
         for run in taken {
             run.retire();
         }
+        self.note_retired(taken);
         if last {
             for run in &merging {
                 run.retire();
             }
+            self.note_retired(&merging);
         }
         Ok(RunMerge {
             root: RunRoot(Arc::clone(&installed)),

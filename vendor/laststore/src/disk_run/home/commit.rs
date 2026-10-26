@@ -231,6 +231,7 @@ impl RunHome {
         for run in &inputs {
             run.retire();
         }
+        self.note_retired(&inputs);
         Ok(RunMerge {
             root: RunRoot(Arc::clone(&installed)),
             generation: installed.generation,

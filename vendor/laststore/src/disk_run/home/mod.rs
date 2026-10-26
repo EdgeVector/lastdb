@@ -19,6 +19,8 @@
 //! or the stale versions grow past a fixed share of the home. The `plan`
 //! module states the size bound. A read that holds an older CURRENT keeps
 //! the merged runs alive; the last holder deletes their files.
+//! [`RunHome::retired_bytes`] reports how much of that is still on disk, so
+//! an owner whose reads are long can pace its merge steps.
 //!
 //! After a crash, the owner deletes temporary files and run files that
 //! CURRENT does not name when it opens the home. Nothing is replayed: the
@@ -51,7 +53,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use uuid::Uuid;
 
 /// File name of the clear home descriptor. Its presence selects format v2.
@@ -130,6 +132,9 @@ pub struct RunHome {
     /// Serializes merge steps and hidden byte counts, so a step's inputs
     /// stay in CURRENT until it ends.
     merge: Mutex<()>,
+    /// The runs that merges replaced. A run's file stays until the last
+    /// root or read that names it ends; a dead handle is pruned.
+    retired: Mutex<Vec<Weak<RunFile>>>,
     /// Set when a publish fails after its rename: the durable state is unknown.
     poisoned: AtomicBool,
     /// The owner lock. Each read holds a clone, so no other owner can open
@@ -208,6 +213,7 @@ impl RunHome {
             commit: Mutex::new(()),
             publish: Mutex::new(()),
             merge: Mutex::new(()),
+            retired: Mutex::new(Vec::new()),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
         })
@@ -249,6 +255,26 @@ impl RunHome {
                 })
                 .sum(),
         }
+    }
+
+    /// File bytes of the runs that merges replaced and that a held root or
+    /// a read still keeps on disk. They go when the last holder ends.
+    pub fn retired_bytes(&self) -> u64 {
+        let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        retired.retain(|run| run.strong_count() > 0);
+        // A handle can be the last one: its drop then deletes the file.
+        retired
+            .iter()
+            .filter_map(Weak::upgrade)
+            .map(|run| run.meta.file_bytes)
+            .sum()
+    }
+
+    /// Record the runs that a merge step just retired.
+    fn note_retired(&self, runs: &[Arc<RunFile>]) {
+        let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+        retired.retain(|run| run.strong_count() > 0);
+        retired.extend(runs.iter().map(Arc::downgrade));
     }
 
     fn held(&self) -> Arc<Manifest> {
