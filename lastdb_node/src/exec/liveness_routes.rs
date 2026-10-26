@@ -2,6 +2,7 @@ use super::*;
 
 mod rules;
 pub(super) use rules::target_ids;
+use rules::{ExplainClass, ExplainRequest};
 
 /// `POST /api/storage/liveness/explain` — one target partition only.
 pub(super) async fn execute_liveness_explain_route(
@@ -9,41 +10,10 @@ pub(super) async fn execute_liveness_explain_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Request {
-        class: String,
-        #[serde(default)]
-        id: String,
-        /// Several ids in one call. The classes `atom`, `molecule` and `blob` read them.
-        #[serde(default)]
-        ids: Vec<String>,
-        /// Atom and molecule storage scope. Without it the request scope
-        /// applies. Blob references span the whole node.
-        #[serde(default)]
-        scope: Option<String>,
-    }
-
-    let request = match serde_json::from_slice::<Request>(&req.body) {
-        Ok(request)
-            if !request.class.trim().is_empty()
-                && (!request.id.trim().is_empty() || !request.ids.is_empty()) =>
-        {
-            request
-        }
-        Ok(_) => return error_response(400, "liveness explain requires class and id", ctx),
-        Err(error) => {
-            return error_response(
-                400,
-                &format!("invalid liveness explain request: {error}"),
-                ctx,
-            )
-        }
+    let request = match ExplainRequest::parse(&req.body) {
+        Ok(request) => request,
+        Err(message) => return error_response(400, &message, ctx),
     };
-    let class = request.class.trim().to_ascii_lowercase();
-    let id = request.id.trim();
-    if !matches!(class.as_str(), "atom" | "molecule" | "blob") {
-        return error_response(400, "class must be atom, molecule, or blob", ctx);
-    }
     // A named handle can map each schema to a different storage instance.
     // This target-only diagnostic has no schema with which to resolve it.
     if ctx.db_locator.is_some() {
@@ -60,13 +30,12 @@ pub(super) async fn execute_liveness_explain_route(
         return error_response(400, &error.to_string(), ctx);
     }
     let scope = request.scope.as_deref().or(ctx.storage_prefix.as_deref());
-    if class == "atom" {
-        return explain_atoms(host, ctx, scope, id, request.ids).await;
+    let id = request.id.trim();
+    match request.class {
+        ExplainClass::Atom => explain_atoms(host, ctx, scope, id, request.ids).await,
+        ExplainClass::Molecule => explain_molecules(host, ctx, scope, id, request.ids).await,
+        ExplainClass::Blob => explain_blobs(host, ctx, id, request.ids).await,
     }
-    if class == "molecule" {
-        return explain_molecules(host, ctx, scope, id, request.ids).await;
-    }
-    explain_blobs(host, ctx, id, request.ids).await
 }
 
 /// The counter of each named atom. An atom has no list of referrers: the
