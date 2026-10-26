@@ -82,7 +82,7 @@ fn small_delete(scratch: &Path, key: &[u8; 32]) -> Result<String> {
     if home.needs_merge()
         || status
             .stale_bytes
-            .is_none_or(|n| n == 0 || n >= MIN_BASE_MERGE_BYTES)
+            .map_or(true, |n| n == 0 || n >= MIN_BASE_MERGE_BYTES)
         || status.levels.is_empty()
     {
         return Err("small delete did not remain below the automatic threshold".into());
