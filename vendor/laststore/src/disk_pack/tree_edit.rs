@@ -245,6 +245,7 @@ impl<P: TreePages> TreeEdit<P> {
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
+        let preparation = crate::commit_timing::stage("metadata_leaf_prepare_us");
         let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
         let mut updates = changes.iter().peekable();
         let mut middle_insert = false;
@@ -299,6 +300,7 @@ impl<P: TreePages> TreeEdit<P> {
             ranges.len(),
             middle_insert,
         );
+        drop(preparation);
         ranges
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
@@ -333,6 +335,7 @@ impl<P: TreePages> TreeEdit<P> {
 }
 
 fn validate_page(call: &mut ReadCall, tree: &TreeRoot, page: &Page, path: &PathStep) -> Result<()> {
+    let _timing = crate::commit_timing::stage("metadata_input_keys_validate_us");
     if page.level() != path.level
         || (!path.is_root && path.level > 0 && page.count() < 7)
         || (!path.is_root && path.level == 0 && page.count() == 0)

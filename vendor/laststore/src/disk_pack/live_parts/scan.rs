@@ -13,6 +13,7 @@ pub(in crate::disk_pack) fn observe_new_parts(
     changes: &mut Changes,
     references: &mut ReferenceCache,
 ) -> Result<()> {
+    let _timing = crate::commit_timing::stage("live_parts_observe_us");
     if coordinates.len() > MAX_DEPENDENCIES || coordinates.windows(2).any(|pair| pair[0] >= pair[1])
     {
         return Err(corrupt(

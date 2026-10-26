@@ -35,10 +35,38 @@ impl SnapshotWriter {
 impl ReclaimPlan {
     /// Plan and remove only obsolete older paths while new calls can continue.
     pub fn execute(self, policy: &SpacePolicy, orphans: bool) -> Result<MaintenanceReceipt> {
-        if orphans {
+        let captured = self.current.clone();
+        let result = if orphans {
             maintenance::sweep_orphans_at(&self.lock, policy, self.current, true, &self.epoch)
         } else {
             maintenance::reclaim_at(&self.lock, policy, self.current, true, &self.epoch)
+        };
+        match result {
+            // A replacement publication invalidates this deletion plan. An old
+            // receipt can disappear while a now-stale inventory is consumed.
+            // Never excuse a missing receipt under a still-valid plan, and
+            // require this plan's retained source receipt to remain readable.
+            Err(crate::Error::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound && !self.epoch.valid()? =>
+            {
+                crate::disk_pack::generation::read_receipt(self.lock.root(), &captured)?;
+                Ok(MaintenanceReceipt {
+                    generation: captured.generation,
+                    reclaim_deferred: true,
+                    reclaim_remaining: true,
+                    ..Default::default()
+                })
+            }
+            Err(crate::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                Err(crate::Error::Io(std::io::Error::new(
+                    error.kind(),
+                    format!(
+                        "cleanup source generation {} with valid deletion epoch: {error}",
+                        captured.generation
+                    ),
+                )))
+            }
+            result => result,
         }
     }
 }
