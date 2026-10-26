@@ -260,9 +260,11 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
 }
 
 pub(super) fn schema_hint_for_route(route: DataRoute, req: &UdsRequest) -> Option<String> {
+    use crate::request_telemetry::{schema_from_body, SchemaBodyShape};
+
     match route {
         DataRoute::Query | DataRoute::Mutation => {
-            crate::request_telemetry::schema_from_body(&req.body)
+            schema_from_body(&req.body, SchemaBodyShape::Single)
         }
         DataRoute::AggregateRepair | DataRoute::AggregateFinalize => {
             serde_json::from_slice::<Value>(&req.body)
@@ -273,8 +275,8 @@ pub(super) fn schema_hint_for_route(route: DataRoute, req: &UdsRequest) -> Optio
                         .map(str::to_string)
                 })
         }
-        DataRoute::MutationBatch => crate::request_telemetry::schema_from_batch_body(&req.body),
-        DataRoute::QueryBatch => query_batch::schema_hint(&req.body),
+        DataRoute::MutationBatch => schema_from_body(&req.body, SchemaBodyShape::MutationBatch),
+        DataRoute::QueryBatch => schema_from_body(&req.body, SchemaBodyShape::QueryBatch),
         DataRoute::GetSchema => {
             // /api/schema/{name} — single path segment only.
             path_tail(req.target.as_str(), "/api/schema/")
