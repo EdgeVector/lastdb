@@ -30,6 +30,7 @@
 //! read returns the value as given. The block seal of every run is the
 //! encryption at rest; the home key protects every run and CURRENT.
 
+mod capture;
 mod commit;
 mod keys;
 mod manifest;
@@ -38,10 +39,11 @@ mod range;
 mod read;
 mod read_only;
 
+pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind};
 pub use commit::{MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RunHashRange, RunRangePage};
-pub use read::{RunRead, RunReadCosts, RunRoot};
+pub use read::{CopiedRunBody, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
@@ -330,7 +332,11 @@ fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
 }
 
 fn read_descriptor(root: &Path) -> Result<Uuid> {
-    let mut file = File::open(root.join(RUN_HOME_MARKER))?;
+    read_descriptor_file(&root.join(RUN_HOME_MARKER))
+}
+
+fn read_descriptor_file(path: &Path) -> Result<Uuid> {
+    let mut file = File::open(path)?;
     if file.metadata()?.len() != DESCRIPTOR_BYTES as u64 {
         return Err(corrupt("home descriptor length"));
     }

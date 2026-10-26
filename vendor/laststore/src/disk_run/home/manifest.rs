@@ -11,16 +11,19 @@
 use super::super::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
 use super::super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
-use crate::frame::{decode_frame, encode_frame, min_encoded_len, FrameHeader};
+use crate::frame::{encode_frame, min_encoded_len, FrameHeader};
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
+
+mod bounded;
+mod reader;
 
 const MAGIC_V1: &[u8; 8] = b"LDRCUR1\0";
 const MAGIC: &[u8; 8] = b"LDRCUR2\0";
@@ -310,19 +313,7 @@ impl Manifest {
 
     /// Read and authenticate CURRENT, and check that it names `home_id`.
     pub(super) fn load(root: &Path, key: &[u8; 32], home_id: Uuid) -> Result<Self> {
-        let mut file = File::open(root.join(CURRENT))?;
-        let len = file.metadata()?.len();
-        if len < min_encoded_len() as u64 || len > MAX_CURRENT_BYTES as u64 {
-            return Err(corrupt("CURRENT length"));
-        }
-        let mut frame = Vec::with_capacity(len as usize);
-        file.read_to_end(&mut frame)?;
-        let decoded = decode_frame(key, &frame)?;
-        let manifest = Self::decode(&decoded.payload, &root.join(RUNS))?;
-        if manifest.home_id != home_id {
-            return Err(corrupt("CURRENT names another home"));
-        }
-        Ok(manifest)
+        Self::load_paths(&root.join(CURRENT), &root.join(RUNS), key, home_id)
     }
 }
 

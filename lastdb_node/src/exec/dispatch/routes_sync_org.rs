@@ -34,6 +34,9 @@ pub(super) async fn dispatch_sync_deliver(
         DataRoute::SyncByteBackupV2 => {
             super::super::byte_backup_routes::execute(req, ctx, host).await
         }
+        DataRoute::SyncByteBackupV2Connect => {
+            super::super::byte_backup_routes::connect(req, ctx, host).await
+        }
         DataRoute::DeliverSnapshot => {
             heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
         }

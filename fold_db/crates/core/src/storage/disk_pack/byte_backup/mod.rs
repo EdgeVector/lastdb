@@ -12,6 +12,9 @@ mod reader;
 mod record_codec;
 mod record_plan;
 mod record_reassembly;
+mod run_capture;
+mod run_codec;
+mod run_source;
 mod standalone;
 mod store;
 mod terminal;
@@ -27,6 +30,7 @@ use laststore::disk_pack::backup::export::SnapshotExport;
 pub use reader::ByteBackupReader;
 pub use record_codec::*;
 pub use record_reassembly::ReassembledRecordStream;
+pub use run_codec::*;
 pub use standalone::{read_stopped_native_root, StandaloneByteBackupSource};
 use std::sync::{Arc, Mutex};
 
@@ -56,6 +60,7 @@ struct Inner {
     store: store::Store,
     state: Mutex<model::State>,
     source: Option<SnapshotExport>,
+    run: Option<run_source::RunSource>,
     readers: std::sync::atomic::AtomicUsize,
     _admission: super::NativeCloudWorkGuard,
 }
@@ -94,7 +99,7 @@ impl ByteBackupCapture {
                 && !state.released
                 && !state.local_cancelled
                 && state.terminal.is_none(),
-            source_available: self.inner.source.is_some() && !state.released,
+            source_available: self.inner.available() && !state.released,
             native_files: state.native_files,
             native_bytes: state.native_bytes,
             objects: state.objects,

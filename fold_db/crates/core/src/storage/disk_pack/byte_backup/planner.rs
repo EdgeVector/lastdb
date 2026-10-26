@@ -21,17 +21,17 @@ const SMALL_FILE_BYTES: u64 = lastdb_storage_policy::backup_transport::SMALL_NAT
 const PACK_BYTES: u64 = lastdb_storage_policy::backup_transport::METADATA_PACK_BYTES;
 
 pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> StorageResult<()> {
-    let source = inner
-        .source
-        .as_ref()
-        .ok_or_else(|| invalid("byte retained source unavailable"))?;
-    state.native_files = source.files().len() as u64;
-    state.native_bytes = source.bytes();
+    let inventory = inner.files()?;
+    state.native_files = inventory.len() as u64;
+    state.native_bytes = inventory
+        .iter()
+        .try_fold(0u64, |n, f| n.checked_add(f.bytes))
+        .ok_or_else(|| invalid("byte file size overflow"))?;
     state.metadata_pack_objects = 0;
     state.multi_file_pack_objects = 0;
     inner.store.write("job.json", state)?;
     let mut index = 0;
-    let mut files = source.files().iter().peekable();
+    let mut files = inventory.iter().peekable();
     while let Some(first) = files.next() {
         if first.bytes > OBJECT_BYTES {
             large::plan(inner, state, &mut index, first)?;
@@ -42,6 +42,7 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
         if first.bytes < SMALL_FILE_BYTES {
             while let Some(next) = files.peek() {
                 if next.bytes >= SMALL_FILE_BYTES
+                    || inner.destination(&next.path)? != inner.destination(&first.path)?
                     || members.len() >= lastdb_storage_policy::backup_transport::MAX_PACK_MEMBERS
                     || bytes + next.bytes > PACK_BYTES
                 {
@@ -72,17 +73,13 @@ fn group(
     index: u64,
     members: &[&SnapshotFile],
 ) -> StorageResult<ObjectRecord> {
-    let source = inner
-        .source
-        .as_ref()
-        .ok_or_else(|| invalid("byte retained source unavailable"))?;
     let mut hash = Sha256::new();
     let mut native_files = Vec::new();
     let mut segments = Vec::new();
     let mut bytes = 0;
     let mut buffer = [0u8; 65536];
     for file in members {
-        let mut reader = inner.home.reader(source, &file.path)?;
+        let mut reader = inner.file_reader(&file.path)?;
         let mut file_hash = Sha256::new();
         let mut length = 0u64;
         loop {
@@ -128,7 +125,7 @@ fn group(
         Object {
             sha256: hex(hash.finalize().into())?,
             bytes: DecimalU64::new(bytes),
-            destination: None,
+            destination: inner.destination(&members[0].path)?,
         },
     )?;
     let receipt = expected_receipt(&input)?;

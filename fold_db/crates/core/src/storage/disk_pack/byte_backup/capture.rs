@@ -24,6 +24,9 @@ impl PackRuntime {
         key: &[u8; 32],
         recovery: cloud_backup_protocol::RecoveryDescriptor,
     ) -> StorageResult<ByteBackupCapture> {
+        if matches!(self.physical, super::super::physical::Physical::V2(_)) {
+            return super::run_capture::prepare(self, begin, key, recovery).await;
+        }
         self.prepare_capture(begin, key, Some(recovery)).await
     }
     async fn prepare_capture(
@@ -82,18 +85,7 @@ impl PackRuntime {
                                 .map_err(super::super::map)?,
                         )
                     };
-                    return finish(
-                        Inner {
-                            home,
-                            store,
-                            state: Mutex::new(old),
-                            source,
-                            readers: AtomicUsize::new(0),
-                            _admission: admission,
-                        },
-                        &key,
-                        true,
-                    );
+                    return finish(pack_inner(home, store, old, source, admission), &key, true);
                 }
                 if !old.released || old.begin.job == begin.job {
                     return Err(invalid("byte saved source needs exact recovery"));
@@ -113,14 +105,7 @@ impl PackRuntime {
             drop(writer);
             drop(gate);
             let source = SnapshotExport::open(reference).map_err(super::super::map)?;
-            let inner = Inner {
-                home,
-                store,
-                state: Mutex::new(state),
-                source: Some(source),
-                readers: AtomicUsize::new(0),
-                _admission: admission,
-            };
+            let inner = pack_inner(home, store, state, Some(source), admission);
             finish(inner, &key, true)
         })
         .await
@@ -130,6 +115,9 @@ impl PackRuntime {
         self: &Arc<Self>,
         key: &[u8; 32],
     ) -> StorageResult<ByteBackupCapture> {
+        if matches!(self.physical, super::super::physical::Physical::V2(_)) {
+            return super::run_capture::resume(self, key).await;
+        }
         let admission = super::super::NativeCloudWorkGuard::acquire()?;
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
@@ -151,17 +139,27 @@ impl PackRuntime {
                     })
                     .ok()
             };
-            let inner = Inner {
-                home,
-                store,
-                state: Mutex::new(state),
-                source,
-                readers: AtomicUsize::new(0),
-                _admission: admission,
-            };
+            let inner = pack_inner(home, store, state, source, admission);
             finish(inner, &key, false)
         })
         .await
+    }
+}
+fn pack_inner(
+    home: CaptureHome,
+    store: Store,
+    state: State,
+    source: Option<SnapshotExport>,
+    admission: super::super::NativeCloudWorkGuard,
+) -> Inner {
+    Inner {
+        home,
+        store,
+        state: Mutex::new(state),
+        source,
+        run: None,
+        readers: AtomicUsize::new(0),
+        _admission: admission,
     }
 }
 pub(super) fn finish(
@@ -173,15 +171,19 @@ pub(super) fn finish(
         .state
         .lock()
         .map_err(|_| invalid("byte source state lock"))?;
-    if let Some(source) = &inner.source {
+    if inner.available() {
+        let files = inner.files()?;
+        let bytes = files
+            .iter()
+            .try_fold(0u64, |n, f| n.checked_add(f.bytes))
+            .ok_or_else(|| invalid("byte source file size overflow"))?;
         if state.native_files != 0
-            && (state.native_files != source.files().len() as u64
-                || state.native_bytes != source.bytes())
+            && (state.native_files != files.len() as u64 || state.native_bytes != bytes)
         {
             return Err(invalid("byte frozen source inventory changed"));
         }
-        state.native_files = source.files().len() as u64;
-        state.native_bytes = source.bytes();
+        state.native_files = files.len() as u64;
+        state.native_bytes = bytes;
         inner.store.write("job.json", &*state)?;
     }
     let active = state.terminal.is_none() && !state.local_cancelled && !state.released;
@@ -198,11 +200,15 @@ pub(super) fn finish(
     };
     // Recovery must still obtain a handle for exact terminal/local cancellation.
     // Content APIs recheck eligibility before they expose the retained cut.
-    if !state.ready && active && eligible && inner.source.is_some() {
-        super::certify::certify(&inner, key)?;
-        if state.recovery.is_some() {
+    if !state.ready && active && eligible && inner.available() {
+        if inner.run.is_some() {
+            super::run_source::certify(&inner, key)?;
+            super::planner::build(&inner, &mut state, key)?;
+        } else if state.recovery.is_some() {
+            super::certify::certify(&inner, key)?;
             super::record_plan::build(&inner, &mut state, key)?;
         } else {
+            super::certify::certify(&inner, key)?;
             super::planner::build(&inner, &mut state, key)?;
         }
     }
@@ -301,6 +307,7 @@ pub(super) fn new_state(
         released: false,
         recovery: None,
         record_profile: None,
+        run: None,
         max_coordinate_bytes: 0,
     })
 }

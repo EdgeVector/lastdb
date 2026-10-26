@@ -129,10 +129,10 @@ impl ClientPage {
             begin,
         )?;
         if self.page_index as usize >= MAX_CLIENT_PAGES
-            || (self.version == 1 && self.native_files.is_empty())
+            || (self.version != 2 && self.native_files.is_empty())
             || self.native_files.len() > MAX_PAGE_FILES
             || !self.external_dependencies.is_empty()
-            || (self.version == 1 && !self.stored_chunks.is_empty())
+            || (self.version != 2 && !self.stored_chunks.is_empty())
             || (self.version == 2 && !self.native_files.is_empty())
             || self.stored_chunks.len() > cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES
         {
@@ -141,6 +141,9 @@ impl ClientPage {
         let mut previous = None;
         for file in &self.native_files {
             file.validate()?;
+            if self.version == 3 {
+                super::run_backup_destination(file.path.as_str())?;
+            }
             if previous.is_some_and(|path| path >= file.path.as_str()) {
                 return Err(invalid("byte page path order"));
             }
@@ -172,6 +175,8 @@ pub struct ClientRoot {
     pub pages: Vec<ClientPageReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub records: Option<super::StoredRecordProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<super::RunBackupProfile>,
 }
 impl ClientRoot {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
@@ -181,7 +186,12 @@ impl ClientRoot {
             &self.descriptor_sha256,
             begin,
         )?;
-        if self.version == 2 {
+        if self.version == 3 {
+            self.run
+                .as_ref()
+                .ok_or_else(|| invalid("run root profile missing"))?
+                .validate_root(&self.native_root)?;
+        } else if self.version == 2 {
             super::validate_client_native_root(&self.native_root)?;
         } else {
             self.native_root.validate().map_err(protocol)?;
@@ -191,12 +201,14 @@ impl ClientRoot {
             .map_err(protocol)?;
         let legacy = self.version == 1;
         if (legacy && Bootstrap::from_descriptor(&begin.descriptor)?.recovery != self.recovery)
-            || (legacy != self.records.is_none())
+            || (self.version == 2) != self.records.is_some()
+            || (self.version == 3) != self.run.is_some()
             || self.native_file_count == 0
             || self.native_bytes == 0
             || self.pages.is_empty()
             || self.pages.len() > MAX_CLIENT_PAGES
-            || (legacy && self.native_file_count > (self.pages.len() * MAX_PAGE_FILES) as u64)
+            || (self.version != 2
+                && self.native_file_count > (self.pages.len() * MAX_PAGE_FILES) as u64)
             || self.external_dependency_count != 0
         {
             return Err(invalid("byte root identity or bounds"));
@@ -210,6 +222,21 @@ impl ClientRoot {
                     != self.native_root.home_id.as_str()
             {
                 return Err(invalid("stored record source features differ"));
+            }
+        }
+        if let Some(profile) = &self.run {
+            let files = profile
+                .main
+                .files
+                .checked_add(profile.cas.files)
+                .and_then(|n| n.checked_add(1));
+            let bytes = profile
+                .main
+                .bytes
+                .checked_add(profile.cas.bytes)
+                .and_then(|n| n.checked_add(super::super::run_node::RUN_NODE_BYTES.len() as u64));
+            if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
+                return Err(invalid("run root exact native totals"));
             }
         }
         for (index, page) in self.pages.iter().enumerate() {
@@ -240,8 +267,8 @@ impl ClientRoot {
 }
 fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;
-    if !matches!(version, 1 | 2)
-        || (version == 2 && !begin.descriptor.as_value().is_null())
+    if !matches!(version, 1..=3)
+        || (version != 1 && !begin.descriptor.as_value().is_null())
         || *digest != begin.input_sha256().map_err(protocol)?
         || *descriptor != begin.descriptor.commitment().map_err(protocol)?
     {

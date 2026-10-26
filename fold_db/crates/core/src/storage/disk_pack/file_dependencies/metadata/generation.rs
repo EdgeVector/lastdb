@@ -5,7 +5,7 @@ use crate::db_operations::atom_store::{
     AtomStore, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
 };
 
-impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
+impl<R: MetadataRead> MetadataProof<R> {
     pub(super) fn live(
         &mut self,
         scope: Option<&str>,

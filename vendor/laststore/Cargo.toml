@@ -19,10 +19,12 @@ serde.workspace = true
 serde_json = "1"
 aes-gcm = "0.10"
 hkdf = "0.12"
+openssl = "0.10.76"
 sha2 = "0.10"
 rustix = { version = "1", features = ["fs"] }
 uuid = { version = "1", features = ["v4"] }
 zstd = "0.13"
+zeroize.workspace = true
 
 # Hardware SHA-256 on aarch64. The x86 backend of `sha2` uses SHA-NI without this feature.
 [target.'cfg(target_arch = "aarch64")'.dependencies]

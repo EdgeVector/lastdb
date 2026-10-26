@@ -75,6 +75,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/native-index/search", Scope::Owner, "GET", DataRoute::NativeIndexSearch),
     row("/api/sync/cloud-off", Scope::Owner, "POST", DataRoute::SyncCloudOff),
     row("/api/sync/byte-backup-v2", Scope::Owner, "POST", DataRoute::SyncByteBackupV2),
+    row("/api/sync/byte-backup-v2/connect", Scope::Owner, "POST", DataRoute::SyncByteBackupV2Connect),
     row("/api/sharing/snapshot", Scope::Owner, "POST", DataRoute::DeliverSnapshot),
     row("/api/sharing/deliveries", Scope::Owner, "GET", DataRoute::DeliverList),
     row("/api/query", Scope::Both, "POST", DataRoute::Query),

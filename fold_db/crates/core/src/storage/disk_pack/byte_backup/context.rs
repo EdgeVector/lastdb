@@ -15,10 +15,16 @@ pub(super) enum CaptureHome {
     Standalone(Arc<StandaloneContext>),
 }
 impl CaptureHome {
-    /// A capture home over the live writer. Byte backup exists only in format v1.
+    /// A capture home over the existing live owner of either physical format.
     pub fn writer(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
-        runtime.v1()?;
+        runtime.require_initialized()?;
         Ok(Self::Writer(Arc::clone(runtime)))
+    }
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Writer(runtime) => runtime.physical.path(),
+            Self::Standalone(context) => context.home.path(),
+        }
     }
     fn v1(runtime: &PackRuntime) -> &super::super::physical::V1Home {
         runtime

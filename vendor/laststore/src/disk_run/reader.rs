@@ -12,6 +12,8 @@ use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
+#[path = "reader/stream.rs"]
+pub(super) mod stream;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
@@ -19,6 +21,7 @@ use uuid::Uuid;
 /// status, and read: the footer, top, and index blocks as footer bytes, the
 /// data blocks as payload bytes.
 pub struct RunReader {
+    reserved_memory: u64,
     file: MeasuredFile,
     data_key: [u8; 32],
     footer: Footer,
@@ -43,6 +46,29 @@ impl RunReader {
     /// named `<run id>.ldrun` for the run id its footer and blocks carry, so
     /// a valid older run copied over another name does not open.
     pub fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
+        Self::open_inner(path, data_key, None, 0)
+    }
+
+    /// Open metadata under a caller's total decode-memory admission.
+    /// Ordinary reads keep their existing open path and allocation behavior.
+    pub fn open_bounded(path: &Path, data_key: &[u8; 32], bytes: u64) -> Result<Self> {
+        Self::open_inner(path, data_key, Some(bytes), 0)
+    }
+    pub(crate) fn open_bounded_with_reserve(
+        path: &Path,
+        data_key: &[u8; 32],
+        bytes: u64,
+        reserved: u64,
+    ) -> Result<Self> {
+        Self::open_inner(path, data_key, Some(bytes), reserved)
+    }
+
+    fn open_inner(
+        path: &Path,
+        data_key: &[u8; 32],
+        bytes: Option<u64>,
+        reserved: u64,
+    ) -> Result<Self> {
         let named = path
             .file_name()
             .and_then(|name| name.to_str())
@@ -60,6 +86,9 @@ impl RunReader {
         let mut raw = [0u8; FOOTER_BYTES];
         measured::read_exact_at(&file, &mut raw, len - FOOTER_BYTES as u64)?;
         let footer = Footer::decode(&raw)?;
+        if bytes.is_some_and(|n| u64::from(footer.top_len).saturating_mul(4) > n) {
+            return Err(crate::Error::ReadBudgetExceeded);
+        }
         if footer.run_id != named {
             return Err(corrupt("run file name and run id disagree"));
         }
@@ -71,6 +100,7 @@ impl RunReader {
             return Err(corrupt("top block is not before the footer"));
         }
         let mut reader = Self {
+            reserved_memory: reserved,
             file,
             data_key: *data_key,
             footer,
@@ -82,13 +112,25 @@ impl RunReader {
                 last_key: Vec::new(),
             },
         };
-        let payload = reader.read_frame(
-            footer.top_offset,
-            footer.top_len,
-            TOP_COUNTER,
-            MAX_TOP_BYTES,
-        )?;
-        reader.top = Top::decode(&payload)?;
+        let payload = match bytes {
+            Some(admission) => reader.read_metadata_frame(
+                footer.top_offset,
+                footer.top_len,
+                TOP_COUNTER,
+                MAX_TOP_BYTES,
+                admission,
+            )?,
+            None => reader.read_frame(
+                footer.top_offset,
+                footer.top_len,
+                TOP_COUNTER,
+                MAX_TOP_BYTES,
+            )?,
+        };
+        reader.top = match bytes {
+            Some(admission) => Top::decode_bounded(&payload, admission)?,
+            None => Top::decode(&payload)?,
+        };
         if !reader.top.agrees_with(&footer) {
             return Err(corrupt("footer and top block disagree"));
         }

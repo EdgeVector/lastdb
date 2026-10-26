@@ -1,6 +1,8 @@
 //! Static diagnostics at actual native backup storage-error propagation.
 use fold_db::storage::StorageError;
 
+mod run_v2;
+
 pub(super) fn report(error: &StorageError) {
     let (class, detail) = match error {
         StorageError::SerializationError(detail) => ("serialization", Some(detail.as_str())),
@@ -50,6 +52,9 @@ fn static_reason(mut detail: &str) -> &'static str {
         };
         detail = tail;
         fallback = code;
+    }
+    if let Some(reason) = run_v2::reason(detail) {
+        return reason;
     }
     if let Some(reason) = REASONS.iter().copied().find(|allowed| *allowed == detail) {
         return reason;

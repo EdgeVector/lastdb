@@ -3,7 +3,6 @@ use super::{
     model::{ObjectRecord, Segment},
     store, ByteBackupCapture, Inner, StorageResult,
 };
-use laststore::disk_pack::backup::export::SnapshotReader;
 use sha2::{Digest as _, Sha256};
 use std::fs::File;
 use std::io::{self, Cursor, Read};
@@ -17,7 +16,7 @@ impl ByteBackupCapture {
             || state.terminal.is_some()
             || state.local_cancelled
             || state.released
-            || self.inner.source.is_none()
+            || !self.inner.available()
         {
             return Err(invalid("byte source reader phase"));
         }
@@ -60,7 +59,7 @@ pub struct ByteBackupReader {
     inner: Arc<Inner>,
     object: ObjectRecord,
     payload: Option<File>,
-    reader: Option<SnapshotReader>,
+    reader: Option<super::run_source::NativeReader>,
     record_coordinate: Option<(String, String)>,
     position: usize,
     remaining: u64,
@@ -73,15 +72,17 @@ impl ByteBackupReader {
         &self.object.input
     }
     fn open_segment(&mut self, part: &Segment) -> io::Result<()> {
-        let source = self
+        if self
             .inner
-            .source
-            .as_ref()
-            .ok_or_else(|| io::Error::other("byte source unavailable"))?;
+            .destination(Path::new(part.path.as_str()))
+            .map_err(|_| io::Error::other("byte source destination"))?
+            != self.object.input.object.destination
+        {
+            return Err(io::Error::other("byte source destination differs"));
+        }
         let mut reader = self
             .inner
-            .home
-            .reader(source, Path::new(part.path.as_str()))
+            .file_reader(Path::new(part.path.as_str()))
             .map_err(|_| io::Error::other("byte source generation read"))?;
         reader.seek_to(part.offset)?;
         self.reader = Some(reader);

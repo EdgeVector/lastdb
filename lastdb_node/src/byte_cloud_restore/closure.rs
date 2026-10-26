@@ -43,14 +43,14 @@ pub(super) async fn restore(
     .map_err(codec_error)?;
     root.recovery.validate_for(&accepted.job().stream.scope)?;
     keys.validate_account(&root.recovery.account_public_key)?;
-    if root.records.is_some()
+    if (root.records.is_some() || root.run.is_some())
         && inventory
             .receipt(&accepted.root_receipt_id)?
             .object
             .destination
             != Some(cloud_backup_protocol::v2::Destination::R2)
     {
-        return Err(RestoreError::Invalid("stored record root destination"));
+        return Err(RestoreError::Invalid("client root destination"));
     }
     let context = VerifiedNativeContext {
         root: &session.root,
@@ -64,6 +64,10 @@ pub(super) async fn restore(
     if let Some(report) = context.published()? {
         return Ok(report);
     }
+    if root.run.is_some() {
+        return super::runs::restore(session, client, keys, &root, inventory).await;
+    }
+    session.prepare_legacy_physical()?;
     if root.records.is_some() {
         return super::records::restore(session, client, keys, &root, inventory).await;
     }

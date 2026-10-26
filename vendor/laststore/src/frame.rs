@@ -11,6 +11,9 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
 
+mod stream;
+pub(crate) use stream::VerifiedFrameReader;
+
 /// Magic prefix for encrypted Last Store frames.
 pub const MAGIC: [u8; 4] = *b"LSF1";
 /// Frame format version written by this build.

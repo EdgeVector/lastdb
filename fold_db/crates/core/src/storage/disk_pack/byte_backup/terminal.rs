@@ -51,21 +51,32 @@ impl ByteBackupCapture {
         self.inner.require_idle()?;
         if !state.released {
             self.inner.home.validate()?;
-            let mut digest = [0u8; 32];
-            for (index, out) in digest.iter_mut().enumerate() {
-                *out = u8::from_str_radix(
-                    &state.native_root.current_sha256.as_str()[index * 2..index * 2 + 2],
-                    16,
+            if state.run.is_some() {
+                let root = self
+                    .inner
+                    .home
+                    .path()
+                    .join("cloud-byte-holds-v2")
+                    .join(state.reference_id.to_string());
+                super::run_source::RunSource::release_saved(&root)?;
+                self.inner.store.remove("run-intent.json")?;
+            } else {
+                let mut digest = [0u8; 32];
+                for (index, out) in digest.iter_mut().enumerate() {
+                    *out = u8::from_str_radix(
+                        &state.native_root.current_sha256.as_str()[index * 2..index * 2 + 2],
+                        16,
+                    )
+                    .map_err(|_| invalid("byte source CURRENT digest"))?;
+                }
+                release_owned_reference(
+                    self.inner.home.home().path(),
+                    state.reference_id,
+                    ReferencePurpose::CloudRecovery,
+                    &digest,
                 )
-                .map_err(|_| invalid("byte source CURRENT digest"))?;
+                .map_err(super::super::map)?;
             }
-            release_owned_reference(
-                self.inner.home.home().path(),
-                state.reference_id,
-                ReferencePurpose::CloudRecovery,
-                &digest,
-            )
-            .map_err(super::super::map)?;
             let mut released = state.clone();
             released.released = true;
             self.inner.store.write("job.json", &released)?;

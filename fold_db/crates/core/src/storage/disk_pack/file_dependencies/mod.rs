@@ -13,9 +13,15 @@ pub use atom::open_atom;
 pub(crate) use atom::{content_key, open_atom_with};
 pub use cloud_backup_protocol::FileDependencyKind;
 pub use metadata::verify_metadata_coverage;
+pub(crate) use metadata::{MetadataProof, MetadataRead};
 pub(crate) use native::scratch::Scratch as NativeCasOutput;
 pub use native::{read_directories, read_native_cas, verify_native_cas, NativeCasProof};
 pub use select::expected;
+
+/// Reuse the bounded JSON decoder for another physical snapshot reader.
+pub(crate) fn decode_bounded_json(bytes: &[u8]) -> StorageResult<serde_json::Value> {
+    budget_json::decode(bytes)
+}
 
 use super::{StorageError, StorageResult};
 use crate::sharing::delivery_wire::FileBlobAccess;

@@ -147,6 +147,7 @@ fn inner(
         store,
         state: Mutex::new(state),
         source,
+        run: None,
         readers: AtomicUsize::new(0),
         _admission: admission,
     }
