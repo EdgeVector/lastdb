@@ -125,8 +125,12 @@ def measure(binary, revision, output, state, clients, maintenance):
     try:
         node.start()
         seed(node, state)
+        # A v2 home has no explicit compaction; its run merges are automatic.
+        explicit = state.endswith("compact") and node.disk_format() == 1
+        if state.endswith("compact") and not explicit:
+            save(output / "compaction.json", {"format": 2, "automatic_merges": True})
         with ThreadPoolExecutor(max_workers=1) as pool:
-            if state.endswith("compact"):
+            if explicit:
                 compact = pool.submit(compact_during_writes, node)
             metric = writes(node, clients, output)
             if compact:
@@ -181,6 +185,7 @@ def summary_lines(manifest):
              "Each aggregate is the median of two per-run p95 values. Shared-runner speed changes are advisory.",
              "The sampler uses a one-second CI override. TTL batch size and duty use product defaults.",
              "TTL overlap counts committed purge batches planned inside the write window; it does not cover every request.",
+             "A v2 home has no explicit compaction: its active-sweep-compact state runs with the automatic run merges.",
              "", "| State | Clients | Base p95 ms | Candidate p95 ms | Source change | Candidate TTL cost vs no policy |",
              "|---|---:|---:|---:|---:|---:|"]
     values = {}

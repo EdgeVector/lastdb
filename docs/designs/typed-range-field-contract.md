@@ -2,6 +2,7 @@
 
 Status: shared field semantics, captured comparison context, typed key conversion APIs, and a stopped-home inventory command.
 The active node key format stays unchanged. Database conversion and activation remain pending.
+The V2 review below revises the next packages. It activates no key or encryption format.
 
 ## Current state
 
@@ -216,6 +217,98 @@ These limits bound captured data and key plans, not total process memory or temp
 The report always keeps `database_converted` and `activation_ready` false.
 It does not certify counter integrity, classify every opaque control value, or authorize a file rewrite.
 
+## V2 alignment review (2026-10-26)
+
+Source: LastDB `32fc575f6`, including [disk V2 compact values, PR #418](https://github.com/EdgeVector/lastdb/pull/418).
+Disk format V2 and cloud protocol V2 name separate formats.
+This section supersedes any assumption that a V2 atom retains a separate content envelope.
+
+### What fits the accepted V2 code
+
+| Part | V2 behavior | Effect on typed ranges |
+| --- | --- | --- |
+| Field types and comparisons | The schema still declares each selected key field's type. | Keep the type contract, comparison context, and cursor checks. |
+| Hash keys | The ordinary node still uses blinded hashes. | Preserve each existing hash byte. No hash conversion is needed. |
+| Range keys | The ordinary node still uses the legacy OPE form. | The new physical format does not activate a typed range profile. |
+| Atom values | V2 holds plain atom JSON inside encrypted run blocks. | Preserve this representation. Do not add an atom envelope or bundle name. |
+| Stored values | V2 adds a value tag and a compact JSON form. | Use the home reader and writer. Do not parse stored run bytes as JSON. |
+| Read-only inventory | It holds both homes and uses the shared `RunRead` methods. | Keep this path. Its range pages receive decoded metadata values. |
+| Old experimental V2 | The shared descriptor reader refuses the untagged `LDRHOME2` format. | Do not add a fallback. Accepted compact homes use `LDRHOME3`. |
+| Cloud backup | Current client capture still requires disk V1. | Disk V2 capture and restore need the separate client adapter. |
+
+The inventory does not read atom bodies or CAS values.
+Its compatibility with compact metadata follows from the shared value decoder.
+That source finding does not prove an operational inventory run on a V2 home.
+The next package must obtain that result before a conversion uses the inventory.
+
+Relevant code:
+
+- `AtomStore::with_namespaced_store` selects the V2 plain atom path.
+- `encode_plain_atom` and `decode_plain_atom` define that atom representation.
+- `RunRead::accept` and `RunHashRange::page` decode the stored value tag.
+- `RunRead::open_existing` uses the shared descriptor and manifest readers.
+- `range_inventory::FrozenSource` binds both native homes and checks the account proof.
+
+### Simpler target for review
+
+Recommend blinded hashes plus canonical ordered ranges inside V2 encrypted blocks.
+Use the existing typed payloads, including fixed-width hex for scalar types.
+Do not add a new binary key format, second molecule, range copy, or separate ordered lookup.
+The existing user identity supplies the keys for hash blinding and physical encryption.
+
+V2 run files already hold keys in order.
+A read searches the run's sparse index, then the required blocks.
+A range merges the matching records from the required runs.
+These operations do not require every range key of a schema in memory.
+The block encryption protects the stored keys; the range payload itself needs no OPE for those local operations.
+
+Removal of the legacy OPE form remains a proposed key-format decision.
+This review changes neither that setting nor the current encryption behavior.
+Keep the existing OPE reader for explicit source conversion until that decision and the full reader contract are accepted.
+Keep legacy String fields as String. Date-shaped text does not authorize a type change.
+
+The current inventory uses one molecule codec for source decode and target estimates.
+An OPE source therefore gets an OPE target estimate today.
+Before a different target is estimated, separate the source and target codecs in the report and job identity.
+Extend the key conversion API too; its constructor also gives both profiles one existing codec.
+Do not present today's estimate as the size of a target without OPE.
+Coordinate-byte totals still do not predict compressed file size.
+
+### Physical conversion, cloud, and size boundaries
+
+The V2 converter already handles old atom envelopes and writes plain V2 atom values.
+It preserves the existing logical key bytes.
+Keep that physical conversion separate from typed range conversion.
+The first typed converter should accept an already converted, stopped V2 development home and write a V2 target.
+V1 remains an inventory source; the V2 converter owns its physical normalization.
+This avoids a second implementation of old envelope and atom conversion rules.
+
+Use V2 home commits for target values, with fresh run identities and normal publication rules.
+Keep atom identities, atom content, counters, and portable CAS ciphertext unchanged.
+Transform only the range coordinates and their explicit references.
+The stored value tag belongs to LastStore; the converter must not add or remove it itself.
+
+The job must bind the source descriptors, both `CURRENT` files, logical format, profiles, and source and target codec choices.
+An inventory fingerprint alone does not validate atoms, counters, or CAS files.
+Full target verification still needs the checks below.
+
+Cloud remains a store of opaque bytes.
+A future browser reader needs client-side block navigation and decryption; server-side OPE comparison is not a requirement of that route.
+Current backup support does not establish that future read capability.
+The disk V2 client adapter must retain and restore both homes across restart before cloud-backed activation is claimed.
+Keep that adapter with its existing cloud work; this range plan adds no service-side LastDB format logic.
+Keep the current disk V2 capture refusal until that adapter is ready.
+The V1 export encrypts metadata and sequence chunks, but leaves record body chunks as their stored bytes.
+An unchanged export of V2 plain atom bodies would lack the run blocks' encryption.
+Prefer the encrypted V2 files: main-home files go to R2, and CAS-home files go to B2.
+The client manifest must retain both roots and their exact dependencies together.
+This preserves the existing block ciphertext and avoids a new per-atom encryption layer for backup.
+
+A separate target temporarily needs space beside its source, retained rollback files, and merge outputs.
+Account for that total before a job starts. Do not claim the normal V2 size ratio covers conversion peaks.
+Do not add per-key profile records or a permanent second lookup.
+The [V2 size measurement PR #432](https://github.com/EdgeVector/lastdb/pull/432) is a dependency to observe, not an accepted size guarantee.
+
 ## Conversion and recovery boundary
 
 A separate target keeps the source unchanged and simplifies recovery.
@@ -234,19 +327,21 @@ Profile metadata and the final supported format marker publish only after those 
 An interrupted job resumes only through the explicit converter and the same bound source.
 A failed source check leaves the target closed.
 An abort discards only the exact owned target after its identity checks.
-Startup never resumes or activates a conversion.
+Startup never resumes or activates this typed range conversion.
+The separately selected V1-to-V2 physical conversion retains its own rules.
 Primary promotion remains a separate action.
 
 ## Remaining packages
 
-1. Implement durable target progress and its unsupported-format fence.
-2. Define transformations for the captured physical and API key references, including conflict identity and retention pointers.
-3. Publish a complete converted target and its molecule profiles with explicit resume and recovery.
-4. Verify counters, atom references, protein bindings, files, and the replay floor through that publication.
-5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors before activation.
+1. Verify the inventory operationally on a stopped compact V2 development home. Record descriptor and codec facts explicitly.
+2. Review the target range choice. Give the key conversion API, inventory, and job identity separate source and target codecs.
+3. Build explicit V2-to-V2 target progress and its unsupported-format fence. Reuse the existing V2 reader, writer, and publication rules.
+4. Define every changed coordinate and API reference, including conflicts and retention. Verify counters, atoms, proteins, files, and the replay floor.
+5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors. Publish profiles and the supported marker last.
 
-Date keys remain disabled until these paths agree. Conversion never runs at startup.
-The current encryption stays in use. A replacement requires a separate review and decision.
+Date keys remain disabled until these paths agree. Typed range conversion never runs at startup.
+V2 keeps its current block encryption and plain atom representation.
+An active range-format change requires a separate review and decision.
 The plan adds no separate `range_type` option that can contradict the selected field.
 It does not require a cloud reader now.
 

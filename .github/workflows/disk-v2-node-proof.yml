@@ -6,7 +6,8 @@ name: Disk v2 node proof
 # the 2x limit, then do the one conversion of my primary."
 # A real lastdbd converts a home with the shape of the primary
 # (scripts/disk_v2). The program that runs the primary writes the format-1
-# seeds; the candidate writes the format-2 seed. The proof fails when the v2
+# seeds. In the new-home case (phase V3) the candidate starts on an empty
+# home, which must be v2 from the first start. The proof fails when the v2
 # node folder is above 2.0x of the logical atom bytes at any sample, or when
 # a key list, a read, or the logical atoms of a seed schema change.
 # The paths are the code that the conversion reads or writes with: the run

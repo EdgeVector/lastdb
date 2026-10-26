@@ -11,10 +11,12 @@ use std::sync::Arc;
 pub struct BenchmarkDatabaseFactory;
 
 impl BenchmarkDatabaseFactory {
-    /// Create temporary native DbOperations on a leaked temp dir.
+    /// Create temporary native DbOperations on a leaked temp dir, in a new
+    /// v2 home under a node key that is not kept.
     pub async fn create_temp_db_ops() -> Result<DbOperations, Box<dyn std::error::Error>> {
         let dir = tempfile::TempDir::new()?.keep();
-        let store = Arc::new(PackNamespacedStore::open(&dir)?) as Arc<dyn NamespacedStore>;
+        let store =
+            Arc::new(PackNamespacedStore::create_ephemeral(&dir)?) as Arc<dyn NamespacedStore>;
         Ok(DbOperations::from_namespaced_store(store).await?)
     }
 }

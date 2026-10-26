@@ -11,10 +11,11 @@ import signal
 import subprocess
 import time
 
-from node import Node, file_hash, save
+from node import RUN_NODE_MARKER, Node, file_hash, save
 from native_phases import collect_native_phases
 from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
+from disk_budget import DiskBudgetWorkload
 
 
 def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0):
@@ -22,9 +23,17 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
     started = time.monotonic()
     try:
         program = seed or (binary, revision, workers)
-        node = Node(program[0], program[1], output, native_timing=recipe["native_timing"], workers=program[2])
+        environment = {"LASTDB_DISK_FORMAT": "2"} if recipe.get("disk_budget") else {}
+        node = Node(program[0], program[1], output, native_timing=recipe["native_timing"], workers=program[2],
+                    environment=environment)
         node.start()
-        if recipe.get("growth"):
+        if recipe.get("disk_budget"):
+            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+            save(output / "disk-format.json", {"marker": marker, "requested_format": 2})
+            if marker != RUN_NODE_MARKER:
+                raise ValueError("The disk budget requires a v2 run home")
+            DiskBudgetWorkload(node, recipe, output).run()
+        elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:
             target = (binary, revision, workers) if seed else None
@@ -74,14 +83,21 @@ def recipe_for(args):
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",
               "phases": "Current request ring after each write case; exact request IDs; outside timed cases; coverage explicit",
               "disk": "sum of file lengths in the generated home; growth checkpoints also record allocated blocks"}
-    if args.growth_only:
+    if args.growth_only or args.disk_budget_only:
         recipe = {"pairs": recipe["pairs"], "body_bytes": 1024, "fields": 4,
                   "native_timing": False, "growth": GROWTH_PROFILES[args.profile],
                   "read_batches": [64], "write_batches": [128], "clients": [1],
-                  "writes": "durable batches; explicit flush and full compaction at every checkpoint",
+                  "writes": "durable batches; explicit flush at every checkpoint, then full compaction "
+                            "on a v1 home or three stable seconds of v2 automatic run merges",
                   "reads": "all known exact keys; generated values and latest revisions verified",
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
-                  "disk": "file lengths and allocated blocks from one bounded walk before and after full compaction with zero reclaim grace"}
+                  "disk": "file lengths and allocated blocks from one bounded walk before and after the v1 "
+                          "full compaction with zero reclaim grace, or the v2 wait"}
+        if args.disk_budget_only:
+            recipe.update(disk_budget=True, disk_format=2,
+                          writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
+                          disk="max of whole-home file lengths and allocated blocks after three stable seconds; no forced compaction",
+                          logical="GET /api/db/schemas total_logical_bytes; plaintext serialized atoms")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
     if args.seed_with_baseline:
@@ -101,17 +117,20 @@ def main():
     parser.add_argument("--pairs", type=int, choices=range(1, 7))
     parser.add_argument("--native-timing", action="store_true")
     parser.add_argument("--growth-only", action="store_true")
+    parser.add_argument("--disk-budget-only", action="store_true")
     parser.add_argument("--seed-with-baseline", action="store_true",
                         help="Measure a real upgrade of an owned home created by the baseline daemon")
     parser.add_argument("--minimum-retired", type=int, default=0)
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if (args.native_timing or args.growth_only or args.seed_with_baseline
+    if (args.native_timing or args.growth_only or args.disk_budget_only or args.seed_with_baseline
             or args.baseline_workers or args.candidate_workers) and (
             os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
         parser.error("Diagnostic, growth, upgrade, and worker measurements require a GitHub-hosted Actions runner")
+    if args.disk_budget_only and (args.growth_only or args.native_timing or args.seed_with_baseline):
+        parser.error("Disk budget requires its own generated v2 workload")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
     if args.seed_with_baseline and args.growth_only:
@@ -144,7 +163,8 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
                                          "native_report.py", "parent_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py", "tail_report.py", "mixed_report.py",
+                                         "growth.py", "growth_report.py", "disk_budget.py", "disk_budget_report.py",
+                                         "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
                                          "range_continuation/process_counters.py")}}
     save(manifest_path, manifest)

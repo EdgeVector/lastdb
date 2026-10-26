@@ -9,6 +9,7 @@ import sys
 
 from advisories import load, suspects
 from growth_report import compare as growth_compare
+from disk_budget_report import compare as disk_compare
 from node import save
 from report import compare as speed_compare
 
@@ -16,12 +17,13 @@ from report import compare as speed_compare
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--kind", choices=("speed", "growth"), required=True)
+    parser.add_argument("--kind", choices=("speed", "growth", "disk"), required=True)
     args = parser.parse_args()
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
         parser.error("Automatic benchmark confirmation requires a GitHub-hosted Actions runner")
-    manifest, comparison = load(args.output, growth_compare if args.kind == "growth" else speed_compare)
+    compare = {"growth": growth_compare, "speed": speed_compare, "disk": disk_compare}[args.kind]
+    manifest, comparison = load(args.output, compare)
     initial = sorted(suspects(comparison, args.kind))
     save(args.output / "repeat-plan.json", {"kind": args.kind, "suspects": initial, "max_repeats": 1})
     if not initial:
@@ -36,6 +38,8 @@ def main():
                         f"--{label}-workers", str(manifest["recipe"]["uds_workers"][label])])
     if args.kind == "growth":
         command.append("--growth-only")
+    if args.kind == "disk":
+        command.append("--disk-budget-only")
     if manifest["recipe"].get("seed_with_baseline"):
         command.extend(["--seed-with-baseline", "--minimum-retired", str(manifest["recipe"]["minimum_retired"])])
     if manifest["recipe"]["native_timing"]:

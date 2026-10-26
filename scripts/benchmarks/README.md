@@ -165,11 +165,12 @@ The cases run in this order on each fresh generated home:
 Writes use durable batches of at most 128 records. Reads use at most 64 exact keys per call.
 Each write requires its complete durable ack and a keyed read of the new values.
 Each case records an initial checkpoint and one checkpoint after each round.
-A checkpoint requires a durable flush and an explicit full LastDB compaction with zero reclaim grace.
+A checkpoint requires a durable flush. On a v1 home, it then requires an explicit full LastDB compaction with zero reclaim grace.
 The compaction receipt must confirm complete reclaim. These settings affect only the generated home.
-After compaction, keyed reads verify all known records and their latest values before the idle period.
+A v2 home has no explicit compaction. Its checkpoint waits until the disk size stays constant for three seconds, within 90 seconds.
+After compaction or the v2 wait, keyed reads verify all known records and their latest values before the idle period.
 The normal daemon memory limits and automatic maintenance stay enabled.
-This recipe measures retained space after explicit compaction. It does not measure the default retention policy.
+On a v1 home, this recipe measures retained space after explicit compaction. It does not measure the default retention policy.
 
 ### Active TTL latency comparison
 
@@ -189,18 +190,19 @@ The result uses its own homes and stays separate from the standard benchmark met
 - `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
 - `active-sweep`: the same policies, default TTL batch size and duty share.
 - `active-sweep-compact`: the active sweep plus one explicit full compaction during the write window.
+  A v2 home has no explicit compaction. In this state, its automatic run merges run during the write window.
 
 CAUTION: The CI sampler interval is one second. The normal sampler interval remains unchanged.
 The Hash policy lasts one hour, so the accepted fresh keys must survive the measurement.
 The old HashRange keys expire from their original range times.
 Every active case requires committed TTL purge batches planned during the measured write window.
-The compaction case also requires an actual compaction response and an intersecting request window.
+On a v1 home, the compaction case also requires an actual compaction response and an intersecting request window.
 These checks establish overlap with the case; they do not claim that every request meets a TTL batch.
 The retained ledger and compaction timestamps describe that exposure.
 Exact keyed reads verify every accepted fresh value after the measured window.
 Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
 Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
-The generated home undergoes full compaction and restart before the final fresh-value reads.
+A v1 generated home undergoes full compaction before the final fresh-value reads. Every home restarts before those reads.
 These calls use ordinary generated records. They inject no damaged age entries or active generations.
 Payload construction and validation stay outside request latency. Throughput includes client overhead.
 Request phase coverage stays explicit; omitted phases do not mean zero wait.
@@ -226,7 +228,7 @@ Every change appears in the summary, even below the notice threshold.
 CI repeats the resource suite once when a measure crosses both limits.
 Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
-Each resource pass has a 40-minute limit. The complete job has a 270-minute limit for larger nightly work and confirmation.
+Each resource pass has a 40-minute limit. The complete job has a 350-minute limit for larger nightly work and confirmation.
 Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
@@ -235,6 +237,41 @@ CAUTION: A positive slope alone does not establish a memory leak or unwanted dis
 Inserts increase the record count. Memory allocators can retain space, and automatic maintenance can change disk use.
 Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
 The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
+
+### V2 disk size budget
+
+Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
+This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
+It selects `LASTDB_DISK_FORMAT=2` for both generated homes and verifies the format-3 node marker.
+The ordinary speed and resource passes keep the product default format.
+Since phase V3, the product default for a new home is v2. The setting stays so that a baseline program from before V3 also makes a v2 home.
+An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
+
+The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
+It uses two alternating pairs on PRs and three at night. Reads, updates, and inserts use the same four generated fields.
+Each checkpoint requires a durable flush and exact keyed reads of all live values.
+The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
+The v2 engine keeps its default automatic run merges. The pass does not request the v1 compaction command.
+
+The ratio is retained disk bytes divided by logical atom bytes:
+
+- Retained disk uses the greater of whole-home file lengths and allocated file blocks.
+- Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
+  This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
+  It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
+- Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
+
+The advisory ceiling is **1.5×**. Equality is within the budget.
+CI also notes a final retained-disk increase of **at least 10% and 64 KiB** against the base commit.
+That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
+Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
+Only the same case and measure above its limit in both comparisons produces a warning.
+Excess size stays advisory. Invalid measurements, an unstable checkpoint, and failed uploads block `benchmark-complete`.
+CI warns above 1.5× even when the base also exceeds that ceiling. This states current excess, not PR causation.
+
+The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
+This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
+Do not compare these ratios with the v1 growth pass or with a different workload.
 
 ## Request phases
 
