@@ -47,11 +47,33 @@ def inventory(home, physical_only=False):
 def physical_state(node, expected_layout, expected_root=None):
     state = snapshot(node)
     root = {name: state[name] for name in ("generation", "frontier")}
-    if inventory(node.home, physical_only=True) != expected_layout:
-        raise RuntimeError("The clone's run files or CURRENT changed")
+    observed = inventory(node.home, physical_only=True)
+    save(node.output / "last-physical-observation.json", {"root": root, "files": observed})
+    if observed != expected_layout:
+        raise RuntimeError("The clone's run files or CURRENT changed during the controlled boundary")
     if expected_root is not None and root != expected_root:
         raise RuntimeError("The clone changed its generation or write frontier")
     return root
+
+
+def boot_boundary(node, seed_layout):
+    """Allow only the startup stamp append; freeze the resulting layout for timing."""
+    state = snapshot(node)
+    observed = inventory(node.home, physical_only=True)
+    removed = sorted(seed_layout.keys() - observed.keys())
+    added = {k: observed[k] for k in observed.keys() - seed_layout.keys()}
+    changed = sorted(k for k in seed_layout.keys() & observed.keys() if seed_layout[k] != observed[k])
+    root = {name: state[name] for name in ("generation", "frontier")}
+    save(node.output / "boot-delta.json", {"removed": removed, "added": added,
+                                          "changed": changed, "root": root, "files": observed})
+    # hydrate_from_snapshot writes one keep-small header to re-arm clean_stop.
+    # A small append alone does not authenticate its contents; retain this explicit
+    # residual startup difference and audit exact query work across the versions.
+    if (removed or changed != ["data/disk-run/CURRENT"] or len(added) != 1
+            or any(not re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
+                   or not 0 < v["bytes"] <= 4096 for k, v in added.items())):
+        raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
+    return root, observed
 
 
 def prepare_seed(node, output):
@@ -104,7 +126,7 @@ def measure(binary, revision, output, template, whole, physical):
         node.start()
         if node.disk_format() != 2:
             raise RuntimeError("A product cannot open the shared disk format")
-        root = physical_state(node, physical)
+        root, timing_layout = boot_boundary(node, physical)
         save(output / "root.json", root)
         work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
         work.cold_next = 0
@@ -114,9 +136,9 @@ def measure(binary, revision, output, template, whole, physical):
             if (boundary.get("error") or boundary.get("target_met") is not True
                     or boundary["native_memory"]["logical_records"] != 0):
                 raise RuntimeError("The clone did not establish an empty logical warm set")
-            physical_state(node, physical, root)
+            physical_state(node, timing_layout, root)
             work.measure(case, "cold", batch=batch)
-            physical_state(node, physical, root)
+            physical_state(node, timing_layout, root)
         work.raw.close()
         samples = audit_samples(output)
     except BaseException as failure:
@@ -172,7 +194,9 @@ def main():
                 "binaries": {label: {"revision": revisions[label], "sha256": file_hash(binary)}
                              for label, binary in binaries.items()},
                 "scope": "One stopped generated seed; four alternating pairs of independent byte-identical "
-                         "clones. Both formats must be v2. All opening samples retained. "
+                         "clones. Both formats must be v2. One bounded boot metadata append is recorded; "
+                         "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
+                         "All opening samples retained. "
                          "Content verification reads files before timing: filesystem pages are not cold. "
                          "This isolates logical-record-cold reads on a fixed physical layout, not device latency."}
     save(args.output / "benchmark.json", manifest)
@@ -195,6 +219,11 @@ def main():
         roots = [r["root"] for r in manifest["runs"]]
         if any(root != roots[0] for root in roots) or inventory(template.home) != whole:
             raise RuntimeError("Runs did not hold one shared root, or the stopped seed was modified")
+        boot_sizes = [list(json.loads((args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())[0]["bytes"]
+                      for r in manifest["runs"]]
+        if len(set(boot_sizes)) != 1:
+            raise RuntimeError("The versions appended different sizes of boot metadata")
+        manifest["boot_append_bytes"] = boot_sizes[0]
         comparison = retain_comparison(args.output, manifest, samples)
     finally:
         template.close()

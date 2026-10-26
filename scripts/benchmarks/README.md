@@ -393,7 +393,10 @@ It seeds once with the baseline, observes stable V2 files, requires a clean dura
 shutdown, and makes eight independent byte-verified copies of that stopped home.
 Four pairs alternate baseline/candidate order. Each clone measures the existing
 cold/1 and cold/32 cases, retaining every opening request. Both programs must open
-format V2 without changing its `CURRENT` or run files. Each case requires an empty
+format V2, preserve every inherited run file, and record exactly one bounded boot
+metadata append (the clean-stop re-arm). New metadata bytes are not claimed identical.
+Unexpected startup rewrites, removals, or differing append sizes fail. During each
+timed case, `CURRENT` and all post-boot run files must stay unchanged, with an empty
 logical warm set, positive disk-payload receipts, a fixed generation/frontier,
 and exactly the same request sequence. Raw work-counter differences are reported.
 Content verification reads files before timing, so this is logical-record-cold,
