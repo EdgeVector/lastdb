@@ -164,13 +164,20 @@ impl PackNamespacedStore {
     }
 
     /// Open an existing node home for an offline tool: a v2 home with the
-    /// key, a v1 home as v1. It never creates a home, resumes a v2 creation,
-    /// or converts a format; the node does those when it starts.
+    /// key, a v1 home as v1. The home must be complete: it refuses a home
+    /// whose creation has not written its key-format proofs, and a home whose
+    /// conversion stopped. It never creates a home, finishes a creation, or
+    /// converts a format; the node does those when it starts.
     pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
-        if path.join(convert_v2::INTENT).try_exists()? || !path.join(NODE_MARKER).try_exists()? {
+        if !path.join(NODE_MARKER).try_exists()?
+            || path.join(convert_v2::INTENT).try_exists()?
+            || run_node::creation_pending(path)?
+            || initialization::creation_pending(path)?
+        {
             return Err(StorageError::InvalidOperation(format!(
-                "an offline tool needs a complete node home at {}; start the node once first",
+                "an offline tool needs a complete node home at {}; start the node once, then \
+                 stop it",
                 path.display()
             )));
         }

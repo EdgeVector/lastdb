@@ -166,11 +166,12 @@ def render(manifest, comparison):
                      f"{pair(item, name)} | {delta} | {pair(item, 'compacted_allocated_disk_bytes_per_record', 1)} | "
                      f"{pair(item, 'allocated_disk_growth_bytes')} | {pair(item, 'allocated_disk_growth_bytes_per_round')} |")
     lines.extend(["", "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
-                  "Each checkpoint requires a durable flush, full compaction, and complete reclaim with zero grace.",
+                  "Each checkpoint requires a durable flush. A v1 checkpoint then requires full compaction and complete reclaim with zero grace.",
                   "A v2 home has no explicit compaction. Its checkpoint waits for its automatic run merges:",
                   "the disk size must stay constant for three seconds, within 90 seconds. That size is the after value.",
-                  f"Idle memory is the median over {recipe['idle_seconds']} seconds after compaction.",
-                  "Memory peaks include work, compaction, and idle time. Seed and process startup stay outside the peak.",
+                  "A v1 baseline and a v2 candidate measure different after states; a disk notice can come from the format.",
+                  f"Idle memory is the median over {recipe['idle_seconds']} seconds after compaction or the v2 wait.",
+                  "Memory peaks include work, compaction or the v2 wait, and idle time. Seed and process startup stay outside the peak.",
                   "The first disk section counts file lengths across the generated home.",
                   "Allocated disk size sums each file's st_blocks × 512 bytes during the same bounded walk at each checkpoint.",
                   "Allocated sizes do not measure unique shared blocks or device writes. Short-lived disk peaks are unmeasured.",

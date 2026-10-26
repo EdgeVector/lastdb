@@ -69,10 +69,16 @@ pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
+/// True while a v2 home holds its creation intent: from the start of its
+/// creation until the node writes its key-format proofs.
+pub(super) fn creation_pending(path: &Path) -> StorageResult<bool> {
+    Ok(path.join(INTENT).try_exists()?)
+}
+
 /// True when a v2 home creation stopped before its node marker: the creation
 /// intent is there and the marker is not.
 pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
-    Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
+    Ok(creation_pending(path)? && !path.join(NODE_MARKER).try_exists()?)
 }
 
 /// Remove what a creation that stopped before its node marker left: the run
@@ -192,6 +198,11 @@ impl PackNamespacedStore {
     /// read the home. For in-process callers without a node identity, such as
     /// a benchmark on a temporary directory.
     pub fn create_ephemeral(path: &Path) -> StorageResult<Self> {
+        if !is_new_home(path)? {
+            return Err(StorageError::InvalidOperation(
+                "an ephemeral node home needs an absent or empty folder".into(),
+            ));
+        }
         let mut node_key = zeroize::Zeroizing::new([0u8; 32]);
         OsRng.fill_bytes(node_key.as_mut());
         Self::create_run(path, &node_key)

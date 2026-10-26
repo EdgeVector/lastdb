@@ -15,7 +15,6 @@ PROFILES = {
     "batch-insert": {"records": 512, "rounds": 3, "idle_seconds": 1},
 }
 CASES = ("fixed-read", "fixed-update", "insert")
-RUN_NODE_MARKER = "format=3\nhome=disk-run\ncas=disk-cas\n"
 
 
 def slope(points, name):
@@ -33,8 +32,7 @@ class GrowthWorkload:
         self.samples, self.cases, self.phase = [], {}, "seed"
         self.started = time.monotonic()
         # A v2 run home has no explicit compaction; its run merges are automatic.
-        marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-        self.disk_format = 2 if marker == RUN_NODE_MARKER else 1
+        self.disk_format = node.disk_format()
 
     def memory(self):
         value = self.node.memory_bytes()

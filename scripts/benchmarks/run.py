@@ -11,7 +11,7 @@ import signal
 import subprocess
 import time
 
-from node import Node, file_hash, save
+from node import RUN_NODE_MARKER, Node, file_hash, save
 from native_phases import collect_native_phases
 from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
@@ -30,7 +30,7 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
         if recipe.get("disk_budget"):
             marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
             save(output / "disk-format.json", {"marker": marker, "requested_format": 2})
-            if marker != "format=3\nhome=disk-run\ncas=disk-cas\n":
+            if marker != RUN_NODE_MARKER:
                 raise ValueError("The disk budget requires a v2 run home")
             DiskBudgetWorkload(node, recipe, output).run()
         elif recipe.get("growth"):
@@ -87,10 +87,12 @@ def recipe_for(args):
         recipe = {"pairs": recipe["pairs"], "body_bytes": 1024, "fields": 4,
                   "native_timing": False, "growth": GROWTH_PROFILES[args.profile],
                   "read_batches": [64], "write_batches": [128], "clients": [1],
-                  "writes": "durable batches; explicit flush and full compaction at every checkpoint",
+                  "writes": "durable batches; explicit flush at every checkpoint, then full compaction "
+                            "on a v1 home or three stable seconds of v2 automatic run merges",
                   "reads": "all known exact keys; generated values and latest revisions verified",
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
-                  "disk": "file lengths and allocated blocks from one bounded walk before and after full compaction with zero reclaim grace"}
+                  "disk": "file lengths and allocated blocks from one bounded walk before and after the v1 "
+                          "full compaction with zero reclaim grace, or the v2 wait"}
         if args.disk_budget_only:
             recipe.update(disk_budget=True, disk_format=2,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",

@@ -165,11 +165,12 @@ The cases run in this order on each fresh generated home:
 Writes use durable batches of at most 128 records. Reads use at most 64 exact keys per call.
 Each write requires its complete durable ack and a keyed read of the new values.
 Each case records an initial checkpoint and one checkpoint after each round.
-A checkpoint requires a durable flush and an explicit full LastDB compaction with zero reclaim grace.
+A checkpoint requires a durable flush. On a v1 home, it then requires an explicit full LastDB compaction with zero reclaim grace.
 The compaction receipt must confirm complete reclaim. These settings affect only the generated home.
-After compaction, keyed reads verify all known records and their latest values before the idle period.
+A v2 home has no explicit compaction. Its checkpoint waits until the disk size stays constant for three seconds, within 90 seconds.
+After compaction or the v2 wait, keyed reads verify all known records and their latest values before the idle period.
 The normal daemon memory limits and automatic maintenance stay enabled.
-This recipe measures retained space after explicit compaction. It does not measure the default retention policy.
+On a v1 home, this recipe measures retained space after explicit compaction. It does not measure the default retention policy.
 
 ### Active TTL latency comparison
 
@@ -189,18 +190,19 @@ The result uses its own homes and stays separate from the standard benchmark met
 - `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
 - `active-sweep`: the same policies, default TTL batch size and duty share.
 - `active-sweep-compact`: the active sweep plus one explicit full compaction during the write window.
+  A v2 home has no explicit compaction. In this state, its automatic run merges run during the write window.
 
 CAUTION: The CI sampler interval is one second. The normal sampler interval remains unchanged.
 The Hash policy lasts one hour, so the accepted fresh keys must survive the measurement.
 The old HashRange keys expire from their original range times.
 Every active case requires committed TTL purge batches planned during the measured write window.
-The compaction case also requires an actual compaction response and an intersecting request window.
+On a v1 home, the compaction case also requires an actual compaction response and an intersecting request window.
 These checks establish overlap with the case; they do not claim that every request meets a TTL batch.
 The retained ledger and compaction timestamps describe that exposure.
 Exact keyed reads verify every accepted fresh value after the measured window.
 Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
 Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
-The generated home undergoes full compaction and restart before the final fresh-value reads.
+A v1 generated home undergoes full compaction before the final fresh-value reads. Every home restarts before those reads.
 These calls use ordinary generated records. They inject no damaged age entries or active generations.
 Payload construction and validation stay outside request latency. Throughput includes client overhead.
 Request phase coverage stays explicit; omitted phases do not mean zero wait.

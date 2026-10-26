@@ -66,9 +66,13 @@ def maintain(node, output, live, old, expected_live):
     cleanup = [markers(node, molecule) for molecule in sorted(set(molecules.values()))]
     if sum(row["deleted"] for row in cleanup) <= 0:
         raise RuntimeError("No real TTL delete markers reached the cleanup command")
-    compact = node.call("/api/db/compact", {"dry_run": False, "full_copy": True})[0]
-    if compact["compact"]["native_disk"]["executed"] is not True:
-        raise RuntimeError("Post-cleanup compaction did not execute")
+    if node.disk_format() == 2:
+        # A v2 home has no explicit compaction; its run merges are automatic.
+        compact = {"format": 2, "automatic_merges": True}
+    else:
+        compact = node.call("/api/db/compact", {"dry_run": False, "full_copy": True})[0]
+        if compact["compact"]["native_disk"]["executed"] is not True:
+            raise RuntimeError("Post-cleanup compaction did not execute")
     node.stop()
     save(output / "post-cleanup-shutdown.json", json.loads((output / "shutdown.json").read_text()))
     node.start()
