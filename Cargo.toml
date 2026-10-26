@@ -61,7 +61,6 @@ members = [
     # Storage-v2 crates vendored from LastDB Nano so fold's forge checkout can
     # compile the feature-gated Mini facade without requiring sibling repos.
     "vendor/laststore",
-    "vendor/lastdb_docstore",
 
 ]
 
@@ -389,7 +388,6 @@ lastdb_uds = { path = "lastdb_uds" }
 lastdb_identity = { path = "lastdb_identity" }
 lastdb_host = { path = "lastdb_host" }
 laststore = { path = "vendor/laststore" }
-lastdb_docstore = { path = "vendor/lastdb_docstore" }
 
 # External — copied verbatim from schema_service's workspace.dependencies
 actix-web = "4.3"
