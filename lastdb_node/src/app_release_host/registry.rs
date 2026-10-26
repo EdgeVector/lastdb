@@ -261,10 +261,7 @@ impl ReleaseRegistryClient {
 /// or the verification fails.
 pub fn verify_compat_row(row: &CompatRowRead, trusted_verifier_pubkey: &str) -> Result<(), String> {
     if row.verifier_pubkey != trusted_verifier_pubkey {
-        return Err(format!(
-            "compat row verifier key '{}' does not match trusted key '{}'",
-            row.verifier_pubkey, trusted_verifier_pubkey
-        ));
+        return Err("compat row verifier key does not match trusted verifier key".to_string());
     }
 
     let verifying_key = verifying_key_from_base64(trusted_verifier_pubkey)
