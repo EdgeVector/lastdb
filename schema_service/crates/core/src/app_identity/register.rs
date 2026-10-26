@@ -129,7 +129,13 @@ impl SchemaServiceState {
                     if let Ok(mut apps) = self.apps.write() {
                         apps.remove(&record.app_id);
                     }
-                    return Err(AppRegisterError::Internal(e.to_string()));
+                    let msg = e.to_string();
+                    if let Some(owner) = msg.strip_prefix("app_owner_conflict:") {
+                        return Err(AppRegisterError::Conflict {
+                            current_owner_dev_pubkey: owner.to_string(),
+                        });
+                    }
+                    return Err(AppRegisterError::Internal(msg));
                 }
                 self.bump_state_version();
                 Ok(AppRegisterOutcome::Created(record))

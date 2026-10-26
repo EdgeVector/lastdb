@@ -140,9 +140,10 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
                 let existing: Option<AppRecord> = self.get_single_object(&key).await?;
                 match existing {
                     Some(existing) if existing.owner_dev_pubkey == app.owner_dev_pubkey => Ok(()),
-                    Some(_) => Err(FoldDbError::Config(
-                        "app already exists with different owner".to_string(),
-                    )),
+                    Some(existing) => Err(FoldDbError::Config(format!(
+                        "app_owner_conflict:{}",
+                        existing.owner_dev_pubkey
+                    ))),
                     None => Err(FoldDbError::Config(
                         "app create conflict but not found on re-read".to_string(),
                     )),

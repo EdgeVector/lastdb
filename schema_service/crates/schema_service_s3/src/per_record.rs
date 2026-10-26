@@ -214,7 +214,13 @@ impl S3BlobPersistence {
             }
         };
         if let Some((existing, etag)) = existing {
-            if existing.generation != record.generation - 1 {
+            let expected = record.generation.checked_sub(1).ok_or_else(|| {
+                FoldDbError::Config(format!(
+                    "generation underflow: new generation {} must be at least 1",
+                    record.generation
+                ))
+            })?;
+            if existing.generation != expected {
                 return Err(FoldDbError::Config(format!(
                     "generation conflict: stored={}, new={}",
                     existing.generation, record.generation
