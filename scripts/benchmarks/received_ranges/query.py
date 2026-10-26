@@ -68,7 +68,7 @@ def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False)
         if receipt["http_status"] == 503:
             message = result.get("message", "")
             known = ("bounded continuation" in message or message ==
-                     "read resource limit exceeded: disk-pack v1: read resource limit exceeded"
+                     "read resource limit exceeded: read resource limit exceeded"
                      or re.fullmatch(
                          r"read resource limit exceeded: native required work: "
                          r"examined_keys=10000\+1/10000, charged_bytes=\d+\+\d+/268435456",

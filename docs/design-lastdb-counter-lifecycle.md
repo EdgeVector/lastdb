@@ -171,7 +171,7 @@ Measured (appendix A.1 to A.3):
 | Atom to blob | blob edge `bref:v1` | atom to blob | Blob counter counts atoms |
 | Database catalog | weight | `mref` | **Molecule `bindings`**, not atom weight |
 | Delete barrier (`displaced_atom_uuid`) | No | none | No. It holds a stamp, not a body. |
-| Retired intent | No | none | Cloud only. Out of scope. |
+| Retired intent | No | none | Retired with Cloud Sync. No code reads or writes it. |
 | Generation base, `mgd` marker | No | mirrored | Out of scope. See 16. |
 | `keep_small` meters | No | none | No. A gauge, not a reference. |
 
@@ -384,7 +384,7 @@ What can still go wrong, and who sees it: a write path that skips the planner (t
 - **Counters travel with the data in every physical copy.** Run A.6: a native local backup copied 176 files, 2.9 MB, and the bundle had the same count and edge records. `lastdb-disk-recovery restore` built a new root from the bundle with the same records.
 - **No rebuild by scan on restore.** The restored root is the state.
 - **Peer replay builds its own counters.** The counter is derived by the write rule from the logical mutations, like the tip record. The capture skip list carries the counter key family (`sync/policy.rs:85-113`). A snapshot and a log tail replay give the same counters as live writes, because replay uses the same planner.
-- **Cloud sync is off in this build** (`docs/lastdb-rehydrate.md`: startup refuses it). Layer 3 must keep two rules: (1) a cloud snapshot is a root bundle; (2) a log replay goes through the planner. A purge must write its cloud retirement record in the same batch (`retired_intent_retention.rs`). I did not design Layer 3.
+- **Cloud sync is off in this build** (`docs/lastdb-rehydrate.md`: startup refuses it). Layer 3 must keep two rules: (1) a cloud snapshot is a root bundle; (2) a log replay goes through the planner. A purge must write its cloud retirement record in the same batch; the removed `retired_intent_retention.rs` showed that shape. I did not design Layer 3.
 - **No more `peer-apply` row, `.peer_derived` marker, `fresh-home` stamp, completion markers, manifests.** The format fence replaces them (section 17, S1).
 
 ---
@@ -716,7 +716,7 @@ With `RUST_LOG=lastdb::native_read_budget=debug`, one purge of 16 keys on 1,000 
 
 **A.5 One batch, and a crash.** One durable request creating one key: frontier 25 to 27 (clock batch 26, data batch 27). The tip record, the count record and the edge record all carry physical batch 27. Four `SIGKILL` rounds during queued writes (20-key requests, 5 hashes, 600 keys, values shared across keys): after restart 1,440 tip records, 422 to 512 distinct atoms, every atom had a count record and as many edge records as tips naming it. 0 mismatches.
 
-**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records.
+**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records. This is a recorded result of disk format v1. The disk format v1 removal deleted the route and the command on 2026-10-26.
 
 ## Appendix B. Evidence index
 

@@ -29,7 +29,6 @@ mod native_memory;
 mod read;
 mod read_snapshot;
 mod replay_catalog;
-mod replay_probe;
 mod retention_backfill;
 mod retention_format;
 mod retention_layers;
@@ -37,7 +36,6 @@ mod retention_move;
 mod retention_page;
 mod retention_recheck;
 mod retention_sharing;
-mod retired_replay;
 mod write;
 
 pub(crate) use catalog_keys::SchemaRetentionAnchor;
@@ -52,8 +50,6 @@ pub(crate) fn frozen_retention_keys(schema_name: &str) -> [String; 2] {
         catalog_keys::retention_policy_key(schema_name),
     ]
 }
-pub use replay_probe::ReplayAuthorityProbe;
-pub(crate) use retired_replay::RetiredReplayProof;
 
 use catalog_keys::*;
 

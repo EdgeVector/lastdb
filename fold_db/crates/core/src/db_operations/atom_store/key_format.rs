@@ -19,7 +19,7 @@ use crate::storage::{KvMutation, StorageError};
 
 /// `6`: a storage envelope exists only on local CAS records.
 pub(crate) const KEY_FORMAT: &[u8] = b"6";
-pub(crate) use super::delete_replay::{CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY, FENCED_KEY_FORMAT};
+pub(crate) use super::delete_replay::CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY;
 
 pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
     value == KEY_FORMAT || value == super::delete_replay::FENCED_KEY_FORMAT

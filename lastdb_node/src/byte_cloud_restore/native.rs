@@ -11,15 +11,6 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
-pub(super) async fn restore_page(
-    session: &RestoreSession,
-    client: &ByteBackupClient,
-    inventory: &mut Inventory,
-    entries: &[ClientNativeFile],
-) -> Result<()> {
-    restore_at(session, client, inventory, entries, &session.physical()).await
-}
-
 pub(super) async fn restore_at(
     session: &RestoreSession,
     client: &ByteBackupClient,

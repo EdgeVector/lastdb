@@ -6,7 +6,7 @@ use super::{
     conversion_plan::ConversionPlan,
     conversion_target::Target,
     invalid,
-    source::{FrozenSource, Source},
+    source::FrozenSource,
     InventoryLimits, StorageResult,
 };
 use crate::atom::{HashKeyEncoding, MoleculeKeyCodec, RangeKeyEncoding};
@@ -68,9 +68,6 @@ impl PreparedRangeConversion {
             ));
         }
         let mut source = FrozenSource::open(&source_root, &keys.encryption_key())?;
-        if !matches!(source.source, Source::Runs { .. }) {
-            return Err(invalid("typed conversion requires a compact V2 source"));
-        }
         let (plan, metadata_digest) = prepare(&mut source, keys, options)?;
         let job = job_identity(
             &source,
@@ -192,9 +189,7 @@ fn prepare(
         limits,
     )?;
     plan.translate_metadata(&records)?;
-    let Source::Runs { main, .. } = &source.source else {
-        return Err(invalid("V2 source is required"));
-    };
+    let main = &source.source.main;
     let mut reader = main.fork(super::source::budget(8 * 1024 * 1024, 2));
     if reader
         .get_bounded(
@@ -227,16 +222,15 @@ fn copy(
     target: &mut Target,
     target_root: &Path,
 ) -> StorageResult<()> {
-    let Source::Runs { main, _cas: cas } = &source.source else {
-        return Err(invalid("V2 source is required"));
-    };
+    let main = &source.source.main;
+    let cas = &source.source.cas;
     while matches!(target.checkpoint.phase, Phase::Main | Phase::Cas) {
         source.check_binding()?;
         target.check_binding(target_root)?;
         let input = if target.checkpoint.phase == Phase::Main {
             main
         } else {
-            cas.as_ref()
+            cas
         };
         if !conversion_copy::copy_page(input, &target.homes, plan, &mut target.checkpoint)? {
             continue;
@@ -256,10 +250,7 @@ fn copy(
 }
 
 fn verify(source: &FrozenSource, plan: &ConversionPlan, target: &Target) -> StorageResult<()> {
-    let Source::Runs { main, _cas: cas } = &source.source else {
-        return Err(invalid("V2 source is required"));
-    };
-    let sources = [main, cas.as_ref()];
+    let sources = [&source.source.main, &source.source.cas];
     for (slot, input) in sources.into_iter().enumerate() {
         source.check_binding()?;
         let checked = conversion_copy::verify(input, &target.homes[slot], plan, slot)?;

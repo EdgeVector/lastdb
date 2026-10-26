@@ -7,7 +7,6 @@ mod model;
 mod publication;
 mod retry;
 mod source;
-pub mod standalone;
 mod store;
 mod transfer;
 mod wait;

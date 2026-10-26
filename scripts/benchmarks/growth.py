@@ -33,8 +33,6 @@ class GrowthWorkload:
         self.expected = {}
         self.samples, self.cases, self.phase = [], {}, "seed"
         self.started = time.monotonic()
-        # A v2 run home has no explicit compaction; its run merges are automatic.
-        self.disk_format = node.disk_format()
 
     def memory(self):
         value = self.node.memory_bytes()
@@ -101,19 +99,10 @@ class GrowthWorkload:
         raise ValueError("The v2 disk size did not stay constant for three seconds within 90 seconds")
 
     def compact(self):
-        if self.disk_format == 2:
-            self.phase = "settle"
-            _, _, settled = self.settle_disk([])
-            return {"format": 2, "automatic_merges": True, "settled_seconds": settled}
-        self.phase = "compaction"
-        result, _, _ = self.node.call(
-            "/api/db/compact", {"dry_run": False, "full_copy": True, "grace_ms": 0})
-        receipt = result["compact"]["native_disk"]
-        if (receipt.get("executed") is not True or receipt.get("dry_run") is not False
-                or receipt.get("reclaim_deferred") is not False
-                or receipt.get("reclaim_remaining") is not False or receipt.get("reclaim_error")):
-            raise RuntimeError("The growth compaction did not complete its reclaim")
-        return receipt
+        # A v2 run home has no explicit compaction; its run merges are automatic.
+        self.phase = "settle"
+        _, _, settled = self.settle_disk([])
+        return {"format": 2, "automatic_merges": True, "settled_seconds": settled}
 
     def checkpoint(self, number):
         result, _, _ = self.node.call("/api/db/flush", {})

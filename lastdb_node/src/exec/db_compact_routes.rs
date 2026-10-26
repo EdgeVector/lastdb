@@ -1,10 +1,7 @@
 use super::*;
-mod backup;
 mod flush;
-mod native;
 mod status;
 
-pub(super) use backup::execute as execute_db_native_backup_route;
 pub(super) use flush::execute as execute_db_flush_route;
 pub(super) use status::execute as execute_db_native_status_route;
 
@@ -68,20 +65,5 @@ pub(super) async fn execute_db_clear_history_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => mapped_error_response("clear-history failed", e, ctx),
-    }
-}
-
-/// `POST /api/db/compact` — maintain the native disk home.
-///
-/// Body: see [`native::execute`]. Defaults: dry_run=true. Native storage
-/// retains its normal compaction guards.
-pub(super) async fn execute_db_compact_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    match host.db.db_ops().namespaced_store().disk_pack_runtime() {
-        Some(runtime) => native::execute(req, ctx, runtime).await,
-        None => error_response(409, "compact: this node has no native disk home", ctx),
     }
 }

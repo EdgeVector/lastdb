@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, RwLock};
 
-// Keeps the error text of `disk_pack::corrupt`, so callers see no change.
+/// A broken invariant of the space ledger itself.
 fn corrupt(reason: &'static str) -> crate::Error {
-    crate::Error::Corrupt(format!("disk-pack v1: {reason}"))
+    crate::Error::Corrupt(reason.into())
 }
 
 static RESERVATIONS: OnceLock<Mutex<HashMap<PathBuf, ReservationState>>> = OnceLock::new();

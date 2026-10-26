@@ -38,8 +38,6 @@ where
         return future.await;
     }
     let mut timing = super::super::timing::start();
-    runtime.check_part_room()?;
-    super::super::timing::mark(&mut timing, "part_room_us");
     let gate = runtime.enter_prepare().await;
     runtime.require_restore_validated()?;
     super::super::timing::mark(&mut timing, "admission_us");
@@ -76,7 +74,7 @@ where
     let operations = pending.freeze_operations();
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
-    // Compaction can publish an equivalent physical root during logical
+    // A merge can publish an equivalent physical root during logical
     // preparation. Admission binds owned quota to this logical frontier.
     let publication = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);

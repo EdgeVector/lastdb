@@ -24,7 +24,7 @@ def compare(output, manifest):
             raise ValueError("A disk budget measurement did not complete")
         directory = output / run["directory"]
         marker = json.loads((directory / "disk-format.json").read_text())
-        if marker != {"requested_format": 2, "marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
+        if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
             raise ValueError("The disk budget did not measure a v2 run home")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(CASES):

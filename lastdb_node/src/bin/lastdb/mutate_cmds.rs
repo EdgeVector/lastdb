@@ -1,4 +1,4 @@
-//! `lastdb mutate`: request body construction, cloud-receipt checks, and the command.
+//! `lastdb mutate`: request body construction and the command.
 
 use super::*;
 
@@ -27,9 +27,6 @@ pub(super) fn resolve_mutate_type(
     }
 }
 
-// The arguments mirror the stable CLI wire fields. Keep this helper explicit
-// so tests can assert each field without hiding the request shape in a bag.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn mutate_request_body(
     schema: &str,
     wire_type: &str,
@@ -38,17 +35,7 @@ pub(super) fn mutate_request_body(
     key_range_prefix: Option<&str>,
     must_exist: bool,
     durable: bool,
-    cloud_publication: Option<CloudPublicationArg>,
 ) -> Result<serde_json::Value, String> {
-    if cloud_publication.is_some() && !durable {
-        return Err("--cloud-publication requires --durable".to_string());
-    }
-    if cloud_publication.is_some() && must_exist {
-        return Err(
-            "--cloud-publication cannot be combined with --must-exist; exact retries must remain idempotent"
-                .to_string(),
-        );
-    }
     if key_range_prefix.is_some() && key_range.is_some() {
         return Err("--key-range-prefix cannot be combined with --key-range".to_string());
     }
@@ -72,131 +59,23 @@ pub(super) fn mutate_request_body(
     if durable {
         body["durability"] = serde_json::Value::String("durable".to_string());
     }
-    if let Some(mode) = cloud_publication {
-        body["cloud_publication"] = serde_json::Value::String(mode.as_str().to_string());
-    }
     if let Some(prefix) = key_range_prefix {
         body["key_range_prefix"] = serde_json::Value::String(prefix.to_string());
     }
     Ok(body)
 }
 
-pub(super) fn mutate_client_timeout(
-    durable: bool,
-    cloud_publication: Option<CloudPublicationArg>,
-) -> Duration {
-    match (durable, cloud_publication) {
-        (true, _) | (_, Some(CloudPublicationArg::Wait)) => {
-            mutation_cloud_publication_client_timeout()
-        }
-        (false, None) => Duration::from_secs(10),
+pub(super) fn mutate_client_timeout(durable: bool) -> Duration {
+    if durable {
+        durable_mutation_client_timeout()
+    } else {
+        Duration::from_secs(10)
     }
 }
 
-pub(super) fn require_published_cloud_receipt(receipt: &serde_json::Value) -> Result<(), String> {
-    let success = receipt.get("success").and_then(serde_json::Value::as_bool);
-    let local_committed = receipt
-        .get("local_committed")
-        .and_then(serde_json::Value::as_bool);
-    let durability = receipt
-        .get("durability")
-        .and_then(serde_json::Value::as_str);
-    let mutation_id = receipt
-        .get("mutation_id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.is_empty());
-    let capture = receipt.get("cloud_capture");
-    let capture_state = capture
-        .and_then(|value| value.get("state"))
-        .and_then(serde_json::Value::as_str);
-    let capture_durable = capture
-        .and_then(|value| value.get("durable"))
-        .and_then(serde_json::Value::as_bool);
-    let capture_mutation_uuid = capture
-        .and_then(|value| value.get("mutation_uuid"))
-        .and_then(serde_json::Value::as_str);
-    let capture_error_clear = capture
-        .and_then(|value| value.get("error"))
-        .is_some_and(serde_json::Value::is_null);
-    let publication = receipt.get("cloud_publication");
-    let state = publication
-        .and_then(|value| value.get("state"))
-        .and_then(serde_json::Value::as_str);
-    let published = publication
-        .and_then(|value| value.get("published"))
-        .and_then(serde_json::Value::as_bool);
-    let publication_mutation_uuid = publication
-        .and_then(|value| value.get("mutation_uuid"))
-        .and_then(serde_json::Value::as_str);
-    let publication_error_clear = publication
-        .and_then(|value| value.get("error"))
-        .is_some_and(serde_json::Value::is_null);
-    let targets = publication
-        .and_then(|value| value.get("targets"))
-        .and_then(serde_json::Value::as_array);
-    let exact_targets = targets.is_some_and(|targets| {
-        !targets.is_empty()
-            && targets.iter().all(|target| {
-                let target_id = target
-                    .get("target_id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|value| !value.is_empty());
-                let writer_id = target
-                    .get("writer_id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|value| !value.is_empty());
-                let frontier = target
-                    .get("frontier")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .is_some_and(|value| value > 0);
-                target_id && writer_id && frontier
-            })
-    });
-    let ids_match = mutation_id.is_some()
-        && capture_mutation_uuid == mutation_id
-        && publication_mutation_uuid == mutation_id;
-
-    if success == Some(true)
-        && local_committed == Some(true)
-        && durability == Some("durable")
-        && capture_state == Some("durable")
-        && capture_durable == Some(true)
-        && capture_error_clear
-        && state == Some("published")
-        && published == Some(true)
-        && publication_error_clear
-        && ids_match
-        && exact_targets
-    {
-        return Ok(());
-    }
-
-    Err(format!(
-        "cloud publication wait did not complete (success={}, local_committed={}, durability={}, capture_state={}, capture_durable={}, capture_error_clear={}, state={}, published={}, publication_error_clear={}, ids_match={}, exact_targets={})",
-        success.map_or("missing".to_string(), |value| value.to_string()),
-        local_committed.map_or("missing".to_string(), |value| value.to_string()),
-        durability.unwrap_or("missing"),
-        capture_state.unwrap_or("missing"),
-        capture_durable.map_or("missing".to_string(), |value| value.to_string()),
-        capture_error_clear,
-        state.unwrap_or("missing"),
-        published.map_or("missing".to_string(), |value| value.to_string()),
-        publication_error_clear,
-        ids_match,
-        exact_targets,
-    ))
-}
-
-/// Write the exact JSON body before checking the publication outcome. A
-/// locally committed but unpublished Delete must leave purge automation with
-/// both the full receipt and a nonzero exit.
-pub(super) fn write_mutate_receipt<W: Write>(
-    output: &mut W,
-    response: &str,
-    wait_for_cloud_publication: bool,
-) -> Result<(), String> {
-    let receipt = parse_json_response(response, "mutation")?;
+/// Write the exact JSON body of the node's mutation receipt.
+pub(super) fn write_mutate_receipt<W: Write>(output: &mut W, response: &str) -> Result<(), String> {
+    parse_json_response(response, "mutation")?;
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body)
@@ -211,12 +90,7 @@ pub(super) fn write_mutate_receipt<W: Write>(
     }
     output
         .flush()
-        .map_err(|e| format!("flush mutation receipt: {e}"))?;
-
-    if wait_for_cloud_publication {
-        require_published_cloud_receipt(&receipt)?;
-    }
-    Ok(())
+        .map_err(|e| format!("flush mutation receipt: {e}"))
 }
 
 pub(super) fn mutate_command(
@@ -251,14 +125,13 @@ pub(super) fn mutate_command(
         key_range_prefix,
         must_exist,
         options.durable,
-        options.cloud_publication,
     )?;
     let raw = post_json_with_timeout(
         &socket,
         "/api/mutation",
         &body,
-        mutate_client_timeout(options.durable, options.cloud_publication),
+        mutate_client_timeout(options.durable),
     )?;
     let mut stdout = std::io::stdout().lock();
-    write_mutate_receipt(&mut stdout, &raw, options.cloud_publication.is_some())
+    write_mutate_receipt(&mut stdout, &raw)
 }

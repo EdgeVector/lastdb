@@ -12,11 +12,6 @@ import {
   ListResult,
   LoadedSchema,
   NodeVersion,
-  MutationCloudCaptureReceipt,
-  MutationCloudCaptureState,
-  MutationCloudPublicationReceipt,
-  MutationCloudPublicationState,
-  MutationCloudPublicationTarget,
   QueryPage,
   QueryResult,
   QueryRow,
@@ -146,21 +141,6 @@ export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-export const U64_MAX_DECIMAL = '18446744073709551615';
-
-export function isPositiveU64Decimal(value: unknown): value is string {
-  if (
-    typeof value !== 'string' ||
-    !/^[1-9][0-9]*$/.test(value) ||
-    value.length > U64_MAX_DECIMAL.length
-  ) {
-    return false;
-  }
-  return (
-    value.length < U64_MAX_DECIMAL.length || value <= U64_MAX_DECIMAL
-  );
-}
-
 /** Normalize the legacy ID list and the current single-route mutation ID. */
 export function parseMutationIds(
   body: Record<string, JsonValue>,
@@ -235,143 +215,6 @@ export function parseMutationFiringsObserved(
     200,
     raw,
   );
-}
-
-export function isMutationCloudCaptureState(
-  value: unknown,
-): value is MutationCloudCaptureState {
-  return value === 'durable' || value === 'failed';
-}
-
-export function isMutationCloudPublicationState(
-  value: unknown,
-): value is MutationCloudPublicationState {
-  return (
-    value === 'not_requested' ||
-    value === 'pending' ||
-    value === 'published' ||
-    value === 'failed'
-  );
-}
-
-/** Parse one durable cloud-intent receipt without weakening its guarantee. */
-export function parseMutationCloudCapture(raw: unknown): MutationCloudCaptureReceipt {
-  if (!isObject(raw)) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud_capture receipt',
-      200,
-      raw,
-    );
-  }
-  const state = raw['state'];
-  const durable = raw['durable'];
-  const mutationUuid = raw['mutation_uuid'];
-  const error = raw['error'];
-  if (
-    !isMutationCloudCaptureState(state) ||
-    typeof durable !== 'boolean' ||
-    !isNonEmptyString(mutationUuid) ||
-    (error !== null && typeof error !== 'string')
-  ) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud_capture receipt',
-      200,
-      raw,
-    );
-  }
-  const coherent =
-    state === 'durable'
-      ? durable && error === null
-      : !durable && isNonEmptyString(error);
-  if (!coherent) {
-    throw new UnexpectedResponseError(
-      'mutation returned an incoherent cloud_capture receipt',
-      200,
-      raw,
-    );
-  }
-  return { state, durable, mutationUuid, error };
-}
-
-/** Parse one exact target coordinate and preserve the frontier as text. */
-export function parseMutationCloudPublicationTarget(
-  raw: unknown,
-): MutationCloudPublicationTarget {
-  if (!isObject(raw)) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud publication target',
-      200,
-      raw,
-    );
-  }
-  const targetId = raw['target_id'];
-  const targetLabel = raw['target_label'];
-  const writerId = raw['writer_id'];
-  const frontier = raw['frontier'];
-  if (
-    !isNonEmptyString(targetId) ||
-    typeof targetLabel !== 'string' ||
-    !isNonEmptyString(writerId) ||
-    !isPositiveU64Decimal(frontier)
-  ) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud publication target',
-      200,
-      raw,
-    );
-  }
-  return { targetId, targetLabel, writerId, frontier };
-}
-
-/** Parse the exact off-box receipt and map its wire names to the SDK surface. */
-export function parseMutationCloudPublication(
-  raw: unknown,
-): MutationCloudPublicationReceipt {
-  if (!isObject(raw)) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud_publication receipt',
-      200,
-      raw,
-    );
-  }
-  const state = raw['state'];
-  const published = raw['published'];
-  const mutationUuid = raw['mutation_uuid'];
-  const targets = raw['targets'];
-  const error = raw['error'];
-  if (
-    !isMutationCloudPublicationState(state) ||
-    typeof published !== 'boolean' ||
-    !isNonEmptyString(mutationUuid) ||
-    !Array.isArray(targets) ||
-    (error !== null && typeof error !== 'string')
-  ) {
-    throw new UnexpectedResponseError(
-      'mutation returned an invalid cloud_publication receipt',
-      200,
-      raw,
-    );
-  }
-  const coherent =
-    (state === 'published' && published && error === null) ||
-    (state === 'failed' && !published && isNonEmptyString(error)) ||
-    ((state === 'pending' || state === 'not_requested') &&
-      !published &&
-      error === null);
-  if (!coherent) {
-    throw new UnexpectedResponseError(
-      'mutation returned an incoherent cloud_publication receipt',
-      200,
-      raw,
-    );
-  }
-  return {
-    state,
-    published,
-    mutationUuid,
-    targets: targets.map(parseMutationCloudPublicationTarget),
-    error,
-  };
 }
 
 /**

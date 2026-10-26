@@ -11,16 +11,6 @@ pub struct RecoveryKeys {
 }
 
 impl RecoveryKeys {
-    /// Legacy V2 also exposes recovery identity in its client descriptor.
-    pub fn from_account_phrase(
-        phrase: &str,
-        account_public_key: &cloud_backup_protocol::Digest,
-    ) -> Result<Self> {
-        let keys = Self::from_phrase(phrase)?;
-        keys.validate_account(account_public_key)?;
-        Ok(keys)
-    }
-
     /// Derive locally before the opaque encrypted root is available.
     pub fn from_scope_phrase(
         phrase: &str,

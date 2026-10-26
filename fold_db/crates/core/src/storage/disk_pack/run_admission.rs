@@ -18,10 +18,7 @@ pub(super) const CONVERSION_INTENT: &str = "lastdb-range-conversion-v1";
 
 impl PackRuntime {
     pub(crate) fn range_order(&self) -> KeyOrderVersion {
-        match &self.physical {
-            super::physical::Physical::V1(_) => KeyOrderVersion::LegacyUtf8V1,
-            super::physical::Physical::V2(home) => home.range_order,
-        }
+        self.physical.range_order
     }
 }
 

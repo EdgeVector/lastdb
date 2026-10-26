@@ -1,16 +1,7 @@
-//! V2 account byte transport, local maintenance and passive retired metadata.
+//! V2 account byte transport and local mutation admission.
 //! No legacy cloud engine, provider admission, replay worker or scheduler exists.
 pub mod auth;
 pub(crate) mod capture;
-pub mod cloud_share;
-pub mod engine;
-pub mod error;
-pub mod log;
-pub(crate) mod mutation_intent;
-mod retired_cloud_repair;
-pub mod snapshot_log;
-pub use error::{SyncError, SyncResult};
-pub use retired_cloud_repair::check_retired_cloud_repair;
 
 const SHARED_HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 

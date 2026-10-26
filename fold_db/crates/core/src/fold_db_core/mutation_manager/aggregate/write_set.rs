@@ -11,13 +11,11 @@ struct InvalidationCandidate {
 type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
 
 impl MutationManager {
-    /// Aggregate single-route sibling that returns a fixed failed cloud receipt
-    /// for a non-Async policy.
-    pub async fn write_aggregate_set_with_access_receipt_cloud(
+    /// Commit one aggregate source mutation and its `AggregateSet` atomically.
+    pub async fn write_aggregate_set_with_access_receipt(
         &self,
         mut source: Mutation,
         access_context: &crate::access::AccessContext,
-        cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let aggregate = source.aggregate_set.clone().ok_or_else(|| {
             SchemaError::InvalidData("aggregate commit requires aggregate_set".into())
@@ -34,17 +32,12 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
 
-        let cloud = super::super::CloudMutationReceipt::for_policy(
-            cloud_policy,
-            std::slice::from_ref(&source),
-        );
         let mut receipt = crate::sync::capture::with_mutation_admission(
             self.capture_router(),
             self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request),
         )
         .await?;
         receipt.revision = Some(source_revision);
-        receipt.cloud = cloud;
         Ok(receipt)
     }
 

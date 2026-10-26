@@ -44,22 +44,6 @@ pub(crate) enum ByteBackupCommand {
         json: bool,
     },
 
-    /// Upload from an existing home without a daemon or a local database writer.
-    Standalone {
-        #[arg(long)]
-        state_dir: PathBuf,
-        #[arg(long)]
-        credentials_home: PathBuf,
-        #[arg(long, value_parser = ["dev", "prod"])]
-        env: String,
-        #[command(subcommand)]
-        action: ByteStandaloneCommand,
-    },
-    /// Read the exact stopped native boundary without state or cloud requests.
-    Boundary {
-        #[arg(long)]
-        json: bool,
-    },
     /// Save one manual V2 backup on the owner daemon. Automatic backup stays off.
     Start {
         #[arg(long)]
@@ -109,32 +93,6 @@ pub(crate) enum ByteBackupCommand {
         into: Option<PathBuf>,
         #[arg(long)]
         resume: Option<PathBuf>,
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub(crate) enum ByteStandaloneCommand {
-    /// Freeze and upload this request, or resume the same saved request.
-    Start {
-        #[arg(long)]
-        request_id: String,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Resume the selected request with its original cut and transfer IDs.
-    Resume {
-        #[arg(long)]
-        json: bool,
-    },
-    /// Read external local state only.
-    Status {
-        #[arg(long)]
-        json: bool,
-    },
-    /// Close the selected request and retain uncertain cloud obligations.
-    Close {
         #[arg(long)]
         json: bool,
     },

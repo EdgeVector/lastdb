@@ -81,7 +81,7 @@ impl ReadContext {
         } else {
             super::physical::ReadMode::Ordinary(budget())
         };
-        let call = runtime.physical_read(&view.current, mode)?;
+        let call = runtime.physical_read(&view.current, mode);
         let accepted = preparation;
         let core_model = runtime
             .core

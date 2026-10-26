@@ -10,13 +10,11 @@ use std::pin::Pin;
 use fold_db::access::AccessContext;
 use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
-    CloudCapturePolicy, MutationManager, ResidentCommitOperations, ResidentCommitReceipt,
-    ResidentCommitStages, ResidentDurability,
+    MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
+    ResidentDurability,
 };
 use fold_db::request_phases::{self, RequestPhase};
-use fold_db::schema::types::operations::{
-    MutationCloudPublication, MutationConvergence, MutationDurability, Operation,
-};
+use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
 use fold_db::schema::types::{AggregateSet, KeyValue, Mutation, MutationType, SchemaError};
 use serde_json::Value;
 
@@ -24,7 +22,6 @@ use crate::host_node::HostNode;
 use crate::qos::Lane;
 use crate::HostError;
 
-use self::cloud::attach_cloud_receipt;
 use self::fields::require_durable_aggregate_receipt;
 use self::plan::MutationPlan;
 
@@ -35,7 +32,6 @@ pub use request::execute_mutation;
 mod fields;
 pub use fields::{mutation_unknown_fields, mutation_writable_field_names, unknown_fields_body};
 mod aggregate;
-mod cloud;
 pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
 pub use batch::execute_mutations_batch;
@@ -56,7 +52,6 @@ pub struct MutationComponents {
     pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
     pub convergence: MutationConvergence,
     pub durability: MutationDurability,
-    pub cloud_publication: Option<MutationCloudPublication>,
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,
@@ -84,7 +79,6 @@ impl MutationComponents {
             expected,
             convergence,
             durability,
-            cloud_publication,
             must_exist,
             key_range_prefix,
         } = operation;
@@ -98,20 +92,12 @@ impl MutationComponents {
             expected,
             convergence: convergence.or(default_convergence).unwrap_or_default(),
             durability: durability.unwrap_or_default(),
-            cloud_publication,
             must_exist,
             key_range_prefix,
             aggregate_set,
         }
     }
 }
-
-/// Maximum off-box publication wait after a durable Delete commits locally.
-///
-/// The Mini route budget adds this interval to its ordinary local-work budget,
-/// so a slow but in-budget local commit cannot consume the publication wait.
-pub const MUTATION_CLOUD_PUBLICATION_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_secs(30);
 
 /// Per-class operation counts as the route renders them.
 pub(super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
@@ -163,7 +149,7 @@ fn mutation_response(
     receipt: &ResidentCommitReceipt,
     payload_bytes: usize,
 ) -> Value {
-    let mut response = serde_json::json!({
+    serde_json::json!({
         "mutation_id": mutation_id,
         "success": true,
         "background_tasks_drained": background_tasks_drained,
@@ -178,9 +164,7 @@ fn mutation_response(
         // already computed, returned inline so a caller (or the attribution
         // proof) has the write's size before it does a second read.
         "size": payload_bytes
-    });
-    attach_cloud_receipt(&mut response, mutation_id, receipt.cloud.as_ref());
-    response
+    })
 }
 
 /// Response for a prefix delete that matched no rows.
@@ -267,7 +251,7 @@ async fn commit_mutation<H: HostNode>(
     let _permit = permit?;
     let manager = host.fold_db().mutation_manager();
     let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
-    let receipt = start_core_commit(manager, mutations, ctx, plan.cloud_policy, aggregate_write)
+    let receipt = start_core_commit(manager, mutations, ctx, aggregate_write)
         .await
         .map_err(|e| {
             // Preserve typed status codes and the historical prefix for true 500s.
@@ -298,21 +282,19 @@ fn start_core_commit<'a>(
     manager: &'a MutationManager,
     mutations: Vec<Mutation>,
     ctx: &'a AccessContext,
-    cloud_policy: CloudCapturePolicy,
     aggregate_write: bool,
 ) -> CoreCommitFuture<'a> {
     if aggregate_write {
         Box::pin(
-            manager.write_aggregate_set_with_access_receipt_cloud(
+            manager.write_aggregate_set_with_access_receipt(
                 mutations
                     .into_iter()
                     .next()
                     .expect("one aggregate mutation"),
                 ctx,
-                cloud_policy,
             ),
         )
     } else {
-        Box::pin(manager.write_mutations_with_access_receipt_cloud(mutations, ctx, cloud_policy))
+        Box::pin(manager.write_mutations_with_access_receipt(mutations, ctx))
     }
 }

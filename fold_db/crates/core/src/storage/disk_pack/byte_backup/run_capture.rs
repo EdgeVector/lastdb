@@ -1,7 +1,7 @@
 //! Paired owner capture. No second home owner or storage-format conversion.
 use super::{
-    context::CaptureHome, invalid, model::State, protocol, run_source::RunSource, store::Store,
-    ByteBackupCapture, Inner, PackRuntime, StorageResult,
+    invalid, model::State, protocol, run_source::RunSource, store::Store, ByteBackupCapture, Inner,
+    PackRuntime, StorageResult,
 };
 use cloud_backup_protocol::{bytes_sha256, v2::Begin, Digest, RecoveryDescriptor};
 use serde::{Deserialize, Serialize};
@@ -113,9 +113,7 @@ pub(super) async fn prepare(
     .await
 }
 fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
-    let super::super::physical::Physical::V2(homes) = &runtime.physical else {
-        return Err(invalid("run capture requires disk V2"));
-    };
+    let homes = &runtime.physical;
     directory(root.parent().ok_or_else(|| invalid("run capture parent"))?)?;
     fs::DirBuilder::new().mode(0o700).create(root)?;
     homes
@@ -163,10 +161,9 @@ fn inner(
     admission: super::super::NativeCloudWorkGuard,
 ) -> Inner {
     Inner {
-        home: CaptureHome::Writer(runtime),
+        runtime,
         store,
         state: Mutex::new(state),
-        source: None,
         run,
         readers: AtomicUsize::new(0),
         _admission: admission,
@@ -181,8 +178,7 @@ fn reopen(
     admit: bool,
 ) -> StorageResult<ByteBackupCapture> {
     state.validate()?;
-    if state.run.is_none()
-        || state.key_sha256 != bytes_sha256(key)
+    if state.key_sha256 != bytes_sha256(key)
         || state.native_root.home_id.as_str() != runtime.native_home_id().to_string()
     {
         return Err(invalid("run capture saved identity"));
@@ -302,8 +298,6 @@ fn new_state(
         local_cancelled: false,
         released: false,
         recovery: Some(recovery),
-        record_profile: None,
         run: Some(profile),
-        max_coordinate_bytes: 0,
     })
 }

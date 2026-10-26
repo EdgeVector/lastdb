@@ -21,7 +21,10 @@ tracing = "0.1"
 
 [dev-dependencies]
 aws-config = { workspace = true }
+app_identity_crypto = { workspace = true }
+base64 = { workspace = true }
 chrono = "0.4"
+ed25519-dalek = "2.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [lints]

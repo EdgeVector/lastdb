@@ -50,7 +50,6 @@ mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
-mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
@@ -63,7 +62,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use codec::{decode_plain_atom, encode_plain_atom};
+pub(crate) use codec::decode_plain_atom;
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -87,7 +86,6 @@ pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{
     record_digest, slot_dir_prefix, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
 };
-pub(crate) use retired_intent_retention::RetiredIntentRetentionProof;
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
@@ -158,9 +156,6 @@ pub struct AtomStore {
     /// Legacy constructors leave this unset. Production construction and the
     /// drain tests attach it explicitly.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
-    /// Retired outcome roots commit exclusively; reclaim retains a shared fence
-    /// through its final deletion. Every clone shares the same fence.
-    retired_intent_retention_gate: Arc<tokio::sync::RwLock<()>>,
     /// Serialize protein membership selection and orphan reclamation across clones.
     protein_membership_gate: Arc<tokio::sync::Mutex<()>>,
     /// When set (plain packaging homes), atom `content` is sealed at rest

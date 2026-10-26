@@ -173,7 +173,7 @@ The generic legacy converter still refuses native output without the atom-record
 The [run-1 inputs](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/inputs.json) identify the executable by its SHA-256 and source commit `47088b89c`.
 The run precedes the current fixes after that commit.
 Its [summary](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/summary.json) records completion, no error, and all owned processes stopped.
-The detailed receipts remain in [`docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl`](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl).
+The detailed receipts are kept at commit `0b0a79d4c`: [`docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl`](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/run-1/receipts.jsonl).
 
 The fresh owned home contains 64 generated records with four fields and 1 KiB bodies.
 The run changes all 64 records five times, deletes eight records, and recreates four records.

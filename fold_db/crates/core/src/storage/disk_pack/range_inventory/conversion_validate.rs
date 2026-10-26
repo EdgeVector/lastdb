@@ -2,7 +2,7 @@
 
 use super::{invalid, StorageResult};
 use crate::storage::disk_pack::{
-    parts, physical, restore_safety, space, CoreNativeBackupBoundary, PackNamespacedStore,
+    physical, restore_safety, space, CoreNativeBackupBoundary, PackNamespacedStore,
 };
 use laststore::disk_run::home::RunHome;
 use schema_types::key_comparison::KeyOrderVersion;
@@ -26,16 +26,8 @@ pub(super) async fn validate(homes: &[Arc<RunHome>; 2]) -> StorageResult<()> {
         frontier: root.frontier(),
     })
     .0;
-    let ledger = parts::PartsLedger::from_env(0, root.generation(), root.frontier());
-    let store = PackNamespacedStore::assemble(
-        physical::Physical::V2(home),
-        physical::PhysicalRoot::V2(root),
-        boundary,
-        ledger,
-        false,
-        None,
-        space::policy_from_env()?,
-    );
+    let store =
+        PackNamespacedStore::assemble(home, root, boundary, false, space::policy_from_env()?);
     restore_safety::exclusive(
         Arc::clone(&store.runtime),
         crate::db_operations::atom_store::counter::restore_validation::validate(&store),

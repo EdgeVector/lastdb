@@ -20,6 +20,8 @@ schema_types = { workspace = true }
 # envelope (Ed25519) + JCS verification for `POST /v1/apps` and the
 # `owner_app_id` schema-claim gate on `POST /v1/schemas`.
 app_identity_crypto = { workspace = true }
+# Ed25519 verification for compat-row write endpoint (verifier-signed only).
+ed25519-dalek = { version = "2.2", features = ["std"] }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 hmac = { workspace = true }

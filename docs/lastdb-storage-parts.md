@@ -1,5 +1,8 @@
 # Storage parts and automatic maintenance
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 The [native route summary](lastdb-disk-native-node.md) describes writes, reads, and their memory boundary.
 The [snapshot protocol](lastdb-snapshot-commits.md) describes durable root publication.
 
@@ -29,12 +32,8 @@ Substantial byte growth or record changes start another full copy.
 The copy runs outside the write gate. A bounded catch-up precedes the final root publication.
 Reads and writes can continue during the copy and reclaim.
 
-`POST /api/db/compact` defaults to a preview.
-`{"dry_run":false}` runs a full copy and reclaim.
-`{"dry_run":false,"full_copy":false}` permits a recent tier.
-`{"dry_run":false,"reclaim_only":true}` runs reclaim alone.
-A named collection is refused because native parts share one root.
-`lastdb db compact --execute` uses the whole native home.
+The disk format v1 removal deleted the owner route `POST /api/db/compact`
+and the command `lastdb db compact` on 2026-10-26.
 
 ## The worker and admission
 
@@ -66,12 +65,9 @@ An uncertain root publication requires recovery before further writes.
 
 ## Status
 
-`lastdb status` shows the part count, limit, trigger, peak, failures, and last run.
-It also shows the active compaction phase and last swap time.
-`GET /api/db/native-status` exposes the fields under `native_disk.parts`.
-The fields include `compaction_phase`, copy time, swap time, maximum swap time,
-catch-up rounds, changed locators, and the tier boundary.
-The part and phase fields come from current atomics rather than the sampler cache.
+The disk format v1 removal deleted the storage parts status on 2026-10-26.
+`lastdb status` has no storage parts section.
+`GET /api/db/native-status` has no `native_disk.parts` field.
 
 ## Unreferenced files
 
@@ -106,7 +102,7 @@ The source limit is 67,108,864 records and 65,536 hash groups.
 The receipt remains limited to 65,536 parts.
 A named low-space refusal preserves the current root.
 
-Current product receipts reside in [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
+The product receipts are kept at commit `0b0a79d4c`: [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
 The measurements below describe earlier journal-backed builds. They do not measure this snapshot implementation.
 
 ## Historical measurements before concurrent snapshot compaction

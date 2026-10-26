@@ -383,8 +383,7 @@ release the kept conflict records of the slots they remove. See
 | `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
 | `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
 | `lastdb db reap-unsealed` | `POST /api/db/reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
-| `lastdb db compact` | `POST /api/db/compact` | live node | packs the native home and reclaims old files (`docs/lastdb-storage-parts.md`) |
-| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth, parts |
+| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth |
 
 ### `lastdb db verify-refs`
 
@@ -567,7 +566,6 @@ clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and 
 | `Blob counters` | the blob counter totals, dwell queue depth and buckets, next due time, passes, net sweeps |
 | `Conflict retention` | window, janitor interval, last run, queue depth and buckets, released by janitor and by purge, slot drains pending, failed wakes, net sweeps |
 | `Purge stats` | for each schema: purges, records purged, target slots and atoms deleted, since the process started |
-| `Storage parts` | dependency parts of the storage receipt: `docs/lastdb-storage-parts.md` |
 | `Local retention` | the TTL sweep: `docs/lastdb-ttl-sweep.md` |
 
 ## Crash states
@@ -589,7 +587,6 @@ each one.
 | a queue bucket without directory row (outside the queue) | entries that no reader lists | the safety net, `verify-refs`, `recount --execute` |
 | a conflict record with no queue entry | a record that the janitor never releases | `verify-refs` finds it; `recount --execute` writes the entry |
 | a writer that bypassed the planner | a count that is wrong | `verify-refs`, then `recount --execute` |
-| a kill during pack or reclaim | files that no receipt names, an unfinished generation directory | the automatic sweep (`docs/lastdb-storage-parts.md`) |
 | a row without an at-rest envelope | the row reads as absent | `lastdb db reap-unsealed`, then `recount` |
 
 A leak and a loss do not come from a crash. They come from a defect in the planner or in a
@@ -624,11 +621,6 @@ that does not parse gives the default.
 | `LASTDB_TTL_SWEEP_BATCH` | 16 | Keys erased in one batch (1 to 64). |
 | `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | Share of wall time (1 to 100) that the sweep spends in batches. |
 | `LASTDB_TTL_SWEEP_MIN_PAUSE_MS` | 25 | Shortest rest between two batches. |
-| `LASTDB_DEPENDENCY_HIGH_WATER` | 4,096 | Storage parts at which maintenance starts (at most 75 percent of the limit). |
-| `LASTDB_AUTO_MAINTENANCE` | on | `0` or `false` turns the storage maintenance worker off. |
-| `LASTDB_AUTO_MAINTENANCE_GRACE_MS` | 0 | Grace for the reclaim of an automatic run. |
-| `LASTDB_ORPHAN_MIN_AGE_MS` | 600,000 | Youngest unreferenced part file that the sweep removes. |
-| `LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS` | 30 | Wait before the first pack of a process. |
 
 ## Known limits
 

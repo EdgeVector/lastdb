@@ -10,9 +10,6 @@ use super::*;
 /// queue budget (~60s) so healthy bulk work does not time out.
 pub const DEFAULT_HANDLER_TIMEOUT_SECS: u64 = 90;
 
-/// Scheduling and response headroom around the exact cloud-publication wait.
-pub const MUTATION_CLOUD_PUBLICATION_HANDLER_MARGIN_SECS: u64 = 10;
-
 /// Longer budget for owner DB admin scans (`/api/db/inventory`,
 /// `/api/db/clear-history`) — full-prefix walks over multi-GiB stores.
 /// Override with `LASTDB_UDS_ADMIN_TIMEOUT_SECS`.
@@ -44,20 +41,6 @@ pub fn handler_timeout() -> Duration {
             Duration::from_secs(DEFAULT_HANDLER_TIMEOUT_SECS),
             Duration::from_secs,
         )
-}
-
-/// Full server budget for one exact cloud-publication mutation request.
-///
-/// The publication wait starts after local mutation work completes. Derive
-/// this value from the effective handler timeout so a server override cannot
-/// leave exact clients with a stale fixed deadline.
-#[must_use]
-pub fn exact_mutation_route_budget() -> Duration {
-    handler_timeout()
-        .saturating_add(handlers::MUTATION_CLOUD_PUBLICATION_TIMEOUT)
-        .saturating_add(Duration::from_secs(
-            MUTATION_CLOUD_PUBLICATION_HANDLER_MARGIN_SECS,
-        ))
 }
 
 /// The operator's explicit `LASTDB_UDS_ADMIN_TIMEOUT_SECS` override, when the
@@ -171,32 +154,10 @@ pub async fn execute_data_route_with_timeout(
 ) -> UdsResponse {
     with_handler_timeout_budget(
         ctx,
-        data_route_budget_for_request(route, req),
+        data_route_budget(route),
         execute_data_route(route, req, ctx, host),
     )
     .await
-}
-
-/// Resolve the route budget plus any explicit request-owned remote wait.
-///
-/// A durable Delete with `cloud_publication: "wait"` starts its fixed cloud
-/// wait only after the local commit completes. Give that opt-in request the
-/// normal local-work budget, the full publication interval, and bounded
-/// scheduling headroom. All default mutation requests keep the normal budget.
-#[must_use]
-pub fn data_route_budget_for_request(route: DataRoute, req: &UdsRequest) -> Duration {
-    let budget = data_route_budget(route);
-    if route != DataRoute::Mutation || !mutation_requests_cloud_publication_wait(req) {
-        return budget;
-    }
-
-    exact_mutation_route_budget()
-}
-
-pub(super) fn mutation_requests_cloud_publication_wait(req: &UdsRequest) -> bool {
-    serde_json::from_slice::<Value>(&req.body)
-        .ok()
-        .is_some_and(|body| body.get("cloud_publication").and_then(Value::as_str) == Some("wait"))
 }
 
 /// Wall-clock budget for one data route.
@@ -223,8 +184,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
         | DataRoute::DbClearHistory
-        | DataRoute::DbCompact
-        | DataRoute::DbNativeBackup
         | DataRoute::DbGcProteins
         | DataRoute::DbResealAtRest
         | DataRoute::DbReapUnsealed

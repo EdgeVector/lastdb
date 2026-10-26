@@ -46,7 +46,6 @@ impl MutationManager {
             revision: None,
             operations,
             durability: Self::commit_durability(force_durable),
-            cloud: None,
             stages,
             touched_group_ids: Vec::new(),
         })

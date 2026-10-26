@@ -1,47 +1,21 @@
 //! Owner-only metadata for a batch of exact HashKey field selections.
 
-use super::*;
-use fold_db::db_operations::{MoleculeConflictState, SELECTED_CONFLICT_MAX_MOLECULES};
-use fold_db::schema::types::field::FieldKind;
-use serde::Deserialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
-const MAX_KEYS: usize = 64;
-const MAX_FIELDS_PER_KEY: usize = 32;
+use fold_db::access::AccessContext;
+use fold_db::db_operations::SELECTED_CONFLICT_MAX_MOLECULES;
+use fold_db::schema::SchemaState;
+use serde_json::Value;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SelectedConflictRequest {
-    keys: Vec<SelectedConflictKey>,
-}
+use crate::host_node::HostNode;
+use crate::qos::Lane;
+use crate::HostError;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SelectedConflictKey {
-    schema_name: String,
-    fields: Vec<String>,
-    hash: String,
-}
+use super::resolve_schema_name;
 
-impl SelectedConflictKey {
-    fn validate(&self) -> Result<(), HostError> {
-        if self.schema_name.is_empty()
-            || self.schema_name.len() > 512
-            || self.hash.is_empty()
-            || self.hash.len() > 4096
-            || self.fields.is_empty()
-            || self.fields.len() > MAX_FIELDS_PER_KEY
-            || self
-                .fields
-                .iter()
-                .any(|field| field.is_empty() || field.len() > 256)
-            || self.fields.iter().collect::<BTreeSet<_>>().len() != self.fields.len()
-        {
-            return Err(HostError::new(400, "invalid_conflict_key_selection"));
-        }
-        Ok(())
-    }
-}
+mod rules;
+use rules::SelectedConflictKey;
+pub use rules::SelectedConflictRequest;
 
 /// No atom body is read, and no field value or conflict payload is returned.
 /// The result is conservative: any
@@ -52,22 +26,7 @@ pub async fn selected_key_conflict_metadata<H: HostNode>(
     request: SelectedConflictRequest,
     ctx: &AccessContext,
 ) -> Result<Value, HostError> {
-    if !ctx.is_owner {
-        return Err(HostError::new(403, "owner_required"));
-    }
-    // This first route has only a personal HashKey contract. Never fall through
-    // from a named org/DB scope to the unprefixed conflict namespace.
-    if ctx.storage_prefix.is_some()
-        || ctx
-            .db_locator
-            .as_deref()
-            .is_some_and(|db| db != "lastdb://personal")
-    {
-        return Err(HostError::new(400, "personal_conflict_scope_required"));
-    }
-    if request.keys.is_empty() || request.keys.len() > MAX_KEYS {
-        return Err(HostError::new(400, "invalid_conflict_key_count"));
-    }
+    request.validate_access_and_count(ctx)?;
     let _permit = host.acquire_op_permit(Lane::Bulk).await?;
     let mut selected = Vec::with_capacity(request.keys.len());
     let mut molecules = BTreeSet::new();
@@ -88,7 +47,7 @@ pub async fn selected_key_conflict_metadata<H: HostNode>(
     let states: HashMap<_, _> = molecules.into_iter().zip(states).collect();
     let results: Vec<_> = selected
         .into_iter()
-        .map(|fields| field_result(fields, &states))
+        .map(|fields| rules::field_result(fields, &states))
         .collect();
     Ok(serde_json::json!({
         "version": 1,
@@ -119,42 +78,5 @@ fn selected_field_molecules<H: HostNode>(
     {
         return Err(HostError::new(409, "conflict_schema_not_available"));
     }
-    key.fields
-        .iter()
-        .map(|name| {
-            let field = schema
-                .runtime_fields
-                .get(name)
-                .ok_or_else(|| HostError::new(400, "conflict_field_not_found"))?;
-            if field.kind != FieldKind::Hash {
-                return Err(HostError::new(400, "hash_key_conflict_selection_required"));
-            }
-            Ok(field.common().molecule_uuid().cloned())
-        })
-        .collect()
-}
-
-fn field_result(
-    fields: Vec<Option<String>>,
-    states: &HashMap<String, MoleculeConflictState>,
-) -> Value {
-    use MoleculeConflictState::{Clean, Conflict, Unknown};
-    let mut combined = Clean;
-    let fields: Vec<_> = fields
-        .into_iter()
-        .map(|molecule| {
-            let state = molecule
-                .as_ref()
-                .and_then(|molecule| states.get(molecule))
-                .copied()
-                .unwrap_or(Unknown);
-            combined = match (combined, state) {
-                (Unknown, _) | (_, Unknown) => Unknown,
-                (Conflict, _) | (_, Conflict) => Conflict,
-                _ => Clean,
-            };
-            serde_json::json!({ "molecule_uuid": molecule, "state": state })
-        })
-        .collect();
-    serde_json::json!({ "state": combined, "fields": fields })
+    rules::field_molecules(&schema, &key.fields)
 }

@@ -923,7 +923,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 | Atom empty-via-GC lesson | brain `lastdb-atom-key-flip-would-have-emptied-the-atom-collection-via-gc` |
 | Key codec | `fold_db/crates/core/src/atom/molecule_key_codec.rs` |
 | Locator codec | `fold_db/crates/core/src/atom/atom_locator_codec.rs` (`aloc:`) |
-| Collection routing | `fold_db/crates/core/src/storage/laststore/key_routing.rs` |
+| Collection routing | `fold_db/crates/core/src/storage/disk_pack/native_routing/key_routing.rs` |
 | Main key classify | `fold_db/crates/core/src/mini_cutover/main_keys.rs` |
 | Backup manifest | `fold_db/crates/core/src/storage/laststore/backup_manifest.rs` |
 | Page index rebuild | `fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs` |

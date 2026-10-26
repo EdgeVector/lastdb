@@ -195,6 +195,12 @@ fn v2_scope() -> actix_web::Scope {
             "/releases/{release_id}",
             web::get().to(handlers::get_release),
         )
+        // Compat-row write and read — verifier-signed compatibility attestations.
+        .service(
+            web::resource("/releases/{release_id}/compat")
+                .route(web::post().to(handlers::write_compat_row))
+                .route(web::get().to(handlers::list_compat_rows)),
+        )
         .route("/apps/{app_id}", web::get().to(handlers::get_app))
 }
 
@@ -235,7 +241,7 @@ impl SchemaServiceServer {
 
     /// Seed every pool the service ships with:
     ///   * curated canonical fields (`builtin_canonical_fields`)
-    ///   * SystemSeed + app-template schemas (`builtin_schemas`)
+    ///   * built-in schemas (`builtin_schemas`; the boot list is empty)
     ///
     /// Schema.org types and Schema.org property rows are **not** seeded
     /// (`preference-schema-org-not-live-language`).

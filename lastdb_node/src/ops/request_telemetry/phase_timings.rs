@@ -227,18 +227,6 @@ phase_timings! {
         /// Store flush. Near zero on default builds (background flusher);
         /// meaningful only under synchronous-flush configurations.
         flush_us => "flush",
-        /// Mutation: cloud-sync mutation-log capture on the request path. No
-        /// code records it now: the retired capture encode was its last work,
-        /// so a current row reads 0 here.
-        ///
-        /// Absent before 0.23.3: this work wraps the batch write from outside
-        /// `write_create_update_batch_async`, so no residual inside that function
-        /// could reach it and it landed in no phase at all. It surfaced only as
-        /// the request-level `unphased=` remainder — 19.2% of kanban BoardCards
-        /// mutation wall time on the primary, 2026-08-17, against under 1% on
-        /// every query key. A rollup row from an older binary reads 0 here; that
-        /// is unmigrated, not measured-as-zero.
-        sync_capture_us => "sync_capture",
         /// The handler's bounded wait for background index tasks — NOT the
         /// off-thread index/embedding work itself, which never blocks the
         /// request.

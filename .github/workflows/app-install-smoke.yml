@@ -1,12 +1,19 @@
 name: app-install-smoke
 
-# End-to-end install smoke: build LastDB, then install and test priority apps
-# (Brain, Search, LastSecrets) from the static registry. Proves the app registry
-# install path works and apps are compatible with this LastDB build.
+# End-to-end install smoke: build LastDB, install the newest proved stable
+# row, then run that app on this build.
 #
-# No unit tests (deleted 2026-10-09). This is an e2e smoke test using real installs.
+# A main build has no exact compat row. The public stable index still names
+# the last proved build, which is the brew bottle version string. Install
+# uses that row. Health checks still fail the job. The daemon keeps a
+# 64 MiB worker stack so a debug build can finish a brain write.
+#
+# No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/app-install-smoke.yml
   workflow_dispatch:
     inputs:
       apps:
@@ -110,16 +117,38 @@ jobs:
           
           # Show app info from registry (already JSON output)
           lastdb app info ${{ matrix.app }} | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
-          
-          # Resolve app for this LastDB version
-          lastdb app resolve ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
+
+          # The stable row key is the proved build string, not this commit.
+          curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json" \
+            -o "$PROOF_DIR/stable-index.json"
+          PROVED_BUILD="$(jq -r --arg app "${{ matrix.app }}" '
+            [.apps[] | select(.app_id == $app) | .compat[]]
+            | max_by(.proved_at)
+            | .lastdb_version // empty
+          ' "$PROOF_DIR/stable-index.json")"
+          if [ -z "$PROVED_BUILD" ]; then
+            echo "No stable compat row for ${{ matrix.app }}"
+            exit 1
+          fi
+          echo "Newest proved lastdb build: $PROVED_BUILD"
+          echo "PROVED_BUILD=$PROVED_BUILD" >> "$GITHUB_ENV"
+          printf '%s\n' "$PROVED_BUILD" > "$PROOF_DIR/proved-lastdb-version.txt"
+
+          lastdb app resolve ${{ matrix.app }} --json --lastdb-version "$PROVED_BUILD" \
+            | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
         run: |
           cd "$TEST_HOME"
+
+          if [ -z "${PROVED_BUILD:-}" ]; then
+            echo "PROVED_BUILD is empty"
+            exit 1
+          fi
           
-          # Install app
-          lastdb app install ${{ matrix.app }} --channel stable 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
+          # Install the newest proved row. The daemon under test is still this build.
+          lastdb app install ${{ matrix.app }} --channel stable --lastdb-version "$PROVED_BUILD" \
+            2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
           
           # Verify install receipt
           if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
@@ -133,6 +162,7 @@ jobs:
       - name: Set up ${{ matrix.app }} dependencies (Brain)
         if: matrix.app == 'brain'
         run: |
+          set -o pipefail
           # Work in the source checkout
           cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
           
@@ -142,8 +172,18 @@ jobs:
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-deps-install.log"
           
-          # Link command
-          bun link 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
+          # bun link only registers the package name. It does not install the
+          # command. Later steps call `brain`, so put bin/brain on PATH.
+          chmod +x "$PWD/bin/brain"
+          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
+          mkdir -p "$BUN_BIN"
+          ln -sfn "$PWD/bin/brain" "$BUN_BIN/brain"
+          if [ ! -x "$BUN_BIN/brain" ]; then
+            echo "brain command is not executable at $BUN_BIN/brain"
+            exit 1
+          fi
+          echo "$BUN_BIN" >> "$GITHUB_PATH"
+          "$BUN_BIN/brain" --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
 
       - name: Initialize ${{ matrix.app }} schemas (Brain)
         if: matrix.app == 'brain'
@@ -160,24 +200,41 @@ jobs:
       - name: Run ${{ matrix.app }} health checks (Brain)
         if: matrix.app == 'brain'
         run: |
+          set -o pipefail
+          # The socket file can outlive a dead daemon. Fail here with the
+          # daemon log instead of a later "socket did not accept" line.
+          if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+            echo "lastdbd pid $LASTDBD_PID is not running"
+            tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            exit 1
+          fi
+
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-version.txt"
           
           # List empty brain (should succeed)
           brain list 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-list-empty.txt"
           
-          # Try creating a test concept
+          # Try creating a test concept. put reads the body from stdin.
+          # --content is rejected. The slug is the only positional.
+          # The type is --type.
           TEST_ID="test-concept-ci-$$"
           echo "Testing ${{ matrix.app }} write and read operations with ID: $TEST_ID"
           
-          brain put concepts "$TEST_ID" --content "Test concept from app-install-smoke CI run ${{ github.run_number }}" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
+          printf '%s\n' "Test concept from app-install-smoke CI run ${{ github.run_number }}" | brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
             echo "Brain put failed"
             cat "$PROOF_DIR/${{ matrix.app }}-put-test.txt"
+            # The start-of-step pid check misses a worker that dies during put.
+            # The socket error then hides the stack overflow in the daemon log.
+            if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+              echo "lastdbd pid $LASTDBD_PID died during brain put"
+              tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            fi
             exit 1
           }
           
-          # Try reading it back
-          brain get concepts "$TEST_ID" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
+          # Try reading it back. get takes the slug, then --type.
+          brain get "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
             echo "Brain get failed"
             cat "$PROOF_DIR/${{ matrix.app }}-get-test.txt"
             exit 1
@@ -217,6 +274,9 @@ jobs:
           
           LastDB Build:
           $LASTDB_VERSION
+
+          Proved row:
+          ${PROVED_BUILD:-unknown}
           
           App Resolution:
           - Version: $APP_VERSION

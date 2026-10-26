@@ -6,7 +6,6 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Job, Stream, Version,
 };
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Text};
-use fold_db::storage::disk_pack::byte_backup::Bootstrap;
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
@@ -150,6 +149,7 @@ async fn restore(
                 return Err("V2 accepted commit digest differs".into());
             }
         }
+        require_format_v2(&accepted)?;
         RestoreSession::begin(
             &selection.destination.ok_or("V2 restore requires --into")?,
             accepted,
@@ -159,14 +159,9 @@ async fn restore(
     if session.accepted().job().stream.scope.account_id != scope.account_id {
         return Err("V2 restore account differs".into());
     }
-    let keys = if session.accepted().descriptor().as_value().is_null() {
-        RecoveryKeys::from_scope_phrase(phrase, &scope.account_id)
-    } else {
-        let bootstrap = Bootstrap::from_descriptor(session.accepted().descriptor())
-            .map_err(|e| e.to_string())?;
-        RecoveryKeys::from_account_phrase(phrase, &bootstrap.recovery.account_public_key)
-    }
-    .map_err(|e| e.to_string())?;
+    require_format_v2(session.accepted())?;
+    let keys =
+        RecoveryKeys::from_scope_phrase(phrase, &scope.account_id).map_err(|e| e.to_string())?;
     eprintln!("V2 restore session: {}", session.path().display());
     let report = session.restore(client, &keys).await.map_err(|e| {
         format!(
@@ -212,6 +207,20 @@ async fn accepted(
             .ok_or_else(|| "V2 stream has no accepted backup".into()),
         HeadReadResult::Error { error } => Err(error.to_string()),
     }
+}
+
+/// A backup of a disk format v1 pack home has a client descriptor. A v1 record
+/// backup has a null descriptor; the restore refuses its version 2 root after
+/// the root download (`byte_cloud_restore::closure`).
+fn require_format_v2(accepted: &AcceptedBackup) -> Result<(), String> {
+    if accepted.descriptor().as_value().is_null() {
+        return Ok(());
+    }
+    Err(
+        "V2 restore refuses a backup of a disk format v1 home; this program restores only \
+         disk format v2"
+            .into(),
+    )
 }
 
 fn id(value: String) -> Result<Id, String> {

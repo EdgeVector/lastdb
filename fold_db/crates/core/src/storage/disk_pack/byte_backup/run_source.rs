@@ -3,11 +3,10 @@ use super::{
     invalid, protocol, Inner, PackRuntime, RunBackupHome, RunBackupProfile, StorageResult,
 };
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
-use laststore::disk_pack::backup::export::SnapshotExport;
 use laststore::disk_run::home::{CapturedRunHome, ReadBudget, RunRead, SnapshotFile};
 use sha2::{Digest as _, Sha256};
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -147,9 +146,7 @@ impl RunSource {
         })
     }
     pub fn reads(&self, budget: ReadBudget) -> StorageResult<(RunRead, RunRead)> {
-        let super::super::physical::Physical::V2(homes) = &self.runtime.physical else {
-            return Err(invalid("run capture physical source"));
-        };
+        let homes = &self.runtime.physical;
         let retained = self
             .retained_bytes()
             .saturating_add(self.main.reader_bytes())
@@ -238,56 +235,27 @@ fn hash(mut input: File) -> StorageResult<Digest> {
     }
     Digest::try_from(crate::hex::hex_lower(hash.finalize())).map_err(protocol)
 }
-pub(super) enum NativeReader {
-    Pack(laststore::disk_pack::backup::export::SnapshotReader),
-    Run(File),
-}
-impl NativeReader {
-    pub fn seek_to(&mut self, offset: u64) -> io::Result<()> {
-        match self {
-            Self::Pack(r) => r.seek_to(offset),
-            Self::Run(r) => r.seek(SeekFrom::Start(offset)).map(|_| ()),
-        }
-    }
-}
-impl Read for NativeReader {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Pack(r) => r.read(buffer),
-            Self::Run(r) => r.read(buffer),
-        }
-    }
-}
 impl Inner {
     pub fn available(&self) -> bool {
-        self.source.is_some() || self.run.is_some()
+        self.run.is_some()
     }
     pub fn files(&self) -> StorageResult<&[SnapshotFile]> {
-        if let Some(run) = &self.run {
-            return Ok(&run.files);
-        }
-        self.source
+        self.run
             .as_ref()
-            .map(SnapshotExport::files)
+            .map(|run| run.files.as_slice())
             .ok_or_else(|| invalid("byte retained source unavailable"))
     }
-    pub fn file_reader(&self, path: &Path) -> StorageResult<NativeReader> {
-        if let Some(run) = &self.run {
-            return run.reader(path).map(NativeReader::Run);
-        }
-        let source = self
-            .source
+    pub fn file_reader(&self, path: &Path) -> StorageResult<File> {
+        self.run
             .as_ref()
-            .ok_or_else(|| invalid("byte retained source unavailable"))?;
-        self.home.reader(source, path).map(NativeReader::Pack)
+            .ok_or_else(|| invalid("byte retained source unavailable"))?
+            .reader(path)
     }
+    /// The store of each run file: the CAS files go to B2, the rest to R2.
     pub fn destination(
         &self,
         path: &Path,
     ) -> StorageResult<Option<cloud_backup_protocol::v2::Destination>> {
-        if self.run.is_none() {
-            return Ok(None);
-        }
         super::run_backup_destination(
             path.to_str()
                 .ok_or_else(|| invalid("run backup path encoding"))?,

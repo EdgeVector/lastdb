@@ -1,5 +1,8 @@
 # Native disk file lifetime and packing
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 The native snapshot writer uses a shared file lifetime protocol and explicit file maintenance.
 The [active snapshot protocol](lastdb-snapshot-commits.md) defines the complete commit and reopen boundary.
 This document reflects the reclaim handoff from PR 267 and the later journal removal.
@@ -106,12 +109,7 @@ The disk format v1 removal deleted the `lastdb-pack-maintain` command on 2026-10
 
 ## Native node maintenance
 
-The existing owner route `POST /api/db/compact` serves native whole-home maintenance.
-The route defaults to a preview.
-Pass `{"dry_run":false}` to pack live records and reclaim eligible files.
-Pass `{"dry_run":false,"reclaim_only":true}` to reclaim without a rewrite.
-An optional `grace_ms` sets an explicit grace period.
-A named collection is refused because native parts share one committed root.
+The disk format v1 removal deleted the owner route `POST /api/db/compact` on 2026-10-26.
 
 The runtime owns a separate maintenance gate before it starts a pack or cleanup.
 It waits for earlier accepted writes and takes the complete write gate before the pack.
