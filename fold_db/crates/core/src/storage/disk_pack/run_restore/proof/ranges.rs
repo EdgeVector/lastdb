@@ -16,7 +16,19 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
     }
     let mut rows = Rows::new(main, "schemas");
     while let Some((_, bytes)) = rows.next()? {
-        let mut schema: Schema = serde_json::from_slice(&bytes)
+        let opened = crate::crypto::is_sealed_at_rest(&bytes)
+            .then(|| {
+                crate::crypto::at_rest::open_at_rest_bounded(
+                    account_key,
+                    &bytes,
+                    budget::ATOM_BODY_MAX_BYTES,
+                )
+                .map(zeroize::Zeroizing::new)
+            })
+            .transpose()
+            .map_err(|_| invalid("run backup schema envelope cannot be opened"))?;
+        let plain = opened.as_deref().map_or(bytes.as_slice(), Vec::as_slice);
+        let mut schema: Schema = serde_json::from_slice(plain)
             .map_err(|_| invalid("run backup schema record is unreadable"))?;
         schema
             .populate_runtime_fields()
