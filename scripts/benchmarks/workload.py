@@ -9,7 +9,7 @@ import threading
 import time
 
 from node import save
-from phases import capture_native_boundary, capture_phases
+from phases import capture_phases
 from range_continuation.process_counters import counter_delta, read_counters
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
@@ -211,7 +211,6 @@ class Workload:
         self.case = name
         samples = samples or self.recipe["samples"]
         jobs = self.prepare(mode, batch, samples, clients)
-        native_before = capture_native_boundary(self.node) if name == "update/128" else None
         before = self.node.disk_bytes()
         sequence = len(self.metrics)
         barrier, stopped, monitor_stop = threading.Barrier(clients + 1), threading.Event(), threading.Event()
@@ -245,9 +244,6 @@ class Workload:
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
-        if name == "update/128":
-            metric["native_before"] = native_before
-            metric["native_after"] = capture_native_boundary(self.node)
         # Capture after timed work and its resource observations. The diagnostic
         # call never enters latency, throughput, memory, or the disk-size window.
         if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:

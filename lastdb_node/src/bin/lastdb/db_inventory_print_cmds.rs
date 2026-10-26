@@ -241,19 +241,4 @@ fn print_history_tips() {
     println!("  lastdb db clear-history --execute               # keep newest 1 per field key");
     println!("  lastdb db clear-history --keep-last 0           # dry-run full history purge");
     println!("  lastdb db clear-history --keep-last 0 --execute # purge all history (tip = only version)");
-    println!("  lastdb db compact                              # preview whole-home space");
-    println!("  lastdb db compact --execute                    # compact the native home");
-}
-
-/// One line after a `compact --all` walk, so a plane left out of it (the
-/// owner must name `cas_blobs`) is not read as a gap in the report.
-pub(crate) fn print_named_only_note(report: &serde_json::Value) {
-    let Some(names) = report
-        .get("named_only_not_walked")
-        .and_then(|v| v.as_array())
-    else {
-        return;
-    };
-    let names: Vec<&str> = names.iter().filter_map(|n| n.as_str()).collect();
-    println!("Not walked (name with --collection): {}", names.join(", "));
 }

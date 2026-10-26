@@ -4,8 +4,6 @@ mod context;
 mod download;
 mod install;
 mod keys;
-mod record_snapshot;
-mod records;
 mod session;
 
 pub(crate) use context::{
@@ -13,7 +11,6 @@ pub(crate) use context::{
     VerifiedNativeContext,
 };
 pub use keys::RecoveryKeys;
-pub(crate) use record_snapshot::rebuild_record_snapshot;
 pub use session::RestoreReport;
 
 /// Static errors never contain keys, record values, provider URLs, or local secrets.

@@ -1,16 +1,16 @@
 //! Verified backup-owned ciphertext outside the immutable native root.
 //! Pointer keys remain in the original encrypted atoms. No native row is rewritten.
+//!
+//! Only the restore of a disk format v1 cloud backup wrote this directory. The
+//! v2 restore has no external file dependencies, so this program only reads a
+//! directory that an earlier program wrote.
 use super::{PackRuntime, StorageError, StorageResult};
 use crate::sharing::delivery_wire::{file_blob_cipher_suite_supported, FileBlobAccess};
-use cloud_backup_protocol::{DecimalU64, Digest, ExternalFileDependency, FileDependencyKind, Id};
+use cloud_backup_protocol::{DecimalU64, Digest, FileDependencyKind, Id};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 mod files;
-mod verified;
-pub use files::{prepare_directory, save_entry};
-pub use verified::{open_verified_ciphertext, verify_remote_ciphertext, VerifiedRecoveredFile};
 
 pub const DIRECTORY: &str = "native-file-recovery-v1";
 const METADATA_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
@@ -35,23 +35,6 @@ pub struct RecoveryFile {
 }
 
 impl RecoveryFile {
-    pub fn from_dependency(value: &ExternalFileDependency) -> StorageResult<Self> {
-        value.validate().map_err(|_| invalid("file dependency"))?;
-        let file = Self {
-            logical_pointer_sha256: value.logical_pointer_sha256.clone(),
-            kind: value.kind,
-            stored_source_sha256: value.stored_source_sha256.clone(),
-            stored_source_bytes: value.stored_source_bytes,
-            encryption_suite: value.encryption_suite.as_str().into(),
-        };
-        file.validate()?;
-        Ok(file)
-    }
-
-    pub fn key(&self) -> String {
-        entry_key(&self.logical_pointer_sha256, self.kind)
-    }
-
     pub fn validate(&self) -> StorageResult<()> {
         if !(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
             ..=cloud_backup_protocol::limits::BACKUP_STORED_BYTES_MAX)
@@ -116,21 +99,8 @@ pub fn open_remote_file(
     Ok(plain)
 }
 
-/// Read by the exact pointer digest and kind. An absent resolver is a local miss.
+/// Read by the exact pointer digest and kind. An absent entry is a local miss.
 /// Ordinary local writes can advance CURRENT; the immutable home identity stays.
-pub fn resolve(
-    data_root: &Path,
-    home_id: &Id,
-    pointer: &Value,
-    kind: FileDependencyKind,
-    access: &FileBlobAccess,
-    maximum: u64,
-) -> StorageResult<Option<Vec<u8>>> {
-    let pointer_id = cloud_backup_protocol::logical_pointer_sha256(pointer)
-        .map_err(|_| invalid("recovered file pointer"))?;
-    resolve_entry(data_root, home_id, &pointer_id, kind, access, maximum)
-}
-
 /// Eager normal serving API. The local file API admission bounds its Vec result.
 pub fn resolve_entry(
     data_root: &Path,

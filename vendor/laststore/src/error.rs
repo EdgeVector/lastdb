@@ -71,8 +71,8 @@ impl fmt::Display for Error {
                 write!(f, "chunk {chunk_uuid} quarantined at {}", path.display())
             }
             Self::Config(s) => write!(f, "config: {s}"),
-            Self::ReadBudgetExceeded => write!(f, "disk-pack v1: read resource limit exceeded"),
-            Self::WriteCapacity(reason) => write!(f, "disk-pack v1: write capacity unavailable: {reason}"),
+            Self::ReadBudgetExceeded => write!(f, "read resource limit exceeded"),
+            Self::WriteCapacity(reason) => write!(f, "write capacity unavailable: {reason}"),
             Self::ColdGroupTooLarge {
                 collection,
                 shard,

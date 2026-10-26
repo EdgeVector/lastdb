@@ -2,6 +2,10 @@
 
 North Star: `north-star-lastdb-delete-returns-the-bytes`.
 
+CAUTION: This document describes disk format v1 and the LastStore planes. Since
+decision D1 (2026-10-26), the program does not open a v1 home, and `lastdb db
+compact` is gone. A disk format v2 home merges its run files automatically.
+
 ## The chain
 
 1. Live `Delete` stamps a resident tombstone and ACKs. Reads hide the key.
@@ -51,9 +55,8 @@ reclaimable = slack + (apparent - unknown) * dead / (live + dead)
 and every automatic trigger (`tips`, `atoms`, order log, residual planes,
 locators, the photograph-aligned pass) fires on that number against the
 existing ratio and floor knobs. `lastdb status` shows `dead=` and `reclaim=`
-per plane under `automatic_compactions`. On a native home, `lastdb db compact`
-(a dry run by default) previews the whole home, and `--execute` packs it. The
-native route refuses a named collection.
+per plane under `automatic_compactions`. A disk format v2 home has no manual
+pack verb: it merges its run files automatically.
 
 ## Proof
 
@@ -61,9 +64,8 @@ native route refuses a named collection.
   and `fold_db/crates/core/tests/delete_returns_bytes_test.rs`) were deleted
   with the repository tests (2026-10-09). The check is now a run on a synthetic
   home: create N rows, delete or purge them, read the residue counters in
-  `lastdb status`, run `lastdb db compact --execute` (the whole native home; the
-  native route refuses a named collection), and compare the size of the home
-  before and after.
+  `lastdb status`, let the automatic run merge finish, and compare the size of
+  the home before and after.
 - Measured on a copy-on-write clone of the primary (2026-09-07, build
   `b112ee096-dirty`): `atoms` 3,273,093,491 B -> 2,996,045,022 B after one
   rewrite (8.5% dead); a second probe measured every group with
@@ -73,11 +75,10 @@ native route refuses a named collection.
 
 The dwell pass of the blob counter (`docs/lastdb-blob-counter.md`) removes a blob
 row with `LastStore::delete`, which is an append, so the local file-blob plane
-keeps every byte it ever stored until a compaction rewrites it. On a native home
-the whole-home pack (`lastdb db compact --execute`) returns them. The native route
-refuses a named collection, so the per-collection text below (`COMPACT_ALLOWLIST`,
-`COMPACT_NAMED_ONLY`, `named_only_not_walked`) describes the earlier LastStore
-plane path.
+keeps every byte it ever stored until a compaction rewrites it. On a disk format
+v2 home the automatic run merge returns them. The per-collection text below
+(`COMPACT_ALLOWLIST`, `COMPACT_NAMED_ONLY`, `named_only_not_walked`) describes
+the earlier LastStore plane path.
 
 A blob row is the only copy of its bytes until a cloud copy exists, so the
 rewrite touches as little of the plane as it can.
@@ -102,7 +103,7 @@ and re-arm the tests in `sync::policy`.
 
 - The automatic LastStore compactor (`PlaneCompactor`) was removed with the
   LastStore backend on 2026-10-26. The text above about LastStore planes,
-  sidecars and triggers is history. A native home packs only through the
-  owner verb `lastdb db compact --execute`.
+  sidecars and triggers is history. A disk format v2 home merges its run
+  files automatically.
 - Two rows with the same body share one content-addressed atom, and the second
   put re-appends the whole body. That residue is now visible and reclaimable.

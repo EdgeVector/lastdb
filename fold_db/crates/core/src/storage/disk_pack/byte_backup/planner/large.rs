@@ -74,8 +74,6 @@ pub(super) fn plan(
                 metadata_pack: false,
                 ciphertext: None,
                 receipt: None,
-                record_segments: Vec::new(),
-                client_stream: None,
             },
         )?;
         *index += 1;

@@ -184,8 +184,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
         | DataRoute::DbClearHistory
-        | DataRoute::DbCompact
-        | DataRoute::DbNativeBackup
         | DataRoute::DbGcProteins
         | DataRoute::DbResealAtRest
         | DataRoute::DbReapUnsealed

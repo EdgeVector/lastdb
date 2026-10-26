@@ -55,7 +55,7 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
     }
 }
 
-/// Dispatch the space reclaim, GC and compaction verbs.
+/// Dispatch the space reclaim and GC verbs.
 pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Result<(), String> {
     match action {
         DbReclaimCommand::CleanupDeleteMarkers {
@@ -73,12 +73,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             }),
             json,
         ),
-        DbReclaimCommand::Compact {
-            collection,
-            all,
-            execute,
-            json,
-        } => db_compact(socket, collection.as_deref(), all, execute, json),
         DbReclaimCommand::ClearHistory {
             schema,
             keep_last,

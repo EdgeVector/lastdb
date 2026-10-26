@@ -20,27 +20,6 @@ pub struct VerifiedEnvelope {
     pub envelope_sha256: [u8; 32],
 }
 
-/// Authenticate one exact original v1 file. No plaintext leaves this function.
-pub fn verify_v1_stream(
-    key: &[u8; 32],
-    input: &mut (impl Read + Seek),
-    encrypted_bytes: u64,
-) -> CryptoResult<VerifiedEnvelope> {
-    if input
-        .seek(SeekFrom::End(0))
-        .map_err(|error| io_error(&error))?
-        != encrypted_bytes
-    {
-        return Err(invalid("encrypted file length differs"));
-    }
-    let stored_sha256 = hash_input(input)?;
-    input.rewind().map_err(|error| io_error(&error))?;
-    let mut reader = reader::EnvelopeReader::new(input, key, encrypted_bytes)?;
-    let mut output = CountHash::new(std::io::sink());
-    copy(&mut reader, &mut output)?;
-    Ok(output.proof(stored_sha256, stored_sha256))
-}
-
 pub(super) struct CountHash<W> {
     output: W,
     bytes: u64,

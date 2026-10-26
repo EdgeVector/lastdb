@@ -7,7 +7,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub(super) const RECORD_MAX: u64 = 256 * 1024;
+const RECORD_MAX: u64 = 256 * 1024;
 const MAX_FILES: usize = 2 * super::model::MAX_OBJECTS as usize + 16;
 pub(super) struct Store {
     pub root: PathBuf,
@@ -19,20 +19,7 @@ pub(super) struct Store {
 impl Store {
     pub fn open(home: &Path, policy: &laststore::space::SpacePolicy) -> StorageResult<Self> {
         let root = home.join("cloud-byte-source-v2");
-        Self::open_root(&root, home, policy)
-    }
-    pub(super) fn open_external(
-        root: &Path,
-        policy: &laststore::space::SpacePolicy,
-    ) -> StorageResult<Self> {
-        Self::open_root(root, root, policy)
-    }
-    fn open_root(
-        root: &Path,
-        space_root: &Path,
-        policy: &laststore::space::SpacePolicy,
-    ) -> StorageResult<Self> {
-        match fs::DirBuilder::new().mode(0o700).create(root) {
+        match fs::DirBuilder::new().mode(0o700).create(&root) {
             Ok(()) => File::open(
                 root.parent()
                     .ok_or_else(|| invalid("byte source directory parent"))?,
@@ -41,13 +28,12 @@ impl Store {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
-        let meta = fs::symlink_metadata(root)?;
+        let meta = fs::symlink_metadata(&root)?;
         if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return Err(invalid("byte source directory ownership"));
         }
-        super::certify::scratch_cleanup(root)?;
         let mut total = 0u64;
-        for (index, entry) in fs::read_dir(root)?.enumerate() {
+        for (index, entry) in fs::read_dir(&root)?.enumerate() {
             if index >= MAX_FILES {
                 return Err(invalid("byte source file count"));
             }
@@ -58,11 +44,11 @@ impl Store {
                 .ok_or_else(|| invalid("byte source spool overflow"))?;
         }
         let store = Self {
-            root: root.to_path_buf(),
+            root,
             bytes: AtomicU64::new(total),
             coordinator: AtomicU64::new(0),
             policy: policy.clone(),
-            space_root: space_root.to_path_buf(),
+            space_root: home.to_path_buf(),
         };
         store.admit(0)?;
         Ok(store)
@@ -171,80 +157,8 @@ impl Store {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
-    pub(super) fn write_parts(&self, name: &str, parts: &[&[u8]]) -> StorageResult<()> {
-        let total = parts
-            .iter()
-            .try_fold(0u64, |n, p| n.checked_add(p.len() as u64))
-            .ok_or_else(|| invalid("source coordinate length overflow"))?;
-        let path = self.root.join(name);
-        if self.exists(name)? {
-            let mut file = input(&path)?;
-            if file.metadata()?.len() != total {
-                return Err(invalid("source coordinate length changed"));
-            }
-            let mut buffer = [0; 65536];
-            for part in parts {
-                for chunk in part.chunks(buffer.len()) {
-                    file.read_exact(&mut buffer[..chunk.len()])?;
-                    if buffer[..chunk.len()] != *chunk {
-                        return Err(invalid("source coordinate changed"));
-                    }
-                }
-            }
-            return Ok(());
-        }
-        let pending = self.root.join(format!("{name}.pending"));
-        self.remove_path(&pending)?;
-        self.admit(total)?;
-        let _space = laststore::space::reserve_space(&self.space_root, &self.policy, total)
-            .map_err(super::super::map)?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&pending)?;
-        let result = (|| {
-            for part in parts {
-                file.write_all(part)?;
-            }
-            file.sync_all()
-        })();
-        self.bytes
-            .fetch_add(file.metadata()?.len(), Ordering::AcqRel);
-        result?;
-        fs::rename(&pending, &path)?;
-        File::open(&self.root)?.sync_all()?;
-        Ok(())
-    }
     pub fn remove(&self, name: &str) -> StorageResult<()> {
         self.remove_path(&self.root.join(name))
-    }
-    pub(super) fn clear_coordinates(&self) -> StorageResult<()> {
-        for (index, entry) in fs::read_dir(&self.root)?.enumerate() {
-            if index >= MAX_FILES {
-                return Err(invalid("source coordinate file count"));
-            }
-            let entry = entry?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else {
-                return Err(invalid("source coordinate file name"));
-            };
-            let Some(tail) = name.strip_prefix("coordinate-") else {
-                continue;
-            };
-            let Some(digest) = tail
-                .strip_suffix(".raw")
-                .or_else(|| tail.strip_suffix(".raw.pending"))
-            else {
-                continue;
-            };
-            if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err(invalid("source coordinate digest name"));
-            }
-            self.remove_path(&entry.path())?;
-        }
-        Ok(())
     }
     fn remove_path(&self, path: &Path) -> StorageResult<()> {
         match fs::symlink_metadata(path) {

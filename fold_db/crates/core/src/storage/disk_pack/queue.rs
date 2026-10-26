@@ -18,26 +18,9 @@ pub(super) struct WriteQueue {
     prepared: Option<write::PreparedCommit>,
     next_sequence: u64,
     sealed: bool,
-    pub(super) compaction: Option<Arc<maintenance::PackHandoff>>,
 }
 
 impl WriteQueue {
-    pub(super) fn requests_idle(&self) -> bool {
-        self.requests.is_empty()
-    }
-    /// Equivalent rewrites preserve quota. Format transitions and replacements
-    /// that cannot leave the promised dependency room wait for admitted work.
-    pub(super) fn compaction_barrier(&self, parts: u64, changes_features: bool) -> Option<u64> {
-        if changes_features && !self.requests.is_empty() {
-            return Some(self.next_sequence);
-        }
-        self.prepared.as_ref().and_then(|prepared| {
-            (parts.saturating_add(prepared.dependency_parts())
-                > laststore::disk_pack::MAX_DEPENDENCY_PARTS)
-                .then_some(self.next_sequence)
-        })
-    }
-
     pub(super) fn request_count(&self) -> usize {
         self.requests.len()
     }
@@ -50,7 +33,6 @@ impl WriteQueue {
 impl PackRuntime {
     /// A sealed prefix excludes new preparation until its durable result.
     pub(super) async fn enter_prepare(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
-        self.ensure_parts_worker();
         loop {
             let gate = Arc::clone(&self.prepare_gate).lock_owned().await;
             let target = {
@@ -180,7 +162,6 @@ impl PackRuntime {
             result
         })
         .await;
-        self.complete_pack_handoff();
         match result {
             Ok((sequence, requests)) => {
                 for request in &requests {
@@ -220,7 +201,7 @@ impl PackRuntime {
     }
 
     fn commit_queue_inner(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
-        let (prepared, hidden, requests, compaction) = {
+        let (prepared, hidden, requests) = {
             let mut queue = self.queue.lock().expect("native accepted queue");
             queue.sealed = true;
             let hidden = queue
@@ -233,14 +214,10 @@ impl PackRuntime {
                 .iter()
                 .map(|request| Arc::clone(&request.pending))
                 .collect::<Vec<_>>();
-            let compaction = queue.prepared.as_ref().and(queue.compaction.clone());
-            if let Some(handoff) = &compaction {
-                handoff.claim();
-            }
-            (queue.prepared.take(), hidden, requests, compaction)
+            (queue.prepared.take(), hidden, requests)
         };
         if let Some(prepared) = prepared {
-            self.commit_prepared_group_merged(prepared, &hidden, &requests, compaction.as_deref())?;
+            self.commit_prepared_group(prepared, &hidden, &requests)?;
         } else {
             let current = self
                 .view

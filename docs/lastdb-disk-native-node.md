@@ -1,5 +1,8 @@
 # Native disk node path
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 Current source: main `8a0a40b4f`, reviewed 2026-10-24.
 The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
 The [storage parts guide](lastdb-storage-parts.md) describes packed files and automatic maintenance.
@@ -108,7 +111,7 @@ Legacy Cloud Sync remains disabled. Local capture and export do not prove deploy
 Sources: [request completion](../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs),
 [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs),
 [clean publication](../fold_db/crates/core/src/storage/disk_pack/view.rs),
-and [backup capture](../fold_db/crates/core/src/storage/disk_pack/backup_capture/capture.rs).
+and [backup capture](../fold_db/crates/core/src/storage/disk_pack/byte_backup/capture.rs).
 
 ## Historical receipts
 

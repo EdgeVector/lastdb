@@ -3,18 +3,10 @@ use super::*;
 pub(super) struct PreparedCommit {
     operations: Vec<HomeMutation>,
     batch_bytes: u64,
-    /// The v1 part quota; a v2 commit has none.
-    reservation: Option<laststore::disk_pack::home::MutationReservation>,
     space: SpaceReservation,
 }
 
 impl PreparedCommit {
-    pub(super) fn dependency_parts(&self) -> u64 {
-        self.reservation
-            .as_ref()
-            .map_or(0, |reservation| reservation.quote().dependency_parts())
-    }
-
     /// A v2 batch: its bytes with the accepted prefix, and the space that
     /// `prepare_run` reserved for them.
     pub(super) fn for_run(
@@ -25,7 +17,6 @@ impl PreparedCommit {
         Self {
             operations,
             batch_bytes,
-            reservation: None,
             space,
         }
     }
@@ -62,13 +53,8 @@ impl PreparedAppend {
             previous.operations.append(&mut self.incoming.operations);
             self.incoming.operations = std::mem::take(&mut previous.operations);
             // The write gate retains this exact prefix during preparation.
-            // Transfer both quotas without changing their ledger totals.
+            // Transfer the space quota without changing its ledger total.
             self.incoming.space.absorb(previous.space);
-            if let (Some(incoming), Some(previous)) =
-                (&mut self.incoming.reservation, previous.reservation)
-            {
-                incoming.absorb(previous);
-            }
         }
         self.incoming
     }
@@ -86,24 +72,14 @@ pub struct NativeFlushReceipt {
 impl PackRuntime {
     /// Most operations that one complete batch holds on this home.
     pub(crate) fn batch_operation_limit(&self) -> usize {
-        self.view
-            .read()
-            .expect("native complete write view")
-            .current
-            .batch_operation_limit()
+        physical::V2_BATCH_OPERATIONS
     }
 
-    /// The exclusive request gate fixes this complete root during preparation.
+    /// A v2 home has every write feature, so a feature is present inside a
+    /// write request.
     pub(crate) fn write_has_feature(&self, feature: u64) -> bool {
         transaction::PendingBatch::current(self).is_some()
-            && self
-                .view
-                .read()
-                .expect("native complete write view")
-                .current
-                .required_features()
-                & feature
-                == feature
+            && physical::V2_FEATURES & feature == feature
     }
 
     /// Wake an accepted owner and capture the durable boundary after its flush.
@@ -143,14 +119,12 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
-        self.check_part_room()?;
         let gate = self.enter_write().await;
         self.require_restore_validated()?;
         let runtime = Arc::clone(self);
         super::run_blocking(move || {
             let result = runtime.commit(operations);
             drop(gate);
-            runtime.physical.release_idle();
             result
         })
         .await
@@ -191,36 +165,7 @@ impl PackRuntime {
                 "native writer requires a snapshot reopen after a failed publication".into(),
             ));
         }
-        let v1 = match &self.physical {
-            physical::Physical::V1(v1) => v1,
-            physical::Physical::V2(v2) => return self.prepare_run(v2, operations, previous),
-        };
-        let writer = v1.writer.lock().expect("native snapshot writer");
-        let limit = writer.current().batch_operation_limit();
-        let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
-        let previous_reservation = previous.and_then(|previous| previous.reservation.as_ref());
-        let reservation = match previous_reservation {
-            Some(previous) => writer.reserve_mutation_extension(previous, &operations),
-            None => writer.reserve_mutation(&operations),
-        }
-        .map_err(|error| {
-            self.note_capacity_refusal(&error);
-            map(error)
-        })?;
-        let physical_bytes = reservation.quote().physical_bytes();
-        let space = match previous {
-            Some(previous) => previous
-                .space
-                .reserve_extension(&self.space_policy, physical_bytes),
-            None => writer.reserve_space(physical_bytes, &self.space_policy),
-        }
-        .map_err(map)?;
-        Ok(PreparedCommit {
-            operations,
-            batch_bytes,
-            reservation: Some(reservation),
-            space,
-        })
+        self.prepare_run(&self.physical, operations, previous)
     }
 
     pub(super) fn commit_prepared(&self, prepared: PreparedCommit) -> StorageResult<()> {
@@ -238,20 +183,9 @@ impl PackRuntime {
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        self.commit_prepared_group_merged(prepared, hidden_changes, requests, None)
-    }
-
-    pub(super) fn commit_prepared_group_merged(
-        &self,
-        prepared: PreparedCommit,
-        hidden_changes: &[(String, String)],
-        requests: &[Arc<transaction::PendingBatch>],
-        compaction: Option<&maintenance::PackHandoff>,
-    ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
             batch_bytes: _,
-            reservation,
             space,
         } = prepared;
         // A direct durable publication consumes its bodies below. Keep only
@@ -270,49 +204,8 @@ impl PackRuntime {
                 })
                 .collect()
         };
-        let (v1, reservation) = match (&self.physical, reservation) {
-            (physical::Physical::V1(v1), Some(reservation)) => (v1, reservation),
-            (physical::Physical::V2(v2), None) if compaction.is_none() => {
-                let changes = (hidden_changes, key_changes.as_slice());
-                return self.commit_run(v2, operations, space, changes, requests);
-            }
-            _ => {
-                return Err(StorageError::BackendError(
-                    "native commit quota does not match the physical home".into(),
-                ))
-            }
-        };
-        let mut writer = v1.writer.lock().expect("native snapshot writer");
-        let started = std::time::Instant::now();
-        let (result, receipt) = match compaction {
-            Some(handoff) => handoff.commit(&mut writer, operations, reservation),
-            None => (writer.commit_mutation(operations, reservation), None),
-        };
-        let publication = match result {
-            Ok(publication) => {
-                self.parts
-                    .observe(publication.dependency_parts, &publication.current);
-                publication
-            }
-            Err(error) => {
-                self.failed.store(true, Ordering::Release);
-                *self.failed_write.lock().expect("native failed write owner") = Some(space);
-                return Err(map(error));
-            }
-        };
-        let _timing = laststore::commit_timing::stage("memory_publication_us");
-        self.install_committed(
-            physical::PhysicalRoot::V1(publication.current),
-            hidden_changes,
-            &key_changes,
-            requests,
-        )?;
-        if let (Some(handoff), Some(receipt)) = (compaction, receipt) {
-            handoff.record(self.finish_merged_pack(&writer, receipt, started));
-        }
-        drop(space);
-        self.failed.store(false, Ordering::Release);
-        Ok(())
+        let changes = (hidden_changes, key_changes.as_slice());
+        self.commit_run(&self.physical, operations, space, changes, requests)
     }
 
     pub(super) async fn flush(self: &Arc<Self>) -> StorageResult<()> {

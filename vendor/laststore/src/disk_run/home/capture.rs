@@ -36,6 +36,7 @@ pub struct CapturedRunFile {
     /// Exact unchanged file length.
     pub bytes: u64,
 }
+
 /// One original immutable file, or an exact generated snapshot selector.
 #[derive(Clone, Debug)]
 pub struct SnapshotFile {

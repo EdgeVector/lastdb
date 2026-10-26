@@ -390,7 +390,6 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     lines.extend(atom_counter_status_lines(snapshot));
     lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
-    lines.push(storage_parts_status_line(snapshot));
     lines
 }
 

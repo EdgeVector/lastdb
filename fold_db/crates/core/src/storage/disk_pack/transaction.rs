@@ -69,12 +69,7 @@ impl PendingBatch {
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
             preparation_limit: Mutex::new(None),
-            operation_limit: runtime
-                .view
-                .read()
-                .expect("native complete write view")
-                .current
-                .batch_operation_limit(),
+            operation_limit: runtime.batch_operation_limit(),
         }
     }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {

@@ -139,8 +139,6 @@ fn group(
         metadata_pack: members[0].bytes < SMALL_FILE_BYTES,
         ciphertext: None,
         receipt: None,
-        record_segments: Vec::new(),
-        client_stream: None,
     })
 }
 pub(super) fn input(
@@ -185,8 +183,6 @@ pub(super) fn save(
             || prior.native_files != object.native_files
             || prior.metadata_pack != object.metadata_pack
             || prior.ciphertext != object.ciphertext
-            || prior.record_segments != object.record_segments
-            || prior.client_stream != object.client_stream
         {
             return Err(invalid("byte frozen object plan differs"));
         }

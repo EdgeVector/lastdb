@@ -1,9 +1,6 @@
 use super::source::Source;
 use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
-use crate::storage::disk_pack::map;
-use laststore::disk_pack::maintenance::visit_generation_streaming;
 use std::collections::BTreeSet;
-use std::io::Read;
 
 fn selected(collection: &str) -> bool {
     // Atom bodies/counters and CAS payloads cannot define molecule coordinates.
@@ -17,49 +14,11 @@ pub(super) fn collect(
 ) -> StorageResult<Vec<MetadataRecord>> {
     let mut records = Vec::new();
     let mut bytes = 0_usize;
-    match source {
-        Source::Packed { home, reader } => {
-            visit_generation_streaming(home.path(), reader.current(), |record| {
-                let Some(body) = record.body else {
-                    return Ok(());
-                };
-                if !selected(record.collection) {
-                    std::io::copy(body, &mut std::io::sink())?;
-                    return Ok(());
-                }
-                let remaining = body_limit(&records, bytes, limits, record.collection, record.key)
-                    .map_err(|error| laststore::Error::Config(error.to_string()))?;
-                if record.body_bytes > remaining as u64 {
-                    return Err(laststore::Error::Config(
-                        "range inventory metadata record exceeds its bound".into(),
-                    ));
-                }
-                let mut value = Vec::new();
-                body.take(record.body_bytes).read_to_end(&mut value)?;
-                if value.len() as u64 != record.body_bytes {
-                    return Err(laststore::Error::Config(
-                        "range inventory metadata record is incomplete".into(),
-                    ));
-                }
-                push(
-                    &mut records,
-                    &mut bytes,
-                    limits,
-                    record.collection,
-                    record.key,
-                    value,
-                )
-                .map_err(|error| laststore::Error::Config(error.to_string()))
-            })
-            .map_err(map)?;
-        }
-        Source::Runs { main, .. } => {
-            for collection in collections(main, limits)? {
-                super::run_pages::visit(main, &collection, b"", &[255], limits, |key, value| {
-                    push(&mut records, &mut bytes, limits, &collection, &key, value)
-                })?;
-            }
-        }
+    let main = &source.main;
+    for collection in collections(main, limits)? {
+        super::run_pages::visit(main, &collection, b"", &[255], limits, |key, value| {
+            push(&mut records, &mut bytes, limits, &collection, &key, value)
+        })?;
     }
     records.sort_unstable_by(|a, b| (&a.collection, &a.key).cmp(&(&b.collection, &b.key)));
     Ok(records)

@@ -47,7 +47,7 @@ class Node:
         self.native_timing = native_timing
         self.workers = workers
         self.environment = environment or {}
-        # A start that converts the disk format finishes before the first health reply.
+        # The first health reply can wait for the new home creation.
         self.start_seconds = start_seconds
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
@@ -177,7 +177,7 @@ class Node:
         return None
 
     def disk_format(self):
-        """2 for a v2 run home, 1 for an older pack home; the marker exists after the first start."""
+        """2 for a v2 run home, 1 for any other marker; the marker exists after the first start."""
         marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
         return 2 if marker == RUN_NODE_MARKER else 1
 

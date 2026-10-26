@@ -1,5 +1,8 @@
 # Native disk home API
 
+CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
+open, convert, or restore a v1 home. Every home is disk format v2.
+
 Updated October 22, 2026 for the direct snapshot writer.
 The [active snapshot protocol](lastdb-snapshot-commits.md) defines the commit and recovery boundary.
 The [source review](lastdb-searchable-snapshot-code-review.md) separates current source from recorded product results.

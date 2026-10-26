@@ -105,11 +105,19 @@ fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
     if &previous == id {
         return Ok(());
     }
-    let saved = store::state(home, &previous)?.ok_or(BackupError::Invalid)?;
-    if !saved.terminal() {
+    let mut saved = store::state(home, &previous)?.ok_or(BackupError::Invalid)?;
+    if saved.terminal() {
+        return Ok(());
+    }
+    if !saved.format_v1() {
         return Err(BackupError::Busy);
     }
-    Ok(())
+    // No program after decision D1 can resume or close a disk format v1 job.
+    // Mark it abandoned and keep its record for status. Its cloud job and
+    // objects stay as they are; the new start then selects its own job.
+    saved.phase = Phase::AbandonedFormatV1;
+    saved.blocked_reason = None;
+    Store::open(home, &previous)?.save(&saved)
 }
 
 pub(crate) fn status(host: &crate::host::Host) -> Result<ByteBackupStatus> {

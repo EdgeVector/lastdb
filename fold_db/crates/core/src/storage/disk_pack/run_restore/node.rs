@@ -99,13 +99,13 @@ impl RunNodeGuard {
     }
 }
 
-/// None selects the unchanged V1 validator; an exact V2 marker never falls back.
-/// This path performs no scratch, record, directory, or source-file writes.
-pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<Option<RunNodeGuard>> {
+/// Only a disk format v2 node validates. This path performs no scratch,
+/// record, directory, or source-file writes.
+pub fn validate_restored_node(root: &Path, key: &[u8; 32]) -> StorageResult<RunNodeGuard> {
     if !files::is_run_marker(root)? {
-        return Ok(None);
+        return Err(invalid("restored node is not disk format v2"));
     }
-    RunNodeGuard::open(root, key).map(Some)
+    RunNodeGuard::open(root, key)
 }
 
 fn check_home(

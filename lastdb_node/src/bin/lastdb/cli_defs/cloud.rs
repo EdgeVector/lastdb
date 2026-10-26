@@ -3,7 +3,7 @@ use super::*;
 
 #[path = "cloud/byte_backup.rs"]
 mod byte_backup;
-pub(crate) use byte_backup::{ByteBackupCommand, ByteStandaloneCommand};
+pub(crate) use byte_backup::ByteBackupCommand;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {

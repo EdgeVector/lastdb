@@ -28,9 +28,7 @@ mod frozen;
 mod metadata;
 mod metadata_batch;
 
-pub(crate) use frozen::{
-    node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
-};
+pub(crate) use frozen::{node_bundle_storage_keys, open_frozen_node_bundle};
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, MoleculeKeyBundle>>>;
 

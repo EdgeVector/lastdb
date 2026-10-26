@@ -51,7 +51,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// No app in the EdgeVector repos sends the key or reads the fields, so a
 /// client that requires `1` or `2` still works; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 3;
+///
+/// `4` (2026-10-26) removes the two disk format v1 owner-socket routes
+/// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
+/// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 4;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

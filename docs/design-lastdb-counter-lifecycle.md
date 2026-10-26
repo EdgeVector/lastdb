@@ -716,7 +716,7 @@ With `RUST_LOG=lastdb::native_read_budget=debug`, one purge of 16 keys on 1,000 
 
 **A.5 One batch, and a crash.** One durable request creating one key: frontier 25 to 27 (clock batch 26, data batch 27). The tip record, the count record and the edge record all carry physical batch 27. Four `SIGKILL` rounds during queued writes (20-key requests, 5 hashes, 600 keys, values shared across keys): after restart 1,440 tip records, 422 to 512 distinct atoms, every atom had a count record and as many edge records as tips naming it. 0 mismatches.
 
-**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records.
+**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records. This is a recorded result of disk format v1. The disk format v1 removal deleted the route and the command on 2026-10-26.
 
 ## Appendix B. Evidence index
 

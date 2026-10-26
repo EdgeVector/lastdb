@@ -29,31 +29,12 @@ pub(crate) struct NativeFileProof {
 }
 
 impl VerifiedNativeContext<'_> {
-    pub fn physical(&self) -> PathBuf {
-        self.root.join("home/data/disk-pack")
-    }
     pub fn data_root(&self) -> PathBuf {
         self.root.join("home/data")
-    }
-    pub fn verify_records(&self, key: &[u8; 32], external_count: u64) -> Result<u64> {
-        super::records::verify_context(self, key, external_count)
-    }
-    pub fn verify_metadata(&self, key: &[u8; 32]) -> Result<()> {
-        super::records::verify_metadata_context(self, key)
     }
     pub fn published(&self) -> Result<Option<RestoreReport>> {
         super::install::published_context(self)
     }
-    pub fn finish(
-        &self,
-        keys: &RecoveryKeys,
-        inventory: NativeInventory,
-        atoms: u64,
-        entry: impl Fn(&str) -> Result<NativeFileProof>,
-    ) -> Result<RestoreReport> {
-        super::install::finish_context(self, keys, inventory, atoms, entry)
-    }
-
     pub fn finish_run(
         &self,
         keys: &RecoveryKeys,
