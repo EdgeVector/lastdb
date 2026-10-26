@@ -49,30 +49,26 @@ pub const NON_OBJECT_PAYLOAD_MARKER: &str = "contract_violation";
 /// `{ok:true, user_hash}` — byte-identical to a legitimately empty success. The
 /// caller could not tell a handler bug from "nothing found". Such a payload now
 /// carries the [`NON_OBJECT_PAYLOAD_MARKER`] field so the violation is visible
-/// on the wire, and trips a debug assertion so it fails loudly in test builds.
+/// on the wire, and trips a debug assertion so it fails loudly in debug builds.
 #[must_use]
 pub fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Value {
-    let mut map = serde_json::Map::new();
-
-    if let Ok(Value::Object(fields)) = serde_json::to_value(data) {
-        for (k, v) in fields {
-            if RESERVED_KEYS.contains(&k.as_str()) {
-                // The envelope owns this key; the payload's copy is dropped.
-                continue;
-            }
-            map.insert(k, v);
+    let mut map = match serde_json::to_value(data) {
+        Ok(Value::Object(fields)) => fields,
+        _ => {
+            debug_assert!(
+                false,
+                "handler payload did not serialize to a JSON object; a success \
+                 envelope would be indistinguishable from an empty result"
+            );
+            serde_json::Map::from_iter([(
+                NON_OBJECT_PAYLOAD_MARKER.to_string(),
+                Value::String("non_object_payload".to_string()),
+            )])
         }
-    } else {
-        debug_assert!(
-            false,
-            "handler payload did not serialize to a JSON object; a success \
-             envelope would be indistinguishable from an empty result"
-        );
-        map.insert(
-            NON_OBJECT_PAYLOAD_MARKER.to_string(),
-            Value::String("non_object_payload".to_string()),
-        );
-    }
+    };
+    // Keep the serialized object and its payload order; discard only keys the
+    // envelope owns before appending its authoritative values.
+    map.retain(|key, _| !RESERVED_KEYS.contains(&key.as_str()));
 
     // Written last: the envelope's assertion is authoritative over the payload.
     map.insert("ok".to_string(), Value::Bool(true));
