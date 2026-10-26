@@ -327,13 +327,18 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
-        let codec = match self.molecule_keys.as_ref() {
-            Some(store) => store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
-                || self.key_codec.clone(),
-                |bundle| bundle.key_codec(&self.key_codec),
-            ),
-            None => self.key_codec.clone(),
-        };
+        let codec = self
+            .molecule_keys
+            .as_ref()
+            .map(|store| store.codec_for_molecule(molecule_uuid, &self.key_codec))
+            .transpose()?
+            .flatten();
+        if self.typed_ranges && codec.is_none() {
+            return Err(crate::schema::SchemaError::InvalidData(
+                "the typed molecule has no admitted range profile".into(),
+            ));
+        }
+        let codec = codec.unwrap_or_else(|| self.key_codec.clone());
         crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
             codec.key_order(),
         )?;

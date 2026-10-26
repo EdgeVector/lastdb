@@ -5,74 +5,48 @@
 //! small metadata record (`mkb:`) and one encrypted wrap per access domain
 //! (`mkw:`). Catalog sharing adds a wrap; it never reseals molecule data.
 
-use crate::atom::MoleculeKeyCodec;
 use crate::crypto::{is_sealed_at_rest, seal_at_rest_utf8};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
 use crate::storage::traits::KvStore;
 use crate::storage::{StorageError, TypedKvStore};
-use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 
 mod batch_load;
+mod bundle;
 mod cache;
+mod contracts;
+mod establish;
 mod frozen;
 mod metadata;
 mod metadata_batch;
+mod share;
 
 pub(crate) use frozen::{
     node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
 };
 
-pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, MoleculeKeyBundle>>>;
+pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, CachedMoleculeContract>>>;
+pub use bundle::MoleculeKeyBundle;
 
-/// The three independent keys that define one molecule's sealed byte form.
-#[derive(Clone, Deserialize, Serialize, Zeroize, ZeroizeOnDrop)]
-pub struct MoleculeKeyBundle {
-    content_dek: [u8; 32],
-    blind_key: [u8; 32],
-    ope_key: [u8; 32],
+#[derive(Clone)]
+pub(crate) struct CachedMoleculeContract {
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    bundle: Option<MoleculeKeyBundle>,
 }
 
-impl std::fmt::Debug for MoleculeKeyBundle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("MoleculeKeyBundle(<redacted>)")
-    }
-}
-
-impl MoleculeKeyBundle {
-    fn generate() -> Self {
-        let mut bundle = Self {
-            content_dek: [0; 32],
-            blind_key: [0; 32],
-            ope_key: [0; 32],
-        };
-        OsRng.fill_bytes(&mut bundle.content_dek);
-        OsRng.fill_bytes(&mut bundle.blind_key);
-        OsRng.fill_bytes(&mut bundle.ope_key);
-        bundle
-    }
-
-    pub(crate) fn content_dek(&self) -> [u8; 32] {
-        self.content_dek
-    }
-
-    pub(crate) fn key_codec(&self, configured: &MoleculeKeyCodec) -> MoleculeKeyCodec {
-        MoleculeKeyCodec::with_encodings(
-            configured.encoding(),
-            configured.range_encoding(),
-            Some(self.blind_key),
-            Some(self.ope_key),
-        )
-    }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum KeyAuthority {
+    Bundle,
+    Node,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -81,6 +55,8 @@ struct BundleMetadata {
     molecule_uuid: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    key_authority: Option<KeyAuthority>,
 }
 
 impl BundleMetadata {
@@ -90,6 +66,7 @@ impl BundleMetadata {
         self.version == BUNDLE_VERSION
             && self.molecule_uuid == molecule
             && self.range_profile.is_none()
+            && self.key_authority.is_none()
     }
 }
 
@@ -130,36 +107,25 @@ impl MoleculeKeyStore {
         self.node_wrap_key.is_some()
     }
 
-    /// Resolve the node wrap with two exact reads. Missing metadata means no bundle.
+    /// Resolve the exact molecule contract. Node authority has no molecule bundle.
     pub async fn load(&self, molecule_uuid: &str) -> StorageResult<Option<MoleculeKeyBundle>> {
         validate_identity(molecule_uuid, NODE_DOMAIN)?;
-        if let Some(bundle) = self.cached_bundle(molecule_uuid)? {
-            return Ok(Some(bundle));
+        if let Some(contract) = self.cached_contract(molecule_uuid)? {
+            return Ok(contract.bundle);
         }
-        let Some(wrap_key) = self.node_wrap_key.as_ref() else {
-            return Ok(None);
-        };
-        if self.metadata_from_memory(molecule_uuid).await?.is_none() {
-            return Ok(None);
-        }
-        let Some(wrap) = self
-            .entries
-            .get_item::<BundleWrap>(&wrap_key_for(molecule_uuid, NODE_DOMAIN))
-            .await?
-        else {
-            return Err(StorageError::InvalidOperation(format!(
-                "molecule key metadata has no node wrap for {molecule_uuid}"
-            )));
-        };
-        let bundle = open_wrap(&wrap, molecule_uuid, NODE_DOMAIN, wrap_key)?;
-        self.remember(molecule_uuid, bundle.clone())?;
-        Ok(Some(bundle))
+        self.load_existing(&[molecule_uuid.to_owned()]).await?;
+        self.cached_bundle(molecule_uuid)
     }
 
     /// Load an existing bundle or mint one. Callers use this on new instances.
     pub async fn ensure(&self, molecule_uuid: &str) -> StorageResult<MoleculeKeyBundle> {
         if let Some(bundle) = self.load(molecule_uuid).await? {
             return Ok(bundle);
+        }
+        if self.is_typed() {
+            return Err(StorageError::InvalidOperation(
+                "a new typed molecule requires its schema range profile".into(),
+            ));
         }
         // Every mint takes the native write gate before the shared mint lock.
         // An enclosing schema publication already owns that same gate.
@@ -190,6 +156,7 @@ impl MoleculeKeyStore {
                     version: BUNDLE_VERSION,
                     molecule_uuid: molecule_uuid.to_string(),
                     range_profile: None,
+                    key_authority: None,
                 },
             )
             .await?;
@@ -198,72 +165,19 @@ impl MoleculeKeyStore {
         Ok(bundle)
     }
 
-    /// Grant one access domain to every molecule in an existing schema.
-    ///
-    /// The preflight resolves every bundle before it writes a wrap. Schema
-    /// publication establishes these keys; a missing bundle is an error.
-    pub async fn grant_schema_domain(
-        &self,
-        schema: &Schema,
-        domain: &str,
-        domain_wrap_key: &[u8; 32],
-    ) -> StorageResult<usize> {
-        if !self.is_enabled() {
-            return Ok(0);
-        }
-        validate_identity(&schema.name, domain)?;
-        let molecules = schema_molecule_uuids(schema);
-
-        let mut bundles = Vec::with_capacity(molecules.len());
-        let mut missing = Vec::new();
-        for molecule_uuid in molecules {
-            match self.load(&molecule_uuid).await? {
-                Some(bundle) => bundles.push((molecule_uuid, bundle)),
-                None => missing.push(molecule_uuid),
-            }
-        }
-        if !missing.is_empty() {
-            return Err(StorageError::InvalidOperation(format!(
-                "schema share requires an established molecule key bundle for {}",
-                missing.join(", ")
-            )));
-        }
-
-        for (molecule_uuid, bundle) in &bundles {
-            self.put_wrap(molecule_uuid, domain, bundle, domain_wrap_key)
-                .await?;
-        }
-        self.entries.inner().flush().await?;
-        Ok(bundles.len())
-    }
-
     pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.entries.inner().flush().await
     }
 
     /// Establish every final field molecule's keys before schema publication.
     pub async fn ensure_schema(&self, schema: &Schema) -> StorageResult<()> {
-        if !self.is_enabled() {
-            return Ok(());
-        }
-        let populated = if schema.runtime_fields.is_empty() {
-            let mut populated = schema.clone();
-            populated.populate_runtime_fields().map_err(|error| {
-                StorageError::InvalidOperation(format!("resolve schema molecule keys: {error}"))
-            })?;
-            Some(populated)
-        } else {
-            None
-        };
-        for molecule_uuid in schema_molecule_uuids(populated.as_ref().unwrap_or(schema)) {
-            self.ensure(&molecule_uuid).await?;
-        }
-        Ok(())
+        self.establish_schema(schema).await
     }
 
     /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
-        self.load_existing(&schema_molecule_uuids(schema)).await
+        self.load_existing(&schema_molecule_uuids(schema)).await?;
+        self.require_schema_profiles(schema)
     }
 
     async fn put_wrap(
@@ -273,27 +187,34 @@ impl MoleculeKeyStore {
         bundle: &MoleculeKeyBundle,
         wrapping_key: &[u8; 32],
     ) -> StorageResult<()> {
-        let plaintext = serde_json::to_vec(bundle).map_err(|error| {
-            StorageError::SerializationError(format!("serialize molecule key bundle: {error}"))
-        })?;
-        let sealed = seal_at_rest_utf8(wrapping_key, &plaintext).map_err(|error| {
-            StorageError::InvalidOperation(format!("wrap molecule key bundle: {error}"))
-        })?;
-        let sealed_bundle = String::from_utf8(sealed).map_err(|error| {
-            StorageError::InvalidOperation(format!("molecule key wrap is not UTF-8: {error}"))
-        })?;
+        let wrap = make_wrap(molecule_uuid, domain, bundle, wrapping_key)?;
         self.entries
-            .put_item(
-                &wrap_key_for(molecule_uuid, domain),
-                &BundleWrap {
-                    version: BUNDLE_VERSION,
-                    molecule_uuid: molecule_uuid.to_string(),
-                    domain: domain.to_string(),
-                    sealed_bundle,
-                },
-            )
+            .put_item(&wrap_key_for(molecule_uuid, domain), &wrap)
             .await
     }
+}
+
+fn make_wrap(
+    molecule: &str,
+    domain: &str,
+    bundle: &MoleculeKeyBundle,
+    key: &[u8; 32],
+) -> StorageResult<BundleWrap> {
+    let plaintext = zeroize::Zeroizing::new(
+        serde_json::to_vec(bundle)
+            .map_err(|error| StorageError::SerializationError(error.to_string()))?,
+    );
+    let sealed = seal_at_rest_utf8(key, &plaintext).map_err(|_| {
+        StorageError::InvalidOperation("cannot wrap the molecule key bundle".into())
+    })?;
+    let sealed_bundle = String::from_utf8(sealed)
+        .map_err(|_| StorageError::InvalidOperation("the molecule key wrap is not UTF-8".into()))?;
+    Ok(BundleWrap {
+        version: BUNDLE_VERSION,
+        molecule_uuid: molecule.into(),
+        domain: domain.into(),
+        sealed_bundle,
+    })
 }
 
 fn open_wrap(

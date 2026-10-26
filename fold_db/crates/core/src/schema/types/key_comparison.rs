@@ -24,10 +24,13 @@ impl KeyComparisonContext {
     pub(crate) fn for_schema(
         schema: &Schema,
         formats: &[(String, String, &'static str)],
+        order: KeyOrderVersion,
     ) -> Result<Self, SchemaError> {
-        schema
-            .validate_key_field_types()
-            .map_err(SchemaError::InvalidData)?;
+        match order {
+            KeyOrderVersion::LegacyUtf8V1 => schema.validate_legacy_key_field_types(),
+            KeyOrderVersion::TypedScalarV1 => schema.validate_key_field_types(),
+        }
+        .map_err(SchemaError::InvalidData)?;
         let hash = schema
             .key
             .as_ref()
@@ -37,8 +40,22 @@ impl KeyComparisonContext {
             .as_ref()
             .and_then(|key| key.range_field.as_deref());
         let hash_type = hash.map(|path| schema.key_field_type(path));
-        let range_type = range.map_or(FieldValueType::Any, |path| schema.key_field_type(path));
-        let range_comparison = RangeKeyComparison::legacy(range_type);
+        let range_type = range.map_or_else(
+            || {
+                if order == KeyOrderVersion::LegacyUtf8V1 {
+                    FieldValueType::Any
+                } else {
+                    FieldValueType::String
+                }
+            },
+            |path| schema.key_field_type(path),
+        );
+        let range_comparison = match order {
+            KeyOrderVersion::LegacyUtf8V1 => RangeKeyComparison::legacy(range_type),
+            KeyOrderVersion::TypedScalarV1 => {
+                RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?
+            }
+        };
         let bytes = serde_json::to_vec(&(
             "lastdb-key-comparison-v1",
             &schema.name,
