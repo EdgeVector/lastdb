@@ -1,0 +1,189 @@
+//! In-memory registry backend for the dev server, the eval tool and the
+//! offline seed generator.
+//!
+//! Every record lives in a `HashMap` behind one lock, so nothing survives
+//! a restart. Production uses the S3 backend (`schema_service_s3`). This
+//! backend replaced the LastStore-backed local registry so local tools no
+//! longer depend on a storage engine.
+
+use std::collections::HashMap;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+use async_trait::async_trait;
+
+use crate::app_release::{channel_key, ChannelRecord, ReleaseRecord};
+use crate::declared_fields::DeclaredFieldRecord;
+use crate::external_persistence::ExternalSchemaPersistence;
+use crate::lock_helpers::{read_lock, write_lock};
+use crate::near_miss::NearMissRecord;
+use crate::snapshot::AppRecord;
+use crate::types::CanonicalField;
+use schema_types::{FoldDbResult, Schema};
+
+#[derive(Default)]
+struct Registry {
+    schemas: HashMap<String, Schema>,
+    canonical_fields: HashMap<String, CanonicalField>,
+    descriptive_name_embeddings: HashMap<String, Vec<f32>>,
+    canonical_field_embeddings: HashMap<String, Vec<f32>>,
+    near_misses: HashMap<String, NearMissRecord>,
+    apps: HashMap<String, AppRecord>,
+    releases: HashMap<String, ReleaseRecord>,
+    channels: HashMap<String, ChannelRecord>,
+    declared_fields: HashMap<String, DeclaredFieldRecord>,
+}
+
+/// In-memory implementation of [`ExternalSchemaPersistence`].
+///
+/// Keys match the S3 backend: schemas by `name`, canonical fields by name,
+/// apps by `app_id`, releases by `release_id`, channels by
+/// [`channel_key`], declarations by `declaration_id`.
+#[derive(Default)]
+pub struct InMemorySchemaPersistence {
+    registry: RwLock<Registry>,
+}
+
+impl InMemorySchemaPersistence {
+    fn read(&self) -> FoldDbResult<RwLockReadGuard<'_, Registry>> {
+        read_lock(&self.registry, "in-memory registry")
+    }
+
+    fn write(&self) -> FoldDbResult<RwLockWriteGuard<'_, Registry>> {
+        write_lock(&self.registry, "in-memory registry")
+    }
+}
+
+#[async_trait]
+impl ExternalSchemaPersistence for InMemorySchemaPersistence {
+    async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
+        self.write()?
+            .schemas
+            .insert(schema.name.clone(), schema.clone());
+        Ok(())
+    }
+
+    async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
+        Ok(self.read()?.schemas.clone())
+    }
+
+    async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
+        self.write()?
+            .canonical_fields
+            .insert(name.to_string(), field.clone());
+        Ok(())
+    }
+
+    async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
+        Ok(self.read()?.canonical_fields.clone())
+    }
+
+    async fn save_descriptive_name_embedding(
+        &self,
+        schema_hash: &str,
+        embedding: &[f32],
+    ) -> FoldDbResult<()> {
+        self.write()?
+            .descriptive_name_embeddings
+            .insert(schema_hash.to_string(), embedding.to_vec());
+        Ok(())
+    }
+
+    async fn load_descriptive_name_embeddings(&self) -> FoldDbResult<HashMap<String, Vec<f32>>> {
+        Ok(self.read()?.descriptive_name_embeddings.clone())
+    }
+
+    async fn save_canonical_field_embedding(
+        &self,
+        field_name: &str,
+        embedding: &[f32],
+    ) -> FoldDbResult<()> {
+        self.write()?
+            .canonical_field_embeddings
+            .insert(field_name.to_string(), embedding.to_vec());
+        Ok(())
+    }
+
+    async fn load_canonical_field_embeddings(&self) -> FoldDbResult<HashMap<String, Vec<f32>>> {
+        Ok(self.read()?.canonical_field_embeddings.clone())
+    }
+
+    async fn append_near_miss(&self, record: &NearMissRecord) -> FoldDbResult<()> {
+        // A repeated `registration_id` is a no-op (trait contract).
+        self.write()?
+            .near_misses
+            .entry(record.registration_id.clone())
+            .or_insert_with(|| record.clone());
+        Ok(())
+    }
+
+    async fn load_all_near_misses(&self) -> FoldDbResult<Vec<NearMissRecord>> {
+        Ok(self.read()?.near_misses.values().cloned().collect())
+    }
+
+    async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()> {
+        // First-write-wins: never replace an existing `app_id`.
+        self.write()?
+            .apps
+            .entry(app.app_id.clone())
+            .or_insert_with(|| app.clone());
+        Ok(())
+    }
+
+    async fn update_app(&self, app: &AppRecord) -> FoldDbResult<()> {
+        self.write()?.apps.insert(app.app_id.clone(), app.clone());
+        Ok(())
+    }
+
+    async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
+        Ok(self.read()?.apps.clone())
+    }
+
+    async fn save_release(&self, record: &ReleaseRecord) -> FoldDbResult<()> {
+        self.write()?
+            .releases
+            .insert(record.release_id.clone(), record.clone());
+        Ok(())
+    }
+
+    async fn load_all_releases(&self) -> FoldDbResult<HashMap<String, ReleaseRecord>> {
+        Ok(self.read()?.releases.clone())
+    }
+
+    async fn save_channel(&self, record: &ChannelRecord) -> FoldDbResult<()> {
+        self.write()?
+            .channels
+            .insert(channel_key(&record.app_id, &record.channel), record.clone());
+        Ok(())
+    }
+
+    async fn load_all_channels(&self) -> FoldDbResult<HashMap<String, ChannelRecord>> {
+        Ok(self.read()?.channels.clone())
+    }
+
+    async fn save_declared_field(&self, record: &DeclaredFieldRecord) -> FoldDbResult<()> {
+        self.write()?
+            .declared_fields
+            .insert(record.declaration_id.clone(), record.clone());
+        Ok(())
+    }
+
+    async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
+        Ok(self.read()?.declared_fields.values().cloned().collect())
+    }
+
+    /// `POST /v1/system/reset`: clear schemas only.
+    async fn clear_all_schemas(&self) -> FoldDbResult<()> {
+        self.write()?.schemas.clear();
+        Ok(())
+    }
+
+    /// `POST /v1/snapshot/import`: clear schemas, canonical fields and apps
+    /// before the import writes the snapshot records.
+    async fn clear_registry_for_snapshot_import(&self) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        registry.schemas.clear();
+        registry.canonical_fields.clear();
+        registry.apps.clear();
+        Ok(())
+    }
+}

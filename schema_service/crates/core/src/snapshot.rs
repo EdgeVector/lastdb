@@ -7,7 +7,6 @@
 //! See `projects/schema-service-dev-hydration` for the design rationale.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -420,25 +419,4 @@ impl SchemaServiceState {
                 || offline_is_system_schema(schema)
         }))
     }
-}
-
-/// Whether a fresh registry holds only seed-loaded artifacts — no
-/// user-authored schemas.
-///
-/// The dev binary uses this as the auto-hydrate guard: with
-/// `--hydrate-from` set and without `--rehydrate`, it imports a remote
-/// snapshot only when this predicate is true, so an in-progress local
-/// edit is never silently blown away on restart.
-///
-/// "Seeds only" means every schema's `source` is `SystemSeed` or
-/// `StarterSeed` (i.e. not `User`).
-pub fn registry_is_seeds_only(state: &Arc<SchemaServiceState>) -> bool {
-    use schema_types::SchemaSource;
-
-    let Ok(schemas) = state.schemas.read() else {
-        return false;
-    };
-    schemas
-        .values()
-        .all(|schema| schema.source != SchemaSource::User)
 }

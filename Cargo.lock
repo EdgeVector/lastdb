@@ -2125,7 +2125,6 @@ dependencies = [
  "schema_types",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
 ]
 
@@ -4501,7 +4500,6 @@ dependencies = [
  "chrono",
  "env_flag",
  "hmac 0.12.1",
- "laststore",
  "schema_core_resolver",
  "schema_types",
  "semver",

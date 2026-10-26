@@ -44,7 +44,8 @@ no GitHub release tarballs, no `cargo install` end-user path.
 | `crates/client`                      | Typed HTTP client (`schema_service_client`). Consumed by `fold_db_node`.                                                             |
 
 The `core` crate has **no** `fastembed`/`ONNX` dependencies — callers
-inject an `Arc<dyn Embedder>` into `SchemaServiceState::new()`, so a
+inject an `Arc<dyn Embedder>` into `SchemaServiceState::new_in_memory()` or
+`SchemaServiceState::new_with_external()`, so a
 Lambda deployment can swap embedder implementations without touching core.
 Default local/dev binaries inject a disabled embedder: exact matching,
 resolver packs, imported embedding artifacts, and test-injected embedders
@@ -53,19 +54,24 @@ explicit build feature for semantic/full-product validation.
 
 ## Run locally
 
-From the monorepo root, run the dev binary against a local Sled registry:
+From the monorepo root, run the dev binary. The registry lives only in
+process memory: a restart starts again from the built-in seeds.
 
 ```bash
 cargo run -p schema_service_server_http --bin schema_service \
-  -- --port 9102 --db-path schema_registry
+  -- --port 9102
 ```
+
+To start with production-like data, pass `--hydrate-from <url>` with
+`EXEMEM_API_KEY` set. The binary imports that snapshot into memory at
+startup.
 
 Enable the local FastEmbed adapter only when you need to validate the
 live semantic path:
 
 ```bash
 cargo run -p schema_service_server_http --features fastembed --bin schema_service \
-  -- --port 9102 --db-path schema_registry
+  -- --port 9102
 ```
 
 Smoke check:
@@ -82,9 +88,9 @@ Phase A of the dual-signal schema canonicalization (fbrain
 field to the canonical schema definition and wired `POST /v1/schemas`
 to default it to `descriptive_name` for every new registration.
 Schemas registered **before** Phase A landed still carry
-`purpose_statement = None` in dev's Sled registry and prod's S3
-`schemas.json` blob. Run the Phase D backfill binary once per
-environment to fill them in.
+`purpose_statement = None` in prod's S3 `schemas.json` blob. Run the
+Phase D backfill binary once per environment to fill them in. The dev
+server keeps its registry in memory, so it has nothing to backfill.
 
 The binary is idempotent — a second run reports `updated = 0`. It
 supports `--dry-run` (no writes) and an optional `--mapping-file`
@@ -92,17 +98,7 @@ JSON with curated per-`descriptive_name` purpose statements;
 unmatched records fall back to `descriptive_name` itself, matching
 the Phase A default.
 
-**Dev (local Sled).** Always dry-run first:
-
-```bash
-cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
-  --backend sled --db-path ~/.folddb/schema_registry --dry-run
-
-cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
-  --backend sled --db-path ~/.folddb/schema_registry
-```
-
-**Prod/R2 (S3-compatible).** Export schema-store-specific credentials and
+**Prod/R2 (S3-compatible).** Always dry-run first. Export schema-store-specific credentials and
 region first. Do not set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` to R2
 values in Lambda: those names are reserved for the normal AWS SDK credential
 chain used by DynamoDB, KMS, Secrets Manager, CloudWatch, and other AWS
@@ -146,8 +142,7 @@ cat > mapping.json <<'EOF'
 }
 EOF
 cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
-  --backend sled --db-path ~/.folddb/schema_registry \
-  --mapping-file mapping.json --dry-run
+  --backend s3 --mapping-file mapping.json --dry-run
 ```
 
 ## Operations — publish Schema Resolver Packs
@@ -309,7 +304,7 @@ binary:
 ```bash
 export SCHEMA_DUAL_SIGNAL_CANONICALIZATION=false
 cargo run -p schema_service_server_http --bin schema_service -- \
-  --port 9102 --db-path schema_registry
+  --port 9102
 ```
 
 **Prod (Lambda).** Set `SCHEMA_DUAL_SIGNAL_CANONICALIZATION=false` in
@@ -339,7 +334,7 @@ See fbrain `dual-signal-schema-canonicalization` for the design.
 | POST   | `/v1/views`                         | Register a view                         |
 | GET    | `/v1/views/available`               | Full view definitions                   |
 | GET    | `/v1/view/{name}`                   | Get one view                            |
-| POST   | `/v1/system/reset`                  | Reset Sled-backed local state           |
+| POST   | `/v1/system/reset`                  | Clear schemas on the in-memory dev server |
 
 ## OpenAPI spec
 

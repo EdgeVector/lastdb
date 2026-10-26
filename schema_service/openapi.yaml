@@ -532,8 +532,8 @@ paths:
         and the embedding caches — in one JSON envelope.
 
         Used by the dev binary's `--hydrate-from` flow (see
-        `projects/schema-service-dev-hydration`) to seed a local Sled
-        instance from production. Auth is enforced by the framework
+        `projects/schema-service-dev-hydration`) to seed the dev
+        server's in-memory registry from production. Auth is enforced by the framework
         wrapper: production gates this route on `X-API-Key`; the dev
         binary leaves it open for localhost loopback.
 
@@ -583,14 +583,14 @@ paths:
       operationId: snapshot_import
       summary: Replace the local registry with the contents of a snapshot envelope
       description: |
-        Full-replace import. Clears every owned Sled tree (`schemas`,
-        `canonical_fields`, `apps`), writes the envelope's contents
+        Full-replace import. Clears the registry's `schemas`,
+        `canonical_fields` and `apps`, writes the envelope's contents
         in their place, refreshes the in-memory caches, and rebuilds the
         `descriptive_name` index.
 
-        **Sled-only.** The production Lambda binary intentionally does
-        not mount this route; calling it through an external backend
-        returns `400`.
+        **Dev server only** (in-memory registry, lost on restart). The
+        production Lambda binary intentionally does not mount this route;
+        calling it through an external backend returns `400`.
 
         The importer rejects envelopes whose `format_version` does not
         equal the binary's [`SNAPSHOT_FORMAT_VERSION`] or whose
@@ -613,7 +613,7 @@ paths:
         '400':
           description: |
             Envelope rejected — unknown `format_version`, embedder
-            mismatch, non-Sled storage backend, or malformed body.
+            mismatch, unsupported storage backend, or malformed body.
           content:
             application/json:
               schema:
@@ -623,9 +623,9 @@ paths:
     post:
       tags: [system]
       operationId: reset_database
-      summary: Reset the local schema database (local storage backends only)
+      summary: Reset the local schema database (dev server only)
       description: |
-        Clears all schemas. **Only supported on Sled-backed dev instances**;
+        Clears all schemas. **Only supported on the in-memory dev server**;
         the production Lambda returns `400 Bad Request` because its external
         backend owns its own reset semantics.
       requestBody:

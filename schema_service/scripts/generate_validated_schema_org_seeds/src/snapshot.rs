@@ -71,7 +71,7 @@ pub(crate) fn write_canonical_snapshot(
 /// Schemas go one-per-file under `schemas/`. Each schema is an
 /// intentional entity with ~50+ fields and distinct metadata —
 /// per-file gives clean PR diffs (change Person, only Person.json
-/// shows up), mirrors Sled's per-key storage, and makes selective
+/// shows up), mirrors the registry's one-record-per-key layout, and makes selective
 /// regeneration trivial.
 pub(crate) fn write_schema_files(
     data_dir: &Path,

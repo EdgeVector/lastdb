@@ -284,9 +284,8 @@ impl SchemaServiceState {
     }
 
     /// Persist many canonical fields to the active storage backend in one
-    /// batch: a single sled-tree pass locally, or one batched call (one
-    /// blob RMW on the S3 backend) externally — instead of one full
-    /// round-trip per field on every schema add.
+    /// batch: one batched call (one blob RMW on the S3 backend) instead of
+    /// one full round-trip per field on every schema add.
     pub(super) async fn persist_canonical_fields(
         &self,
         fields: &[(String, CanonicalField)],

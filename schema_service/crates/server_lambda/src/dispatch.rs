@@ -229,8 +229,8 @@ async fn dispatch_admin(
         // `GET /v1/snapshot` is auth-gated by X-API-Key (validated
         // against the exemem ApiKeys DynamoDB table). The dev-only
         // `POST /v1/snapshot/import` route is intentionally NOT
-        // mounted here — Lambda storage is `External` (S3-backed) and
-        // the importer is Sled-only.
+        // mounted here — Lambda storage is S3-backed and the importer
+        // needs the in-memory dev backend.
         ("GET", "/v1/snapshot") => handle_snapshot_export(event, state).await,
         ("GET", "/v1/snapshot/shared-only") => {
             routes::admin::get_snapshot_shared_only(state, event).await

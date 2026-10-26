@@ -20,7 +20,7 @@ name = "same_app_veto_live_probe"
 path = "examples/same_app_veto_live_probe.rs"
 
 [dependencies]
-schema_service_core = { path = "../core", default-features = false }
+schema_service_core = { path = "../core" }
 schema_types = { workspace = true }
 # Phase 2 / B4 follow-up: wraps egress request builders with
 # `observability::propagation::inject_w3c(builder)` so the

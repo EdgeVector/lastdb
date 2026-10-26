@@ -15,7 +15,7 @@ use tracing_actix_web::TracingLogger;
 use schema_types::{FoldDbError, FoldDbResult};
 
 use schema_service_client::SchemaServiceClient;
-use schema_service_core::snapshot::{registry_is_seeds_only, SnapshotImportReport};
+use schema_service_core::snapshot::SnapshotImportReport;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_server_shared::{handlers, Embedder};
 
@@ -136,8 +136,8 @@ fn v1_snapshot_and_admin_routes(scope: actix_web::Scope) -> actix_web::Scope {
         // Snapshot — local-only routes for the `--hydrate-from`
         // dev workflow. The Lambda binary intentionally does NOT
         // mount these (Lambda will get GET `/v1/snapshot` behind
-        // an X-API-Key check in a follow-up; the import route is
-        // Sled-only).
+        // an X-API-Key check in a follow-up; the import and reset
+        // routes need the in-memory dev backend).
         .route("/snapshot", web::get().to(handlers::snapshot_export))
         .route(
             "/snapshot/shared-only",
@@ -205,12 +205,12 @@ pub struct SchemaServiceServer {
 }
 
 impl SchemaServiceServer {
-    /// Construct a server backed by local Sled storage. Does NOT
-    /// seed built-in schemas — see `new_with_builtins` for the
-    /// production constructor.
-    fn new(db_path: &str, bind_address: &str) -> FoldDbResult<Self> {
+    /// Construct a server backed by the in-memory registry (nothing
+    /// survives a restart). Does NOT seed built-in schemas — see
+    /// `new_with_builtins` for the production constructor.
+    fn new(bind_address: &str) -> FoldDbResult<Self> {
         let embedder = default_embedder();
-        let state = SchemaServiceState::new(db_path, embedder)?;
+        let state = SchemaServiceState::new_in_memory(embedder)?;
         // App-identity verification config (app_identity v3.1, Lane B2b).
         // Empty unless APP_IDENTITY_ROOT_PUBKEYS is set — the dev binary
         // is then a passthrough, matching pre-app-identity behavior.
@@ -227,8 +227,8 @@ impl SchemaServiceServer {
     /// Construct a server, seed Phase 1 SystemSeed fingerprint schemas,
     /// and seed the Schema.org StarterSeed canonical fields + schemas.
     /// Idempotent.
-    pub async fn new_with_builtins(db_path: &str, bind_address: &str) -> FoldDbResult<Self> {
-        let server = Self::new(db_path, bind_address)?;
+    pub async fn new_with_builtins(bind_address: &str) -> FoldDbResult<Self> {
+        let server = Self::new(bind_address)?;
         server.seed_builtins().await?;
         Ok(server)
     }
@@ -250,18 +250,9 @@ impl SchemaServiceServer {
         Ok(())
     }
 
-    /// Pull a snapshot from `base_url` and import it into local Sled
-    /// storage. The dev binary's `--hydrate-from` flow.
-    ///
-    /// Returns:
-    ///   * `Ok(Some(report))` — snapshot was fetched and imported.
-    ///   * `Ok(None)` — registry already holds user-authored
-    ///     artifacts and `force` is false; the snapshot is NOT applied
-    ///     so in-progress local edits are preserved.
-    ///   * `Err(_)` — fetch or import failed; local state is either
-    ///     untouched (fetch failures) or partially-replaced (import
-    ///     failures mid-write — rerun with `force = true` to reach a
-    ///     clean state).
+    /// Pull a snapshot from `base_url` and import it into the in-memory
+    /// registry. The dev binary's `--hydrate-from` flow, run once at
+    /// startup (the registry then holds only the built-in seeds).
     ///
     /// `api_key` is sent as `X-API-Key` on the upstream snapshot
     /// request to match the schema-infra Lambda's auth convention.
@@ -269,24 +260,12 @@ impl SchemaServiceServer {
         &self,
         base_url: &str,
         api_key: &str,
-        force: bool,
-    ) -> FoldDbResult<Option<SnapshotImportReport>> {
-        let state = self.state.clone().into_inner();
-        if !force && !registry_is_seeds_only(&state) {
-            tracing::info!(
-                target: "schema_service::snapshot",
-                "Skipping hydrate: local registry has user-authored artifacts. \
-                 Pass --rehydrate to overwrite."
-            );
-            return Ok(None);
-        }
-
+    ) -> FoldDbResult<SnapshotImportReport> {
         let envelope = SchemaServiceClient::new(base_url)
             .fetch_snapshot(Some(api_key))
             .await
             .map_err(|err| FoldDbError::Other(err.to_string()))?;
-        let report = state.import_snapshot(envelope)?;
-        Ok(Some(report))
+        self.state.import_snapshot(envelope)
     }
 
     pub async fn run(&self) -> FoldDbResult<()> {

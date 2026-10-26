@@ -60,8 +60,8 @@ impl SchemaServiceClient {
 
     /// Push a `SnapshotEnvelope` via `POST /v1/snapshot/import`.
     ///
-    /// Sled-only on the server side (the Lambda binary does not mount
-    /// this route). Useful for tests and for tooling that needs to
+    /// Dev-server-only on the server side (the Lambda binary does not
+    /// mount this route). Useful for tests and for tooling that needs to
     /// seed a local dev binary from a saved JSON file.
     ///
     /// Does not retry: import is a write that mutates server state,

@@ -13,13 +13,12 @@ name = "generate-validated-schema-org-seeds"
 path = "src/main.rs"
 
 [dependencies]
-schema_service_core = { path = "../../crates/core", features = ["local-store", "schema-org-seed-data"] }
+schema_service_core = { path = "../../crates/core", features = ["schema-org-seed-data"] }
 schema_service_server_shared = { path = "../../crates/server_shared", features = ["fastembed"] }
 schema_types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-tempfile = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 
 [lints]

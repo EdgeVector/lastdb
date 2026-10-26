@@ -171,9 +171,8 @@ impl SchemaServiceState {
             }
         }
 
-        // 2. Persist to the backend. We open the sled tree on demand
-        // (mirroring `persist_view`) rather than threading it through the
-        // SchemaStorage enum, which would touch every variant call site.
+        // 2. Persist to the backend through the trait (in-memory for the
+        // dev server, S3 for the Lambda).
         let result = match &self.storage {
             SchemaStorage::External(backend) => backend.append_near_miss(&record).await,
         };

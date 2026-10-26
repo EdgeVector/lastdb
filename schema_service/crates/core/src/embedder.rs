@@ -5,7 +5,8 @@
 //! binary in `schema_service_server_http`, the Lambda in
 //! `schema_service_server_lambda`, tests) construct an implementation
 //! (e.g. a `FastEmbedModel` adapter in `schema_service_server_shared`) and
-//! inject it via `SchemaServiceState::new`.
+//! inject it via `SchemaServiceState::new_in_memory` or
+//! `SchemaServiceState::new_with_external`.
 
 use std::fmt;
 
