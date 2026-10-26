@@ -363,6 +363,25 @@ The [V2 size measurement PR #432](https://github.com/EdgeVector/lastdb/pull/432)
 
 ## Conversion and recovery boundary
 
+The implementation in review adds `lastdb db convert-typed-ranges` for a stopped compact V2 development home.
+It requires a separate target and explicit source hash and range encodings.
+The first converter preserves an explicitly blinded hash domain.
+The old logical format does not record that setting. The source choice therefore remains a caller assertion.
+The converter never selects the source encoding from a key's appearance.
+
+An offline snapshot cursor reads every physical collection, including collections absent from the namespace list.
+The target receives fresh encrypted main and CAS files.
+Main copy batches include their encrypted checkpoint in the same commit.
+CAS batches publish first. An interruption can repeat identical CAS keys and values.
+The checkpoint binds the source publications, metadata, codec choices, limits, target path, and target file identities.
+
+The converter closes and reopens both target homes before verification.
+It compares every source record with its explicit target form and checks the exact target record count.
+The existing product reference verifier checks atoms, counters, molecules, retained records, and files on the inactive target.
+The converter does not create a second reference verifier or a fixture harness.
+The final node marker publishes only after those checks pass.
+The code and its recovery boundaries still require CI results and real operations before merge.
+
 A separate target keeps the source unchanged and simplifies recovery.
 The future converter must bind its durable job to the source fingerprint, declared profiles, and explicit encoding configuration.
 It must refuse a target from another job or a different source publication.

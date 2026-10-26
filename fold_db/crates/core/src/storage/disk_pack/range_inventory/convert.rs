@@ -69,7 +69,8 @@ pub async fn convert_typed_ranges(
     )?;
     source.check_binding()?;
     let mut target = Target::open(&target_root, &keys.encryption_key(), &job, options.resume)?;
-    copy(&source, &plan, &mut target)?;
+    copy(&source, &plan, &mut target, &target_root)?;
+    target.check_binding(&target_root)?;
     target = target.reopen(&target_root, &keys.encryption_key())?;
     verify(&source, &plan, &target)?;
     super::conversion_validate::validate(&target.homes).await?;
@@ -158,12 +159,18 @@ fn prepare(
     Ok((plan, format!("{:x}", digest.finalize())))
 }
 
-fn copy(source: &FrozenSource, plan: &ConversionPlan, target: &mut Target) -> StorageResult<()> {
+fn copy(
+    source: &FrozenSource,
+    plan: &ConversionPlan,
+    target: &mut Target,
+    target_root: &Path,
+) -> StorageResult<()> {
     let Source::Runs { main, _cas: cas } = &source.source else {
         return Err(invalid("V2 source is required"));
     };
     while matches!(target.checkpoint.phase, Phase::Main | Phase::Cas) {
         source.check_binding()?;
+        target.check_binding(target_root)?;
         let input = if target.checkpoint.phase == Phase::Main {
             main
         } else {

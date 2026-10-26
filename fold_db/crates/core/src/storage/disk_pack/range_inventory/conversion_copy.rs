@@ -179,6 +179,20 @@ impl ConversionPlan {
         if row.collection == "molecule_keys" && row.key.starts_with("mkb:") {
             return Err(invalid("a molecule metadata row has no schema profile"));
         }
+        if matches!(
+            row.collection.as_str(),
+            "tips"
+                | "indexes"
+                | "proteins"
+                | "molecule_ref_edges"
+                | "molecule_keys"
+                | "schemas"
+                | "schema_states"
+        ) {
+            return Err(invalid(
+                "a control record is absent from the bound metadata inventory",
+            ));
+        }
         Ok(row)
     }
 }

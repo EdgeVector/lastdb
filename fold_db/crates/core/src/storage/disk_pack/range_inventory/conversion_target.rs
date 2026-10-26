@@ -14,7 +14,7 @@ use crate::storage::disk_pack::{
 use laststore::disk_run::home::RunHome;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -28,6 +28,15 @@ pub(super) struct Target {
 }
 
 impl Target {
+    pub(super) fn check_binding(&self, root: &Path) -> StorageResult<()> {
+        let held = self._owner.metadata()?;
+        let current = std::fs::symlink_metadata(root)?;
+        if !current.is_dir() || held.dev() != current.dev() || held.ino() != current.ino() {
+            return Err(invalid("target directory changed during conversion"));
+        }
+        Ok(())
+    }
+
     pub(super) fn open(
         root: &Path,
         key: &[u8; 32],
@@ -136,6 +145,7 @@ impl Target {
     }
 
     pub(super) fn publish(&self, root: &Path) -> StorageResult<()> {
+        self.check_binding(root)?;
         if self.checkpoint.phase != Phase::Complete {
             return Err(invalid("target verification is incomplete"));
         }
