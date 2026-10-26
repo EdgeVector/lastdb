@@ -49,7 +49,7 @@
 .fastembed_cache/
 .semantic-search-fastembed-cache/
 .folddb-dev/
-# A node run from the repo root writes its sled store to ./data/ (conf, db,
+# A node run from the repo root writes its store to ./data/ (conf, db,
 # blobs). Root-anchored so it never matches nested fixture/test `data/` dirs.
 /data/
 
