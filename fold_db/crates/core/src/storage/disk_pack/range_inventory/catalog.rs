@@ -6,7 +6,7 @@ use crate::schema::Schema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MoleculeInventory {
     pub molecule: String,
     pub declarations: Vec<String>,
@@ -224,8 +224,8 @@ impl Catalog {
             molecule.report.blockers.sort();
             molecule.report.blockers.dedup();
         }
-        for (_, molecule) in std::mem::take(&mut self.molecules) {
-            reports.push(molecule.report);
+        for molecule in self.molecules.values() {
+            reports.push(molecule.report.clone());
         }
         Ok(reports)
     }

@@ -4,6 +4,26 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
+    /// Convert a stopped compact V2 development home into a separate typed home.
+    /// The source remains unchanged. Primary homes and archives are refused.
+    ConvertTypedRanges {
+        #[arg(long)]
+        target_home: PathBuf,
+        /// Assert the source hash domain. The first converter preserves blinding.
+        #[arg(long, value_parser = ["blind_v1"])]
+        source_hash_encoding: String,
+        #[arg(long, value_parser = ["plain", "ope_v1"])]
+        source_range_encoding: String,
+        /// Resume only the same job, source publications, target, and limits.
+        #[arg(long)]
+        resume: bool,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_records: usize,
+        #[arg(long, default_value_t = 128)]
+        max_metadata_mib: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Inventory typed range conversion from one stopped development home.
     /// Reads existing files only. The primary and its archives are refused.
     InspectRangeConversion {

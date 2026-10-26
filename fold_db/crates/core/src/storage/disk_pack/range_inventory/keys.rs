@@ -164,7 +164,7 @@ fn history_molecule(key: &str) -> StorageResult<&str> {
         .ok_or_else(|| invalid("a history key is invalid"))
 }
 
-fn slot_parts<'a>(
+pub(super) fn slot_parts<'a>(
     key: &'a str,
     family: &str,
 ) -> StorageResult<(&'a str, Option<&'a str>, &'a str)> {

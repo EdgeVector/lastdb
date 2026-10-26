@@ -32,6 +32,7 @@
 
 mod capture;
 mod commit;
+mod inventory;
 mod keys;
 mod manifest;
 mod plan;
@@ -41,6 +42,7 @@ mod read_only;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
 pub use commit::{HomeMutation, MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use inventory::AdministrativePage;
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
