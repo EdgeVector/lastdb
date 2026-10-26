@@ -214,11 +214,11 @@ const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 /// The node marker. Every native node home has it, in disk format v1 and v2.
 const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
 
-/// Whether `<home>/data` already holds a store (Last Store collections or leftover files).
+/// Whether `<home>/data` already holds a store (a layout file, a node marker, or a collection).
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 ///
 /// Recognises the layouts the node writes: the LastStore layout file, the
-/// disk format v2 node marker, or any collection directory under
+/// node marker (disk format v1 and v2), or any collection directory under
 /// `<data>/data`. The refuse-to-start-fresh contract below rests on this
 /// structural answer, not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
