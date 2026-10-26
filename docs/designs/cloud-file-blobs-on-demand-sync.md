@@ -1,3 +1,7 @@
+> Retired design. PR 387 removed the legacy Cloud Sync engine on October 24, 2026, and later PRs removed its passive readers.
+> The text remains design history. It does not describe current code, and it does not authorize a new cloud sync.
+> The V2 byte backup in [cloud-run-v2-client.md](cloud-run-v2-client.md) is the current cloud path.
+
 # Design: Cloud file blobs upload-only sync
 
 | Field | Value |

@@ -58,6 +58,10 @@ Primary source:
 These are durable sync/capture bookkeeping trees and are intentionally skipped
 by snapshot/capture export.
 
+CAUTION: The legacy Cloud Sync engine that owned these trees was removed in
+October 2026 (PR 387 and later). No code reads or writes them, and the source
+files named below no longer exist. A converted home can still hold their bytes.
+
 | Tree / namespace | Owner | Key prefixes / shape | Notes |
 | --- | --- | --- | --- |
 | `sync_outbox` | `SyncEngine` | `entry:{seq:020}` | Durable upload backlog. |
