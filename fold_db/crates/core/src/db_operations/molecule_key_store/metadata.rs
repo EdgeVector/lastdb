@@ -25,6 +25,11 @@ impl MoleculeKeyStore {
             ));
         }
         for ((key, molecule), metadata) in keys.into_iter().zip(molecules).zip(values) {
+            if self.is_typed() && metadata.is_none() {
+                return Err(StorageError::InvalidOperation(
+                    "typed molecule publication requires its range contract".into(),
+                ));
+            }
             self.validate_metadata(&molecule, metadata.as_ref())?;
             let bytes = metadata.as_ref().map_or(256, |value| {
                 value.molecule_uuid.capacity().saturating_add(256)

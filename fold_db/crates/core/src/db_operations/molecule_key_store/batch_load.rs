@@ -24,7 +24,9 @@ impl MoleculeKeyStore {
         let mut present = Vec::new();
         for (molecule, metadata) in missing.into_iter().zip(metadata) {
             if let Some(metadata) = metadata {
-                present.push((molecule, self.metadata_contract(molecule, &metadata)?));
+                present.push((molecule, Some(self.metadata_contract(molecule, &metadata)?)));
+            } else if self.is_typed() {
+                present.push((molecule, None));
             }
         }
         if present.is_empty() {
@@ -42,7 +44,16 @@ impl MoleculeKeyStore {
         let contracts = present
             .into_iter()
             .zip(wraps)
-            .map(|((molecule, (profile, authority)), wrap)| {
+            .map(|((molecule, contract), wrap)| {
+                let Some((profile, authority)) = contract else {
+                    return if wrap.is_none() {
+                        Ok(None)
+                    } else {
+                        Err(StorageError::InvalidOperation(
+                            "a typed molecule wrap has no range contract".into(),
+                        ))
+                    };
+                };
                 let bundle = match (authority, wrap) {
                     (KeyAuthority::Bundle, Some(wrap)) => {
                         Some(open_wrap(&wrap, molecule, NODE_DOMAIN, wrap_key)?)
@@ -54,10 +65,10 @@ impl MoleculeKeyStore {
                         ))
                     }
                 };
-                Ok((molecule, profile, bundle))
+                Ok(Some((molecule, profile, bundle)))
             })
             .collect::<StorageResult<Vec<_>>>()?;
-        for (molecule, profile, bundle) in contracts {
+        for (molecule, profile, bundle) in contracts.into_iter().flatten() {
             self.remember_contract(molecule, profile, bundle)?;
         }
         Ok(())

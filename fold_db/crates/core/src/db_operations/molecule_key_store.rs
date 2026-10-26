@@ -50,6 +50,7 @@ enum KeyAuthority {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct BundleMetadata {
     version: u8,
     molecule_uuid: String,
@@ -171,6 +172,24 @@ impl MoleculeKeyStore {
 
     /// Establish every final field molecule's keys before schema publication.
     pub async fn ensure_schema(&self, schema: &Schema) -> StorageResult<()> {
+        if self.is_typed() {
+            return self.load_schema(schema).await;
+        }
+        self.establish_schema(schema).await
+    }
+
+    /// Only schema publication may mint new typed contracts. Existing fields
+    /// must resolve their old contracts before any replacement can publish.
+    pub(crate) async fn establish_schema_for_publication(
+        &self,
+        schema: &Schema,
+        existing: Option<&Schema>,
+    ) -> StorageResult<()> {
+        if self.is_typed() {
+            if let Some(existing) = existing {
+                self.load_schema(existing).await?;
+            }
+        }
         self.establish_schema(schema).await
     }
 
