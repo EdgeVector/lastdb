@@ -297,8 +297,12 @@ impl RunHome {
     /// The caller holds the publish lock. An error before the rename leaves
     /// the old CURRENT in force; an error after it poisons the home.
     fn install(&self, next: Manifest) -> Result<Arc<Manifest>> {
-        let staged = next.stage(&self.root, &self.key)?;
-        if let Err(error) = Manifest::replace(&self.root, &staged) {
+        let staged = crate::commit_timing::during("run_manifest_stage_us", || {
+            next.stage(&self.root, &self.key)
+        })?;
+        if let Err(error) = crate::commit_timing::during("run_manifest_replace_us", || {
+            Manifest::replace(&self.root, &staged)
+        }) {
             // The rename may or may not have happened: stop all writes.
             self.poisoned.store(true, Ordering::Release);
             return Err(error);
