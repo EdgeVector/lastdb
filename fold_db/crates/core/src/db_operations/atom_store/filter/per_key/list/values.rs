@@ -70,7 +70,7 @@ pub(super) fn decoded_key(
     let (hash, range) = molecule_key_codec::decode_hash_range(key, request.molecule)
         .ok_or_else(|| SchemaError::InvalidData("invalid listed molecule key".into()))?;
     let range = codec
-        .api_range(request.molecule, &range)
+        .api_range(&range)
         .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
     Ok((hash, range))
 }

@@ -4,9 +4,9 @@ use super::{MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding};
 use crate::crypto::E2eKeys;
 
 impl MoleculeKeyCodec {
-    /// Never infer OPE from a string's alphabet. Re-encoding detects a key or
-    /// molecule mismatch; this check does not make OPE authenticated encryption.
-    pub fn api_range(&self, molecule: &str, stored: &str) -> Result<String, MoleculeKeyCodecError> {
+    /// Never infer OPE from a string's alphabet. V2 block encryption supplies
+    /// authentication. Offline conversion separately checks keyed re-encoding.
+    pub fn api_range(&self, stored: &str) -> Result<String, MoleculeKeyCodecError> {
         match self.range_encoding() {
             RangeKeyEncoding::Plain => Ok(stored.to_owned()),
             RangeKeyEncoding::OpeV1 => {
@@ -16,11 +16,6 @@ impl MoleculeKeyCodec {
                 let decoded = E2eKeys::ope_decode_range_plaintext(stored).ok_or_else(|| {
                     MoleculeKeyCodecError::InvalidRange("malformed OPE-v1 range".into())
                 })?;
-                if self.storage_range(molecule, &decoded)? != stored {
-                    return Err(MoleculeKeyCodecError::InvalidRange(
-                        "OPE-v1 molecule or key does not match".into(),
-                    ));
-                }
                 Ok(decoded)
             }
         }

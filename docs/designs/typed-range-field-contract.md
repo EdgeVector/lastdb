@@ -135,8 +135,8 @@ The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes
 
 All stored range decode paths use the exact molecule codec.
 A plain range that resembles an OPE token stays plain.
-An OPE-v1 range must decode and encode back to the same bytes under that molecule's key.
-Normal reads refuse a malformed range or a different molecule/key.
+Normal reads refuse a malformed range. V2 block encryption supplies authentication.
+Offline conversion also requires the same bytes after re-encoding under the selected molecule key.
 Raw diagnostics can retain the stored row without an API range value.
 This check does not make OPE-v1 authenticated or stop its known plaintext disclosure.
 

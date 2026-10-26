@@ -72,12 +72,11 @@ fn retain_visible_values(values: &mut HashMap<KeyValue, FieldValue>, include_tom
 fn api_key_value_from_storage(
     mut kv: KeyValue,
     codec: &crate::atom::MoleculeKeyCodec,
-    molecule: &str,
 ) -> Result<KeyValue, SchemaError> {
     if let Some(range) = kv.range.as_deref() {
         kv.range = Some(
             codec
-                .api_range(molecule, range)
+                .api_range(range)
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
         );
     }

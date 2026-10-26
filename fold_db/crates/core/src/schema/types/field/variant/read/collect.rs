@@ -78,7 +78,7 @@ impl FieldVariant {
                 let molecule = self.common().molecule_uuid().ok_or_else(|| {
                     SchemaError::InvalidData("stored field range has no molecule identity".into())
                 })?;
-                Some((molecule, db_ops.atoms().key_codec_for_molecule(molecule)?))
+                Some(db_ops.atoms().key_codec_for_molecule(molecule)?)
             } else {
                 None
             };
@@ -91,9 +91,7 @@ impl FieldVariant {
                 // API ranges retain their previously selected physical receipt.
                 let (key_meta, writer_pubkey) = self.entry_meta_at(&storage_key);
                 let kv = match source_codec.as_ref() {
-                    Some((molecule, codec)) => {
-                        api_key_value_from_storage(storage_key.clone(), codec, molecule)?
-                    }
+                    Some(codec) => api_key_value_from_storage(storage_key.clone(), codec)?,
                     None => storage_key.clone(),
                 };
                 self.note_loaded_tip(db_ops, &storage_key, &kv)?;
@@ -171,8 +169,7 @@ impl FieldVariant {
             let api_key = match self.kind {
                 FieldKind::Hash => KeyValue::new(Some(hash.to_string()), None),
                 FieldKind::HashRange => {
-                    let key =
-                        api_key_value_from_storage(storage_key.clone(), &codec, molecule_uuid)?;
+                    let key = api_key_value_from_storage(storage_key.clone(), &codec)?;
                     KeyValue::new(Some(hash.to_string()), key.range)
                 }
                 _ => unreachable!("field kind checked above"),

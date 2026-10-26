@@ -34,7 +34,7 @@ impl ReadyTipKey {
         let base = molecule_key_codec::hash_range_record_key(molecule, &key.hash, &key.range);
         let api_key = api
             .map(|(hash, codec)| -> Result<KeyValue, SchemaError> {
-                let range = codec.api_range(molecule, &key.range).map_err(key_error)?;
+                let range = codec.api_range(&key.range).map_err(key_error)?;
                 Ok(KeyValue::new(Some(hash.to_string()), Some(range)))
             })
             .transpose()?;

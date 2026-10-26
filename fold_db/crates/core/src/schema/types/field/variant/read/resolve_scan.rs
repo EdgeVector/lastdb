@@ -74,7 +74,7 @@ impl FieldVariant {
                         SchemaError::InvalidData("malformed hash-range record key".into())
                     })?;
             let range = codec
-                .api_range(molecule, &decoded_range)
+                .api_range(&decoded_range)
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
             rows.push((
                 KeyValue::new(Some(hash.to_string()), Some(range)),

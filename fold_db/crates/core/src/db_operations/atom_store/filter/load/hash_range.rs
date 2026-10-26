@@ -224,7 +224,7 @@ impl AtomStore {
             let api_range = match api_range_for_response {
                 Some(api) => api.to_string(),
                 None => codec
-                    .api_range(molecule_uuid, &range)
+                    .api_range(&range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
             };
             let api_key =

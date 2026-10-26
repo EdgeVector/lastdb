@@ -71,7 +71,14 @@ impl ProfiledRangeCodec {
         molecule: &str,
         stored: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
-        let ordered = self.codec.api_range(molecule, stored)?;
+        let ordered = self.codec.api_range(stored)?;
+        if self.codec.range_encoding() == RangeKeyEncoding::OpeV1
+            && self.codec.storage_range(molecule, &ordered)? != stored
+        {
+            return Err(MoleculeKeyCodecError::InvalidRange(
+                "OPE-v1 molecule or key does not match".into(),
+            ));
+        }
         self.profile
             .decode_value(&ordered)
             .map_err(MoleculeKeyCodecError::InvalidRange)

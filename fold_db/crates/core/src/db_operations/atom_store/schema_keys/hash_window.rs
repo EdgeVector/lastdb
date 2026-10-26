@@ -47,7 +47,7 @@ impl AtomStore {
             for (base, record) in rows {
                 let (_, range) = molecule_key_codec::decode_hash_range_any(&base)
                     .ok_or_else(|| key_error("invalid ready tip coordinates"))?;
-                let range = codec.api_range(molecule, &range).map_err(key_error)?;
+                let range = codec.api_range(&range).map_err(key_error)?;
                 if frontier.as_ref().is_some_and(|last| range > *last) {
                     break;
                 }
@@ -105,7 +105,7 @@ fn select_window(
             .keys
             .last()
             .ok_or_else(|| key_error("ready range window does not advance"))?;
-        Some(codec.api_range(molecule, &last.range).map_err(key_error)?)
+        Some(codec.api_range(&last.range).map_err(key_error)?)
     };
     Ok((page.keys, frontier))
 }
