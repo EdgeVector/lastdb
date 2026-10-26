@@ -1,4 +1,0 @@
-host_cargo_lock=held pid=24264 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
-    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)
-   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.83s

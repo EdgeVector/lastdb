@@ -83,9 +83,14 @@ impl SchemaServiceState {
         .map_err(|f| map_auth_failure(&f))?;
 
         // Ownership: only the registered owner of the namespace publishes
-        // releases into it.
+        // releases into it. Read from durable storage, not memory, so a
+        // concurrent app registration cannot be bypassed.
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);
@@ -223,7 +228,11 @@ impl SchemaServiceState {
         )
         .map_err(|f| map_auth_failure(&f))?;
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);
@@ -336,7 +345,11 @@ impl SchemaServiceState {
         )
         .map_err(|f| map_auth_failure(&f))?;
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);
@@ -360,40 +373,5 @@ impl SchemaServiceState {
         };
         self.persist_release(&record).await?;
         Ok(record)
-    }
-
-    async fn persist_release(&self, record: &ReleaseRecord) -> Result<(), ReleaseError> {
-        self.storage
-            .backend()
-            .save_release(record)
-            .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))
-    }
-
-    async fn persist_channel(&self, record: &ChannelRecord) -> Result<(), ReleaseError> {
-        self.storage
-            .backend()
-            .save_channel(record)
-            .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))
-    }
-
-    /// Replace the in-memory release + channel stores from a backend load.
-    /// Called once at startup, next to the app-registry load.
-    ///
-    /// # Errors
-    /// Returns a lock-poison error.
-    pub fn install_loaded_releases(
-        &self,
-        releases: HashMap<String, ReleaseRecord>,
-        channels: HashMap<String, ChannelRecord>,
-    ) -> Result<(), schema_types::FoldDbError> {
-        {
-            let mut store = write_lock(&self.app_releases, "app_releases")?;
-            *store = releases;
-        }
-        let mut store = write_lock(&self.app_channels, "app_channels")?;
-        *store = channels;
-        Ok(())
     }
 }

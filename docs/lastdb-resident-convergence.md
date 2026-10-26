@@ -13,8 +13,8 @@ There is no 500 ms collection timer. Legacy Cloud Sync activation stays disabled
 
 Use the [current native summary](lastdb-disk-native-node.md) and [memory and disk routes](lastdb-rehydrate.md) for current responsibilities.
 The [October work plan](lastdb-logical-warm-set-plan.md) records the earlier implementation sequence.
-The [cutover results](proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.
-The [earlier V6 benchmark](proofs/core-owned-writes-20261018/RESULTS.md) measures its earlier source, rather than this final cleanup.
+The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.
+The [earlier V6 benchmark](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) measures its earlier source, rather than this final cleanup.
 No primary operation forms part of this cutover proof.
 
 ## Historical plan and receipts, 2026-10-12 to 2026-10-14

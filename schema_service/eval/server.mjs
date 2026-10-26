@@ -1,15 +1,13 @@
 // Boots an EPHEMERAL, ISOLATED schema_service for Stage-2 canonicalization
 // experiments. Real fastembed embedder + real seeds (faithful merge behaviour),
-// throwaway Sled db per run, isolated $HOME and fastembed cache.
+// in-memory registry per process (gone on exit), isolated $HOME and fastembed cache.
 //
 // Safety: this never touches Tom's :9001 brain, never hits dev/prod Lambda,
 // never writes to ~/.folddb. It's a throwaway instance, consistent with how
 // the existing schema_service Rust tests stand up state.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 import { SchemaServiceClient } from "./client.mjs";
 import {
   FOLD_MANIFEST,
@@ -32,7 +30,8 @@ function run(cmd, args, opts = {}) {
 
 export class EphemeralSchemaService {
   // cacheDir is reused across runs so the ~30MB MiniLM model downloads once
-  // (.fastembed_cache lands in cwd). The Sled db is fresh per start().
+  // (.fastembed_cache lands in cwd). The registry is in memory, so it is
+  // fresh per start().
   //
   // `compositional` controls the `SCHEMA_COMPOSITIONAL_DECOMPOSITION` env the
   // ephemeral service boots with. The eval's whole job is to MEASURE the
@@ -56,7 +55,6 @@ export class EphemeralSchemaService {
     this.bin = resolveServerBin({ requested: bin });
     this.proc = null;
     this.watchdog = null;
-    this.dbDir = null;
     this.logTail = [];
     this.client = new SchemaServiceClient(`http://127.0.0.1:${port}`);
   }
@@ -92,7 +90,6 @@ export class EphemeralSchemaService {
 
   async start({ waitMs = 120000 } = {}) {
     mkdirSync(this.cacheDir, { recursive: true });
-    this.dbDir = mkdtempSync(join(tmpdir(), "schema-eval-db-"));
     // Exec the prebuilt binary directly (NOT `cargo run`): going through
     // cargo/rustup with an overridden HOME breaks toolchain resolution.
     const env = { ...process.env, HOME: this.cacheDir }; // isolate from ~/.folddb
@@ -102,7 +99,7 @@ export class EphemeralSchemaService {
     else env.SCHEMA_COMPOSITIONAL_DECOMPOSITION = this.compositional;
     this.proc = spawn(
       this.bin,
-      ["--port", String(this.port), "--db-path", this.dbDir],
+      ["--port", String(this.port)],
       {
         cwd: this.cacheDir, // .fastembed_cache persists here, reused across runs
         env,
@@ -187,10 +184,8 @@ export class EphemeralSchemaService {
   #startWatchdog() {
     if (!this.proc?.pid) return;
     const script = `
-const { rmSync } = require("node:fs");
 const parentPid = Number(process.argv[1]);
 const servicePid = Number(process.argv[2]);
-const dbDir = process.argv[3];
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -205,14 +200,11 @@ const interval = setInterval(() => {
   killGroup("SIGTERM");
   setTimeout(() => {
     killGroup("SIGKILL");
-    if (dbDir) {
-      try { rmSync(dbDir, { recursive: true, force: true }); } catch {}
-    }
     process.exit(0);
   }, 2000);
 }, 1000);
 `;
-    this.watchdog = spawn(process.execPath, ["-e", script, String(process.pid), String(this.proc.pid), this.dbDir ?? ""], {
+    this.watchdog = spawn(process.execPath, ["-e", script, String(process.pid), String(this.proc.pid)], {
       detached: true,
       stdio: "ignore",
     });
@@ -229,27 +221,15 @@ const interval = setInterval(() => {
     this.watchdog = null;
   }
 
-  #cleanupDb() {
-    if (this.dbDir) {
-      try {
-        rmSync(this.dbDir, { recursive: true, force: true });
-      } catch {
-        /* best effort */
-      }
-      this.dbDir = null;
-    }
-  }
-
-  // Re-seed a clean registry: kill, drop the db, cold-start fresh (reloads the
-  // 942 seeds with pre-baked embeddings). This is the "seeded baseline".
+  // Re-seed a clean registry: kill, cold-start fresh (the in-memory registry
+  // reloads the 942 seeds with pre-baked embeddings). This is the "seeded
+  // baseline".
   async restart() {
     await this.#killProc();
-    this.#cleanupDb();
     await this.start();
   }
 
   async stop() {
     await this.#killProc();
-    this.#cleanupDb();
   }
 }

@@ -1,1 +1,0 @@
-{"actual":"\"conditional-value\"","error":"cas_conflict","expected":"\"title-0\"","field":"title","key":"{\"hash\":\"generated\",\"range\":\"record-0\"}","message":"CAS conflict on schema 'SemanticsProof' field 'title' key '{\"hash\":\"generated\",\"range\":\"record-0\"}':                  expected \"title-0\", found \"conditional-value\"","ok":false,"schema":"SemanticsProof"}

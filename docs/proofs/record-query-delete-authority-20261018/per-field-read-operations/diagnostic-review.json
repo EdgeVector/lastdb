@@ -1,6 +1,0 @@
-{
-  "acceptance_claim_from_failed_result": false,
-  "classification": "procedure-diagnostic",
-  "original_result_preserved": true,
-  "reason": "The procedure expected a JSON reason body, but schema setup returns explicit HTTP400 text. All54 controlled reads pass. Four obsolete-key requests reach the node and explicitly refuse; two queued reserved declarations do not run and are completed in the next linked continuation. Original result remains false."
-}

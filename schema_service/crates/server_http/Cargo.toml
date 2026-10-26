@@ -20,7 +20,7 @@ default = []
 fastembed = ["schema_service_server_shared/fastembed"]
 
 [dependencies]
-schema_service_core = { path = "../core", features = ["local-store"] }
+schema_service_core = { path = "../core" }
 schema_service_server_shared = { path = "../server_shared", features = ["actix"] }
 # `--hydrate-from` reuses the typed `SchemaServiceClient::fetch_snapshot`
 # helper — same retry/propagation behavior as every other call site,

@@ -274,8 +274,8 @@ Ad-hoc from a DEV worktree still cargo-builds unless you export
 
 ## Safety
 
-Ephemeral, isolated instance: throwaway Sled db per run, isolated `$HOME` and
-fastembed cache. **Never** touches the :9001 brain, **never** the dev/prod
+Ephemeral, isolated instance: an in-memory registry per run (nothing on disk),
+isolated `$HOME` and fastembed cache. **Never** touches the :9001 brain, **never** the dev/prod
 Lambda. Consistent with how the existing schema_service Rust tests stand up
 state. Dev-only.
 

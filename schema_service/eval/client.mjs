@@ -38,7 +38,7 @@ export class SchemaServiceClient {
     return this.#req("POST", "/v1/schemas", { schema, mutation_mappers });
   }
 
-  // Sled-only wipe of the registry. Lambda rejects this.
+  // Clears every schema in the dev server's in-memory registry. Lambda rejects this.
   reset() {
     return this.#req("POST", "/v1/system/reset", { confirm: true });
   }

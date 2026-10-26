@@ -103,8 +103,9 @@ try {
   `handshake: false`.
 - `requireApiVersion: 0` (or unset) declares no requirement and skips the
   read. Raise the number only when the app starts sending a key an older node
-  would refuse — `LASTDB_SDK_API_VERSION` is the grammar this SDK was written
-  against and is pinned to the node's Rust constant by a test.
+  would refuse — `LASTDB_SDK_API_VERSION` is the lowest node grammar this SDK
+  needs (`1`). A node that reports a higher `api_version` (version `2` removed
+  three owner-socket routes the SDK never calls) still serves it.
 - A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
   too (`.kind === 'unknown_key'`). It subclasses `RequestRejectedError`, so an
   existing `catch` keeps working. The node never echoes the unknown key.

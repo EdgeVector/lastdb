@@ -194,16 +194,6 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            // Transient capture backpressure. `400` told the writer its payload
-            // was wrong when it never was; `503` plus `capture_queue_full_body`
-            // says the same write succeeds on retry, with no operator action.
-            schema_err @ SchemaError::CaptureQueueFull { .. } => Self::new(
-                503,
-                schema_err
-                    .capture_queue_full_body()
-                    .unwrap_or_else(|| serde_json::json!({}))
-                    .to_string(),
-            ),
             other => unlisted_schema_error(other),
         }
     }

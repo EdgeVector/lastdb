@@ -89,7 +89,7 @@ Continuous writes can delay a copy's publication. The soft-limit refusal eventua
 
 ## Product evidence
 
-The [capture report](proofs/compaction-minimal-locks-20261022/RESULTS.md) records the source, executable hashes, complete results, and limits.
+The [capture report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/compaction-minimal-locks-20261022/RESULTS.md) records the source, executable hashes, complete results, and limits.
 
 - Actual daemon operations on fresh generated homes, with exact accepted-value reads and complete counter tallies.
 - Durable writes, long keys, recent copies, deletes, backup restore, and process interruption.

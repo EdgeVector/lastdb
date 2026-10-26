@@ -23,16 +23,26 @@ const API_VERSION_PATH: &str = "/api/version";
 /// compatibility handshake.**
 ///
 /// Bump it when the socket grammar changes in a way a client can observe: a new
-/// key a route accepts, a key a route stops accepting, or a changed value
-/// grammar. A client that needs a key this node does not know gets a
-/// typed `unknown_key` rejection (`lastdb_host::reject`) instead of the
+/// key a route accepts, a key a route stops accepting, a removed route, or a
+/// changed value grammar. The `contract-diff` CI check reads this number
+/// (through `lastdb_node::version::CURRENT_API_VERSION`) and fails a breaking
+/// route change that does not raise it.
+///
+/// A client that needs a key this node does not know gets a typed
+/// `unknown_key` rejection (`lastdb_host::reject`) instead of the
 /// bare `Bad Request` that hid the 2026-09-03 brain 0.8.0 `durability`
 /// incident for hours; comparing its required version against `GET
 /// /api/version` is how it tells "wrong request" from "node too old".
 ///
 /// `1` names the grammar that shipped as LastDB Mini `v0.23.4` (2026-09-18):
 /// the first build with the per-mutation `durability` key and this route.
-pub const API_VERSION: u32 = 1;
+///
+/// `2` (2026-10-26) removes three retired owner-socket routes:
+/// `POST /api/db/stamp-purged-atom-retirements`,
+/// `POST /api/db/reclaim-keep-small-snapshot` and `POST /api/db/pin-log-audit`.
+/// No app-socket route and no request key changed, so a client that requires
+/// `1` still works; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 2;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

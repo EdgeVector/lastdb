@@ -1,7 +1,0 @@
-{"body_hex": "6669727374", "collection": "snapshot-command-capture", "key": "capture\u0000repeat"}
-{"body_hex": "6c617374", "collection": "snapshot-command-capture", "key": "capture\u0000repeat"}
-{"body_hex": "74656d706f72617279", "collection": "snapshot-command-capture", "key": "capture\u0000erased"}
-{"collection": "snapshot-command-capture", "deleted": true, "key": "capture\u0000erased"}
-{"body_hex": "", "collection": "snapshot-command-capture", "key": "capture\u0000empty"}
-{"collection": "snapshot-command-capture", "deleted": true, "key": "capture\u0000never"}
-{"body_hex": "737461626c65", "collection": "snapshot-command-capture", "key": "capture\u0000stay"}

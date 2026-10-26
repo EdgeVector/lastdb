@@ -1,3 +1,0 @@
-host_cargo_lock=held pid=28445 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=python3
-{"root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.idcr7omj", "receipt_dir": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/accepted-response-v2", "binary_sha256": "66879950810b0c9b09756ff1ed0d6981b3ce3af849a89ab3436d7f23bf880045"}
-{"complete": true, "error": null, "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.idcr7omj", "receipt_dir": "docs/proofs/core-clarity-20261018/accepted-response-v2"}

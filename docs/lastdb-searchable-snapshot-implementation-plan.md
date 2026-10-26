@@ -22,9 +22,9 @@ The format requires feature `256`; it refuses old native journal homes before wr
 No old-native-journal converter exists in this change.
 
 The [active protocol](lastdb-snapshot-commits.md) describes the exact implemented local path.
-The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
-The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) records three controlled before/after pairs.
-The [repeat benchmark and review](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) uses final product source `5919abbfb`.
+The [operational report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
+The later [matched benchmark](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-removal-benchmark-20261022/RESULTS.md) records three controlled before/after pairs.
+The [repeat benchmark and review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-removal-review-benchmark-20261022/RESULTS.md) uses final product source `5919abbfb`.
 It confirms lower update write bytes; batch latency and compaction pauses show mixed results.
 The separate erase capture checks aggregate restore after a forced stop, before any value fetch.
 The second review removes erase debit intents, replay, prune, and journal bootstrap fields.
@@ -106,18 +106,18 @@ Bootstrap retains its format-derived work bound and allowed-part checks.
 Integrity, root publication, recovery, file lifetime, and warm-data policy remain unchanged.
 The change adds no global cache, format bit, journal, or side file.
 
-The separate [measurement plan](proofs/receipt-part-pruning-benchmark-20261022/METHOD.md) freezes equal build commands and generated workloads.
+The separate [measurement plan](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-part-pruning-benchmark-20261022/METHOD.md) freezes equal build commands and generated workloads.
 It compares three before/after pairs for disk growth, process write bytes, and request latency.
 Additional operations cover shared payload parts, long keys, older receipt conversion, reclaim holds, backup restore, and crash reopen.
 An automatic-maintenance operation checks idle reclaim below the compaction trigger, without a manual pack or reclaim request.
 The source and measurement receipts must identify the exact executable used for each result.
 
-The [earlier receipt comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) uses uncached candidate `a1941e3a8` against journal-free `08d8436cc`.
+The [earlier receipt comparison](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) uses uncached candidate `a1941e3a8` against journal-free `08d8436cc`.
 All six operational checks and three benchmark pairs pass their data checks.
 Durable-single growth falls from 668.35 to 640.36 KiB per update.
 The durable 32-record batch p50 rises from 99.96 to 164.65 ms.
 Those measurements describe the uncached candidate and do not measure `e79b71151`.
-The cache is implemented; the separate [follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) contains its final profiles, controlled pairs, and default-maintenance comparison.
+The cache is implemented; the separate [follow-up report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/RESULTS.md) contains its final profiles, controlled pairs, and default-maintenance comparison.
 Three controlled pairs show durable-single growth of 670.86 versus 639.35 KiB per update and batch32 request p50 of 113.33 versus 131.24 ms.
 The focused largest compaction write rises from 1.249 to 1.488 seconds.
 One default-maintenance run per variant retains 1,253.27 versus 175.05 MiB after the quiet tail.
@@ -125,9 +125,9 @@ Those frozen comparisons establish a space/latency tradeoff for their workloads;
 Use existing durable batches for ready independent updates.
 Before release, verify a representative generated home through older-root admission, actual compaction, exact reads, ranges, reopen, and further durable writes.
 State its directory coordinates, file parts, record counts, memory, space reserve, and request delays.
-The historical [scale review](proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) describes the earlier quotas, which this integration removes.
+The historical [scale review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) describes the earlier quotas, which this integration removes.
 Physical directory coordinates are not logical records.
-Main already combines native app notices with their data commit; the earlier [source note](proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) describes the older path.
+Main already combines native app notices with their data commit; the earlier [source note](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) describes the older path.
 
 ## 1. End state and scope
 
@@ -462,4 +462,4 @@ Use compiler failures and a bounded zero-reference source review to complete dea
 Quantify the actual write and space benefit before a release recommendation.
 Stop owned ephemeral nodes and remove owned scratch data after receipts are saved.
 
-References: [one-pager](lastdb-searchable-snapshot-one-pager.md), [code review](lastdb-searchable-snapshot-code-review.md), [baseline receipts](proofs/write-overhead-20261021/summary.json), [barrier report](proofs/native-commit-barriers-20261022/RESULTS.md), [canonical model](lastdb-canonical-model.md), [storage boundary](lastdb-laststore-storage-boundary.md).
+References: [one-pager](lastdb-searchable-snapshot-one-pager.md), [code review](lastdb-searchable-snapshot-code-review.md), [baseline receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/write-overhead-20261021/summary.json), [barrier report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/native-commit-barriers-20261022/RESULTS.md), [canonical model](lastdb-canonical-model.md), [storage boundary](lastdb-laststore-storage-boundary.md).

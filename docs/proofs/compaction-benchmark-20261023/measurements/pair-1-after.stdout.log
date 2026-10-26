@@ -1,9 +1,0 @@
-{"pair": 1, "label": "after", "seeded": 128}
-{"pair": 1, "label": "after", "seeded": 12928}
-{"pair": 1, "label": "after", "seeded": 25728}
-{"pair": 1, "label": "after", "seeded": 38528}
-{"pair": 1, "label": "after", "seeded": 51328}
-{"pair": 1, "label": "after", "seeded": 64128}
-{"pair": 1, "label": "after", "seeded": 76928}
-{"pair": 1, "label": "after", "seeded": 89728}
-{"complete": true, "error": null, "label": "after", "pair": 1, "output": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/docs/proofs/compaction-benchmark-20261023/measurements/pair-1-after"}

@@ -1,7 +1,0 @@
-=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
-2026-10-22T20:21:46.328238Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
-lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al2.TwFP9R/q.sock
-  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al2.TwFP9R/home
-  Owner:  dea645103cd871296e6a19b8f773cbdb
-2026-10-22T20:21:47.499272Z ERROR lastdb_host::handlers: handler error: Storage backend error: corrupt: disk-pack v1: page identity or header status=500
-lastdbd: shutdown signal received, exiting

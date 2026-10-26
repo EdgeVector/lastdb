@@ -45,12 +45,6 @@ impl From<crate::storage::StorageError> for SchemaError {
                     detail: io.to_string(),
                 }
             }
-            // Capture backpressure keeps its identity for the same reason a
-            // full disk does: the request was fine and the caller's status
-            // must say "retry", not "your payload is invalid".
-            crate::storage::StorageError::CaptureQueueFull { waited_ms } => {
-                Self::CaptureQueueFull { waited_ms }
-            }
             other => Self::InvalidData(other.to_string()),
         }
     }

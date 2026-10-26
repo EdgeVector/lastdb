@@ -2,8 +2,8 @@
 //!
 //! This trait lets deployments plug in their own storage backend without
 //! the `fold_db` library having to know about any particular cloud service.
-//! The built-in local backend is **Last Store**
-//! (`LastStoreSchemaPersistence`). Remote deployments (e.g. the
+//! The built-in local backend is **in-memory**
+//! (`InMemorySchemaPersistence`). Remote deployments (e.g. the
 //! schema-infra Lambda) implement this trait with S3 and construct the
 //! schema service via `SchemaServiceState::new_with_external`.
 //!
@@ -179,6 +179,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     /// startup to populate the in-memory registry.
     async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
         Ok(HashMap::new())
+    }
+
+    /// Load a single app from durable storage by `app_id`. Used by the
+    /// release and channel operations to verify ownership from the source
+    /// of truth before any mutation. Returns `None` if the app does not
+    /// exist. Default: falls back to `load_all_apps` and filters.
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
+        let all = self.load_all_apps().await?;
+        Ok(all.get(app_id).cloned())
     }
 
     // ============== App releases + channels (`/v2` registry) ============

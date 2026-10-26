@@ -64,7 +64,7 @@ impl FieldVariant {
         // A full final batch needs one empty follow-up. Deduplication must not
         // turn a full physical batch into a false exhaustion claim.
         let exhausted = rows.len() < limit;
-        let mut tips = Self::api_rows_from_scan(db_ops, hash, rows)?;
+        let mut tips = Self::api_rows_from_scan(db_ops, molecule, hash, rows)?;
         tips.sort_by(|(left, ..), (right, ..)| left.cmp_page_order(right));
         tips.dedup_by(|(left, ..), (right, ..)| left == right);
         Ok(HashRangeCandidatePage { tips, exhausted })

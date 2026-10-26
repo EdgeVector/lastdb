@@ -1,9 +1,0 @@
-{
-  "all_owned_processes_stopped": true,
-  "complete": false,
-  "data_retained_for_review": true,
-  "error": "RuntimeError: /api/db/compact: HTTP 500, non-JSON response",
-  "expected_live_records": 513,
-  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al2.TwFP9R/home",
-  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al2.TwFP9R"
-}

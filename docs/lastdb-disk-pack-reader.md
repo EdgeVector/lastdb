@@ -61,7 +61,7 @@ The reader checks that CURRENT contains the expected codec identifiers.
 
 ## Operational receipts
 
-The [receipt report](proofs/disk-pack-reader-20261015/report.md) records the generated inputs and observed results.
+The [receipt report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-pack-reader-20261015/report.md) records the generated inputs and observed results.
 The commands use newly generated files in an owned temporary path.
 They exercise the pack command, with no primary access or primary copy.
 They do not establish LastDB app latency, protected write admission, or a recovery result.

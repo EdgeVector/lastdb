@@ -9,10 +9,8 @@ impl MutationManager {
         finalize: AggregateFinalize,
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        crate::sync::capture::with_capture_suppressed(
-            self.finalize_aggregate_summary_inner(finalize, access_context),
-        )
-        .await
+        self.finalize_aggregate_summary_inner(finalize, access_context)
+            .await
     }
 
     pub(super) async fn finalize_aggregate_summary_inner(
@@ -352,10 +350,9 @@ impl MutationManager {
         if let Some((reservation, state)) = clock {
             reservation.submit_and_wait(state).await?;
         }
-        let result = crate::sync::capture::with_capture_suppressed(
-            self.write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request),
-        )
-        .await;
+        let result = self
+            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
+            .await;
         let mut receipt = Self::require_durable_receipt(result?, "finalize marker")?;
         receipt.revision = Some(revision);
         Ok(receipt)

@@ -77,31 +77,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Drop the current `keep_small` group only when its sidecar proves it
-    /// holds the one rebuildable `keep_small:meters` snapshot. This returns
-    /// superseded snapshot bytes without loading the cold group. Default is a
-    /// dry run. Pass `--execute` to remove the directory.
-    ReclaimKeepSmallSnapshot {
-        #[arg(long)]
-        execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Stamp committed atom successor-history SHAs into pending purged
-    /// retirements so the next photograph cut can drop them with a receipt.
-    ///
-    /// Default is dry-run (no sidecar write). `--execute` stamps groups that
-    /// still have a verified local atom chunk. Missing groups are not stamped.
-    /// Skips while a backup cut is held. Owner `compact --execute` rewrites
-    /// the whole home and is not this one-shot.
-    StampPurgedAtomRetirements {
-        /// Actually write pending_shas (without this flag, report only).
-        #[arg(long)]
-        execute: bool,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
     /// Read the durable atom hard-delete audit trail (purge and delete), oldest first.
     ///
     /// Answers "was this atom body deleted on purpose, or lost?" from the store's

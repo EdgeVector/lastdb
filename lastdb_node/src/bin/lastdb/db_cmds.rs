@@ -8,10 +8,6 @@ pub(crate) use db_delete_marker_cmds::*;
 mod db_reap_unsealed_cmds;
 pub(crate) use db_reap_unsealed_cmds::*;
 
-#[path = "db_pin_log_cmds.rs"]
-mod db_pin_log_cmds;
-pub(crate) use db_pin_log_cmds::*;
-
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
 pub(crate) use db_app_storage_cmds::*;

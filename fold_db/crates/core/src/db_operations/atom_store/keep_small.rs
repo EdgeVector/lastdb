@@ -74,8 +74,7 @@ impl AtomStore {
     /// key: on a home that lived through the 2026-09-21 flush storm that key
     /// sits in a 39 GB hash group, and a point get of it is the whole-group
     /// load that killed the primary. A home upgraded across the move hydrates
-    /// as a miss and rebuilds through the bootstrap path;
-    /// `lastdb db reclaim-keep-small-legacy` drops the dead group.
+    /// as a miss and rebuilds through the bootstrap path.
     /// One bounded row read: true when the main store holds no row at all.
     pub(super) async fn main_store_is_empty(&self) -> Result<bool, crate::schema::SchemaError> {
         let first = self

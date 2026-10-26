@@ -80,17 +80,9 @@ impl FoldDB {
             "Using native packed storage with the core logical model"
         );
 
-        let (store, mutation_log_capture) = {
-            let mutation_log_capture =
-                Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
-            let store: Arc<dyn crate::storage::traits::NamespacedStore> = Arc::new(
-                crate::sync::capture::MutationLogCaptureNamespacedStore::new(
-                    store,
-                    Arc::clone(&mutation_log_capture),
-                ),
-            );
-            (store, Some(mutation_log_capture))
-        };
+        let mutation_log_capture = Some(Arc::new(
+            crate::sync::capture::MutationLogCaptureRouter::default(),
+        ));
 
         let db_ops = Arc::new(
             DbOperations::from_namespaced_store_with_atom_and_molecule_keys(

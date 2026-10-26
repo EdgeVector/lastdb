@@ -129,10 +129,6 @@ impl MutationManager {
             })
         })
         .await?;
-        if committed.mutation_ids.is_empty() {
-            return Ok(committed);
-        }
-        crate::sync::capture::mark_logical_commit_published();
         Ok(committed)
     }
 

@@ -1,3 +1,0 @@
-{
-  "error": "/api/mutations/batch: HTTP 400: {'error': 'a key was present with a value outside its grammar', 'kind': 'invalid_value', 'ok': False}"
-}

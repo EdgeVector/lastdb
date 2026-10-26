@@ -29,8 +29,7 @@ pub(super) fn admin_op_error(operation: &str, error: crate::schema::SchemaError)
     match error {
         // Unambiguously the caller's request: a name that does not resolve, a
         // cursor outside the keyspace, a denial, a lost CAS race, an oversized
-        // payload, a full disk, transient capture backpressure. Each has
-        // exactly one typed status.
+        // payload, a full disk. Each has exactly one typed status.
         caller_fault @ (SE::NotFound(_)
         | SE::InvalidCursor(_)
         | SE::InvalidField(_)
@@ -41,8 +40,7 @@ pub(super) fn admin_op_error(operation: &str, error: crate::schema::SchemaError)
         | SE::TransportNotAttested { .. }
         | SE::CasConflict { .. }
         | SE::AtomContentTooLarge { .. }
-        | SE::StorageFull { .. }
-        | SE::CaptureQueueFull { .. }) => FoldDbError::Schema(caller_fault),
+        | SE::StorageFull { .. }) => FoldDbError::Schema(caller_fault),
         // Overloaded or internal: keep the operation label and stay a 500.
         other => FoldDbError::Database(format!("{operation}: {other}")),
     }

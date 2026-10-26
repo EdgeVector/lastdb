@@ -53,12 +53,3 @@ pub fn hex_decode_array<const N: usize>(text: &str) -> Option<[u8; N]> {
 pub fn sha256_hex(bytes: impl AsRef<[u8]>) -> String {
     hex_lower(Sha256::digest(bytes.as_ref()))
 }
-
-/// True when `value` is exactly 64 lowercase hex digits, the shape of
-/// [`sha256_hex`] output.
-pub fn is_lower_hex_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}

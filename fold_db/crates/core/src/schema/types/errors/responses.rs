@@ -111,32 +111,4 @@ impl SchemaError {
             _ => None,
         }
     }
-
-    /// The discriminated `503 capture_queue_full` response body for a
-    /// [`Self::CaptureQueueFull`]. Clients key on `error ==
-    /// "capture_queue_full"` to tell self-clearing backpressure from a
-    /// rejected payload: retrying the same write immediately is correct, and
-    /// no operator action is needed. Returns `None` for every other variant.
-    pub fn capture_queue_full_body(&self) -> Option<serde_json::Value> {
-        match self {
-            Self::CaptureQueueFull { waited_ms } => Some(serde_json::json!({
-                "ok": false,
-                "error": "capture_queue_full",
-                "waited_ms": waited_ms,
-                "retryable": true,
-                "hint": "the mutation capture worker is behind; retry the same write",
-                "message": self.to_string(),
-            })),
-            _ => None,
-        }
-    }
-
-    /// True when this error is transient mutation-capture backpressure.
-    ///
-    /// The reporting paths use this to keep a self-clearing condition out of
-    /// the channels reserved for code faults.
-    #[must_use]
-    pub const fn is_capture_queue_full(&self) -> bool {
-        matches!(self, Self::CaptureQueueFull { .. })
-    }
 }

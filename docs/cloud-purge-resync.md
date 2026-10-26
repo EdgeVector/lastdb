@@ -1,7 +1,7 @@
 > Retired client workflow, October 22, 2026. PR 271 removes the LastDB commands, local repair records, adoption workers, and restart replay below.
 > The client refuses interrupted repair state and cloud generations that require this removed workflow.
 > The text remains protocol history. It does not authorize the retired commands or a shared cloud change.
-> Read the [current source review](proofs/journal-removal-review-benchmark-20261022/SOURCE-REVIEW.md) for the retained sync and control checks.
+> Read the [current source review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/journal-removal-review-benchmark-20261022/SOURCE-REVIEW.md) for the retained sync and control checks.
 
 # Cloud purge and resync
 

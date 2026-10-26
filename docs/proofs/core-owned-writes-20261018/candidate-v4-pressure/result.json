@@ -1,1 +1,0 @@
-{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-memory-cohort-complete":1,"core-owned-memory-observation":18,"core-owned-queue-drained":3,"core-owned-read":47,"core-owned-write":8,"flush":4,"native-status":21,"owned-node-start":1,"owned-node-stop":1,"request":100},"role":"candidate","workflow":"pressure"}

@@ -15,19 +15,13 @@ pub(super) fn build_store_stack(
     e2e_keys: &E2eKeys,
     at_rest_keyring: Option<&Arc<Keyring>>,
 ) -> StoreStack {
-    let enc_store = Arc::new(EncryptingNamespacedStore::new(
+    let store = Arc::new(EncryptingNamespacedStore::new(
         base_store,
         store_seam_crypto(e2e_keys, at_rest_keyring),
     ));
-    // Local capture has no cloud engine. A future cloud implementation must
-    // pass its own native-format activation gate before attaching one.
+    // The router holds only the mutation admission gate. No cloud capture
+    // wrapper exists, so the encrypting store is the outermost store.
     let mutation_log_capture = Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
-    let store = Arc::new(
-        crate::sync::capture::MutationLogCaptureNamespacedStore::new(
-            enc_store as Arc<dyn NamespacedStore>,
-            Arc::clone(&mutation_log_capture),
-        ),
-    );
     StoreStack {
         store,
         mutation_log_capture,

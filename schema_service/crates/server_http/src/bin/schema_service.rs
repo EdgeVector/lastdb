@@ -6,15 +6,16 @@ use schema_service_server_http::{SchemaServiceServer, DEFAULT_DEV_SCHEMA_PORT};
 /// Production deploys schema_service as the schema-infra Lambda (Phase 1).
 /// This binary is intended for local development and `./run.sh` workflows.
 ///
+/// **Storage.** The registry lives only in process memory. A restart
+/// starts again from the built-in seeds.
+///
 /// **Snapshot hydration (`--hydrate-from`).** Pull a `SnapshotEnvelope`
-/// from a remote schema service (e.g. `https://schema.folddb.com`) and
-/// import it into the local Sled instance, so the dev binary boots with
+/// from a remote schema service (e.g. `https://schema.folddb.com`) at
+/// startup and import it into memory, so the dev binary boots with
 /// production-like data. Authentication is via an exemem.com API key
 /// (issued at https://www.exemem.com/developer) supplied through the
 /// `EXEMEM_API_KEY` environment variable; the key is intentionally not
-/// a CLI flag so it never ends up in shell history or `ps`. By default
-/// the import only runs when the local registry is "seeds-only" — pass
-/// `--rehydrate` to overwrite an existing local registry.
+/// a CLI flag so it never ends up in shell history or `ps`.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Cli {
@@ -22,22 +23,12 @@ struct Cli {
     #[arg(long, default_value_t = DEFAULT_DEV_SCHEMA_PORT)]
     port: u16,
 
-    /// Path to the Last Store home for local schema registry storage.
-    #[arg(long, default_value = "schema_registry")]
-    db_path: String,
-
     /// Base URL of a remote schema service to hydrate from
     /// (e.g. `https://schema.folddb.com`). The binary fetches
-    /// `<url>/v1/snapshot` and imports the envelope into local Sled.
-    /// Requires the `EXEMEM_API_KEY` environment variable.
+    /// `<url>/v1/snapshot` at startup and imports the envelope into
+    /// memory. Requires the `EXEMEM_API_KEY` environment variable.
     #[arg(long)]
     hydrate_from: Option<String>,
-
-    /// Force re-hydration even when the local registry already contains
-    /// user-authored artifacts. Without this flag, `--hydrate-from` is
-    /// a no-op once the user has added schemas/views/transforms.
-    #[arg(long)]
-    rehydrate: bool,
 }
 
 #[tokio::main]
@@ -54,18 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the deferred Lambda binary path (handled by the cohort B5 sweep).
     let _obs_guard = observability::init_node("schema_service", env!("CARGO_PKG_VERSION"))?;
 
-    let Cli {
-        port,
-        db_path,
-        hydrate_from,
-        rehydrate,
-    } = Cli::parse();
+    let Cli { port, hydrate_from } = Cli::parse();
     let bind_address = format!("127.0.0.1:{port}");
 
-    println!("Schema service starting with local Last Store storage");
-    println!("   Database path: {db_path}");
+    println!("Schema service starting with in-memory storage (lost on restart)");
 
-    let server = SchemaServiceServer::new_with_builtins(&db_path, &bind_address).await?;
+    let server = SchemaServiceServer::new_with_builtins(&bind_address).await?;
 
     if let Some(remote) = hydrate_from.as_deref() {
         let api_key =
@@ -74,25 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              Get a key at https://www.exemem.com/developer (API Keys tab)."
                     .into()
             })?;
-        match server.hydrate_from(remote, &api_key, rehydrate).await? {
-            Some(report) => {
-                println!(
-                    "Hydrated from {} (captured_at={}, schemas={}, \
-                     canonical_fields={}, embeddings={})",
-                    remote,
-                    report.captured_at,
-                    report.schemas,
-                    report.canonical_fields,
-                    report.embeddings,
-                );
-            }
-            None => {
-                println!(
-                    "Skipped hydrate from {remote}: local registry has user-authored \
-                     artifacts. Pass --rehydrate to overwrite.",
-                );
-            }
-        }
+        let report = server.hydrate_from(remote, &api_key).await?;
+        println!(
+            "Hydrated from {} (captured_at={}, schemas={}, \
+             canonical_fields={}, embeddings={})",
+            remote, report.captured_at, report.schemas, report.canonical_fields, report.embeddings,
+        );
     }
 
     println!("Schema service listening on {bind_address}");

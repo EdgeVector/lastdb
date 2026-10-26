@@ -1,9 +1,0 @@
-{
-  "old_head": "a60b27d43f11fd6d1f3cf514d1579229d2256d5c",
-  "new_head": "436cc86ad82c4ca2486e0b7f55e4a1b840dfeaed",
-  "changed": [
-    "lastdb_host/src/handlers/query/paging.rs"
-  ],
-  "added": [],
-  "removed": []
-}

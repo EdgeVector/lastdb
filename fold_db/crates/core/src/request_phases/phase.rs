@@ -335,10 +335,12 @@ pub enum RequestPhase {
     /// Store flush (near zero unless `LASTDB_MUTATION_SYNC_FLUSH=1`).
     Flush,
     /// Mutation: cloud-sync mutation-log work on the caller's request path.
-    /// This phase contains envelope encoding and bounded queue admission.
-    /// Marker, mutation-log, and cleanup storage run on the capture worker.
     ///
-    /// This wraps the whole batch write from OUTSIDE
+    /// No code records this phase now. The retired capture encode was its
+    /// last work, so it reads 0. The name stays for the status and stored
+    /// rollup fields.
+    ///
+    /// History: this wrapped the whole batch write from OUTSIDE
     /// `write_create_update_batch_async`, so no residual inside that function
     /// could ever reach it: the `apply` residual is bounded by that
     /// function's own wall clock, and this work happens after it returns.
@@ -349,8 +351,7 @@ pub enum RequestPhase {
     /// every query key on the same node reported under 1%. That mutation-only
     /// split is what pointed here.
     ///
-    /// Note what this phase is NOT: it is not storage or upload time. A large
-    /// value now means envelope encode cost or capture queue pressure.
+    /// It was never storage or upload time.
     SyncCapture,
     /// The handler's bounded wait for background index tasks.
     IndexWait,

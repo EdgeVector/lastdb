@@ -63,7 +63,7 @@ Required memory copies check their exact encoded size against the actual call bu
 Optional query metadata can decline admission when that budget lacks space.
 The warm set still permits 10,000 logical paths.
 Physical write checks do not add storage objects or unrelated paths to that warm set.
-The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
+The [7110c7f5 node receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
 
 ## Scope
 

@@ -79,9 +79,8 @@ pub trait NamespacedStore: Send + Sync {
     /// Owner maintenance: rewrite existing `ENC:` values in one collection to
     /// `ENB:` (+ deflate at the 256 B floor) under the same key.
     ///
-    /// Default is unsupported. The encrypting wrapper implements it; capture
-    /// wrappers must delegate inside `with_capture_suppressed` so the rewrite
-    /// cannot absorb into the mutation log. The physical store has no crypto.
+    /// Default is unsupported. The encrypting wrapper implements it. The
+    /// physical store has no crypto.
     async fn reseal_at_rest(
         &self,
         options: crate::storage::reseal_at_rest::ResealAtRestOptions,
@@ -98,9 +97,9 @@ pub trait NamespacedStore: Send + Sync {
     /// their bytes.
     ///
     /// Default is unsupported. The encrypting wrapper implements it, because
-    /// only the seam knows which namespaces it seals; capture wrappers delegate
-    /// inside `with_capture_suppressed`. The physical store has no crypto and
-    /// so cannot tell an unsealed row from a plaintext-by-policy one.
+    /// only the seam knows which namespaces it seals. The physical store has
+    /// no crypto and so cannot tell an unsealed row from a plaintext-by-policy
+    /// one.
     async fn reap_unsealed(
         &self,
         options: crate::storage::reap_unsealed::ReapUnsealedOptions,

@@ -52,6 +52,7 @@ use crate::state::SchemaServiceState;
 
 mod errors;
 mod grammar;
+mod persistence;
 mod records;
 mod state;
 mod validate;

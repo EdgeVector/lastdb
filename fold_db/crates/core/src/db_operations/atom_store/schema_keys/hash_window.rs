@@ -35,16 +35,9 @@ impl AtomStore {
             };
             let (selected, frontier) = selected?;
             let selected = selected
-                .into_iter()
-                .map(|key| {
-                    ReadyTipKey::new(
-                        molecule,
-                        key,
-                        Some(selection.api_hash),
-                        codec.range_encoding().writes_ope(),
-                    )
-                })
-                .collect();
+                .iter()
+                .map(|key| ReadyTipKey::new(molecule, key, Some((selection.api_hash, &codec))))
+                .collect::<Result<_, SchemaError>>()?;
             let rows = self
                 .resolve_preloaded_tip_keys(&runtime, scope, selected)
                 .await?;
@@ -54,7 +47,7 @@ impl AtomStore {
             for (base, record) in rows {
                 let (_, range) = molecule_key_codec::decode_hash_range_any(&base)
                     .ok_or_else(|| key_error("invalid ready tip coordinates"))?;
-                let range = decode_range(&codec, range);
+                let range = codec.api_range(&range).map_err(key_error)?;
                 if frontier.as_ref().is_some_and(|last| range > *last) {
                     break;
                 }
@@ -112,15 +105,7 @@ fn select_window(
             .keys
             .last()
             .ok_or_else(|| key_error("ready range window does not advance"))?;
-        Some(decode_range(codec, last.range.clone()))
+        Some(codec.api_range(&last.range).map_err(key_error)?)
     };
     Ok((page.keys, frontier))
-}
-
-fn decode_range(codec: &MoleculeKeyCodec, range: String) -> String {
-    if codec.range_encoding().writes_ope() {
-        crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
-    } else {
-        range
-    }
 }

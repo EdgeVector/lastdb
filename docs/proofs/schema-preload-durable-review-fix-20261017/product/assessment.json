@@ -1,6 +1,0 @@
-{
-  "classification": "configuration-refusal",
-  "result": "The 16 MiB schema key allowance refused transient preload work. The run stopped before the durable mutation phases.",
-  "product_fix_conclusion": "This run does not establish the durable graph fix outcome.",
-  "owned_nodes_stopped_normally": true
-}

@@ -1,9 +1,0 @@
-{
-  "all_original_seal_hashes_unchanged": true,
-  "all_root_paths_absent_including_symlinks": true,
-  "owner_final_verification_sha256": "41dac552c5db6c1da49bbaaa547f9c0b98606ed2498365e4995d620fdbc09ad7",
-  "recorded_owner_and_node_pids_absent": true,
-  "roots_reclaimed": 7,
-  "sealed_original_files_unchanged": 56,
-  "supported_exact_cleanup_receipts_pass": true
-}

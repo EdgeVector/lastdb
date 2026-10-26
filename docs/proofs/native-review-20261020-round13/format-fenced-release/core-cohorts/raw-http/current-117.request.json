@@ -1,1 +1,0 @@
-{"isolated_copy":true,"schema":{"source":"system_seed","name":"Round13ReceiptIds","descriptive_name":"Round13ReceiptIds","schema_type":"Hash","key":{"hash_field":"id"},"fields":["id","payload"],"field_descriptions":{"id":"Round13ReceiptIds independent id","payload":"Round13ReceiptIds independent payload"}}}

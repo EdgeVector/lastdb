@@ -1,7 +1,0 @@
-{
-  "all_owned_processes_stopped": true,
-  "complete": false,
-  "config": "encrypted",
-  "error": "/api/mutations/batch: HTTP 507: {'detail': 'No space left on device (os error 28)', 'error': 'storage_full', 'hint': 'the host filesystem is out of space; free disk space, then retry the same write', 'message': 'no space left on device \u2014 the filesystem holding the database is full, so the write did not land. Free disk space and retry; nothing already stored was lost. Underlying error: No space left on device (os error 28)', 'ok': False, 'retryable': True}",
-  "source_revision": "d7a5f441cc084a9624fac97d60d811c9b230702b"
-}
