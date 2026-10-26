@@ -270,6 +270,22 @@ Do not compare these ratios with a different workload.
 
 ## Request phases
 
+### Optional v2 disk excess investigation
+
+The manual comparison accepts `disk_excess`. It adds a separate generated-data pass with the verified programs.
+The investigation PR branch `perf/investigate-disk-excess-20261026` also enables that pass.
+Ordinary PRs, main pushes, and nightly runs keep their existing recipes and advisory policy.
+The diagnostic uses two alternating pairs at 512 and 16,384 seed records, with three complete update rounds.
+It records size after updates, after 30 idle seconds, and after a stop and reopen of the same owned home.
+Every state verifies all generated keys and their current values. The artifact retains file lengths and allocated blocks by relative path.
+
+The final `GET /api/db/inventory` supplies live key-class sizes and atom-counter facts.
+CAUTION: This owner report writes attribution-ledger records. It runs after all original size observations.
+The diagnostic records its extra disk cost separately and checks that the logical atom total stays unchanged.
+Its class sizes describe decrypted live records; they are not physical file sizes or a complete report of every namespace.
+The pass has a 40-minute deadline. Its source revisions, executable hashes, driver hashes, data recipe, and raw results stay in the verified artifact.
+It does not force compaction, change retention, relax the 1.5× ceiling, or use primary data.
+
 Each measured call carries a unique request ID.
 After each write case, the driver requests the current request records from the explicit diagnostic status route.
 It matches records by the exact request ID and the `github-benchmark` client name.
