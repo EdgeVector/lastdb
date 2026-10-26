@@ -18,6 +18,7 @@
 use crate::crypto::E2eKeys;
 
 pub mod conversion;
+mod range_decode;
 pub mod storage_profile;
 
 /// Chokepoint: API HashKey/RangeKey → storage segments.

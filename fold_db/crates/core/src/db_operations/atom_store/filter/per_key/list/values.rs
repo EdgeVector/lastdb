@@ -69,11 +69,9 @@ pub(super) fn decoded_key(
 ) -> Result<(String, String), SchemaError> {
     let (hash, range) = molecule_key_codec::decode_hash_range(key, request.molecule)
         .ok_or_else(|| SchemaError::InvalidData("invalid listed molecule key".into()))?;
-    let range = if codec.range_encoding().writes_ope() {
-        crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
-    } else {
-        range
-    };
+    let range = codec
+        .api_range(request.molecule, &range)
+        .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
     Ok((hash, range))
 }
 

@@ -54,35 +54,30 @@ impl FieldVariant {
                 .scan_per_key_prefix(&prefix, storage_prefix)
                 .await?
         };
-        let rows = Self::api_rows_from_scan(db_ops, hash, scanned)?;
+        let rows = Self::api_rows_from_scan(db_ops, molecule_uuid, hash, scanned)?;
         Ok((rows, window_applied))
     }
 
     /// Convert scanned storage keys into API-keyed tip matches.
     pub(super) fn api_rows_from_scan(
         db_ops: &Arc<DbOperations>,
+        molecule: &str,
         hash: &str,
         scanned: Vec<(String, crate::db_operations::atom_store::PerKeyRecord)>,
     ) -> Result<Vec<TipMatch>, SchemaError> {
         let mut rows = Vec::with_capacity(scanned.len());
+        let codec = db_ops.atoms().key_codec_for_molecule(molecule)?;
         for (storage_key, rec) in scanned {
             let (_decoded_hash, decoded_range) =
-                crate::atom::molecule_key_codec::decode_hash_range_any(&storage_key).ok_or_else(
-                    || {
+                crate::atom::molecule_key_codec::decode_hash_range(&storage_key, molecule)
+                    .ok_or_else(|| {
                         SchemaError::InvalidData(format!(
                             "malformed hash-range record key: {storage_key}"
                         ))
-                    },
-                )?;
-            // Option I: never surface storage-form hash (blind token) as API key.
-            // Under OPE, also leak-decode range so clients see API plaintext
-            // (e.g. BoardCards sk `todo#pos#slug`).
-            let range = if db_ops.atoms().key_codec().range_encoding().writes_ope() {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&decoded_range)
-                    .unwrap_or(decoded_range)
-            } else {
-                decoded_range
-            };
+                    })?;
+            let range = codec
+                .api_range(molecule, &decoded_range)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
             rows.push((
                 KeyValue::new(Some(hash.to_string()), Some(range)),
                 rec,

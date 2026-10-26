@@ -209,6 +209,7 @@ impl AtomStore {
             return Ok(None);
         };
 
+        let codec = self.key_codec_for_molecule(molecule_uuid)?;
         let mut records = Vec::with_capacity(scanned.len());
         for (k, r) in scanned {
             let (storage_hash, storage_range) = molecule_key_codec::decode_hash_range_any(&k)
@@ -222,15 +223,9 @@ impl AtomStore {
             let range = api_range_for_response.map_or(storage_range, str::to_string);
             let api_range = match api_range_for_response {
                 Some(api) => api.to_string(),
-                None if self
-                    .key_codec_for_molecule(molecule_uuid)?
-                    .range_encoding()
-                    .writes_ope() =>
-                {
-                    crate::crypto::E2eKeys::ope_decode_range_plaintext(&range)
-                        .unwrap_or_else(|| range.clone())
-                }
-                None => range.clone(),
+                None => codec
+                    .api_range(molecule_uuid, &range)
+                    .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
             };
             let api_key =
                 crate::schema::types::key_value::KeyValue::new(Some(hash.clone()), Some(api_range));

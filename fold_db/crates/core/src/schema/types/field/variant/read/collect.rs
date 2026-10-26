@@ -73,8 +73,14 @@ impl FieldVariant {
             }
             None => self.apply_filter(Some(effective_filter)),
         };
-        let remap_ope_range = range_form == MoleculeRangeForm::Storage
-            && db_ops.atoms().key_codec().range_encoding().writes_ope();
+        let source_codec = if range_form == MoleculeRangeForm::Storage {
+            let molecule = self.common().molecule_uuid().ok_or_else(|| {
+                SchemaError::InvalidData("stored field range has no molecule identity".into())
+            })?;
+            Some((molecule, db_ops.atoms().key_codec_for_molecule(molecule)?))
+        } else {
+            None
+        };
 
         let mut matches_with_meta: Vec<KeyedAtomMatch> = results
             .matches
@@ -83,10 +89,11 @@ impl FieldVariant {
                 // Metadata uses the transient molecule's own coordinates. Exact
                 // API ranges retain their previously selected physical receipt.
                 let (key_meta, writer_pubkey) = self.entry_meta_at(&storage_key);
-                let kv = if remap_ope_range {
-                    api_key_value_from_storage(storage_key.clone())
-                } else {
-                    storage_key.clone()
+                let kv = match source_codec.as_ref() {
+                    Some((molecule, codec)) => {
+                        api_key_value_from_storage(storage_key.clone(), codec, molecule)?
+                    }
+                    None => storage_key.clone(),
                 };
                 self.note_loaded_tip(db_ops, &storage_key, &kv)?;
                 Ok((kv, atom_uuid, key_meta, writer_pubkey))
@@ -150,7 +157,6 @@ impl FieldVariant {
             )
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         let raw_matches = self.apply_filter(Some(storage_filter)).matches;
-        let remap_ope_range = db_ops.atoms().key_codec().range_encoding().writes_ope();
 
         let mut pending = Vec::with_capacity(raw_matches.len());
         let mut seen_api_keys = HashSet::with_capacity(raw_matches.len());
@@ -164,11 +170,8 @@ impl FieldVariant {
             let api_key = match self.kind {
                 FieldKind::Hash => KeyValue::new(Some(hash.to_string()), None),
                 FieldKind::HashRange => {
-                    let key = if remap_ope_range {
-                        api_key_value_from_storage(storage_key.clone())
-                    } else {
-                        storage_key.clone()
-                    };
+                    let key =
+                        api_key_value_from_storage(storage_key.clone(), &codec, molecule_uuid)?;
                     KeyValue::new(Some(hash.to_string()), key.range)
                 }
                 _ => unreachable!("field kind checked above"),
