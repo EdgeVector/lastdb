@@ -8,7 +8,7 @@ use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
-const NODE_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
+pub(crate) const NODE_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
 const MOLECULE_ID_MAX_BYTES: usize = 1024;
 
 /// One metadata row replaces its legacy form during offline publication.
