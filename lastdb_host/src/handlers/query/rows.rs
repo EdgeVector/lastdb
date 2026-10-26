@@ -1,6 +1,7 @@
 //! Query read flow, with data-only response and projection rules below it.
 
 use super::*;
+use fold_db::schema::types::key_comparison::KeyComparisonContext;
 
 /// Execute a query under the given access context and return the formatted JSON
 /// rows — `{ key, fields, metadata, author_pub_key }` — with the deterministic
@@ -154,8 +155,18 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
     let sort_started = std::time::Instant::now();
-    results
-        .sort_by(|a, b| super::rules::compare_rows(a, b, sort_order.as_ref(), order_by.as_ref()));
+    if results.len() > 1 {
+        let range_comparison = KeyComparisonContext::capture_current_range_comparison();
+        results.sort_by(|a, b| {
+            super::rules::compare_rows(
+                a,
+                b,
+                sort_order.as_ref(),
+                order_by.as_ref(),
+                range_comparison.as_ref(),
+            )
+        });
+    }
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
 
     remove_sort_helper(&mut results, sort_helper.as_deref());
