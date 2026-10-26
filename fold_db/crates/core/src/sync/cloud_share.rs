@@ -1,12 +1,25 @@
 //! A foreign sender's data changes only through an exact receiver namespace.
 
 use crate::storage::NamespacedStore;
-use crate::sync::cloud_purge::protocol::{CloudAccount, CloudAccountKind};
 use crate::sync::{SyncError, SyncResult};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const RECEIVER_BINDINGS_NAMESPACE: &str = "sync_foreign_share_bindings";
+
+/// Account identity stored on a foreign receiver binding.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudAccountKind {
+    Personal,
+    Org,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CloudAccount {
+    pub kind: CloudAccountKind,
+    pub id: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiverBinding {

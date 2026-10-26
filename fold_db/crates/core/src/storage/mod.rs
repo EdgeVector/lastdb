@@ -6,9 +6,6 @@
 //! Domain (db_operations, factory, …)
 //!         │  TypedKvStore / KvStore / NamespacedStore
 //!         ▼
-//! MutationLogCaptureNamespacedStore (local capture router)
-//!         │
-//!         ▼
 //! EncryptingNamespacedStore (local CAS records only)
 //!         │
 //!         ▼
@@ -16,9 +13,9 @@
 //!         for every new home, v1 packed files for an older home)
 //! ```
 //!
-//! Cloud multi-device export is **not** a KvStore decorator. Store-level
-//! capture lives under `crate::sync::capture`. Native cloud activation remains
-//! disabled; no cloud engine attaches to the normal local router.
+//! Cloud multi-device export is **not** a KvStore decorator. No store-level
+//! capture exists; `crate::sync::capture` holds only the mutation admission
+//! gate. Native cloud activation remains disabled.
 //!
 //! Normal logical constructors use the native packed engine and refuse older
 //! nonempty formats without migration.

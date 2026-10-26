@@ -227,11 +227,9 @@ phase_timings! {
         /// Store flush. Near zero on default builds (background flusher);
         /// meaningful only under synchronous-flush configurations.
         flush_us => "flush",
-        /// Mutation: cloud-sync mutation-log capture on the request path —
-        /// envelope encode plus the post-commit durable pin-log append. NOT
-        /// upload time: `record_op` returns once the op is durable locally and
-        /// admitted to the bounded upload queue, and the network cycle runs
-        /// off-task.
+        /// Mutation: cloud-sync mutation-log capture on the request path. No
+        /// code records it now: the retired capture encode was its last work,
+        /// so a current row reads 0 here.
         ///
         /// Absent before 0.23.3: this work wraps the batch write from outside
         /// `write_create_update_batch_async`, so no residual inside that function

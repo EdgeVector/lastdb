@@ -39,20 +39,7 @@ impl MutationManager {
             }
             Ok(result)
         };
-        let attempt = async {
-            // The lane task no longer has the request's logical-commit scope,
-            // and LastStore can move its writes onto spawn_blocking. Hold both
-            // suppress guards so tip and catalog deletes do not re-enter the
-            // mutation log as leftover physical operations. Product requests
-            // still stage MutationIntent while router depth is nonzero.
-            let _kv_suppress = self
-                .capture_router()
-                .map(|router| router.enter_kv_suppress());
-            crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native.clone(), attempt),
-            )
-            .await
-        };
+        let attempt = crate::storage::disk_pack::transaction::scope(native.clone(), attempt);
         let attempt = crate::db_operations::ChangeFeedStore::with_capture_context(
             notification_capture,
             attempt,

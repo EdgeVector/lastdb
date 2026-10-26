@@ -33,8 +33,6 @@ pub use resident::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneMetrics,
     PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
 };
-/// Pure continuous-backup drain planner (no network).
-pub mod backup_drain_plan;
 /// Age-based durability health, evaluated with no sync engine running.
 /// Sealed-chunk backup progress math (no network).
 pub mod backup_progress;

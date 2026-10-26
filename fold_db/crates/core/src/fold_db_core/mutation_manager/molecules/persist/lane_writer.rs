@@ -89,22 +89,14 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
             chrono::Utc::now().timestamp_millis(),
             envelope.commit_id
         );
-        let store = async {
-            self.mm
-                .db_ops
-                .metadata()
-                .put_typed_durable(&key, &record)
-                .await
-        };
         // The quarantine row is node-local forensic state, never a mutation
         // for other devices.
-        let stored = {
-            let _kv_suppress = self
-                .mm
-                .capture_router()
-                .map(|router| router.enter_kv_suppress());
-            crate::sync::capture::with_capture_suppressed(store).await
-        };
+        let stored = self
+            .mm
+            .db_ops
+            .metadata()
+            .put_typed_durable(&key, &record)
+            .await;
         if let Err(store_error) = stored {
             tracing::error!(
                 error = %store_error,
