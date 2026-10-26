@@ -3,8 +3,10 @@
 //! Demonstrates against moto S3:
 //! 1. Correctly signed row → 201, persists, readable via load
 //! 2. Row signed by wrong key → 401 signature_invalid
-//! 3. Unsigned row (no signature header) → 401 signature_required
-//! 4. Duplicate row → 409 (already exists)
+//! 3. Unsigned row (empty signature) → 401 signature_invalid
+//! 4. Malformed signature → 401 signature_invalid
+//! 5. Body altered after signing → 401 signature_invalid
+//! 6. Duplicate row → 409 already_exists
 //!
 //! Run against moto:
 //! ```bash
@@ -64,9 +66,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     test_case_1_correct_signature(&state, &backend, &verifier_key, &release_id).await?;
     test_case_2_wrong_key(&state, &backend, &wrong_key, &release_id).await?;
     test_case_3_unsigned(&state, &backend, &release_id).await?;
-    test_case_4_duplicate(&state, &verifier_key, &release_id).await?;
+    test_case_4_malformed_signature(&state, &backend, &release_id).await?;
+    test_case_5_body_altered(&state, &backend, &verifier_key, &release_id).await?;
+    test_case_6_duplicate(&state, &verifier_key, &release_id).await?;
 
-    println!("\n=== ✅ All 4 cases verified ===");
+    println!("\n=== ✅ All 6 cases verified ===");
     Ok(())
 }
 
@@ -293,7 +297,89 @@ async fn test_case_3_unsigned(
     Ok(())
 }
 
-async fn test_case_4_duplicate(
+async fn test_case_4_malformed_signature(
+    state: &Arc<SchemaServiceState>,
+    backend: &Arc<S3BlobPersistence>,
+    release_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n--- Case 4: Malformed signature ---");
+
+    let body = json!({
+        "release_id": release_id,
+        "contract_version": "1.4.0",
+    });
+
+    // Pass malformed JSON as signature
+    match state
+        .write_compat_row(release_id, "not-valid-json", &body)
+        .await
+    {
+        Ok(_) => panic!("Expected 401, got 201"),
+        Err(e) => {
+            let (status, body_val) = e.to_http();
+            println!(
+                "✓ Status: {} {}",
+                status,
+                body_val["reason"].as_str().unwrap_or("")
+            );
+            assert_eq!(status, 401);
+            assert_eq!(body_val["reason"], "signature_invalid");
+        }
+    }
+
+    let rows = backend.load_compat_rows_for_release(release_id).await?;
+    assert_eq!(rows.len(), 1, "Storage unchanged: still 1 row");
+    println!("✓ Storage unchanged (still 1 row from case 1)");
+
+    Ok(())
+}
+
+async fn test_case_5_body_altered(
+    state: &Arc<SchemaServiceState>,
+    backend: &Arc<S3BlobPersistence>,
+    verifier_key: &ed25519_dalek::SigningKey,
+    release_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n--- Case 5: Body altered after signing ---");
+
+    let original_body = json!({
+        "release_id": release_id,
+        "contract_version": "1.5.0",
+    });
+
+    let sig_header = sign_body(verifier_key, &original_body)?;
+
+    // Alter the body after signing
+    let tampered_body = json!({
+        "release_id": release_id,
+        "contract_version": "99.99.99",
+    });
+
+    match state
+        .write_compat_row(release_id, &sig_header, &tampered_body)
+        .await
+    {
+        Ok(_) => panic!("Expected 401, got 201"),
+        Err(e) => {
+            let (status, body_val) = e.to_http();
+            println!(
+                "✓ Status: {} {}",
+                status,
+                body_val["reason"].as_str().unwrap_or("")
+            );
+            assert_eq!(status, 401);
+            assert_eq!(body_val["reason"], "signature_invalid");
+        }
+    }
+
+    let rows = backend.load_compat_rows_for_release(release_id).await?;
+    assert_eq!(rows.len(), 1, "Storage unchanged: still 1 row");
+    println!("✓ Storage unchanged (still 1 row from case 1)");
+
+    Ok(())
+}
+
+async fn test_case_6_duplicate(
     state: &Arc<SchemaServiceState>,
     verifier_key: &ed25519_dalek::SigningKey,
     release_id: &str,

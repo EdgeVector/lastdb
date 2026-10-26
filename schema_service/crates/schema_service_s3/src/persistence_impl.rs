@@ -271,7 +271,10 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
             .await
             .map_err(|e| {
                 if e.to_string().contains("PreconditionFailed") || e.to_string().contains("412") {
-                    FoldDbError::Config("compat row already exists (409)".to_string())
+                    FoldDbError::CompatRowExists {
+                        release_id: record.release_id.clone(),
+                        contract_version: record.contract_version.clone(),
+                    }
                 } else {
                     e
                 }

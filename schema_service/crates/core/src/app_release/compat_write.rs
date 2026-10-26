@@ -1,6 +1,7 @@
 //! Verifier-signed compat-row write.
 
 use super::*;
+use schema_types::FoldDbError;
 
 impl SchemaServiceState {
     /// `POST /v2/releases/{release_id}/compat` — write a verifier-signed compat row.
@@ -80,12 +81,9 @@ impl SchemaServiceState {
             .backend()
             .save_compat_row(&record)
             .await
-            .map_err(|e| {
-                if e.to_string().contains("409") || e.to_string().contains("already exists") {
-                    CompatRowError::AlreadyExists
-                } else {
-                    CompatRowError::Internal(e.to_string())
-                }
+            .map_err(|e| match e {
+                FoldDbError::CompatRowExists { .. } => CompatRowError::AlreadyExists,
+                _ => CompatRowError::Internal(e.to_string()),
             })?;
 
         Ok(record)
