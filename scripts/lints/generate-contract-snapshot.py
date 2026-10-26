@@ -123,6 +123,7 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
 ROUTE_TABLE_ROW = re.compile(
     r'row\("([^"]+)",\s*Scope::\w+,\s*"(GET|POST|PUT|DELETE)",\s*DataRoute::(\w+)\)'
 )
+ROUTE_TABLE_CALL = re.compile(r'^\s*row\(', re.MULTILINE)
 
 
 def add_route_table_rows(path: Path, routes: list[dict[str, Any]]) -> None:
@@ -132,9 +133,19 @@ def add_route_table_rows(path: Path, routes: list[dict[str, Any]]) -> None:
     `GET /api/db/list`). The enum docs name only one path per variant, so
     without the table a removed alias would not show in the diff.
     """
-    rows = ROUTE_TABLE_ROW.findall(read_source(path))
+    source = read_source(path)
+    rows = ROUTE_TABLE_ROW.findall(source)
     if not rows:
         raise SnapshotError(f"{path}: no `row(\"/path\", Scope::.., \"METHOD\", DataRoute::..)` found")
+    # A row the regex cannot read (a constant path, another method, another
+    # layout) would drop out of the snapshot, and then its removal would pass
+    # the diff. Every row call starts its own line, so count those.
+    calls = len(ROUTE_TABLE_CALL.findall(source))
+    if calls != len(rows):
+        raise SnapshotError(
+            f"{path}: {calls} `row(` calls but {len(rows)} match "
+            "`row(\"/path\", Scope::.., \"METHOD\", DataRoute::..)`"
+        )
     names = {r["route_name"] for r in routes}
     have = {(r["method"], r["path"]) for r in routes}
     for route_path, method, variant in rows:
