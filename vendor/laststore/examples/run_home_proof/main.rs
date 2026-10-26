@@ -12,6 +12,7 @@
 //! opened.
 
 mod bound;
+mod cleanup;
 mod crash;
 mod gen;
 mod value_gen;
@@ -113,6 +114,7 @@ fn run(scratch: &Path) -> Result<()> {
         logical as f64 / MIB
     );
     println!("| Overwrite-heavy | {overwrites} |");
+    println!("| Explicit cleanup | {} |", cleanup::run(scratch, &key)?);
     println!("| Compact values (V1b) | {values_row} |");
     println!("| Read back | {checked} keys equal by key and by batch; {ranges} |");
     println!("| Held read across merges | {held_check} |");
