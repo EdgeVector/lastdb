@@ -386,7 +386,10 @@ jobs:
           BRAIN_CONFIG="${BRAIN_CONFIG:-${FBRAIN_CONFIG:-$HOME/.brain/config.json}}"
           echo "Brain would use config at: $BRAIN_CONFIG"
           if [ -f "$BRAIN_CONFIG" ]; then
-            echo "Config exists, nodeSocketPath value:"
+            echo "Config exists. Full contents:"
+            cat "$BRAIN_CONFIG"
+            echo ""
+            echo "Extracted nodeSocketPath value:"
             cat "$BRAIN_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
           else
             echo "Config does not exist yet"
@@ -500,7 +503,10 @@ jobs:
           LASTSECRETS_CONFIG="${LASTSECRETS_CONFIG:-$HOME/.lastsecrets/config.json}"
           echo "LastSecrets would use config at: $LASTSECRETS_CONFIG"
           if [ -f "$LASTSECRETS_CONFIG" ]; then
-            echo "Config exists, nodeSocketPath value:"
+            echo "Config exists. Full contents:"
+            cat "$LASTSECRETS_CONFIG"
+            echo ""
+            echo "Extracted nodeSocketPath value:"
             cat "$LASTSECRETS_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
           else
             echo "Config does not exist yet"
