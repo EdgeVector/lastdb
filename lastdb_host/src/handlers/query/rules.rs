@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::{KeyComparisonContext, RangeKeyComparison};
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
-use fold_db::schema::types::{KeyValue, QueryCursor};
+use fold_db::schema::types::{KeyValue, QueryCursor, SchemaError};
 use serde_json::Value;
 
 use crate::qos::Lane;
@@ -120,10 +120,14 @@ pub(super) fn compare_rows(
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
     range_comparison: Option<&RangeKeyComparison>,
-) -> Ordering {
-    let compare_ranges = |left: &str, right: &str| match range_comparison {
-        Some(comparison) => comparison.compare(left, right),
-        None => left.cmp(right),
+) -> Result<Ordering, SchemaError> {
+    let a_range = a["key"]["range"].as_str().unwrap_or("");
+    let b_range = b["key"]["range"].as_str().unwrap_or("");
+    let range_order = match range_comparison {
+        Some(comparison) => comparison
+            .compare(a_range, b_range)
+            .map_err(SchemaError::InvalidData)?,
+        None => a_range.cmp(b_range),
     };
     let primary = if let Some(order_by) = order_by {
         let af = a
@@ -138,24 +142,16 @@ pub(super) fn compare_rows(
             _ => ordering,
         }
     } else {
-        let a_range = a["key"]["range"].as_str().unwrap_or("");
-        let b_range = b["key"]["range"].as_str().unwrap_or("");
         match sort_order {
-            Some(SortOrder::Desc) => compare_ranges(b_range, a_range),
-            _ => compare_ranges(a_range, b_range),
+            Some(SortOrder::Desc) => range_order.reverse(),
+            _ => range_order,
         }
     };
-    primary
-        .then_with(|| {
-            let a_range = a["key"]["range"].as_str().unwrap_or("");
-            let b_range = b["key"]["range"].as_str().unwrap_or("");
-            compare_ranges(a_range, b_range)
-        })
-        .then_with(|| {
-            let a_hash = a["key"]["hash"].as_str().unwrap_or("");
-            let b_hash = b["key"]["hash"].as_str().unwrap_or("");
-            a_hash.cmp(b_hash)
-        })
+    Ok(primary.then(range_order).then_with(|| {
+        let a_hash = a["key"]["hash"].as_str().unwrap_or("");
+        let b_hash = b["key"]["hash"].as_str().unwrap_or("");
+        a_hash.cmp(b_hash)
+    }))
 }
 
 /// Key/partition filters that do **not** require a full-schema product scan.

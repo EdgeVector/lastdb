@@ -3,7 +3,11 @@
 use super::{FieldValueType, KeyValue, Schema, SchemaError};
 pub use schema_types::key_comparison::{KeyOrderVersion, RangeKeyComparison};
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, future::Future, sync::Arc};
+use std::{
+    cmp::Ordering,
+    future::Future,
+    sync::{Arc, OnceLock},
+};
 
 tokio::task_local! {
     static COMPARISON: Arc<KeyComparisonContext>;
@@ -13,6 +17,7 @@ tokio::task_local! {
 pub struct KeyComparisonContext {
     identity: String,
     range: RangeKeyComparison,
+    failure: OnceLock<String>,
 }
 
 impl KeyComparisonContext {
@@ -51,6 +56,7 @@ impl KeyComparisonContext {
         Ok(Self {
             identity: format!("kc1:{:x}", Sha256::digest(bytes)),
             range: range_comparison,
+            failure: OnceLock::new(),
         })
     }
 
@@ -92,9 +98,13 @@ impl KeyComparisonContext {
                 )
                 .into());
             }
-            return future.await;
+            let result = future.await?;
+            active.require_valid_comparison()?;
+            return Ok(result);
         }
-        COMPARISON.scope(self, future).await
+        let result = COMPARISON.scope(Arc::clone(&self), future).await?;
+        self.require_valid_comparison()?;
+        Ok(result)
     }
 
     /// Capture the active range rule once for data-only response ordering.
@@ -108,8 +118,32 @@ impl KeyComparisonContext {
     #[must_use]
     pub fn compare_current_ranges(left: &str, right: &str) -> Ordering {
         COMPARISON
-            .try_with(|ctx| ctx.range.compare(left, right))
+            .try_with(|ctx| ctx.compare_ranges(left, right))
             .unwrap_or_else(|_| left.cmp(right))
+    }
+
+    fn compare_ranges(&self, left: &str, right: &str) -> Ordering {
+        match self.range.compare(left, right) {
+            Ok(order) => order,
+            Err(detail) => {
+                let _ = self.failure.set(detail);
+                // Keep a total temporary order: invalid values precede valid
+                // values, and invalid values use text order. Returning Equal
+                // for every error could violate a sort's ordering contract.
+                self.range
+                    .validate_value(left)
+                    .is_ok()
+                    .cmp(&self.range.validate_value(right).is_ok())
+                    .then_with(|| left.cmp(right))
+            }
+        }
+    }
+
+    fn require_valid_comparison(&self) -> Result<(), SchemaError> {
+        match self.failure.get() {
+            Some(detail) => Err(SchemaError::InvalidData(detail.clone())),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn compare_current_keys(left: &KeyValue, right: &KeyValue) -> Ordering {
