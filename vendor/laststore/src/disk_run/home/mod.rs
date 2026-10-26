@@ -31,6 +31,7 @@
 //! encryption at rest; the home key protects every run and CURRENT.
 
 mod capture;
+mod cleanup;
 mod commit;
 mod keys;
 mod manifest;

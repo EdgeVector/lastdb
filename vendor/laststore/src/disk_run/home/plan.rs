@@ -255,7 +255,7 @@ impl RunHome {
 
     /// One step of a base merge. `start` names the tiered runs of a new
     /// base merge; `None` continues the base merge in progress.
-    fn base_step(&self, start: Option<Vec<Arc<RunFile>>>) -> Result<RunMerge> {
+    pub(super) fn base_step(&self, start: Option<Vec<Arc<RunFile>>>) -> Result<RunMerge> {
         let held = self.held();
         let (merging, cut) = match &start {
             Some(runs) => (runs.clone(), None),
