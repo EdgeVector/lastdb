@@ -27,6 +27,9 @@ on:
       ttl_active:
         type: boolean
         default: false
+      typed_ranges:
+        type: boolean
+        default: false
       baseline_workers:
         type: string
         default: "0"
@@ -50,7 +53,17 @@ jobs:
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
+      BENCH_TYPED_RANGES: ${{ inputs.typed_ranges }}
     steps:
+      - name: Validate the explicit typed comparison configuration
+        env:
+          LEGACY_UPGRADE: ${{ inputs.legacy_cache_upgrade }}
+          TTL_ACTIVE: ${{ inputs.ttl_active }}
+        run: |
+          if [ "$BENCH_TYPED_RANGES" = true ] && { [ "$LEGACY_UPGRADE" = true ] || [ "$TTL_ACTIVE" = true ]; }; then
+            echo 'The typed comparison requires separate legacy-upgrade and active-TTL runs.' >&2
+            exit 1
+          fi
       - name: Prepare external result directory
         run: |
           result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
@@ -223,6 +236,7 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 65m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -273,6 +287,8 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -282,7 +298,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
+              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth" "${args[@]}"
 
       - name: Repeat resource measurements only when an advisory limit is crossed
         id: growth-confirmation
@@ -297,6 +313,8 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -306,7 +324,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
+              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
 
       - name: Repeat v2 disk size only when a size limit is crossed
         id: disk-budget-confirmation
@@ -321,6 +339,8 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 20m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -330,7 +350,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
+              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics" "${args[@]}"
 
       - name: Measure writes with active TTL and full compaction
         if: inputs.ttl_active && !inputs.resource_only

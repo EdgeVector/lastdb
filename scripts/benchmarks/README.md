@@ -108,6 +108,20 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
+The manual comparison also accepts `typed_ranges: true`.
+Both versions receive the same explicit String schema, values, blinded hashes, and OPE source configuration.
+The candidate stops after the seed and uses its matching `lastdb` CLI to create a separate typed V2 target.
+The converter must preserve every source data-file checksum and publish the exact typed marker.
+Only the candidate switches to that target before the normal reads and writes.
+The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
+The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
+The retained sum excludes transient merge files. It does not establish peak disk use.
+The artifact retains the product output, CLI checksum, and Linux process resource measurements.
+The normal schema and encryption choices stay unchanged when this option is false.
+This comparison covers String ranges. Date, DateTime, Integer, and Boolean need their separate product operations.
+Typed comparison requires a GitHub-hosted runner and excludes the separate legacy-upgrade and active-TTL options.
+The benchmark build retains and verifies both matching programs. It never reuses an unverified companion CLI.
+
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads and exact compiled baseline programs.
 Main pushes build and save the accepted candidate before baseline work or measurements.

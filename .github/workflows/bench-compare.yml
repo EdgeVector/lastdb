@@ -29,6 +29,10 @@ on:
         description: Capture native phases in a separate generated-data pass
         type: boolean
         default: false
+      typed_ranges:
+        description: Compare legacy OPE seed with the candidate's explicitly converted typed V2 home
+        type: boolean
+        default: false
       baseline_workers:
         description: Baseline socket workers (0 uses the product default)
         type: choice
@@ -75,5 +79,6 @@ jobs:
       resource_only: ${{ inputs.resource_only }}
       ttl_active: ${{ inputs.ttl_active }}
       investigation: ${{ inputs.investigation }}
+      typed_ranges: ${{ inputs.typed_ranges }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}
