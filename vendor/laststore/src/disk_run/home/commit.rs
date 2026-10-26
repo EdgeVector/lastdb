@@ -4,7 +4,7 @@ use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
 use crate::disk_pack::home::HomeMutation;
-use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
+use crate::disk_run::{merge_runs, value, RunReader, RunSummary, RunWriter};
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -94,7 +94,6 @@ impl RunHome {
     /// returns.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
         self.refuse_if_poisoned()?;
-        let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
         if operations.is_empty() {
             return Err(Error::Config("disk run home: empty commit".into()));
         }
@@ -107,6 +106,11 @@ impl RunHome {
         // operation comes first, and dedup keeps the first of each key.
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
+        // The stored forms are made before the commit lock.
+        for (_, body) in &mut records {
+            *body = body.as_deref().map(value::encode);
+        }
+        let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
         let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
         for (key, body) in &records {
             writer.push(key, body.as_deref())?;
@@ -161,7 +165,7 @@ impl RunHome {
             if operation
                 .body
                 .as_ref()
-                .is_some_and(|body| body.len() > crate::disk_run::MAX_RUN_VALUE_BYTES)
+                .is_some_and(|body| body.len() > super::MAX_VALUE_BYTES)
             {
                 return Err(Error::Config(
                     "disk run home: value exceeds the run value limit".into(),
@@ -227,6 +231,7 @@ impl RunHome {
         for run in &inputs {
             run.retire();
         }
+        self.note_retired(&inputs);
         Ok(RunMerge {
             root: RunRoot(Arc::clone(&installed)),
             generation: installed.generation,

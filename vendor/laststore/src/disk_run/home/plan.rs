@@ -15,11 +15,30 @@
 //!   runs stay until the last step.
 //!
 //! The bound, in record bytes (keys and values before compression), with L
-//! the live bytes: outside a base merge the stale bytes are at most a
-//! quarter of the total, so the home holds at most 4/3 L. A base merge adds
-//! at most its merging runs (1/8 of the total when it starts) and two base
-//! runs of 1/64 of the base each, so the peak is about 1.5 L. Each trigger
-//! needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that much more.
+//! the live record bytes: outside a base merge the stale bytes are at most
+//! an eighth of the total, so the home holds at most 8/7 L. A base merge
+//! adds at most its merging runs (1/16 of the total when it starts) and two
+//! base runs of 1/64 of the base each, so the peak is about 1.25 L. The file
+//! bytes follow when the runs compress alike. The bound leaves out the run
+//! of one large commit and the runs of commits during a base merge, and each
+//! trigger needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that
+//! much more.
+//!
+//! The bound also takes a replaced run off the disk at once. A read that
+//! holds an older CURRENT keeps the runs that later steps replace, so one
+//! read through many steps keeps old and new base runs on disk together.
+//! [`RunHome::retired_bytes`] counts them, and an owner with long reads
+//! waits for them before its next step.
+//!
+//! The shares serve the 2x limit of a node over its logical atom bytes, not
+//! only over its live bytes: with small atoms a node's files take about 1.45
+//! bytes per logical atom byte (the disk v2 node proof), which leaves the
+//! merges about 0.38 of the live file bytes. That proof peaked during writes
+//! at 2.03x to 2.12x of the atom bytes with shares of a quarter and an
+//! eighth, and at 1.95x to 2.06x with an eighth and a sixteenth: most of
+//! each peak was replaced runs that a node's write requests still held.
+//! Base merges start about twice as often as with the first shares, and
+//! each one rewrites the base.
 //!
 //! The stale bytes are counted, not estimated, so the bound holds for any
 //! value sizes. Each tiered run knows the record bytes of the older versions
@@ -37,18 +56,21 @@ use std::ops::Bound;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// A base merge starts when the tiered runs hold more than 1/8 of the
+/// A base merge starts when the tiered runs hold more than 1/16 of the
 /// record bytes.
-pub const TIER_SHARE: u64 = 8;
-/// A base merge starts when the stale bytes are more than 1/4 of the record
+pub const TIER_SHARE: u64 = 16;
+/// A base merge starts when the stale bytes are more than 1/8 of the record
 /// bytes.
-pub const STALE_SHARE: u64 = 4;
+pub const STALE_SHARE: u64 = 8;
 /// Neither trigger fires below this many bytes.
 pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
-/// A base run holds about 1/64 of the base, inside the bounds below.
+/// A base run holds about 1/64 of the base, inside the bounds below. With
+/// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB. The
+/// minimum keeps the two base runs of a step near 1/32 of a base of 16 MiB
+/// or more; at 1 MiB they were about 1/12 of a 24 MiB base.
 const BASE_PIECES: u64 = 64;
-const MIN_PIECE_BYTES: u64 = 1 << 20;
-const MAX_PIECE_BYTES: u64 = 64 << 20;
+const MIN_PIECE_BYTES: u64 = 256 << 10;
+const MAX_PIECE_BYTES: u64 = 1 << 30;
 /// Keys of one batch lookup when a run's hidden bytes are counted.
 const COUNT_KEYS: usize = 4096;
 
@@ -117,8 +139,11 @@ impl RunHome {
     pub fn merge_step(&self) -> Result<Option<RunMerge>> {
         self.refuse_if_poisoned()?;
         let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
-        self.count_hidden()?;
-        let Some(plan) = plan(&self.held()) else {
+        // One state for the count and the plan: a run that a commit adds
+        // after it waits for the next step, so the plan sees counted runs.
+        let held = self.held();
+        self.count_hidden(&held)?;
+        let Some(plan) = plan(&held) else {
             return Ok(None);
         };
         match plan {
@@ -135,11 +160,10 @@ impl RunHome {
         held.tiered().any(|run| run.hidden().is_none()) || plan(&held).is_some()
     }
 
-    /// Count the hidden bytes of each tiered run that has no count yet.
-    /// Only merges change the runs older than a tiered run, and the caller
-    /// holds the merge lock.
-    fn count_hidden(&self) -> Result<()> {
-        let held = self.held();
+    /// Count the hidden bytes of each tiered run of `held` that has no count
+    /// yet. Only merges change the runs older than a tiered run, and the
+    /// caller holds the merge lock.
+    fn count_hidden(&self, held: &Manifest) -> Result<()> {
         let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
         let tiered = held.tiered().count();
         for (at, run) in runs.iter().enumerate().take(tiered) {
@@ -170,15 +194,25 @@ impl RunHome {
             for record in records.by_ref().take(COUNT_KEYS) {
                 keys.push(record?.0);
             }
-            if keys.is_empty() {
+            let Some(first) = keys.first() else {
                 return Ok(hidden);
+            };
+            // The keys come in key order: a run that ends before this batch
+            // is not needed again.
+            for (slot, other) in older.iter().enumerate() {
+                if other.meta.last_key < *first {
+                    readers[slot] = None;
+                }
             }
             let bytes = self.older_bytes(&keys, &older, &mut readers)?;
             hidden = hidden.saturating_add(bytes);
         }
     }
 
-    /// Record bytes of the newest version of each of `keys` in `older`.
+    /// Record bytes of the newest version of each of `keys` (in key order)
+    /// in `older`. It closes the reader of each run that ends inside the
+    /// batch, so the base runs, which do not overlap, keep about one reader
+    /// open.
     fn older_bytes(
         &self,
         keys: &[Vec<u8>],
@@ -193,22 +227,25 @@ impl RunHome {
                 .copied()
                 .filter(|&at| run.meta.covers(&keys[at]))
                 .collect();
-            if wanted.is_empty() {
-                continue;
-            }
-            if readers[slot].is_none() {
-                readers[slot] = Some(RunReader::open(&run.path, &self.key)?);
-            }
-            let reader = readers[slot].as_ref().expect("reader opened");
-            let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
-            let mut found = HashSet::new();
-            for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
-                if let Some(size) = size {
-                    bytes = bytes.saturating_add(size);
-                    found.insert(at);
+            if !wanted.is_empty() {
+                if readers[slot].is_none() {
+                    readers[slot] = Some(RunReader::open(&run.path, &self.key)?);
                 }
+                let reader = readers[slot].as_ref().expect("reader opened");
+                let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
+                let mut found = HashSet::new();
+                for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
+                    if let Some(size) = size {
+                        bytes = bytes.saturating_add(size);
+                        found.insert(at);
+                    }
+                }
+                open.retain(|at| !found.contains(at));
             }
-            open.retain(|at| !found.contains(at));
+            // Later batches hold larger keys only.
+            if keys.last().is_some_and(|last| run.meta.last_key <= *last) {
+                readers[slot] = None;
+            }
             if open.is_empty() {
                 break;
             }
@@ -279,10 +316,12 @@ impl RunHome {
         for run in taken {
             run.retire();
         }
+        self.note_retired(taken);
         if last {
             for run in &merging {
                 run.retire();
             }
+            self.note_retired(&merging);
         }
         Ok(RunMerge {
             root: RunRoot(Arc::clone(&installed)),

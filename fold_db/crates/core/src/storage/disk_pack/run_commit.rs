@@ -7,6 +7,12 @@
 //! last read of the older root ends, so the disk does not keep them until
 //! the next read.
 //!
+//! A read holds its root for its whole call, and a write request holds one
+//! while it prepares, so the thread waits before its next step while such
+//! reads keep more than 1/16 of a home in replaced runs. Without the wait a
+//! base merge rewrote much of the base during one request, and the disk v2
+//! node proof peaked at 2.03x to 2.06x of its atom bytes on macOS.
+//!
 //! The CAS files have their own run home. A commit that holds CAS changes
 //! writes up to three runs in this order: new CAS files, then the other
 //! records, then CAS deletes. A crash between them can leave a CAS file that
@@ -84,27 +90,51 @@ impl PackRuntime {
         Ok(())
     }
 
+    /// Start the merge thread when a home needs a merge, as after a crash
+    /// during a base merge. Otherwise each commit starts it.
+    pub(super) fn resume_merges(&self) {
+        let Physical::V2(v2) = &self.physical else {
+            return;
+        };
+        if v2.home.needs_merge() || v2.cas.needs_merge() {
+            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
+        }
+    }
+
     /// Replace the readable root with a merged root of the same frontier.
     /// It never waits: a busy view keeps its root until the next capture.
     pub(super) fn adopt_merged_root(&self) {
         let Physical::V2(v2) = &self.physical else {
             return;
         };
-        if let Ok(mut view) = self.view.try_write() {
-            adopt(&mut view, v2.current_root(), &self.parts);
-        }
+        let replaced = self
+            .view
+            .try_write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, v2.current_root(), &self.parts));
+        drop(replaced);
     }
 }
 
 /// Install `latest` when it holds the same commits as the view's root and is
-/// newer: a merge root.
-fn adopt(view: &mut view::NativeReadView, latest: V2Root, parts: &parts::PartsLedger) {
-    if let PhysicalRoot::V2(held) = &view.current {
-        if held.frontier() == latest.frontier() && held.generation() < latest.generation() {
-            parts.observe_root(latest.generation(), latest.frontier());
-            view.current = PhysicalRoot::V2(latest);
-        }
+/// newer: a merge root. Returns the replaced root. Drop it after the view
+/// lock: its last drop deletes retired run files.
+fn adopt(
+    view: &mut view::NativeReadView,
+    latest: V2Root,
+    parts: &parts::PartsLedger,
+) -> Option<PhysicalRoot> {
+    let PhysicalRoot::V2(held) = &view.current else {
+        return None;
+    };
+    if held.frontier() != latest.frontier() || held.generation() >= latest.generation() {
+        return None;
     }
+    parts.observe_root(latest.generation(), latest.frontier());
+    Some(std::mem::replace(
+        &mut view.current,
+        PhysicalRoot::V2(latest),
+    ))
 }
 
 /// Commit one batch across the main and CAS homes in the safe order. For a
@@ -185,6 +215,16 @@ fn start_merges(
 /// fails each time (a full disk) does not start a thread on each commit.
 const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The thread waits before its next step while the replaced runs that reads
+/// still hold are more than this share of the home's run files.
+const HELD_SHARE: u64 = 16;
+/// The smallest wait budget, so a small home does not wait at each step.
+const MIN_HELD_BYTES: u64 = 1 << 20;
+/// The longest wait for reads: a longer read keeps its runs, and the merge
+/// goes on.
+const HELD_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
+
 /// Where the merge thread installs merged roots.
 struct Adopted {
     view: Arc<RwLock<view::NativeReadView>>,
@@ -202,9 +242,12 @@ impl Adopted {
             main: main.current_root(),
             cas: cas.current_root(),
         };
-        if let Ok(mut view) = self.view.write() {
-            adopt(&mut view, latest, &self.parts);
-        }
+        let replaced = self
+            .view
+            .write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, latest, &self.parts));
+        drop(replaced);
     }
 }
 
@@ -218,8 +261,8 @@ fn merge_until_settled(
     loop {
         'steps: while !stop.load(Ordering::Acquire) {
             let mut merged = false;
-            for home in homes {
-                let Some(home) = home.upgrade() else {
+            for weak in homes {
+                let Some(home) = weak.upgrade() else {
                     break 'steps;
                 };
                 match home.merge_step() {
@@ -227,6 +270,9 @@ fn merge_until_settled(
                         merged = true;
                         drop(home);
                         adopted.install(homes);
+                        // The view holds the merged root now, so only reads
+                        // that captured an older root keep the replaced runs.
+                        wait_for_held_runs(weak, stop);
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -254,6 +300,26 @@ fn merge_until_settled(
         if !needed || merging.swap(true, Ordering::AcqRel) {
             return;
         }
+    }
+}
+
+/// Wait while reads keep more than 1/[`HELD_SHARE`] of `home` in runs that
+/// merges replaced, for at most [`HELD_WAIT`]. The thread holds the home
+/// only for each check, and a close ends the wait.
+fn wait_for_held_runs(home: &std::sync::Weak<RunHome>, stop: &AtomicBool) {
+    let until = std::time::Instant::now() + HELD_WAIT;
+    let mut limit = None;
+    while let Some(home) = home.upgrade() {
+        let budget = *limit
+            .get_or_insert_with(|| (home.status().file_bytes() / HELD_SHARE).max(MIN_HELD_BYTES));
+        if home.retired_bytes() <= budget
+            || stop.load(Ordering::Acquire)
+            || std::time::Instant::now() >= until
+        {
+            return;
+        }
+        drop(home);
+        std::thread::sleep(HELD_POLL);
     }
 }
 

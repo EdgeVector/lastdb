@@ -147,6 +147,7 @@ impl PackNamespacedStore {
             .runtime
             .initializing
             .store(initializing, Ordering::Release);
+        store.runtime.resume_merges();
         Ok(store)
     }
 }

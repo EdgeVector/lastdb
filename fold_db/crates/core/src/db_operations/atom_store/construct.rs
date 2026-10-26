@@ -48,6 +48,7 @@ impl AtomStore {
             protein_membership_gate: Arc::default(),
             content_key,
             atom_content_binary: crate::atom::atom_content_binary_enabled(),
+            plain_content: false,
             key_codec,
             molecule_keys: None,
             molecule_commit_locks: Arc::default(),
@@ -87,8 +88,13 @@ impl AtomStore {
         self
     }
 
+    /// Attach the owner namespace store. A disk format v2 store selects plain
+    /// atom rows.
     #[must_use]
     pub(crate) fn with_namespaced_store(mut self, store: Arc<dyn NamespacedStore>) -> Self {
+        self.plain_content = store
+            .disk_pack_runtime()
+            .is_some_and(|runtime| runtime.is_disk_format_v2());
         self.namespaced_store = Some(store);
         self
     }

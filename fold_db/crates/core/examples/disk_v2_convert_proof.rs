@@ -16,11 +16,15 @@
 //! conversion they must be in `disk-cas` and not in `disk-run`, so that a
 //! backup can send them to a different store.
 //!
+//! Each step opens the database operations with the node key, as the daemon
+//! does, so the v1 home holds the content key proof that the conversion checks.
+//!
 //! Each open runs in its own child process of this program, as a daemon
 //! restart does: a closed v1 store keeps background tasks until its process
 //! ends. The crash states use the file names of `convert_v2`. It never opens
 //! a real LastDB home.
 
+use fold_db::atom::MoleculeKeyCodec;
 use fold_db::db_operations::DbOperations;
 use fold_db::storage::disk_pack::{kept_v1_path, PackNamespacedStore};
 use fold_db::storage::traits::{KvStore, NamespacedStore};
@@ -230,7 +234,13 @@ async fn step(name: &str, node: &Path, node_key: &str) -> Result<()> {
         return Err(format!("step {name}: the home opened as v2={v2}").into());
     }
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
-    DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
+    DbOperations::from_namespaced_store_with_atom_and_molecule_keys(
+        Arc::clone(&shared),
+        Some(node_key),
+        MoleculeKeyCodec::plain(),
+        Some(node_key),
+    )
+    .await?;
     match name {
         "write-v1" => {
             write(&shared, NAMESPACE, v1_batches()).await?;

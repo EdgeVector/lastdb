@@ -6,12 +6,16 @@
 //! a read that holds an old CURRENT across merges, crash leftovers, kill -9
 //! of a writing child process, the owner lock, and a wrong key. The bound
 //! phases sample the disk size during commits and merges with values that do
-//! not compress. It fails when the disk size is over 2x the live logical
-//! bytes. No primary or user data is opened.
+//! not compress. The values phase (V1b) checks that each stored value, in the
+//! compact form or as given, reads back with its exact bytes. It fails when
+//! the disk size is over 2x the live logical bytes. No primary or user data is
+//! opened.
 
 mod bound;
 mod crash;
 mod gen;
+mod value_gen;
+mod values;
 
 use gen::{apply, batch, logical_bytes, overwrite_batch, tip_key, Model, TIP_SCHEMAS};
 use laststore::disk_pack::home::HomeMutation;
@@ -94,6 +98,7 @@ fn run(scratch: &Path) -> Result<()> {
         return Err("no base merge step ran".into());
     }
     let (overwrites, overwrite_ratio) = check_overwrites(scratch, &key)?;
+    let (values_row, values_ratio) = values::check(scratch, &key)?;
     commit_us.sort_unstable();
     println!("| Check | Result |");
     println!("|---|---|");
@@ -110,6 +115,7 @@ fn run(scratch: &Path) -> Result<()> {
         logical as f64 / MIB
     );
     println!("| Overwrite-heavy | {overwrites} |");
+    println!("| Compact values (V1b) | {values_row} |");
     println!("| Read back | {checked} keys equal by key and by batch; {ranges} |");
     println!("| Held read across merges | {held_check} |");
     drop(home);
@@ -122,7 +128,11 @@ fn run(scratch: &Path) -> Result<()> {
         "| Owner lock and key | {} |",
         check_lock_and_key(&dir, &key)?
     );
-    let mut ratios = vec![("mixed", ratio), ("overwrite-heavy", overwrite_ratio)];
+    let mut ratios = vec![
+        ("mixed", ratio),
+        ("overwrite-heavy", overwrite_ratio),
+        ("compact values", values_ratio),
+    ];
     ratios.extend(bound::phases(scratch, &key)?);
     for (name, ratio) in ratios {
         if ratio > bound::LIMIT {

@@ -142,8 +142,14 @@ impl PackRuntime {
             }
         }
         let frontier = current.frontier();
-        view.current = current;
+        let replaced = std::mem::replace(&mut view.current, current);
         drop(view);
+        // The last drop of a root deletes its retired run files, so it
+        // happens after the view lock.
+        drop(replaced);
+        // A merge can publish between the caller's read of `current` and
+        // this install; take its root now, not at the next read.
+        self.adopt_merged_root();
         self.publish_native_backup_boundary(frontier);
         Ok(())
     }
