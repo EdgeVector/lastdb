@@ -97,8 +97,6 @@ pub struct DwellStep {
     pub deleted: u64,
     /// Queue entries removed that no counter at zero backed.
     pub stale: u64,
-    /// Blobs that a retired-intent root keeps. Their dwell starts again.
-    pub renewed: u64,
     /// Queue entries whose counter does not decode. The entry is dropped and the
     /// blob stays: nothing can say that its count is zero.
     pub unreadable: u64,
@@ -118,7 +116,7 @@ impl DwellStep {
     /// Entries the step handled.
     #[must_use]
     pub fn handled(&self) -> u64 {
-        self.deleted + self.stale + self.renewed + self.unreadable
+        self.deleted + self.stale + self.unreadable
     }
 }
 
@@ -216,7 +214,7 @@ impl AtomStore {
                     .iter()
                     .map(|(key, value)| decode_entry(&queue, key, value))
                     .collect();
-                let step = self.blob_dwell_delete(&entries, now).await?;
+                let step = self.blob_dwell_delete(&entries).await?;
                 if page.rows.len() > take {
                     // The chunk took the head of the page. The cursor goes to the
                     // first key it did not take, and the bucket is read again at

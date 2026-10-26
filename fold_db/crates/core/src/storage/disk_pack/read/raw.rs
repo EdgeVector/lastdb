@@ -119,7 +119,6 @@ fn trace_families(coordinates: &[(String, String)]) {
             "schema_superseded_by" => "schema_successor",
             "molecule_keys" => "molecule_encryption_keys",
             "share_subscriptions" => "receiver_registry",
-            "sync_foreign_share_bindings" => "receiver_binding",
             "db_catalog" => "database_membership",
             _ => {
                 let raw =

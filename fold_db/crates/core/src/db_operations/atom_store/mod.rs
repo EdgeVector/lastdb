@@ -50,7 +50,6 @@ mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
-mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
