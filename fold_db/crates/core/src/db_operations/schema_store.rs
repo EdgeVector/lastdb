@@ -40,6 +40,7 @@ mod retention_sharing;
 mod retired_replay;
 mod write;
 
+pub(crate) use catalog_keys::SchemaRetentionAnchor;
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
 pub(crate) use retention_format::require_typed_range_retention;

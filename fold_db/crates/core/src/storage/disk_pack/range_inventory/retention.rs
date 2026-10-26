@@ -1,7 +1,9 @@
 //! A target profile cannot silently change the existing TTL expiry clock.
 
 use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
-use crate::db_operations::schema_store::{frozen_retention_keys, require_typed_range_retention};
+use crate::db_operations::schema_store::{
+    frozen_retention_keys, require_typed_range_retention, SchemaRetentionAnchor,
+};
 use crate::schema::{Schema, SchemaRetentionPolicy};
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
@@ -27,8 +29,8 @@ pub(super) fn blocker(
     limits: InventoryLimits,
 ) -> StorageResult<Option<String>> {
     let [anchor_key, _] = frozen_retention_keys(&schema.name);
-    let anchor =
-        value::<String>(records, &anchor_key, key, limits)?.unwrap_or_else(|| schema.name.clone());
+    let anchor = value::<SchemaRetentionAnchor>(records, &anchor_key, key, limits)?
+        .map_or_else(|| schema.name.clone(), |row| row.anchor);
     let [_, policy_key] = frozen_retention_keys(&anchor);
     if value::<SchemaRetentionPolicy>(records, &policy_key, key, limits)?.is_none() {
         return Ok(None);
