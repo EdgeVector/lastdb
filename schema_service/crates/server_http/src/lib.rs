@@ -235,7 +235,7 @@ impl SchemaServiceServer {
 
     /// Seed every pool the service ships with:
     ///   * curated canonical fields (`builtin_canonical_fields`)
-    ///   * SystemSeed + app-template schemas (`builtin_schemas`)
+    ///   * built-in schemas (`builtin_schemas`; the boot list is empty)
     ///
     /// Schema.org types and Schema.org property rows are **not** seeded
     /// (`preference-schema-org-not-live-language`).
