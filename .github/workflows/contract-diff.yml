@@ -31,9 +31,16 @@ jobs:
         with:
           python-version: '3.11'
       
+      - name: Copy scripts to temp location
+        run: |
+          mkdir -p $RUNNER_TEMP/contract-scripts
+          cp scripts/lints/generate-contract-snapshot.py $RUNNER_TEMP/contract-scripts/
+          cp scripts/lints/diff-contract-snapshots.py $RUNNER_TEMP/contract-scripts/
+          chmod +x $RUNNER_TEMP/contract-scripts/*.py
+      
       - name: Generate HEAD snapshot
         run: |
-          python3 scripts/lints/generate-contract-snapshot.py > /tmp/contract-head.json
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py > /tmp/contract-head.json
           echo "HEAD snapshot:"
           cat /tmp/contract-head.json
       
@@ -44,7 +51,7 @@ jobs:
       
       - name: Generate BASE snapshot
         run: |
-          python3 scripts/lints/generate-contract-snapshot.py > /tmp/contract-base.json
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py > /tmp/contract-base.json
           echo "BASE snapshot:"
           cat /tmp/contract-base.json
       
@@ -55,7 +62,7 @@ jobs:
       - name: Diff contract snapshots
         id: diff
         run: |
-          python3 scripts/lints/diff-contract-snapshots.py \
+          python3 $RUNNER_TEMP/contract-scripts/diff-contract-snapshots.py \
             /tmp/contract-base.json \
             /tmp/contract-head.json \
             > /tmp/contract-diff.txt
@@ -94,10 +101,8 @@ jobs:
             echo "breaking_outbox=false" >> $GITHUB_OUTPUT
           fi
       
-      - name: Check version bump or additive marker
+      - name: Check version bump (REQUIRED for breaking changes)
         if: steps.diff.outputs.has_breaking == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           BREAKING_HTTP=${{ steps.diff.outputs.breaking_http }}
           BREAKING_OUTBOX=${{ steps.diff.outputs.breaking_outbox }}
@@ -131,27 +136,21 @@ jobs:
             fi
           fi
           
-          # If still failing, check for contract:additive label
+          # FAIL: Breaking changes REQUIRE version bump (no label override)
           if [ "$FAIL" = "true" ]; then
-            HAS_LABEL=$(gh pr view ${{ github.event.pull_request.number }} \
-              --json labels --jq '.labels[].name' | grep -c "^contract:additive$" || true)
-            
-            if [ "$HAS_LABEL" -gt 0 ]; then
-              echo "✓ PR labeled as contract:additive"
-              exit 0
-            fi
-            
-            # FAIL: Breaking changes without version bump or additive marker
             echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "CONTRACT DIFF:"
             cat /tmp/contract-diff.txt
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
-            echo "Options to resolve:"
-            echo "1. If HTTP API is breaking: bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
-            echo "2. If outbox format is breaking: bump CURRENT_OUTBOX_FORMAT_VERSION in lastdb_node/src/version.rs"
-            echo "3. If this is genuinely additive: add the 'contract:additive' label to this PR"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Breaking changes detected. Version bump required:"
+            echo ""
+            if [ "$BREAKING_HTTP" = "true" ]; then
+              echo "  → Bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
+            fi
+            if [ "$BREAKING_OUTBOX" = "true" ]; then
+              echo "  → Bump CURRENT_OUTBOX_FORMAT_VERSION in lastdb_node/src/version.rs"
+            fi
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             exit 1
           fi
       
