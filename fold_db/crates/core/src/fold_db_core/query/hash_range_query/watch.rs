@@ -23,6 +23,25 @@ impl HashRangeWatchBounds {
         self.start.as_deref().is_none_or(|start| range >= start)
             && self.end.as_deref().is_none_or(|end| range < end)
     }
+
+    fn contains_with(
+        &self,
+        range: &str,
+        comparison: &crate::schema::types::key_comparison::RangeKeyComparison,
+    ) -> Result<bool, String> {
+        comparison.validate_value(range)?;
+        let lower = self
+            .start
+            .as_deref()
+            .map(|start| comparison.compare(range, start))
+            .transpose()?;
+        let upper = self
+            .end
+            .as_deref()
+            .map(|end| comparison.compare(range, end))
+            .transpose()?;
+        Ok(lower.is_none_or(|order| !order.is_lt()) && upper.is_none_or(|order| order.is_lt()))
+    }
 }
 
 /// A committed mutation delivered by a HashRange watch.
@@ -86,10 +105,33 @@ pub struct HashRangeWatch {
     pub(super) hash: String,
     pub(super) bounds: HashRangeWatchBounds,
     pub(super) receiver: broadcast::Receiver<ChangeFeedEvent>,
+    pub(super) db_ops: Arc<DbOperations>,
+    pub(super) comparison: Option<Arc<crate::schema::types::key_comparison::KeyComparisonContext>>,
 }
 
 impl HashRangeWatch {
     pub async fn recv(&mut self) -> Result<HashRangeWatchEvent, HashRangeWatchError> {
+        if self.comparison.is_none() {
+            let schema = self
+                .db_ops
+                .schemas()
+                .get_schema(&self.schema)
+                .await
+                .map_err(|_| invalid_watch())?
+                .ok_or_else(invalid_watch)?;
+            self.comparison = Some(
+                self.db_ops
+                    .atoms()
+                    .key_comparison_context(&schema)
+                    .await
+                    .map_err(|_| invalid_watch())?,
+            );
+        }
+        let comparison = self
+            .comparison
+            .as_ref()
+            .ok_or_else(invalid_watch)?
+            .range_comparison();
         loop {
             let event = match self.receiver.recv().await {
                 Ok(event) => event,
@@ -109,16 +151,19 @@ impl HashRangeWatch {
             if event.schema != self.schema
                 || event.hash.as_deref() != Some(self.hash.as_str())
                 || !matches!(event.operation.as_str(), "create" | "update" | "delete")
-                || event
-                    .range
-                    .as_deref()
-                    .is_none_or(|range| !self.bounds.contains(range))
             {
                 continue;
             }
             let Some(range) = event.range.as_deref() else {
                 continue;
             };
+            if !self
+                .bounds
+                .contains_with(range, comparison)
+                .map_err(|_| invalid_watch())?
+            {
+                continue;
+            }
             return Ok(HashRangeWatchEvent {
                 range: range.to_string(),
                 ..event.into()
@@ -128,5 +173,12 @@ impl HashRangeWatch {
 
     pub async fn next(&mut self) -> Result<HashRangeWatchEvent, HashRangeWatchError> {
         self.recv().await
+    }
+}
+
+fn invalid_watch() -> HashRangeWatchError {
+    HashRangeWatchError {
+        reason: "invalid_range_contract",
+        skipped: 0,
     }
 }
