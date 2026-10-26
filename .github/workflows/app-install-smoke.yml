@@ -120,7 +120,7 @@ jobs:
           LASTDBD_PID=$!
           echo "LASTDBD_PID=$LASTDBD_PID" >> "$GITHUB_ENV"
           
-          # Wait for socket
+          # Wait for socket file to appear
           timeout=60
           while [ $timeout -gt 0 ] && [ ! -S "$LASTDB_HOME/data/folddb.sock" ]; do
             sleep 1
@@ -133,8 +133,28 @@ jobs:
             exit 1
           fi
           
-          # Check health
-          lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-initial.txt"
+          # Wait for daemon to be actually ready (not just socket file existing)
+          echo "Socket file exists, now testing daemon responsiveness..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if lastdb --data-dir "$LASTDB_HOME" status > /dev/null 2>&1; then
+              echo "Daemon is responding"
+              break
+            fi
+            sleep 1
+            timeout=$((timeout - 1))
+          done
+          
+          # Final health check
+          if ! lastdb --data-dir "$LASTDB_HOME" status > "$PROOF_DIR/lastdb-status-initial.txt" 2>&1; then
+            echo "LastDB daemon is not responding after 60s"
+            cat "$PROOF_DIR/lastdbd-startup.log"
+            cat "$PROOF_DIR/lastdb-status-initial.txt"
+            exit 1
+          fi
+          
+          echo "Daemon started successfully"
+          cat "$PROOF_DIR/lastdb-status-initial.txt"
           
           # Log LastDB version being tested
           lastdb --version | tee "$PROOF_DIR/lastdb-version.txt"
