@@ -5,13 +5,11 @@
 //! LastStore `put` already buffers into memory (group-commit when a shard hits
 //! `max_dirty_*`). The product mutation path used to call a full
 //! `db_ops.flush()` — F_FULLFSYNC across open shards on macOS — on every
-//! `finalize_batch`. That matched sled-era *intent* (durability barrier at
-//! commit) but not sled-era *cost*: sled's flush was cheap; LastStore's is
-//! multi-millisecond to multi-second under a warm HashGroup set.
+//! `finalize_batch`. That gave a durability barrier at commit, but a LastStore
+//! flush is multi-millisecond to multi-second under a warm HashGroup set.
 //!
-//! Sled-like product latency needs the same shape sled actually used for
-//! day-to-day speed: **acknowledge after memory write, durable on a short
-//! background interval (and on shutdown)**.
+//! Low product latency therefore needs this shape: **acknowledge after memory
+//! write, durable on a short background interval (and on shutdown)**.
 //!
 //! ## Contract
 //!
@@ -46,7 +44,7 @@ pub const MUTATION_SYNC_FLUSH_ENV: &str = "LASTDB_MUTATION_SYNC_FLUSH";
 /// Env: background flush interval in milliseconds (`0` = off).
 pub const BACKGROUND_FLUSH_MS_ENV: &str = "LASTDB_BACKGROUND_FLUSH_MS";
 
-/// Default background flush period — sled-class group-commit cadence.
+/// Default background flush period, in milliseconds.
 pub const DEFAULT_BACKGROUND_FLUSH_MS: u64 = 500;
 
 /// Resolved mutation durability policy for this process.

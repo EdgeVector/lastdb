@@ -94,7 +94,7 @@ impl ChangedKey {
 }
 
 /// One stored `mk:{M}:{key}` record: a key's atom entry plus its optional
-/// per-key metadata. The key itself is encoded into the Sled key by
+/// per-key metadata. The key itself is encoded into the storage key by
 /// [`molecule_key_codec`], so it is not duplicated in the value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PerKeyRecord {

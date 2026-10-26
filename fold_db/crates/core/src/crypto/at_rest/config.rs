@@ -77,9 +77,9 @@ pub fn at_rest_compress_min_bytes() -> usize {
 ///
 /// This is a second, independent switch from [`at_rest_compression_enabled`],
 /// and it defaults **off**. The two seals cover different data: the `at_rest`
-/// codec wraps a handful of small direct-Sled trees, while the KV seam wraps
-/// the whole product store — `atoms`, `tips`, `indexes`, `metadata`,
-/// `change_feed`, `cas_blobs`, the order log and the locators.
+/// codec seals values inside records and fields under a raw key, while the KV
+/// seam wraps the whole product store — `atoms`, `tips`, `indexes`,
+/// `metadata`, `change_feed`, `cas_blobs`, the order log and the locators.
 ///
 /// It defaults off because turning it on changes the **stored format of the
 /// primary's largest planes**, and a node that later runs a build predating
@@ -106,10 +106,12 @@ pub fn kv_at_rest_compress_min_bytes() -> usize {
         .unwrap_or_else(at_rest_compress_min_bytes)
 }
 
-/// Whether byte-oriented direct stores may emit `ENB:`.
+/// Whether `LASTDB_AT_REST_RAW` is set.
 ///
-/// Reads never consult this switch. It defaults off for the two-phase rollout:
-/// first ship and install the reader, then set `LASTDB_AT_REST_RAW=1`.
+/// No writer consults this switch: each seal call site picks its own form
+/// (`seal_at_rest_utf8`, `seal_at_rest_raw`, or a deflate entry point), and
+/// reads accept every form. Only the `codec_policy.writer_policy` status label
+/// reads it.
 #[must_use]
 pub fn at_rest_raw_enabled() -> bool {
     matches!(env_flag::var_parse("LASTDB_AT_REST_RAW"), Some(true))

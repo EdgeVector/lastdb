@@ -219,9 +219,9 @@ impl std::fmt::Display for MoleculeKeyCodecError {
 
 impl std::error::Error for MoleculeKeyCodecError {}
 
-/// Sled key prefix for a per-key molecule record.
+/// Storage key prefix for a per-key molecule record.
 pub const MK_PREFIX: &str = "mk:";
-/// Sled key prefix for a molecule header record.
+/// Storage key prefix for a molecule header record.
 pub const MH_PREFIX: &str = "mh:";
 /// Active molecule-generation pointer. The pointer is the only mutable row in
 /// a generation activation; generation bodies are immutable.

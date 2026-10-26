@@ -44,9 +44,6 @@ pub enum StorageError {
     #[error("Upload failed: {0}")]
     UploadFailed(String),
 
-    #[error("Sled error: {0}")]
-    SledError(String),
-
     /// The filesystem holding the database is out of space, so the write did
     /// not land.
     ///

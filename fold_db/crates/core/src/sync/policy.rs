@@ -57,7 +57,6 @@ pub const SYNC_INTERNAL_NAMESPACES: &[&str] = &[
     "sync_pin_log",
     "sync_thumb_cache",
     "sync_replay_quarantine",
-    "__sled__default",
     "__at_rest_strict_markers",
 ];
 

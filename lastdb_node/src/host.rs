@@ -214,14 +214,13 @@ const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 /// The node marker. Every native node home has it, in disk format v1 and v2.
 const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
 
-/// Whether `<home>/data` already holds a store (Last Store collections or leftover files).
+/// Whether `<home>/data` already holds a store (a layout file, a node marker, or a collection).
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 ///
-/// Must recognise the layout the node actually writes today. Until 2026-07-28
-/// this looked only for sled's `conf`+`db` pair, which LastStore has never
-/// written — so it answered `false` for every real Mini home, including the
-/// primary, and the refuse-to-start-fresh contract below was left resting
-/// entirely on substring-matching the storage layer's error text.
+/// Recognises the layouts the node writes: the LastStore layout file, the
+/// node marker (disk format v1 and v2), or any collection directory under
+/// `<data>/data`. The refuse-to-start-fresh contract below rests on this
+/// structural answer, not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
     // LastStore: `<data>/laststore-layout-v1` + `<data>/data/<collection>/…`.
     if data_path.join(LASTSTORE_LAYOUT_FILE).is_file() {
@@ -232,21 +231,8 @@ pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
         return true;
     }
     let collections = data_path.join("data");
-    if let Ok(entries) = std::fs::read_dir(&collections) {
-        if entries.filter_map(Result::ok).any(|e| e.path().is_dir()) {
-            return true;
-        }
-    }
-
-    // Legacy sled homes predate the LastStore cutover but must still count as
-    // "there is data here" — this is the branch that refuses a fresh boot over
-    // a home someone restored from an old backup.
-    let conf = data_path.join("conf");
-    let db = data_path.join("db");
-    if !(conf.is_file() && db.exists()) {
-        return false;
-    }
-    std::fs::metadata(&db).map_or(true, |m| m.len() > 0)
+    std::fs::read_dir(&collections)
+        .is_ok_and(|entries| entries.filter_map(Result::ok).any(|e| e.path().is_dir()))
 }
 
 fn is_decrypt_boot_failure(msg: &str) -> bool {
