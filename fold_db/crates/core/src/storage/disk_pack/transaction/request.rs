@@ -46,11 +46,11 @@ where
     super::super::timing::mark(&mut timing, "admission_us");
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
-    let result = read::write_scope(
+    let (result, preparation_reads) = super::super::timing::observe_preparation(read::write_scope(
         Arc::clone(&runtime),
         Arc::clone(&pending),
         WRITE.scope(Arc::clone(&pending), future),
-    )
+    ))
     .await;
     // A scope that staged nothing is not counted as a writer (`blocked::opened`): a poll
     // that opens an empty scope (`verify-refs` does, at the start of a run) must not
@@ -98,7 +98,7 @@ where
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     runtime.wait_for_queue(sequence).await?;
     super::super::timing::mark(&mut timing, "durable_wait_us");
-    super::super::timing::request(timing, sequence, background);
+    super::super::timing::request(timing, sequence, background, preparation_reads);
     super::blocked::note(if background {
         hold.saturating_add(pending_timing.flush_blocked())
     } else {

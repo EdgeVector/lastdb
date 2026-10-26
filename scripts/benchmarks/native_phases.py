@@ -70,10 +70,19 @@ def correlate(case, rows, metric, events):
             "slowest_requests": slow_requests(rows, scopes, physical) if case in ("update/1", "update/128") else []}
 
 
-def collect_native_phases(output):
+def native_events(output):
+    # The daemon stops before capture. Read its retained rotations as well as
+    # the current file; exact scope coverage still rejects lost or duplicate data.
+    rotations = [path for path in output.glob("node.log.*") if path.suffix[1:].isdigit()]
+    paths = sorted(rotations, key=lambda path: int(path.suffix[1:]), reverse=True)
+    paths.append(output / "node.log")
     marker = "LASTDB_SNAPSHOT_TIMING "
-    events = [json.loads(line.split(marker, 1)[1])
-              for line in (output / "node.log").read_text().splitlines() if marker in line]
+    return [json.loads(line.split(marker, 1)[1])
+            for path in paths for line in path.read_text().splitlines() if marker in line]
+
+
+def collect_native_phases(output):
+    events = native_events(output)
     if not events:
         raise ValueError("The diagnostic daemon emitted no native timing records")
     metrics = json.loads((output / "metrics.json").read_text())
