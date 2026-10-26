@@ -127,11 +127,8 @@ impl AtomStore {
                     "cannot decode molecule key {storage_key}"
                 )));
             };
-            let api_range = crate::crypto::E2eKeys::ope_decode_range_plaintext(&storage_range)
-                .or_else(|| {
-                    (codec.range_encoding() == crate::atom::RangeKeyEncoding::Plain)
-                        .then(|| storage_range.clone())
-                });
+            // A raw debug report retains a row whose selected decoder refuses.
+            let api_range = codec.api_range(&storage_range).ok();
             let atom_content = self
                 .get_atom_by_uuid(&record.entry.atom_uuid, storage_prefix)
                 .await?

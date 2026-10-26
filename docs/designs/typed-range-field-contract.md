@@ -133,6 +133,13 @@ Some integer keys grow under the fixed-width format; the profile does not promis
 No second lookup key or original range copy enters storage.
 The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes.
 
+All stored range decode paths use the exact molecule codec.
+A plain range that resembles an OPE token stays plain.
+Normal reads refuse a malformed range. V2 block encryption supplies authentication.
+Offline conversion also requires the same bytes after re-encoding under the selected molecule key.
+Raw diagnostics can retain the stored row without an API range value.
+This check does not make OPE-v1 authenticated or stop its known plaintext disclosure.
+
 ## Explicit key conversion
 
 `RangeKeyConversion` converts a caller-supplied set of current `mk:` range keys for one molecule.

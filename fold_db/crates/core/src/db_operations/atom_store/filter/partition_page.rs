@@ -240,11 +240,7 @@ impl AtomStore {
         for (key, record) in rows {
             let (_, range) = molecule_key_codec::decode_hash_range_any(&key)
                 .ok_or_else(|| SchemaError::InvalidData("invalid partition page key".into()))?;
-            let range = if writes_ope {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
-            } else {
-                range
-            };
+            let range = codec.api_range(&range).map_err(codec_err)?;
             last = Some(range.clone());
             union.entry(range).or_insert((key, record));
         }

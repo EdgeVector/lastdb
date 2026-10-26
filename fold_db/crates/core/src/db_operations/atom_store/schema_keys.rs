@@ -26,21 +26,23 @@ struct ReadyTipKey {
 }
 
 impl ReadyTipKey {
-    fn new(molecule: &str, key: CoreStoredKey, api_hash: Option<&str>, ope: bool) -> Self {
+    fn new(
+        molecule: &str,
+        key: &CoreStoredKey,
+        api: Option<(&str, &crate::atom::MoleculeKeyCodec)>,
+    ) -> Result<Self, SchemaError> {
         let base = molecule_key_codec::hash_range_record_key(molecule, &key.hash, &key.range);
-        let api_key = api_hash.map(|hash| {
-            let range = if ope {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&key.range).unwrap_or(key.range)
-            } else {
-                key.range
-            };
-            KeyValue::new(Some(hash.to_string()), Some(range))
-        });
-        Self {
+        let api_key = api
+            .map(|(hash, codec)| -> Result<KeyValue, SchemaError> {
+                let range = codec.api_range(&key.range).map_err(key_error)?;
+                Ok(KeyValue::new(Some(hash.to_string()), Some(range)))
+            })
+            .transpose()?;
+        Ok(Self {
             molecule: molecule.to_string(),
             base,
             api_key,
-        }
+        })
     }
 }
 

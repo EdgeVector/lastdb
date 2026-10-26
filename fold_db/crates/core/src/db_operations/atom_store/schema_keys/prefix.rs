@@ -166,18 +166,21 @@ impl AtomStore {
         mut source: Source,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
         let mut output = Vec::new();
-        let ope = self
-            .key_codec_for_molecule(&source.molecule)?
-            .range_encoding()
-            .writes_ope();
+        let codec = self.key_codec_for_molecule(&source.molecule)?;
         while !source.exhausted {
             let Some(next) = runtime.with_schema_key_selection(|| source.next(4096)) else {
                 return Ok(None);
             };
             let keys = next?
-                .into_iter()
-                .map(|key| ReadyTipKey::new(&source.molecule, key, source.api_hash.as_deref(), ope))
-                .collect();
+                .iter()
+                .map(|key| {
+                    ReadyTipKey::new(
+                        &source.molecule,
+                        key,
+                        source.api_hash.as_deref().map(|hash| (hash, &codec)),
+                    )
+                })
+                .collect::<Result<_, SchemaError>>()?;
             let rows = self
                 .resolve_preloaded_tip_keys(runtime, scope, keys)
                 .await?;

@@ -5,7 +5,6 @@
 //! activation requires an offline publication/recovery boundary first.
 
 use super::{MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding};
-use crate::crypto::E2eKeys;
 pub use schema_types::range_storage_profile::RangeStorageProfile;
 
 /// One range representation, with no second key or copy of the original text.
@@ -72,24 +71,14 @@ impl ProfiledRangeCodec {
         molecule: &str,
         stored: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
-        let ordered = match self.codec.range_encoding() {
-            RangeKeyEncoding::Plain => stored.to_owned(),
-            RangeKeyEncoding::OpeV1 => {
-                // Validate the key even for an empty range token.
-                if self.codec.ope_key.is_none() {
-                    return Err(MoleculeKeyCodecError::MissingOpeKey);
-                }
-                let decoded = E2eKeys::ope_decode_range_plaintext(stored).ok_or_else(|| {
-                    MoleculeKeyCodecError::InvalidRange("malformed OPE-v1 range".into())
-                })?;
-                if self.codec.storage_range(molecule, &decoded)? != stored {
-                    return Err(MoleculeKeyCodecError::InvalidRange(
-                        "OPE-v1 molecule or key does not match".into(),
-                    ));
-                }
-                decoded
-            }
-        };
+        let ordered = self.codec.api_range(stored)?;
+        if self.codec.range_encoding() == RangeKeyEncoding::OpeV1
+            && self.codec.storage_range(molecule, &ordered)? != stored
+        {
+            return Err(MoleculeKeyCodecError::InvalidRange(
+                "OPE-v1 molecule or key does not match".into(),
+            ));
+        }
         self.profile
             .decode_value(&ordered)
             .map_err(MoleculeKeyCodecError::InvalidRange)
