@@ -1,26 +1,8 @@
-//! Capability hints, partitioned-scan results and the batch mutation enum.
+//! Partitioned-scan results and the batch mutation enum.
 
 use super::KvStore;
 use crate::storage::error::StorageResult;
 use serde::{Deserialize, Serialize};
-
-/// Describes how the backend executes operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionModel {
-    /// Backend is truly async (network I/O, e.g., Exemem API).
-    Async,
-    /// Backend is sync but wrapped in async (local I/O, e.g., Sled).
-    SyncWrapped,
-}
-
-/// Describes flush behavior for the backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlushBehavior {
-    /// Flush is a no-op (eventually consistent backend, e.g., Exemem API).
-    NoOp,
-    /// Flush performs actual persistence (strongly consistent, e.g., Sled).
-    Persists,
-}
 
 /// The result of [`KvStore::scan_prefix_partition_undecryptable`]: rows that
 /// read (decrypt) cleanly, separated from the keys of rows whose at-rest value

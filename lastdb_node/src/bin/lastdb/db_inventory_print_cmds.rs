@@ -17,17 +17,6 @@ fn array_of<'a>(value: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
     value.get(key).and_then(Value::as_array)
 }
 
-/// Comma-joined `name` fields of a non-empty row list, or `None` when empty.
-fn joined_names(planes: &Value, key: &str) -> Option<String> {
-    let rows = array_of(planes, key).filter(|rows| !rows.is_empty())?;
-    Some(
-        rows.iter()
-            .filter_map(|row| row.get("name").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
-}
-
 pub(crate) fn print_inventory_human(inventory: &Value) {
     println!("Live DB inventory (decrypted key+value sizes on running node)");
     println!(
@@ -35,10 +24,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         u64_of(inventory, "main_total_keys"),
         format_bytes(u64_of(inventory, "main_total_bytes"))
     );
-    if let Some(planes) = inventory.get("planes") {
-        println!();
-        print_collection_planes(planes);
-    }
     println!();
     print_main_classes(inventory);
     println!();
@@ -74,37 +59,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
     }
     println!();
     print_history_tips();
-}
-
-fn print_collection_planes(planes: &Value) {
-    println!(
-        "Collection planes: {} collections, {}",
-        u64_of(planes, "collection_count"),
-        format_bytes(u64_of(planes, "total_bytes"))
-    );
-    if let Some(rows) = array_of(planes, "by_role") {
-        for row in rows {
-            let names = array_of(row, "collections")
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str())
-                        .take(4)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            println!(
-                "  {:>10}  {:<16} [{}]",
-                format_bytes(u64_of(row, "bytes")),
-                str_of(row, "label", "?"),
-                names
-            );
-        }
-    }
-    if let Some(names) = joined_names(planes, "unknown_active_collections") {
-        println!("  UNKNOWN active planes: {names}");
-    }
 }
 
 fn print_main_classes(inventory: &Value) {

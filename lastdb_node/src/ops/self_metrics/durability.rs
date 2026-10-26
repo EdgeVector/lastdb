@@ -84,19 +84,6 @@ gauge_health! {
     }
 }
 
-impl From<fold_db::storage::laststore::BackupStorageFootprint> for BackupStorageHealth {
-    fn from(fp: fold_db::storage::laststore::BackupStorageFootprint) -> Self {
-        Self {
-            referenced_bytes: g_instant(fp.referenced_bytes, Unit::Bytes),
-            billed_bytes: g_instant(fp.billed_bytes, Unit::Bytes),
-            reclaimable_bytes: g_instant(fp.reclaimable_bytes, Unit::Bytes),
-            referenced_chunks: g_instant(fp.referenced_chunks, Unit::Chunks),
-            billed_chunks: g_instant(fp.billed_chunks, Unit::Chunks),
-            reclaimable_chunks: g_instant(fp.reclaimable_chunks, Unit::Chunks),
-        }
-    }
-}
-
 /// Operator-facing sealed-chunk backup progress (from continuous publisher).
 ///
 /// Chunk/byte/cycle counters are wire-transparent gauges (bare u64 / null).

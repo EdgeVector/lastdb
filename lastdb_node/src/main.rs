@@ -117,7 +117,6 @@ fn drain_and_prove_shutdown(
 
     shutdown::record_shutdown_intent(session_ledger.is_some(), home, pid, &mut shutdown_errors);
     host.byte_backup.begin_shutdown();
-    host.db.request_background_stop();
 
     match full_accept.join() {
         Ok(Ok(())) => {}

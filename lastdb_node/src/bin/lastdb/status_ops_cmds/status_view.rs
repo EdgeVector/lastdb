@@ -7,7 +7,6 @@ pub(super) struct StatusView<'a> {
     pub(super) home: &'a Path,
     pub(super) socket: &'a Path,
     pub(super) store_root: &'a Path,
-    pub(super) breakdown: &'a fold_db::mini_cutover::PlaneBreakdown,
     pub(super) session_live: bool,
 }
 
@@ -17,7 +16,7 @@ impl StatusView<'_> {
         println!("{}", status_unreachable_line(reason));
         println!("Home:   {}", self.home.display());
         println!("Socket: {}", self.socket.display());
-        // File-only plane / session report stays after line 1 so operators
+        // File-only session report stays after line 1 so operators
         // still see the home without treating the command as a live probe.
         self.print_offline_lines();
     }
@@ -41,7 +40,7 @@ impl StatusView<'_> {
         self.print_daemon_account(probe_timeout);
     }
 
-    /// Session ledger, placement, plane attribution and named SOT homes.
+    /// Session ledger and placement.
     /// Read straight from the store under `home`; no node required.
     fn print_offline_lines(&self) {
         for line in lastdb_node::crash_attribution::status_lines(self.home, self.session_live) {
@@ -50,13 +49,6 @@ impl StatusView<'_> {
         // A home left on full-key placement pays a full-collection sweep on every
         // HashRange partition read, and nothing else in `status` would show it.
         for line in layout_status_lines(self.store_root) {
-            println!("{line}");
-        }
-        // Aside reclaim is Tom-gated (never auto-delete).
-        for line in fold_db::mini_cutover::plane_status_lines(self.breakdown) {
-            println!("{line}");
-        }
-        for line in plane_sot_spotlight_lines(self.breakdown) {
             println!("{line}");
         }
     }

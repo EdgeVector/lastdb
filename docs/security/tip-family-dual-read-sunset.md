@@ -69,10 +69,9 @@ history-adjacent plane also lists: field_tip_versions=7.4 MiB
 on-disk dirs present under ~/.lastdb/data/data/: field_tip_headers, field_tip_versions
 ```
 
-**Live dual-read is already off.** Reclaim is explicit offline
-`lastdb_local_maintain drain-tip-residue` (dry run first, which is the
-default), never first-pass on primary. Procedure: `fold_db/docs/field-tip-headers-residue-compact.md`.
-Primary exclusive open still requires `--i-know-this-is-primary` (Tom-gated).
+**Live dual-read is already off.** The offline reclaim tool
+(`lastdb_local_maintain drain-tip-residue`) and its procedure doc were removed
+with the LastStore backend on 2026-10-26.
 
 ### CoW proof — RUN 2026-08-07
 
@@ -155,10 +154,8 @@ not correctness.
 ## If a future home still has cold tip residue
 
 1. Do **not** re-enable dual-read.
-2. Run the dry run of `drain-tip-residue --collection headers|versions` per
-   `field-tip-headers-residue-compact.md`. Do not copy the home to do it.
-3. Only then drop empty collections on that home.
-4. Primary apply: same CLI with Tom-gated `--i-know-this-is-primary`.
+2. The offline drain tool is gone (2026-10-26). Ask Tom before any reclaim.
+   Do not copy the home to do it.
 
 ## CoW proof (historical)
 

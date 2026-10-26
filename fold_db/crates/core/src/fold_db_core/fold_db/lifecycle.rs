@@ -3,12 +3,6 @@ use crate::storage::StorageError;
 use super::FoldDB;
 
 impl FoldDB {
-    /// Cancel local sync cadences as soon as the daemon stops accepting calls.
-    /// Shutdown joins them before it records a clean flush.
-    pub fn request_background_stop(&self) {
-        self.sync_coordinator.request_background_stop();
-    }
-
     /// Upper bound on how long [`FoldDB::shutdown`] waits for tracked tasks.
     /// The limit matches the cold-cache model start limit.
     const SHUTDOWN_TASK_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -86,7 +80,6 @@ impl FoldDB {
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
-        self.request_background_stop();
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;
@@ -164,15 +157,6 @@ impl FoldDB {
                 "shutdown: post-ack capture queue did not drain before final sync"
             );
             errors.push("post-ack capture queue did not drain".to_string());
-        }
-        if let Err(error) = self
-            .sync_coordinator
-            .join_background_tasks(task_drain_timeout)
-            .await
-        {
-            tracing::error!(target: "fold_node::database", %error, "shutdown: local sync task did not stop");
-            errors.push(format!("local sync task did not stop: {error}"));
-            return errors;
         }
 
         errors

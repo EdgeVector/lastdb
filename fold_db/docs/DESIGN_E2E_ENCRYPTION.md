@@ -6,7 +6,7 @@
 > **retired product surface**. Sections below that describe
 > `src/db_operations/native_index/*` indexing/search are historical design
 > notes only — Mini does not host native embeddings. Catalog scrub:
-> `plane_roles`, `backup_manifest`, `sync/policy`.
+> `backup_manifest`, `sync/policy`.
 
 ---
 

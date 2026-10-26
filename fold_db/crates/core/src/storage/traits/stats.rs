@@ -1,78 +1,4 @@
-//! Disk-usage, warm-set and read-cost reports returned by storage backends.
-
-/// Cheap, metadata-only disk usage for a physical collection.
-///
-/// Two independent measurements, both without reading a segment:
-///
-/// - `allocated_bytes` vs `apparent_bytes` is filesystem block allocation
-///   past record length — slack from open-segment reservation and block
-///   rounding. A delete does not change it.
-/// - `live_bytes` / `dead_bytes` is the store's own record-byte residue: how
-///   many of the bytes inside the segments still belong to a live id versus
-///   how many are superseded puts, deleted puts, and delete markers. This is
-///   what a delete leaves behind and what only a compaction returns. `None`
-///   on a backend that cannot measure it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CollectionDiskUsage {
-    pub allocated_bytes: u64,
-    pub apparent_bytes: u64,
-    /// Record bytes live ids still address, over the groups that could answer.
-    pub live_bytes: Option<u64>,
-    /// Dead record bytes, over the groups that could answer.
-    pub dead_bytes: Option<u64>,
-    /// On-disk bytes the residue probe could not classify (cold groups with
-    /// no sidecar residue, and bytes appended after a sidecar was taken).
-    /// Never counted as dead.
-    pub residue_unknown_bytes: u64,
-}
-
-impl CollectionDiskUsage {
-    /// Filesystem slack: bytes allocated past record length.
-    #[must_use]
-    pub fn slack_bytes(&self) -> u64 {
-        self.allocated_bytes.saturating_sub(self.apparent_bytes)
-    }
-
-    /// Dead record bytes as basis points of measured record bytes.
-    #[must_use]
-    pub fn dead_bps(&self) -> u64 {
-        let (Some(live), Some(dead)) = (self.live_bytes, self.dead_bytes) else {
-            return 0;
-        };
-        let measured = live.saturating_add(dead);
-        if measured == 0 {
-            return 0;
-        }
-        ((u128::from(dead) * 10_000) / u128::from(measured)) as u64
-    }
-
-    /// On-disk bytes a rewrite of this collection is expected to return.
-    ///
-    /// The filesystem slack comes back whole. The dead-record share is
-    /// applied to the apparent bytes the residue probe could classify
-    /// (apparent minus the unknown remainder), because record bytes and disk
-    /// bytes differ by whatever the at-rest layer does to a record — the
-    /// ratio survives that, an absolute record count does not.
-    #[must_use]
-    pub fn reclaimable_estimate_bytes(&self) -> u64 {
-        let measured_disk = self
-            .apparent_bytes
-            .saturating_sub(self.residue_unknown_bytes);
-        let dead_share =
-            ((u128::from(measured_disk) * u128::from(self.dead_bps())) / 10_000) as u64;
-        self.slack_bytes().saturating_add(dead_share)
-    }
-
-    /// Expected reclaim as basis points of allocation.
-    #[must_use]
-    pub fn reclaimable_bps(&self) -> u64 {
-        if self.allocated_bytes == 0 {
-            return 0;
-        }
-        ((u128::from(self.reclaimable_estimate_bytes()) * 10_000)
-            / u128::from(self.allocated_bytes)) as u64
-    }
-}
+//! Warm-set and read-cost reports returned by storage backends.
 
 /// In-flight cold-load charge and LRU eviction counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -120,17 +46,6 @@ pub struct WarmSetAdmissionStats {
     /// Groups synced by those barriers.
     #[serde(default)]
     pub groups_synced: u64,
-}
-
-/// Result of one LRU eviction pass against an explicit resident-byte target.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WarmSetEvictionReport {
-    /// Groups actually dropped from the warm set.
-    pub groups_evicted: u64,
-    /// Resident bytes before the pass.
-    pub bytes_before: u64,
-    /// Resident bytes after the pass.
-    pub bytes_after: u64,
 }
 
 /// What a read actually costs on this node, as opposed to how long it took.

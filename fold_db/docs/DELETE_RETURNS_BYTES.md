@@ -100,9 +100,9 @@ and re-arm the tests in `sync::policy`.
 
 ## Known limits
 
-- Automatic compaction runs in `PlaneCompactor` (`sync/capture/plane_compactor.rs`),
-  which also runs on a node booted without `cloud_sync.json` and so without a
-  sync engine. `cas_blobs` has no automatic compaction on any node; the owner
-  verb is its only path.
+- The automatic LastStore compactor (`PlaneCompactor`) was removed with the
+  LastStore backend on 2026-10-26. The text above about LastStore planes,
+  sidecars and triggers is history. A native home packs only through the
+  owner verb `lastdb db compact --execute`.
 - Two rows with the same body share one content-addressed atom, and the second
   put re-appends the whole body. That residue is now visible and reclaimable.

@@ -1,4 +1,4 @@
-//! Plane residue drain, reseal, compaction, pin-log audit and history clearing.
+//! Reseal, unsealed-row reap, pin-log audit and history clearing.
 
 use super::*;
 
@@ -34,26 +34,6 @@ impl FoldDB {
             .reap_unsealed(options)
             .await
             .map_err(|e| FoldDbError::Database(format!("reap-unsealed: {e}")))
-    }
-
-    /// Compact one allowlisted LastStore collection (default dry-run).
-    ///
-    /// Reclaims superseded segment bodies on allowlisted planes. Atom execute
-    /// records durable retirement provenance for the next backup-manifest cut.
-    pub async fn compact_collection(
-        &self,
-        collection: &str,
-        dry_run: bool,
-    ) -> Result<crate::storage::laststore::CollectionCompactReport, FoldDbError> {
-        self.db_ops()
-            .namespaced_store()
-            .compact_collection(crate::storage::laststore::CollectionCompactOptions {
-                collection: collection.to_string(),
-                dry_run,
-                seed_committed_history: collection == "atoms" && !dry_run,
-            })
-            .await
-            .map_err(|e| FoldDbError::Database(format!("compact collection: {e}")))
     }
 
     /// Read-only, bounded pin-log plane audit (`lastdb db pin-log-audit`).

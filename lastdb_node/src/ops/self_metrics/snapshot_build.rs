@@ -20,7 +20,7 @@ pub(super) async fn build_snapshot(
         RequestPhase::StatusRequestOps,
         request_ops_started.elapsed(),
     );
-    let sync = timed_sync_health(host, refresh_sync).await;
+    let sync = timed_sync_health(host, refresh_sync);
     // Retired cloud engines do not provide progress or provider inventory gauges.
     let (backup, backup_storage) = (None, None);
     let durability = durability_health(host);
@@ -143,10 +143,10 @@ impl DirReport {
     }
 }
 
-async fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
+fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
     let sync_started = Instant::now();
     let sync = if refresh_sync {
-        let health = sync_health(host).await;
+        let health = sync_health();
         // A timed-out / unsampled probe must not replace a last-known snapshot
         // with empty gauges. Those empty gauges render as last_success=never
         // and "log plane not recording" — false durability-outage sentences.

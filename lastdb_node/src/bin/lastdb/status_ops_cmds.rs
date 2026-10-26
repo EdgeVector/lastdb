@@ -32,9 +32,6 @@ pub(super) fn status(
         && health_err.is_some()
         && lastdb_node::crash_attribution::live_daemon_pid_alive(&home);
     let store_root = home.join("data");
-    let breakdown = status_plane_breakdown_with(json, contract, &store_root, |root| {
-        fold_db::mini_cutover::plane_breakdown_for_store_root(root)
-    });
 
     if contract {
         status_contract(&socket, running, json, probe_timeout)?;
@@ -45,15 +42,10 @@ pub(super) fn status(
         return status_json(&home, &socket, running, health_err, probe_timeout);
     }
 
-    let breakdown = breakdown
-        .as_ref()
-        .expect("text status always loads the offline plane inventory");
-
     let view = StatusView {
         home: &home,
         socket: &socket,
         store_root: &store_root,
-        breakdown,
         session_live: running || daemon_pid_alive,
     };
 
@@ -64,22 +56,6 @@ pub(super) fn status(
 
     view.print_serving(running, health_err, probe_timeout);
     Ok(StatusRun::Serving)
-}
-
-pub(super) fn status_plane_breakdown_with<F>(
-    json: bool,
-    contract: bool,
-    store_root: &Path,
-    walk: F,
-) -> Option<fold_db::mini_cutover::PlaneBreakdown>
-where
-    F: FnOnce(&Path) -> fold_db::mini_cutover::PlaneBreakdown,
-{
-    if json || contract {
-        None
-    } else {
-        Some(walk(store_root))
-    }
 }
 
 pub(super) fn safe_status_plane_fields() -> (serde_json::Value, serde_json::Value) {
@@ -208,80 +184,16 @@ pub(super) fn status_json(
     }
 }
 
-/// Human spotlight lines for named SOT + residue + unattributed + history-adjacent
-/// mass.
-///
-/// `residue:` carries only what the plane map CLASSIFIED as residue. Collections
-/// the map does not recognize get their own `unattributed:` line, which says so.
-/// Folding them into `residue:` — what this printed until 2026-09-06 — reported
-/// a 936.7 MiB collection of live data as reclaimable migration leftovers on
-/// the primary. `lastdb db inventory` already named them
-/// `UNKNOWN active planes`; `status` is the command operators actually run.
-pub(super) fn plane_sot_spotlight_lines(
-    breakdown: &fold_db::mini_cutover::PlaneBreakdown,
-) -> Vec<String> {
-    let report = breakdown.to_plane_map_report();
-    let mut lines = Vec::new();
-    if !report.sot_named.is_empty() {
-        let bits: Vec<String> = report
-            .sot_named
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!("  SOT named: {}", bits.join(" ")));
-    }
-    if !report.unknown_active_collections.is_empty() {
-        let bits: Vec<String> = report
-            .unknown_active_collections
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!(
-            "  unattributed: {} (not in the plane map; liveness unknown, not a reclaim target)",
-            bits.join(" ")
-        ));
-    }
-    lines
-}
-
 /// `status` lines describing the home's durable physical placement.
 ///
-/// Silent when there is no descriptor to read (a home that predates them, or
-/// one never opened) — `status` should not invent a layout it cannot see.
+/// Silent when the home has no native layout to read (one never opened) —
+/// `status` should not invent a layout it cannot see.
 pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
     match native_layout_status_line(store_root) {
-        Ok(Some(line)) => return vec![line],
-        Ok(None) => {}
-        Err(error) => return vec![format!("Layout: unreadable ({error})")],
+        Ok(Some(line)) => vec![line],
+        Ok(None) => Vec::new(),
+        Err(error) => vec![format!("Layout: unreadable ({error})")],
     }
-    let descriptor = match laststore::describe_home(store_root) {
-        Ok(Some(descriptor)) => descriptor,
-        Ok(None) => return Vec::new(),
-        Err(e) => return vec![format!("Layout: unreadable ({e})")],
-    };
-
-    let mut lines = vec![format!(
-        "Layout: {:?} key={:?} epoch={} groups={} packaging={:?}",
-        descriptor.layout_mode,
-        descriptor.hash_group_key,
-        descriptor.layout_epoch,
-        descriptor.group_count(),
-        descriptor.packaging,
-    )];
-
-    // The operator-facing consequence, not just the setting: under full-key
-    // placement `limit` cannot prune, so a partition read returning one row
-    // costs the same sweep as an unbounded one.
-    if descriptor.layout_mode == laststore::LayoutMode::HashGroup
-        && !descriptor.prunes_partition_reads()
-    {
-        lines.push(format!(
-            "  WARNING: full-key placement — every HashRange partition read visits \
-             all {} groups, and `limit` does not prune.",
-            descriptor.groups_per_partition_read()
-        ));
-    }
-    lines
 }
 
 /// The native fence deliberately rejects the legacy descriptor parser. Inspect

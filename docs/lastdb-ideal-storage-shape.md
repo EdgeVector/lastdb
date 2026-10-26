@@ -982,7 +982,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 - **Deps:** PR-1 (can parallel PR-3)
 - **Description:** **Already shipped:** write-one tips and `mk:` no longer falls through to `field_tips` after the 2026-07-31 zero-hit primary soak. This PR adds metrics and **copy-verify** of remaining headers/versions residue into tips. Conflict policy: after copy, if both present **tips wins** (write target).
 - **Exit (PR-10-style gates, can land here or follow-up):** zero `dual_read.legacy_hits` for `mh:`/`tv:` over N days on CoW; sample get equality; byte-count bounds; then aside empty field_tip_headers / field_tip_versions.
-- **Operator procedure (CoW first):** `fold_db/docs/field-tip-headers-residue-compact.md` (`lastdb_local_maintain drain-tip-residue --collection headers --execute --drop-empty-collection`).
+- **Operator procedure:** removed. The `lastdb_local_maintain drain-tip-residue` tool and its procedure doc went with the LastStore backend (2026-10-26).
 
 ### PR-6: Indexes reclass with dual-read matrix — *future*
 

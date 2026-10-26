@@ -69,7 +69,7 @@ impl KvStore for EncryptingKvStore {
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // prefix bound applies before decryption. Forward to the inner store's
-        // paged scan so its native lazy bound (Sled) holds — we then decrypt only
+        // paged scan so its native lazy bound holds — we then decrypt only
         // the page's rows, not the whole prefix. A row with no envelope is
         // dropped and the page is refilled, so a short page is the range end.
         self.scan_paged_filled(PagedSource::Prefix(prefix), limit)
@@ -302,13 +302,5 @@ impl KvStore for EncryptingKvStore {
 
     fn backend_name(&self) -> &'static str {
         "encrypting"
-    }
-
-    fn execution_model(&self) -> ExecutionModel {
-        self.inner.execution_model()
-    }
-
-    fn flush_behavior(&self) -> FlushBehavior {
-        self.inner.flush_behavior()
     }
 }
