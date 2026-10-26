@@ -6,13 +6,8 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
     } else {
         format!("/api/db/delete-ledger?limit={limit}")
     };
-    let req = format!(
-        "GET {target} HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-        client_headers()
-    );
-    // A prefix scan over an append-only class, so it shares the admin-scan
-    // budget rather than the default read timeout.
-    let response = request_with_timeout(socket, req.as_bytes(), admin_scan_client_timeout())?;
+    // A prefix scan over an append-only class shares the admin-scan budget.
+    let response = get_path(socket, &target, admin_scan_client_timeout())?;
     let value = parse_json_response(&response, "delete-ledger")?;
     let ledger = value
         .get("delete_ledger")
@@ -101,21 +96,7 @@ pub(crate) fn db_clear_history(
         "keep_last": keep_last,
         "dry_run": dry_run,
     });
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|e| format!("serialize clear-history body: {e}"))?;
-    let header = format!(
-        "POST /api/db/clear-history HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, admin_scan_client_timeout())?;
+    let response = post_json_admin(socket, "/api/db/clear-history", &body)?;
     let value = parse_json_response(&response, "clear-history")?;
     let report = value
         .get("clear_history")
@@ -203,21 +184,7 @@ pub(crate) fn db_stamp_purged_atom_retirements(
 ) -> Result<(), String> {
     let dry_run = !execute;
     let body = serde_json::json!({ "dry_run": dry_run });
-    let body_bytes = serde_json::to_vec(&body)
-        .map_err(|e| format!("serialize stamp-purged-atom-retirements body: {e}"))?;
-    let header = format!(
-        "POST /api/db/stamp-purged-atom-retirements HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, admin_scan_client_timeout())?;
+    let response = post_json_admin(socket, "/api/db/stamp-purged-atom-retirements", &body)?;
     let value = parse_json_response(&response, "stamp-purged-atom-retirements")?;
     let report = value
         .get("stamp_purged_atom_retirements")
@@ -308,21 +275,7 @@ pub(crate) fn db_compact(
             "dry_run": dry_run,
         })
     };
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|e| format!("serialize compact body: {e}"))?;
-    let header = format!(
-        "POST /api/db/compact HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, admin_scan_client_timeout())?;
+    let response = post_json_admin(socket, "/api/db/compact", &body)?;
     let value = parse_json_response(&response, "compact")?;
     let report = value
         .get("compact")
