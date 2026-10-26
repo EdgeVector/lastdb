@@ -175,15 +175,17 @@ pub(super) fn parent(
     }
     let fixed_preparation = (kind == TreeKind::Locator)
         .then(|| crate::commit_timing::stage("metadata_locator_parent_fixed_prepare_us"));
-    let mut payload = Vec::with_capacity((children.len() - 1) * INTERNAL_WIDTH);
+    let mut payload = (kind != TreeKind::Locator)
+        .then(|| Vec::with_capacity((children.len() - 1) * INTERNAL_WIDTH));
     for child in &children[1..] {
-        payload.extend_from_slice(
-            child
-                .minimum
-                .as_ref()
-                .ok_or_else(|| corrupt("missing separator"))?,
-        );
-        payload.extend_from_slice(&child.number.to_le_bytes());
+        let minimum = child
+            .minimum
+            .as_ref()
+            .ok_or_else(|| corrupt("missing separator"))?;
+        if let Some(payload) = &mut payload {
+            payload.extend_from_slice(minimum);
+            payload.extend_from_slice(&child.number.to_le_bytes());
+        }
     }
     let fields = PageFields {
         kind: if kind == TreeKind::Locator {
@@ -219,7 +221,7 @@ pub(super) fn parent(
             }),
         )?
     } else {
-        pages.append(fields, &payload)?
+        pages.append(fields, payload.as_deref().expect("fixed parent payload"))?
     };
     Ok(Child {
         minimum: children[0].minimum.clone(),
