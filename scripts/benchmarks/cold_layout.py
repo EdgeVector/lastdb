@@ -26,7 +26,7 @@ def snapshot(node):
         runs.append((str(path.relative_to(node.home)), info.st_size))
     return {"generation": native["generation"], "frontier": native["frontier"],
             "completed_sequence": native["completed_sequence"], "runs": sorted(runs),
-            "started_monotonic": time.monotonic()}
+            "captured_monotonic": time.monotonic()}
 
 
 def stable_boundary(node):
@@ -35,7 +35,7 @@ def stable_boundary(node):
     history, previous, since = [], None, time.monotonic()
     while time.monotonic() < deadline:
         current = snapshot(node)
-        identity = {k: v for k, v in current.items() if k != "started_monotonic"}
+        identity = {k: v for k, v in current.items() if k != "captured_monotonic"}
         if identity != previous:
             previous, since = identity, time.monotonic()
         history.append(current)
@@ -66,8 +66,9 @@ def trace(node, output):
             stream.write(json.dumps(row) + "\n")
             rows.append(row)
     metric = describe(rows, time.perf_counter() - started)
+    observations = [row[side] for row in rows for side in ("before", "after")]
     metric["generation_transitions"] = sum(
-        a["after"]["generation"] != b["after"]["generation"] for a, b in zip(rows, rows[1:]))
+        a["generation"] != b["generation"] for a, b in zip(observations, observations[1:]))
     metric["frontiers"] = sorted({r[side]["frontier"] for r in rows for side in ("before", "after")})
     metric["run_counts"] = sorted({len(r[side]["runs"]) for r in rows for side in ("before", "after")})
     return metric
