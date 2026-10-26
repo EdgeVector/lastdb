@@ -103,6 +103,8 @@ No schema admission, startup, query, or writer selects these profiles yet.
 The declared range type must agree with the stored profile.
 The current metadata reader refuses a range profile in a legacy molecule record.
 It does not reinterpret that record or activate a typed reader.
+Schema reads fetch uncached molecule metadata in one batch, then fetch the required key wraps in one batch.
+The reader validates the complete set before it puts key bundles in the memory cache.
 The complete runtime and the offline publication boundary remain required.
 
 | Profile | Ordered payload before the existing range encoding | Bytes |

@@ -22,6 +22,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 
+mod batch_load;
 mod cache;
 mod frozen;
 mod metadata;
@@ -261,13 +262,7 @@ impl MoleculeKeyStore {
 
     /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
-        for (field_name, field) in &schema.runtime_fields {
-            let molecule_uuid = field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&schema.name, field_name)
-            });
-            let _ = self.load(&molecule_uuid).await?;
-        }
-        Ok(())
+        self.load_existing(&schema_molecule_uuids(schema)).await
     }
 
     async fn put_wrap(
