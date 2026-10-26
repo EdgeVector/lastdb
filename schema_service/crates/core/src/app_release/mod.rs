@@ -50,9 +50,11 @@ use crate::app_identity::{
 use crate::lock_helpers::{read_lock, write_lock};
 use crate::state::SchemaServiceState;
 
+mod compat_write;
 mod errors;
 mod grammar;
 mod persistence;
+mod read_v2;
 mod records;
 mod state;
 mod validate;

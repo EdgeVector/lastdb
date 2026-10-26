@@ -1,4 +1,5 @@
 //! App registry routes (`/v1/apps/*` and `/v2/apps/*`, releases, channels, revocations).
+// lint:file-size-ok New /v2 read routes: list_apps_v2, list_releases_for_app, list/write_compat_rows (119 lines)
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
