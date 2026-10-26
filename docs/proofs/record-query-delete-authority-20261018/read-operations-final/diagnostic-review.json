@@ -1,9 +1,0 @@
-{
-  "acceptance_claim": false,
-  "binary_sha256": "8a1588e696350d03592ba7ff3ff01d80564a1f69f7d12f4950afa547bb680b68",
-  "classification": "procedure-diagnostic",
-  "complete": false,
-  "original_result_preserved": true,
-  "reason": "The procedure omitted the established helper hash field from the expected projection. Six value/query checks pass before exact-added-projection returns bucket plus optional. The approved correction requests bucket explicitly; no source change or relaxed value/condition gate.",
-  "source_commit": "8c26bd4d41cbc1cd6921cac2702646241f0ddb24"
-}

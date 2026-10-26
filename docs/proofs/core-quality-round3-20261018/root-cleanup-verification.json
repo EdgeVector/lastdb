@@ -1,8 +1,0 @@
-{
-  "complete": true,
-  "reviewer": "root",
-  "exact_roots_absent": 25,
-  "sealed_files_unchanged": 392,
-  "source_commit": "8c2b0eb89bc140cd453fb80ee5637b378c0513cb",
-  "scope": "Independent post-cleanup root absence and immutable receipt verification."
-}

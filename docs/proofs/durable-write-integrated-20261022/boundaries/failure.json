@@ -1,3 +1,0 @@
-{
-  "error": "/api/mutations/batch: HTTP 503: {'error': 'read_resource_limit', 'hint': 'request fewer records or fields', 'message': 'read resource limit exceeded: native required work: examined_keys=40000+1/40000, charged_bytes=238167293+0/268435456', 'retryable': False}"
-}

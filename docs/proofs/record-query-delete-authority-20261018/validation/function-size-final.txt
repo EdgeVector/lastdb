@@ -1,1 +1,0 @@
-Function size check passed.

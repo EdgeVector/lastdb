@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T//layer2-final-bench.8pJSJg/engine_bench.py", line 276, in <module>
-    write_measurements()
-  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T//layer2-final-bench.8pJSJg/engine_bench.py", line 192, in write_measurements
-    check_read(result, all_numbers, expected)
-  File "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T//layer2-final-bench.8pJSJg/engine_bench.py", line 120, in check_read
-    raise RuntimeError(f'Product result mismatch: {errors[:2]}')
-RuntimeError: Product result mismatch: [{'error': 'disk-pack v1: read resource limit exceeded', 'resource_exhausted': True}, {'error': 'disk-pack v1: read resource limit exceeded', 'resource_exhausted': True}]

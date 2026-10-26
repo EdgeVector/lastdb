@@ -1,3 +1,0 @@
-host_cargo_lock=held pid=16232 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=python3
-{"root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vfwq8l9s", "receipt_dir": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/final-logical", "binary_sha256": "bef1ff5b9047e8f76f2b42ec5f581bc385467d99785b6325a5a56a6d3f496f5a"}
-{"complete": false, "error": "RuntimeError: A literal encryption-prefix value changes or disappears", "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vfwq8l9s", "receipt_dir": "docs/proofs/core-clarity-20261018/final-logical"}

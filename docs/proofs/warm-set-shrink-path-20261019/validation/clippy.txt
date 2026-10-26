@@ -1,4 +1,0 @@
-    Checking lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-warm-set-shrink-path-bookkeeping-20261019/lastdb_identity)
-    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-warm-set-shrink-path-bookkeeping-20261019/lastdb_host)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 39.60s
-exit=0

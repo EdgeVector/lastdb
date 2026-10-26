@@ -140,7 +140,7 @@ This rule prevents a delete marker from restoring an absent key candidate.
 
 Write preparation uses its captured core state and matching disk root.
 A memory ack requires a complete core change and the corresponding reservations.
-The [core memory results](proofs/core-memory-state-20261018/RESULTS.md) record the operational checks and matched synthetic measurements.
+The [core memory results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-memory-state-20261018/RESULTS.md) record the operational checks and matched synthetic measurements.
 
 The flush queue owns exact disk work. It does not serve current-key reads.
 Packed files, file locations, encryption, and LastDB compaction remain disk responsibilities.

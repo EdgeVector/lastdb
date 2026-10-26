@@ -45,4 +45,4 @@ It does not reserve directory output, protect logical paths, prepare the complet
 Those reservations must exist before resident publication. The native resident modes remain refused.
 No disk format, encryption, atom identity, record history, backup, conversion, or primary configuration changes.
 
-The [operational receipt](proofs/disk-journal-reservations-20261015/report.md) covers the quote, ordinary append, recovery, publication, and input limits.
+The [operational receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-journal-reservations-20261015/report.md) covers the quote, ordinary append, recovery, publication, and input limits.

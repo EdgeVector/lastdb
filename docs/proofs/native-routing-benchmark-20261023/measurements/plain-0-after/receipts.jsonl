@@ -1,6 +1,0 @@
-{"at_unix_ns": 1792730279755428080, "operation": "owned-node-start", "pid": 174150}
-{"at_unix_ns": 1792730282233275765, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 174150, "shutdown_receipt": {"flush_ok": true, "pid": 174150, "start_ts": 1792730279, "version": 1}, "shutdown_receipt_error": null}
-{"at_unix_ns": 1792730282233808910, "operation": "owned-node-start", "pid": 174176}
-{"at_unix_ns": 1792730296394466928, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 174176, "shutdown_receipt": {"flush_ok": true, "pid": 174176, "start_ts": 1792730282, "version": 1}, "shutdown_receipt_error": null}
-{"at_unix_ns": 1792730296398243479, "operation": "owned-node-start", "pid": 174198}
-{"at_unix_ns": 1792730296787464605, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 174198, "shutdown_receipt": {"flush_ok": true, "pid": 174198, "start_ts": 1792730296, "version": 1}, "shutdown_receipt_error": null}

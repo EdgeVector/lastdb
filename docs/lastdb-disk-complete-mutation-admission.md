@@ -83,4 +83,4 @@ The default backend remains legacy, and native cloud configurations remain refus
 LastStore library and binary Clippy passes with warnings denied.
 Format and changed function, file, and allow checks pass.
 Core and host library compilation passes.
-The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-receipts.jsonl) record complete 256-record durable writes and normal reopen.
+The [7110c7f5 node receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-receipts.jsonl) record complete 256-record durable writes and normal reopen.

@@ -1,1 +1,0 @@
-{"mutations":[{"type":"mutation","schema":"Round13ReceiptIds","mutation_type":"create","key_value":{"hash":"a"},"fields_and_values":{"payload":"before-a"}},{"type":"mutation","schema":"Round13ReceiptIds","mutation_type":"create","key_value":{"hash":"b"},"fields_and_values":{"payload":"before-b"}}]}

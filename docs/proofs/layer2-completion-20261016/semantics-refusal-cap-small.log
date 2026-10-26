@@ -1,2 +1,0 @@
-=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
-Error: "core database boot failed: Database error: no space left on device — the filesystem holding the database is full, so the write did not land. Free disk space and retry; nothing already stored was lost. Underlying error: No space left on device (os error 28)"

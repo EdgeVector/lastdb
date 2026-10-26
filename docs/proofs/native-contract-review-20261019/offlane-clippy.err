@@ -1,7 +1,0 @@
-    Checking laststore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/vendor/laststore)
-    Checking schema_service_core v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/core)
-    Checking schema_service_server_shared v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/server_shared)
-    Checking schema_service_s3 v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/schema_service_s3)
-    Checking generate_validated_schema_org_seeds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_validated_schema_org_seeds)
-    Checking schema_service_worker v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/worker)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.42s

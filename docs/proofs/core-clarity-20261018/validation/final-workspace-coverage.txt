@@ -1,4 +1,0 @@
-OK: .github/workflows/ci-required.yml: 23/23 workspace members linted across 2 clippy invocation(s)
-
-heavy clippy workspace-coverage lint passed
-  Members: 23 (from cargo metadata --no-deps)

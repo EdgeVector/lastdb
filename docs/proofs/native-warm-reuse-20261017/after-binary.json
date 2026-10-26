@@ -1,8 +1,0 @@
-{
-  "binary_sha256": "8228230f4fa5b8329e253348a122d3558d632b5f7995fc6a5ef02b7e219d5ab1",
-  "product_source": "eec966d7",
-  "build": "cargo build --release --locked -p lastdb_node --bin lastdbd",
-  "build_seconds": 116,
-  "source_note": "The build started before this commit. Its Rust source matches the commit.",
-  "primary_used": false
-}

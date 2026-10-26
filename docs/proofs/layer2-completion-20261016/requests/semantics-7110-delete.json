@@ -1,1 +1,0 @@
-{"mutations": [{"type": "mutation", "schema": "Layer2FinalBenchmark", "mutation_type": "delete", "convergence": "async", "key_value": {"hash": "generated", "range": "record-000007"}, "fields_and_values": {}, "durability": "durable"}]}

@@ -1,9 +1,0 @@
-{
-  "benchmark_result": false,
-  "complete": true,
-  "error": null,
-  "http_calls": 25,
-  "plan_sha256": "7ff2143aa6eb37a7b9155681380d1ce6da58f6c69fab77d8e76b88979e2f7944",
-  "semantic_review": "pending independent raw response review",
-  "workflow": "ordinary-api-requests"
-}

@@ -1,3 +1,0 @@
-{
-  "error": "/api/mutations/batch: HTTP 503: {'error': 'read_resource_limit', 'hint': 'request fewer records or fields', 'message': 'read resource limit exceeded: disk-pack v1: read resource limit exceeded', 'retryable': False}"
-}

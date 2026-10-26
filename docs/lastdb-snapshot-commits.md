@@ -2,7 +2,7 @@
 
 Status: integrated local protocol on main, reviewed at `8a0a40b4f` on October 24, 2026.
 The [native summary](lastdb-disk-native-node.md) describes current writes, reads, and the separate native backup gate.
-The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
+The [operational report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
 This protocol describes source guarantees. The product results do not establish power-loss behavior or a primary result.
 
 This protocol replaces the internal native journal protocol.
@@ -187,11 +187,11 @@ Short retries still handle a deferred sweep before the next regular interval.
 Packs, holds, grace periods, and error backoff can delay the scheduled cleanup.
 Automatic maintenance off still disables the worker.
 
-The [earlier receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records six operational checks and three uncached benchmark pairs at `a1941e3a8`.
+The [earlier receipt removal report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records six operational checks and three uncached benchmark pairs at `a1941e3a8`.
 The part-lifetime checks pass, including the periodic retry after startup retains a young orphan.
 The matched foreground comparison shows lower file growth with slower batch writes.
 
-The separate [cache follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
+The separate [cache follow-up report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
 Three controlled baseline/cache pairs show durable-single growth of 670.86 and 639.35 KiB per update.
 Durable batch32 request p50 rises from 113.33 to 131.24 ms; the focused worst write rises from 1.249 to 1.488 seconds.
 Those are medians across runs.

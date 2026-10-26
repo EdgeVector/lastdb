@@ -3,12 +3,12 @@
 Status: the disk changes are built in the development branch, 2026-10-17. Final product measurements follow.
 The [schema key preload study](lastdb-schema-range-preload-study.md) adds synthetic memory and native disk-component measurements.
 The selected [preload design](lastdb-schema-range-preload-design.md) uses complete keys with a separate byte cap.
-The [component receipts](proofs/schema-preload-product-20261017/disk-component/) cover packed keys, journal changes, compaction, and reopen.
+The [component receipts](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/disk-component/) cover packed keys, journal changes, compaction, and reopen.
 
 The [logical design](lastdb-logical-warm-set-design.md) remains the common read and publication contract.
 This document selects a disk-format target for the first schema load and the fallback disk route.
-The [calculation receipt](proofs/fast-range-design-20261017/calculations.json) records assumptions and results.
-The [calculation source](proofs/fast-range-design-20261017/calculate.py) uses arithmetic only. It does not call LastDB.
+The [calculation receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/fast-range-design-20261017/calculations.json) records assumptions and results.
+The [calculation source](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/fast-range-design-20261017/calculate.py) uses arithmetic only. It does not call LastDB.
 
 ## Recommendation
 
@@ -256,7 +256,7 @@ Tip and atom purge preserves keys; whole-domain key purge clears readiness first
 Physical flush and LastDB compaction preserve readiness when logical membership stays the same.
 
 The earlier 5,000-tip preload option is superseded.
-Its 1 KiB-per-path assumptions remain in the [arithmetic receipt](proofs/fast-range-design-20261017/calculations.json) as historical calculations.
+Its 1 KiB-per-path assumptions remain in the [arithmetic receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/fast-range-design-20261017/calculations.json) as historical calculations.
 Those figures do not estimate bare key memory.
 Do not implement a second tip-retaining preload policy.
 

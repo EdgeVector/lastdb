@@ -1,9 +1,0 @@
-{
-  "raw_path": "receipts.jsonl",
-  "raw_bytes": 5696715,
-  "raw_sha256": "b939b6485a46675c3b3ef1290776cb4a27fdd63ae79b0f90db9e8e8421e83ae2",
-  "archive": "receipts.jsonl.gz",
-  "archive_bytes": 872683,
-  "archive_sha256": "814600e3b8003d5c2d2975406ca6e449a375aa7f09eb748c57d660a6d5d7b323",
-  "decompressed_bytes_equal": true
-}

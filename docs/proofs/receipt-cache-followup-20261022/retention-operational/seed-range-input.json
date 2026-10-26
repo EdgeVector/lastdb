@@ -1,8 +1,0 @@
-{
-  "collection": "receipt-pruning-generated",
-  "end": "key-000064",
-  "max_pages": 16,
-  "page_size": 7,
-  "prefix": "receipt\u0000",
-  "start": "key-000000"
-}

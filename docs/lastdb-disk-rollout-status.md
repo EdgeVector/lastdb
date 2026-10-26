@@ -17,14 +17,14 @@ It does not implement the later direct-position tip format or a new body-key cod
 
 The final product source revision is `7110c7f5`, before the final receipts and status documents.
 The daemon, CLI, disk-home, recovery, and maintenance programs use that same clean source.
-The [completion receipts](proofs/layer2-completion-20261016/) identify each exact executable and configuration.
-The [final fresh-data report](proofs/layer2-completion-20261016/semantics-7110.md) records a new 256-record write, reads, updates, conditions, delete, recreate, and flush.
+The [completion receipts](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/) identify each exact executable and configuration.
+The [final fresh-data report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/semantics-7110.md) records a new 256-record write, reads, updates, conditions, delete, recreate, and flush.
 That final check uses one empty home, with no import, copy, restore, or reopen.
 
-The [earlier batch component report](proofs/layer2-completion-20261016/batch-semantics.md) records full responses, partial memory results, and ordered change entries on `b47`.
-The [earlier record component report](proofs/layer2-completion-20261016/semantics.md) retains its original memory ack, condition, delete, and recreate results.
-The [earlier recovery component report](proofs/layer2-completion-20261016/recovery.md) records shared atoms, local backup, restore, and conversion on its stated source.
-The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separates physical engine costs from node costs and memory acknowledgements.
+The [earlier batch component report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/batch-semantics.md) records full responses, partial memory results, and ordered change entries on `b47`.
+The [earlier record component report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/semantics.md) retains its original memory ack, condition, delete, and recreate results.
+The [earlier recovery component report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/recovery.md) records shared atoms, local backup, restore, and conversion on its stated source.
+The [benchmark report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/benchmarks.md) separates physical engine costs from node costs and memory acknowledgements.
 
 ## Candidate source
 
@@ -96,10 +96,10 @@ Local backup success does not establish cloud recovery or primary upgrade readin
 The October 15 receipts remain historical evidence with their original source and limits.
 They do not establish the final candidate's performance or recovery result.
 
-- [Initial native node](proofs/disk-native-node-20261015/report.md)
-- [Native read holds](proofs/disk-native-read-holds-20261015/report.md)
-- [File lifetime and compaction](proofs/disk-file-lifetime-20261016/report.md)
-- [Earlier batch read and write comparison](proofs/layer2-batch-reads-writes-20261016/report.md)
+- [Initial native node](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-native-node-20261015/report.md)
+- [Native read holds](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-native-read-holds-20261015/report.md)
+- [File lifetime and compaction](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-file-lifetime-20261016/report.md)
+- [Earlier batch read and write comparison](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-batch-reads-writes-20261016/report.md)
 
 Use the final completion receipts for the final executable hashes, measurements, and limits.
 Use generated data and product commands for operational evidence.

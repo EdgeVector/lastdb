@@ -293,7 +293,7 @@ Selected HashRange schemas can load all required membership keys before their fi
 Concurrent first queries share that load. Later range calls select complete keys from memory.
 Tips and values remain partial. Range-key preload does not load unused atom values or file contents.
 The policy remains opt-in through `LASTDB_SCHEMA_PRELOAD_SCHEMAS`.
-See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](proofs/core-owned-writes-20261018/RESULTS.md).
+See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md).
 
 ### Engine cutover
 

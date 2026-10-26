@@ -300,7 +300,7 @@ At 10,000 paths the bookkeeping is about 100 MB, while the small-record data is 
 
 ## Bookkeeping shrink result (2026-10-19)
 
-The change (proof: `docs/proofs/warm-set-intern-keys-20261019/RESULTS.md`):
+The change (proof: [`docs/proofs/warm-set-intern-keys-20261019/RESULTS.md`](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/warm-set-intern-keys-20261019/RESULTS.md)):
 
 - The slot table stores each slot key once. Paths, owner lists, and source links use a 32-bit slot id.
 - The source table stores each source key once, in a packed form. Each lowercase hex run of 16 or more characters becomes raw bytes. Both sides of a source link hold only ids.
@@ -328,7 +328,7 @@ Each part needs its own change. Source keys need a shared prefix table or keys t
 
 ## Second bookkeeping shrink (2026-10-19)
 
-The change (proof: `docs/proofs/warm-set-shrink-path-20261019/RESULTS.md`):
+The change (proof: [`docs/proofs/warm-set-shrink-path-20261019/RESULTS.md`](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/warm-set-shrink-path-20261019/RESULTS.md)):
 
 - A clean read keeps no owned copy of the tip. A call that holds the path gets the slot atom, so the call keeps the same atom alive as before. A prepared value keeps its owned value and its reservation owner.
 - A warm path is its slot id plus interned schema and field name ids. The path index, the recency map, and the slot owner lists hold a 32-bit path id.

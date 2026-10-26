@@ -1,1 +1,0 @@
-{"schema_name":"Layer2ById","fields":["body"],"filter":{"HashRangeKey":{"hash":"generated-recovery","range":"id-000"}}}

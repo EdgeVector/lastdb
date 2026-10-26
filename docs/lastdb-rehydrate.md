@@ -305,7 +305,7 @@ Normal status returns a saved sample, normally refreshed every 60 seconds; nativ
 Historical status fields remain at the wire boundary for installed clients.
 The native sampler does not maintain their retired graph and loader counters.
 Write gates, record locks, and purge queues still control their respective work.
-The [write result](proofs/core-owned-writes-20261018/RESULTS.md) records the preceding measured source and its limits.
+The [write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) records the preceding measured source and its limits.
 Later cleanup or cutover checks must identify their own source and product evidence.
 
 ## Current key format
