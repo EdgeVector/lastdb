@@ -108,12 +108,14 @@ fn verify(root: &Path, key: &[u8; 32], order: KeyOrderVersion) -> StorageResult<
         return Err(invalid("the logical format differs from the node marker"));
     }
     AtomStore::validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
-    content_key_proof::verify(
-        key,
-        values[2]
-            .as_deref()
-            .ok_or_else(|| invalid("the account proof is absent"))?,
-    )?;
+    match values[2].as_deref() {
+        Some(proof) => content_key_proof::verify(key, proof)?,
+        // Legacy library callers can initialize DbOperations without account
+        // keys. Both CURRENT files already authenticate their physical key.
+        // Typed publication always requires the account proof as well.
+        None if order == KeyOrderVersion::LegacyUtf8V1 => {}
+        None => return Err(invalid("the account proof is absent")),
+    }
     Ok(())
 }
 
