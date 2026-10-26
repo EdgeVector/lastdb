@@ -45,7 +45,6 @@ pub(super) fn phase_timings(
         persist_schema_us: phase_totals.persist_schema_us,
         persist_idempotency_us: phase_totals.persist_idempotency_us,
         flush_us: phase_totals.flush_us,
-        sync_capture_us: phase_totals.sync_capture_us,
         index_wait_us: phase_totals.index_wait_us,
         change_record_us: phase_totals.change_record_us,
         change_record_lock_wait_us: phase_totals.change_record_lock_wait_us,
