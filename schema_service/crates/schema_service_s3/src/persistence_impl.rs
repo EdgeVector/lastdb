@@ -112,6 +112,16 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()> {
+        let existing = self.load_app(&app.app_id).await?;
+        if let Some(existing) = existing {
+            if existing.owner_dev_pubkey == app.owner_dev_pubkey {
+                return Ok(());
+            } else {
+                return Err(FoldDbError::Config(
+                    "app already exists with different owner".to_string(),
+                ));
+            }
+        }
         let key = format!("apps/{}.json", app.app_id);
         let body = serde_json::to_vec(app)
             .map_err(|e| FoldDbError::Serialization(format!("serialize app: {e}")))?;
@@ -148,7 +158,17 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
 
     async fn update_app(&self, app: &AppRecord) -> FoldDbResult<()> {
         let key = format!("apps/{}.json", app.app_id);
-        let existing: Option<AppRecord> = self.get_single_object(&key).await?;
+        let mut existing: Option<AppRecord> = self.get_single_object(&key).await?;
+        if existing.is_none() {
+            let (blob, _) = self.get_blob::<AppRecord>(APPS_KEY).await?;
+            existing = blob.items.get(&app.app_id).cloned();
+            if existing.is_some() {
+                tracing::info!(
+                    "update_app: migrating legacy app '{}' to per-record storage",
+                    app.app_id
+                );
+            }
+        }
         let Some(mut existing) = existing else {
             return Err(FoldDbError::Config(format!(
                 "app '{}' not found for update",
@@ -162,15 +182,19 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
 
     async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
         let mut result = self.list_and_load_apps().await?;
-        if result.is_empty() {
-            let (blob, _) = self.get_blob::<AppRecord>(APPS_KEY).await?;
-            if !blob.items.is_empty() {
-                tracing::info!(
-                    "schema_service_s3: loaded {} apps from legacy apps.json",
-                    blob.items.len()
-                );
-                result = blob.items;
+        let (blob, _) = self.get_blob::<AppRecord>(APPS_KEY).await?;
+        if !blob.items.is_empty() {
+            let legacy_count = blob.items.len();
+            let per_record_count = result.len();
+            for (app_id, legacy_app) in blob.items {
+                result.entry(app_id).or_insert(legacy_app);
             }
+            tracing::info!(
+                "schema_service_s3: loaded {} per-record apps + {} legacy apps (total {})",
+                per_record_count,
+                legacy_count,
+                result.len()
+            );
         }
         Ok(result)
     }
