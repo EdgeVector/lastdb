@@ -133,6 +133,13 @@ Some integer keys grow under the fixed-width format; the profile does not promis
 No second lookup key or original range copy enters storage.
 The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes.
 
+`TypedScalarV1` defines the future API comparison order.
+Its explicit constructor accepts one supported scalar domain.
+A comparison returns an error for an invalid coordinate.
+The captured read retains a comparison error and refuses the result.
+Response rows validate their range coordinates before the sort.
+Legacy comparisons retain text order. The ordinary node does not select the typed comparison yet.
+
 All stored range decode paths use the exact molecule codec.
 A plain range that resembles an OPE token stays plain.
 Normal reads refuse a malformed range. V2 block encryption supplies authentication.
