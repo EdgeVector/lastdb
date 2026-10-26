@@ -219,6 +219,12 @@ def main():
         roots = [r["root"] for r in manifest["runs"]]
         if any(root != roots[0] for root in roots) or inventory(template.home) != whole:
             raise RuntimeError("Runs did not hold one shared root, or the stopped seed was modified")
+        seed_live = json.loads((seed_output / "observed-stable.json").read_text())[-1]
+        # One clean header commit on shutdown, one re-arm header commit on boot.
+        expected_root = {name: seed_live[name] + 2 for name in ("generation", "frontier")}
+        if roots[0] != expected_root:
+            raise RuntimeError("The shared root includes unexpected shutdown/startup publications")
+        manifest["expected_boot_root"] = expected_root
         boot_sizes = [list(json.loads((args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())[0]["bytes"]
                       for r in manifest["runs"]]
         if len(set(boot_sizes)) != 1:
