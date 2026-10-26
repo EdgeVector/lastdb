@@ -17,11 +17,6 @@ pub mod snapshot_log;
 pub use crate::backup_progress::{format_backup_progress_line, BackupProgressSnapshot};
 pub use crate::SyncConflict;
 pub use auth::AuthRefreshCallback;
-pub use engine::{
-    BackupUploadConcurrencyStatus, BootstrapOutcome, CloudSyncReenableOutcome, ForegroundPressure,
-    PurgeOutcome, ReplayBlockerQuarantineOutcome, SyncBackupBlocker, SyncReplayBlocker, SyncState,
-    SyncStatus,
-};
 pub use error::{SyncError, SyncResult};
 pub use replay_diagnosis::{
     MutationIntentReplayError, ReplayApplyDiagnosis, ReplayCause, ReplayOperation,
