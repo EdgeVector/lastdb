@@ -20,24 +20,7 @@ pub(super) async fn dispatch_maintenance_gc(
         DataRoute::DbNativeStatus => {
             heap_route!(execute_db_native_status_route, req, ctx, host).await
         }
-        // Retired with the LastStore engine: the native disk store keeps no
-        // successor history to stamp. The route stays until an API version
-        // change removes it.
-        DataRoute::DbStampPurgedAtomRetirements => error_response(
-            500,
-            "stamp-purged-atom-retirements: the native disk store has no LastStore \
-             successor history to stamp",
-            ctx,
-        ),
         DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
-        // Retired with the LastStore engine: the native disk store has no hash
-        // group to drop. The route stays until an API version change removes it.
-        DataRoute::DbReclaimKeepSmallSnapshot => error_response(
-            409,
-            "reclaim-keep-small-snapshot refused: the native disk store has no \
-             LastStore hash group to drop",
-            ctx,
-        ),
         _ => return None,
     })
 }
@@ -66,9 +49,6 @@ pub(super) async fn dispatch_maintenance_repair(
         }
         DataRoute::DbReapUnsealed => {
             heap_route!(execute_db_reap_unsealed_route, req, ctx, host).await
-        }
-        DataRoute::DbPinLogAudit => {
-            heap_route!(execute_db_pin_log_audit_route, req, ctx, host).await
         }
         DataRoute::DbMoleculeKeys => {
             heap_route!(execute_db_molecule_keys_route, req, ctx, host).await

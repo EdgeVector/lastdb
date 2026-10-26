@@ -109,25 +109,86 @@ def parse_sdk_exports(path: Path) -> list[str]:
     return sorted(set(exports))
 
 
-def get_version_constants(path: Path) -> dict[str, int]:
-    """Extract version constants from lastdb_node/src/version.rs."""
-    content = path.read_text()
-    versions = {}
-    
-    for const in [
-        'CURRENT_API_VERSION',
-        'MIN_SUPPORTED_API_VERSION',
-        'CURRENT_OUTBOX_FORMAT_VERSION',
-        'MIN_SUPPORTED_OUTBOX_FORMAT_VERSION'
-    ]:
-        match = re.search(
-            rf'pub const {const}:\s*u32\s*=\s*(\d+)',
-            content
-        )
-        if match:
-            versions[const] = int(match.group(1))
-    
-    return versions
+class SnapshotError(Exception):
+    """A contract value the snapshot cannot resolve from the source."""
+
+
+VERSION_CONSTANTS = (
+    'CURRENT_API_VERSION',
+    'MIN_SUPPORTED_API_VERSION',
+    'CURRENT_OUTBOX_FORMAT_VERSION',
+    'MIN_SUPPORTED_OUTBOX_FORMAT_VERSION',
+)
+
+# Rust module paths a version constant may name instead of a literal, mapped to
+# the source file (relative to the repo root) that defines that module.
+# `CURRENT_API_VERSION` is `lastdb_uds::uds_router::API_VERSION`: the number
+# lives with the socket router, not in `lastdb_node/src/version.rs`.
+CONST_MODULE_FILES = {
+    'lastdb_uds::uds_router': Path('lastdb_uds') / 'src' / 'uds_router.rs',
+}
+
+# Follow at most this many path hops before giving up (guards a cycle).
+MAX_CONST_HOPS = 4
+
+
+def read_u32_const(repo_root: Path, rel_path: Path, name: str) -> str:
+    """Return the raw right-hand side of `pub const <name>: u32 = ...;`."""
+    path = repo_root / rel_path
+    if not path.is_file():
+        raise SnapshotError(f"{rel_path}: file not found (looking for {name})")
+    # Anchored at a line start so a commented-out definition cannot match.
+    match = re.search(
+        rf'^\s*pub const {name}\b\s*:\s*u32\s*=\s*([^;]+);',
+        path.read_text(),
+        re.MULTILINE
+    )
+    if not match:
+        raise SnapshotError(f"{rel_path}: no `pub const {name}: u32 = ...;`")
+    return match.group(1).strip()
+
+
+def resolve_u32_const(repo_root: Path, rel_path: Path, name: str) -> int:
+    """Resolve a u32 version constant to its number.
+
+    The value is either a decimal literal, or a path to another constant in a
+    module listed in CONST_MODULE_FILES, which is read and resolved in turn.
+    Anything else is an error: a guessed default would let a breaking change
+    pass (or fail) the version-bump check on a number nobody wrote.
+    """
+    origin = f"{rel_path}:{name}"
+    for _ in range(MAX_CONST_HOPS):
+        value = read_u32_const(repo_root, rel_path, name)
+        literal = re.fullmatch(r'(\d[\d_]*)(?:u32)?', value)
+        if literal:
+            return int(literal.group(1).replace('_', ''))
+        path_match = re.fullmatch(r'(?:crate::|::)?((?:\w+::)+)(\w+)', value)
+        if not path_match:
+            raise SnapshotError(
+                f"{origin}: cannot resolve value `{value}` "
+                "(expected a u32 literal or a path to a known constant)"
+            )
+        module = path_match.group(1).rstrip(':')
+        if module not in CONST_MODULE_FILES:
+            raise SnapshotError(
+                f"{origin}: value `{value}` names module `{module}`, which "
+                "generate-contract-snapshot.py does not know; add it to "
+                "CONST_MODULE_FILES"
+            )
+        rel_path = CONST_MODULE_FILES[module]
+        name = path_match.group(2)
+    raise SnapshotError(
+        f"{origin}: more than {MAX_CONST_HOPS} constant hops; is there a cycle?"
+    )
+
+
+def get_version_constants(repo_root: Path) -> dict[str, int]:
+    """Resolve the contract version constants named in lastdb_node/src/version.rs."""
+    version_rs = Path('lastdb_node') / 'src' / 'version.rs'
+    return {
+        name: resolve_u32_const(repo_root, version_rs, name)
+        for name in VERSION_CONSTANTS
+    }
 
 
 def extract_error_kinds(path: Path) -> list[str]:
@@ -159,10 +220,16 @@ def main() -> int:
     repo_root = args.repo_root
     
     # Parse components
-    versions = get_version_constants(
-        repo_root / 'lastdb_node' / 'src' / 'version.rs'
-    )
-    
+    try:
+        versions = get_version_constants(repo_root)
+    except SnapshotError as error:
+        print(
+            f"generate-contract-snapshot: cannot resolve a contract version: "
+            f"{error}",
+            file=sys.stderr
+        )
+        return 2
+
     routes = parse_data_routes(
         repo_root / 'lastdb_uds' / 'src' / 'uds_router' / 'data_route.rs'
     )
@@ -183,19 +250,15 @@ def main() -> int:
     # Build snapshot
     snapshot = {
         "http_api": {
-            "version": versions.get('CURRENT_API_VERSION', 1),
-            "min_supported": versions.get('MIN_SUPPORTED_API_VERSION', 1),
+            "version": versions['CURRENT_API_VERSION'],
+            "min_supported": versions['MIN_SUPPORTED_API_VERSION'],
             "routes": routes,
             "error_kinds": error_kinds,
             "sdk_exports": sdk_exports
         },
         "outbox": {
-            "version": versions.get(
-                'CURRENT_OUTBOX_FORMAT_VERSION', 1
-            ),
-            "min_supported": versions.get(
-                'MIN_SUPPORTED_OUTBOX_FORMAT_VERSION', 1
-            ),
+            "version": versions['CURRENT_OUTBOX_FORMAT_VERSION'],
+            "min_supported": versions['MIN_SUPPORTED_OUTBOX_FORMAT_VERSION'],
             "schema": outbox_schema
         }
     }

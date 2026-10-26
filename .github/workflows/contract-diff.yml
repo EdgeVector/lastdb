@@ -6,9 +6,12 @@ on:
       - main
     paths:
       - 'lastdb_node/src/version.rs'
+      - 'lastdb_uds/src/uds_router.rs'
       - 'lastdb_uds/src/uds_router/**'
       - 'lastdb_app_sdk/src/**'
       - 'fold_db/crates/core/src/db_operations/search_index/sink.rs'
+      - 'scripts/lints/generate-contract-snapshot.py'
+      - 'scripts/lints/diff-contract-snapshots.py'
       - '.github/workflows/contract-diff.yml'
 
 permissions:
@@ -121,11 +124,11 @@ jobs:
           # Check HTTP API version bump if HTTP breaking changes
           if [ "$BREAKING_HTTP" = "true" ]; then
             if [ "$HEAD_API" -le "$BASE_API" ]; then
-              echo "❌ Breaking HTTP API changes without CURRENT_API_VERSION bump"
+              echo "❌ Breaking HTTP API changes without an API_VERSION bump"
               echo "   Base: $BASE_API, Head: $HEAD_API"
               FAIL=true
             else
-              echo "✓ CURRENT_API_VERSION bumped: $BASE_API → $HEAD_API"
+              echo "✓ API_VERSION bumped: $BASE_API → $HEAD_API"
             fi
           fi
           
@@ -149,7 +152,8 @@ jobs:
             echo "Breaking changes detected. Version bump required:"
             echo ""
             if [ "$BREAKING_HTTP" = "true" ]; then
-              echo "  → Bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
+              echo "  → Bump API_VERSION in lastdb_uds/src/uds_router.rs"
+              echo "    (lastdb_node/src/version.rs re-exports it as CURRENT_API_VERSION)"
             fi
             if [ "$BREAKING_OUTBOX" = "true" ]; then
               echo "  → Bump CURRENT_OUTBOX_FORMAT_VERSION in lastdb_node/src/version.rs"

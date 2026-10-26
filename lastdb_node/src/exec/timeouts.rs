@@ -225,13 +225,10 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbClearHistory
         | DataRoute::DbCompact
         | DataRoute::DbNativeBackup
-        | DataRoute::DbStampPurgedAtomRetirements
         | DataRoute::DbGcProteins
-        | DataRoute::DbReclaimKeepSmallSnapshot
         | DataRoute::DbResealAtRest
         | DataRoute::DbReapUnsealed
         | DataRoute::DbDeleteLedger
-        | DataRoute::DbPinLogAudit
         | DataRoute::DbRepairHashRangeKeyFields
         | DataRoute::SyncCloudOff
         | DataRoute::SyncByteBackupV2

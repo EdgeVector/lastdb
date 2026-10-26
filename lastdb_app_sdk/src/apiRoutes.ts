@@ -17,10 +17,11 @@ export const LASTDB_API_ROUTES = {
 } as const;
 
 /**
- * The node request-grammar version this SDK was written against — the value
- * `GET /api/version` reports as `api_version` on a node that speaks exactly
- * this grammar. Pinned to the Rust `API_VERSION` constant by
- * `test/apiRoutes.test.ts`, so the two cannot drift apart silently.
+ * The node request-grammar version this SDK needs — the lowest `api_version`
+ * `GET /api/version` may report for every route and key this SDK sends to
+ * work. It is not the node's current version: node API version 2 removed
+ * three owner-socket routes this SDK never calls, so the SDK still needs only
+ * `1`, and a node that reports a higher number still serves it.
  *
  * An app declares the version IT needs (usually this one) and passes it as
  * `connect({ requireApiVersion })`; the SDK refuses to run against an older

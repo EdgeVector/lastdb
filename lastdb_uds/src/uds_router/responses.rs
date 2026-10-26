@@ -37,7 +37,7 @@ pub(super) fn instance_id() -> &'static str {
 /// The version handshake for the control socket.
 ///
 /// ```json
-/// {"ok":true,"api_version":1,"build":"0.23.3-2068-g51fca83b2",
+/// {"ok":true,"api_version":2,"build":"0.23.3-2068-g51fca83b2",
 ///  "capabilities":{"atomic_aggregate_set_v1":true},"instance_id":"<pid-nanos>",
 ///  "min_supported_api_version":1,"current_outbox_format_version":1,
 ///  "min_supported_outbox_format_version":1}
