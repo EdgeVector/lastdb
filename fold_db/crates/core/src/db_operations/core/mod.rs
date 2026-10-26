@@ -47,15 +47,11 @@ pub struct DbOperations {
     metadata_store: MetadataStore,
     /// Node-local, rebuildable proof rows for an isolated attribution migration.
     attribution_ledger: AttributionLedger,
-    /// Durable app change feed. Product rows remain authoritative. Skipped by
-    /// store-level capture (`crate::sync::policy::CAPTURE_SKIP_NAMESPACES`),
-    /// but the chunk-backup plane does not consult that list, so this still
-    /// rides cloud backup sealed (`ENC:`).
+    /// Durable app change feed. Product rows remain authoritative. It rides
+    /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
     /// Forward + reverse lineage indexes for derived molecules. Both
-    /// backing namespaces (`lineage_forward`, `lineage_reverse`) are skipped
-    /// by store-level capture via
-    /// `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`, but still ride cloud
+    /// backing namespaces (`lineage_forward`, `lineage_reverse`) ride cloud
     /// backup (encrypted, not at-rest-exempt).
     /// Scaffolding only; no production call sites yet (PR 6 of
     /// `projects/molecule-provenance-dag`).

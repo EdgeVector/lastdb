@@ -22,9 +22,8 @@ const FILE_BLOB_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
 /// AES-GCM tag (16). `encrypted_size_bytes = plaintext.len() + this`.
 pub const FILE_BLOB_ENVELOPE_OVERHEAD: u64 = 1 + 12 + 16;
 
-/// Failure of a pure seal step. The message is the same text the cloud-sync
-/// engine reported before the helpers moved, so `SyncError::Crypto` renders
-/// unchanged.
+/// Failure of a pure seal step. The message keeps the text the retired
+/// cloud-sync engine reported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileBlobSealError(String);
 

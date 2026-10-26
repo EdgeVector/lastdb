@@ -68,7 +68,7 @@ impl ResidentDurability {
 /// How the logical cloud intent is secured before the local response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloudCaptureState {
-    /// A flushed re-export marker or durable pin-log row survives a process loss.
+    /// The cloud intent survives a process loss. No current build reports it.
     Durable,
     /// The local commit completed, but the cloud intent did not reach disk.
     Failed,
@@ -124,17 +124,44 @@ pub struct CloudMutationReceipt {
     pub error: Option<String>,
 }
 
-impl CloudMutationReceipt {}
+impl CloudMutationReceipt {
+    /// The cloud part of the reply for one logical commit.
+    ///
+    /// No cloud capture engine exists. An `Async` route gets no cloud receipt.
+    /// Any other policy gets a fixed failed receipt: the local commit stands,
+    /// and the reply says that no cloud intent was secured. The receipt names
+    /// the first non-empty mutation id of the batch.
+    pub(crate) fn for_policy(
+        policy: CloudCapturePolicy,
+        mutations: &[crate::schema::types::Mutation],
+    ) -> Option<Self> {
+        if matches!(policy, CloudCapturePolicy::Async) {
+            return None;
+        }
+        Some(Self {
+            mutation_uuid: mutations
+                .iter()
+                .find_map(|mutation| (!mutation.uuid.is_empty()).then(|| mutation.uuid.clone()))
+                .unwrap_or_default(),
+            capture_state: CloudCaptureState::Failed,
+            publication_state: CloudPublicationState::Failed,
+            targets: Vec::new(),
+            error: Some("cloud sync capture is unavailable".to_string()),
+        })
+    }
+}
 
 /// Internal capture behavior selected by the owner mutation route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CloudCapturePolicy {
-    /// Preserve the existing post-response marker path.
+    /// No cloud receipt in the reply.
     #[default]
     Async,
-    /// Flush the crash-safe marker before returning the local receipt.
+    /// Secure the cloud intent before the local receipt. No capture engine
+    /// exists, so the reply carries a failed cloud receipt.
     Durable,
-    /// Flush the marker, append the exact pin-log row, and wait for cloud.
+    /// Wait for the exact cloud publication. No capture engine exists, so the
+    /// reply carries a failed cloud receipt.
     WaitForPublication { timeout: std::time::Duration },
 }
 

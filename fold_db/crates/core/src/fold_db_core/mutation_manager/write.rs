@@ -58,20 +58,19 @@ mod timing;
 /// peer that never held the record. A refuse-on-absent replay still pins
 /// the cursor; restore must treat already-gone as convergence.
 ///
-/// Getting this wrong is not a stray warning. A replay error propagates to
-/// `SyncEngine::replay_entry`, which pins the download cursor at that seq; the
-/// target's uploads queue behind the pin, so **cloud backup stops and RPO grows
-/// without bound** until an operator runs `lastdb cloud quarantine-replay`.
-/// Observed on the primary 2026-08-17: the telemetry reaper purged 64
+/// Getting this wrong was not a stray warning. In the retired sync engine a
+/// replay error pinned the download cursor at that seq; the target's uploads
+/// queued behind the pin, so **cloud backup stopped and RPO grew without
+/// bound** until an operator cleared the pin. Observed on the primary
+/// 2026-08-17: the telemetry reaper purged 64
 /// `lastdb_telemetry/RequestOpsRollup` rows, the same intent came back down the
 /// log, replay found 64 of 64 keys absent, and the pipeline stopped — RPO
 /// climbing 270 s → 449 s across four cycles, not recovering, until the pin was
 /// cleared by hand.
 ///
-/// Half of this was already fixed one layer up and only for one verb:
-/// `encode_mutations` strips `must_exist` from the envelope so a replayed
-/// must-exist delete decodes as a plain `Delete` and routes to `Skip`
-/// (`replayed_must_exist_delete_of_absent_key_succeeds`). `MutationType::Purge`
+/// Half of this was fixed one layer up and only for one verb: the retired
+/// envelope encoder stripped `must_exist`, so a replayed must-exist delete
+/// decodes as a plain `Delete` and routes to `Skip`. `MutationType::Purge`
 /// has no such downgrade — the verb *is* the mutation type, and rewriting it to
 /// `Delete` on the wire would change the ledger verb and CDC record — so the
 /// policy is chosen here, at the apply site, where the origin is known.

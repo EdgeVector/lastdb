@@ -26,7 +26,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use aggregate::AggregateRepairReceipt;
-pub(crate) use author_clock::AuthorClockPersistBarrier;
 pub use receipt::{
     CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
     CloudPublicationTarget, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
@@ -299,13 +298,6 @@ impl MutationManager {
             .read()
             .expect("capture router lock poisoned")
             .clone()
-    }
-
-    pub(crate) async fn wait_for_capture_tasks(&self, timeout: std::time::Duration) -> bool {
-        match self.capture_router() {
-            Some(router) => router.wait_for_completion(timeout).await,
-            None => true,
-        }
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

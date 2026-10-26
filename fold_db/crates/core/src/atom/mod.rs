@@ -115,9 +115,8 @@ pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> Strin
 /// with the peer's because the peer's `written_at` was at least as new.
 ///
 /// Self-won "conflicts" (peer's atom strictly older, local keeps its value)
-/// are **not** recorded. The downstream `MutationEvent` written by
-/// `SyncEngine::store_merge_conflicts` is shaped
-/// `{ old: loser_atom, new: winner_atom, is_conflict: true }`, and that
+/// are **not** recorded. A downstream `MutationEvent` built from a conflict
+/// is shaped `{ old: loser_atom, new: winner_atom, is_conflict: true }`, and that
 /// shape only matches reality when local actually transitioned from
 /// `loser_atom` to `winner_atom`. For self-wins, `loser_atom` would be the
 /// peer's never-local atom, so the event would describe a local transition
@@ -128,9 +127,8 @@ pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> Strin
 /// The `field_key` field carries the conflict's per-field key in typed form
 /// (hash-only / range-only / full hash+range / empty Single slots on
 /// `MoleculeHashRange`). This is the authoritative shape that downstream
-/// consumers — chiefly `SyncEngine::store_merge_conflicts`, which embeds it
-/// into the `MutationEvent` record used by history inspection and purge
-/// — read to build their `FieldKey`. Before this field existed, the typed
+/// consumers — the conflict records used by history inspection and purge —
+/// read to build their `FieldKey`. Before this field existed, the typed
 /// key was reconstructed by `split_once(':')` from a `:`-joined string
 /// representation, which mangled both hash and range whenever either
 /// contained a `:` (URLs, ISO timestamps); the typed channel makes the

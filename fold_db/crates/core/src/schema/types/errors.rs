@@ -26,9 +26,6 @@ pub enum SchemaError {
     InvalidPermission(String),
     InvalidTransform(String),
     InvalidData(String),
-    /// A normal Delete won while an imported Put waited to publish in memory.
-    /// The replay caller removes stale mutations and retries the remaining batch.
-    ReplayDeleteBarrierChanged,
     /// A retired source needs a current snapshot before it can replay again.
     ReplayBeforeDeleteCutoff {
         cutoff_nanos: u64,
@@ -151,22 +148,6 @@ pub enum SchemaError {
         schema: String,
         kind: String,
     },
-    /// The bounded mutation-capture queue stayed full for the whole admission
-    /// window, so the write was refused before the local commit.
-    ///
-    /// Carried as a distinct variant for the same reason as `StorageFull`, and
-    /// answered like `PersistQueueFull`: the request was well formed, nothing
-    /// changed, and the same write succeeds once the capture worker drains. As
-    /// `InvalidData` it rendered `400 Bad Request` / "Invalid data" — sending
-    /// the writer to audit a payload that was never wrong — and raised one
-    /// ERROR, so one Sentry event, per refused write (issue `7699865707`: 123
-    /// events in 13 hours on a single node, 0 users affected).
-    ///
-    /// Unlike a full disk, no operator action clears this. It is self-clearing
-    /// backpressure, so the answer is `503` and an immediate retry is correct.
-    CaptureQueueFull {
-        waited_ms: u64,
-    },
     /// An install was refused (`409`): the molecule drain still removes the keys
     /// of an earlier schema of this name. Nothing changed. `reason` is `draining`,
     /// `waiting_for_conflict_records` or `drain_task_off`.
@@ -190,9 +171,6 @@ impl fmt::Display for SchemaError {
             Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),
             Self::InvalidTransform(msg) => write!(f, "Invalid transform: {msg}"),
             Self::InvalidData(msg) => write!(f, "Invalid data: {msg}"),
-            Self::ReplayDeleteBarrierChanged => {
-                write!(f, "Delete barrier changed during mutation replay")
-            }
             Self::ReplayBeforeDeleteCutoff { cutoff_nanos } => write!(f,
                 "replay_cutoff_requires_resync: original write time is missing or at/before {cutoff_nanos}; restore a current snapshot before replay"),
             Self::InvalidCursor(msg) => write!(f, "Invalid resume cursor: {msg}"),
@@ -244,12 +222,6 @@ impl fmt::Display for SchemaError {
             Self::PersistQueueFull { schema, kind } => write!(
                 f,
                 "persist queue full for schema '{schema}' ({kind}); retry after drain"
-            ),
-            Self::CaptureQueueFull { waited_ms } => write!(
-                f,
-                "mutation capture queue remained full for {waited_ms}ms, so the write did \
-                 not land and nothing already stored was lost. This is transient \
-                 backpressure from the capture worker — retry the same write"
             ),
             Self::SchemaBeingDropped { schema, reason, molecules } => {
                 f.write_str(&super::being_dropped::message(schema, reason, *molecules))

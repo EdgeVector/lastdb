@@ -184,8 +184,8 @@ fn encode_row(row: &ContentAddressedBlob) -> Result<Vec<u8>, FoldDbError> {
 
 /// Write one serialized row. The caller holds the blob's liveness target gate.
 ///
-/// A full disk and capture backpressure keep their identity across this
-/// boundary, so the node answers 507 and 503 and not an opaque 500.
+/// A full disk keeps its identity across this boundary, so the node answers
+/// 507 and not an opaque 500.
 async fn put_row(
     store: &Arc<dyn KvStore>,
     blob_ref: &str,
@@ -199,7 +199,6 @@ async fn put_row(
 
 fn storage_error(error: StorageError) -> FoldDbError {
     let keeps_identity = error.is_storage_full()
-        || error.is_capture_queue_full()
         || matches!(&error, StorageError::IoError(io) if StorageError::is_storage_full_io(io));
     if keeps_identity {
         FoldDbError::Schema(SchemaError::from(error))

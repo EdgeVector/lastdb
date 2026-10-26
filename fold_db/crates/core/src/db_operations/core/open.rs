@@ -57,11 +57,9 @@ impl CoreNamespaces {
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         // `lineage_forward` / `lineage_reverse` back the derived-molecule
-        // lineage index. Skipped by store-level capture per
-        // `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`; rebuildable from
-        // replay (project 2). Both namespaces are still cloud-backed-up
-        // (encrypted since #1153, not at-rest-exempt) — capture-skip does not
-        // mean cloud-excluded. No production writers exist until
+        // lineage index; rebuildable from replay (project 2). Both namespaces
+        // are cloud-backed-up (encrypted since #1153, not at-rest-exempt).
+        // No production writers exist until
         // `projects/view-compute-as-mutations` wires them in.
         let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
         let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;

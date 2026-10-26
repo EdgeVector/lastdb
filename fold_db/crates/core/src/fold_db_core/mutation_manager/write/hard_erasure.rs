@@ -95,7 +95,6 @@ impl MutationManager {
             None
         };
 
-        crate::sync::capture::mark_logical_commit_published();
         let (completion, receiver) = tokio::sync::oneshot::channel();
         let pending_task = self.pending_tasks.begin();
         job.author_clock_barrier = author_clock_barrier;

@@ -11,7 +11,8 @@ struct InvalidationCandidate {
 type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
 
 impl MutationManager {
-    /// Single-route sibling that can secure a durable aggregate delete intent.
+    /// Aggregate single-route sibling that returns a fixed failed cloud receipt
+    /// for a non-Async policy.
     pub async fn write_aggregate_set_with_access_receipt_cloud(
         &self,
         mut source: Mutation,
@@ -33,30 +34,15 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
 
-        let mut envelopes = crate::sync::mutation_intent::encode_mutations(
-            std::slice::from_ref(&source),
-            storage_prefix.as_deref(),
-        );
-        crate::sync::mutation_intent::retain_persisted_field_atom_uuids(
-            &mut envelopes,
-            std::slice::from_ref(&source),
-            |schema_name| {
-                self.schema_manager
-                    .get_schema_metadata(schema_name)
-                    .ok()
-                    .flatten()
-                    .map(|schema| schema.runtime_fields.keys().cloned().collect())
-            },
-        );
-
-        let result = crate::sync::capture::capture_logical_commit_with_policy(
-            self.capture_router(),
-            envelopes,
+        let cloud = super::super::CloudMutationReceipt::for_policy(
             cloud_policy,
+            std::slice::from_ref(&source),
+        );
+        let mut receipt = crate::sync::capture::with_mutation_admission(
+            self.capture_router(),
             self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request),
         )
-        .await;
-        let (mut receipt, cloud) = result?;
+        .await?;
         receipt.revision = Some(source_revision);
         receipt.cloud = cloud;
         Ok(receipt)

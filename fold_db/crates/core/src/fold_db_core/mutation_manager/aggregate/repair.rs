@@ -17,10 +17,8 @@ impl MutationManager {
         repair: AggregateRepair,
         access_context: &crate::access::AccessContext,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
-        crate::sync::capture::with_capture_suppressed(
-            self.repair_aggregate_summary_inner(repair, access_context),
-        )
-        .await
+        self.repair_aggregate_summary_inner(repair, access_context)
+            .await
     }
 
     fn check_repair_guard_association(
@@ -411,10 +409,9 @@ impl MutationManager {
         if let Some((reservation, state)) = clock {
             reservation.submit_and_wait(state).await?;
         }
-        let result = crate::sync::capture::with_capture_suppressed(
-            self.write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request),
-        )
-        .await;
+        let result = self
+            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
+            .await;
         let mut receipt = Self::require_durable_receipt(result?, "repair summary")?;
         receipt.revision = Some(revision);
         let grant = AggregateRepairGrant {
