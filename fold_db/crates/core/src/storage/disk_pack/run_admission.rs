@@ -1,10 +1,9 @@
 //! Check the logical format through read-only snapshots before writer cleanup.
 
-use super::{map, run_node, PackRuntime, StorageError, StorageResult, NODE_MARKER};
+use super::{map, native_routing, run_node, PackRuntime, StorageError, StorageResult, NODE_MARKER};
 use crate::atom::molecule_key_codec::TYPED_KEY_FORMAT;
 use crate::crypto::content_key_proof;
 use crate::db_operations::atom_store::{key_format, AtomStore};
-use crate::storage::laststore::native_routing;
 use laststore::disk_pack::ReadBudget;
 use laststore::disk_run::home::RunRead;
 use schema_types::key_comparison::KeyOrderVersion;
