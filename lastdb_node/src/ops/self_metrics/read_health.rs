@@ -177,15 +177,19 @@ impl ReadCostHealth {
 /// Product write limits exposed on `/api/status` and `lastdb status`.
 ///
 /// Byte ceilings are Instant config gauges; the env var name stays a string.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LimitsHealth {
     /// Effective maximum HTTP request body on the owner Unix socket (bytes).
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub max_request_body_bytes: Gauge,
     /// Effective max serialized atom field content (bytes).
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub max_atom_content_bytes: Gauge,
     /// Compiled default (256 KiB) when env is unset.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub max_atom_content_bytes_default: Gauge,
     /// Absolute max even if env is higher.
+    #[serde(serialize_with = "serialize_gauge_option")]
     pub max_atom_content_bytes_absolute_max: Gauge,
     /// Env var name that overrides the default.
     pub max_atom_content_bytes_env: String,
@@ -212,34 +216,6 @@ impl Default for LimitsHealth {
             ),
             max_atom_content_bytes_env: fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV.to_string(),
         }
-    }
-}
-
-impl Serialize for LimitsHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("LimitsHealth", 5)?;
-        s.serialize_field(
-            "max_request_body_bytes",
-            &wire_u64(&self.max_request_body_bytes),
-        )?;
-        s.serialize_field(
-            "max_atom_content_bytes",
-            &wire_u64(&self.max_atom_content_bytes),
-        )?;
-        s.serialize_field(
-            "max_atom_content_bytes_default",
-            &wire_u64(&self.max_atom_content_bytes_default),
-        )?;
-        s.serialize_field(
-            "max_atom_content_bytes_absolute_max",
-            &wire_u64(&self.max_atom_content_bytes_absolute_max),
-        )?;
-        s.serialize_field(
-            "max_atom_content_bytes_env",
-            &self.max_atom_content_bytes_env,
-        )?;
-        s.end()
     }
 }
 
