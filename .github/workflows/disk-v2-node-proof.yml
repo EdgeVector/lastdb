@@ -9,15 +9,12 @@ name: Disk v2 node proof
 # went with disk format v1 (Tom, 2026-10-26: decision D1).
 # The paths are the code that the node reads or writes with: the run homes,
 # the at-rest envelopes and seals, the atom codec, and the node start that
-# selects the home. The vendor disk_pack filter stays while that code is in
-# the tree; the next step of D1 deletes the code and the filter.
+# selects the home.
 on:
   pull_request:
     paths:
-      - 'vendor/laststore/src/disk_run/**'
-      - 'vendor/laststore/src/disk_pack/**'
-      - 'vendor/laststore/src/frame.rs'
-      - 'vendor/laststore/src/space.rs'
+      # Every laststore source file is disk format v2 code since D1.
+      - 'vendor/laststore/src/**'
       - 'vendor/laststore/Cargo.toml'
       - 'fold_db/crates/core/src/storage/disk_pack/**'
       - 'fold_db/crates/core/src/storage/encrypting_*'

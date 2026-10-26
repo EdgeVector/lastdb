@@ -140,21 +140,15 @@ impl MutationManager {
                     )
                 })
                 .collect();
-            let owner = self
-                .schema_manager
-                .get_schema_metadata(&schema_name)?
-                .and_then(|mut schema| schema.owner_app_id.take());
-            let delta = crate::warm_admit::with_schema_owner(
-                owner.as_deref(),
-                self.prepare_schema_delta(
+            let delta = self
+                .prepare_schema_delta(
                     schema_name,
                     schema_mutations,
                     idempotency_entries,
                     storage_prefix,
                     timing_breakdown,
-                ),
-            )
-            .await?;
+                )
+                .await?;
             prepare_elapsed += prepare_started.elapsed();
             let fold_elapsed = self.stage_native_delta(delta, runtime, &mut heads).await?;
             prepare_elapsed += fold_elapsed;

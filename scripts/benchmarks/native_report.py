@@ -6,8 +6,6 @@ import json
 import os
 from pathlib import Path
 
-from parent_report import render as parent_lines
-
 
 def largest(phases):
     values = sorted(phases.items(), key=lambda item: item[1]["mean"], reverse=True)[:5]
@@ -31,7 +29,6 @@ def render(output):
              "|---|---:|---:|---:|---|"]
     physical_lines = ["", "| Run / case | Commit mean ms | Largest physical phases ms |",
                       "|---|---:|---|"]
-    parent_rows = []
     tails = ["", "## Exact slow update requests", "",
              "Each request joins to an enclosed scope and one distinct physical commit by sequence and time.",
              "Shared physical commits retain their request count; their cost is not assigned to every request.", ""]
@@ -45,7 +42,6 @@ def render(output):
                      "concurrent-write/32", "concurrent-mixed/32"):
             case = data["cases"][name]
             label = f"{run['directory']} / {name}"
-            parent_rows.append((label, name, case))
             lines.append(f"| {label} | {case['scopes']} | {case['distinct_physical_commits']} | "
                          f"{case['scope_mean_us'] / 1000:.3f} | {largest(case['scope_phases_us'])} |")
             physical_lines.append(f"| {label} | {case['physical_mean_us'] / 1000:.3f} | "
@@ -53,7 +49,7 @@ def render(output):
             for request in case.get("slowest_requests", []):
                 tails.extend([f"### {label}: {request['request_id']}", "", "```json",
                               json.dumps(request, sort_keys=True), "```", ""])
-    return "\n".join(lines + physical_lines + parent_lines(parent_rows) + tails) + "\n"
+    return "\n".join(lines + physical_lines + tails) + "\n"
 
 
 def main():

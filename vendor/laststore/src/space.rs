@@ -5,7 +5,7 @@
 use crate::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock};
 
 /// A broken invariant of the space ledger itself.
 fn corrupt(reason: &'static str) -> crate::Error {
@@ -13,7 +13,6 @@ fn corrupt(reason: &'static str) -> crate::Error {
 }
 
 static RESERVATIONS: OnceLock<Mutex<HashMap<PathBuf, ReservationState>>> = OnceLock::new();
-static INVENTORY: RwLock<()> = RwLock::new(());
 
 #[derive(Default)]
 struct ReservationState {
@@ -73,14 +72,6 @@ impl Drop for ReservationInventory {
             }
         }
     }
-}
-
-/// Only receipt renames need to serialize with a capped inventory. Deletions
-/// merely shrink the inventory; in-flight output retains its space reservation.
-pub(crate) fn inventory_guard() -> Result<std::sync::RwLockWriteGuard<'static, ()>> {
-    INVENTORY
-        .write()
-        .map_err(|_| corrupt("space inventory lock is poisoned"))
 }
 
 /// One policy governs write headroom, replacement space, and obsolete-file grace.
@@ -147,7 +138,7 @@ impl SpaceReservation {
         let added = total_bytes
             .checked_sub(self.bytes)
             .ok_or_else(|| corrupt("space reservation extension shrank its prefix"))?;
-        reserve(&self.root, policy, added, false)
+        reserve(&self.root, policy, added)
     }
 
     /// Transfer an already reserved prefix without reserving its bytes again.
@@ -166,23 +157,10 @@ impl SpaceReservation {
 /// Reserve a complete native write, including replacement headroom.
 /// Callers also hold the exclusive native writer lease across admission and output.
 pub fn reserve_space(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReservation> {
-    reserve(root, policy, bytes, false)
+    reserve(root, policy, bytes)
 }
 
-pub(crate) fn reserve_replacement(
-    root: &Path,
-    policy: &SpacePolicy,
-    bytes: u64,
-) -> Result<SpaceReservation> {
-    reserve(root, policy, bytes, true)
-}
-
-fn reserve(
-    root: &Path,
-    policy: &SpacePolicy,
-    bytes: u64,
-    replacement: bool,
-) -> Result<SpaceReservation> {
+fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReservation> {
     let root = std::fs::canonicalize(root)?;
     let inventory = ReservationInventory::start(&root)?;
     // The ordinary unfrozen-cap path must not enumerate the home per mutation.
@@ -214,19 +192,11 @@ fn reserve(
         .ok_or_else(|| corrupt("space inventory charge overflow"))?;
     let headroom = policy
         .free_space_reserve_bytes
-        .checked_add(if replacement {
-            0
-        } else {
-            policy.replacement_reserve_bytes
-        })
+        .checked_add(policy.replacement_reserve_bytes)
         .and_then(|n| n.checked_add(accounted))
         .ok_or_else(|| corrupt("space headroom overflow"))?;
     let cap_required = accounted
-        .checked_add(if replacement {
-            0
-        } else {
-            policy.replacement_reserve_bytes
-        })
+        .checked_add(policy.replacement_reserve_bytes)
         .ok_or_else(|| corrupt("space cap headroom overflow"))?;
     let cap_exceeded = policy.disk_cap_bytes != 0
         && usage
@@ -260,9 +230,6 @@ impl Drop for SpaceReservation {
 
 /// Explicit bounded administrative inventory; ordinary uncapped writes use statvfs only.
 pub fn space_usage(root: &Path, max_files: usize) -> Result<SpaceUsage> {
-    let _inventory = INVENTORY
-        .read()
-        .map_err(|_| corrupt("space inventory lock is poisoned"))?;
     let mut out = SpaceUsage::default();
     count(root, 6, max_files, &mut out)?; // walk-ok: exact native root, depth six and finite file budget
     out.available_bytes = available(root)?;

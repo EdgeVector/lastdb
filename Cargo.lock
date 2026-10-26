@@ -3140,7 +3140,6 @@ dependencies = [
  "crc32fast",
  "hkdf",
  "lastdb_storage_policy",
- "nix",
  "openssl",
  "rustix",
  "serde",

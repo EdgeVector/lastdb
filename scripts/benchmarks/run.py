@@ -159,7 +159,7 @@ def main():
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
-                                         "native_report.py", "parent_report.py", "report.py", "artifact.py", "build.py",
+                                         "native_report.py", "report.py", "artifact.py", "build.py",
                                          "growth.py", "growth_report.py", "disk_budget.py", "disk_budget_report.py",
                                          "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
