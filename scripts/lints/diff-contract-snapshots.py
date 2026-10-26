@@ -8,10 +8,29 @@ Outputs BREAKING: or ADDITIVE: lines for each detected change.
 Exit code 0 always (the CI workflow decides pass/fail based on output).
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Diff LastDB contract snapshots'
+    )
+    parser.add_argument(
+        'base',
+        type=Path,
+        help='Path to base snapshot JSON'
+    )
+    parser.add_argument(
+        'head',
+        type=Path,
+        help='Path to head snapshot JSON'
+    )
+    return parser.parse_args()
 
 
 def diff_routes(
@@ -131,26 +150,18 @@ def diff_outbox_schema(
 
 def main() -> int:
     """Compare base and head snapshots, output diff."""
-    if len(sys.argv) != 3:
-        print(
-            "Usage: diff-contract-snapshots.py <base.json> <head.json>",
-            file=sys.stderr
-        )
+    args = parse_args()
+    
+    if not args.base.exists():
+        print(f"Base snapshot not found: {args.base}", file=sys.stderr)
         return 1
     
-    base_path = Path(sys.argv[1])
-    head_path = Path(sys.argv[2])
-    
-    if not base_path.exists():
-        print(f"Base snapshot not found: {base_path}", file=sys.stderr)
+    if not args.head.exists():
+        print(f"Head snapshot not found: {args.head}", file=sys.stderr)
         return 1
     
-    if not head_path.exists():
-        print(f"Head snapshot not found: {head_path}", file=sys.stderr)
-        return 1
-    
-    base = json.loads(base_path.read_text())
-    head = json.loads(head_path.read_text())
+    base = json.loads(args.base.read_text())
+    head = json.loads(args.head.read_text())
     
     changes: list[str] = []
     

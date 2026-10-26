@@ -6,11 +6,26 @@ Captures the request-grammar version, HTTP routes, error kinds, SDK exports,
 and IndexChangeBatch format for CI contract-diff checking.
 """
 
+import argparse
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Generate LastDB contract snapshot'
+    )
+    parser.add_argument(
+        '--repo-root',
+        type=Path,
+        required=True,
+        help='Path to repository root'
+    )
+    return parser.parse_args()
 
 
 def parse_data_routes(path: Path) -> list[dict[str, Any]]:
@@ -140,7 +155,8 @@ def extract_error_kinds(path: Path) -> list[str]:
 
 def main() -> int:
     """Generate contract snapshot and write to stdout."""
-    repo_root = Path(__file__).parent.parent.parent
+    args = parse_args()
+    repo_root = args.repo_root
     
     # Parse components
     versions = get_version_constants(

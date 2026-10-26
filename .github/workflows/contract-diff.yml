@@ -40,7 +40,9 @@ jobs:
       
       - name: Generate HEAD snapshot
         run: |
-          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py > /tmp/contract-head.json
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            > /tmp/contract-head.json
           echo "HEAD snapshot:"
           cat /tmp/contract-head.json
       
@@ -51,7 +53,9 @@ jobs:
       
       - name: Generate BASE snapshot
         run: |
-          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py > /tmp/contract-base.json
+          python3 $RUNNER_TEMP/contract-scripts/generate-contract-snapshot.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            > /tmp/contract-base.json
           echo "BASE snapshot:"
           cat /tmp/contract-base.json
       
