@@ -15,7 +15,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// One queue entry whose dwell is over, as a step read it.
 #[derive(Debug, Clone)]
@@ -34,7 +34,6 @@ struct QueueValue {
 
 enum Fate {
     Delete(BlobCounter),
-    Renew(BlobCounter),
     Stale,
     Unreadable,
 }
@@ -45,7 +44,6 @@ impl AtomStore {
     pub(super) async fn blob_dwell_delete(
         &self,
         entries: &[DwellEntry],
-        now: u64,
     ) -> Result<DwellStep, SchemaError> {
         if entries.is_empty() {
             return Ok(DwellStep::default());
@@ -57,9 +55,9 @@ impl AtomStore {
         let step = self
             .in_write_scope(async {
                 // The native gate first, then the blob gates: the upload path
-                // and the retired-intent roots use the same order.
+                // uses the same order.
                 let _blobs = self.lock_liveness_blobs(&refs).await;
-                self.dwell_chunk_in_gate(entries, now).await
+                self.dwell_chunk_in_gate(entries).await
             })
             .await?;
         self.blob_events.note_deleted(step.deleted, step.stale);
@@ -67,26 +65,19 @@ impl AtomStore {
             target: "fold_db::blob_dwell",
             deleted = step.deleted,
             stale = step.stale,
-            renewed = step.renewed,
             unreadable = step.unreadable,
             "blob dwell chunk"
         );
         Ok(step)
     }
 
-    async fn dwell_chunk_in_gate(
-        &self,
-        entries: &[DwellEntry],
-        now: u64,
-    ) -> Result<DwellStep, SchemaError> {
+    async fn dwell_chunk_in_gate(&self, entries: &[DwellEntry]) -> Result<DwellStep, SchemaError> {
         let named: Vec<&DwellEntry> = entries.iter().filter(|e| e.blob.is_some()).collect();
         let keys: Vec<String> = named
             .iter()
             .map(|entry| blob_counter_key_of_id(&entry.id))
             .collect();
         let counters = self.read_blob_counters_at(&keys).await?;
-        let refs: Vec<String> = named.iter().filter_map(|e| e.blob.clone()).collect();
-        let retired = self.retired_intent_blob_roots(&refs).await?;
         let mut state: HashMap<&str, BlobRead> = HashMap::new();
         for (entry, counter) in named.iter().zip(counters) {
             state.insert(entry.id.as_str(), counter);
@@ -97,15 +88,11 @@ impl AtomStore {
         let mut step = DwellStep::default();
         for entry in entries {
             let read = state.get(entry.id.as_str()).unwrap_or(&absent);
-            match fate(entry, read, &retired) {
+            match fate(entry, read) {
                 Fate::Delete(counter) => {
                     main.extend(delete_mutations(entry, &counter));
                     rows.push(counter.blob.into_bytes());
                     step.deleted += 1;
-                }
-                Fate::Renew(counter) => {
-                    main.extend(self.renew_mutations(entry, &counter, now)?);
-                    step.renewed += 1;
                 }
                 Fate::Stale => {
                     main.push(KvMutation::delete(entry.key.clone()));
@@ -151,27 +138,6 @@ impl AtomStore {
         }
         Ok(())
     }
-
-    /// A retired-intent root keeps the blob. Move it to a new dwell: the old
-    /// entry goes, the counter gets the new `zero_since`, and the new entry comes
-    /// with the directory row of its bucket.
-    fn renew_mutations(
-        &self,
-        entry: &DwellEntry,
-        counter: &BlobCounter,
-        now: u64,
-    ) -> Result<Vec<KvMutation>, SchemaError> {
-        let renewed = BlobCounter {
-            zero_since: Some(now),
-            ..counter.clone()
-        };
-        let mut out = vec![
-            KvMutation::delete(entry.key.clone()),
-            super::commit::counter_put(&renewed)?,
-        ];
-        out.extend(self.blob_events.queue().put_mutations(now, &renewed.blob)?);
-        Ok(out)
-    }
 }
 
 /// The entry of a due row. A key or a value that does not read gives an entry
@@ -197,7 +163,7 @@ pub(super) fn decode_entry(queue: &BlobQueue, key: &str, value: &[u8]) -> DwellE
 }
 
 /// The decision for one due entry, from the counter read inside the gate.
-fn fate(entry: &DwellEntry, read: &BlobRead, retired: &HashSet<String>) -> Fate {
+fn fate(entry: &DwellEntry, read: &BlobRead) -> Fate {
     let counter = match read {
         BlobRead::Absent => return Fate::Stale,
         BlobRead::Unreadable => return Fate::Unreadable,
@@ -211,9 +177,6 @@ fn fate(entry: &DwellEntry, read: &BlobRead, retired: &HashSet<String>) -> Fate 
         || blob_id(&counter.blob) != entry.id
     {
         return Fate::Stale;
-    }
-    if retired.contains(&counter.blob) {
-        return Fate::Renew(counter.clone());
     }
     Fate::Delete(counter.clone())
 }

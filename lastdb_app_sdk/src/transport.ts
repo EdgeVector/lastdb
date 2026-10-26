@@ -51,8 +51,6 @@ export interface Transport {
       body?: unknown;
       /** Override this transport's timeout for one request. */
       timeoutMs?: number;
-      /** Raise, but never shorten, the effective timeout for one request. */
-      minimumTimeoutMs?: number;
     },
   ): Promise<RawResponse>;
 }
@@ -305,25 +303,17 @@ class NodeHttpTransport implements Transport {
       headers?: Record<string, string>;
       body?: unknown;
       timeoutMs?: number;
-      minimumTimeoutMs?: number;
     } = {},
   ): Promise<RawResponse> {
-    const requestedTimeoutMs = options.timeoutMs ?? this.timeoutMs;
-    const minimumTimeoutMs = options.minimumTimeoutMs ?? 0;
-    if (
-      !Number.isFinite(requestedTimeoutMs) ||
-      requestedTimeoutMs <= 0 ||
-      !Number.isFinite(minimumTimeoutMs) ||
-      minimumTimeoutMs < 0
-    ) {
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       return Promise.reject(
         new TransportError(
-          `request timeoutMs must be a positive finite number, got ${String(options.timeoutMs ?? options.minimumTimeoutMs)}`,
+          `request timeoutMs must be a positive finite number, got ${String(timeoutMs)}`,
           'protocol',
         ),
       );
     }
-    const timeoutMs = Math.max(requestedTimeoutMs, minimumTimeoutMs);
     const payload =
       options.body === undefined ? undefined : JSON.stringify(options.body);
     const headers: Record<string, string> = {

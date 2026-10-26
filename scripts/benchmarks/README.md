@@ -379,3 +379,22 @@ Files and directories removed before their size read contribute no bytes to that
 The standard insert and single-record update p99 use only 32 samples per run.
 The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.
+
+### Shared-seed cold-read comparison
+
+`cold-shared-seed.yml` is a separate CI-only, manually dispatchable comparison.
+Its defaults revisit the exact before/after programs of app-selector PR #436.
+It seeds once with the baseline, observes stable V2 files, requires a clean durable
+shutdown, and makes eight independent byte-verified copies of that stopped home.
+Four pairs alternate baseline/candidate order. Each clone measures the existing
+cold/1 and cold/32 cases, retaining every opening request. Both programs must open
+format V2, preserve every inherited run file, and record exactly one bounded boot
+metadata append (the clean-stop re-arm). New metadata bytes are not claimed identical.
+Unexpected startup rewrites, removals, or differing append sizes fail. During each
+timed case, `CURRENT` and all post-boot run files must stay unchanged, with an empty
+logical warm set, positive disk-payload receipts, a fixed generation/frontier,
+and exactly the same request sequence. Raw work-counter differences are reported.
+Content verification reads files before timing, so this is logical-record-cold,
+not physical-device-cold. The standard startup-tail recipe stays unchanged.
+The snapshot and its generated credentials are never uploaded; only fingerprints,
+request receipts, validation results, and timings enter the verified CI artifact.

@@ -34,12 +34,6 @@ pub(super) fn validate_batch_options(components: &MutationComponents) -> Result<
             "key_range_prefix is only supported by /api/mutation",
         ));
     }
-    if components.cloud_publication.is_some() {
-        return Err(HostError::new(
-            400,
-            "cloud_publication is only supported by /api/mutation",
-        ));
-    }
     if components.aggregate_set.is_some() {
         return Err(HostError::new(
             400,

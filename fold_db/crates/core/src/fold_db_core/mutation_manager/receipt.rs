@@ -65,106 +65,6 @@ impl ResidentDurability {
     }
 }
 
-/// How the logical cloud intent is secured before the local response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudCaptureState {
-    /// The cloud intent survives a process loss. No current build reports it.
-    Durable,
-    /// The local commit completed, but the cloud intent did not reach disk.
-    Failed,
-}
-
-impl CloudCaptureState {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Durable => "durable",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Off-box state for one exact mutation-log writer frontier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudPublicationState {
-    NotRequested,
-    Pending,
-    Published,
-    Failed,
-}
-
-impl CloudPublicationState {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NotRequested => "not_requested",
-            Self::Pending => "pending",
-            Self::Published => "published",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// One required mutation-log target for an exact publication receipt.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudPublicationTarget {
-    pub target_id: String,
-    pub target_label: String,
-    pub writer_id: String,
-    pub frontier: u64,
-}
-
-/// Cloud-side facts attached only to a durable delete response.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudMutationReceipt {
-    pub mutation_uuid: String,
-    pub capture_state: CloudCaptureState,
-    pub publication_state: CloudPublicationState,
-    pub targets: Vec<CloudPublicationTarget>,
-    pub error: Option<String>,
-}
-
-impl CloudMutationReceipt {
-    /// The cloud part of the reply for one logical commit.
-    ///
-    /// No cloud capture engine exists. An `Async` route gets no cloud receipt.
-    /// Any other policy gets a fixed failed receipt: the local commit stands,
-    /// and the reply says that no cloud intent was secured. The receipt names
-    /// the first non-empty mutation id of the batch.
-    pub(crate) fn for_policy(
-        policy: CloudCapturePolicy,
-        mutations: &[crate::schema::types::Mutation],
-    ) -> Option<Self> {
-        if matches!(policy, CloudCapturePolicy::Async) {
-            return None;
-        }
-        Some(Self {
-            mutation_uuid: mutations
-                .iter()
-                .find_map(|mutation| (!mutation.uuid.is_empty()).then(|| mutation.uuid.clone()))
-                .unwrap_or_default(),
-            capture_state: CloudCaptureState::Failed,
-            publication_state: CloudPublicationState::Failed,
-            targets: Vec::new(),
-            error: Some("cloud sync capture is unavailable".to_string()),
-        })
-    }
-}
-
-/// Internal capture behavior selected by the owner mutation route.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CloudCapturePolicy {
-    /// No cloud receipt in the reply.
-    #[default]
-    Async,
-    /// Secure the cloud intent before the local receipt. No capture engine
-    /// exists, so the reply carries a failed cloud receipt.
-    Durable,
-    /// Wait for the exact cloud publication. No capture engine exists, so the
-    /// reply carries a failed cloud receipt.
-    WaitForPublication { timeout: std::time::Duration },
-}
-
 /// Per-class operation counts for one resident commit.
 ///
 /// Sized by mutation verb rather than by schema, because the caller that sent
@@ -258,8 +158,6 @@ pub struct ResidentCommitReceipt {
     pub operations: ResidentCommitOperations,
     /// Whether the acknowledgment claims disk.
     pub durability: ResidentDurability,
-    /// Present only when a durable delete requested a crash-safe cloud intent.
-    pub cloud: Option<CloudMutationReceipt>,
     /// Stage times for this commit.
     pub stages: ResidentCommitStages,
     /// Legacy fanout slots, retained for receipt compatibility. Native writes
@@ -276,7 +174,6 @@ impl ResidentCommitReceipt {
             revision: None,
             operations: ResidentCommitOperations::default(),
             durability: ResidentDurability::Queued,
-            cloud: None,
             stages: ResidentCommitStages::default(),
             touched_group_ids: Vec::new(),
         }

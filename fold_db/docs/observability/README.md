@@ -31,9 +31,8 @@ see *why* something was wired the way it is.
 - [Tracing-egress lint](tracing-egress-lint.md) — Phase 5 / T3. CI guard
   pairing every `reqwest` call site with the matching
   `// trace-egress: <class>` annotation.
-- [Cloud Sync backlog Sentry signal](cloud-sync-backlog-sentry.md) —
-  incident signal emitted when repeated R2 transfer failures coincide with
-  pending-depth thresholds, including the safe fields operators can pivot on.
+- [Cloud Sync backlog Sentry signal](cloud-sync-backlog-sentry.md) — retired.
+  The legacy Cloud Sync engine that emitted this signal was removed.
 
 ## Source-of-truth pointers
 

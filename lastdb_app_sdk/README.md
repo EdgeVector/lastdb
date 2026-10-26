@@ -344,12 +344,6 @@ cannot leave SDK calls pending forever. Override it per client when needed:
 await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain', timeoutMs: 5000 });
 ```
 
-An exact durable Delete with `cloudPublication: 'wait'` raises the effective
-request timeout to at least 150s. The built-in transports use the larger of
-that floor and the configured `timeoutMs`; they never shorten a larger caller
-budget. Set `timeoutMs` above the server's exact-route budget when the server
-uses a handler-timeout override that makes that route exceed 150s.
-
 ## Capability storage
 
 Granted capabilities are stored, per the App Identity design, in the **OS

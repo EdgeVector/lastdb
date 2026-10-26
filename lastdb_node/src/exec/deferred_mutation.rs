@@ -17,7 +17,7 @@ pub fn execute_deferred_mutation<'a>(
         };
         with_handler_timeout_budget(
             ctx,
-            data_route_budget_for_request(route, req),
+            data_route_budget(route),
             dispatch::execute_observed_route(route, req, ctx, host, work),
         )
         .await

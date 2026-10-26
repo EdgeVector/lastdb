@@ -330,17 +330,6 @@ impl MutationDurability {
     }
 }
 
-/// Optional off-box publication wait for one durable delete.
-///
-/// Absence keeps the normal asynchronous cloud path. `wait` asks the owner
-/// mutation route to return an exact mutation-log writer frontier and wait a
-/// bounded time for every required target to confirm that frontier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MutationCloudPublication {
-    Wait,
-}
-
 /// Represents an operation that can be performed on the database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", deny_unknown_fields)]
@@ -370,11 +359,6 @@ pub enum Operation {
         /// This policy does not change convergence behavior.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         durability: Option<MutationDurability>,
-        /// Optional exact off-box publication wait. The owner mutation route
-        /// accepts this only for a durable `delete`. Absence preserves the
-        /// asynchronous cloud path.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cloud_publication: Option<MutationCloudPublication>,
         /// Local request policy on `delete`: `true` is loud-miss. Absent
         /// on every body submitted before this field existed. Never captured
         /// on the mutation-intent envelope.

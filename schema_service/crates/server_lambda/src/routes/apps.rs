@@ -372,3 +372,5 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
         None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
     }
 }
+
+// Anonymous read: list all apps (ordered by app_id).

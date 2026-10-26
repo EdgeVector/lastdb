@@ -1,57 +1,19 @@
-//! Schema constructors that used to ship as boot seeds.
+//! Boot seed for built-in schemas.
 //!
-//! Cold start does not install TriggerFiring or the starter templates.
-//! Canonical field seed is separate and still runs. The constructors stay
-//! so a caller can build one of these schemas. Tom, 2026-10-14.
+//! Cold start does not install starter templates. Canonical field seed is
+//! separate and still runs.
 //!
 //! `seed(&state)` still walks `all_phase_1_schemas()`. That list is empty,
 //! so boot adds nothing. An identity that is already stored stays stored.
 
-mod builder;
 mod seed;
-mod templates_core;
-mod templates_extra;
-mod trigger;
 
 pub use seed::seed;
-pub use templates_core::{
-    event_record_schema, knowledge_record_schema, state_snapshot_schema, work_item_schema,
-};
-pub use templates_extra::{
-    document_record_schema, graph_edge_schema, graph_node_schema, media_asset_schema,
-    secure_kv_schema,
-};
-pub use trigger::trigger_firing_schema;
 
 use schema_types::Schema;
 use schema_types::SchemaSource;
 
-pub const TRIGGER_FIRING: &str = "TriggerFiring";
 pub const TEMPLATE_OWNER_APP_ID: &str = "templates";
-
-pub const KNOWLEDGE_RECORD: &str = "KnowledgeRecord";
-pub const EVENT_RECORD: &str = "EventRecord";
-pub const STATE_SNAPSHOT: &str = "StateSnapshot";
-pub const WORK_ITEM: &str = "WorkItem";
-pub const DOCUMENT_RECORD: &str = "DocumentRecord";
-pub const MEDIA_ASSET: &str = "MediaAsset";
-pub const GRAPH_NODE: &str = "GraphNode";
-pub const GRAPH_EDGE: &str = "GraphEdge";
-pub const SECURE_KV: &str = "SecureKV";
-
-pub fn app_starter_template_schemas() -> Vec<Schema> {
-    vec![
-        knowledge_record_schema(),
-        event_record_schema(),
-        state_snapshot_schema(),
-        work_item_schema(),
-        document_record_schema(),
-        media_asset_schema(),
-        graph_node_schema(),
-        graph_edge_schema(),
-        secure_kv_schema(),
-    ]
-}
 
 pub fn is_app_starter_template(schema: &Schema) -> bool {
     schema.source == SchemaSource::StarterSeed

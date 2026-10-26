@@ -208,7 +208,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::PersistSchema => &mut totals.persist_schema_us,
             RequestPhase::PersistIdempotency => &mut totals.persist_idempotency_us,
             RequestPhase::Flush => &mut totals.flush_us,
-            RequestPhase::SyncCapture => &mut totals.sync_capture_us,
             RequestPhase::IndexWait => &mut totals.index_wait_us,
             RequestPhase::ChangeRecord => &mut totals.change_record_us,
             RequestPhase::ChangeRecordLockWait => &mut totals.change_record_lock_wait_us,

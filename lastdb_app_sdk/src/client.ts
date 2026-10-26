@@ -99,8 +99,6 @@ import {
   parseMutationIds,
   parseMutationWritten,
   parseMutationFiringsObserved,
-  parseMutationCloudCapture,
-  parseMutationCloudPublication,
   parseChangesResponse,
   parseSearchResponse,
   PRE_HANDSHAKE_NODE,
@@ -126,11 +124,6 @@ const CAPABILITY_HEADER = 'X-App-Capability';
 const CAPABILITY_TS_HEADER = 'X-Capability-Ts';
 /** Design-mandated poll cadence for `consent-status` (~2s). */
 const DEFAULT_POLL_INTERVAL_MS = 2000;
-/**
- * The exact publication route has a 130s server budget. Give that route a
- * larger client deadline without changing the 30s default for ordinary calls.
- */
-const EXACT_CLOUD_PUBLICATION_TIMEOUT_MS = 150_000;
 
 function queryRowDedupKey(row: QueryRow): string {
   if (row.keyValue !== null) {
@@ -916,28 +909,13 @@ export class LastDbClient {
     if (op.durability !== undefined) {
       body.durability = op.durability;
     }
-    if (op.cloudPublication !== undefined) {
-      body.cloud_publication = op.cloudPublication;
-    }
     if (op.mustExist !== undefined) {
       body.must_exist = op.mustExist;
     }
-    const sendOptions: {
-      headers: Record<string, string>;
-      body: Record<string, unknown>;
-      minimumTimeoutMs?: number;
-    } = {
+    const res = await this.transport.send('POST', LASTDB_API_ROUTES.mutation, {
       headers: this.capabilityHeaders(),
       body,
-    };
-    if (op.cloudPublication === 'wait') {
-      sendOptions.minimumTimeoutMs = EXACT_CLOUD_PUBLICATION_TIMEOUT_MS;
-    }
-    const res = await this.transport.send(
-      'POST',
-      LASTDB_API_ROUTES.mutation,
-      sendOptions,
-    );
+    });
     if (res.status === 200) {
       if (!isObject(res.body)) {
         throw new UnexpectedResponseError(
@@ -960,41 +938,6 @@ export class LastDbClient {
       }
       if (typeof b['convergence_pending'] === 'boolean') {
         result.convergencePending = b['convergence_pending'];
-      }
-      if (typeof b['local_committed'] === 'boolean') {
-        result.localCommitted = b['local_committed'];
-      }
-      if (b['cloud_capture'] !== undefined) {
-        result.cloudCapture = parseMutationCloudCapture(b['cloud_capture']);
-      }
-      if (b['cloud_publication'] !== undefined) {
-        result.cloudPublication = parseMutationCloudPublication(
-          b['cloud_publication'],
-        );
-      }
-      if (op.cloudPublication === 'wait') {
-        const exactMutationUuid =
-          mutationIds.length === 1 ? mutationIds[0] : undefined;
-        if (
-          b['durability'] !== 'durable' ||
-          result.localCommitted !== true ||
-          result.cloudCapture === undefined ||
-          result.cloudPublication === undefined ||
-          exactMutationUuid === undefined ||
-          result.cloudCapture.mutationUuid !== exactMutationUuid ||
-          result.cloudPublication.mutationUuid !== exactMutationUuid ||
-          result.cloudPublication.state === 'not_requested' ||
-          (result.cloudCapture.state === 'failed' &&
-            result.cloudPublication.state !== 'failed') ||
-          (result.cloudPublication.state !== 'failed' &&
-            result.cloudPublication.targets.length === 0)
-        ) {
-          throw new UnexpectedResponseError(
-            'mutation returned an unbound exact cloud publication receipt',
-            200,
-            res.body,
-          );
-        }
       }
       return result;
     }
