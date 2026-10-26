@@ -154,7 +154,7 @@ pub fn encode_frame_with_stats(
 /// returned only after the tag verifies.
 pub fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
     crate::read_receipt_io::decode(
-        || decode_frame_inner(data_key, frame, None),
+        || decode_frame_inner(data_key, frame, None, None),
         |decoded| (decoded.payload.len(), decoded.payload.capacity()),
     )
 }
@@ -167,15 +167,43 @@ pub(crate) fn decode_frame_bounded(
     max_payload: usize,
 ) -> Result<DecodedFrame> {
     crate::read_receipt_io::decode(
-        || decode_frame_inner(data_key, frame, Some(max_payload)),
+        || decode_frame_inner(data_key, frame, Some(max_payload), None),
         |decoded| (decoded.payload.len(), decoded.payload.capacity()),
     )
+}
+
+/// One immutable run's derived cipher, retained only by its call-owned reader.
+/// Each block still authenticates its complete header, ciphertext and tag.
+pub(crate) struct FrameCipher {
+    data_key: [u8; 32],
+    chunk_uuid: Uuid,
+    cipher: Aes256Gcm,
+}
+
+impl FrameCipher {
+    pub(crate) fn new(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<Self> {
+        let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, chunk_uuid)?)
+            .map_err(|_| Error::Config("invalid aead key length".into()))?;
+        Ok(Self {
+            data_key: *data_key,
+            chunk_uuid,
+            cipher,
+        })
+    }
+
+    pub(crate) fn decode_bounded(&self, frame: &[u8], max_payload: usize) -> Result<DecodedFrame> {
+        crate::read_receipt_io::decode(
+            || decode_frame_inner(&self.data_key, frame, Some(max_payload), Some(self)),
+            |decoded| (decoded.payload.len(), decoded.payload.capacity()),
+        )
+    }
 }
 
 fn decode_frame_inner(
     data_key: &[u8; 32],
     frame: &[u8],
     max_payload: Option<usize>,
+    cached: Option<&FrameCipher>,
 ) -> Result<DecodedFrame> {
     if frame.len() < HEADER_SIZE + TAG_SIZE {
         return Err(Error::Corrupt("frame too short".into()));
@@ -196,8 +224,16 @@ fn decode_frame_inner(
     let mut payload = frame[HEADER_SIZE..tag_offset].to_vec();
     let mut payload_charge = crate::read_receipt::TemporaryBytes::new(payload.capacity());
     let tag = Tag::from_slice(&frame[tag_offset..]);
-    let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
-        .map_err(|_| Error::Config("invalid aead key length".into()))?;
+    // A foreign run id follows the original derivation and authentication path,
+    // so a corrupt or misplaced frame keeps its existing error behavior.
+    let derived;
+    let cipher = match cached.filter(|cached| cached.chunk_uuid == header.chunk_uuid) {
+        Some(cached) => &cached.cipher,
+        None => {
+            derived = FrameCipher::new(data_key, header.chunk_uuid)?;
+            &derived.cipher
+        }
+    };
     let nonce_bytes = counter_nonce(header.counter);
     let nonce = Nonce::from_slice(&nonce_bytes);
     cipher
