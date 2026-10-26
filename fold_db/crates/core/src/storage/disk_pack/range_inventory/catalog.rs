@@ -200,6 +200,12 @@ impl Catalog {
         self.logical.count_winners(&mut self.molecules)?;
         let mut reports = Vec::new();
         for molecule in self.molecules.values_mut() {
+            if molecule.permits_empty_slot && !molecule.range_profiles.is_empty() {
+                molecule
+                    .report
+                    .blockers
+                    .push("shared molecule mixes range and no-range schema contracts".into());
+            }
             if molecule.report.declarations.is_empty() {
                 molecule
                     .report
