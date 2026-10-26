@@ -45,7 +45,6 @@ pub struct RequestPhaseTotals {
     pub persist_schema_us: u64,
     pub persist_idempotency_us: u64,
     pub flush_us: u64,
-    pub sync_capture_us: u64,
     pub index_wait_us: u64,
     pub change_record_us: u64,
     pub change_record_lock_wait_us: u64,

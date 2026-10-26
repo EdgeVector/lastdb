@@ -334,25 +334,6 @@ pub enum RequestPhase {
     PersistIdempotency,
     /// Store flush (near zero unless `LASTDB_MUTATION_SYNC_FLUSH=1`).
     Flush,
-    /// Mutation: cloud-sync mutation-log work on the caller's request path.
-    ///
-    /// No code records this phase now. The retired capture encode was its
-    /// last work, so it reads 0. The name stays for the status and stored
-    /// rollup fields.
-    ///
-    /// History: this wrapped the whole batch write from OUTSIDE
-    /// `write_create_update_batch_async`, so no residual inside that function
-    /// could ever reach it: the `apply` residual is bounded by that
-    /// function's own wall clock, and this work happens after it returns.
-    /// It was therefore in no phase at all, and showed up only as the
-    /// request-level `unphased=` remainder — measured on the primary
-    /// 2026-08-17, **19.2% of kanban BoardCards mutation wall time** (262 s
-    /// over 151 requests, 1.74 s each) and 15.1% of `brain` mutations, while
-    /// every query key on the same node reported under 1%. That mutation-only
-    /// split is what pointed here.
-    ///
-    /// It was never storage or upload time.
-    SyncCapture,
     /// The handler's bounded wait for background index tasks.
     IndexWait,
     /// Post-write process-local outbox recording only. Until

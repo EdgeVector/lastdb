@@ -163,7 +163,6 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_persist_schema_us",
     "sum_persist_idempotency_us",
     "sum_flush_us",
-    "sum_sync_capture_us",
     "sum_index_wait_us",
     "sum_change_record_us",
     "sum_change_record_lock_wait_us",
