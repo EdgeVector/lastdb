@@ -54,44 +54,6 @@ impl Drop for Capture {
 
 /// Capture only this thread's work; concurrent compaction cannot enter its totals.
 pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
-    capture(action, crate::disk_pack::page_usage::initial_counts)
-}
-
-/// A joined private-file worker contributes work, not another snapshot header.
-#[cfg(target_os = "linux")]
-pub(crate) fn measure_child<T>(inherit: bool, action: impl FnOnce() -> T) -> (T, Option<Report>) {
-    if !inherit {
-        return (action(), None);
-    }
-    capture(action, BTreeMap::new)
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn capturing() -> bool {
-    enabled() && ACTIVE.with(|active| active.borrow().is_some())
-}
-
-/// Merge a completed worker only after its join, without replacing wall time.
-#[cfg(target_os = "linux")]
-pub(crate) fn merge_child(child: Option<Report>) {
-    if let Some(child) = child {
-        ACTIVE.with(|active| {
-            if let Some(parent) = active.borrow_mut().as_mut() {
-                for (name, value) in child.phases_us {
-                    *parent.phases_us.entry(name).or_default() += value;
-                }
-                for (name, value) in child.counts {
-                    *parent.counts.entry(name).or_default() += value;
-                }
-            }
-        });
-    }
-}
-
-fn capture<T>(
-    action: impl FnOnce() -> T,
-    counts: impl FnOnce() -> BTreeMap<&'static str, u64>,
-) -> (T, Option<Report>) {
     if !enabled() || ACTIVE.with(|active| active.borrow().is_some()) {
         return (action(), None);
     }
@@ -99,7 +61,7 @@ fn capture<T>(
     ACTIVE.with(|active| {
         *active.borrow_mut() = Some(Report {
             started_us: unix_us(),
-            counts: counts(),
+            counts: crate::disk_pack::page_usage::initial_counts(),
             ..Report::default()
         });
     });

@@ -412,16 +412,13 @@ Page-write intervals cover the existing full-page write calls. Reservation inclu
 These intervals overlap the enclosing tree, live-part, checksum, and sync stages. They cannot be added together.
 The new guards change no operation, output byte, error check, cache, resource charge, or durability barrier.
 
-The complete dc7e CI profile identifies private-part sync as its largest measured physical cost.
-Linux now finishes the independent private locator and directory trees concurrently, with at most one extra worker per publication.
-That worker has a fixed 256 KiB stack. A failed worker start selects the original serial path.
-Both finishes retain their full file sync and their own directory sync. The caller always joins the worker, including on a directory error.
-Both results must succeed before live-part validation, the generation receipt, or CURRENT publication can proceed.
-No writer gate, page byte, checksum, private-page readback, or publication barrier changes.
-macOS retains the serial path because its ordered durability scope belongs to the caller thread.
-An opt-in child report contributes its actual phase totals and I/O counts after the join, without another snapshot header.
-Concurrent phase totals overlap; their sum is not publication wall time. Normal diagnostics remain off.
-This implementation targets the measured sync wait; a matched comparison and fresh current-main CI must establish its actual benefit.
+The Linux private-finish worker experiment stays out of this branch.
+Its matched serial/parallel comparison reduced active-four-client native wait p95, but the fresh main comparison did not.
+The main reference includes only opaque native trace IDs; the proposal has extra numeric guards with unmeasured cost.
+Neither that difference nor one runner result establishes a causal regression or a normal-path gain.
+Locator finish and directory finish again use their original serial calls and error order.
+All full file barriers, directory barriers, private-page checks, and write gates remain.
+The next comparison needs the same numeric guards on both sources before it can attribute a native-wait difference.
 
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.

@@ -126,8 +126,8 @@ fn publish_with_base(
         publisher.batch(mutations, &mut references)
     })?;
     let mut changes = Changes::default();
-    let (outputs, (directory, pages, parts, retired)) =
-        super::publication_finish::finish(publisher.locators, publisher.directory)?;
+    let outputs =
+        crate::commit_timing::during("locator_finish_us", || publisher.locators.finish())?;
     for output in outputs {
         changes.merge(output.changes)?;
         publisher.pages += output.pages;
@@ -136,6 +136,10 @@ fn publish_with_base(
             .dependencies
             .add_tree(&output.tree, output.parts)?;
     }
+    let (directory, pages, parts, retired) =
+        crate::commit_timing::during("directory_finish_us", || {
+            publisher.directory.finish_with_changes()
+        })?;
     changes.merge(retired)?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;

@@ -38,7 +38,6 @@ pub(crate) mod page_usage;
 mod page_write;
 mod parent_usage;
 mod private_files;
-mod publication_finish;
 mod publish;
 mod read_budget;
 mod record;
