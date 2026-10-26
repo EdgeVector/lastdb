@@ -10,6 +10,9 @@ pub(crate) enum DbOfflineCommand {
         /// The source node's explicit range encoding. No format is inferred.
         #[arg(long, value_parser = ["plain", "ope_v1"])]
         source_range_encoding: String,
+        /// Explicit range representation for the proposed typed target.
+        #[arg(long, value_parser = ["plain", "ope_v1"])]
+        target_range_encoding: String,
         #[arg(long, default_value_t = 1_000_000)]
         max_records: usize,
         #[arg(long, default_value_t = 128)]

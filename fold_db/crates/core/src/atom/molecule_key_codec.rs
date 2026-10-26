@@ -96,6 +96,15 @@ impl MoleculeKeyCodec {
         self.range_encoding
     }
 
+    /// Select a range representation without changing hash encoding or keys.
+    #[must_use]
+    pub fn with_range_encoding(&self, range_encoding: RangeKeyEncoding) -> Self {
+        Self {
+            range_encoding,
+            ..self.clone()
+        }
+    }
+
     /// Public format identity only; no encryption key material enters a cursor.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {

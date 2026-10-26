@@ -96,6 +96,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
     match action {
         DbOfflineCommand::InspectRangeConversion {
             source_range_encoding,
+            target_range_encoding,
             max_records,
             max_metadata_mib,
             json,
@@ -103,6 +104,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             &lastdb_node::offline_range_inventory::RangeInventoryArgs {
                 home,
                 source_range_encoding: &source_range_encoding,
+                target_range_encoding: &target_range_encoding,
                 max_records,
                 max_metadata_mib,
                 json,

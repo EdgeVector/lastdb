@@ -210,6 +210,7 @@ fn register<'a>(
 pub(super) fn validate_conversion(
     molecule: &mut Molecule,
     limits: InventoryLimits,
+    target_range_encoding: crate::atom::RangeKeyEncoding,
 ) -> StorageResult<()> {
     let report = &mut molecule.report;
     report.distinct_storage_keys = molecule.coordinates.len();
@@ -219,10 +220,11 @@ pub(super) fn validate_conversion(
         .map(|key| key.len() as u64)
         .sum();
     let source = ProfiledRangeCodec::new(RangeStorageProfile::LegacyUtf8V1, &molecule.codec);
+    let target_codec = molecule.codec.with_range_encoding(target_range_encoding);
     let target = report
         .proposed_profile
         .filter(|_| report.blockers.is_empty())
-        .map(|profile| ProfiledRangeCodec::new(profile, &molecule.codec));
+        .map(|profile| ProfiledRangeCodec::new(profile, &target_codec));
     let mut targets = BTreeMap::new();
     let mut bytes = 0_u64;
     for (scoped, bare) in &molecule.coordinates {

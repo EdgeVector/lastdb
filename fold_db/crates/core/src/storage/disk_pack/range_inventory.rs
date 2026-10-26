@@ -21,6 +21,7 @@ mod run_pages;
 mod source;
 
 pub use catalog::MoleculeInventory;
+pub use source::{SourceFacts, SourceRoot};
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct InventoryLimits {
@@ -49,9 +50,11 @@ pub(super) struct MetadataRecord {
 pub struct RangeConversionInventory {
     pub version: u8,
     pub source_format: String,
+    pub source_facts: SourceFacts,
     pub source_publications_sha256: String,
     pub metadata_sha256: String,
     pub source_range_encoding: String,
+    pub target_range_encoding: String,
     pub limits: InventoryLimits,
     pub metadata_records: usize,
     pub metadata_bytes: usize,
@@ -68,7 +71,8 @@ pub struct RangeConversionInventory {
 pub fn inspect_range_conversion(
     root: &Path,
     keys: &E2eKeys,
-    range_encoding: RangeKeyEncoding,
+    source_range_encoding: RangeKeyEncoding,
+    target_range_encoding: RangeKeyEncoding,
     limits: InventoryLimits,
 ) -> StorageResult<RangeConversionInventory> {
     if limits.max_records == 0 || limits.max_metadata_bytes == 0 || limits.max_key_bytes == 0 {
@@ -78,7 +82,7 @@ pub fn inspect_range_conversion(
     let records = source.collect(limits)?;
     let codec = MoleculeKeyCodec::with_encodings(
         crate::atom::HashKeyEncoding::Plain,
-        range_encoding,
+        source_range_encoding,
         Some(keys.index_key()),
         Some(keys.ope_key()),
     );
@@ -98,22 +102,20 @@ pub fn inspect_range_conversion(
         }
         keys::observe(&mut inventory, record, &mut families, limits)?;
     }
-    let molecules = inventory.finish(limits)?;
+    let molecules = inventory.finish(limits, target_range_encoding)?;
     source.check_binding()?;
     let mut publications = Sha256::new();
     for binding in &source.bindings {
         publications.update(binding.digest.as_bytes());
     }
     Ok(RangeConversionInventory {
-        version: 1,
+        version: 2,
         source_format: source.format().into(),
+        source_facts: source.facts(),
         source_publications_sha256: format!("{:x}", publications.finalize()),
         metadata_sha256: format!("{:x}", digest.finalize()),
-        source_range_encoding: match range_encoding {
-            RangeKeyEncoding::Plain => "plain",
-            RangeKeyEncoding::OpeV1 => "ope_v1",
-        }
-        .into(),
+        source_range_encoding: source_range_encoding.as_str().into(),
+        target_range_encoding: target_range_encoding.as_str().into(),
         limits,
         metadata_records: records.len(),
         metadata_bytes: bytes,
