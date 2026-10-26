@@ -1,12 +1,18 @@
 name: app-install-smoke
 
-# End-to-end install smoke: build LastDB, then install and test priority apps
-# (Brain, Search, LastSecrets) from the static registry. Proves the app registry
-# install path works and apps are compatible with this LastDB build.
+# End-to-end install smoke: build LastDB, install the newest proved stable
+# row, then run that app on this build.
 #
-# No unit tests (deleted 2026-10-09). This is an e2e smoke test using real installs.
+# A main build has no exact compat row. The public stable index still names
+# the last proved build, which is the brew bottle version string. Install
+# uses that row. Health checks still fail the job.
+#
+# No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/app-install-smoke.yml
   workflow_dispatch:
     inputs:
       apps:
@@ -110,16 +116,38 @@ jobs:
           
           # Show app info from registry (already JSON output)
           lastdb app info ${{ matrix.app }} | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
-          
-          # Resolve app for this LastDB version
-          lastdb app resolve ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
+
+          # The stable row key is the proved build string, not this commit.
+          curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json" \
+            -o "$PROOF_DIR/stable-index.json"
+          PROVED_BUILD="$(jq -r --arg app "${{ matrix.app }}" '
+            [.apps[] | select(.app_id == $app) | .compat[]]
+            | max_by(.proved_at)
+            | .lastdb_version // empty
+          ' "$PROOF_DIR/stable-index.json")"
+          if [ -z "$PROVED_BUILD" ]; then
+            echo "No stable compat row for ${{ matrix.app }}"
+            exit 1
+          fi
+          echo "Newest proved lastdb build: $PROVED_BUILD"
+          echo "PROVED_BUILD=$PROVED_BUILD" >> "$GITHUB_ENV"
+          printf '%s\n' "$PROVED_BUILD" > "$PROOF_DIR/proved-lastdb-version.txt"
+
+          lastdb app resolve ${{ matrix.app }} --json --lastdb-version "$PROVED_BUILD" \
+            | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
         run: |
           cd "$TEST_HOME"
+
+          if [ -z "${PROVED_BUILD:-}" ]; then
+            echo "PROVED_BUILD is empty"
+            exit 1
+          fi
           
-          # Install app
-          lastdb app install ${{ matrix.app }} --channel stable 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
+          # Install the newest proved row. The daemon under test is still this build.
+          lastdb app install ${{ matrix.app }} --channel stable --lastdb-version "$PROVED_BUILD" \
+            2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
           
           # Verify install receipt
           if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
@@ -217,6 +245,9 @@ jobs:
           
           LastDB Build:
           $LASTDB_VERSION
+
+          Proved row:
+          ${PROVED_BUILD:-unknown}
           
           App Resolution:
           - Version: $APP_VERSION
