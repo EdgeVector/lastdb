@@ -161,6 +161,7 @@ jobs:
       - name: Set up ${{ matrix.app }} dependencies (Brain)
         if: matrix.app == 'brain'
         run: |
+          set -o pipefail
           # Work in the source checkout
           cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
           
@@ -170,8 +171,18 @@ jobs:
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-deps-install.log"
           
-          # Link command
-          bun link 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
+          # bun link only registers the package name. It does not install the
+          # command. Later steps call `brain`, so put bin/brain on PATH.
+          chmod +x "$PWD/bin/brain"
+          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
+          mkdir -p "$BUN_BIN"
+          ln -sfn "$PWD/bin/brain" "$BUN_BIN/brain"
+          if [ ! -x "$BUN_BIN/brain" ]; then
+            echo "brain command is not executable at $BUN_BIN/brain"
+            exit 1
+          fi
+          echo "$BUN_BIN" >> "$GITHUB_PATH"
+          "$BUN_BIN/brain" --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
 
       - name: Initialize ${{ matrix.app }} schemas (Brain)
         if: matrix.app == 'brain'
@@ -188,6 +199,7 @@ jobs:
       - name: Run ${{ matrix.app }} health checks (Brain)
         if: matrix.app == 'brain'
         run: |
+          set -o pipefail
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-version.txt"
           
