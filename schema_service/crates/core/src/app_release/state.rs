@@ -83,9 +83,14 @@ impl SchemaServiceState {
         .map_err(|f| map_auth_failure(&f))?;
 
         // Ownership: only the registered owner of the namespace publishes
-        // releases into it.
+        // releases into it. Read from durable storage, not memory, so a
+        // concurrent app registration cannot be bypassed.
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);
@@ -223,7 +228,11 @@ impl SchemaServiceState {
         )
         .map_err(|f| map_auth_failure(&f))?;
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);
@@ -336,7 +345,11 @@ impl SchemaServiceState {
         )
         .map_err(|f| map_auth_failure(&f))?;
         let app = self
-            .get_app(app_id)
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
         if app.owner_dev_pubkey != verified.dev_pubkey {
             return Err(ReleaseError::NotAppOwner);

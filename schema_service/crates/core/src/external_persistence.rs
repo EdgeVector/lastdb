@@ -181,6 +181,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(HashMap::new())
     }
 
+    /// Load a single app from durable storage by `app_id`. Used by the
+    /// release and channel operations to verify ownership from the source
+    /// of truth before any mutation. Returns `None` if the app does not
+    /// exist. Default: falls back to `load_all_apps` and filters.
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
+        let all = self.load_all_apps().await?;
+        Ok(all.get(app_id).cloned())
+    }
+
     // ============== App releases + channels (`/v2` registry) ============
     //
     // A release is content-addressed: its key is the SHA-256 of its

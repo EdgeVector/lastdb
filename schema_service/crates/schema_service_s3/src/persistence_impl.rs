@@ -112,48 +112,77 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_app(&self, app: &AppRecord) -> FoldDbResult<()> {
-        let app_id = app.app_id.clone();
-        let app = app.clone();
-        self.update_blob::<AppRecord, _>(APPS_KEY, move |blob| {
-            // First-write-wins, immutable: never overwrite an existing
-            // app_id. The in-memory registry already gated this, but the
-            // ETag read-modify-write loop means a concurrent Lambda could
-            // have committed a different owner since our cache load —
-            // `or_insert` makes S3 the final arbiter.
-            blob.items
-                .entry(app_id.clone())
-                .or_insert_with(|| app.clone());
-            Ok(())
-        })
-        .await
+        let key = format!("apps/{}.json", app.app_id);
+        let body = serde_json::to_vec(app)
+            .map_err(|e| FoldDbError::Serialization(format!("serialize app: {e}")))?;
+        let result = self
+            .client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .body(ByteStream::from(body.clone()))
+            .content_type("application/json")
+            .if_none_match("*")
+            .send()
+            .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) if is_precondition_failed(&e) => {
+                let existing: Option<AppRecord> = self.get_single_object(&key).await?;
+                match existing {
+                    Some(existing) if existing.owner_dev_pubkey == app.owner_dev_pubkey => Ok(()),
+                    Some(_) => Err(FoldDbError::Config(
+                        "app already exists with different owner".to_string(),
+                    )),
+                    None => Err(FoldDbError::Config(
+                        "app create conflict but not found on re-read".to_string(),
+                    )),
+                }
+            }
+            Err(e) => Err(FoldDbError::Config(format!(
+                "put S3 object '{key}': {}",
+                short_error(&e)
+            ))),
+        }
     }
 
     async fn update_app(&self, app: &AppRecord) -> FoldDbResult<()> {
-        let app_id = app.app_id.clone();
-        let app = app.clone();
-        self.update_blob::<AppRecord, _>(APPS_KEY, move |blob| {
-            // Owner-authenticated mutation: the in-memory registry verified
-            // signer == owner (and, for metadata updates, that display_name
-            // is unchanged) before getting here. This path backs both
-            // `update_app` (metadata) and `promote_app` (tier flip), so it
-            // overwrites the mutable fields — `metadata` AND `tier` — while
-            // preserving the immutable `owner_dev_pubkey` / `registered_at`.
-            // Never create an entry here: an update/promote against an
-            // unknown app_id is the caller's bug, already turned into a 404
-            // by the in-memory layer. Preserving owner means even a
-            // concurrent ETag loop can't replace a different owner's record.
-            if let Some(existing) = blob.items.get_mut(&app_id) {
-                existing.metadata = app.metadata.clone();
-                existing.tier = app.tier;
-            }
-            Ok(())
-        })
-        .await
+        let key = format!("apps/{}.json", app.app_id);
+        let existing: Option<AppRecord> = self.get_single_object(&key).await?;
+        let Some(mut existing) = existing else {
+            return Err(FoldDbError::Config(format!(
+                "app '{}' not found for update",
+                app.app_id
+            )));
+        };
+        existing.metadata = app.metadata.clone();
+        existing.tier = app.tier;
+        self.put_single_object(&key, &existing, false).await
     }
 
     async fn load_all_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
+        let mut result = self.list_and_load_apps().await?;
+        if result.is_empty() {
+            let (blob, _) = self.get_blob::<AppRecord>(APPS_KEY).await?;
+            if !blob.items.is_empty() {
+                tracing::info!(
+                    "schema_service_s3: loaded {} apps from legacy apps.json",
+                    blob.items.len()
+                );
+                result = blob.items;
+            }
+        }
+        Ok(result)
+    }
+
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
+        let key = format!("apps/{}.json", app_id);
+        let app = self.get_single_object::<AppRecord>(&key).await?;
+        if app.is_some() {
+            return Ok(app);
+        }
         let (blob, _) = self.get_blob::<AppRecord>(APPS_KEY).await?;
-        Ok(blob.items)
+        Ok(blob.items.get(app_id).cloned())
     }
 
     async fn save_declared_field(&self, record: &DeclaredFieldRecord) -> FoldDbResult<()> {
@@ -177,5 +206,31 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
             .get_blob::<DeclaredFieldRecord>(DECLARED_FIELDS_KEY)
             .await?;
         Ok(blob.items.into_values().collect())
+    }
+
+    async fn save_release(&self, record: &crate::app_release::ReleaseRecord) -> FoldDbResult<()> {
+        self.put_single_object(
+            &format!("releases/{}.json", record.release_id),
+            record,
+            false,
+        )
+        .await
+    }
+
+    async fn load_all_releases(
+        &self,
+    ) -> FoldDbResult<HashMap<String, crate::app_release::ReleaseRecord>> {
+        self.list_and_load_releases().await
+    }
+
+    async fn save_channel(&self, record: &crate::app_release::ChannelRecord) -> FoldDbResult<()> {
+        let key = format!("channels/{}/{}.json", record.app_id, record.channel);
+        self.put_channel_with_generation_check(&key, record).await
+    }
+
+    async fn load_all_channels(
+        &self,
+    ) -> FoldDbResult<HashMap<String, crate::app_release::ChannelRecord>> {
+        self.list_and_load_channels().await
     }
 }
