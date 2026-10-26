@@ -106,7 +106,7 @@ The source limit is 67,108,864 records and 65,536 hash groups.
 The receipt remains limited to 65,536 parts.
 A named low-space refusal preserves the current root.
 
-Current product receipts reside in [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
+The product receipts are kept at commit `0b0a79d4c`: [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
 The measurements below describe earlier journal-backed builds. They do not measure this snapshot implementation.
 
 ## Historical measurements before concurrent snapshot compaction

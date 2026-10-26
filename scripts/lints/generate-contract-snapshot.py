@@ -11,7 +11,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,12 +44,38 @@ def read_source(path: Path) -> str:
 # reports every entry as removed, so either way the check would be wrong.
 
 
+# A route doc line names one or more methods and a path, in either form:
+#   /// `GET /api/list?schema=` — ...
+#   /// `POST`/`PUT` `/api/db/catalog` — ...
+# A query string is not part of the route path, so it is dropped.
+ROUTE_DOC_ONE = re.compile(r'`((?:GET|POST|PUT|DELETE)(?:/(?:GET|POST|PUT|DELETE))*)\s+(/[^`?\s]*)[^`]*`')
+ROUTE_DOC_SPLIT = re.compile(
+    r'((?:`(?:GET|POST|PUT|DELETE)`/?)+)\s+`(/[^`?\s]*)[^`]*`'
+)
+VARIANT_LINE = re.compile(r'^\s*([A-Z]\w*)\b')
+
+
+def route_doc(doc_lines: list[str]) -> Optional[tuple[list[str], str]]:
+    """Return (methods, path) from the first route doc line, if any."""
+    for line in doc_lines:
+        m = ROUTE_DOC_ONE.search(line)
+        if m:
+            return m.group(1).split('/'), m.group(2)
+        m = ROUTE_DOC_SPLIT.search(line)
+        if m:
+            return re.findall(r'GET|POST|PUT|DELETE', m.group(1)), m.group(2)
+    return None
+
+
 def parse_data_routes(path: Path) -> list[dict[str, Any]]:
-    """Extract DataRoute variants from uds_router/data_route.rs."""
+    """Extract DataRoute variants from uds_router/data_route.rs.
+
+    Every variant must carry a route doc line. A variant the parser cannot
+    read is an error, not a skip: a skipped variant is invisible to the diff,
+    so its removal would pass the check with no BREAKING line.
+    """
     content = read_source(path)
-    routes = []
-    
-    # Find enum DataRoute block
+
     match = re.search(
         r'pub enum DataRoute\s*\{(.*?)\n\}',
         content,
@@ -57,25 +83,69 @@ def parse_data_routes(path: Path) -> list[dict[str, Any]]:
     )
     if not match:
         raise SnapshotError(f"{path}: no `pub enum DataRoute {{ ... }}` found")
-    
-    enum_body = match.group(1)
-    
-    # Extract each variant with its doc comment
-    pattern = r'///\s*`(POST|GET|PUT|DELETE)\s+([\w\-/{}]+)`[^\n]*\n(?:\s*///[^\n]*\n)*\s*(\w+)'
-    for m in re.finditer(pattern, enum_body):
-        method, path, variant = m.groups()
-        routes.append({
-            "method": method,
-            "path": path,
-            "route_name": variant
-        })
-    
-    if not routes:
+
+    routes = []
+    unread = []
+    docs: list[str] = []
+    for line in match.group(1).split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('///'):
+            docs.append(stripped)
+            continue
+        if not stripped or stripped.startswith('#[') or stripped.startswith('//'):
+            continue
+        variant = VARIANT_LINE.match(line)
+        if variant:
+            found = route_doc(docs)
+            if found is None:
+                unread.append(variant.group(1))
+            else:
+                methods, route_path = found
+                for method in methods:
+                    routes.append({
+                        "method": method,
+                        "path": route_path,
+                        "route_name": variant.group(1)
+                    })
+        docs = []
+
+    if unread:
         raise SnapshotError(
-            f"{path}: no DataRoute variant has a route doc line "
-            "(/// `METHOD /path`)"
+            f"{path}: DataRoute variants with no readable route doc line "
+            f"(/// `METHOD /path` or /// `METHOD`/`METHOD` `/path`): "
+            + ", ".join(unread)
         )
+    if not routes:
+        raise SnapshotError(f"{path}: DataRoute has no variants")
     return routes
+
+
+ROUTE_TABLE_ROW = re.compile(
+    r'row\("([^"]+)",\s*Scope::\w+,\s*"(GET|POST|PUT|DELETE)",\s*DataRoute::(\w+)\)'
+)
+
+
+def add_route_table_rows(path: Path, routes: list[dict[str, Any]]) -> None:
+    """Add the exact-path rows of uds_router/route_table.rs to `routes`.
+
+    The table can serve one DataRoute at a second path (an alias such as
+    `GET /api/db/list`). The enum docs name only one path per variant, so
+    without the table a removed alias would not show in the diff.
+    """
+    rows = ROUTE_TABLE_ROW.findall(read_source(path))
+    if not rows:
+        raise SnapshotError(f"{path}: no `row(\"/path\", Scope::.., \"METHOD\", DataRoute::..)` found")
+    names = {r["route_name"] for r in routes}
+    have = {(r["method"], r["path"]) for r in routes}
+    for route_path, method, variant in rows:
+        if variant not in names:
+            raise SnapshotError(
+                f"{path}: row {method} {route_path} names DataRoute::{variant}, "
+                "which the enum docs do not define"
+            )
+        if (method, route_path) not in have:
+            routes.append({"method": method, "path": route_path, "route_name": variant})
+            have.add((method, route_path))
 
 
 def parse_index_change_batch(path: Path) -> dict[str, Any]:
@@ -247,6 +317,10 @@ def build_snapshot(repo_root: Path) -> dict[str, Any]:
 
     routes = parse_data_routes(
         repo_root / 'lastdb_uds' / 'src' / 'uds_router' / 'data_route.rs'
+    )
+    add_route_table_rows(
+        repo_root / 'lastdb_uds' / 'src' / 'uds_router' / 'route_table.rs',
+        routes
     )
     
     error_kinds = extract_error_kinds(

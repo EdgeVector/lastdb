@@ -241,7 +241,7 @@ export interface ConnectOptions {
   schemaResolver?: SchemaResolver;
   /**
    * The node request-grammar version this app needs (see
-   * `LASTDB_SDK_API_VERSION` for the one the SDK was written against). When
+   * `LASTDB_SDK_API_VERSION` for the lowest node version this SDK needs). When
    * set, `connect` reads `GET /api/version` first and throws
    * `NodeTooOldError` — one line that names the fix — when the node reports
    * a lower number, or `0` because it predates the route. `0` (or unset)

@@ -92,12 +92,12 @@ The phase owner survives cancellation of an HTTP caller.
 
 ## Scope of proof
 
-The product receipts accompany this change under [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
+The product receipts of this change are kept at commit `0b0a79d4c`: [`docs/proofs/atom-lifecycle-completion-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/atom-lifecycle-completion-20261022).
 They identify the source, executable, generated home, exact read results, and cleanup.
 They establish only the workloads and process states that those receipts record.
 A process interruption does not establish power-loss behavior.
 The primary and its archive remain untouched. No tests run.
-The minimal-lock follow-up receipts live under [`docs/proofs/compaction-minimal-locks-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/compaction-minimal-locks-20261022).
+The minimal-lock follow-up receipts are kept at commit `0b0a79d4c`: [`docs/proofs/compaction-minimal-locks-20261022`](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/compaction-minimal-locks-20261022).
 
 The previously documented conflict-marker window change remains a separate retention-policy limit.
 This change preserves that behavior. It does not add cloud activation or a journal-home conversion.
