@@ -29,7 +29,7 @@ never returned as API keys.
 | `LASTDB_RANGE_KEY_ENCODING` | unset → `ope_v1` | same | `plain` |
 | Atom content open | **dual-read on** (legacy plain opens) | **`LASTDB_ATOM_CONTENT_STRICT=1` forever** on LaunchAgent after `lastdb_reseal_atom_content` | dual-read during migrate only |
 | Atom row format | legacy JSON row | `LASTDB_ATOM_CONTENT_BINARY=1` after all readers support `ATB:` | unset during reader rollout |
-| Local CAS plain write | **refused** | same | `LASTDB_ALLOW_PLAIN_CAS=1` |
+| Local CAS write | sealed dedup put | same | none |
 
 > **Won't-undo:** after a home is resealed, STRICT is not optional on that
 > product primary. Dual-read remains the binary default so *unresealed* homes

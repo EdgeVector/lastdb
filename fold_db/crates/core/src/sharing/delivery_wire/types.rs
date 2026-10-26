@@ -93,7 +93,7 @@ pub struct ContentAddressedBlob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_cipher_suite: Option<String>,
     /// RFC3339 instant this row was durably stored (stamped by
-    /// `blob_cas::put_raw_record`). Information only: the blob counter decides
+    /// `put_blob_sealed_with_access_dedup_in_ops`). Information only: the blob counter decides
     /// when a row may go (`db_operations::atom_store::blob_counter`). Not part
     /// of content addressing.
     #[serde(default, skip_serializing_if = "Option::is_none")]

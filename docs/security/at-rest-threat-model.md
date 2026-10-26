@@ -58,8 +58,8 @@ Target posture for Mini personal data (no plaintext fallbacks):
    `LASTDB_ATOM_CONTENT_STRICT=1` on the LaunchAgent forever (fail-closed open).
    File KDK (per-blob DEK) lives inside sealed content / access metadata.
 3. **Holy Ghost — files:** cloud CAS under per-blob DEK; durable local `cas_blobs`
-   sealed under the same DEK (DEK not stored in the CAS row). Plain CAS writes
-   require `LASTDB_ALLOW_PLAIN_CAS=1`.
+   sealed under the same DEK (DEK not stored in the CAS row). The local write
+   is the sealed dedup put.
 
 ### Mini file-blob plane (threat surface)
 
