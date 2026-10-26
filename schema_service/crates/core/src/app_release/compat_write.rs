@@ -64,8 +64,7 @@ impl SchemaServiceState {
             return Err(CompatRowError::UnknownRelease(release_id.to_string()));
         }
 
-        let (payload_hash, signature) =
-            verify_compat_signature(verifier_pubkey, sig_header, body)?;
+        let (payload_hash, signature) = verify_compat_signature(verifier_pubkey, sig_header, body)?;
 
         let record = CompatRow {
             release_id: release_id.to_string(),
@@ -119,8 +118,8 @@ fn verify_compat_signature(
     let envelope: app_identity_crypto::SignatureEnvelope =
         serde_json::from_str(sig_header).map_err(|_| CompatRowError::SignatureInvalid)?;
 
-    let verifying_key =
-        verifying_key_from_base64(verifier_pubkey).map_err(|_| CompatRowError::VerifierNotConfigured)?;
+    let verifying_key = verifying_key_from_base64(verifier_pubkey)
+        .map_err(|_| CompatRowError::VerifierNotConfigured)?;
 
     let envelope_payload_hash = envelope.payload_hash.as_str();
     let computed_hash = compute_payload_hash(body).map_err(|_| CompatRowError::SignatureInvalid)?;

@@ -349,4 +349,46 @@ impl S3BlobPersistence {
         }
         Ok(())
     }
+
+    pub(crate) async fn list_and_load_compat_rows(
+        &self,
+        release_id: &str,
+    ) -> FoldDbResult<Vec<schema_service_core::app_release::CompatRow>> {
+        let mut result = Vec::new();
+        let mut continuation: Option<String> = None;
+        let prefix = format!("compat/{}/", release_id);
+        loop {
+            let mut req = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(&prefix);
+            if let Some(token) = continuation {
+                req = req.continuation_token(token);
+            }
+            let resp = req.send().await.map_err(|e| {
+                FoldDbError::S3(format!(
+                    "list S3 'compat/{}': {}",
+                    release_id,
+                    short_error(&e)
+                ))
+            })?;
+            for obj in resp.contents() {
+                let Some(key) = obj.key() else { continue };
+                let Some(rec) = self
+                    .get_single_object::<schema_service_core::app_release::CompatRow>(key)
+                    .await?
+                else {
+                    continue;
+                };
+                result.push(rec);
+            }
+            if resp.is_truncated().unwrap_or(false) {
+                continuation = resp.next_continuation_token().map(String::from);
+            } else {
+                break;
+            }
+        }
+        Ok(result)
+    }
 }

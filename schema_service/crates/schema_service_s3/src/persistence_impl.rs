@@ -258,4 +258,30 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     ) -> FoldDbResult<HashMap<String, schema_service_core::app_release::ChannelRecord>> {
         self.list_and_load_channels().await
     }
+
+    async fn save_compat_row(
+        &self,
+        record: &schema_service_core::app_release::CompatRow,
+    ) -> FoldDbResult<()> {
+        let key = format!(
+            "compat/{}/{}.json",
+            record.release_id, record.contract_version
+        );
+        self.put_single_object(&key, record, true)
+            .await
+            .map_err(|e| {
+                if e.to_string().contains("PreconditionFailed") || e.to_string().contains("412") {
+                    FoldDbError::Config("compat row already exists (409)".to_string())
+                } else {
+                    e
+                }
+            })
+    }
+
+    async fn load_compat_rows_for_release(
+        &self,
+        release_id: &str,
+    ) -> FoldDbResult<Vec<schema_service_core::app_release::CompatRow>> {
+        self.list_and_load_compat_rows(release_id).await
+    }
 }
