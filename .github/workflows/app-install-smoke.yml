@@ -190,6 +190,12 @@ jobs:
             if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
               cat "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" | tee "$PROOF_DIR/${{ matrix.app }}-install-receipt.json"
             fi
+            
+            # Set APP_SOURCE for registry-installed apps
+            if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
+              echo "APP_SOURCE=$LASTDB_HOME/apps/${{ matrix.app }}/source" >> "$GITHUB_ENV"
+              echo "Using registry-installed source: $LASTDB_HOME/apps/${{ matrix.app }}/source"
+            fi
           else
             echo "INSTALLED=false" >> "$GITHUB_ENV"
             echo "❌ App ${{ matrix.app }} could not be installed from registry"
@@ -233,21 +239,23 @@ jobs:
             echo "APP_SOURCE=$TEST_HOME/apps-source/${{ matrix.app }}" >> "$GITHUB_ENV"
           fi
 
-      - name: Set up app source path
+      - name: Verify app source available
         if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
         run: |
-          # Determine source directory
-          if [ -d "$LASTDB_HOME/apps/${{ matrix.app }}/source" ]; then
-            echo "APP_SOURCE=$LASTDB_HOME/apps/${{ matrix.app }}/source" >> "$GITHUB_ENV"
-            echo "Using registry-installed source: $LASTDB_HOME/apps/${{ matrix.app }}/source"
-          elif [ -n "$APP_SOURCE" ]; then
-            echo "Using fallback source from checkout: $APP_SOURCE"
-            # APP_SOURCE already set by previous step, just verify it
-          else
-            echo "❌ No source found - app install failed and source checkout skipped or failed"
-            echo "SKIP_APP=true" >> "$GITHUB_ENV"
-            exit 0
+          # Verify APP_SOURCE was set by either registry install or source checkout
+          if [ -z "$APP_SOURCE" ]; then
+            echo "❌ FATAL: APP_SOURCE not set - app install and source checkout both failed"
+            echo "This job must fail because the app was supposed to be tested but is not available"
+            exit 1
           fi
+          
+          # Verify the source directory exists
+          if [ ! -d "$APP_SOURCE" ]; then
+            echo "❌ FATAL: APP_SOURCE=$APP_SOURCE does not exist"
+            exit 1
+          fi
+          
+          echo "✓ App source available at: $APP_SOURCE"
 
       - name: Record app contract surface
         if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
@@ -472,6 +480,9 @@ jobs:
           
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/search-deps-install.log"
+          
+          # Link command globally so 'search' is on PATH
+          bun link 2>&1 | tee "$PROOF_DIR/search-link.log"
 
       - name: Initialize Search and seed outbox
         if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
@@ -535,6 +546,51 @@ jobs:
         run: |
           # Check LastDB status after all operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-final.txt"
+
+      - name: Validate health checks ran
+        if: env.SKIP_BASELINE != 'true'
+        run: |
+          # Verify that health checks actually executed for this app (unless intentionally skipped)
+          if [ "$SKIP_APP" = "true" ]; then
+            echo "✓ App intentionally skipped (likely due to access restrictions)"
+            echo "HEALTH_CHECKS_STATUS=skipped-intentional" >> "$GITHUB_ENV"
+          else
+            # Check that app-specific health check files exist
+            HEALTH_CHECK_PASSED=false
+            
+            case "${{ matrix.app }}" in
+              brain)
+                if [ -f "$PROOF_DIR/brain-get-test.txt" ] && grep -q "Smoke test from CI" "$PROOF_DIR/brain-get-test.txt"; then
+                  HEALTH_CHECK_PASSED=true
+                fi
+                ;;
+              lastsecrets)
+                if [ -f "$PROOF_DIR/lastsecrets-get-test.txt" ] && grep -q "test-value-" "$PROOF_DIR/lastsecrets-get-test.txt"; then
+                  HEALTH_CHECK_PASSED=true
+                fi
+                ;;
+              lastseek)
+                if [ -f "$PROOF_DIR/lastseek-ingest-test.txt" ]; then
+                  HEALTH_CHECK_PASSED=true
+                fi
+                ;;
+              search)
+                if [ -f "$PROOF_DIR/search-drain-test.txt" ]; then
+                  HEALTH_CHECK_PASSED=true
+                fi
+                ;;
+            esac
+            
+            if [ "$HEALTH_CHECK_PASSED" = "true" ]; then
+              echo "✓ Health checks executed and passed for ${{ matrix.app }}"
+              echo "HEALTH_CHECKS_STATUS=passed" >> "$GITHUB_ENV"
+            else
+              echo "❌ FATAL: Health checks did not execute for ${{ matrix.app }}"
+              echo "This indicates a workflow logic error - health check steps were skipped when they should have run"
+              echo "HEALTH_CHECKS_STATUS=failed" >> "$GITHUB_ENV"
+              exit 1
+            fi
+          fi
 
       - name: Collect proof summary
         if: always()
@@ -609,46 +665,51 @@ jobs:
           fi
           
           echo "" >> smoke-summary.txt
-          echo "Health Check Results:" >> smoke-summary.txt
           
-          case "${{ matrix.app }}" in
-            brain)
-              cat >> smoke-summary.txt <<EOF
+          if [ "$SKIP_APP" = "true" ]; then
+            cat >> smoke-summary.txt <<EOF
+          Health Check Results: INTENTIONALLY SKIPPED
+          - Reason: Repository not accessible (requires APP_REPOS_TOKEN)
+          - This is expected for private repositories without access token
+          EOF
+          else
+            echo "Health Check Results:" >> smoke-summary.txt
+            
+            case "${{ matrix.app }}" in
+              brain)
+                cat >> smoke-summary.txt <<EOF
           - Brain version: $(cat brain-version.txt 2>/dev/null || echo "FAILED")
           - Brain schemas: $(grep -c "brain" brain-schemas.txt 2>/dev/null || echo "0") registered
           - Write test: $(grep -q "test-ci" brain-put-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
           - Read test: $(grep -q "Smoke test from CI" brain-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
           - Contract surface: HTTP API
           EOF
-              ;;
-            lastsecrets)
-              cat >> smoke-summary.txt <<EOF
+                ;;
+              lastsecrets)
+                cat >> smoke-summary.txt <<EOF
           - LastSecrets init: $(test -f lastsecrets-init.log && echo "OK" || echo "FAILED")
           - LastSecrets schemas: $(grep -c "lastsecrets" lastsecrets-schemas.txt 2>/dev/null || echo "0") registered
           - Write test: $(test -f lastsecrets-put-test.txt && echo "OK" || echo "FAILED")
           - Read test: $(grep -q "test-value-${{ github.run_number }}" lastsecrets-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
           - Contract surface: HTTP API
           EOF
-              ;;
-            lastseek)
-              if [ "$SKIP_APP" = "true" ]; then
-                echo "- SKIPPED: Repository not accessible" >> smoke-summary.txt
-              else
+                ;;
+              lastseek)
                 cat >> smoke-summary.txt <<EOF
           - lastseek build: $(test -f lastseek-build.log && echo "OK" || echo "FAILED")
           - Ingest test: $(grep -qE "(processed|consumed)" lastseek-ingest-test.txt 2>/dev/null && echo "OK" || echo "UNKNOWN")
           - Contract surface: Outbox (IndexChangeBatch)
           EOF
-              fi
-              ;;
-            search)
-              cat >> smoke-summary.txt <<EOF
+                ;;
+              search)
+                cat >> smoke-summary.txt <<EOF
           - Search init: $(test -f search-init.log && echo "OK" || echo "FAILED")
           - Drain test: $(test -f search-drain-test.txt && echo "OK" || echo "FAILED")
           - Contract surface: Outbox (IndexChangeBatch)
           EOF
-              ;;
-          esac
+                ;;
+            esac
+          fi
           
           echo "" >> smoke-summary.txt
           cat smoke-summary.txt
@@ -666,6 +727,16 @@ jobs:
         run: |
           echo "## App Install Smoke: ${{ matrix.app }} (${{ matrix.version }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show health check status prominently
+          if [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
+            echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
+            echo "✅ **HEALTH CHECKS PASSED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat "$PROOF_DIR/smoke-summary.txt" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Summary not available" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
