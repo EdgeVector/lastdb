@@ -3,9 +3,9 @@
 use std::cmp::Ordering;
 
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::key_comparison::RangeKeyComparison;
+use fold_db::schema::types::key_comparison::{KeyComparisonContext, RangeKeyComparison};
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
-use fold_db::schema::types::KeyValue;
+use fold_db::schema::types::{KeyValue, QueryCursor};
 use serde_json::Value;
 
 use crate::qos::Lane;
@@ -37,6 +37,28 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
         ));
     }
     Ok(())
+}
+
+/// Validate a continuation using only its tag and the captured comparison.
+/// The caller resolves the schema and derives the request binding first.
+pub(super) fn validate_cursor_comparison(
+    cursor: &QueryCursor,
+    binding: Option<&str>,
+    comparison: Option<&KeyComparisonContext>,
+) -> Result<(), HostError> {
+    match cursor.comparison.as_deref() {
+        Some(received) if binding != Some(received) => Err(HostError::new(
+            409,
+            "cursor comparison context changed; restart from the first page",
+        )),
+        None if comparison.is_some_and(|comparison| !comparison.accepts_legacy_cursor()) => {
+            Err(HostError::new(
+                409,
+                "legacy cursor cannot continue this key order; restart from the first page",
+            ))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Validate an optional count and select a keyed window from known inputs.
