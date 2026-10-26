@@ -105,6 +105,9 @@ path = "examples/local_install_proof.rs"
 name = "v2_registry_client_proof"
 path = "examples/v2_registry_client_proof.rs"
 
+[dev-dependencies]
+p256 = { version = "0.13", features = ["ecdsa"] }
+
 [lib]
 test = false
 doctest = false
