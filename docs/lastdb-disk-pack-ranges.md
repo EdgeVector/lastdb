@@ -45,20 +45,7 @@ It never returns a short successful page or a false exhausted result.
 A short successful page always exhausts the requested range.
 A full page can conservatively report that more work remains.
 
-The product command requires an explicit artifact and request file:
-
-```text
-lastdb-range --artifact /explicit/artifact --input /explicit/request.json
-```
-
-The request contains `collection`, `hash_prefix`, `groups`, `start`, and an optional `end`.
-It must also supply `budget.pages`, `budget.blocks`, `budget.bytes`, and `budget.keys`.
-The optional `page_size` and `max_pages` default to 128 and one.
-Every page prints its ordered records and an explicit exhausted result.
-The final receipt reports the captured generation and the complete call costs.
-A limit on page count can stop the command before the hash is exhausted.
-Its final receipt then states `range_exhausted: false`.
-The command does not provide a continuation across separate invocations.
+The disk format v1 removal deleted the `lastdb-range` product command on 2026-10-26.
 
 The LastDB query routes do not use this API yet.
 The warm set retains its existing 10,000-logical-record path.

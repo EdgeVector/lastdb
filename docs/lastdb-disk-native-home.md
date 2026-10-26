@@ -123,18 +123,11 @@ Its three matched pairs show lower file growth with higher batch latency; the ch
 
 ## Explicit command
 
-`lastdb-disk-home` requires an explicit `--home` path. It has no primary default.
-`build` retains its generic builder interface, but the atom-record fence refuses its unsupported native result before file creation.
-It does not create a current product home or convert an old journal home.
+The disk format v1 removal deleted the `lastdb-disk-home` and `lastdb-disk-recovery` commands on 2026-10-26.
 The product factory creates fresh homes with the required atom-record authority.
-`read` accepts collected collection/key coordinates. `range` accepts one complete encoded hash and range bounds.
-`plan` quotes a complete snapshot batch without a writer. `write` commits that batch directly to the snapshot.
-The former `append` and `publish` commands are removed.
-The command returns costs and disk receipts. Its JSON hex output adds command-level space beyond native body buffers.
-Artifact-only commands refuse native homes. The legacy LastStore opener also refuses an incomplete native home before any write.
+The legacy LastStore opener refuses an incomplete native home before any write.
 
 Local backup and restore use `lastdb-native-backup-2`, without journal state.
-The generic `lastdb-disk-recovery convert` and `reverse` commands are retired.
 An existing forward fence can complete without an open legacy store; reverse completion is retired.
 Cloud restore refuses a SegmentLog source or destination descriptor before destination file changes.
 Legacy offline maintenance also refuses SegmentLog homes before any file change.

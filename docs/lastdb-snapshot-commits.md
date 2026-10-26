@@ -252,39 +252,17 @@ The bundle excludes the node identity, encryption keys, and cloud grants.
 Keep those resources separately for a node recovery.
 This local bundle does not establish a complete cloud recovery protocol.
 
-For an existing supported native root, the explicit commands are:
-
-```sh
-lastdb-disk-home write --home ROOT --input mutations.jsonl
-lastdb-disk-recovery backup --home ROOT --backup NEW_BUNDLE
-lastdb-disk-recovery restore --home NEW_ROOT --backup BUNDLE
-lastdb-pack-maintain compact --home ROOT
-```
-
-The write input contains one JSON object per line:
-
-```json
-{"collection":"docs","key":"a","body_hex":"6162"}
-{"collection":"docs","key":"b","deleted":true}
-```
-
-The command admits at most 4,096 operations and 128 MiB of complete batch dimensions.
-A command body has at most 1 MiB of decoded bytes.
-Hex uses complete bytes and lowercase digits.
-The command derives each physical hash group from the home descriptor.
+The disk format v1 removal deleted the explicit commands `lastdb-disk-home`, `lastdb-disk-recovery`, and `lastdb-pack-maintain` on 2026-10-26.
 
 ## Compatibility and scope
 
 Old native journal formats are refused before writer file creation.
 Startup does not change those homes.
 Startup does not convert an old native journal home to a snapshot home.
-The separate [native transfer command](../vendor/laststore/src/bin/lastdb-native-transfer.rs) supports explicit export, import, and verification of compatible stored records.
-It requires a compatible source reader, a clean source stop, retained identity and keys, and a nonexistent destination.
-This route does not make startup accept the older format or provide a generic old-format converter.
+The disk format v1 removal deleted the separate native transfer command on 2026-10-26.
 
 The existing generic legacy converter remains subject to its atom-record format fence.
 `HomeBuilder::create` refuses that unsupported generic native result before it creates files.
-The `lastdb-disk-home build` and generic `convert` commands therefore do not supply a fresh product home or an old-journal conversion.
 The product factory creates a fresh home with the required atom-record authority.
 Backup restore preserves the feature authority of a supported snapshot bundle.
 
