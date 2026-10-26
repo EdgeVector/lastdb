@@ -154,3 +154,54 @@ pub(super) fn record_release_op(env: &str, op: &str, status: &str) {
         "app release registry outcome"
     );
 }
+
+/// Every way a `/v2/releases/{release_id}/compat` write can be refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompatRowError {
+    /// Body did not parse or contract_version broke grammar.
+    InvalidBody(String),
+    /// The `X-Signature` envelope did not verify against the verifier key.
+    SignatureInvalid,
+    /// The envelope's signer does not match the configured verifier pubkey.
+    UnauthorizedVerifier,
+    /// No verifier pubkey is configured — the deployment cannot accept
+    /// compat rows.
+    VerifierNotConfigured,
+    /// The release_id in the path does not exist.
+    UnknownRelease(String),
+    /// The compat row for this (release_id, contract_version) already exists.
+    AlreadyExists,
+    Internal(String),
+}
+
+impl CompatRowError {
+    #[must_use]
+    pub fn to_http(&self) -> (u16, Value) {
+        match self {
+            Self::InvalidBody(detail) => {
+                (400, json!({ "reason": "invalid_body", "detail": detail }))
+            }
+            Self::SignatureInvalid => (401, json!({ "reason": "signature_invalid" })),
+            Self::UnauthorizedVerifier => (403, json!({ "reason": "unauthorized_verifier" })),
+            Self::VerifierNotConfigured => (503, json!({ "reason": "verifier_not_configured" })),
+            Self::UnknownRelease(release_id) => (
+                404,
+                json!({ "reason": "unknown_release", "release_id": release_id }),
+            ),
+            Self::AlreadyExists => (409, json!({ "reason": "already_exists" })),
+            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+        }
+    }
+
+    pub(crate) fn metric_status(&self) -> &'static str {
+        match self {
+            Self::InvalidBody(_) => "invalid_body",
+            Self::SignatureInvalid => "signature_invalid",
+            Self::UnauthorizedVerifier => "unauthorized_verifier",
+            Self::VerifierNotConfigured => "verifier_not_configured",
+            Self::UnknownRelease(_) => "unknown_release",
+            Self::AlreadyExists => "already_exists",
+            Self::Internal(_) => "internal",
+        }
+    }
+}

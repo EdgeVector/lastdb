@@ -4498,6 +4498,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "chrono",
+ "ed25519-dalek",
  "env_flag",
  "hmac 0.12.1",
  "schema_core_resolver",

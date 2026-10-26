@@ -117,3 +117,52 @@ pub fn compute_release_id_from_value(manifest: &Value) -> Result<String, String>
 pub fn sha256_hex(bytes: &[u8]) -> String {
     schema_types::hex::sha256_hex(bytes)
 }
+
+// ─── Compatibility rows ──────────────────────────────────────────────────
+
+/// A compatibility verification record: attests that a specific release has
+/// been verified to work with a specific LastDB contract version.
+///
+/// Compat rows are **never** written by the app publisher — only by a
+/// separate verifier identity (a GitHub Actions workflow in its own repo
+/// with its own signing key). This prevents developers from self-attesting
+/// compatibility without actual verification.
+///
+/// Storage: per-record at `compat/{release_id}/{contract_version}.json`
+/// with conditional writes (If-None-Match: *) so each row is immutable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompatRow {
+    /// The release this row verifies.
+    pub release_id: String,
+    /// LastDB contract/version this release is verified to work with.
+    /// Format: semver-like "1.2.3" or "1.2.x" for a range.
+    pub contract_version: String,
+    /// Ed25519 public key (base64) of the verifier that signed this row.
+    /// Must match the configured `verifier_pubkey` in AppIdentityConfig.
+    pub verifier_pubkey: String,
+    /// RFC 3339 timestamp when verification completed.
+    pub verified_at: String,
+    /// Optional: URL to the verification run (e.g. GitHub Actions run URL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_url: Option<String>,
+}
+
+impl CompatRow {
+    /// Storage key for this compat row: `compat/{release_id}/{contract_version}.json`
+    #[must_use]
+    pub fn storage_key(&self) -> String {
+        format!("compat/{}/{}.json", self.release_id, self.contract_version)
+    }
+
+    /// The anonymous `GET /v2/releases/{release_id}/compat` body (one row).
+    #[must_use]
+    pub fn to_public_json(&self) -> Value {
+        json!({
+            "release_id": self.release_id,
+            "contract_version": self.contract_version,
+            "verifier_pubkey": self.verifier_pubkey,
+            "verified_at": self.verified_at,
+            "verification_url": self.verification_url,
+        })
+    }
+}
