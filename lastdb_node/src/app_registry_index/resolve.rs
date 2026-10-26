@@ -64,53 +64,51 @@ pub fn pick_row<'a>(
         .find(|a| a.app_id == app_id)
         .ok_or_else(|| format!("app '{app_id}' is not in the {} index", index.channel))?;
 
-    let selected = app
-        .compat
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| {
-            if row.lastdb_api_version.is_some() || row.outbox_format_version.is_some() {
-                row.lastdb_api_version.is_none_or(|version| {
-                    version >= versions.min_supported_api_version && version <= versions.api_version
-                }) && row.outbox_format_version.is_none_or(|version| {
-                    version >= versions.min_supported_outbox_format_version
-                        && version <= versions.outbox_format_version
-                })
-            } else {
-                row.lastdb_version == lastdb_version
-            }
-        })
-        .max_by_key(|(position, row)| {
-            (
-                row.lastdb_version == lastdb_version,
-                &row.proved_at,
-                &row.app_version,
-                // The old stable sort put contract rows before legacy rows
-                // on a complete rank tie, then kept their original order.
-                row.lastdb_api_version.is_some() || row.outbox_format_version.is_some(),
-                std::cmp::Reverse(*position),
-            )
-        });
-    if let Some((_, row)) = selected {
-        return Ok((app, row));
-    }
+    let mut compatible = Vec::new();
+    let mut exact_version_rows = Vec::new();
 
-    let mut version_details: Vec<String> = Vec::new();
     for row in &app.compat {
-        let mut parts = Vec::new();
-        parts.push(format!("lastdb {}", row.lastdb_version));
-        if let Some(v) = row.lastdb_api_version {
-            parts.push(format!("api_version {v}"));
-        }
-        if let Some(v) = row.outbox_format_version {
-            parts.push(format!("outbox_format_version {v}"));
-        }
-        version_details.push(format!("({})", parts.join(", ")));
-    }
-    version_details.sort_unstable();
-    version_details.dedup();
+        let has_contract_info =
+            row.lastdb_api_version.is_some() || row.outbox_format_version.is_some();
 
-    Err(format!(
+        if has_contract_info {
+            if let Some(api_version) = row.lastdb_api_version {
+                if api_version < versions.min_supported_api_version
+                    || api_version > versions.api_version
+                {
+                    continue;
+                }
+            }
+            if let Some(outbox_version) = row.outbox_format_version {
+                if outbox_version < versions.min_supported_outbox_format_version
+                    || outbox_version > versions.outbox_format_version
+                {
+                    continue;
+                }
+            }
+            compatible.push(row);
+        } else if row.lastdb_version == lastdb_version {
+            exact_version_rows.push(row);
+        }
+    }
+
+    if compatible.is_empty() && exact_version_rows.is_empty() {
+        let mut version_details: Vec<String> = Vec::new();
+        for row in &app.compat {
+            let mut parts = Vec::new();
+            parts.push(format!("lastdb {}", row.lastdb_version));
+            if let Some(v) = row.lastdb_api_version {
+                parts.push(format!("api_version {v}"));
+            }
+            if let Some(v) = row.outbox_format_version {
+                parts.push(format!("outbox_format_version {v}"));
+            }
+            version_details.push(format!("({})", parts.join(", ")));
+        }
+        version_details.sort_unstable();
+        version_details.dedup();
+
+        return Err(format!(
             "no {} row for app '{app_id}' is compatible with this node (lastdb {lastdb_version}, api_version {}, outbox_format_version {}, supports api {}-{}, outbox {}-{}); proved with: {}",
             index.channel,
             versions.api_version,
@@ -124,7 +122,32 @@ pub fn pick_row<'a>(
             } else {
                 version_details.join("; ")
             }
-        ))
+        ));
+    }
+
+    let mut final_candidates = Vec::new();
+    for row in &compatible {
+        if row.lastdb_version == lastdb_version {
+            final_candidates.push((row, true));
+        } else {
+            final_candidates.push((row, false));
+        }
+    }
+    for row in &exact_version_rows {
+        final_candidates.push((row, true));
+    }
+
+    final_candidates.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.proved_at.cmp(&b.0.proved_at).reverse())
+            .then_with(|| a.0.app_version.cmp(&b.0.app_version).reverse())
+    });
+
+    let row = final_candidates
+        .first()
+        .map(|(row, _)| *row)
+        .ok_or_else(|| "compat row selection produced no row".to_string())?;
+    Ok((app, row))
 }
 
 /// Fetch, verify, and pick: the whole anonymous resolve in one call.
