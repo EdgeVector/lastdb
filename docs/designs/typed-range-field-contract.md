@@ -11,6 +11,43 @@ Each selected field already has a declared type in `field_types`.
 The legacy key path compares range strings. The typed path uses the declared scalar order and its stored molecule profile.
 The shared type contract includes explicit `Date` and `DateTime` types.
 
+## Encryption boundary
+
+The user identity supplies the encryption root. Recovery retains that same identity.
+The existing key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for separate encryption and hash keys.
+Separate HKDF labels derive the main and CAS home keys from the encryption key.
+The legacy OPE key remains available for old source decode and historical conflict identity only.
+
+| Part | Representation and protection |
+| --- | --- |
+| Memory | Selected keys and values are readable while the node uses them. |
+| Main run blocks | Keys, molecule metadata, atoms, tips, counters, and control values share the existing block encryption. |
+| Lookup blocks | The sparse lookup, its first keys, and its filters use encrypted blocks too. |
+| Atom content | Plain logical JSON inside encrypted V2 blocks. No additional atom envelope is required. |
+| Portable files | Existing file ciphertext and access bundles retain their separate portable format. |
+| Cloud backup | The adapter sends the same encrypted native files. It adds no per-atom encryption layer. |
+| Local identity file | The 32-byte seed in `identity.key` is plaintext with owner-only file permissions. |
+
+The writer orders records, compresses each block when useful, then uses AES-256-GCM.
+A run identity selects a derived frame key. A block counter supplies its nonce.
+The authenticated header binds the frame. A CURRENT publication uses a fresh random frame identity.
+An exact read decrypts the required lookup and data blocks. A range merges the matching ordered records from the required runs.
+Neither operation requires all schema keys in memory.
+
+The clear descriptors, file footers, and frame headers expose format, file identities, byte positions, and lengths.
+The cloud also sees account/object identities, object counts, and request times.
+The protected payload contains the logical range order and values.
+The native backup excludes the local identity file and cloud credentials. Recovery supplies the private identity separately.
+
+CAUTION: A person who obtains the identity seed can derive the data encryption keys.
+This design protects database files without that seed. It does not encrypt the complete node home or replace operating-system disk protection.
+The runtime, local key file, logs, and external app files remain separate security boundaries.
+
+A future browser client can decrypt selected lookup and data blocks with the same private identity.
+It also needs cloud access and authenticated file-location metadata.
+The ordered file layout leaves that option open without server OPE or complete schema-key preload.
+The current change adds no browser reader.
+
 ## Date types
 
 `Date` and `DateTime` belong to the shared `FieldValueType` enum.
@@ -220,17 +257,15 @@ It has no primary override. It does not create a database, start a node, or copy
 
 The source must stop cleanly and retain its shutdown flush receipt.
 The command holds the existing native owner locks and one fixed publication.
-It supports both the packed and run-file disk formats.
+It supports the compact V2 run-file format. Current main removes the old active V1 path.
 The run-file reader uses an existing lock and authenticated CURRENT without the writer's orphan cleanup.
-The packed reader requires an existing lifetime lock before it opens a read.
 No maintenance lock is created or truncated.
 Publication and descriptor identities are checked again before the report returns.
 An account-key proof and the normal replay-floor check precede the metadata inventory.
 
 The inventory captures all metadata collections that the native namespace directory names, plus the current authoritative molecule collections.
 It excludes atom bodies/counters and CAS bytes from the in-memory metadata set.
-The packed visitor consumes excluded payloads without their retention in memory.
-It streams the complete held generation; the capture limits count selected metadata only.
+The capture limits count selected metadata only.
 Run-file reads use bounded calls and resume strictly after the last examined key at the same fixed root.
 Tombstones do not consume a cumulative allowance for live metadata.
 The namespace directory uses the same continuation rule.
@@ -331,8 +366,8 @@ The V2 converter already handles old atom envelopes and writes plain V2 atom val
 It preserves the existing logical key bytes.
 Keep that physical conversion separate from typed range conversion.
 The first typed converter should accept an already converted, stopped V2 development home and write a V2 target.
-V1 remains an inventory source; the V2 converter owns its physical normalization.
-This avoids a second implementation of old envelope and atom conversion rules.
+The current typed converter and inventory refuse V1. They do not restore the retired active V1 path.
+This keeps old physical conversion rules outside typed range conversion.
 
 Use V2 home commits for target values, with fresh run identities and normal publication rules.
 Keep atom identities, atom content, counters, and portable CAS ciphertext unchanged.
@@ -349,8 +384,8 @@ Current backup support does not establish that future read capability.
 The disk V2 client adapter must retain and restore both homes across restart before cloud-backed activation is claimed.
 Keep that adapter with its existing cloud work; this range plan adds no service-side LastDB format logic.
 The paired adapter uses the existing opaque protocol and validates the typed contract before capture or restore publication.
-The V1 export encrypts metadata and sequence chunks, but leaves record body chunks as their stored bytes.
-An unchanged export of V2 plain atom bodies would lack the run blocks' encryption.
+The retired V1 export left record body chunks as their stored bytes.
+That representation cannot carry plain V2 atoms without the run blocks' encryption.
 Prefer the encrypted V2 files: main-home files go to R2, and CAS-home files go to B2.
 The client manifest must retain both roots and their exact dependencies together.
 This preserves the existing block ciphertext and avoids a new per-atom encryption layer for backup.
@@ -399,7 +434,7 @@ An interrupted job resumes only through the explicit converter and the same boun
 A failed source check leaves the target closed.
 An abort discards only the exact owned target after its identity checks.
 Startup never resumes or activates this typed range conversion.
-The separately selected V1-to-V2 physical conversion retains its own rules.
+This change adds no V1-to-V2 physical conversion.
 Primary promotion remains a separate action.
 
 ## Implementation packages
