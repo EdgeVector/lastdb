@@ -356,7 +356,7 @@ impl S3BlobPersistence {
     ) -> FoldDbResult<Vec<schema_service_core::app_release::CompatRow>> {
         let mut result = Vec::new();
         let mut continuation: Option<String> = None;
-        let prefix = format!("compat/{}/", release_id);
+        let prefix = format!("compat/{release_id}/");
         loop {
             let mut req = self
                 .client
@@ -368,8 +368,7 @@ impl S3BlobPersistence {
             }
             let resp = req.send().await.map_err(|e| {
                 FoldDbError::S3(format!(
-                    "list S3 'compat/{}': {}",
-                    release_id,
+                    "list S3 'compat/{release_id}': {}",
                     short_error(&e)
                 ))
             })?;
