@@ -57,7 +57,6 @@ the trace.
 | --- | --- |
 | `crates/core/src/storage/sled_pool.rs:139` | Idle reaper started once by `start_idle_reaper`; no per-request caller. |
 | `crates/core/src/fold_db_core/fold_db.rs:537` | `run_scheduler_loop` for `TriggerRunner`, started once at `FoldDB` construction. |
-| `crates/core/src/fold_db_core/sync_coordinator.rs:88` | Background sync poll loop started once via `start_background_sync`. |
 | `crates/core/src/fold_db_core/mutation_manager.rs:1003` | `start_event_listener` spawns one loop at boot to drain `MutationRequest` events. |
 
 Tagging any of these with `.instrument(Span::current())` would stamp every

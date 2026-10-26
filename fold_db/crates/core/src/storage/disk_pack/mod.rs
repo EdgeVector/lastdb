@@ -356,10 +356,6 @@ impl NamespacedStore for PackNamespacedStore {
         self.runtime.flush().await
     }
 
-    async fn flush_written_keys(&self, _keys: &[laststore::ShardKey]) -> StorageResult<()> {
-        self.runtime.flush().await
-    }
-
     fn disk_pack_runtime(&self) -> Option<Arc<PackRuntime>> {
         Some(Arc::clone(&self.runtime))
     }

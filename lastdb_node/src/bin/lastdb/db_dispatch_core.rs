@@ -2,14 +2,10 @@ use super::*;
 use std::path::Path;
 
 /// Dispatch the read-only inspection and audit verbs.
-pub(super) fn db_inspect_command(
-    home: &Path,
-    socket: &Path,
-    action: DbInspectCommand,
-) -> Result<(), String> {
+pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Result<(), String> {
     match action {
         DbInspectCommand::Inventory { json, out, timeout } => {
-            db_inventory(home, socket, json, out.as_deref(), timeout)
+            db_inventory(socket, json, out.as_deref(), timeout)
         }
         DbInspectCommand::Schemas {
             json,

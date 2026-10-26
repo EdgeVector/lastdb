@@ -1,5 +1,5 @@
 use super::super::laststore::{native_routing, LastStoreKvStore};
-use super::super::traits::{ExecutionModel, FlushBehavior, KvMutation, YieldedScan};
+use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
 
 impl PackKvStore {
@@ -285,11 +285,5 @@ impl KvStore for PackKvStore {
     }
     fn backend_name(&self) -> &'static str {
         "laststore-disk-pack"
-    }
-    fn execution_model(&self) -> ExecutionModel {
-        ExecutionModel::SyncWrapped
-    }
-    fn flush_behavior(&self) -> FlushBehavior {
-        FlushBehavior::Persists
     }
 }

@@ -7,7 +7,6 @@
 //! | [`KvStore`] | Byte key/value ops. **Implement this** for a new backend. |
 //! | [`NamespacedStore`] | Open/list/delete logical trees. **Implement this** too. |
 //! | [`TypedKvStore`] | JSON serialize/deserialize helper on top of any `KvStore`. **Use, don't reimplement.** |
-//! | [`ExecutionModel`] / [`FlushBehavior`] | Capability hints for callers (sync-wrapped vs true async). |
 //! | [`PartitionedScan`] | Result of poison-aware scans (encrypting backends). |
 //!
 //! Scan variants on [`KvStore`] (`scan_prefix`, `_keys`, `_paged`, `scan_range`,

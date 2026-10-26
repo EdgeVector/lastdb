@@ -249,8 +249,6 @@ impl FoldDB {
 
         let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
 
-        let sync_coordinator = Self::start_sync_coordinator(&db_ops, offline_maintenance);
-
         Ok(Self {
             schema_manager,
             db_ops,
@@ -261,7 +259,6 @@ impl FoldDB {
             background_protein_reaper,
             background_conflict_janitor,
             background_molecule_drain,
-            sync_coordinator,
             mutation_log_capture,
         })
     }
