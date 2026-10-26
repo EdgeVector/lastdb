@@ -5,7 +5,8 @@ name: app-install-smoke
 #
 # A main build has no exact compat row. The public stable index still names
 # the last proved build, which is the brew bottle version string. Install
-# uses that row. Health checks still fail the job.
+# uses that row. Health checks still fail the job. The daemon keeps a
+# 16 MiB worker stack so a debug build can finish the first write.
 #
 # No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
@@ -200,6 +201,14 @@ jobs:
         if: matrix.app == 'brain'
         run: |
           set -o pipefail
+          # The socket file can outlive a dead daemon. Fail here with the
+          # daemon log instead of a later "socket did not accept" line.
+          if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+            echo "lastdbd pid $LASTDBD_PID is not running"
+            tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            exit 1
+          fi
+
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-version.txt"
           
