@@ -1,0 +1,98 @@
+name: Shared-seed cold-read comparison
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/benchmarks/cold_shared_seed.py'
+      - '.github/workflows/cold-shared-seed.yml'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Full baseline commit SHA (also builds the generated seed)
+        type: string
+        default: '88305fb503296f04eb19c43cb43ca0ffbeec2a6e'
+      candidate:
+        description: Full candidate commit SHA, compatible with the seed's disk format
+        type: string
+        default: '9d43fd6782bdd9681f25c1407c752fad576c1000'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cold-shared-seed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASELINE_SHA: ${{ inputs.baseline || '88305fb503296f04eb19c43cb43ca0ffbeec2a6e' }}
+      CANDIDATE_SHA: ${{ inputs.candidate || '9d43fd6782bdd9681f25c1407c752fad576c1000' }}
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Require exact product revisions
+        run: |
+          [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+      - name: Check Python syntax
+        run: python3 -m py_compile driver/scripts/benchmarks/cold_shared_seed.py
+      - name: Build both exact programs from separate targets
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cold-bins"
+          for label in baseline candidate; do
+            cd "$GITHUB_WORKSPACE/$label"
+            revision=$(git rev-parse HEAD)
+            FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
+              CARGO_TARGET_DIR="$RUNNER_TEMP/cold-build-$label" \
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            cp "$RUNNER_TEMP/cold-build-$label/dev-release/lastdbd" "$RUNNER_TEMP/cold-bins/$label"
+            rm -rf "$RUNNER_TEMP/cold-build-$label"
+          done
+      - name: Compare byte-identical copies of one stopped seed
+        env:
+          DRIVER_SHA: ${{ github.sha }}
+        run: |
+          python3 driver/scripts/benchmarks/cold_shared_seed.py \
+            --baseline-binary "$RUNNER_TEMP/cold-bins/baseline" --baseline-revision "$BASELINE_SHA" \
+            --candidate-binary "$RUNNER_TEMP/cold-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/cold-shared-seed"
+      - name: Upload measurements and seed fingerprints
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-shared-seed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cold-shared-seed/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify the upload
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/cold-shared-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/cold-shared-metadata.json" --output "$RUNNER_TEMP/cold-shared-receipt"
