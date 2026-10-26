@@ -4,7 +4,8 @@ use super::*;
 use crate::schema::types::MutationType;
 
 impl MutationManager {
-    /// Single-route sibling that can secure a durable delete's cloud intent.
+    /// Single-route sibling that returns a fixed failed cloud receipt for a
+    /// non-Async policy.
     pub async fn write_mutations_with_access_receipt_cloud(
         &self,
         mutations: Vec<Mutation>,

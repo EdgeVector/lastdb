@@ -135,8 +135,8 @@ impl FoldDB {
     }
 
     /// First shutdown drain: wait for every accepted lane envelope to become
-    /// durable without closing admission. The later stop + drain still covers
-    /// work that the final sync adds.
+    /// durable without closing admission. The later stop + drain covers work
+    /// accepted after this wait.
     async fn drain_persist_lanes_before_sync(&self, timeout: std::time::Duration) {
         let lanes = self.mutation_manager.persist_lanes();
         let depth = lanes.depth();

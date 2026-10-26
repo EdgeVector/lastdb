@@ -11,7 +11,8 @@ struct InvalidationCandidate {
 type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
 
 impl MutationManager {
-    /// Single-route sibling that can secure a durable aggregate delete intent.
+    /// Aggregate single-route sibling that returns a fixed failed cloud receipt
+    /// for a non-Async policy.
     pub async fn write_aggregate_set_with_access_receipt_cloud(
         &self,
         mut source: Mutation,
