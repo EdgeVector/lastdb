@@ -418,6 +418,17 @@ It does not require a cloud reader now.
 
 ## Validation and release
 
+The existing paired V2 backup adapter also needs the typed logical contract.
+Backup profile version 1 retains node format 3 and logical key format 6.
+Backup profile version 2 names node format 4 and logical key format 7.
+Both profiles retain the same encrypted main and CAS files and the same opaque cloud protocol.
+The profile version binds the exact node marker and its byte count to the backup root.
+Typed capture and restore check each schema against its existing molecule profile and key authority at the held roots.
+Those checks use bounded batch reads. They create no key and change no profile.
+Older clients refuse the new profile version.
+The client change remains in review until typed backup, interruption, and fresh restore operations pass.
+The plan adds no cloud service format logic and no browser reader.
+
 Local checks cover source format, source size, and the diff.
 CI supplies builds, lint results, and the required measurements.
 The retired tests and their replacements stay absent.
