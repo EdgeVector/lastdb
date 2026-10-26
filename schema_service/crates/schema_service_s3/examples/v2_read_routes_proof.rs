@@ -20,11 +20,11 @@
 //! cargo run -p schema_service_s3 --example v2_read_routes_proof
 //! ```
 
-use app_identity_crypto::{compute_payload_hash, sign_envelope, Env, Purpose, SignatureEnvelope};
+use app_identity_crypto::{compute_payload_hash, Env, Purpose, SignatureEnvelope};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use schema_service_core::app_identity::AppIdentityConfig;
-use schema_service_core::app_release::{CompatRow, ReleaseManifest, ReleaseRecord};
+use schema_service_core::app_release::{ReleaseManifest, ReleaseRecord};
 use schema_service_core::external_persistence::ExternalSchemaPersistence;
 use schema_service_core::snapshot::{AppMetadata, AppRecord, AppTier};
 use schema_service_core::SchemaServiceState;
@@ -164,7 +164,11 @@ fn sign_body(
     signing_key: &ed25519_dalek::SigningKey,
     body: &Value,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    use app_identity_crypto::canonicalize;
+    use ed25519_dalek::Signer;
     let payload_hash = compute_payload_hash(body)?;
+    let body_canonical = canonicalize(body)?;
+    let signature = signing_key.sign(&body_canonical);
     let envelope = SignatureEnvelope {
         version: 1,
         purpose: Purpose::AppReleasePublish,
@@ -174,10 +178,9 @@ fn sign_body(
         expires_at: None,
         env: Env::Dev,
         payload_hash,
-        sig: None,
+        sig: Some(BASE64.encode(signature.to_bytes())),
     };
-    let signed = sign_envelope(signing_key, envelope)?;
-    Ok(serde_json::to_string(&signed)?)
+    Ok(serde_json::to_string(&envelope)?)
 }
 
 async fn test_case_1_correct_signature(
