@@ -37,7 +37,6 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== /v2 Compat-Row Proof (Storage + Signature) ===\n");
 
-    // Use a more realistic key (sha256 of "verifier")
     let verifier_key_bytes: [u8; 32] = [
         0x9d, 0x2f, 0x1f, 0x4b, 0x8c, 0x8e, 0x9a, 0x0c, 0xfe, 0x3d, 0x1a, 0x8f, 0x6b, 0x5c, 0x7e,
         0x2d, 0xa1, 0xb3, 0xc4, 0xd5, 0xe6, 0xf7, 0x08, 0x19, 0x2a, 0x3b, 0x4c, 0x5d, 0x6e, 0x7f,
@@ -45,8 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     let verifier_key = ed25519_dalek::SigningKey::from_bytes(&verifier_key_bytes);
     let verifier_pubkey_b64 = BASE64.encode(verifier_key.verifying_key().as_bytes());
-
-    // Use a different key for wrong-key test
     let wrong_key_bytes: [u8; 32] = [
         0x1d, 0x2f, 0x1f, 0x4b, 0x8c, 0x8e, 0x9a, 0x0c, 0xfe, 0x3d, 0x1a, 0x8f, 0x6b, 0x5c, 0x7e,
         0x2d, 0xa1, 0xb3, 0xc4, 0xd5, 0xe6, 0xf7, 0x08, 0x19, 0x2a, 0x3b, 0x4c, 0x5d, 0x6e, 0x7f,
@@ -275,7 +272,6 @@ async fn test_case_3_unsigned(
         "contract_version": "1.4.0",
     });
 
-    // Pass empty string as signature - should be rejected
     match state.write_compat_row(release_id, "", &body).await {
         Ok(_) => panic!("Expected 401, got 201"),
         Err(e) => {
@@ -309,7 +305,6 @@ async fn test_case_4_malformed_signature(
         "contract_version": "1.4.0",
     });
 
-    // Pass malformed JSON as signature
     match state
         .write_compat_row(release_id, "not-valid-json", &body)
         .await
@@ -348,8 +343,6 @@ async fn test_case_5_body_altered(
     });
 
     let sig_header = sign_body(verifier_key, &original_body)?;
-
-    // Alter the body after signing
     let tampered_body = json!({
         "release_id": release_id,
         "contract_version": "99.99.99",
@@ -384,11 +377,11 @@ async fn test_case_6_duplicate(
     verifier_key: &ed25519_dalek::SigningKey,
     release_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n--- Case 4: Duplicate row (same release_id + contract_version) ---");
+    println!("\n--- Case 6: Duplicate row (same release_id + contract_version) ---");
 
     let body = json!({
         "release_id": release_id,
-        "contract_version": "1.2.3",  // Same as case 1
+        "contract_version": "1.2.3",
         "verification_url": "https://github.com/org/verifier/runs/456"
     });
 
