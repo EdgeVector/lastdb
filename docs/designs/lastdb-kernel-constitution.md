@@ -37,7 +37,7 @@ The smallest honest LastDB. Without these, it is a generic KV or file store.
 
 | # | Capability | Notes |
 |---|------------|--------|
-| K0.1 | Open durable store at a path | `FoldDB::new(path)` |
+| K0.1 | Open durable store at a path | factory `create_fold_db` |
 | K0.2 | Declare a multi-field schema | ≥3 fields; hash key |
 | K0.3 | Approve / make schema Available | write path requires Available |
 | K0.4 | Create N records | `MutationType::Create` batch |

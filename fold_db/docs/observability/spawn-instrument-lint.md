@@ -97,7 +97,6 @@ in `docs/observability/tokio-spawn-instrument-notes.md`:
    would be misleading on dashboards. Per-event spans are created by
    downstream code as work flows through. Examples:
    - `SledPool::start_idle_reaper` — the idle reaper.
-   - `FoldDB::new` — the `TriggerRunner` scheduler loop.
 
 2. **`#[cfg(test)]` scaffolding.** Test driver tasks that advance a
    `MockClock` or block on a gate so the test can exercise concurrent
