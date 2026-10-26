@@ -72,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     test_owner_isolation(&backend).await?;
     test_release_persistence(&backend).await?;
     test_channel_generation(&backend).await?;
+    test_legacy_app_takeover(&backend).await?;
 
     println!("\n✅ All proofs passed");
     Ok(())
@@ -213,6 +214,8 @@ async fn test_channel_generation(
     println!("✓ Updated to generation 2");
 
     // stale record thinks generation is still 1, tries to update to 2
+    // but stored generation is already 2, so this conflicts
+    println!("Attempting stale update (client thinks gen=1, tries gen=2, but stored is 2)...");
     let stale = ChannelRecord {
         app_id: app_id.clone(),
         channel: channel.to_string(),
@@ -233,6 +236,92 @@ async fn test_channel_generation(
         Ok(_) => {
             println!("✗ FAIL: Stale generation accepted");
             Err("Generation conflict not detected".into())
+        }
+    }
+}
+
+async fn test_legacy_app_takeover(
+    backend: &S3BlobPersistence,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- Test 5: Legacy apps.json takeover prevention ---");
+
+    let app_id = format!("legacy-app-{}", chrono::Utc::now().timestamp());
+    let owner_a = "legacy_owner_a_pubkey";
+    let owner_b = "legacy_owner_b_pubkey";
+
+    // Seed a legacy apps.json blob with app X owned by A
+    let legacy_app = make_app(&app_id, owner_a, "Legacy App A");
+    let mut legacy_blob = std::collections::HashMap::new();
+    legacy_blob.insert(app_id.clone(), legacy_app.clone());
+
+    let legacy_json = serde_json::to_vec(&serde_json::json!({
+        "items": legacy_blob,
+        "version": 1
+    }))?;
+
+    println!("Seeding legacy apps.json with app '{}' owned by A...", app_id);
+    backend
+        .client()
+        .put_object()
+        .bucket(backend.bucket())
+        .key("apps.json")
+        .body(aws_sdk_s3::primitives::ByteStream::from(legacy_json))
+        .send()
+        .await?;
+    println!("✓ Legacy blob seeded (no apps/{}.json exists yet)", app_id);
+
+    // Developer B tries to create the app
+    let app_b = make_app(&app_id, owner_b, "App B");
+    println!("\nDeveloper B attempts to create app '{}'...", app_id);
+    match backend.save_app(&app_b).await {
+        Err(e) if e.to_string().contains("different owner") => {
+            println!("✓ Developer B rejected: {}", e);
+        }
+        Err(e) => {
+            println!("✗ FAIL: Wrong error: {}", e);
+            return Err(e.into());
+        }
+        Ok(_) => {
+            println!("✗ FAIL: Developer B should have been rejected (legacy takeover)");
+            return Err("Legacy app takeover allowed".into());
+        }
+    }
+
+    // Developer A creates the app (idempotent)
+    let app_a = make_app(&app_id, owner_a, "App A");
+    println!("\nDeveloper A creates app '{}' (idempotent with legacy)...", app_id);
+    backend.save_app(&app_a).await?;
+    println!("✓ Developer A succeeded (idempotent with legacy owner)");
+
+    // Developer A updates the app (triggers migration)
+    println!("\nDeveloper A updates app metadata (triggers migration)...");
+    let mut app_a_updated = app_a.clone();
+    app_a_updated.metadata.description = "Updated description".to_string();
+    backend.update_app(&app_a_updated).await?;
+    println!("✓ Update succeeded, app migrated to apps/{}.json", app_id);
+
+    // Verify migration: apps/X.json should now exist
+    let migrated = backend.load_app(&app_id).await?.ok_or("App not found after migration")?;
+    if migrated.owner_dev_pubkey != owner_a {
+        println!("✗ FAIL: Migrated app has wrong owner");
+        return Err("Migration owner mismatch".into());
+    }
+    println!("✓ Verified: apps/{}.json exists with owner A", app_id);
+
+    // Developer B tries again after migration
+    println!("\nDeveloper B attempts to create app '{}' after migration...", app_id);
+    match backend.save_app(&app_b).await {
+        Err(e) if e.to_string().contains("different owner") => {
+            println!("✓ Developer B still rejected: {}\n", e);
+            Ok(())
+        }
+        Err(e) => {
+            println!("✗ FAIL: Wrong error: {}", e);
+            Err(e.into())
+        }
+        Ok(_) => {
+            println!("✗ FAIL: Developer B should have been rejected after migration");
+            Err("Post-migration takeover allowed".into())
         }
     }
 }
