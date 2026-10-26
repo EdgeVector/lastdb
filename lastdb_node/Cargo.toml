@@ -101,6 +101,10 @@ path = "src/bin/received_range_seed.rs"
 name = "local_install_proof"
 path = "examples/local_install_proof.rs"
 
+[[example]]
+name = "v2_registry_client_proof"
+path = "../docs/proofs/v2_registry_client_proof.rs"
+
 [lib]
 test = false
 doctest = false
