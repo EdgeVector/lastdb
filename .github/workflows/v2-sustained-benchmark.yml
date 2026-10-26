@@ -1,0 +1,231 @@
+name: V2 sustained write measurement
+
+# Standard hosted runners are free for this public repository. Keep this one
+# literal runner label: dispatch inputs cannot select paid or self-hosted hosts.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/benchmarks/sustained/**'
+      - 'scripts/benchmarks/node.py'
+      - 'scripts/benchmarks/build.py'
+      - 'scripts/benchmarks/artifact.py'
+      - '.github/workflows/v2-sustained-benchmark.yml'
+  workflow_dispatch:
+    inputs:
+      gib:
+        description: Initial logical payload GiB
+        type: choice
+        options: ['1', '10']
+        default: '1'
+      seconds:
+        description: Seconds at each of 100, 1000, and 5000 updates/s (1-1800)
+        type: string
+        default: '1800'
+      seed_seconds:
+        description: Maximum seed seconds per corpus (1-1800)
+        type: string
+        default: '1800'
+      try_large:
+        description: After 1 GiB, attempt full 10 GiB phases if disk space permits
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v2-sustained-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Sustained v2 updates on a free standard runner
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (!github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # PRs check the driver and recovery on 1 GiB with short load phases.
+      # Full 30-minute capacity phases and the guarded 10 GiB attempt are manual.
+      REQUEST_GIB: ${{ github.event_name == 'workflow_dispatch' && inputs.gib || '1' }}
+      REQUEST_SECONDS: ${{ github.event_name == 'pull_request' && '30' || inputs.seconds || '1800' }}
+      REQUEST_SEED_SECONDS: ${{ inputs.seed_seconds || '1800' }}
+      REQUEST_TRY_LARGE: ${{ github.event_name == 'workflow_dispatch' && inputs.try_large }}
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TERM_COLOR: never
+      NO_COLOR: '1'
+    steps:
+      - name: Prepare unique external results and bounded recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$REQUEST_GIB" in 1|10) ;; *) exit 1 ;; esac
+          for value in "$REQUEST_SECONDS" "$REQUEST_SEED_SECONDS"; do
+            [[ "$value" =~ ^[0-9]{1,4}$ ]]
+            (( 10#$value >= 1 && 10#$value <= 1800 ))
+          done
+          result="$RUNNER_TEMP/lastdb-v2-sustained-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$result"
+          echo "SUSTAINED_OUTPUT=$result" >> "$GITHUB_ENV"
+          echo "SUSTAINED_BINARY_ROOT=$RUNNER_TEMP/v2-sustained-programs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          printf '%s\n' "$CANDIDATE_SHA" > "$result/source-revision.txt"
+          printf '%s\n' "ubuntu-24.04; public repository; gib=$REQUEST_GIB; seconds=$REQUEST_SECONDS; seed_seconds=$REQUEST_SEED_SECONDS; rates=100,1000,5000; try_large=$REQUEST_TRY_LARGE" > "$result/recipe.txt"
+
+      - name: Checkout the exact candidate and measurement driver
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Check measurement source syntax
+        run: python3 -m py_compile candidate/scripts/benchmarks/sustained/*.py candidate/scripts/benchmarks/node.py candidate/scripts/benchmarks/build.py candidate/scripts/benchmarks/artifact.py
+
+      - name: Check the free build and requested corpus space
+        id: disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$RUNNER_TEMP"
+          free_gib="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print int($4 / 1048576)}')"
+          desired=20
+          if [ "$REQUEST_GIB" = 10 ] || [ "$REQUEST_TRY_LARGE" = true ]; then
+            desired=36
+          fi
+          if [ "$free_gib" -lt "$desired" ]; then
+            echo 'cleanup-required=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'cleanup-required=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reclaim installed tools only when the disk budget needs it
+        if: steps.disk.outputs.cleanup-required == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Require at least 20 GiB for the fresh build
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$RUNNER_TEMP" | tee "$SUSTAINED_OUTPUT/disk-before-build.txt"
+          free_gib="$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print int($4 / 1048576)}')"
+          [ "$free_gib" -ge 20 ]
+
+      - name: Select the candidate Rust toolchain
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          rustup show active-toolchain
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+
+      - name: Identify the exact native build context
+        run: python3 candidate/scripts/benchmarks/build.py context --output "$SUSTAINED_OUTPUT/build-context.json"
+
+      - name: Build one exact candidate from fresh source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e "$RUNNER_TEMP/bench-target-candidate"
+          test ! -L "$RUNNER_TEMP/bench-target-candidate"
+          echo 'TARGET_CLEANUP_ALLOWED=1' >> "$GITHUB_ENV"
+          rustc --version --verbose > "$SUSTAINED_OUTPUT/toolchain.txt"
+          python3 candidate/scripts/benchmarks/build.py build \
+            --source candidate --revision "$CANDIDATE_SHA" --label candidate \
+            --context "$SUSTAINED_OUTPUT/build-context.json" \
+            --cache "$SUSTAINED_BINARY_ROOT" --output "$SUSTAINED_OUTPUT"
+
+      - name: Remove only this job's build target before the corpus
+        if: ${{ always() && env.TARGET_CLEANUP_ALLOWED == '1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/bench-target-candidate"
+          if [ -e "$target" ]; then
+            test ! -L "$target"
+            test "$(realpath -- "$target")" = "$(realpath -- "$RUNNER_TEMP")/bench-target-candidate"
+            test "$(stat -c %u "$target")" = "$(id -u)"
+            rm -rf -- "$target"
+          fi
+
+      - name: Measure sustained v2 updates and background merges
+        id: measurement
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--binary "$SUSTAINED_BINARY_ROOT/$CANDIDATE_SHA/lastdbd"
+                --revision "$CANDIDATE_SHA" --output "$SUSTAINED_OUTPUT/measurement"
+                --gib "$REQUEST_GIB" --seconds "$REQUEST_SECONDS"
+                --rates 100,1000,5000 --seed-seconds "$REQUEST_SEED_SECONDS")
+          if [ "$REQUEST_GIB" = 1 ] && [ "$REQUEST_TRY_LARGE" = true ]; then
+            args+=(--try-large)
+          fi
+          python3 candidate/scripts/benchmarks/sustained/run.py "${args[@]}" \
+            2>&1 | tee "$SUSTAINED_OUTPUT/measurement.log"
+
+      - name: Publish the available measurement summary
+        if: ${{ always() && env.SUSTAINED_OUTPUT != '' }}
+        shell: bash
+        run: |
+          if [ -s "$SUSTAINED_OUTPUT/measurement/summary.md" ]; then
+            cat "$SUSTAINED_OUTPUT/measurement/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' '## V2 sustained measurement incomplete' 'Inspect the retained build and measurement logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Whitelist result formats; never upload node homes, the binary, or targets.
+      - name: Upload measurements and exact build metadata
+        id: upload
+        if: ${{ always() && env.SUSTAINED_OUTPUT != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-v2-sustained-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.json
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.jsonl
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.jsonl.gz
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.log
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.md
+            ${{ env.SUSTAINED_OUTPUT }}/**/*.txt
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Verify the upload source, digest and expiration
+        id: receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/v2-sustained-artifact-metadata.json"
+          python3 candidate/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/v2-sustained-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/v2-sustained-download-receipt-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+      - name: Retain the verified download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-v2-sustained-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v2-sustained-download-receipt-${{ github.run_id }}-${{ github.run_attempt }}/artifact.json
+          retention-days: 14
+          if-no-files-found: error
