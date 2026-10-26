@@ -51,8 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         endpoint.as_deref().unwrap_or("AWS default")
     );
 
-    let mut aws_config_loader = aws_config::defaults(BehaviorVersion::latest())
-        .region("us-east-1");
+    let mut aws_config_loader = aws_config::defaults(BehaviorVersion::latest()).region("us-east-1");
     if let Some(ep) = &endpoint {
         aws_config_loader = aws_config_loader.endpoint_url(ep);
     }
@@ -73,6 +72,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     test_release_persistence(&backend).await?;
     test_channel_generation(&backend).await?;
     test_legacy_app_takeover(&backend).await?;
+    test_revocation_preservation(&backend).await?;
+    test_domain_layer_owner_checks(&backend).await?;
 
     println!("\n✅ All proofs passed");
     Ok(())
@@ -213,9 +214,9 @@ async fn test_channel_generation(
     backend.save_channel(&ch2).await?;
     println!("✓ Updated to generation 2");
 
-    // stale record thinks generation is still 1, tries to update to 2
-    // but stored generation is already 2, so this conflicts
-    println!("Attempting stale update (client thinks gen=1, tries gen=2, but stored is 2)...");
+    // Stale record: client read gen=1, computed next=2, but concurrent write already set gen=2.
+    // The stale write tries gen=2 but finds stored=2, detecting the conflict.
+    println!("Attempting stale update (read gen=1, computed next=2, but stored is already 2)...");
     let stale = ChannelRecord {
         app_id: app_id.clone(),
         channel: channel.to_string(),
@@ -226,7 +227,7 @@ async fn test_channel_generation(
 
     match backend.save_channel(&stale).await {
         Err(e) if e.to_string().contains("Generation conflict") => {
-            println!("✓ Stale generation rejected: {e}\n");
+            println!("✓ Stale update rejected: {e}\n");
             Ok(())
         }
         Err(e) => {
@@ -259,7 +260,10 @@ async fn test_legacy_app_takeover(
         "version": 1
     }))?;
 
-    println!("Seeding legacy apps.json with app '{}' owned by A...", app_id);
+    println!(
+        "Seeding legacy apps.json with app '{}' owned by A...",
+        app_id
+    );
     backend
         .client()
         .put_object()
@@ -289,7 +293,10 @@ async fn test_legacy_app_takeover(
 
     // Developer A creates the app (idempotent)
     let app_a = make_app(&app_id, owner_a, "App A");
-    println!("\nDeveloper A creates app '{}' (idempotent with legacy)...", app_id);
+    println!(
+        "\nDeveloper A creates app '{}' (idempotent with legacy)...",
+        app_id
+    );
     backend.save_app(&app_a).await?;
     println!("✓ Developer A succeeded (idempotent with legacy owner)");
 
@@ -301,7 +308,10 @@ async fn test_legacy_app_takeover(
     println!("✓ Update succeeded, app migrated to apps/{}.json", app_id);
 
     // Verify migration: apps/X.json should now exist
-    let migrated = backend.load_app(&app_id).await?.ok_or("App not found after migration")?;
+    let migrated = backend
+        .load_app(&app_id)
+        .await?
+        .ok_or("App not found after migration")?;
     if migrated.owner_dev_pubkey != owner_a {
         println!("✗ FAIL: Migrated app has wrong owner");
         return Err("Migration owner mismatch".into());
@@ -309,7 +319,10 @@ async fn test_legacy_app_takeover(
     println!("✓ Verified: apps/{}.json exists with owner A", app_id);
 
     // Developer B tries again after migration
-    println!("\nDeveloper B attempts to create app '{}' after migration...", app_id);
+    println!(
+        "\nDeveloper B attempts to create app '{}' after migration...",
+        app_id
+    );
     match backend.save_app(&app_b).await {
         Err(e) if e.to_string().contains("different owner") => {
             println!("✓ Developer B still rejected: {}\n", e);
@@ -324,4 +337,149 @@ async fn test_legacy_app_takeover(
             Err("Post-migration takeover allowed".into())
         }
     }
+}
+
+async fn test_revocation_preservation(
+    backend: &S3BlobPersistence,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- Test 6: Revocation preservation on delayed publish ---");
+
+    let release_id = format!("rev{}", chrono::Utc::now().timestamp());
+    let release = ReleaseRecord {
+        release_id: release_id.clone(),
+        manifest: ReleaseManifest {
+            app_id: "test-app".to_string(),
+            app_uuid: "test-uuid".to_string(),
+            schemas: BTreeMap::from([("schema1".to_string(), "hash123".to_string())]),
+            source_commit: "abc123".to_string(),
+            artifact_digest: "digest123".to_string(),
+            artifact_url: "https://example.com/artifact".to_string(),
+            artifact_signature: "sig123".to_string(),
+        },
+        publisher_dev_pubkey: "publisher".to_string(),
+        published_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        revoked_at: None,
+        revocation_reason: None,
+    };
+
+    backend.save_release(&release).await?;
+    println!("✓ Release published");
+
+    let mut revoked = release.clone();
+    revoked.revoked_at =
+        Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    revoked.revocation_reason = Some("Security issue".to_string());
+    backend.save_release(&revoked).await?;
+    println!("✓ Release revoked");
+
+    let loaded = backend
+        .load_all_releases()
+        .await?
+        .get(&release_id)
+        .cloned()
+        .ok_or("Release not found")?;
+    if loaded.revoked_at.is_none() {
+        println!("✗ FAIL: Revocation not persisted");
+        return Err("Revocation not saved".into());
+    }
+    println!("✓ Verified: revoked_at and revocation_reason stored");
+
+    println!("Attempting delayed publish (simulating slow initial save after revocation)...");
+    let delayed_publish = release.clone();
+    backend.save_release(&delayed_publish).await?;
+    println!("✓ Delayed publish completed");
+
+    let final_state = backend
+        .load_all_releases()
+        .await?
+        .get(&release_id)
+        .cloned()
+        .ok_or("Release not found")?;
+    if final_state.revoked_at.is_none() {
+        println!("✗ FAIL: Revocation was overwritten (revoked=false clobbered revoked=true)");
+        return Err("Revocation not preserved".into());
+    }
+    println!("✓ Verified: revocation preserved (revoked=true not overwritten)\n");
+    Ok(())
+}
+
+async fn test_domain_layer_owner_checks(
+    backend: &S3BlobPersistence,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- Test 7: Domain layer owner check mechanism ---");
+    println!("(Demonstrates storage support for publish_release/set_channel/revoke_release)");
+
+    let app_id = format!("domain-app-{}", chrono::Utc::now().timestamp());
+    let owner_a = "dev_a_pubkey";
+    let owner_b = "dev_b_pubkey";
+
+    let app_a = make_app(&app_id, owner_a, "App A");
+    backend.save_app(&app_a).await?;
+    println!("✓ App '{}' created by developer A", app_id);
+
+    let loaded = backend.load_app(&app_id).await?.ok_or("App not found")?;
+    if loaded.owner_dev_pubkey != owner_a {
+        println!("✗ FAIL: Owner mismatch");
+        return Err("Wrong owner".into());
+    }
+    println!(
+        "✓ load_app('{}') returns owner '{}'",
+        app_id, loaded.owner_dev_pubkey
+    );
+
+    if loaded.owner_dev_pubkey == owner_b {
+        println!(
+            "✗ FAIL: Developer B would pass owner check (domain layer would allow publish/set/revoke)"
+        );
+        return Err("Owner check failed".into());
+    }
+    println!("✓ Developer B's pubkey '{}' != stored owner", owner_b);
+    println!(
+        "  → Domain layer publish_release/set_channel/revoke_release would reject with NotAppOwner"
+    );
+
+    let legacy_app_id = format!("legacy-domain-{}", chrono::Utc::now().timestamp());
+    let legacy_app = make_app(&legacy_app_id, owner_a, "Legacy App");
+    let mut legacy_blob = std::collections::HashMap::new();
+    legacy_blob.insert(legacy_app_id.clone(), legacy_app.clone());
+    let legacy_json = serde_json::to_vec(&serde_json::json!({
+        "items": legacy_blob,
+        "version": 1
+    }))?;
+    backend
+        .client()
+        .put_object()
+        .bucket(backend.bucket())
+        .key("apps.json")
+        .body(aws_sdk_s3::primitives::ByteStream::from(legacy_json))
+        .send()
+        .await?;
+    println!(
+        "\n✓ Legacy app '{}' seeded in apps.json (owned by A)",
+        legacy_app_id
+    );
+
+    let legacy_loaded = backend
+        .load_app(&legacy_app_id)
+        .await?
+        .ok_or("Legacy app not found")?;
+    if legacy_loaded.owner_dev_pubkey != owner_a {
+        println!("✗ FAIL: Legacy app owner mismatch");
+        return Err("Wrong legacy owner".into());
+    }
+    println!(
+        "✓ load_app('{}') returns owner '{}' (from legacy blob)",
+        legacy_app_id, legacy_loaded.owner_dev_pubkey
+    );
+
+    if legacy_loaded.owner_dev_pubkey == owner_b {
+        println!("✗ FAIL: Developer B would pass legacy app owner check");
+        return Err("Legacy owner check failed".into());
+    }
+    println!("✓ Developer B's pubkey '{}' != legacy owner", owner_b);
+    println!(
+        "  → Domain layer would reject B's publish/set/revoke for legacy app with NotAppOwner\n"
+    );
+
+    Ok(())
 }

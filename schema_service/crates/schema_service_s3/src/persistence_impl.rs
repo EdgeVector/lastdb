@@ -235,12 +235,8 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         &self,
         record: &schema_service_core::app_release::ReleaseRecord,
     ) -> FoldDbResult<()> {
-        self.put_single_object(
-            &format!("releases/{}.json", record.release_id),
-            record,
-            false,
-        )
-        .await
+        let key = format!("releases/{}.json", record.release_id);
+        self.put_release_preserving_revocation(&key, record).await
     }
 
     async fn load_all_releases(

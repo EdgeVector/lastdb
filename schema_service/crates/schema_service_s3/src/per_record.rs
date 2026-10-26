@@ -174,6 +174,87 @@ impl S3BlobPersistence {
         Ok(result)
     }
 
+    pub(crate) async fn put_release_preserving_revocation(
+        &self,
+        key: &str,
+        record: &ReleaseRecord,
+    ) -> FoldDbResult<()> {
+        let existing: Option<(ReleaseRecord, String)> = {
+            let result = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await;
+            match result {
+                Ok(resp) => {
+                    let etag = resp
+                        .e_tag()
+                        .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
+                        .to_string();
+                    let body = resp
+                        .body
+                        .collect()
+                        .await
+                        .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
+                    let bytes = body.into_bytes();
+                    let existing: ReleaseRecord = serde_json::from_slice(&bytes)
+                        .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
+                    Some((existing, etag))
+                }
+                Err(e) => {
+                    if error_code(&e).as_deref() == Some("NoSuchKey") {
+                        None
+                    } else {
+                        return Err(FoldDbError::S3(format!(
+                            "get S3 object '{key}': {}",
+                            short_error(&e)
+                        )));
+                    }
+                }
+            }
+        };
+
+        let mut final_record = record.clone();
+        if let Some((existing, etag)) = existing {
+            if existing.revoked_at.is_some() {
+                final_record.revoked_at = existing.revoked_at;
+                final_record.revocation_reason = existing.revocation_reason;
+            }
+            let body = serde_json::to_vec(&final_record)
+                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .body(ByteStream::from(body))
+                .content_type("application/json")
+                .if_match(etag)
+                .send()
+                .await
+                .map_err(|e| {
+                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
+                })?;
+        } else {
+            let body = serde_json::to_vec(&final_record)
+                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .body(ByteStream::from(body))
+                .content_type("application/json")
+                .if_none_match("*")
+                .send()
+                .await
+                .map_err(|e| {
+                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
+                })?;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn put_channel_with_generation_check(
         &self,
         key: &str,
