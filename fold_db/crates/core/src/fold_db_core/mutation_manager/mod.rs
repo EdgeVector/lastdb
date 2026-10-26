@@ -27,9 +27,7 @@ use std::sync::Arc;
 
 pub use aggregate::AggregateRepairReceipt;
 pub use receipt::{
-    CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
-    CloudPublicationTarget, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
+    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 
 use crate::db_operations::DbOperations;

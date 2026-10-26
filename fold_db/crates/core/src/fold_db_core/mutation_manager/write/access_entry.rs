@@ -4,13 +4,19 @@ use super::*;
 use crate::schema::types::MutationType;
 
 impl MutationManager {
-    /// Single-route sibling that returns a fixed failed cloud receipt for a
-    /// non-Async policy.
-    pub async fn write_mutations_with_access_receipt_cloud(
+    /// Write mutations with local caller context.
+    ///
+    /// Local callers approved by the host consent layer get full local DB write
+    /// access. Trust tiers, capability quotas, payment gates, and namespace walls
+    /// no longer gate this path (consent-only local control).
+    ///
+    /// When `access_context.storage_prefix` is set (org multi-DB handle from
+    /// `X-LastDB-Db`), molecule keys land under `{prefix}:…` so cohabiting DBs
+    /// on one Mini node stay isolated.
+    pub async fn write_mutations_with_access_receipt(
         &self,
         mutations: Vec<Mutation>,
         access_context: &crate::access::AccessContext,
-        cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let mut resolved_prefix = None;
         let mut schema_names: Vec<&str> =
@@ -39,19 +45,14 @@ impl MutationManager {
             }
         }
         let resolved_prefix = resolved_prefix.flatten();
-        self.write_mutations_batch_with_receipt_cloud(
-            mutations,
-            resolved_prefix.as_deref(),
-            cloud_policy,
-        )
-        .await
+        self.write_mutations_batch_with_receipt(mutations, resolved_prefix.as_deref())
+            .await
     }
 
-    pub(super) async fn write_mutations_batch_with_receipt_cloud_admitted(
+    pub(super) async fn write_mutations_batch_with_receipt_admitted(
         &self,
         mut mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
         // This marker is the conservative bridge between the product write and
@@ -111,7 +112,6 @@ impl MutationManager {
                 barrier.wait().await?;
             }
         }
-        let cloud = super::super::CloudMutationReceipt::for_policy(cloud_policy, &mutations);
         let mut receipt = crate::sync::capture::with_mutation_admission(
             self.capture_router(),
             self.write_with_aggregate_invalidations(
@@ -128,7 +128,6 @@ impl MutationManager {
         // performs no write and no flush.
         self.record_attribution_scopes(&attribution_scopes).await?;
         receipt.revision = revision;
-        receipt.cloud = cloud;
         Ok(receipt)
     }
 }

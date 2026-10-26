@@ -21,7 +21,7 @@ use crate::schema::types::{
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
-use super::receipt::{CloudCapturePolicy, ResidentCommitReceipt, ResidentDurability};
+use super::receipt::{ResidentCommitReceipt, ResidentDurability};
 use super::write::WriteOrigin;
 use super::MutationManager;
 

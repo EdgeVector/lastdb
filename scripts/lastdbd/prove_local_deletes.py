@@ -66,8 +66,6 @@ def mutation(schema, key, fields, kind):
 def validate_receipt(receipt, operation):
     require(receipt.get('ok') is True and receipt.get('success') is True, 'mutation_failed')
     require(receipt.get('durability') == 'durable', 'mutation_not_durable')
-    if operation == 'deleted':
-        require(receipt.get('local_committed') is True, 'delete_not_locally_committed')
     require(receipt.get('operations', {}).get(operation) == 1
             and receipt['operations'].get('total') == 1, 'mutation_count_mismatch')
     require(isinstance(receipt.get('mutation_id'), str) and bool(receipt['mutation_id']),

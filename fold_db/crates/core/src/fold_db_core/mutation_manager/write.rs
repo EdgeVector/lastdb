@@ -7,8 +7,7 @@ use crate::schema::{SchemaError, SchemaState};
 use tracing::info;
 
 use super::receipt::{
-    CloudCapturePolicy, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
+    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 use super::MutationManager;
 
@@ -17,10 +16,10 @@ use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance
 /// Keys in one chunk of an erase. The budget in `purge::budget` counts the same chunks.
 const PURGE_BARRIER_CHUNK: usize = super::super::purge::budget::ERASE_CHUNK_KEYS;
 
+mod access_entry;
 mod admission;
 mod attribution;
 mod batch_inner;
-mod cloud_entry;
 mod create_update_batch;
 mod delete_winners;
 mod erase_guards;
@@ -103,28 +102,6 @@ impl WriteOrigin {
 }
 
 impl MutationManager {
-    /// Write mutations with local caller context.
-    ///
-    /// Local callers approved by the host consent layer get full local DB write
-    /// access. Trust tiers, capability quotas, payment gates, and namespace walls
-    /// no longer gate this path (consent-only local control).
-    ///
-    /// When `access_context.storage_prefix` is set (org multi-DB handle from
-    /// `X-LastDB-Db`), molecule keys land under `{prefix}:…` so cohabiting DBs
-    /// on one Mini node stay isolated.
-    pub async fn write_mutations_with_access_receipt(
-        &self,
-        mutations: Vec<Mutation>,
-        access_context: &crate::access::AccessContext,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_mutations_with_access_receipt_cloud(
-            mutations,
-            access_context,
-            CloudCapturePolicy::Async,
-        )
-        .await
-    }
-
     /// [`Self::write_mutations_with_access_receipt`] returning only the
     /// accepted input mutation ids, in caller order.
     ///
@@ -163,24 +140,6 @@ impl MutationManager {
             .write_mutations_batch_with_receipt(mutations, storage_prefix)
             .await?
             .mutation_ids)
-    }
-
-    /// [`Self::write_mutations_batch_async`] answering with the full
-    /// [`ResidentCommitReceipt`] instead of only the mutation ids.
-    ///
-    /// This is the real body; the id-returning entry point above is a thin
-    /// projection of it, so the two cannot drift.
-    pub async fn write_mutations_batch_with_receipt(
-        &self,
-        mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_mutations_batch_with_receipt_cloud(
-            mutations,
-            storage_prefix,
-            CloudCapturePolicy::Async,
-        )
-        .await
     }
 
     pub(super) async fn write_mutations_batch_inner(

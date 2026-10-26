@@ -1,14 +1,16 @@
 //! Single-mutation steps using the existing host interface.
 
+use std::collections::HashSet;
+
 use fold_db::access::AccessContext;
 use fold_db::request_phases::{self, RequestPhase};
-use fold_db::schema::types::AggregateSet;
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::{AggregateSet, KeyValue, Query};
 use serde_json::Value;
 
 use crate::host_node::HostNode;
 use crate::HostError;
 
-use super::cloud::resolve_delete_prefix_keys;
 use super::fields::{
     fields_payload_bytes, resolve_aggregate_set_schema_names, resolve_required_schema_name,
     source_mutation_id, validate_mutation_fields,
@@ -103,4 +105,31 @@ fn resolve_mutation_schema<H: HostNode>(
     })();
     request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
     resolved
+}
+
+async fn resolve_delete_prefix_keys<H: HostNode>(
+    host: &H,
+    schema: String,
+    hash: String,
+    prefix: String,
+    ctx: &AccessContext,
+) -> Result<Vec<KeyValue>, HostError> {
+    let query = Query::new_with_filter(
+        schema,
+        Vec::new(),
+        Some(HashRangeFilter::HashRangePrefix { hash, prefix }),
+    );
+    let rows = host
+        .fold_db()
+        .query_executor()
+        .query_with_access(query, ctx)
+        .await
+        .map_err(HostError::from)?;
+    let mut keys = HashSet::new();
+    for fields in rows.values() {
+        keys.extend(fields.keys().cloned());
+    }
+    let mut keys: Vec<_> = keys.into_iter().collect();
+    keys.sort_by(KeyValue::cmp_page_order);
+    Ok(keys)
 }

@@ -35,39 +35,20 @@ impl ResealAtRestTargetArg {
     }
 }
 
-/// Optional off-box publication policy for one durable Delete request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub(super) enum CloudPublicationArg {
-    /// Wait for every required cloud target to confirm the exact mutation frontier.
-    Wait,
-}
-
-impl CloudPublicationArg {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Wait => "wait",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct MutateRequestOptions {
     pub(super) must_exist: bool,
     pub(super) durable: bool,
-    pub(super) cloud_publication: Option<CloudPublicationArg>,
 }
 
-/// Client headroom above the full exact-mutation server route budget.
-pub(super) const MUTATION_CLOUD_PUBLICATION_CLIENT_HEADROOM_SECS: u64 = 20;
+/// Client headroom above the server's mutation route budget.
+pub(super) const MUTATION_CLIENT_HEADROOM_SECS: u64 = 20;
 
-pub(super) fn mutation_cloud_publication_client_timeout() -> Duration {
-    mutation_cloud_publication_client_timeout_for(lastdb_node::exec::exact_mutation_route_budget())
-}
-
-pub(super) fn mutation_cloud_publication_client_timeout_for(route_budget: Duration) -> Duration {
-    route_budget.saturating_add(Duration::from_secs(
-        MUTATION_CLOUD_PUBLICATION_CLIENT_HEADROOM_SECS,
-    ))
+/// Client deadline for a durable mutation: the server's handler budget, which
+/// the same env var sets, plus headroom for the response.
+pub(super) fn durable_mutation_client_timeout() -> Duration {
+    lastdb_node::exec::handler_timeout()
+        .saturating_add(Duration::from_secs(MUTATION_CLIENT_HEADROOM_SECS))
 }
 
 /// Client-side deadline for admin scans, from the **same** env var the server
@@ -246,15 +227,12 @@ pub(super) enum Command {
         /// Delete rows whose range starts with this prefix under --key-hash.
         #[arg(long, conflicts_with = "key_range", requires = "key_hash")]
         key_range_prefix: Option<String>,
-        /// Refuse if the target is already gone. Incompatible with --cloud-publication.
+        /// Refuse if the target is already gone.
         #[arg(long)]
         must_exist: bool,
         /// Wait for the Delete to reach local durable storage before the response.
         #[arg(long)]
         durable: bool,
-        /// Wait for exact off-box publication. Requires --durable.
-        #[arg(long, value_enum, value_name = "MODE", requires = "durable")]
-        cloud_publication: Option<CloudPublicationArg>,
         /// Emit the raw node JSON response.
         #[arg(long)]
         json: bool,

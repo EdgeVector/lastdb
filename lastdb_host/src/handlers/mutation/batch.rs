@@ -2,7 +2,7 @@
 //! Pure batch rules live in `rules`; host work stays explicit in the request.
 
 use fold_db::access::AccessContext;
-use fold_db::fold_db_core::mutation_manager::{CloudCapturePolicy, ResidentCommitReceipt};
+use fold_db::fold_db_core::mutation_manager::ResidentCommitReceipt;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::Mutation;
 use serde_json::Value;
@@ -11,8 +11,8 @@ use crate::host_node::HostNode;
 use crate::qos::Lane;
 use crate::HostError;
 
-use super::cloud::{attach_batch_cloud_capture, is_durable_delete, reject_illegal_must_exist};
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
+use super::plan::reject_illegal_must_exist;
 use super::{
     configure_mutation, operations_json, stages_json, wait_for_requested_convergence,
     MutationComponents,
@@ -35,7 +35,6 @@ pub async fn execute_mutations_batch<H: HostNode>(
     ctx: &AccessContext,
 ) -> Result<Value, HostError> {
     let convergence = batch_convergence(&components)?;
-    let mut requires_durable_cloud_capture = false;
     let mut mutations = Vec::with_capacity(components.len());
     let mut payload_bytes = 0usize;
     for components in components {
@@ -58,8 +57,6 @@ pub async fn execute_mutations_batch<H: HostNode>(
         .await?;
         request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
 
-        requires_durable_cloud_capture |=
-            is_durable_delete(components.mutation_type, components.durability);
         payload_bytes =
             payload_bytes.saturating_add(fields_payload_bytes(&components.fields_and_values));
         mutations.push(configure_mutation(
@@ -79,31 +76,18 @@ pub async fn execute_mutations_batch<H: HostNode>(
     }
 
     let count = mutations.len();
-    let receipt = write_batch(
-        host,
-        mutations,
-        ctx,
-        payload_bytes,
-        requires_durable_cloud_capture,
-    )
-    .await?;
+    let receipt = write_batch(host, mutations, ctx, payload_bytes).await?;
     let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
 
-    Ok(batch_response(
-        &receipt,
-        count,
-        background_tasks_drained,
-        requires_durable_cloud_capture,
-    ))
+    Ok(batch_response(&receipt, count, background_tasks_drained))
 }
 
 fn batch_response(
     receipt: &ResidentCommitReceipt,
     count: usize,
     background_tasks_drained: bool,
-    requires_durable_cloud_capture: bool,
 ) -> Value {
-    let mut response = serde_json::json!({
+    serde_json::json!({
         "mutation_ids": &receipt.mutation_ids,
         "count": count,
         "background_tasks_drained": background_tasks_drained,
@@ -115,11 +99,7 @@ fn batch_response(
         "durability": receipt.durability.as_str(),
         "resident_stages_us": stages_json(&receipt.stages),
         "touched_group_ids": &receipt.touched_group_ids
-    });
-    if requires_durable_cloud_capture {
-        attach_batch_cloud_capture(&mut response, &receipt.mutation_ids, receipt.cloud.as_ref());
-    }
-    response
+    })
 }
 
 /// Admit the whole batch on the lane its combined payload size implies and
@@ -129,7 +109,6 @@ async fn write_batch<H: HostNode>(
     mutations: Vec<Mutation>,
     ctx: &AccessContext,
     payload_bytes: usize,
-    requires_durable_cloud_capture: bool,
 ) -> Result<ResidentCommitReceipt, HostError> {
     // Admit the whole batch on the lane its combined payload size implies, held
     // across the batch write. As in the single route, the admission wait is
@@ -141,15 +120,7 @@ async fn write_batch<H: HostNode>(
     request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     host.fold_db()
         .mutation_manager()
-        .write_mutations_with_access_receipt_cloud(
-            mutations,
-            ctx,
-            if requires_durable_cloud_capture {
-                CloudCapturePolicy::Durable
-            } else {
-                CloudCapturePolicy::Async
-            },
-        )
+        .write_mutations_with_access_receipt(mutations, ctx)
         .await
         .map_err(|e| {
             let mapped = HostError::from(e);
