@@ -86,6 +86,7 @@ impl Catalog {
                 .populate_runtime_fields()
                 .map_err(|_| invalid("a schema declaration is invalid"))?;
             catalog.schemas += 1;
+            let retention_blocker = super::retention::blocker(&schema, records, key, limits)?;
             let range = schema
                 .key
                 .as_ref()
@@ -99,6 +100,9 @@ impl Catalog {
                     .as_deref()
                     .ok_or_else(|| invalid("a schema field has no molecule"))?;
                 let entry = catalog.molecule(molecule, limits)?;
+                if let Some(blocker) = &retention_blocker {
+                    entry.report.blockers.push(blocker.clone());
+                }
                 entry
                     .report
                     .declarations

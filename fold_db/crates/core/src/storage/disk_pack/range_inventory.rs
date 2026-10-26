@@ -17,6 +17,7 @@ mod capture;
 mod catalog;
 mod keys;
 mod logical;
+mod retention;
 mod run_pages;
 mod source;
 
