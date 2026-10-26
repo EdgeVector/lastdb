@@ -1,4 +1,4 @@
-//! Reseal, unsealed-row reap, pin-log audit and history clearing.
+//! Reseal, unsealed-row reap and history clearing.
 
 use super::*;
 
@@ -34,28 +34,6 @@ impl FoldDB {
             .reap_unsealed(options)
             .await
             .map_err(|e| FoldDbError::Database(format!("reap-unsealed: {e}")))
-    }
-
-    /// Read-only, bounded pin-log plane audit (`lastdb db pin-log-audit`).
-    ///
-    /// Opens `sync_pin_log`, loads durable published-F maps, and classifies
-    /// each entry row as confirmed-orphan (frontier ≤ writer HWM) or
-    /// genuinely pending. Never deletes.
-    pub async fn audit_pin_log(
-        &self,
-        max_keys: Option<usize>,
-        after_key: Option<&str>,
-    ) -> Result<crate::sync::engine::PinLogPlaneReport, FoldDbError> {
-        let store = self
-            .db_ops()
-            .namespaced_store()
-            .open_namespace(crate::sync::engine::PIN_LOG_NAMESPACE)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("open sync_pin_log: {e}")))?;
-        let max_keys = max_keys.unwrap_or(crate::sync::engine::PIN_LOG_OPERATOR_KEYS_PER_CALL);
-        crate::sync::engine::audit_pin_log_plane(store.as_ref(), max_keys, after_key)
-            .await
-            .map_err(|e| admin_op_error("pin-log-audit", e))
     }
 
     /// Clear mutation history rows. `schema` = None means all schemas.

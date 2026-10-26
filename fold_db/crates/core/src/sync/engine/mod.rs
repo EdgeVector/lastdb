@@ -1,7 +1,6 @@
 //! Local maintenance and retained replay verification. No legacy sync engine exists.
 mod pin_log;
 pub use pin_log::{
-    audit_pin_log_plane, verify_retired_replay_source, AuthenticatedReplayObject,
-    MutationLogSegment, PinLogPlaneReport, PinLogRecord, PinLogTargetStatus, PinLogWriterStat,
-    RetiredReplaySource, PIN_LOG_NAMESPACE, PIN_LOG_OPERATOR_KEYS_PER_CALL,
+    verify_retired_replay_source, AuthenticatedReplayObject, MutationLogSegment, PinLogRecord,
+    RetiredReplaySource,
 };

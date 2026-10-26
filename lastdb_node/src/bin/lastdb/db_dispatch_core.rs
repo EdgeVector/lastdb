@@ -52,11 +52,6 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
             max_keys,
             json,
         } => db_molecule_keys(socket, &molecule, max_keys, json),
-        DbInspectCommand::PinLogAudit {
-            max_keys,
-            after_key,
-            json,
-        } => db_pin_log_audit(socket, max_keys, after_key.as_deref(), json),
     }
 }
 
@@ -91,12 +86,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             json,
         } => db_clear_history(socket, schema.as_deref(), keep_last, execute, json),
         DbReclaimCommand::GcProteins { execute, json } => db_gc_proteins(socket, execute, json),
-        DbReclaimCommand::ReclaimKeepSmallSnapshot { execute, json } => {
-            db_reclaim_keep_small_snapshot(socket, execute, json)
-        }
-        DbReclaimCommand::StampPurgedAtomRetirements { execute, json } => {
-            db_stamp_purged_atom_retirements(socket, execute, json)
-        }
         DbReclaimCommand::DeleteLedger { limit, json } => db_delete_ledger(socket, limit, json),
     }
 }

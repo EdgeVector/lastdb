@@ -147,20 +147,4 @@ pub(crate) enum DbInspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Bounded, resumable, read-only pin-log plane audit (`sync_pin_log`).
-    ///
-    /// Classifies entry rows as confirmed-orphan (frontier ≤ durable published
-    /// F for their writer) vs genuinely pending. Never deletes. Returns at
-    /// most one bounded page and an explicit resume cursor when more remains.
-    PinLogAudit {
-        /// Pin-log keys this bounded audit page may walk.
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Resume after a prior page's `next_after_key`.
-        #[arg(long)]
-        after_key: Option<String>,
-        /// Emit the page report as raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
 }
