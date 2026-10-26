@@ -17,6 +17,7 @@ from client import SustainedNode  # noqa: E402
 import data  # noqa: E402
 from load import run_phase  # noqa: E402
 from telemetry import Telemetry  # noqa: E402
+from checkpoints import Checkpoints, unix_us  # noqa: E402
 
 
 GIB = 1024 ** 3
@@ -29,6 +30,7 @@ def arguments():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--gib", type=int, choices=(1, 10), default=1)
     parser.add_argument("--try-large", action="store_true")
+    parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("--seconds", type=int, default=1800)
     parser.add_argument("--rates", default="100,1000,5000")
     parser.add_argument("--seed-seconds", type=int, default=1800)
@@ -37,6 +39,8 @@ def arguments():
     parser.add_argument("--body-bytes", type=int, default=1024)
     args = parser.parse_args()
     args.rates = [int(rate) for rate in args.rates.split(",")]
+    if args.diagnostics and args.try_large:
+        parser.error("Diagnostic checkpoints use one corpus; disable --try-large")
     if (not 1 <= args.seconds <= 1800 or not 1 <= args.seed_seconds <= 3600
             or not args.rates or len(args.rates) > 6
             or any(not 1 <= rate <= 10000 for rate in args.rates)
@@ -131,34 +135,47 @@ def corpus(args, size):
                 "required_free_bytes": required, "available_free_bytes": free}
     settings = argparse.Namespace(**vars(args))
     settings.gib = size
-    node = SustainedNode(args.binary, args.revision, output)
+    node = SustainedNode(args.binary, args.revision, output, native_timing=args.diagnostics)
+    checkpoints = Checkpoints(node, output, args.diagnostics)
     report = {"payload_gib": size, "phases": []}
     telemetry = None
     try:
         node.start()
         if node.disk_format() != 2:
             raise RuntimeError("The benchmark requires the real disk format v2")
-        telemetry = Telemetry(node, output)
+        telemetry = Telemetry(node, output, diagnostics=args.diagnostics)
         telemetry.start()
+        seed_started = unix_us()
         report["seed"] = data.seed(node, settings, telemetry)
+        checkpoints.interval("seed", seed_started)
         save(output / "seed.json", report["seed"])
         if report["seed"].get("measurement_failed") or report["seed"].get("errors"):
             raise RuntimeError(f"Seed requests failed: {report['seed'].get('errors')}")
         if not report["seed"].get("complete", True):
             report["incomplete"] = "seed duration cap; the requested corpus size was not reached"
             return report
-        for rate in args.rates:
+        checkpoints.checkpoint("seed")
+        for number, rate in enumerate(args.rates):
             print(f"START payload={size}GiB offered={rate}/s duration={args.seconds}s", flush=True)
+            phase_started = unix_us()
             result = run_phase(node, settings, report["seed"], rate, telemetry)
+            checkpoints.interval(f"load_{number}_{rate}", phase_started,
+                                 result["operations"]["write"]["requests"])
             report["phases"].append(result)
             save(output / f"rate-{rate}.json", result)
             print(f"END payload={size}GiB offered={rate}/s {json.dumps(result)}", flush=True)
             if result.get("measurement_failed"):
                 raise RuntimeError("A load phase contains a correctness or driver failure")
+        checkpoints.checkpoint("load")
+        checkpoints.settle(min(300, args.seconds), telemetry)
+        checkpoints.checkpoint("idle")
         # Stop the sampler before the deliberately killed process changes PID.
         report["resources"] = telemetry.finish()
         telemetry = None
+        recovery_started = unix_us()
         report["recovery"] = crash_recovery(node)
+        checkpoints.interval("recovery", recovery_started)
+        checkpoints.checkpoint("reopen")
         if report["resources"]["errors"]:
             raise RuntimeError("Resource collection failed; the measurement is incomplete")
         return report
@@ -177,6 +194,12 @@ def corpus(args, size):
             report["cleanup_error"] = str(error)[:1200]
             report.setdefault("error", f"owned-node cleanup: {error}")
         finally:
+            try:
+                report["diagnostics"] = checkpoints.finish()
+                if report["diagnostics"] and not report["diagnostics"].get("complete"):
+                    report.setdefault("error", "Write-stage diagnostic capture is incomplete")
+            except Exception as error:
+                report.setdefault("error", f"diagnostic finish: {error}")
             save(output / "result.json", report)
 
 
@@ -190,6 +213,10 @@ def summary(report):
         if run.get("skipped") or run.get("incomplete") or run.get("error"):
             lines += [run.get("skipped") or run.get("incomplete") or run.get("error"), ""]
         lines += ["```json", json.dumps(run, indent=2, sort_keys=True), "```", ""]
+        diagnostic = report["settings"].get("diagnostics")
+        diagnostic_summary = Path(report["settings"]["output"]) / f"payload-{run['payload_gib']}-gib" / "diagnostic-summary.md"
+        if diagnostic and diagnostic_summary.exists():
+            lines += [diagnostic_summary.read_text(), ""]
     lines += ["Limits: finite samples; one machine; 1 KiB generated values; Linux device counters",
               "can omit delayed writeback. Sampled file peaks are not hard space bounds.",
               "These results do not establish the M4 Max limit or long-held read behavior."]

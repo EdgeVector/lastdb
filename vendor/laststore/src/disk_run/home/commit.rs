@@ -3,6 +3,7 @@
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
+use crate::commit_timing as timing;
 use crate::disk_run::{merge_runs, value, RunReader, RunSummary, RunWriter};
 use crate::{Error, Result};
 use std::collections::HashSet;
@@ -102,24 +103,36 @@ impl RunHome {
     /// This call does not ack a logical write; the caller acks after it
     /// returns.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
+        let _total = timing::stage("v2_home_commit_us");
+        timing::count("v2_storage_mutations", operations.len() as u64);
         self.refuse_if_poisoned()?;
         if operations.is_empty() {
             return Err(Error::Config("disk run home: empty commit".into()));
         }
+        let key_timing = timing::stage("v2_key_encoding_us");
         let mut records = Vec::with_capacity(operations.len());
         for operation in operations.into_iter().rev() {
             let key = run_key(&operation.collection, operation.key.as_bytes())?;
             records.push((key, operation.body));
         }
+        drop(key_timing);
+        let sort_timing = timing::stage("v2_sort_dedup_us");
         // Stable sort of the reversed list: for equal keys the last
         // operation comes first, and dedup keeps the first of each key.
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
+        drop(sort_timing);
+        super::mutation_counts::record(&records);
+        let value_timing = timing::stage("v2_value_encoding_us");
         // The stored forms are made before the commit lock.
         for (_, body) in &mut records {
             *body = body.as_deref().map(value::encode);
         }
-        let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
+        drop(value_timing);
+        let _commit = timing::during("v2_commit_lock_wait_us", || {
+            self.commit.lock().unwrap_or_else(|e| e.into_inner())
+        });
+        let run_timing = timing::stage("v2_run_build_us");
         let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
         for (key, body) in &records {
             writer.push(key, body.as_deref())?;
@@ -127,10 +140,14 @@ impl RunHome {
         // A run left by a failed finish is not in CURRENT; the next open
         // removes it.
         let run = meta(writer.finish()?)?;
+        drop(run_timing);
         let records = run.records;
         let run_bytes = run.file_bytes;
-        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let _publish = timing::during("v2_publish_lock_wait_us", || {
+            self.publish.lock().unwrap_or_else(|e| e.into_inner())
+        });
         self.refuse_if_poisoned()?;
+        let prepare_timing = timing::stage("v2_manifest_prepare_us");
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
         next.frontier = next.frontier.checked_add(1).ok_or_else(overflow)?;
@@ -139,6 +156,7 @@ impl RunHome {
         }
         let file = RunFile::new(&self.runs, run);
         next.levels[0].insert(0, Arc::clone(&file));
+        drop(prepare_timing);
         let installed = self.install_or_discard(next, &[file])?;
         Ok(RunCommit {
             root: RunRoot(Arc::clone(&installed)),
@@ -195,6 +213,7 @@ impl RunHome {
     /// a commit's publish. Reads that hold an older CURRENT keep the input
     /// files until they end.
     pub(super) fn merge_tiered(&self, level: usize, inputs: Vec<Arc<RunFile>>) -> Result<RunMerge> {
+        let _total = timing::stage("v2_tiered_merge_us");
         if level + 1 >= MAX_LEVELS {
             return Err(Error::WriteCapacity(
                 "disk run home: no level is left for a merge".into(),
@@ -213,7 +232,9 @@ impl RunHome {
                 let output_bytes = output.as_ref().map_or(0, |run| run.record_bytes);
                 hidden.saturating_sub(input_bytes.saturating_sub(output_bytes))
             });
-        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let _publish = timing::during("v2_publish_lock_wait_us", || {
+            self.publish.lock().unwrap_or_else(|e| e.into_inner())
+        });
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
@@ -259,6 +280,7 @@ impl RunHome {
         inputs: &[Arc<RunFile>],
         keep_tombstones: bool,
     ) -> Result<Option<RunMeta>> {
+        let _total = timing::stage("v2_merge_run_build_us");
         let readers = inputs
             .iter()
             .map(|run| RunReader::open(&run.path, &self.key))

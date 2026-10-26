@@ -38,12 +38,15 @@ pub(super) fn mark(timing: &mut Option<Timeline>, phase: &'static str) {
 
 pub(super) fn request(timing: Option<Timeline>, sequence: u64, background: bool) {
     if let Some(timing) = timing {
+        let total_us = timing.started.elapsed().as_micros() as u64;
+        let covered_us: u64 = timing.phases.values().copied().sum();
         eprintln!(
             "LASTDB_SNAPSHOT_TIMING {}",
             serde_json::json!({
                 "kind": "scope", "sequence": sequence, "background": background,
                 "started_us": timing.started_us, "ended_us": laststore::commit_timing::unix_us(),
-                "total_us": timing.started.elapsed().as_micros() as u64, "phases_us": timing.phases,
+                "total_us": total_us, "phases_us": timing.phases,
+                "covered_us": covered_us, "unassigned_us": total_us.saturating_sub(covered_us),
             })
         );
     }
@@ -63,6 +66,35 @@ pub(super) fn commit(
                 "requests": requests, "ok": result.is_ok(),
                 "started_us": report.started_us, "ended_us": report.ended_us,
                 "total_us": report.total_us, "phases_us": report.phases_us, "counts": report.counts,
+                "covered_us": report.covered_us, "unassigned_us": report.unassigned_us,
+            })
+        );
+    }
+}
+
+/// A background step owns a separate thread-local capture. Its intervals can
+/// overlap foreground commits and must never enter request latency totals.
+pub(super) fn merge(
+    report: Option<laststore::commit_timing::Report>,
+    result: &laststore::Result<Option<laststore::disk_run::home::RunMerge>>,
+    home: usize,
+) {
+    if let Some(report) = report {
+        let step = result.as_ref().ok().and_then(Option::as_ref);
+        let kind = step.map_or(0, |step| match step.kind {
+            laststore::disk_run::home::MergeKind::Tiered { .. } => 1,
+            laststore::disk_run::home::MergeKind::Base { .. } => 2,
+        });
+        eprintln!(
+            "LASTDB_SNAPSHOT_TIMING {}",
+            serde_json::json!({
+                "kind": "merge", "home": home, "merge_kind": kind, "ok": result.is_ok(),
+                "work": step.is_some(), "inputs": step.map_or(0, |step| step.inputs),
+                "records": step.map_or(0, |step| step.records),
+                "run_bytes": step.map_or(0, |step| step.run_bytes),
+                "started_us": report.started_us, "ended_us": report.ended_us,
+                "total_us": report.total_us, "phases_us": report.phases_us, "counts": report.counts,
+                "covered_us": report.covered_us, "unassigned_us": report.unassigned_us,
             })
         );
     }

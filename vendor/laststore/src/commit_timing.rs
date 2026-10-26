@@ -1,6 +1,6 @@
 //! Opt-in, numeric diagnostics for a synchronous native commit on an isolated node.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -9,6 +9,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 thread_local! {
     static ACTIVE: RefCell<Option<Report>> = const { RefCell::new(None) };
+    static DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Numeric phase totals. Child flush totals overlap their enclosing disk phases.
@@ -20,6 +21,10 @@ pub struct Report {
     pub ended_us: u64,
     /// Complete synchronous capture time from the monotonic clock.
     pub total_us: u64,
+    /// Union of outermost phase intervals, never a sum of nested phases.
+    pub covered_us: u64,
+    /// Capture time outside every named phase, including diagnostic overhead.
+    pub unassigned_us: u64,
     /// Phase wall times; nested child phases must not be added to their parents.
     pub phases_us: BTreeMap<&'static str, u64>,
     /// Numeric work counts for this capture only.
@@ -49,6 +54,7 @@ struct Capture;
 impl Drop for Capture {
     fn drop(&mut self) {
         ACTIVE.with(|active| *active.borrow_mut() = None);
+        DEPTH.with(|depth| depth.set(0));
     }
 }
 
@@ -71,6 +77,7 @@ pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
     let report = ACTIVE.with(|active| {
         active.borrow_mut().take().map(|mut report| {
             report.total_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+            report.unassigned_us = report.total_us.saturating_sub(report.covered_us);
             report.ended_us = unix_us();
             report
         })
@@ -98,14 +105,23 @@ fn note_reads(reads: crate::read_receipt::DiskReadReceipt) {
 pub struct Stage {
     name: &'static str,
     started: Option<Instant>,
+    outermost: bool,
     thread: PhantomData<Rc<()>>,
 }
 
 /// Measure a named synchronous phase only inside an active capture.
 pub fn stage(name: &'static str) -> Stage {
+    let active = enabled() && ACTIVE.with(|active| active.borrow().is_some());
+    let outermost = active
+        && DEPTH.with(|depth| {
+            let current = depth.get();
+            depth.set(current + 1);
+            current == 0
+        });
     Stage {
         name,
-        started: (enabled() && ACTIVE.with(|active| active.borrow().is_some())).then(Instant::now),
+        started: active.then(Instant::now),
+        outermost,
         thread: PhantomData,
     }
 }
@@ -120,9 +136,13 @@ impl Drop for Stage {
     fn drop(&mut self) {
         if let Some(started) = self.started {
             let micros = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+            DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
             ACTIVE.with(|active| {
                 if let Some(report) = active.borrow_mut().as_mut() {
                     *report.phases_us.entry(self.name).or_default() += micros;
+                    if self.outermost {
+                        report.covered_us = report.covered_us.saturating_add(micros);
+                    }
                 }
             });
         }

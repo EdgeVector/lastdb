@@ -45,7 +45,7 @@ def run_file_counts(home):
 
 
 class Telemetry:
-    def __init__(self, node, output):
+    def __init__(self, node, output, diagnostics=False):
         self.node, self.output = node, output
         self.started = time.monotonic()
         self.lock = threading.Lock()
@@ -57,6 +57,7 @@ class Telemetry:
         self.stream = (output / "resources.jsonl").open("w")
         self.thread = threading.Thread(target=self._loop, name="resource-sampler", daemon=True)
         self.thread_started = False
+        self.diagnostics, self.next_native_sample = diagnostics, self.started
 
     def set_load(self, snapshot):
         with self.lock:
@@ -88,6 +89,12 @@ class Telemetry:
                   "pid": process.pid, "node": counters, "driver": driver,
                   "disk": usage, "free_bytes": shutil.disk_usage(self.node.home).free,
                   "run_files": run_file_counts(self.node.home), "load": load}
+        if self.diagnostics and at >= self.next_native_sample:
+            native_start = time.time_ns() // 1000
+            sample["native_status"] = self.node.native_status()
+            sample["native_started_us"] = native_start
+            sample["native_ended_us"] = time.time_ns() // 1000
+            self.next_native_sample = at + 30
         sample["sample_seconds"] = time.monotonic() - at
         if counters.get("unavailable") or driver.get("unavailable"):
             self.note_error("Linux process counters unavailable")
@@ -115,7 +122,7 @@ class Telemetry:
         self.stopped.set()
         try:
             if self.thread_started:
-                self.thread.join(timeout=20)
+                self.thread.join(timeout=90 if self.diagnostics else 20)
                 if self.thread.is_alive():
                     raise RuntimeError("Resource sampler did not stop")
             self.sample()

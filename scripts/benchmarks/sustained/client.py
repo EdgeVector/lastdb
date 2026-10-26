@@ -17,10 +17,11 @@ class RequestFailure(RuntimeError):
 
 
 class SustainedNode(Node):
-    def call(self, path, body=None, receipt=False, request_id=None):
+    def call(self, path, body=None, receipt=False, request_id=None, timeout=60):
         if body is not None and not isinstance(body, bytes):
             body = json.dumps(body, separators=(",", ":")).encode()
         connection = UnixConnection(self.socket)
+        connection.timeout = timeout
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-v2-sustained"}
         started = time.perf_counter_ns()
         try:
@@ -45,6 +46,13 @@ class SustainedNode(Node):
             raise RequestFailure(str(error), (time.perf_counter_ns() - started) / 1e6) from error
         finally:
             connection.close()
+
+    def native_status(self, inventory=False):
+        result, _, _ = self.call("/api/db/native-status", {"inventory": inventory}, timeout=85)
+        audit = result.get("storage_diagnostics")
+        if not isinstance(audit, dict) or set(audit) != {"main", "cas"}:
+            raise RuntimeError("The isolated native diagnostic checkpoint is unavailable")
+        return audit
 
     def disk_usage(self):
         stack, entries, logical, allocated = [(self.home, 0)], 0, 0, 0

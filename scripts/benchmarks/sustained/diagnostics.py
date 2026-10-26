@@ -1,0 +1,258 @@
+"""Bounded numeric log capture for isolated write investigations."""
+
+import json
+import math
+from pathlib import Path
+import re
+import time
+
+from diagnostic_report import render
+
+
+MARKERS = {"LASTDB_WRITE_REQUEST_TIMING ": {"request"},
+           "LASTDB_SNAPSHOT_TIMING ": {"scope", "commit", "merge"}}
+MAX_LOG_BYTES, MAX_LINE_BYTES, MAX_EVENTS = 2 * 1024 ** 3, 256 * 1024, 2_000_000
+MAX_WINDOWS, MAX_FIELDS, MAX_ERRORS = 64, 512, 32
+NAME = re.compile(r"[A-Za-z0-9_-]{1,96}\Z")
+U64_MAX = 2 ** 64 - 1
+FILE_KINDS = ("published", "retired_held", "temporary", "unreferenced", "other_home")
+
+
+def integer(value):
+    if type(value) is not int or not 0 <= value <= U64_MAX:
+        raise ValueError("A diagnostic value is not a nonnegative u64 integer")
+    return value
+
+
+def numeric_map(values):
+    if not isinstance(values, dict) or len(values) > MAX_FIELDS:
+        raise ValueError("A numeric diagnostic map exceeds its bound")
+    for key, value in values.items():
+        if not isinstance(key, str) or not NAME.fullmatch(key):
+            raise ValueError("A numeric diagnostic field name is invalid")
+        integer(value)
+    return values
+
+
+class Metric:
+    def __init__(self, distribution=False):
+        self.count, self.total, self.maximum = 0, 0, 0
+        self.bins = [0] * 512 if distribution else None
+
+    def add(self, value):
+        self.count += 1
+        self.total += value
+        self.maximum = max(self.maximum, value)
+        if self.bins is not None:
+            self.bins[min(511, int(math.log1p(value) * 10))] += 1
+
+    def summary(self):
+        result = {"reported": self.count, "total": self.total,
+                  "mean": self.total / self.count if self.count else None, "max": self.maximum}
+        if self.bins is not None:
+            for label, fraction in (("p50", .5), ("p95", .95), ("p99", .99)):
+                seen, value = 0, None
+                for slot, count in enumerate(self.bins):
+                    seen += count
+                    if self.count and seen >= math.ceil(self.count * fraction):
+                        value = min(self.maximum, math.expm1((slot + 1) / 10))
+                        break
+                result[label] = value
+            result["percentiles"] = "fixed histogram upper bounds, approximately 10% bins"
+        return result
+
+
+def add_metrics(target, values, distribution=False):
+    for name, value in values.items():
+        if name not in target:
+            if len(target) >= MAX_FIELDS:
+                raise ValueError("Observed diagnostic field names exceed their bound")
+            target[name] = Metric(distribution)
+        target[name].add(value)
+
+
+class Family:
+    def __init__(self):
+        self.events, self.labels = 0, {}
+        self.phases, self.counts, self.scalars = {}, {}, {}
+
+    def observe(self, event):
+        self.events += 1
+        add_metrics(self.phases, event["phases_us"], True)
+        add_metrics(self.counts, event.get("counts", {}))
+        names = ("total_us", "covered_us", "unassigned_us", "queue_wait_us", "body_bytes",
+                 "rows", "requests", "inputs", "records", "run_bytes")
+        add_metrics(self.scalars, {n: event[n] for n in names if event.get(n) is not None}, True)
+        for name in ("status", "background", "ok", "work", "merge_kind"):
+            if name in event:
+                key = f"{name}={event[name]}"
+                self.labels[key] = self.labels.get(key, 0) + 1
+
+    def summary(self):
+        return {"events": self.events, "labels": self.labels,
+                **{name: {k: v.summary() for k, v in values.items()}
+                   for name, values in (("phases_us", self.phases), ("counts", self.counts),
+                                        ("scalars", self.scalars))}}
+
+
+def validate_event(event, allowed):
+    if not isinstance(event, dict) or event.get("kind") not in allowed:
+        raise ValueError("A log marker has an unsupported event kind")
+    for name in ("started_us", "ended_us", "total_us"):
+        integer(event.get(name))
+    if event["ended_us"] < event["started_us"]:
+        raise ValueError("A diagnostic event has reversed clock bounds")
+    numeric_map(event.get("phases_us"))
+    numeric_map(event.get("counts", {}))
+    for name in ("covered_us", "unassigned_us", "queue_wait_us", "body_bytes", "rows",
+                 "requests", "inputs", "records", "run_bytes"):
+        if event.get(name) is not None:
+            integer(event[name])
+    if "covered_us" in event or "unassigned_us" in event:
+        if event.get("covered_us", -1) + event.get("unassigned_us", -1) != event["total_us"]:
+            raise ValueError("Covered and unassigned time differ from capture time")
+    for name in ("background", "ok", "work"):
+        if name in event and type(event[name]) is not bool:
+            raise ValueError("A diagnostic event flag is invalid")
+    if event["kind"] == "request" and (type(event.get("status")) is not int or not 100 <= event["status"] <= 599):
+        raise ValueError("The request status is invalid")
+    if event["kind"] == "merge" and (event.get("home") not in (0, 1) or event.get("merge_kind") not in (0, 1, 2)):
+        raise ValueError("The native merge home or kind is invalid")
+    return event["kind"] if event["kind"] != "merge" else ("merge_main" if event["home"] == 0 else "merge_cas")
+
+
+def validate_audit(audit):
+    if not isinstance(audit, dict) or set(audit) != {"main", "cas"}:
+        raise ValueError("A checkpoint lacks both native home audits")
+    for home in audit.values():
+        files = numeric_map(home["files"])
+        for suffix in ("file_bytes", "allocated_bytes"):
+            if sum(files[f"{kind}_{suffix}"] for kind in FILE_KINDS) != files[f"total_{suffix}"]:
+                raise ValueError("Physical file categories do not reconcile")
+        parts = [home["base"], home["merging"], *home["levels"]]
+        if len(parts) > MAX_WINDOWS:
+            raise ValueError("Native levels exceed the diagnostic bound")
+        for part in parts:
+            numeric_map(part)
+        if sum(p["file_bytes"] for p in parts) != files["published_file_bytes"]:
+            raise ValueError("Published run parts differ from published file bytes")
+        inventory = home.get("inventory")
+        if not isinstance(inventory, dict) or inventory.get("complete") is not True:
+            raise ValueError("A checkpoint logical inventory is incomplete")
+        collections = inventory["collections"]
+        if not isinstance(collections, dict) or len(collections) > MAX_WINDOWS:
+            raise ValueError("Logical collection labels exceed their bound")
+        for name, row in collections.items():
+            if not NAME.fullmatch(name):
+                raise ValueError("A logical collection label is invalid")
+            numeric_map(row)
+        if sum(r["live_keys"] + r["deleted_keys"] for r in collections.values()) != inventory["merged_keys"]:
+            raise ValueError("Logical collection key counts do not reconcile")
+
+
+class Diagnostics:
+    def __init__(self, output, log_path):
+        self.output, self.log_path = Path(output), Path(log_path)
+        self.windows, self.checkpoints, self.errors = [], [], []
+        self.crossing, self.unassigned, self.lines, self.events = {}, {}, 0, 0
+        self.finished = False
+
+    def error(self, message):
+        if len(self.errors) < MAX_ERRORS:
+            self.errors.append(str(message)[:500])
+
+    def checkpoint(self, name, audit_dict, start_us, end_us):
+        self._bounds(name, start_us, end_us)
+        if len(self.checkpoints) >= MAX_WINDOWS or any(c["name"] == name for c in self.checkpoints):
+            raise ValueError("Checkpoint names repeat or exceed their bound")
+        self.checkpoints.append({"name": name, "started_us": start_us,
+                                 "ended_us": end_us, "audit": audit_dict})
+        try:
+            validate_audit(audit_dict)
+        except (KeyError, TypeError, ValueError) as error:
+            self.error(f"checkpoint {name}: {error}")
+
+    def interval(self, name, start_us, end_us, expected_requests=None):
+        self._bounds(name, start_us, end_us)
+        if expected_requests is not None:
+            integer(expected_requests)
+        if len(self.windows) >= MAX_WINDOWS or any(w["name"] == name for w in self.windows):
+            raise ValueError("Interval names repeat or exceed their bound")
+        if any(start_us < w["ended_us"] and end_us > w["started_us"] for w in self.windows):
+            raise ValueError("Diagnostic phase intervals overlap")
+        self.windows.append({"name": name, "started_us": start_us, "ended_us": end_us,
+                             "expected_requests": expected_requests, "families": {}, "crossing": {}})
+
+    def _bounds(self, name, start, end):
+        if self.finished or not isinstance(name, str) or not NAME.fullmatch(name):
+            raise ValueError("The diagnostic capture name or lifecycle is invalid")
+        if integer(end) < integer(start):
+            raise ValueError("Diagnostic phase clock bounds are reversed")
+
+    def _event(self, event, allowed):
+        family = validate_event(event, allowed)
+        self.events += 1
+        if self.events > MAX_EVENTS:
+            raise ValueError("Native log event count exceeds its bound")
+        start, end = event["started_us"], event["ended_us"]
+        contained = [w for w in self.windows if w["started_us"] <= start < w["ended_us"] and end <= w["ended_us"]]
+        if contained:
+            families = contained[0]["families"]
+            families.setdefault(family, Family()).observe(event)
+            return
+        overlaps = [w for w in self.windows if start < w["ended_us"] and end > w["started_us"]]
+        target = self.crossing if overlaps else self.unassigned
+        target[family] = target.get(family, 0) + 1
+        for window in overlaps:
+            window["crossing"][family] = window["crossing"].get(family, 0) + 1
+
+    def _read(self):
+        if self.log_path.is_symlink() or self.log_path.stat().st_size > MAX_LOG_BYTES:
+            raise ValueError("The native log identity or size exceeds its bound")
+        deadline = time.monotonic() + 180
+        with self.log_path.open("r", encoding="utf-8", errors="replace") as source:
+            while True:
+                line = source.readline(MAX_LINE_BYTES + 1)
+                if not line:
+                    break
+                self.lines += 1
+                if len(line) > MAX_LINE_BYTES or time.monotonic() > deadline:
+                    raise ValueError("Native log line or parse time exceeds its bound")
+                for marker, allowed in MARKERS.items():
+                    if marker in line:
+                        try:
+                            self._event(json.loads(line.split(marker, 1)[1]), allowed)
+                        except (ValueError, TypeError, KeyError) as error:
+                            self.error(f"native log line {self.lines}: {error}")
+                        break
+
+    def finish(self):
+        if self.finished:
+            raise ValueError("The diagnostic capture already finished")
+        self.finished = True
+        try:
+            self._read()
+        except (OSError, ValueError) as error:
+            self.error(error)
+        windows = []
+        for window in sorted(self.windows, key=lambda w: w["started_us"]):
+            families = {k: v.summary() for k, v in window["families"].items()}
+            requests = families.get("request", {}).get("events", 0)
+            expected = window["expected_requests"]
+            if expected is not None and requests != expected:
+                self.error(f"{window['name']}: request events {requests} differ from expected {expected}")
+            windows.append({**window, "families": families, "observed_requests": requests})
+        if not self.windows or not self.events:
+            self.error("The diagnostic capture lacks phase intervals or numeric log events")
+        report = {"version": 1, "complete": not self.errors, "errors": self.errors,
+                  "log_lines": self.lines, "events": self.events, "intervals": windows,
+                  "crossing_events": self.crossing, "unassigned_events": self.unassigned,
+                  "checkpoints": self.checkpoints}
+        self.output.mkdir(parents=True, exist_ok=True)
+        (self.output / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        (self.output / "diagnostic-summary.md").write_text(render(report))
+        return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events")} | {
+            "intervals": len(windows), "checkpoints": len(self.checkpoints),
+            "request_coverage": [{"interval": w["name"], "expected": w["expected_requests"],
+                                  "observed": w["observed_requests"]} for w in windows],
+            "detail_file": "diagnostics.json", "summary_file": "diagnostic-summary.md"}

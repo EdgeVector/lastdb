@@ -33,15 +33,25 @@
 mod capture;
 mod cleanup;
 mod commit;
+mod diagnostic;
+mod diagnostic_files;
+mod diagnostic_inventory;
 mod keys;
+mod maintenance;
 mod manifest;
+mod mutation_counts;
 mod plan;
+mod publication;
 mod range;
 mod read;
 mod read_only;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
 pub use commit::{HomeMutation, MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use diagnostic::{
+    CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
+    RunHomeDiagnostics,
+};
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
@@ -292,21 +302,6 @@ impl RunHome {
             ));
         }
         Ok(())
-    }
-
-    /// Publish `next` as CURRENT and make it the readable state.
-    /// The caller holds the publish lock. An error before the rename leaves
-    /// the old CURRENT in force; an error after it poisons the home.
-    fn install(&self, next: Manifest) -> Result<Arc<Manifest>> {
-        let staged = next.stage(&self.root, &self.key)?;
-        if let Err(error) = Manifest::replace(&self.root, &staged) {
-            // The rename may or may not have happened: stop all writes.
-            self.poisoned.store(true, Ordering::Release);
-            return Err(error);
-        }
-        let next = Arc::new(next);
-        *self.current.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&next);
-        Ok(next)
     }
 }
 

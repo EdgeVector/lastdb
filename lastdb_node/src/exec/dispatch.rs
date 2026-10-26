@@ -4,6 +4,7 @@ mod routes_core;
 mod routes_maintenance;
 mod routes_sync_org;
 mod telemetry_phases;
+mod write_diagnostics;
 
 use routes_core::*;
 use routes_maintenance::*;
@@ -71,6 +72,7 @@ where
     // use the worker-local pickup time through the same accessor.
     let queue_wait_us = current_socket_queue_wait().map_or(0, fold_db::request_phases::duration_us);
     let started = std::time::Instant::now();
+    let write_clock = write_diagnostics::start(route);
 
     // Phase accumulator scope: mutation-path recording sites (parse here in
     // exec, resolve/validate/admission/index-wait in `lastdb_host::handlers`,
@@ -100,35 +102,35 @@ where
         .uds_workers
         .get()
         .map(lastdb_uds::UdsWorkerPool::snapshot);
-    host.request_telemetry.record_with_tip_keys(
-        crate::request_telemetry::OpSample {
-            ts_ms: fold_db::clock::unix_millis(),
-            client,
-            request_id,
-            kind,
-            schema,
-            duration_ms,
-            status: resp.status,
-            rows,
-            body_bytes,
-            cold_shard_loads,
-            phases: phase_timings(queue_wait_us, &phase_totals),
-            molecules_persisted: work_counts.molecules_persisted,
-            partition_read_rejections: work_counts.partition_read_rejections,
-            all_group_walks: work_counts.all_group_walks,
-            molecule_store_commits: work_counts.molecule_store_commits,
-            resident_commits: work_counts.resident_commits,
-            resident_operations: work_counts.resident_operations,
-            uds_in_flight: uds_snapshot.map(|snap| snap.in_flight),
-            uds_workers: uds_snapshot.map(|snap| snap.workers),
-            uds_queue_capacity: uds_snapshot.map(|snap| snap.queue_capacity),
-            path,
-            route: route_label,
-            peer_pid,
-            peer_comm,
-        },
-        &tip_keys,
-    );
+    let sample = crate::request_telemetry::OpSample {
+        ts_ms: fold_db::clock::unix_millis(),
+        client,
+        request_id,
+        kind,
+        schema,
+        duration_ms,
+        status: resp.status,
+        rows,
+        body_bytes,
+        cold_shard_loads,
+        phases: phase_timings(queue_wait_us, &phase_totals),
+        molecules_persisted: work_counts.molecules_persisted,
+        partition_read_rejections: work_counts.partition_read_rejections,
+        all_group_walks: work_counts.all_group_walks,
+        molecule_store_commits: work_counts.molecule_store_commits,
+        resident_commits: work_counts.resident_commits,
+        resident_operations: work_counts.resident_operations,
+        uds_in_flight: uds_snapshot.map(|snap| snap.in_flight),
+        uds_workers: uds_snapshot.map(|snap| snap.workers),
+        uds_queue_capacity: uds_snapshot.map(|snap| snap.queue_capacity),
+        path,
+        route: route_label,
+        peer_pid,
+        peer_comm,
+    };
+    write_diagnostics::finish(write_clock, &sample);
+    host.request_telemetry
+        .record_with_tip_keys(sample, &tip_keys);
     resp
 }
 

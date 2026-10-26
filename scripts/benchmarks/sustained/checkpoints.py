@@ -1,0 +1,46 @@
+"""Opt-in, quiescent logical checkpoints, distinct from the timed load windows."""
+
+import time
+
+from diagnostics import Diagnostics
+
+
+def unix_us():
+    return time.time_ns() // 1000
+
+
+class Checkpoints:
+    def __init__(self, node, output, enabled):
+        self.node = node
+        self.capture = Diagnostics(output, output / "node.log") if enabled else None
+
+    def interval(self, name, start_us, expected_requests=None):
+        if self.capture:
+            self.capture.interval(name, start_us, unix_us(), expected_requests)
+
+    def checkpoint(self, name):
+        if not self.capture:
+            return
+        started = unix_us()
+        audit = self.node.native_status(inventory=True)
+        ended = unix_us()
+        self.capture.checkpoint(name, audit, started, ended)
+        self.capture.interval(f"checkpoint_{name}", started, ended)
+        for home in ("main", "cas"):
+            inventory = audit[home].get("inventory") or {}
+            if not inventory.get("complete"):
+                raise RuntimeError(f"{name}/{home}: incomplete inventory: {inventory.get('stopped_reason')}")
+
+    def settle(self, seconds, telemetry):
+        if not self.capture:
+            return
+        started = unix_us()
+        print(f"IDLE seconds={seconds}; no writes or forced compaction", flush=True)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            telemetry.set_load({"phase": "idle", "seconds": seconds})
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+        self.interval("idle", started)
+
+    def finish(self):
+        return self.capture.finish() if self.capture else None
