@@ -17,7 +17,6 @@ use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
 mod terminal;
-pub(super) use terminal::reconcile as reconcile_terminal;
 pub(super) use terminal::{terminal_invocation, validate_terminal};
 
 pub(super) async fn run(

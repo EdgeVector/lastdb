@@ -4,11 +4,14 @@ use super::{
     VerifiedNativeContext,
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
-use fold_db::storage::disk_pack::byte_backup::{ClientRoot, CODEC_ENVELOPE_MAX_BYTES};
+use fold_db::storage::disk_pack::byte_backup::{
+    ClientRoot, CLIENT_VERSION, CODEC_ENVELOPE_MAX_BYTES,
+};
 
 /// Only a backup of a disk format v2 home restores. Such a backup has a null
-/// client descriptor and a version 3 root with a run profile; the root decode
-/// refuses the older record metadata.
+/// client descriptor and a version 3 root with a run profile. A disk format v1
+/// home wrote a pack descriptor, or a null descriptor with a version 1 or 2
+/// record root; both return `Unsupported` before the strict root decode.
 pub(super) async fn restore(
     session: &RestoreSession,
     client: &ByteBackupClient,
@@ -32,12 +35,14 @@ pub(super) async fn restore(
         return Err(RestoreError::Limit("client root metadata"));
     }
     let path = download::fetch(session, client, &grant, true).await?;
-    let root = ClientRoot::decode(
-        &crate::native_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?,
-        keys.content_key(),
-        &accepted.begin,
-    )
-    .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    let bytes = crate::native_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?;
+    let version = ClientRoot::version_of(&bytes, keys.content_key())
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    if version != CLIENT_VERSION {
+        return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
+    }
+    let root = ClientRoot::decode(&bytes, keys.content_key(), &accepted.begin)
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
     root.recovery.validate_for(&accepted.job().stream.scope)?;
     keys.validate_account(&root.recovery.account_public_key)?;
     if inventory

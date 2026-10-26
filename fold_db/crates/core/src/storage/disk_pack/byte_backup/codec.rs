@@ -192,6 +192,16 @@ impl ClientRoot {
         value.validate_for(begin)?;
         Ok(value)
     }
+    /// The metadata version of an encrypted root, read before the strict
+    /// decode. A disk format v1 home wrote version 1 or 2 roots with other
+    /// fields, which the strict decode reports only as a format error.
+    pub fn version_of(bytes: &[u8], key: &[u8; 32]) -> StorageResult<u16> {
+        #[derive(Deserialize)]
+        struct Version {
+            version: u16,
+        }
+        decode::<Version>(bytes, key).map(|value| value.version)
+    }
 }
 fn context(version: u16, digest: &Digest, descriptor: &Digest, begin: &Begin) -> StorageResult<()> {
     begin.validate().map_err(protocol)?;

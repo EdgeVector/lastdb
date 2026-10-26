@@ -111,7 +111,7 @@ Legacy Cloud Sync remains disabled. Local capture and export do not prove deploy
 Sources: [request completion](../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs),
 [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs),
 [clean publication](../fold_db/crates/core/src/storage/disk_pack/view.rs),
-and [backup capture](../fold_db/crates/core/src/storage/disk_pack/backup_capture/capture.rs).
+and [backup capture](../fold_db/crates/core/src/storage/disk_pack/byte_backup/capture.rs).
 
 ## Historical receipts
 

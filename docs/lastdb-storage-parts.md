@@ -32,12 +32,8 @@ Substantial byte growth or record changes start another full copy.
 The copy runs outside the write gate. A bounded catch-up precedes the final root publication.
 Reads and writes can continue during the copy and reclaim.
 
-`POST /api/db/compact` defaults to a preview.
-`{"dry_run":false}` runs a full copy and reclaim.
-`{"dry_run":false,"full_copy":false}` permits a recent tier.
-`{"dry_run":false,"reclaim_only":true}` runs reclaim alone.
-A named collection is refused because native parts share one root.
-`lastdb db compact --execute` uses the whole native home.
+The disk format v1 removal deleted the owner route `POST /api/db/compact`
+and the command `lastdb db compact` on 2026-10-26.
 
 ## The worker and admission
 
@@ -69,12 +65,9 @@ An uncertain root publication requires recovery before further writes.
 
 ## Status
 
-`lastdb status` shows the part count, limit, trigger, peak, failures, and last run.
-It also shows the active compaction phase and last swap time.
-`GET /api/db/native-status` exposes the fields under `native_disk.parts`.
-The fields include `compaction_phase`, copy time, swap time, maximum swap time,
-catch-up rounds, changed locators, and the tier boundary.
-The part and phase fields come from current atomics rather than the sampler cache.
+The disk format v1 removal deleted the storage parts status on 2026-10-26.
+`lastdb status` has no storage parts section.
+`GET /api/db/native-status` has no `native_disk.parts` field.
 
 ## Unreferenced files
 

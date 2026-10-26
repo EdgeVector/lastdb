@@ -57,6 +57,9 @@ pub enum BackupError {
     Busy,
     Missing,
     Identity,
+    /// A saved job from a disk format v1 home: its begin names a pack
+    /// descriptor that no program after decision D1 can capture.
+    FormatV1Job,
     Invalid,
     Disk,
     Source,
@@ -78,6 +81,9 @@ impl BackupError {
             Self::Busy => "a native backup job is active",
             Self::Missing => "no saved native backup job exists",
             Self::Identity => "native backup account or home differs",
+            Self::FormatV1Job => {
+                "native backup saved job came from a disk format v1 home; this program cannot resume or close it"
+            }
             Self::Invalid => "native backup saved state differs",
             Self::Disk => "native backup disk operation failed",
             Self::Source => "native backup source needs attention",
@@ -189,6 +195,7 @@ impl BackupError {
             Self::Busy => P::Busy,
             Self::Missing => P::Missing,
             Self::Identity => P::Identity,
+            Self::FormatV1Job => P::Unsupported,
             Self::Invalid => P::Invalid,
             Self::Disk => P::Disk,
             Self::Source | Self::FileSourceUnavailable | Self::UncertifiedFile => P::Source,

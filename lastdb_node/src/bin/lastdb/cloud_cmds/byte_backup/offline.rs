@@ -209,7 +209,9 @@ async fn accepted(
     }
 }
 
-/// Only a backup of a disk format v1 home has a client descriptor.
+/// A backup of a disk format v1 pack home has a client descriptor. A v1 record
+/// backup has a null descriptor; the restore refuses its version 2 root after
+/// the root download (`byte_cloud_restore::closure`).
 fn require_format_v2(accepted: &AcceptedBackup) -> Result<(), String> {
     if accepted.descriptor().as_value().is_null() {
         return Ok(());
