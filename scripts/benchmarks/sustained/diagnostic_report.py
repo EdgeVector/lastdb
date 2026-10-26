@@ -20,12 +20,12 @@ def timing_lines(report):
              "Background merge events are observed in a phase window; they are not assigned to particular writes.",
              "Request total excludes socket queue wait. Scope durable wait overlaps physical commits.",
              "Histogram percentiles are upper bounds from approximately 10% bins.", "",
-             "| Interval / layer | Events | Expected HTTP writes | Mean capture ms | Covered ms | Unassigned ms | Crossing events |",
+             "| Interval / layer | Events | Expected HTTP writes | Mean capture ms | Covered total ms | Unassigned total ms | Crossing events |",
              "|---|---:|---:|---:|---:|---:|---:|"]
     for window in report["intervals"]:
         for name in FAMILIES:
-            family = window["families"].get(name)
-            if family is None:
+            family = window["families"].get(name, {"events": 0})
+            if not family["events"] and not window["crossing"].get(name):
                 continue
             expected = window["expected_requests"] if name == "request" else None
             lines.append(f"| {window['name']} / {name} | {family['events']} | {expected if expected is not None else 'unreported'} | "
@@ -48,6 +48,9 @@ def timing_lines(report):
             for count, item in sorted(family["counts"].items()):
                 if item["total"]:
                     lines.append(f"| {count} | {item['reported']}/{family['events']} | {item['total']} | {value(item['mean'])} |")
+            for count, item in sorted(family["scalars"].items()):
+                if not count.endswith("_us"):
+                    lines.append(f"| emitted {count} | {item['reported']}/{family['events']} | {item['total']} | {value(item['mean'])} |")
             lines.append("Zero counters remain explicit in diagnostics.json. Absent fields are unreported, not measured zero.")
             lines.append(f"Event classifications: `{family['labels']}`.")
     return lines

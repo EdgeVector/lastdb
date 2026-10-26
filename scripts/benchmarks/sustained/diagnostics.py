@@ -116,8 +116,10 @@ def validate_event(event, allowed):
             raise ValueError("A diagnostic event flag is invalid")
     if event["kind"] == "request" and (type(event.get("status")) is not int or not 100 <= event["status"] <= 599):
         raise ValueError("The request status is invalid")
-    if event["kind"] == "merge" and (event.get("home") not in (0, 1) or event.get("merge_kind") not in (0, 1, 2)):
-        raise ValueError("The native merge home or kind is invalid")
+    if event["kind"] == "merge":
+        if (type(event.get("home")) is not int or event["home"] not in (0, 1)
+                or type(event.get("merge_kind")) is not int or event["merge_kind"] not in (0, 1, 2)):
+            raise ValueError("The native merge home or kind is invalid")
     return event["kind"] if event["kind"] != "merge" else ("merge_main" if event["home"] == 0 else "merge_cas")
 
 
@@ -198,7 +200,9 @@ class Diagnostics:
         contained = [w for w in self.windows if w["started_us"] <= start < w["ended_us"] and end <= w["ended_us"]]
         if contained:
             families = contained[0]["families"]
-            families.setdefault(family, Family()).observe(event)
+            if family not in families:
+                families[family] = Family()
+            families[family].observe(event)
             return
         overlaps = [w for w in self.windows if start < w["ended_us"] and end > w["started_us"]]
         target = self.crossing if overlaps else self.unassigned
@@ -210,16 +214,19 @@ class Diagnostics:
         if self.log_path.is_symlink() or self.log_path.stat().st_size > MAX_LOG_BYTES:
             raise ValueError("The native log identity or size exceeds its bound")
         deadline = time.monotonic() + 180
-        with self.log_path.open("r", encoding="utf-8", errors="replace") as source:
+        with self.log_path.open("rb") as source:
             while True:
-                line = source.readline(MAX_LINE_BYTES + 1)
-                if not line:
+                raw = source.readline(MAX_LINE_BYTES + 1)
+                if not raw:
                     break
                 self.lines += 1
-                if len(line) > MAX_LINE_BYTES or time.monotonic() > deadline:
+                if len(raw) > MAX_LINE_BYTES or time.monotonic() > deadline:
                     raise ValueError("Native log line or parse time exceeds its bound")
+                line = raw.decode("utf-8", errors="replace")
                 for marker, allowed in MARKERS.items():
                     if marker in line:
+                        if self.events >= MAX_EVENTS:
+                            raise ValueError("Native log event count exceeds its bound")
                         try:
                             self._event(json.loads(line.split(marker, 1)[1]), allowed)
                         except (ValueError, TypeError, KeyError) as error:
@@ -241,6 +248,10 @@ class Diagnostics:
             expected = window["expected_requests"]
             if expected is not None and requests != expected:
                 self.error(f"{window['name']}: request events {requests} differ from expected {expected}")
+            if expected and window["name"].startswith("load"):
+                for name in ("request", "scope", "commit"):
+                    if not families.get(name, {}).get("events"):
+                        self.error(f"{window['name']}: missing nonzero {name} event coverage")
             windows.append({**window, "families": families, "observed_requests": requests})
         if not self.windows or not self.events:
             self.error("The diagnostic capture lacks phase intervals or numeric log events")
