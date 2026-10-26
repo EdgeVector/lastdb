@@ -43,7 +43,6 @@ pub mod crypto;
 pub mod db_operations;
 pub mod durable_flush;
 pub mod error;
-pub mod error_context;
 pub mod fold_db_core;
 pub mod hex;
 pub mod json_order;
@@ -69,7 +68,6 @@ pub mod warm_admit;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};
-pub use error_context::{ContextError, ResultExt};
 pub use fold_db_core::{
     FoldDB, HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent,
 };
