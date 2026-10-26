@@ -52,19 +52,18 @@ pub const NON_OBJECT_PAYLOAD_MARKER: &str = "contract_violation";
 /// on the wire, and trips a debug assertion so it fails loudly in debug builds.
 #[must_use]
 pub fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Value {
-    let mut map = match serde_json::to_value(data) {
-        Ok(Value::Object(fields)) => fields,
-        _ => {
-            debug_assert!(
-                false,
-                "handler payload did not serialize to a JSON object; a success \
-                 envelope would be indistinguishable from an empty result"
-            );
-            serde_json::Map::from_iter([(
-                NON_OBJECT_PAYLOAD_MARKER.to_string(),
-                Value::String("non_object_payload".to_string()),
-            )])
-        }
+    let mut map = if let Ok(Value::Object(fields)) = serde_json::to_value(data) {
+        fields
+    } else {
+        debug_assert!(
+            false,
+            "handler payload did not serialize to a JSON object; a success \
+             envelope would be indistinguishable from an empty result"
+        );
+        serde_json::Map::from_iter([(
+            NON_OBJECT_PAYLOAD_MARKER.to_string(),
+            Value::String("non_object_payload".to_string()),
+        )])
     };
     // Keep the serialized object and its payload order; discard only keys the
     // envelope owns before appending its authoritative values.
