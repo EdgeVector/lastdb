@@ -124,5 +124,10 @@ def render(report):
              "Diagnostics add CPU, file reads, and log writes. These times are not an uninstrumented capacity result."]
     if report["errors"]:
         lines += ["", "Capture errors:"] + [f"- {error}" for error in report["errors"]]
+    for region in report.get("log_exclusions", []):
+        lines += ["", f"Intentional log exclusion `{region['name']}`: byte offsets [{region['start_offset']}, {region['end_offset']}).",
+                  f"Excluded region bytes: {region['excluded_bytes']}; overlapping lines: {region['excluded_lines']}; complete line bytes skipped: {region['excluded_line_bytes']}.",
+                  "Only this explicit crash region and its boundary lines leave numeric capture. The raw log remains in the artifact.",
+                  "The recovery canary and reopened inventory remain separate evidence. Load request coverage stays strict."]
     lines += timing_lines(report) + storage_lines(report) + collection_lines(report)
     return "\n".join(lines) + "\n"

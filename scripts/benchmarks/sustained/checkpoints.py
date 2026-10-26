@@ -42,5 +42,17 @@ class Checkpoints:
             time.sleep(min(1, max(0, deadline - time.monotonic())))
         self.interval("idle", started)
 
+    def recovery(self, action):
+        if not self.capture:
+            return action()
+        started = unix_us()
+        log_path = self.node.output / "node.log"
+        offset = log_path.stat().st_size
+        try:
+            return action()
+        finally:
+            self.capture.exclude_bytes("intentional_crash", offset, log_path.stat().st_size)
+            self.interval("recovery", started)
+
     def finish(self):
         return self.capture.finish() if self.capture else None

@@ -172,9 +172,7 @@ def corpus(args, size):
         # Stop the sampler before the deliberately killed process changes PID.
         report["resources"] = telemetry.finish()
         telemetry = None
-        recovery_started = unix_us()
-        report["recovery"] = crash_recovery(node)
-        checkpoints.interval("recovery", recovery_started)
+        report["recovery"] = checkpoints.recovery(lambda: crash_recovery(node))
         checkpoints.checkpoint("reopen")
         if report["resources"]["errors"]:
             raise RuntimeError("Resource collection failed; the measurement is incomplete")

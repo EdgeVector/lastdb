@@ -8,28 +8,41 @@ use std::time::{Duration, Instant};
 pub use super::diagnostic_files::FileDiagnostics;
 pub use super::diagnostic_inventory::{CollectionInventory, LogicalInventory};
 
+/// Numeric totals for the runs in one part of a captured published root.
 #[derive(Debug, Serialize)]
 pub struct RunPartDiagnostics {
+    /// Number of run files in this part.
     pub runs: usize,
+    /// Stored records, including tombstones and hidden older versions.
     pub records: u64,
+    /// Sum of the recorded lengths of these run files.
     pub file_bytes: u64,
 }
 
 /// Physical files and optional logical keys of one captured published root.
 #[derive(Debug, Serialize)]
 pub struct RunHomeDiagnostics {
+    /// Generation of the captured published root.
     pub generation: u64,
+    /// Complete-commit frontier of the captured published root.
     pub frontier: u64,
+    /// Physical file lengths and allocated bytes at the checkpoint.
     pub files: FileDiagnostics,
+    /// Totals for each tiered level, with level zero first.
     pub levels: Vec<RunPartDiagnostics>,
+    /// Runs selected for the current base merge.
     pub merging: RunPartDiagnostics,
+    /// Oldest nonoverlapping base runs.
     pub base: RunPartDiagnostics,
     /// All published keys and tagged stored values, before block compression.
     pub published_record_bytes: u64,
+    /// Tombstone records in all published runs, including hidden versions.
     pub published_tombstones: u64,
+    /// Complete encoded run-key bytes of the published tombstone records.
     pub published_tombstone_key_bytes: u64,
     /// Tiered runs only; unknown while a new run awaits its hidden-byte count.
     pub counted_tier_stale_bytes: Option<u64>,
+    /// Optional newest-key inventory; its completeness flag also applies.
     pub inventory: Option<LogicalInventory>,
 }
 

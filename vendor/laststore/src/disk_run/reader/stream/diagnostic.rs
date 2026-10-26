@@ -87,7 +87,7 @@ impl SummaryCursor {
             if self
                 .index
                 .as_ref()
-                .is_none_or(|index| self.next_block == index.blocks.len())
+                .map_or(true, |index| self.next_block == index.blocks.len())
             {
                 self.index = None;
                 if self.next_index == self.reader.index_count() {

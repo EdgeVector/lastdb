@@ -13,6 +13,7 @@ MARKERS = {"LASTDB_WRITE_REQUEST_TIMING ": {"request"},
            "LASTDB_SNAPSHOT_TIMING ": {"scope", "commit", "merge"}}
 MAX_LOG_BYTES, MAX_LINE_BYTES, MAX_EVENTS = 2 * 1024 ** 3, 256 * 1024, 2_000_000
 MAX_WINDOWS, MAX_FIELDS, MAX_ERRORS = 64, 512, 32
+MAX_EXCLUDED_BYTES = 32 * 1024 ** 2
 NAME = re.compile(r"[A-Za-z0-9_-]{1,96}\Z")
 U64_MAX = 2 ** 64 - 1
 FILE_KINDS = ("published", "retired_held", "temporary", "unreferenced", "other_home")
@@ -157,6 +158,7 @@ class Diagnostics:
         self.output, self.log_path = Path(output), Path(log_path)
         self.windows, self.checkpoints, self.errors = [], [], []
         self.crossing, self.unassigned, self.lines, self.events = {}, {}, 0, 0
+        self.exclusions = []
         self.finished = False
 
     def error(self, message):
@@ -185,6 +187,14 @@ class Diagnostics:
         self.windows.append({"name": name, "started_us": start_us, "ended_us": end_us,
                              "expected_requests": expected_requests, "families": {}, "crossing": {}})
 
+    def exclude_bytes(self, name, start_offset, end_offset):
+        self._bounds(name, start_offset, end_offset)
+        if self.exclusions or end_offset - start_offset > MAX_EXCLUDED_BYTES:
+            raise ValueError("Only one bounded intentional-crash log region is allowed")
+        self.exclusions.append({"name": name, "start_offset": start_offset, "end_offset": end_offset,
+                                "registered_bytes": end_offset - start_offset,
+                                "excluded_bytes": 0, "excluded_lines": 0, "excluded_line_bytes": 0})
+
     def _bounds(self, name, start, end):
         if self.finished or not isinstance(name, str) or not NAME.fullmatch(name):
             raise ValueError("The diagnostic capture name or lifecycle is invalid")
@@ -211,17 +221,23 @@ class Diagnostics:
             window["crossing"][family] = window["crossing"].get(family, 0) + 1
 
     def _read(self):
-        if self.log_path.is_symlink() or self.log_path.stat().st_size > MAX_LOG_BYTES:
+        size = self.log_path.stat().st_size
+        if self.log_path.is_symlink() or size > MAX_LOG_BYTES:
             raise ValueError("The native log identity or size exceeds its bound")
+        if any(region["end_offset"] > size for region in self.exclusions):
+            raise ValueError("An excluded log region extends beyond the completed log")
         deadline = time.monotonic() + 180
         with self.log_path.open("rb") as source:
             while True:
+                offset = source.tell()
                 raw = source.readline(MAX_LINE_BYTES + 1)
                 if not raw:
                     break
                 self.lines += 1
                 if len(raw) > MAX_LINE_BYTES or time.monotonic() > deadline:
                     raise ValueError("Native log line or parse time exceeds its bound")
+                if self._excluded(offset, source.tell()):
+                    continue
                 line = raw.decode("utf-8", errors="replace")
                 for marker, allowed in MARKERS.items():
                     if marker in line:
@@ -232,6 +248,16 @@ class Diagnostics:
                         except (ValueError, TypeError, KeyError) as error:
                             self.error(f"native log line {self.lines}: {error}")
                         break
+
+    def _excluded(self, start, end):
+        for region in self.exclusions:
+            overlap = max(0, min(end, region["end_offset"]) - max(start, region["start_offset"]))
+            if overlap:
+                region["excluded_bytes"] += overlap
+                region["excluded_lines"] += 1
+                region["excluded_line_bytes"] += end - start
+                return True
+        return False
 
     def finish(self):
         if self.finished:
@@ -255,15 +281,18 @@ class Diagnostics:
             windows.append({**window, "families": families, "observed_requests": requests})
         if not self.windows or not self.events:
             self.error("The diagnostic capture lacks phase intervals or numeric log events")
+        if any(r["excluded_bytes"] != r["registered_bytes"] for r in self.exclusions):
+            self.error("The intentional-crash log region was not read completely")
         report = {"version": 1, "complete": not self.errors, "errors": self.errors,
                   "log_lines": self.lines, "events": self.events, "intervals": windows,
                   "crossing_events": self.crossing, "unassigned_events": self.unassigned,
-                  "checkpoints": self.checkpoints}
+                  "checkpoints": self.checkpoints, "log_exclusions": self.exclusions}
         self.output.mkdir(parents=True, exist_ok=True)
         (self.output / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         (self.output / "diagnostic-summary.md").write_text(render(report))
         return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events")} | {
             "intervals": len(windows), "checkpoints": len(self.checkpoints),
+            "log_exclusions": self.exclusions,
             "request_coverage": [{"interval": w["name"], "expected": w["expected_requests"],
                                   "observed": w["observed_requests"]} for w in windows],
             "detail_file": "diagnostics.json", "summary_file": "diagnostic-summary.md"}

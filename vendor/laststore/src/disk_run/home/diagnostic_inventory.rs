@@ -17,6 +17,7 @@ type Head = Reverse<(Vec<u8>, usize, Option<u64>)>;
 /// Merged current keys. Byte counts precede block compression and encryption.
 #[derive(Debug, Default, Serialize)]
 pub struct CollectionInventory {
+    /// Distinct keys whose newest record contains a value.
     pub live_keys: u64,
     /// Complete storage keys, excluding the collection prefix in a run key.
     pub live_key_bytes: u64,
@@ -26,22 +27,34 @@ pub struct CollectionInventory {
     pub live_stored_value_bytes: u64,
     /// Latest records that delete a key; older hidden versions are not counted.
     pub deleted_keys: u64,
+    /// Storage-key bytes of newest tombstones, excluding the collection prefix.
     pub deleted_key_bytes: u64,
+    /// Encoded run-key bytes of newest tombstones, including the collection prefix.
     pub deleted_run_key_bytes: u64,
 }
 
 /// A complete inventory, or an explicitly partial prefix after an audit cap.
 #[derive(Debug, Serialize)]
 pub struct LogicalInventory {
+    /// Generation of the captured published root.
     pub generation: u64,
+    /// Complete-commit frontier of the captured published root.
     pub frontier: u64,
+    /// True only after every selected run record enters the merge.
     pub complete: bool,
+    /// Fixed reason for a partial inventory, or none for a complete inventory.
     pub stopped_reason: Option<&'static str>,
+    /// Elapsed inventory time in milliseconds from a monotonic clock.
     pub elapsed_ms: u64,
+    /// Input run records examined, including hidden older versions.
     pub examined_run_records: u64,
+    /// Distinct newest keys counted, including live keys and tombstones.
     pub merged_keys: u64,
+    /// Maximum admitted temporary inventory memory in bytes.
     pub memory_limit_bytes: u64,
+    /// Maximum number of input run records that the inventory examines.
     pub record_limit: u64,
+    /// Whole seconds left in the shared checkpoint deadline at inventory start.
     pub time_limit_seconds: u64,
     /// Only fixed internal collection labels are emitted; other names share `other`.
     pub collections: BTreeMap<String, CollectionInventory>,
