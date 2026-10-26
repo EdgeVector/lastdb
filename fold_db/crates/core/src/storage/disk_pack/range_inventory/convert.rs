@@ -178,7 +178,7 @@ fn copy(source: &FrozenSource, plan: &ConversionPlan, target: &mut Target) -> St
             }
             target.checkpoint.phase = Phase::Cas;
         } else {
-            target.checkpoint.phase = Phase::Verified;
+            target.checkpoint.phase = Phase::Copied;
         }
         target.checkpoint.after = None;
         conversion_copy::commit(&target.homes[0], vec![target.checkpoint.mutation()?])?;

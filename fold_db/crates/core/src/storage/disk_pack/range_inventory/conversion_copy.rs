@@ -13,7 +13,7 @@ pub(super) const CHECKPOINT_COLLECTION: &str = "__native_home";
 pub(super) enum Phase {
     Main,
     Cas,
-    Verified,
+    Copied,
     Complete,
 }
 

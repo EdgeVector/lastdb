@@ -31,7 +31,7 @@ impl RunRead {
         }
         let base_from = self.runs.len() - self.manifest.base.len();
         let overlaps = |file: &super::manifest::RunFile| {
-            after.is_none_or(|lower| file.meta.overlaps(lower, None))
+            after.map_or(true, |lower| file.meta.overlaps(lower, None))
         };
         for slot in 0..base_from {
             if overlaps(&self.runs[slot].0) {

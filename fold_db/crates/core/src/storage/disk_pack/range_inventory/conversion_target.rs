@@ -18,8 +18,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::sync::Arc;
 
-const IN_PROGRESS: &[u8] = b"format=typed-range-conversion-in-progress-v1\n";
-const STAGED: &str = ".typed-range-node-marker-v1";
+mod files;
 
 pub(super) struct Target {
     pub(super) homes: [Arc<RunHome>; 2],
@@ -42,31 +41,7 @@ impl Target {
         owner
             .try_lock()
             .map_err(|_| invalid("another converter owns the target"))?;
-        let intent = format!("version=1\njob={job}\n");
-        let mut published = false;
-        if resume {
-            let marker = std::fs::read(root.join(NODE_MARKER))?;
-            if marker != IN_PROGRESS && marker != TYPED_NODE_BYTES {
-                return Err(invalid("target conversion marker differs"));
-            }
-            match std::fs::read(root.join(CONVERSION_INTENT)) {
-                Ok(bytes) if bytes == intent.as_bytes() => {}
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::NotFound
-                        && marker == TYPED_NODE_BYTES =>
-                {
-                    published = true
-                }
-                _ => return Err(invalid("target belongs to another conversion job")),
-            }
-        } else {
-            if std::fs::read_dir(root)?.next().is_some() {
-                return Err(invalid("a new target must be empty"));
-            }
-            write_new(&root.join(CONVERSION_INTENT), intent.as_bytes())?;
-            write_new(&root.join(NODE_MARKER), IN_PROGRESS)?;
-            owner.sync_all()?;
-        }
+        let published = files::admit(root, job, resume)?;
         let homes = [
             open_home(&root.join(run_node::RUN_DIR), &run_node::home_key(key))?,
             open_home(&root.join(run_node::CAS_DIR), &run_node::cas_key(key))?,
@@ -167,19 +142,7 @@ impl Target {
         if self.published {
             return Ok(());
         }
-        let staged = root.join(STAGED);
-        if staged.try_exists()? {
-            if std::fs::symlink_metadata(&staged)?.is_file()
-                && std::fs::read(&staged)? == TYPED_NODE_BYTES
-            {
-                std::fs::rename(&staged, root.join(NODE_MARKER))?;
-            } else {
-                return Err(invalid("staged target marker differs"));
-            }
-        } else {
-            write_new(&staged, TYPED_NODE_BYTES)?;
-            std::fs::rename(&staged, root.join(NODE_MARKER))?;
-        }
+        files::publish_marker(root)?;
         File::open(root)?.sync_all()?;
         std::fs::remove_file(root.join(CONVERSION_INTENT))?;
         File::open(root)?.sync_all()?;
@@ -188,10 +151,11 @@ impl Target {
 }
 
 fn open_home(path: &Path, key: &[u8; 32]) -> StorageResult<Arc<RunHome>> {
-    let home = if path.try_exists()? {
-        RunHome::open(path, key)
-    } else {
-        RunHome::create(path, key)
+    let home = match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => RunHome::open(path, key),
+        Ok(_) => return Err(invalid("target native home must be a real directory")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RunHome::create(path, key),
+        Err(error) => return Err(error.into()),
     };
     home.map(Arc::new).map_err(map)
 }
