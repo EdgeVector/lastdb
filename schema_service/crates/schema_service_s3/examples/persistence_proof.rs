@@ -51,13 +51,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         endpoint.as_deref().unwrap_or("AWS default")
     );
 
-    let mut aws_config_loader = aws_config::defaults(BehaviorVersion::latest());
+    let mut aws_config_loader = aws_config::defaults(BehaviorVersion::latest())
+        .region("us-east-1");
     if let Some(ep) = &endpoint {
         aws_config_loader = aws_config_loader.endpoint_url(ep);
     }
     let aws_config = aws_config_loader.load().await;
 
-    let s3 = S3Client::new(&aws_config);
+    let s3_config = aws_sdk_s3::config::Builder::from(&aws_config)
+        .force_path_style(true)
+        .build();
+    let s3 = S3Client::from_conf(s3_config);
     let ddb = DdbClient::new(&aws_config);
 
     s3.create_bucket().bucket(&bucket).send().await.ok();
@@ -208,16 +212,17 @@ async fn test_channel_generation(
     backend.save_channel(&ch2).await?;
     println!("✓ Updated to generation 2");
 
+    // stale record thinks generation is still 1, tries to update to 2
     let stale = ChannelRecord {
         app_id: app_id.clone(),
         channel: channel.to_string(),
         release_id: "rel_stale".to_string(),
-        generation: current.generation + 1,
+        generation: 2,
         updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     };
 
     match backend.save_channel(&stale).await {
-        Err(e) if e.to_string().contains("generation conflict") => {
+        Err(e) if e.to_string().contains("Generation conflict") => {
             println!("✓ Stale generation rejected: {e}\n");
             Ok(())
         }
