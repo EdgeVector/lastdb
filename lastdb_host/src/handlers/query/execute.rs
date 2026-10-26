@@ -99,27 +99,12 @@ impl<H: HostNode> QueryRun<'_, H> {
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
         let (page, drops) = execute_query_rows_windowed(host, query, Some(window), ctx).await?;
-        if uses_cursor {
-            return Ok(cursor_payload(
-                page,
-                total,
-                limit,
-                offset,
-                drops,
-                self.comparison.clone(),
-            ));
-        }
-        if let Some(total) = total {
-            return Ok(counted_offset_payload(page, total, limit, offset, drops));
-        }
-        Ok(cursor_payload(
-            page,
-            None,
-            limit,
-            offset,
-            drops,
-            self.comparison.clone(),
-        ))
+        Ok(match (uses_cursor, total) {
+            (false, Some(total)) => counted_offset_payload(page, total, limit, offset, drops),
+            (_, total) => {
+                cursor_payload(page, total, limit, offset, drops, self.comparison.clone())
+            }
+        })
     }
 
     /// Unfiltered "list all", no value filters: count rows cheaply, then fetch
