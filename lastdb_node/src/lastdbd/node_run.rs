@@ -12,6 +12,23 @@ pub(crate) struct NodeRun {
     pub(crate) full_socket_path: Option<std::path::PathBuf>,
 }
 
+/// Tokio's default worker stack is 2 MiB. A debug build keeps the write
+/// future on the stack and aborts the worker
+/// (`thread 'tokio-rt-worker' has overflowed its stack`). The install smoke
+/// hit that abort on 2026-10-26. 16 MiB was enough for schema init. Brain
+/// put then overflowed after a 3-mutation batch (run 40385637926). 64 MiB
+/// is the new floor. The mapping is reserved and committed page by page.
+/// `RUST_MIN_STACK` can only raise the floor.
+const RUNTIME_STACK_BYTES: usize = 64 * 1024 * 1024;
+
+fn runtime_stack_bytes() -> usize {
+    std::env::var("RUST_MIN_STACK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        .max(RUNTIME_STACK_BYTES)
+}
+
 /// Multi-thread runtime: the accept loop itself runs on the main thread;
 /// each connection's handler blocks on async core calls via this runtime.
 /// Tokio workers collect on park. A UDS worker never parks on this
@@ -19,6 +36,7 @@ pub(crate) struct NodeRun {
 pub(crate) fn build_runtime() -> Result<tokio::runtime::Runtime, String> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_stack_size(runtime_stack_bytes())
         .on_thread_park(lastdb_node::allocator::collect_thread_heap_if_requested)
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))
