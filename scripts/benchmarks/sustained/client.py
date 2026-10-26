@@ -1,5 +1,6 @@
 """Bounded responses and file walks for the generated cloud workload."""
 
+import http.client
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,11 @@ class SustainedNode(Node):
             if result.get("ok") is False:
                 raise RuntimeError(f"{path}: HTTP 200 returned ok=false: {raw[:600]!r}")
             return result.get("data", result), elapsed, None
+        except (OSError, http.client.HTTPException) as error:
+            # Node.start retries these while an old socket waits for its new
+            # daemon. Keep the type, and retain timing for load failures.
+            error.elapsed_ms = (time.perf_counter_ns() - started) / 1e6
+            raise
         except Exception as error:
             raise RequestFailure(str(error), (time.perf_counter_ns() - started) / 1e6) from error
         finally:

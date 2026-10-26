@@ -174,7 +174,8 @@ def corpus(args, size):
         try:
             node.close()
         except Exception as error:
-            report["error"] = f"owned-node cleanup: {error}"
+            report["cleanup_error"] = str(error)[:1200]
+            report.setdefault("error", f"owned-node cleanup: {error}")
         finally:
             save(output / "result.json", report)
 
