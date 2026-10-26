@@ -1,8 +1,7 @@
 //! Local content-addressed blob store for slice file bytes and personal
 //! file-blob cache.
 //!
-//! Used on import so a recipient can resolve `$lastdb_file.blob_ref` after a
-//! delivery slice lands. Keys are `blob_ref` strings (`sha256:<hex>`).
+//! Keys are `blob_ref` strings (`sha256:<hex>`).
 //!
 //! ## Operation Trinity (Holy Ghost)
 //! Durable local cache must not store plaintext file bytes when a file KDK is
@@ -199,20 +198,6 @@ pub async fn get_blob_bytes_with_dek_in_ops(
         Some(blob) => Ok(Some(decode_blob_bytes_with_dek(&blob, dek_hex)?)),
         None => Ok(None),
     }
-}
-
-/// Store every blob from a delivery payload.
-///
-/// Blobs that carry `access.dek` are sealed under that KDK. Others require
-/// `LASTDB_ALLOW_PLAIN_CAS=1` or already-sealed `local_cipher_suite`.
-pub async fn put_blobs_in_ops(
-    ops: &DbOperations,
-    blobs: &[ContentAddressedBlob],
-) -> Result<usize, FoldDbError> {
-    for blob in blobs {
-        put_blob_in_ops(ops, blob).await?;
-    }
-    Ok(blobs.len())
 }
 
 /// True when a stored record is Trinity-sealed under a file KDK.

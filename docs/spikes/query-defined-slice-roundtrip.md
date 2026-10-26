@@ -43,7 +43,7 @@ the sealed slice** (`blobs[]`) and still available after import.
 
 - `delivery_wire::{ContentAddressedBlob, content_addressed_blob, decode_blob_bytes, lastdb_file_pointer, validate_blob_refs}`
 - `blob_cas::{put_blob, get_blob, get_blob_bytes, put_blobs}`
-- `query_slice::{materialize_query_slice, import_slice_via_mutations, resolve_file_bytes}`
+- `query_slice::{materialize_query_slice, resolve_file_bytes}`
 
 ## Recommended next product PRs
 

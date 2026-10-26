@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::delivery_wire::JweEnvelope;
 use crate::schema::types::operations::Query;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,12 +139,6 @@ pub struct DeliveryArtifactDescriptor {
     pub envelope_format: String,
     pub envelope_alg: String,
     pub envelope_enc: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StagedDeliveryArtifact {
-    pub envelope: JweEnvelope,
-    pub content_key: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
