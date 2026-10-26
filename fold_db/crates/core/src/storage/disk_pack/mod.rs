@@ -132,15 +132,18 @@ fn budget() -> ReadBudget {
 }
 
 impl PackNamespacedStore {
-    /// Open a native node store, or create the native format in an empty home.
+    /// Open an existing v1 node store without the node encryption key. A new
+    /// home is v2, and a v2 home needs the key: use [`Self::open_keyed`].
     /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
         Self::open_keyed(path, None)
     }
 
-    /// Open a node store with the node encryption key. A v2 run home needs
-    /// the key: its home key derives from it. With the key and
-    /// `LASTDB_DISK_FORMAT=2`, a v1 home is converted to v2 once first.
+    /// Open a node store with the node encryption key. An absent or empty
+    /// home becomes a new v2 home, and a v2 creation that stopped before its
+    /// node marker is created again. A v2 home needs the key: its run home
+    /// keys derive from it. With the key and `LASTDB_DISK_FORMAT=2`, a v1 home
+    /// is converted to v2 once first; without the setting it opens as v1.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
@@ -153,10 +156,50 @@ impl PackNamespacedStore {
         if run_node::is_run_node(path)? {
             return Self::open_run(path, node_key);
         }
-        if run_node::wants_new_run_node(path)? {
+        if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);
         }
         let node_home = initialization::NodeHome::open(path, &space_policy)?;
+        Self::open_physical(&path.join("disk-pack"), Some(node_home))
+    }
+
+    /// Open an existing node home for an offline tool: a v2 home with the
+    /// key, a v1 home as v1. The home must be complete: it refuses a home
+    /// whose creation has not written its key-format proofs, and a home whose
+    /// conversion stopped. It never creates a home, finishes a creation, or
+    /// converts a format; the node does those when it starts.
+    pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
+        if !path.join(NODE_MARKER).try_exists()?
+            || path.join(convert_v2::INTENT).try_exists()?
+            || run_node::creation_pending(path)?
+            || initialization::creation_pending(path)?
+        {
+            return Err(StorageError::InvalidOperation(format!(
+                "an offline tool needs a complete node home at {}; start the node once, then \
+                 stop it",
+                path.display()
+            )));
+        }
+        if run_node::is_run_node(path)? {
+            return Self::open_run(path, Some(node_key));
+        }
+        let node_home = initialization::NodeHome::open(path, &space::policy_from_env()?)?;
+        Self::open_physical(&path.join("disk-pack"), Some(node_home))
+    }
+
+    /// Create a format v1 node home in an absent or empty `path`. A node never
+    /// does this: a new home is v2. Only the V4 conversion proof uses it, to
+    /// make the v1 home that it converts.
+    #[doc(hidden)]
+    pub fn create_v1_home(path: &Path) -> StorageResult<Self> {
+        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
+        if !run_node::is_new_home(path)? {
+            return Err(StorageError::InvalidOperation(
+                "format v1 creation requires an empty node home".into(),
+            ));
+        }
+        let node_home = initialization::NodeHome::open(path, &space::policy_from_env()?)?;
         Self::open_physical(&path.join("disk-pack"), Some(node_home))
     }
 

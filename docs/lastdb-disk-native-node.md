@@ -55,6 +55,10 @@ The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limit
 
 ## Home fence
 
+Since disk format v2 phase V3, every new node home is v2.
+Its `laststore-pack-node-v1` marker holds `format=3\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
+The rest of this section describes the v1 fence of an older home, which still opens as v1.
+
 The node store contains `laststore-pack-node-v1`, with the exact bytes `format=1\nhome=disk-pack\n`.
 The native physical home resides in its fixed `disk-pack` child directory.
 Both the node store and native child contain a downgrade refusal in `laststore-layout-v1`:

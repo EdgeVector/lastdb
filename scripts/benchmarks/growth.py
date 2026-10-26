@@ -31,6 +31,8 @@ class GrowthWorkload:
         self.expected = {}
         self.samples, self.cases, self.phase = [], {}, "seed"
         self.started = time.monotonic()
+        # A v2 run home has no explicit compaction; its run merges are automatic.
+        self.disk_format = node.disk_format()
 
     def memory(self):
         value = self.node.memory_bytes()
@@ -80,11 +82,27 @@ class GrowthWorkload:
             self.expected.update({number: revision for number in numbers})
         self.read(first, count)
 
-    def checkpoint(self, number):
-        result, _, _ = self.node.call("/api/db/flush", {})
-        if result.get("durable") is not True:
-            raise RuntimeError("A growth checkpoint lacks a durable flush")
-        before = self.node.disk_usage()
+    def settle_disk(self, idle):
+        """Wait until the disk size stays constant for three seconds, within 90 seconds."""
+        samples, deadline, stable_since, previous = [], time.monotonic() + 90, None, None
+        while time.monotonic() < deadline:
+            current = self.node.disk_usage()
+            now = time.monotonic()
+            idle.append(self.memory())
+            samples.append({"elapsed_seconds": now - self.started, **current})
+            if current != previous:
+                stable_since = now
+            if stable_since is not None and now - stable_since >= 3:
+                return current, samples, now - stable_since
+            previous = current
+            time.sleep(1)
+        raise ValueError("The v2 disk size did not stay constant for three seconds within 90 seconds")
+
+    def compact(self):
+        if self.disk_format == 2:
+            self.phase = "settle"
+            _, _, settled = self.settle_disk([])
+            return {"format": 2, "automatic_merges": True, "settled_seconds": settled}
         self.phase = "compaction"
         result, _, _ = self.node.call(
             "/api/db/compact", {"dry_run": False, "full_copy": True, "grace_ms": 0})
@@ -93,6 +111,14 @@ class GrowthWorkload:
                 or receipt.get("reclaim_deferred") is not False
                 or receipt.get("reclaim_remaining") is not False or receipt.get("reclaim_error")):
             raise RuntimeError("The growth compaction did not complete its reclaim")
+        return receipt
+
+    def checkpoint(self, number):
+        result, _, _ = self.node.call("/api/db/flush", {})
+        if result.get("durable") is not True:
+            raise RuntimeError("A growth checkpoint lacks a durable flush")
+        before = self.node.disk_usage()
+        receipt = self.compact()
         self.phase = "verify-compaction"
         self.read(0, self.live_records)
         self.phase = "idle"

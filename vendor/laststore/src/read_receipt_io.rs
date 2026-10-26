@@ -5,6 +5,7 @@ use std::cell::Cell;
 use std::fs::{File, Metadata};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Deref;
+use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::{LockResult, Mutex, MutexGuard};
 
@@ -64,21 +65,33 @@ impl Read for MeasuredFile {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         let timer = Timer::start();
         let result = self.0.read(bytes);
-        let class = CLASS.with(Cell::get);
-        timer.finish(|receipt, nanos| {
-            receipt.read_operations = receipt.read_operations.saturating_add(1);
-            receipt.read_nanos = receipt.read_nanos.saturating_add(nanos);
-            let count = result.as_ref().copied().unwrap_or(0) as u64;
-            let target = match class {
-                ReadClass::LegacyReplay => &mut receipt.legacy_replay_bytes,
-                ReadClass::Footer => &mut receipt.footer_bytes,
-                ReadClass::Payload => &mut receipt.payload_bytes,
-                ReadClass::FormatProbe => &mut receipt.format_probe_bytes,
-            };
-            *target = target.saturating_add(count);
-        });
+        record_read(timer, result.as_ref().copied().unwrap_or(0));
         result
     }
+}
+
+/// A positional read that fills `bytes` from `offset`, measured as one read
+/// operation under the current class. A failed read counts no bytes.
+pub(crate) fn read_exact_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<()> {
+    let timer = Timer::start();
+    let result = file.read_exact_at(bytes, offset);
+    record_read(timer, if result.is_ok() { bytes.len() } else { 0 });
+    result
+}
+
+fn record_read(timer: Timer, count: usize) {
+    let class = CLASS.with(Cell::get);
+    timer.finish(|receipt, nanos| {
+        receipt.read_operations = receipt.read_operations.saturating_add(1);
+        receipt.read_nanos = receipt.read_nanos.saturating_add(nanos);
+        let target = match class {
+            ReadClass::LegacyReplay => &mut receipt.legacy_replay_bytes,
+            ReadClass::Footer => &mut receipt.footer_bytes,
+            ReadClass::Payload => &mut receipt.payload_bytes,
+            ReadClass::FormatProbe => &mut receipt.format_probe_bytes,
+        };
+        *target = target.saturating_add(count as u64);
+    });
 }
 
 impl Seek for MeasuredFile {

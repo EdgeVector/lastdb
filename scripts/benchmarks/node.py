@@ -13,6 +13,10 @@ import tempfile
 import time
 
 
+# The node marker of a disk format v2 home. Every new home is v2.
+RUN_NODE_MARKER = "format=3\nhome=disk-run\ncas=disk-cas\n"
+
+
 def save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
@@ -171,6 +175,11 @@ class Node:
             if line.startswith("VmRSS:"):
                 return int(line.split()[1]) * 1024
         return None
+
+    def disk_format(self):
+        """2 for a v2 run home, 1 for an older pack home; the marker exists after the first start."""
+        marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
+        return 2 if marker == RUN_NODE_MARKER else 1
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]

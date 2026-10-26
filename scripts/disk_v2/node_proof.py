@@ -3,13 +3,10 @@
 
 The home has the shape of the primary (seed.py). In case "format-1" the
 program that runs the primary writes the seed: node format 1, key format 5,
-and an outer envelope on each record. In case "format-2" the candidate writes
-it as a v1 home of node format 2. These two cases run with the engine
-settings of the primary job, so the records have the envelope forms of the
-primary (compressed and raw). Case "format-1-deflate" repeats format-1
-without the two raw settings, so the KV seam writes its deflate envelope
-(ENZ:). Case "format-1-defaults" repeats format-1 with the default settings.
-In each case:
+and an outer envelope on each record. Case "format-1-deflate" repeats
+format-1 without the two raw settings, so the KV seam writes its deflate
+envelope (ENZ:). Case "format-1-defaults" repeats format-1 with the default
+settings. In each of these cases:
 
 1. the seed program writes the seed, and every key reads back as the model
    expects;
@@ -18,6 +15,13 @@ In each case:
 3. the candidate writes more on v2, and every key reads back as expected;
 4. the home opens again with the variable (no second conversion), then
    without it, and every key reads back the same.
+
+In case "new-home" (phase V3) the candidate starts on an empty home without
+LASTDB_DISK_FORMAT. The home must be v2 from the first start, with no v1
+file and no kept folder. The candidate writes the seed, then steps 3 and 4
+run as above. Case "format-1" and this case run with the engine settings of
+the primary job, so the records have the envelope forms of the primary
+(compressed and raw).
 
 After each step the key list of each seed schema (GET /api/list, the
 `lastdb list` pages) must hold each live key of the model and no key that
@@ -59,7 +63,7 @@ START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
 FORMAT_1 = b"format=1\nhome=disk-pack\n"
-FORMAT_2 = b"format=2\nhome=disk-pack\n"
+RUN_NODE = b"format=3\nhome=disk-run\ncas=disk-cas\n"
 # The settings of the primary's launchd job that both programs read: the
 # envelope forms at rest (the KV seam compresses and writes binary
 # envelopes), the atom size limit, the memory budget, and the admin timeout.
@@ -81,15 +85,14 @@ PRIMARY_SETTINGS = {
 DEFLATE_SETTINGS = {name: value for name, value in PRIMARY_SETTINGS.items()
                     if name not in ("LASTDB_KV_AT_REST_RAW", "LASTDB_AT_REST_RAW")}
 # Case: (the program that writes the seed, its node marker, the engine
-# settings, the name of the settings).
+# settings, the name of the settings). The candidate makes a new home v2.
 CASES = {
     "format-1": ("primary", FORMAT_1, PRIMARY_SETTINGS, "the primary job"),
-    "format-2": ("candidate", FORMAT_2, PRIMARY_SETTINGS, "the primary job"),
+    "new-home": ("candidate", RUN_NODE, PRIMARY_SETTINGS, "the primary job"),
     "format-1-deflate": ("primary", FORMAT_1, DEFLATE_SETTINGS,
                          "the primary job without the raw settings"),
     "format-1-defaults": ("primary", FORMAT_1, {}, "the defaults"),
 }
-RUN_NODE = b"format=3\nhome=disk-run\ncas=disk-cas\n"
 KEPT = "data-disk-format-v1"
 CONVERTED = "disk format conversion to v2 complete"
 PROFILE = {
@@ -158,7 +161,7 @@ def settle(data, seconds=180):
 class Case:
     def __init__(self, name, seeder, candidate, output, number):
         self.name, self.seeder, self.candidate = name, seeder, candidate
-        _, self.v1_marker, self.settings, self.settings_name = CASES[name]
+        _, self.seed_marker, self.settings, self.settings_name = CASES[name]
         self.folder = output / name
         self.folder.mkdir(parents=True)
         self.node = Node(seeder[0], seeder[1], self.folder, environment=dict(self.settings),
@@ -193,14 +196,22 @@ class Case:
         return report
 
     def run(self):
-        self.seed_v1()
-        self.convert()
+        if self.seed_marker == RUN_NODE:
+            self.seed_new_home()
+        else:
+            self.seed_v1()
+            self.convert()
         self.write_v2()
-        kept = listing(self.kept)
+        kept = listing(self.kept) if self.kept.exists() else None
         self.reopen("open again with LASTDB_DISK_FORMAT=2",
                     {**self.settings, "LASTDB_DISK_FORMAT": "2"})
         self.reopen("open again without LASTDB_DISK_FORMAT", dict(self.settings))
-        if listing(self.kept) != kept:
+        if kept is None:
+            if self.seed_marker != RUN_NODE:
+                self.failures.append("the conversion left no kept v1 folder")
+            elif self.kept.exists():
+                self.failures.append("a new v2 home has a kept v1 folder")
+        elif listing(self.kept) != kept:
             self.failures.append("the kept v1 folder changed after the conversion")
 
     def seed_v1(self):
@@ -214,10 +225,46 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         marker = (self.data / NODE_MARKER).read_bytes()
-        if marker != self.v1_marker:
+        if marker != self.seed_marker:
             raise ProofError(f"the seed home has the node marker {marker!r}")
         self.phases.append({"name": name, "gated": False, "writes": writes, "logical": logical,
                             "reads": reads, "listed": listed, **self.disk()})
+
+    def seed_new_home(self):
+        """The candidate starts on an empty home without LASTDB_DISK_FORMAT:
+        the home must be v2 before the first write."""
+        self.node.start()
+        self.check_new_home()
+        for schema in SCHEMAS:
+            self.node.call("/api/schemas/seed-system", schema_request(schema))
+        name = f"seed (new v2 home, {self.seeder[1][:12]})"
+        writes = self.write(self.seed.phase(**PROFILE["seed"]))
+        # The writes start from an empty home, under the 16 MiB that the limit
+        # check needs. The window opens when they end, and stays open until
+        # the v2 writes start.
+        self.sampler.begin(name)
+        settled = settle(self.data)
+        logical = self.logical()
+        reads = self.reads()
+        listed = self.listed(name)
+        self.check_new_home()
+        self.phases.append({
+            "name": name, "gated": True, "writes": writes, "settled": settled,
+            "logical": logical, "reads": reads, "listed": listed, **self.disk(),
+            "bounds": (logical["bytes"], logical["bytes"])})
+
+    def check_new_home(self):
+        marker = (self.data / NODE_MARKER).read_bytes()
+        if marker != RUN_NODE:
+            raise ProofError(f"a new home has the node marker {marker!r}, not the v2 marker")
+        for name in ("disk-pack", "laststore-layout-v1"):
+            if (self.data / name).exists():
+                raise ProofError(f"a new v2 home has the v1 entry {name}")
+        for name in ("disk-run", "disk-cas"):
+            if not (self.data / name).is_dir():
+                raise ProofError(f"a new v2 home lacks {name}")
+        if self.kept.exists():
+            raise ProofError("a new v2 home has a kept v1 folder")
 
     def convert(self):
         self.node.binary, self.node.revision = self.candidate
@@ -246,7 +293,7 @@ class Case:
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
             raise ProofError(f"after the conversion the node marker is {marker!r}")
-        if (self.kept / NODE_MARKER).read_bytes() != self.v1_marker:
+        if (self.kept / NODE_MARKER).read_bytes() != self.seed_marker:
             raise ProofError("the kept folder lacks the v1 node marker")
         for name in ("disk-pack", "laststore-layout-v1"):
             if (self.data / name).exists() or not (self.kept / name).exists():
