@@ -2,27 +2,25 @@ use super::*;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 impl SchemaServiceState {
-    /// Create a new schema service state with **local Last Store** storage.
+    /// Create a new schema service state with the **in-memory** registry
+    /// backend ([`InMemorySchemaPersistence`]). Nothing survives a restart.
     ///
-    /// Requires the `local-store` feature (server_http / tests). Lambda uses
-    /// [`Self::new_with_external`] with S3 instead.
+    /// Used by the dev server, the eval tool and the offline seed generator.
+    /// Lambda uses [`Self::new_with_external`] with S3 instead.
     ///
-    /// `db_path` is the Last Store home directory (replaces the former sled
-    /// path). The `embedder` is injected by the caller — `schema_service_core`
+    /// The `embedder` is injected by the caller — `schema_service_core`
     /// has zero fastembed/ONNX dependencies. Binaries typically pass
     /// `Arc::new(FoldDbFastEmbedder::new())` (see
-    /// `schema_service_server_shared`); tests pass a mock.
+    /// `schema_service_server_shared`).
     ///
-    /// Safe to call from `#[tokio::test]` / inside a runtime: init runs on a
-    /// dedicated thread so we never nest `block_on` on the caller's runtime.
-    #[cfg(feature = "local-store")]
-    pub fn new(db_path: &str, embedder: Arc<dyn Embedder>) -> FoldDbResult<Self> {
-        let backend = Arc::new(LastStoreSchemaPersistence::open(db_path)?);
+    /// Safe to call inside a runtime: init runs on a dedicated thread so we
+    /// never nest `block_on` on the caller's runtime.
+    pub fn new(embedder: Arc<dyn Embedder>) -> FoldDbResult<Self> {
+        let backend = Arc::new(InMemorySchemaPersistence::default());
         Self::new_from_backend_blocking(backend, embedder)
     }
 
-    #[cfg(feature = "local-store")]
-    pub(super) fn new_from_backend_blocking(
+    fn new_from_backend_blocking(
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
     ) -> FoldDbResult<Self> {
@@ -56,7 +54,7 @@ impl SchemaServiceState {
     ///
     /// Used by remote deployments (e.g. the schema-infra Lambda) that
     /// want to store schema-service data in a cloud service instead
-    /// of a local Sled database. The caller implements
+    /// of process memory. The caller implements
     /// [`ExternalSchemaPersistence`] and passes it in via `Arc`.
     ///
     /// `fold_db` owns no knowledge of what's behind the trait —

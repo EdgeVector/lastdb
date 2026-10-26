@@ -13,7 +13,7 @@ name = "generate-schema-org-classifications"
 path = "src/main.rs"
 
 [dependencies]
-schema_service_core = { path = "../../crates/core", features = ["local-store", "schema-org-seed-data"] }
+schema_service_core = { path = "../../crates/core", features = ["schema-org-seed-data"] }
 fold_db = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

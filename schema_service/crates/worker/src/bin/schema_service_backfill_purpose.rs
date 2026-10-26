@@ -4,8 +4,8 @@
 //! Phase A defaults `purpose_statement` to `descriptive_name` at
 //! registration time for every *new* schema (see
 //! `schema_service_core::SchemaServiceState::add_schema`), but schemas
-//! already living in the dev Sled registry / prod S3 `schemas.json`
-//! blob still carry `purpose_statement = None`. Phase B's dual-signal
+//! already living in the prod S3 `schemas.json` blob still carry
+//! `purpose_statement = None`. Phase B's dual-signal
 //! canonicalization (fbrain `dual-signal-schema-canonicalization`)
 //! needs every record to carry a non-empty purpose statement so the
 //! similarity matcher has something to compare against. This binary
@@ -13,14 +13,11 @@
 //!
 //! ## Invocation
 //!
-//! ```bash
-//! # Dev (Sled) — always dry-run first.
-//! cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
-//!     --backend local --db-path ~/.folddb/schema_registry --dry-run
-//! cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
-//!     --backend local --db-path ~/.folddb/schema_registry
+//! The dev server keeps its registry in memory only, so there is no local
+//! backend to backfill.
 //!
-//! # Prod/R2 (S3-compatible) — requires SCHEMA_STORE_BUCKET,
+//! ```bash
+//! # Prod/R2 (S3-compatible) — always dry-run first. Requires SCHEMA_STORE_BUCKET,
 //! # SCHEMA_EMBEDDINGS_TABLE, SCHEMA_STORE_ENDPOINT_URL, and
 //! # SCHEMA_STORE_ACCESS_KEY_ID / SCHEMA_STORE_SECRET_ACCESS_KEY for R2.
 //! cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
@@ -47,11 +44,9 @@ use schema_service_s3::store_config::{
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Backend {
-    /// Local Last Store — used by the dev binary and `./run.sh` workflows.
-    #[value(alias = "sled")]
-    Local,
     /// S3-backed external persistence — what the schema-infra Lambda
-    /// runs against in production.
+    /// runs against in production. The only backend left: the dev
+    /// server keeps its registry in memory.
     S3,
 }
 
@@ -62,13 +57,9 @@ enum Backend {
     about = "Backfill purpose_statement on existing canonical schemas (Phase D)."
 )]
 struct Cli {
-    /// Which schema-service backend to target.
+    /// Which schema-service backend to target (only `s3`).
     #[arg(long, value_enum)]
     backend: Backend,
-
-    /// Path to the Last Store home. Required for `--backend local` (alias: `sled`).
-    #[arg(long, default_value = "schema_registry")]
-    db_path: String,
 
     /// S3 bucket holding `schemas.json`. Required for `--backend s3`.
     /// Falls back to the `SCHEMA_STORE_BUCKET` env var if unset.
@@ -171,54 +162,44 @@ async fn build_state(cli: &Cli) -> Result<SchemaServiceState, String> {
     let embedder: Arc<dyn Embedder> =
         Arc::new(schema_service_server_shared::FoldDbFastEmbedder::new());
 
-    match cli.backend {
-        Backend::Local => SchemaServiceState::new(&cli.db_path, embedder).map_err(|e| {
-            format!(
-                "Last Store state init failed (db_path={}): {e}",
-                cli.db_path
-            )
-        }),
-        Backend::S3 => {
-            let bucket = cli
-                .s3_bucket
-                .clone()
-                .ok_or("--backend s3 requires --s3-bucket or SCHEMA_STORE_BUCKET")?;
-            let embeddings_table = cli
-                .embeddings_table
-                .clone()
-                .ok_or("--backend s3 requires --embeddings-table or SCHEMA_EMBEDDINGS_TABLE")?;
+    let bucket = cli
+        .s3_bucket
+        .clone()
+        .ok_or("--backend s3 requires --s3-bucket or SCHEMA_STORE_BUCKET")?;
+    let embeddings_table = cli
+        .embeddings_table
+        .clone()
+        .ok_or("--backend s3 requires --embeddings-table or SCHEMA_EMBEDDINGS_TABLE")?;
 
-            let endpoint_url = schema_store_endpoint_url(cli.s3_endpoint_url.as_deref());
-            let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            let schema_store_credentials = if endpoint_url.is_some() {
-                schema_store_s3_credentials_from_env()?
-            } else {
-                None
-            };
-            let s3_config = schema_store_s3_config_builder(
-                aws_sdk_s3::config::Builder::from(&aws_config),
-                endpoint_url.as_deref(),
-                schema_store_credentials.as_ref(),
-            );
-            let s3_client = aws_sdk_s3::Client::from_conf(s3_config.build());
-            let ddb_client = aws_sdk_dynamodb::Client::new(&aws_config);
-            let backend: Arc<dyn schema_service_core::ExternalSchemaPersistence> =
-                Arc::new(schema_service_s3::S3BlobPersistence::new(
-                    s3_client,
-                    bucket.clone(),
-                    ddb_client,
-                    embeddings_table,
-                ));
-            tracing::info!(
-                bucket = %bucket,
-                endpoint_url = endpoint_url.as_deref().unwrap_or("aws-default"),
-                "backfill: initializing schema service against S3-compatible storage",
-            );
-            SchemaServiceState::new_with_external(backend, embedder)
-                .await
-                .map_err(|e| format!("S3-compatible state init failed (bucket={bucket}): {e}"))
-        }
-    }
+    let endpoint_url = schema_store_endpoint_url(cli.s3_endpoint_url.as_deref());
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let schema_store_credentials = if endpoint_url.is_some() {
+        schema_store_s3_credentials_from_env()?
+    } else {
+        None
+    };
+    let s3_config = schema_store_s3_config_builder(
+        aws_sdk_s3::config::Builder::from(&aws_config),
+        endpoint_url.as_deref(),
+        schema_store_credentials.as_ref(),
+    );
+    let s3_client = aws_sdk_s3::Client::from_conf(s3_config.build());
+    let ddb_client = aws_sdk_dynamodb::Client::new(&aws_config);
+    let backend: Arc<dyn schema_service_core::ExternalSchemaPersistence> =
+        Arc::new(schema_service_s3::S3BlobPersistence::new(
+            s3_client,
+            bucket.clone(),
+            ddb_client,
+            embeddings_table,
+        ));
+    tracing::info!(
+        bucket = %bucket,
+        endpoint_url = endpoint_url.as_deref().unwrap_or("aws-default"),
+        "backfill: initializing schema service against S3-compatible storage",
+    );
+    SchemaServiceState::new_with_external(backend, embedder)
+        .await
+        .map_err(|e| format!("S3-compatible state init failed (bucket={bucket}): {e}"))
 }
 
 fn schema_store_endpoint_url(cli_value: Option<&str>) -> Option<String> {

@@ -2,8 +2,8 @@
 //!
 //! This trait lets deployments plug in their own storage backend without
 //! the `fold_db` library having to know about any particular cloud service.
-//! The built-in local backend is **Last Store**
-//! (`LastStoreSchemaPersistence`). Remote deployments (e.g. the
+//! The built-in local backend is **in-memory**
+//! (`InMemorySchemaPersistence`). Remote deployments (e.g. the
 //! schema-infra Lambda) implement this trait with S3 and construct the
 //! schema service via `SchemaServiceState::new_with_external`.
 //!

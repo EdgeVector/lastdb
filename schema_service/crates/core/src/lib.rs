@@ -50,9 +50,8 @@ pub mod builtin_schemas;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
-#[cfg(feature = "local-store")]
-pub mod laststore_persistence;
 mod lock_helpers;
+pub mod memory_persistence;
 /// Same-product multi-key tip regeneration (background reindex job class).
 pub mod multi_key_reindex;
 pub mod name_validator;
@@ -100,10 +99,7 @@ pub use declared_fields::{
 };
 pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
 pub use external_persistence::ExternalSchemaPersistence;
-#[cfg(feature = "local-store")]
-pub use laststore_persistence::{
-    collections as laststore_registry_collections, LastStoreSchemaPersistence,
-};
+pub use memory_persistence::InMemorySchemaPersistence;
 pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeResolverInput};
 pub use near_miss::{NearMissDecision, NearMissRecord};
 pub use registry_index::{
@@ -155,9 +151,8 @@ pub use shared_surface::{
     SharedSurfaceVisibility,
 };
 pub use snapshot::{
-    offline_is_system_schema, project_snapshot_shared_only, registry_is_seeds_only, AppArtifact,
-    AppMetadata, AppRecord, AppTier, SnapshotEmbeddings, SnapshotEnvelope, SnapshotImportReport,
-    SNAPSHOT_FORMAT_VERSION,
+    offline_is_system_schema, project_snapshot_shared_only, AppArtifact, AppMetadata, AppRecord,
+    AppTier, SnapshotEmbeddings, SnapshotEnvelope, SnapshotImportReport, SNAPSHOT_FORMAT_VERSION,
 };
 pub use state::{BackfillPurposeReport, SchemaServiceState, SchemaStorage};
 pub use state_compositional::ComponentReuseAdvice;

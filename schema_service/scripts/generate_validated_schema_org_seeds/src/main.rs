@@ -8,7 +8,7 @@
 //!
 //! What this script does, in order:
 //!
-//! 1. Spins up a real [`SchemaServiceState`] in a temporary Sled directory,
+//! 1. Spins up a real [`SchemaServiceState`] on the in-memory registry,
 //!    backed by [`FoldDbFastEmbedder`] — the same fastembed-backed
 //!    embedding model the dev binary and Lambda use in production.
 //! 2. Seeds the curated canonical fields ([`builtin_canonical_fields::seed`])
@@ -64,7 +64,6 @@ use schema_service_core::{
 use schema_service_server_shared::FoldDbFastEmbedder;
 use schema_types::{FieldValueType, KeyConfig, Schema, SchemaSource, SchemaType};
 use serde::Serialize;
-use tempfile::tempdir;
 
 mod snapshot;
 use snapshot::{build_snapshots, write_canonical_snapshot, write_schema_files};
@@ -114,14 +113,8 @@ struct IngestReport {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("==> Bootstrapping schema service state with real embedder …");
-    let dir = tempdir()?;
-    let db_path = dir
-        .path()
-        .join("validated_generator_db")
-        .to_string_lossy()
-        .to_string();
     let embedder: Arc<dyn Embedder> = Arc::new(FoldDbFastEmbedder::new());
-    let state = SchemaServiceState::new(&db_path, embedder)?;
+    let state = SchemaServiceState::new(embedder)?;
 
     eprintln!("==> Seeding curated canonical fields (the 151 hand-reviewed entries) …");
     builtin_canonical_fields::seed(&state).await?;

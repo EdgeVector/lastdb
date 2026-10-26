@@ -133,10 +133,11 @@ smoke helpers). Never copy `~/.lastdb`.
 ### schema_service dev server
 
 ```bash
-cargo run -p schema_service_server_http --bin schema_service -- --port 9102 --db-path schema_registry
+cargo run -p schema_service_server_http --bin schema_service -- --port 9102
 ```
 
-Use `--features fastembed` on that command only when validating the real
+The dev server keeps its registry in memory only; a restart starts again
+from the built-in seeds. Use `--features fastembed` on that command only when validating the real
 local embedding path.
 
 ### Schema service deploys

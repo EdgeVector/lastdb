@@ -20,7 +20,7 @@ default = []
 fastembed = ["schema_service_server_shared/fastembed-layer"]
 
 [dependencies]
-# default-features=false: no laststore. Do not enable schema-org-seed-data —
+# Do not enable schema-org-seed-data —
 # that feature include_str!s ~3.85 MiB of Schema.org dump into the zip.
 schema_service_core = { path = "../core", default-features = false }
 schema_service_server_shared = { path = "../server_shared" }

@@ -2,19 +2,18 @@ use super::*;
 
 impl SchemaServiceState {
     /// Replace every persisted dimension of the registry with the contents
-    /// of `envelope`. **Sled-only.**
+    /// of `envelope`. **In-memory dev backend only.**
     ///
     /// Validates `format_version` and `embedder_version` against the local
     /// binary's capabilities first; on any mismatch the call returns an
     /// error and no state is touched. On the happy path, this clears
-    /// every owned Sled tree (schemas, canonical_fields, apps),
-    /// writes the envelope's contents in their
-    /// place, flushes, then refreshes the in-memory caches and
-    /// rebuilds the descriptive_name index.
+    /// the backend's schemas, canonical_fields and apps, writes the
+    /// envelope's contents in their place, then refreshes the in-memory
+    /// caches and rebuilds the descriptive_name index.
     ///
-    /// **Not transactional across trees.** A crash mid-import can leave
-    /// trees out of sync — the dev binary tolerates this because the
-    /// remedy is `--rehydrate`, which runs the full replace from scratch.
+    /// **Not transactional.** A failure mid-import can leave the
+    /// collections out of sync — the dev binary tolerates this because the
+    /// remedy is a restart, which starts again from the seeds.
     /// Production never imports.
     ///
     /// **`system_schema_hashes` is not modified.** It was populated by
@@ -63,7 +62,7 @@ impl SchemaServiceState {
             embeddings = counts.embeddings,
             captured_at = %counts.captured_at,
             embedder_version = %counts.embedder_version,
-            "Imported snapshot into local Sled storage"
+            "Imported snapshot into the in-memory registry"
         );
 
         Ok(counts)
@@ -91,8 +90,8 @@ impl SchemaServiceState {
 
     /// Durably wipe and rewrite the registry through the storage backend.
     fn persist_snapshot_to_backend(&self, envelope: &SnapshotEnvelope) -> FoldDbResult<()> {
-        // Durable wipe + rewrite via the storage backend (Last Store locally;
-        // S3 backends typically return "unsupported" and the caller should
+        // Wipe + rewrite via the storage backend (in-memory for the dev
+        // server; S3 backends return "unsupported" and the caller should
         // hydrate cloud via normal write paths instead).
         // `import_snapshot` is sync (callers include non-async paths); run the
         // async backend ops on a dedicated thread like `SchemaServiceState::new`.
