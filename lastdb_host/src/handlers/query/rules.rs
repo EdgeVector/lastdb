@@ -110,11 +110,42 @@ pub(super) fn keyed_window(
     Ok(Some(window))
 }
 
+/// Sort with the caller's captured range rule, without ambient request state.
+/// Validate even a one-row response before any comparator can see a bad range.
+pub(super) fn sort_rows(
+    rows: &mut [Value],
+    sort_order: Option<&SortOrder>,
+    order_by: Option<&QueryOrderBy>,
+    range_comparison: Option<&RangeKeyComparison>,
+) -> Result<(), HostError> {
+    if let Some(comparison) = range_comparison {
+        for row in rows.iter() {
+            comparison
+                .validate_value(row["key"]["range"].as_str().unwrap_or(""))
+                .map_err(SchemaError::InvalidData)?;
+        }
+    }
+    let mut error = None;
+    rows.sort_by(|left, right| {
+        match compare_rows(left, right, sort_order, order_by, range_comparison) {
+            Ok(order) => order,
+            Err(detail) => {
+                error.get_or_insert(detail);
+                Ordering::Equal
+            }
+        }
+    });
+    match error {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
+}
+
 /// Compare response rows using only the supplied values and range rule.
 /// Field ordering uses the core's JSON order; otherwise the range is primary.
 /// Equal primary values use ascending range and then ascending hash ties, even
 /// when the caller requests descending order.
-pub(super) fn compare_rows(
+fn compare_rows(
     a: &Value,
     b: &Value,
     sort_order: Option<&SortOrder>,
