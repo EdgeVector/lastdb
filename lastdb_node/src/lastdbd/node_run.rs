@@ -13,12 +13,13 @@ pub(crate) struct NodeRun {
 }
 
 /// Tokio's default worker stack is 2 MiB. A debug build keeps the write
-/// future on the stack, and the first mutation then aborts the worker
+/// future on the stack and aborts the worker
 /// (`thread 'tokio-rt-worker' has overflowed its stack`). The install smoke
-/// hit that abort on 2026-10-26 after `brain init` declared its schemas.
-/// 16 MiB matches the offline recount runtime. The mapping is reserved and
-/// committed page by page. `RUST_MIN_STACK` can only raise the floor.
-const RUNTIME_STACK_BYTES: usize = 16 * 1024 * 1024;
+/// hit that abort on 2026-10-26. 16 MiB was enough for schema init. Brain
+/// put then overflowed after a 3-mutation batch (run 40385637926). 64 MiB
+/// is the new floor. The mapping is reserved and committed page by page.
+/// `RUST_MIN_STACK` can only raise the floor.
+const RUNTIME_STACK_BYTES: usize = 64 * 1024 * 1024;
 
 fn runtime_stack_bytes() -> usize {
     std::env::var("RUST_MIN_STACK")

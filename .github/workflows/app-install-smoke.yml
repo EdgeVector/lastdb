@@ -6,7 +6,7 @@ name: app-install-smoke
 # A main build has no exact compat row. The public stable index still names
 # the last proved build, which is the brew bottle version string. Install
 # uses that row. Health checks still fail the job. The daemon keeps a
-# 16 MiB worker stack so a debug build can finish the first write.
+# 64 MiB worker stack so a debug build can finish a brain write.
 #
 # No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
@@ -224,6 +224,12 @@ jobs:
           printf '%s\n' "Test concept from app-install-smoke CI run ${{ github.run_number }}" | brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
             echo "Brain put failed"
             cat "$PROOF_DIR/${{ matrix.app }}-put-test.txt"
+            # The start-of-step pid check misses a worker that dies during put.
+            # The socket error then hides the stack overflow in the daemon log.
+            if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+              echo "lastdbd pid $LASTDBD_PID died during brain put"
+              tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            fi
             exit 1
           }
           
