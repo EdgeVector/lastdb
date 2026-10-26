@@ -15,7 +15,7 @@ use laststore::disk_run::home::HomeMutation;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct RangeConversionOptions {
@@ -37,58 +37,120 @@ pub struct RangeConversionReport {
     pub activation_ready: bool,
 }
 
-/// Caller protects identity files, stopped-session admission, and primary paths.
-/// This function holds both source publications and the complete target owner.
-pub async fn convert_typed_ranges(
-    source_root: &Path,
-    target_root: &Path,
-    keys: &E2eKeys,
-    options: RangeConversionOptions,
-) -> StorageResult<RangeConversionReport> {
-    let source_root = source_root.canonicalize()?;
-    let target_root = target_root.canonicalize()?;
-    if source_root.starts_with(&target_root) || target_root.starts_with(&source_root) {
-        return Err(invalid("source and target must be separate directories"));
+/// A complete source plan keeps both read-only publications held before any
+/// target identity or target directory appears.
+pub struct PreparedRangeConversion {
+    source: FrozenSource,
+    plan: ConversionPlan,
+    target_root: PathBuf,
+    account_key: zeroize::Zeroizing<[u8; 32]>,
+    job: String,
+    resume: bool,
+    fenced: bool,
+}
+
+impl PreparedRangeConversion {
+    /// Caller protects stopped-session admission and primary paths.
+    pub fn prepare(
+        source_root: &Path,
+        target_root: &Path,
+        keys: &E2eKeys,
+        options: RangeConversionOptions,
+    ) -> StorageResult<Self> {
+        let source_root = source_root.canonicalize()?;
+        let target_root = destination(target_root)?;
+        if source_root.starts_with(&target_root) || target_root.starts_with(&source_root) {
+            return Err(invalid("source and target must be separate directories"));
+        }
+        if options.source_hash_encoding != HashKeyEncoding::BlindV1 {
+            return Err(invalid(
+                "this conversion preserves an explicitly blinded source hash domain",
+            ));
+        }
+        let mut source = FrozenSource::open(&source_root, &keys.encryption_key())?;
+        if !matches!(source.source, Source::Runs { .. }) {
+            return Err(invalid("typed conversion requires a compact V2 source"));
+        }
+        let (plan, metadata_digest) = prepare(&mut source, keys, options)?;
+        let job = job_identity(
+            &source,
+            &source_root,
+            &target_root,
+            &metadata_digest,
+            options,
+        )?;
+        source.check_binding()?;
+        Ok(Self {
+            source,
+            plan,
+            target_root,
+            account_key: zeroize::Zeroizing::new(keys.encryption_key()),
+            job,
+            resume: options.resume,
+            fenced: false,
+        })
     }
-    if options.source_hash_encoding != HashKeyEncoding::BlindV1 {
-        return Err(invalid(
-            "this conversion preserves an explicitly blinded source hash domain",
-        ));
+
+    /// The caller atomically installs this fenced staging home at its target path.
+    pub fn write_staged_fence(&mut self, data: &Path) -> StorageResult<()> {
+        self.source.check_binding()?;
+        super::conversion_target::stage_fence(data, &self.job)?;
+        self.fenced = true;
+        Ok(())
     }
-    let mut source = FrozenSource::open(&source_root, &keys.encryption_key())?;
-    if !matches!(source.source, Source::Runs { .. }) {
-        return Err(invalid("typed conversion requires a compact V2 source"));
+
+    pub async fn execute(self) -> StorageResult<RangeConversionReport> {
+        let Self {
+            source,
+            plan,
+            target_root,
+            account_key,
+            job,
+            resume,
+            fenced,
+        } = self;
+        if target_root.canonicalize()? != target_root {
+            return Err(invalid("target path changed after source admission"));
+        }
+        source.check_binding()?;
+        let mut target = Target::open(&target_root, &account_key, &job, resume || fenced)?;
+        copy(&source, &plan, &mut target, &target_root)?;
+        target.check_binding(&target_root)?;
+        target = target.reopen(&target_root, &account_key)?;
+        verify(&source, &plan, &target)?;
+        super::conversion_validate::validate(&target.homes).await?;
+        source.check_binding()?;
+        target.checkpoint.phase = Phase::Complete;
+        conversion_copy::commit(&target.homes[0], vec![target.checkpoint.mutation()?])?;
+        source.check_binding()?;
+        target.publish(&target_root)?;
+        source.check_binding()?;
+        Ok(RangeConversionReport {
+            version: 1,
+            job,
+            records: target.checkpoint.records,
+            logical_bytes: target.checkpoint.logical_bytes,
+            source_unchanged: true,
+            database_converted: true,
+            activation_ready: true,
+        })
     }
-    let (plan, metadata_digest) = prepare(&mut source, keys, options)?;
-    let job = job_identity(
-        &source,
-        &source_root,
-        &target_root,
-        &metadata_digest,
-        options,
-    )?;
-    source.check_binding()?;
-    let mut target = Target::open(&target_root, &keys.encryption_key(), &job, options.resume)?;
-    copy(&source, &plan, &mut target, &target_root)?;
-    target.check_binding(&target_root)?;
-    target = target.reopen(&target_root, &keys.encryption_key())?;
-    verify(&source, &plan, &target)?;
-    super::conversion_validate::validate(&target.homes).await?;
-    source.check_binding()?;
-    target.checkpoint.phase = Phase::Complete;
-    conversion_copy::commit(&target.homes[0], vec![target.checkpoint.mutation()?])?;
-    source.check_binding()?;
-    target.publish(&target_root)?;
-    source.check_binding()?;
-    Ok(RangeConversionReport {
-        version: 1,
-        job,
-        records: target.checkpoint.records,
-        logical_bytes: target.checkpoint.logical_bytes,
-        source_unchanged: true,
-        database_converted: true,
-        activation_ready: true,
-    })
+}
+
+fn destination(path: &Path) -> StorageResult<PathBuf> {
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path
+                .parent()
+                .ok_or_else(|| invalid("target path has no parent"))?;
+            let name = path
+                .file_name()
+                .ok_or_else(|| invalid("target path has no name"))?;
+            Ok(destination(parent)?.join(name))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn prepare(

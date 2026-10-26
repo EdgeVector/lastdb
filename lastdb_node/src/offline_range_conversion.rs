@@ -4,7 +4,7 @@ use crate::offline_home::{preflight_read_only_home, refuse_primary_or_archive};
 use fold_db::atom::{HashKeyEncoding, RangeKeyEncoding};
 use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::range_inventory::{
-    convert_typed_ranges, InventoryLimits, RangeConversionOptions,
+    InventoryLimits, PreparedRangeConversion, RangeConversionOptions,
 };
 use std::io::{Read, Seek, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -48,31 +48,33 @@ pub fn convert(args: &RangeConversionArgs<'_>) -> Result<(), String> {
     );
     let keys =
         E2eKeys::from_ed25519_seed(&seed).map_err(|_| "source identity cannot derive its keys")?;
-    prepare_target(&target_home, &seed, args.resume)?;
+    let mut prepared = PreparedRangeConversion::prepare(
+        &source_home.join("data"),
+        &target_home.join("data"),
+        &keys,
+        RangeConversionOptions {
+            source_hash_encoding: HashKeyEncoding::BlindV1,
+            source_range_encoding: range,
+            resume: args.resume,
+            limits: InventoryLimits {
+                max_records: args.max_records,
+                max_metadata_bytes: args
+                    .max_metadata_mib
+                    .checked_mul(1024 * 1024)
+                    .ok_or("metadata allowance overflows")?,
+                ..InventoryLimits::default()
+            },
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    prepare_target(&target_home, &seed, args.resume, &mut prepared)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(16 * 1024 * 1024)
         .build()
         .map_err(|_| "cannot create the offline conversion runtime")?;
     let report = runtime
-        .block_on(convert_typed_ranges(
-            &source_home.join("data"),
-            &target_home.join("data"),
-            &keys,
-            RangeConversionOptions {
-                source_hash_encoding: HashKeyEncoding::BlindV1,
-                source_range_encoding: range,
-                resume: args.resume,
-                limits: InventoryLimits {
-                    max_records: args.max_records,
-                    max_metadata_bytes: args
-                        .max_metadata_mib
-                        .checked_mul(1024 * 1024)
-                        .ok_or("metadata allowance overflows")?,
-                    ..InventoryLimits::default()
-                },
-            },
-        ))
+        .block_on(prepared.execute())
         .map_err(|error| error.to_string())?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "ok": true, "mode": "convert-typed-ranges", "preflight": preflight, "conversion": report })).map_err(|_| "cannot encode conversion result")?);
@@ -102,23 +104,72 @@ fn target_path(path: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(name))
 }
 
-fn prepare_target(home: &Path, seed: &[u8; 32], resume: bool) -> Result<(), String> {
-    if resume && home.try_exists().map_err(|error| error.to_string())? {
+fn prepare_target(
+    home: &Path,
+    seed: &[u8; 32],
+    resume: bool,
+    prepared: &mut PreparedRangeConversion,
+) -> Result<(), String> {
+    if std::fs::symlink_metadata(home).is_ok() {
+        if !resume {
+            return Err("a new target home must be absent".into());
+        }
+        if !std::fs::symlink_metadata(home)
+            .map_err(|error| error.to_string())?
+            .is_dir()
+        {
+            return Err("target home must be a real directory".into());
+        }
         if crate::crash_attribution::live_daemon_pid_alive(home) {
             return Err("target has a live daemon".into());
         }
-        return resume_target(home, seed);
+        let existing = zeroize::Zeroizing::new(
+            lastdb_identity::load_seed(home)?.ok_or("target identity is absent")?,
+        );
+        if *existing != *seed {
+            return Err("target identity differs from its source".into());
+        }
+        return Ok(());
     }
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(home)
-        .map_err(|error| format!("a new target home must be absent: {error}"))?;
-    lastdb_identity::write_seed(home, seed)?;
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(home.join("data"))
+    let parent = home.parent().ok_or("target home has no parent")?;
+    let name = home
+        .file_name()
+        .ok_or("target home has no name")?
+        .to_string_lossy();
+    let staging = parent.join(format!(".{name}.typed-range-init"));
+    match std::fs::symlink_metadata(&staging) {
+        Ok(metadata) if metadata.is_dir() && resume => {}
+        Ok(_) => {
+            return Err(
+                "target initialization exists; use explicit resume with the same job".into(),
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&staging)
+            .map_err(|error| error.to_string())?,
+        Err(error) => return Err(error.to_string()),
+    }
+    match std::fs::symlink_metadata(staging.join("data")) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(staging.join("data"))
+            .map_err(|error| error.to_string())?,
+        _ => return Err("staged target data must be a real directory".into()),
+    }
+    prepared
+        .write_staged_fence(&staging.join("data"))
         .map_err(|error| error.to_string())?;
-    std::fs::File::open(home)
+    resume_target(&staging, seed)?;
+    std::fs::File::open(&staging)
+        .and_then(|file| file.sync_all())
+        .map_err(|error| error.to_string())?;
+    if std::fs::symlink_metadata(home).is_ok() {
+        return Err("target appeared during initialization; no files were replaced".into());
+    }
+    std::fs::rename(&staging, home).map_err(|error| error.to_string())?;
+    std::fs::File::open(parent)
         .and_then(|file| file.sync_all())
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -184,16 +235,27 @@ fn require_initial_home(home: &Path) -> Result<(), String> {
         if name == lastdb_identity::IDENTITY_KEY_FILE && kind.is_file() {
             continue;
         }
-        if name == "data"
-            && kind.is_dir()
-            && std::fs::read_dir(entry.path())
-                .map_err(|error| error.to_string())?
-                .next()
-                .is_none()
-        {
+        if name == "data" && kind.is_dir() && initial_data_entries(&entry.path())? {
             continue;
         }
         return Err("an incomplete identity cannot resume beside existing data".into());
     }
     Ok(())
+}
+
+fn initial_data_entries(root: &Path) -> Result<bool, String> {
+    for entry in std::fs::read_dir(root).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_file()
+            || !["lastdb-range-conversion-v1", "laststore-pack-node-v1"]
+                .iter()
+                .any(|name| entry.file_name() == *name)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

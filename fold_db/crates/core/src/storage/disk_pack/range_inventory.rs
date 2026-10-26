@@ -28,7 +28,7 @@ mod run_pages;
 mod source;
 
 pub use catalog::MoleculeInventory;
-pub use convert::{convert_typed_ranges, RangeConversionOptions, RangeConversionReport};
+pub use convert::{PreparedRangeConversion, RangeConversionOptions, RangeConversionReport};
 pub use source::{SourceFacts, SourceRoot};
 
 #[derive(Debug, Clone, Copy, Serialize)]

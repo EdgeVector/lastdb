@@ -20,6 +20,20 @@ use std::sync::Arc;
 
 mod files;
 
+pub(super) fn stage_fence(root: &Path, job: &str) -> StorageResult<()> {
+    if !std::fs::symlink_metadata(root)?.is_dir() {
+        return Err(invalid("staged target root is not a real directory"));
+    }
+    let owner = File::open(root)?;
+    owner
+        .try_lock()
+        .map_err(|_| invalid("another converter owns the staged target"))?;
+    if files::admit(root, job, true)? {
+        return Err(invalid("a staging home cannot be a published target"));
+    }
+    Ok(())
+}
+
 pub(super) struct Target {
     pub(super) homes: [Arc<RunHome>; 2],
     pub(super) checkpoint: Checkpoint,
