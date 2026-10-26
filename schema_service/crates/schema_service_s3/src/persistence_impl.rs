@@ -116,11 +116,10 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         if let Some(existing) = existing {
             if existing.owner_dev_pubkey == app.owner_dev_pubkey {
                 return Ok(());
-            } else {
-                return Err(FoldDbError::Config(
-                    "app already exists with different owner".to_string(),
-                ));
             }
+            return Err(FoldDbError::Config(
+                "app already exists with different owner".to_string(),
+            ));
         }
         let key = format!("apps/{}.json", app.app_id);
         let body = serde_json::to_vec(app)
@@ -232,7 +231,10 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         Ok(blob.items.into_values().collect())
     }
 
-    async fn save_release(&self, record: &crate::app_release::ReleaseRecord) -> FoldDbResult<()> {
+    async fn save_release(
+        &self,
+        record: &schema_service_core::app_release::ReleaseRecord,
+    ) -> FoldDbResult<()> {
         self.put_single_object(
             &format!("releases/{}.json", record.release_id),
             record,
@@ -243,18 +245,21 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
 
     async fn load_all_releases(
         &self,
-    ) -> FoldDbResult<HashMap<String, crate::app_release::ReleaseRecord>> {
+    ) -> FoldDbResult<HashMap<String, schema_service_core::app_release::ReleaseRecord>> {
         self.list_and_load_releases().await
     }
 
-    async fn save_channel(&self, record: &crate::app_release::ChannelRecord) -> FoldDbResult<()> {
+    async fn save_channel(
+        &self,
+        record: &schema_service_core::app_release::ChannelRecord,
+    ) -> FoldDbResult<()> {
         let key = format!("channels/{}/{}.json", record.app_id, record.channel);
         self.put_channel_with_generation_check(&key, record).await
     }
 
     async fn load_all_channels(
         &self,
-    ) -> FoldDbResult<HashMap<String, crate::app_release::ChannelRecord>> {
+    ) -> FoldDbResult<HashMap<String, schema_service_core::app_release::ChannelRecord>> {
         self.list_and_load_channels().await
     }
 }
