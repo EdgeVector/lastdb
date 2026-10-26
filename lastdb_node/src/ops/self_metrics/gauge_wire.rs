@@ -22,6 +22,14 @@ pub(super) fn wire_u64(g: &Gauge) -> Option<u64> {
     g.as_wire_u64()
 }
 
+/// Preserve the optional number representation used by status serializers.
+pub(super) fn serialize_gauge_option<S: serde::Serializer>(
+    gauge: &Gauge,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    wire_u64(gauge).serialize(serializer)
+}
+
 /// Extract a measured number for consumers that still speak bare `u64`
 /// (JSONL fields, pressure samples, format strings that predate Display).
 /// Unavailable deserializations become `0` only at that non-Gauge boundary.
