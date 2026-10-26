@@ -93,6 +93,10 @@ impl RunHome {
     /// This call does not ack a logical write; the caller acks after it
     /// returns.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
+        let _run = crate::commit_timing::stage("run_commit_us");
+        let prepare = crate::commit_timing::stage("run_prepare_us");
+        crate::commit_timing::count("run_commits", 1);
+        crate::commit_timing::count("run_operations", operations.len() as u64);
         self.refuse_if_poisoned()?;
         if operations.is_empty() {
             return Err(Error::Config("disk run home: empty commit".into()));
@@ -110,17 +114,32 @@ impl RunHome {
         for (_, body) in &mut records {
             *body = body.as_deref().map(value::encode);
         }
-        let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
-        let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
-        for (key, body) in &records {
-            writer.push(key, body.as_deref())?;
+        drop(prepare);
+        let _commit = crate::commit_timing::during("run_commit_lock_us", || {
+            self.commit.lock().unwrap_or_else(|e| e.into_inner())
+        });
+        let mut writer = crate::commit_timing::during("run_writer_create_us", || {
+            RunWriter::create(&self.runs, &self.key, self.options)
+        })?;
+        {
+            let _write = crate::commit_timing::stage("run_records_write_us");
+            for (key, body) in &records {
+                writer.push(key, body.as_deref())?;
+            }
         }
         // A run left by a failed finish is not in CURRENT; the next open
         // removes it.
-        let run = meta(writer.finish()?)?;
+        let run = meta(crate::commit_timing::during("run_finish_us", || {
+            writer.finish()
+        })?)?;
         let records = run.records;
         let run_bytes = run.file_bytes;
-        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        crate::commit_timing::count("run_records", records);
+        crate::commit_timing::count("run_bytes", run_bytes);
+        let _publish = crate::commit_timing::during("run_publish_lock_us", || {
+            self.publish.lock().unwrap_or_else(|e| e.into_inner())
+        });
+        let prepare = crate::commit_timing::stage("run_manifest_prepare_us");
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
@@ -130,6 +149,7 @@ impl RunHome {
         }
         let file = RunFile::new(&self.runs, run);
         next.levels[0].insert(0, Arc::clone(&file));
+        drop(prepare);
         let installed = self.install_or_discard(next, &[file])?;
         Ok(RunCommit {
             root: RunRoot(Arc::clone(&installed)),
