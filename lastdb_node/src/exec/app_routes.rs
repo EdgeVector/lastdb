@@ -2,6 +2,8 @@ use super::*;
 
 mod change_rules;
 use change_rules::AppChangesRequest;
+mod list_rules;
+use list_rules::ListRecordKeysRequest;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -163,48 +165,38 @@ pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option
         .flatten()
 }
 
-pub(super) const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;
-pub(super) const LIST_RECORD_KEYS_MAX_LIMIT: usize = 1000;
-
 /// `GET /api/list?schema=` — paged API keys for live schema records.
 pub(super) async fn execute_list_record_keys_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let Some(requested) = query_value(&req.target, "schema").filter(|s| !s.is_empty()) else {
-        return error_response(400, "schema query parameter is required", ctx);
+    let request = match ListRecordKeysRequest::parse(&req.target) {
+        Ok(request) => request,
+        Err(message) => return error_response(400, message, ctx),
     };
-    let limit = match query_value(&req.target, "limit") {
-        None => LIST_RECORD_KEYS_DEFAULT_LIMIT,
-        Some(raw) => match raw.parse::<usize>() {
-            Ok(0) => {
-                return error_response(400, "limit must be at least 1", ctx);
-            }
-            Ok(n) => n.min(LIST_RECORD_KEYS_MAX_LIMIT),
-            Err(_) => return error_response(400, "limit must be a positive integer", ctx),
-        },
-    };
-    let cursor = query_value(&req.target, "cursor").filter(|s| !s.is_empty());
-    let hash_filter = query_value(&req.target, "hash");
 
-    let resolved = match handlers::resolve_schema_name(host, &requested) {
+    let resolved = match handlers::resolve_schema_name(host, &request.requested) {
         Ok(v) => v,
         Err(e) => return render(Err(e), ctx),
     };
     let Some(canonical) = resolved else {
-        return error_response(404, &format!("schema not found: {requested}"), ctx);
+        return error_response(
+            404,
+            &format!("schema not found: {}", request.requested),
+            ctx,
+        );
     };
 
     match host
         .db
         .list_schema_record_keys_with_access(
             fold_db::db_operations::SchemaRecordKeysRequest {
-                requested: &requested,
+                requested: &request.requested,
                 schema_id: &canonical,
-                limit,
-                cursor: cursor.as_deref(),
-                hash_filter: hash_filter.as_deref(),
+                limit: request.limit,
+                cursor: request.cursor.as_deref(),
+                hash_filter: request.hash_filter.as_deref(),
             },
             ctx,
         )
