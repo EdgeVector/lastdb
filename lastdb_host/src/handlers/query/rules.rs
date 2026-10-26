@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
 use fold_db::schema::types::KeyValue;
 use serde_json::Value;
@@ -87,7 +88,7 @@ pub(super) fn keyed_window(
     Ok(Some(window))
 }
 
-/// Compare response rows independently of reads, formatting, and phase timers.
+/// Compare response rows using only the supplied values and range rule.
 /// Field ordering uses the core's JSON order; otherwise the range is primary.
 /// Equal primary values use ascending range and then ascending hash ties, even
 /// when the caller requests descending order.
@@ -96,7 +97,12 @@ pub(super) fn compare_rows(
     b: &Value,
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
+    range_comparison: Option<&RangeKeyComparison>,
 ) -> Ordering {
+    let compare_ranges = |left: &str, right: &str| match range_comparison {
+        Some(comparison) => comparison.compare(left, right),
+        None => left.cmp(right),
+    };
     let primary = if let Some(order_by) = order_by {
         let af = a
             .get("fields")
@@ -113,25 +119,15 @@ pub(super) fn compare_rows(
         let a_range = a["key"]["range"].as_str().unwrap_or("");
         let b_range = b["key"]["range"].as_str().unwrap_or("");
         match sort_order {
-            Some(SortOrder::Desc) => {
-                fold_db::schema::types::key_comparison::KeyComparisonContext::compare_current_ranges(
-                    b_range, a_range,
-                )
-            }
-            _ => {
-                fold_db::schema::types::key_comparison::KeyComparisonContext::compare_current_ranges(
-                    a_range, b_range,
-                )
-            }
+            Some(SortOrder::Desc) => compare_ranges(b_range, a_range),
+            _ => compare_ranges(a_range, b_range),
         }
     };
     primary
         .then_with(|| {
             let a_range = a["key"]["range"].as_str().unwrap_or("");
             let b_range = b["key"]["range"].as_str().unwrap_or("");
-            fold_db::schema::types::key_comparison::KeyComparisonContext::compare_current_ranges(
-                a_range, b_range,
-            )
+            compare_ranges(a_range, b_range)
         })
         .then_with(|| {
             let a_hash = a["key"]["hash"].as_str().unwrap_or("");
