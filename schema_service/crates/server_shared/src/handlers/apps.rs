@@ -314,3 +314,56 @@ pub async fn get_app(
 pub async fn list_apps(state: web::Data<SchemaServiceState>) -> impl Responder {
     json_status(200, json!(state.list_live_apps()))
 }
+
+/// `POST /v2/releases/{release_id}/compat` — write a verifier-signed compat row.
+///
+/// The signature must come from the configured `verifier_pubkey` in
+/// `AppIdentityConfig`. App owner DevCerts are rejected. Gated by
+/// `X-Signature` (an ed25519-signed envelope containing the body hash).
+pub async fn write_compat_row(
+    req: HttpRequest,
+    path: web::Path<String>,
+    payload: web::Json<Value>,
+    state: web::Data<SchemaServiceState>,
+) -> impl Responder {
+    let release_id = path.into_inner();
+    let body = payload.into_inner();
+    let Some(sig) = header_value(&req, "X-Signature") else {
+        return json_status(
+            401,
+            json!({ "reason": "signature_required", "detail": "missing X-Signature header" }),
+        );
+    };
+    match state.write_compat_row(&release_id, &sig, &body).await {
+        Ok(record) => json_status(201, record.to_public_json()),
+        Err(e) => {
+            let (status, body) = e.to_http();
+            json_status(status, body)
+        }
+    }
+}
+
+/// `GET /v2/releases/{release_id}/compat` — list compat rows for a release.
+///
+/// Anonymous read. Returns all compatibility verification rows for the given
+/// release, each showing which LastDB contract version the release was verified
+/// against and by which verifier.
+pub async fn list_compat_rows(
+    path: web::Path<String>,
+    state: web::Data<SchemaServiceState>,
+) -> impl Responder {
+    let release_id = path.into_inner();
+    match state.list_compat_rows(&release_id).await {
+        Ok(rows) => {
+            let rows_json: Vec<_> = rows
+                .iter()
+                .map(schema_service_core::app_release::CompatRow::to_public_json)
+                .collect();
+            json_status(200, json!({ "compat_rows": rows_json }))
+        }
+        Err(e) => {
+            let (status, body) = e.to_http();
+            json_status(status, body)
+        }
+    }
+}

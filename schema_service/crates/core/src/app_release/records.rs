@@ -145,6 +145,13 @@ pub struct CompatRow {
     /// Optional: URL to the verification run (e.g. GitHub Actions run URL).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification_url: Option<String>,
+    /// SHA-256 hex digest of the canonical JSON payload that was signed.
+    /// Installers can recompute this over the compat row body to verify
+    /// the signature offline without trusting the registry.
+    pub payload_hash: String,
+    /// Base64-encoded Ed25519 signature over the canonical payload.
+    /// Installers re-verify: `ed25519::verify(verifier_pubkey, JCS(body), signature)`.
+    pub signature: String,
 }
 
 impl CompatRow {
@@ -163,6 +170,8 @@ impl CompatRow {
             "verifier_pubkey": self.verifier_pubkey,
             "verified_at": self.verified_at,
             "verification_url": self.verification_url,
+            "payload_hash": self.payload_hash,
+            "signature": self.signature,
         })
     }
 }

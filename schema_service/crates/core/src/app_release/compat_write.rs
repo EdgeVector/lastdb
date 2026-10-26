@@ -115,6 +115,8 @@ impl SchemaServiceState {
             verifier_pubkey: verifier_pubkey.clone(),
             verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             verification_url: request.verification_url,
+            payload_hash: envelope.payload_hash.clone(),
+            signature: sig_b64.clone(),
         };
 
         self.storage
