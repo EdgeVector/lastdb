@@ -12,6 +12,7 @@ pub mod field_value_type;
 pub mod hex;
 pub mod key_comparison;
 pub mod key_config;
+pub mod molecule_range_profile;
 pub mod range_storage_profile;
 pub mod schema_type;
 

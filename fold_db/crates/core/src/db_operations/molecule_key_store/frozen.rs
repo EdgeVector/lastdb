@@ -1,7 +1,7 @@
 //! Decode the existing node bundle from bounded, caller-selected native records.
 use super::{
     metadata_key, open_wrap, validate_identity, wrap_key_for, BundleMetadata, BundleWrap,
-    MoleculeKeyBundle, StorageError, StorageResult, BUNDLE_VERSION, NODE_DOMAIN,
+    MoleculeKeyBundle, StorageError, StorageResult, NODE_DOMAIN,
 };
 use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
@@ -27,7 +27,7 @@ pub(crate) fn open_frozen_node_bundle(
 ) -> StorageResult<MoleculeKeyBundle> {
     validate_molecule(molecule_uuid)?;
     let metadata: BundleMetadata = decode(account_key, metadata_stored)?;
-    if metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != molecule_uuid {
+    if !metadata.is_legacy_for(molecule_uuid) {
         return Err(invalid("native molecule key metadata differs"));
     }
     let wrap: BundleWrap = decode(account_key, wrap_stored)?;

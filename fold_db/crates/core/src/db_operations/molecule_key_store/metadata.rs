@@ -1,8 +1,6 @@
 //! Existing molecule-key metadata, including confirmed absence, in core memory.
 
-use super::{
-    metadata_key, BundleMetadata, MoleculeKeyStore, StorageError, StorageResult, BUNDLE_VERSION,
-};
+use super::{metadata_key, BundleMetadata, MoleculeKeyStore, StorageError, StorageResult};
 use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
 use std::sync::Arc;
 
@@ -22,9 +20,10 @@ impl MoleculeKeyStore {
             .collect();
         let values = self.entries.get_items::<BundleMetadata>(&keys).await?;
         for ((key, molecule), metadata) in keys.into_iter().zip(molecules).zip(values) {
-            if metadata.as_ref().is_some_and(|metadata| {
-                metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != molecule
-            }) {
+            if metadata
+                .as_ref()
+                .is_some_and(|metadata| !metadata.is_legacy_for(&molecule))
+            {
                 return Err(StorageError::InvalidOperation(
                     "molecule key metadata does not match its identity".into(),
                 ));
@@ -56,9 +55,10 @@ impl MoleculeKeyStore {
             return Ok(value.as_ref().as_ref().cloned());
         }
         let metadata = self.entries.get_item::<BundleMetadata>(&key).await?;
-        if metadata.as_ref().is_some_and(|metadata| {
-            metadata.version != BUNDLE_VERSION || metadata.molecule_uuid != molecule_uuid
-        }) {
+        if metadata
+            .as_ref()
+            .is_some_and(|metadata| !metadata.is_legacy_for(molecule_uuid))
+        {
             return Err(StorageError::InvalidOperation(format!(
                 "molecule key metadata mismatch for {molecule_uuid}"
             )));

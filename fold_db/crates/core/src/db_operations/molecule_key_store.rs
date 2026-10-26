@@ -22,9 +22,11 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 
+mod batch_load;
 mod cache;
 mod frozen;
 mod metadata;
+mod metadata_batch;
 
 pub(crate) use frozen::{
     node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
@@ -77,6 +79,18 @@ impl MoleculeKeyBundle {
 struct BundleMetadata {
     version: u8,
     molecule_uuid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+}
+
+impl BundleMetadata {
+    /// Current homes have no typed profile. Refuse a profile rather than ignore
+    /// it until the complete typed runtime and logical format are published.
+    fn is_legacy_for(&self, molecule: &str) -> bool {
+        self.version == BUNDLE_VERSION
+            && self.molecule_uuid == molecule
+            && self.range_profile.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -175,6 +189,7 @@ impl MoleculeKeyStore {
                 &BundleMetadata {
                     version: BUNDLE_VERSION,
                     molecule_uuid: molecule_uuid.to_string(),
+                    range_profile: None,
                 },
             )
             .await?;
@@ -248,13 +263,7 @@ impl MoleculeKeyStore {
 
     /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
-        for (field_name, field) in &schema.runtime_fields {
-            let molecule_uuid = field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&schema.name, field_name)
-            });
-            let _ = self.load(&molecule_uuid).await?;
-        }
-        Ok(())
+        self.load_existing(&schema_molecule_uuids(schema)).await
     }
 
     async fn put_wrap(
