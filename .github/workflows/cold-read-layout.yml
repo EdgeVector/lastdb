@@ -1,0 +1,71 @@
+name: Cold-read layout investigation
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/benchmarks/cold_layout.py'
+      - '.github/workflows/cold-read-layout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cold-read-layout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  investigate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Exact reverted program: isolate the investigation from later product changes.
+      PRODUCT_SHA: 24f2844b2efe8b8f39349a5c5c9dfedb65599d04
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.PRODUCT_SHA }}
+          path: product
+          persist-credentials: false
+      - name: Check Python syntax
+        run: python3 -m py_compile driver/scripts/benchmarks/cold_layout.py
+      - name: Build the exact product program
+        working-directory: product
+        env:
+          FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ env.PRODUCT_SHA }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/cold-build
+        run: cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+      - name: Investigate original and observed-stable cold boundaries
+        run: |
+          python3 driver/scripts/benchmarks/cold_layout.py \
+            --binary "$RUNNER_TEMP/cold-build/dev-release/lastdbd" \
+            --revision "$PRODUCT_SHA" --output "$RUNNER_TEMP/cold-layout"
+      - name: Upload the investigation
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-layout-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cold-layout/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify the upload
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.PRODUCT_SHA }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/cold-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/cold-metadata.json" --output "$RUNNER_TEMP/cold-receipt"
