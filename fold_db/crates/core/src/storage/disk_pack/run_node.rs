@@ -13,10 +13,12 @@
 //! creates one (see `is_new_home`), and [`PackNamespacedStore::create_run`]
 //! creates one on request. Both need the node encryption key. An existing v1
 //! home still opens as v1; `LASTDB_DISK_FORMAT=2` converts it once (see
-//! `convert_v2`). The run home is complete before the marker appears, so a
-//! crash during creation leaves the creation intent without a marker. Open
-//! refuses that home, which holds no data; the owner deletes it and starts
-//! the node again.
+//! `convert_v2`). The run homes are complete before the marker appears, so a
+//! crash during creation leaves the creation intent without a marker. The
+//! runtime opens only after the marker, so that home holds no data: the next
+//! open removes the partial run homes and creates the home again. A lock on
+//! the node folder serializes creators, and a creator holds it until its
+//! runtime is open, so the partial state of a live creator is never removed.
 //!
 //! As in a v1 home, a new home holds an intent file until the node writes its
 //! key-format proofs. Until then the runtime admits only that first batch;
@@ -37,6 +39,7 @@ pub(super) const EARLY_RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\n";
 pub(super) const RUN_DIR: &str = "disk-run";
 pub(super) const CAS_DIR: &str = "disk-cas";
 const INTENT: &str = "laststore-run-initializing";
+const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
@@ -66,15 +69,50 @@ pub(super) fn is_new_home(path: &Path) -> StorageResult<bool> {
     Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
-/// Refuse a v2 home whose creation stopped before the node marker. The
-/// runtime opens only after the marker, so such a home holds no data.
-pub(super) fn refuse_interrupted_creation(path: &Path) -> StorageResult<()> {
-    if path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()? {
-        return Err(StorageError::InvalidOperation(
-            "a format v2 node home creation stopped before its node marker; the home holds \
-             no data, so delete it and start the node again"
-                .into(),
-        ));
+/// True when a v2 home creation stopped before its node marker: the creation
+/// intent is there and the marker is not.
+pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
+    Ok(path.join(INTENT).try_exists()? && !path.join(NODE_MARKER).try_exists()?)
+}
+
+/// Remove what a creation that stopped before its node marker left: the run
+/// homes, their staging folders, and the staged marker. None of them holds
+/// data. The caller holds the creation lock. Another entry stops the removal
+/// before it starts, and nothing is removed.
+fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
+    let staging = |name: &str, home: &str| {
+        name.strip_prefix('.')
+            .and_then(|rest| rest.strip_prefix(home))
+            .is_some_and(|rest| rest.starts_with(".create-"))
+    };
+    let mut partial = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let file_name = entry.file_name();
+        let name = file_name.to_str().unwrap_or_default();
+        if kind.is_file() && name == INTENT {
+            continue;
+        }
+        let run_home = [RUN_DIR, CAS_DIR]
+            .into_iter()
+            .any(|home| name == home || staging(name, home));
+        if (kind.is_dir() && run_home) || (kind.is_file() && name == STAGED_MARKER) {
+            partial.push((entry.path(), kind.is_dir()));
+            continue;
+        }
+        return Err(StorageError::InvalidOperation(format!(
+            "a format v2 node home creation stopped beside the unexpected entry {}; the home \
+             holds no data, so move that entry away and start the node again",
+            file_name.to_string_lossy()
+        )));
+    }
+    for (entry, is_dir) in partial {
+        if is_dir {
+            std::fs::remove_dir_all(&entry)?;
+        } else {
+            std::fs::remove_file(&entry)?;
+        }
     }
     Ok(())
 }
@@ -107,30 +145,46 @@ pub(super) fn require_key(node_key: Option<&[u8; 32]>) -> StorageResult<&[u8; 32
 }
 
 impl PackNamespacedStore {
-    /// Create a new format v2 node home in `path`, which must be absent or
-    /// empty, and open it.
+    /// Create a new format v2 node home in `path` and open it. The home must
+    /// be absent, empty, or a creation that stopped before its node marker;
+    /// this creation replaces the partial run homes of a stopped creation.
     pub fn create_run(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         std::fs::create_dir_all(path)?;
-        if std::fs::read_dir(path)?.next().is_some() {
-            return Err(StorageError::InvalidOperation(
-                "format v2 creation requires an empty node home".into(),
-            ));
+        // The folder handle is the creation lock and the directory barrier.
+        let folder = std::fs::File::open(path)?;
+        folder.try_lock().map_err(|error| {
+            StorageError::InvalidOperation(format!(
+                "another owner is creating this format v2 node home or its lock failed: {error}"
+            ))
+        })?;
+        // Another creator can finish between the caller's check and the lock.
+        if !is_run_node(path)? {
+            if creation_stopped(path)? {
+                clear_stopped_creation(path)?;
+            } else if std::fs::read_dir(path)?.next().is_some() {
+                return Err(StorageError::InvalidOperation(
+                    "format v2 creation requires an empty node home".into(),
+                ));
+            }
+            drop(std::fs::File::create(path.join(INTENT))?);
+            folder.sync_all()?;
+            drop(RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
+            drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
+            let staged = path.join(STAGED_MARKER);
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&staged)?;
+            file.write_all(RUN_NODE_BYTES)?;
+            file.sync_all()?;
+            std::fs::rename(&staged, path.join(NODE_MARKER))?;
+            folder.sync_all()?;
         }
-        drop(std::fs::File::create(path.join(INTENT))?);
-        std::fs::File::open(path)?.sync_all()?;
-        drop(RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
-        drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let staged = path.join(format!(".{NODE_MARKER}.tmp"));
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staged)?;
-        file.write_all(RUN_NODE_BYTES)?;
-        file.sync_all()?;
-        std::fs::rename(&staged, path.join(NODE_MARKER))?;
-        std::fs::File::open(path)?.sync_all()?;
-        Self::open_run(path, Some(node_key))
+        // Keep the lock until the runtime holds the run home locks.
+        let store = Self::open_run(path, Some(node_key));
+        drop(folder);
+        store
     }
 
     /// Create a new format v2 node home in `path`, which must be absent or

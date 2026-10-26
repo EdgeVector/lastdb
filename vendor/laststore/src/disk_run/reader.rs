@@ -6,19 +6,20 @@ use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
 use crate::frame::{decode_frame_bounded, min_encoded_len};
+use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
-use std::fs::File;
 use std::ops::Bound;
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
-/// them and dropped after.
+/// them and dropped after. The read receipt of the call counts each open,
+/// status, and read: the footer, top, and index blocks as footer bytes, the
+/// data blocks as payload bytes.
 pub struct RunReader {
-    file: File,
+    file: MeasuredFile,
     data_key: [u8; 32],
     footer: Footer,
     top: Top,
@@ -50,13 +51,14 @@ impl RunReader {
         let Some(named) = named else {
             return Err(corrupt("run file name is not <run id>.ldrun"));
         };
-        let file = File::open(path)?;
+        let file = measured::open(path)?;
         let len = file.metadata()?.len();
         if len < FOOTER_BYTES as u64 {
             return Err(corrupt("file shorter than a footer"));
         }
+        let _class = ReadClass::Footer.enter();
         let mut raw = [0u8; FOOTER_BYTES];
-        file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
+        measured::read_exact_at(&file, &mut raw, len - FOOTER_BYTES as u64)?;
         let footer = Footer::decode(&raw)?;
         if footer.run_id != named {
             return Err(corrupt("run file name and run id disagree"));
@@ -121,7 +123,7 @@ impl RunReader {
             return Err(corrupt("stored block length over its limit"));
         }
         let mut frame = vec![0u8; len as usize];
-        self.file.read_exact_at(&mut frame, offset)?;
+        measured::read_exact_at(&self.file, &mut frame, offset)?;
         let decoded = decode_frame_bounded(&self.data_key, &frame, max)?;
         if decoded.header.chunk_uuid != self.footer.run_id || decoded.header.counter != counter {
             return Err(corrupt("block belongs to another place"));
@@ -138,6 +140,7 @@ impl RunReader {
     }
 
     pub(super) fn read_index(&self, number: usize) -> Result<IndexBlock> {
+        let _class = ReadClass::Footer.enter();
         let entry = &self.top.indexes[number];
         let payload = self.read_frame(
             entry.offset,
@@ -162,6 +165,7 @@ impl RunReader {
     }
 
     pub(super) fn read_data(&self, block: &BlockRef) -> Result<BlockRecords> {
+        let _class = ReadClass::Payload.enter();
         let payload = self.read_frame(block.offset, block.len, block.number, self.block_limit())?;
         let records = decode_block(&payload)?;
         if records.first().map(|(k, _)| k) != Some(&block.first_key) {

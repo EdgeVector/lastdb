@@ -1,7 +1,6 @@
 """Measure retained v2 disk space against the node's logical atom report."""
 
 import math
-import time
 import statistics
 
 from growth import GrowthWorkload
@@ -48,23 +47,12 @@ class DiskBudgetWorkload(GrowthWorkload):
         self.read(0, self.live_records)
         logical = logical_storage(self.node)
         self.phase = "settle-disk-budget"
-        samples, idle = [], []
-        deadline, stable_since, previous = time.monotonic() + 90, None, None
-        while time.monotonic() < deadline:
-            current = self.node.disk_usage()
-            now = time.monotonic()
-            idle.append(self.memory())
-            samples.append({"elapsed_seconds": now - self.started, **current})
-            if current != previous:
-                stable_since = now
-            if stable_since is not None and now - stable_since >= 3:
-                return {"round": number, "live_records": self.live_records, "disk": current,
-                        "logical_storage": logical, "settled_seconds": now - stable_since,
-                        "disk_samples": samples, "idle_memory_bytes": statistics.median(idle),
-                        "idle_memory_samples": idle}
-            previous = current
-            time.sleep(1)
-        raise ValueError("The v2 disk size did not stay constant for three seconds within 90 seconds")
+        idle = []
+        current, samples, settled = self.settle_disk(idle)
+        return {"round": number, "live_records": self.live_records, "disk": current,
+                "logical_storage": logical, "settled_seconds": settled,
+                "disk_samples": samples, "idle_memory_bytes": statistics.median(idle),
+                "idle_memory_samples": idle}
 
     def measure(self, case):
         points = [self.checkpoint(0)]

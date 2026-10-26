@@ -140,9 +140,10 @@ impl PackNamespacedStore {
     }
 
     /// Open a node store with the node encryption key. An absent or empty
-    /// home becomes a new v2 home. A v2 home needs the key: its run home keys
-    /// derive from it. With the key and `LASTDB_DISK_FORMAT=2`, a v1 home is
-    /// converted to v2 once first; without the setting it opens as v1.
+    /// home becomes a new v2 home, and a v2 creation that stopped before its
+    /// node marker is created again. A v2 home needs the key: its run home
+    /// keys derive from it. With the key and `LASTDB_DISK_FORMAT=2`, a v1 home
+    /// is converted to v2 once first; without the setting it opens as v1.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
@@ -155,11 +156,28 @@ impl PackNamespacedStore {
         if run_node::is_run_node(path)? {
             return Self::open_run(path, node_key);
         }
-        run_node::refuse_interrupted_creation(path)?;
-        if run_node::is_new_home(path)? {
+        if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);
         }
         let node_home = initialization::NodeHome::open(path, &space_policy)?;
+        Self::open_physical(&path.join("disk-pack"), Some(node_home))
+    }
+
+    /// Open an existing node home for an offline tool: a v2 home with the
+    /// key, a v1 home as v1. It never creates a home, resumes a v2 creation,
+    /// or converts a format; the node does those when it starts.
+    pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
+        if path.join(convert_v2::INTENT).try_exists()? || !path.join(NODE_MARKER).try_exists()? {
+            return Err(StorageError::InvalidOperation(format!(
+                "an offline tool needs a complete node home at {}; start the node once first",
+                path.display()
+            )));
+        }
+        if run_node::is_run_node(path)? {
+            return Self::open_run(path, Some(node_key));
+        }
+        let node_home = initialization::NodeHome::open(path, &space::policy_from_env()?)?;
         Self::open_physical(&path.join("disk-pack"), Some(node_home))
     }
 

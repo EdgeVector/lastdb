@@ -166,7 +166,10 @@ def account_checks(args, root, source, backup, expected):
         restored.start(args.candidate / "lastdbd")
         read(restored.sock, expected)
         restored.stop()
-        wrong.start(args.candidate / "lastdbd")
+        # The candidate creates every new home in disk format v2, and the
+        # transfer reads only a v1 source home. The baseline program creates
+        # the v1 home with its own independent identity.
+        wrong.start(args.baseline / "lastdbd")
         wrong.stop()
         before = digest(args, restored.home)
         refused = subprocess.run(list(map(str, [args.candidate / "lastdb", "--data-dir",
