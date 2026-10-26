@@ -43,8 +43,8 @@ fn delete(home: &RunHome, model: &mut Model, count: usize) -> Result<()> {
             body: None,
         })
         .collect();
-    home.commit(operations.clone())?;
     apply(model, &operations);
+    home.commit(operations)?;
     Ok(())
 }
 
@@ -142,8 +142,8 @@ fn reopen_progress(scratch: &Path, key: &[u8; 32]) -> Result<String> {
         key: "cleanup:00000000".into(),
         body: Some(b"new value after the cleanup step".to_vec()),
     };
-    home.commit(vec![next.clone()])?;
-    apply(&mut model, &[next]);
+    apply(&mut model, std::slice::from_ref(&next));
+    home.commit(vec![next])?;
     drop(home);
     let reopened = RunHome::open(&dir, key)?;
     if reopened.status().merging.0 == 0 || reopened.status().frontier != frontier + 1 {
