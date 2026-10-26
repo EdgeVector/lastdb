@@ -77,9 +77,9 @@ where
     // apply/persist/flush lifted from fold_db core's timing breakdown) add
     // into this request's totals. Non-mutation routes add nothing, so their
     // samples keep an absent phase set by construction.
-    let ((resp, phase_totals, work_counts, tip_keys), read_receipt) =
+    let ((resp, phase_totals, work_counts, tip_keys, native_trace_id), read_receipt) =
         fold_db::read_receipts::observe(Box::pin(
-            fold_db::request_phases::run_with_phases_and_keys(
+            fold_db::request_phases::run_with_phases_keys_and_trace(
                 fold_db::user_context::run_with_user(&user_hash, work),
             ),
         ))
@@ -105,6 +105,7 @@ where
             ts_ms: fold_db::clock::unix_millis(),
             client,
             request_id,
+            native_trace_id,
             kind,
             schema,
             duration_ms,

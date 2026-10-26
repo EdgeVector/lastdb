@@ -7,6 +7,10 @@ pub struct OpSample {
     pub client: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Opaque native-timing association, absent unless opt-in diagnostics run.
+    /// This identifier is neither a duration nor an aggregate counter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_trace_id: Option<u64>,
     pub kind: OpKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
