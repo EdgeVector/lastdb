@@ -40,7 +40,6 @@ pub(super) fn admit(root: &Path, job: &str, resume: bool) -> StorageResult<bool>
         }
     }
     File::open(root)?.sync_all()?;
-    clear_staging(root)?;
     Ok(false)
 }
 
@@ -82,7 +81,7 @@ fn finish(path: &Path, bytes: &[u8]) -> StorageResult<()> {
     Ok(())
 }
 
-fn only_initial_markers(root: &Path) -> StorageResult<bool> {
+pub(super) fn only_initial_markers(root: &Path) -> StorageResult<bool> {
     for entry in std::fs::read_dir(root)? {
         let entry = entry?;
         if !entry.file_type()?.is_file()
@@ -96,7 +95,7 @@ fn only_initial_markers(root: &Path) -> StorageResult<bool> {
     Ok(true)
 }
 
-fn clear_staging(root: &Path) -> StorageResult<()> {
+pub(super) fn clear_staging(root: &Path) -> StorageResult<()> {
     let mut count = 0;
     for entry in std::fs::read_dir(root)? {
         let entry = entry?;

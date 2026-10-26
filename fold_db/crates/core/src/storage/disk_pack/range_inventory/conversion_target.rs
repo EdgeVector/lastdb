@@ -18,6 +18,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::Arc;
 
+mod admission;
 mod files;
 
 pub(super) fn stage_fence(root: &Path, job: &str) -> StorageResult<()> {
@@ -28,6 +29,11 @@ pub(super) fn stage_fence(root: &Path, job: &str) -> StorageResult<()> {
     owner
         .try_lock()
         .map_err(|_| invalid("another converter owns the staged target"))?;
+    if !files::only_initial_markers(root)? {
+        return Err(invalid(
+            "staged initialization contains unexpected database bytes",
+        ));
+    }
     if files::admit(root, job, true)? {
         return Err(invalid("a staging home cannot be a published target"));
     }
@@ -65,6 +71,8 @@ impl Target {
             .try_lock()
             .map_err(|_| invalid("another converter owns the target"))?;
         let published = files::admit(root, job, resume)?;
+        admission::check(root, key, job, published)?;
+        files::clear_staging(root)?;
         let homes = [
             open_home(&root.join(run_node::RUN_DIR), &run_node::home_key(key))?,
             open_home(&root.join(run_node::CAS_DIR), &run_node::cas_key(key))?,
@@ -91,28 +99,7 @@ impl Target {
                 logical_bytes: [0; 2],
             },
         };
-        if checkpoint.version != 1 || checkpoint.job != job || checkpoint.homes != identities {
-            return Err(invalid("encrypted progress does not match its target"));
-        }
-        if published && checkpoint.phase != Phase::Complete {
-            return Err(invalid(
-                "published target lacks complete encrypted progress",
-            ));
-        }
-        if checkpoint.phase != Phase::Main
-            && checkpoint.after.is_some()
-            && checkpoint.phase != Phase::Cas
-        {
-            return Err(invalid("completed progress retains a copy cursor"));
-        }
-        if checkpoint.phase == Phase::Main
-            && checkpoint.after.is_none()
-            && checkpoint.records != [0; 2]
-        {
-            return Err(invalid(
-                "initial conversion progress disagrees with its counts",
-            ));
-        }
+        admission::validate(&checkpoint, job, identities, published)?;
         if missing {
             super::conversion_copy::commit(&homes[0], vec![checkpoint.mutation()?])?;
         }
