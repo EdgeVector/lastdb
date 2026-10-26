@@ -21,6 +21,10 @@ on:
         description: Measure resource growth only with the selected profile
         type: boolean
         default: false
+      disk_excess:
+        description: Also attribute v2 disk excess after updates, idle and reopen on two corpus sizes
+        type: boolean
+        default: false
       ttl_active:
         description: Also measure generated writes with TTL policies, sweep and full compaction
         type: boolean
@@ -77,6 +81,7 @@ jobs:
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ inputs.profile }}
       resource_only: ${{ inputs.resource_only }}
+      disk_excess: ${{ inputs.disk_excess }}
       ttl_active: ${{ inputs.ttl_active }}
       investigation: ${{ inputs.investigation }}
       typed_ranges: ${{ inputs.typed_ranges }}
