@@ -387,7 +387,7 @@ Reserved-zero validation retains its original early refusal. The provisional bit
 The comparison with identical diagnostics did not establish a consistent active-TTL wait reduction.
 Opt-in diagnostics retain its time and validated byte count. Short calls round down to integer microseconds.
 Metadata completion now separates private-part sync, object-directory sync, namespace creation, and block-map finalization.
-These numeric timings use the existing diagnostic opt-in. Every I/O call, check, error, and barrier keeps its original order.
+These numeric guards alone preserve the original I/O, checks, errors, and barriers.
 Checksums and full-page output remain unchanged. This is diagnosis; no new wait reduction is established.
 These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.
 
@@ -411,6 +411,17 @@ The page-decode interval retains the complete checksum, reserved-byte, shape, an
 Page-write intervals cover the existing full-page write calls. Reservation includes its existing open, allocation, and sync work.
 These intervals overlap the enclosing tree, live-part, checksum, and sync stages. They cannot be added together.
 The new guards change no operation, output byte, error check, cache, resource charge, or durability barrier.
+
+The complete dc7e CI profile identifies private-part sync as its largest measured physical cost.
+Linux now finishes the independent private locator and directory trees concurrently, with at most one extra worker per publication.
+That worker has a fixed 256 KiB stack. A failed worker start selects the original serial path.
+Both finishes retain their full file sync and their own directory sync. The caller always joins the worker, including on a directory error.
+Both results must succeed before live-part validation, the generation receipt, or CURRENT publication can proceed.
+No writer gate, page byte, checksum, private-page readback, or publication barrier changes.
+macOS retains the serial path because its ordered durability scope belongs to the caller thread.
+An opt-in child report contributes its actual phase totals and I/O counts after the join, without another snapshot header.
+Concurrent phase totals overlap; their sum is not publication wall time. Normal diagnostics remain off.
+This implementation targets the measured sync wait; a matched comparison and fresh current-main CI must establish its actual benefit.
 
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
