@@ -1,4 +1,5 @@
 //! End-to-end proof for /v2 registry client signature verification.
+// lint:file-size-ok proof example with embedded test server setup
 //!
 //! This proof:
 //! 1. Seeds app and release data directly into moto S3
