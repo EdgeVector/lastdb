@@ -23,60 +23,60 @@ impl<H: HostNode> QueryRun<'_, H> {
         // A caller-supplied bare Page filter is already the requested bounded fetch;
         // it still needs the cheap exact count so pagination metadata reflects the
         // full live set.
-        if let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) {
-            if matches!(query.sort_order, Some(SortOrder::Desc)) {
-                // Across hashes a reversed ascending window reverses hash ties.
-                // Inspection certifies at most INTERNAL_FETCH_CAP candidates;
-                // sort that complete logical set before taking the window.
-                let mut complete = query.clone();
-                complete.filter = Some(HashRangeFilter::Page {
-                    offset: 0,
-                    limit: INTERNAL_FETCH_CAP,
-                });
-                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (rows, drops) = execute_query_rows_windowed(host, complete, None, ctx).await?;
-                let total = rows.len();
-                let page: Vec<_> = rows
-                    .into_iter()
-                    .skip(page_offset)
-                    .take(page_limit)
-                    .collect();
-                let has_more = page_offset.saturating_add(page.len()) < total;
-                return Ok(Some(page_payload(
-                    page,
-                    Some(total),
-                    page_limit,
-                    page_offset,
-                    has_more,
-                    drops,
-                )));
-            }
-            if let Some(total) = count_rows(host, query, ctx).await? {
-                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (page, drops) =
-                    execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
-                // `total` is an index count, so it counts rows the materializer will
-                // not deliver: a tip whose atom body could not be hydrated, and a
-                // row whose body is a content tombstone (the index gates on
-                // `KeyMetadata.tombstoned`, which a content tombstone need not set).
-                // Add both back before comparing against it, or a page ending on one
-                // reports `has_more` forever and the caller walks an offset that
-                // never advances.
-                let consumed = page_offset
-                    .saturating_add(page.len())
-                    .saturating_add(drops.total());
-                let has_more = consumed < total;
-                return Ok(Some(page_payload(
-                    page,
-                    Some(total),
-                    page_limit,
-                    page_offset,
-                    has_more,
-                    drops,
-                )));
-            }
+        let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) else {
+            return Ok(None);
+        };
+        if matches!(query.sort_order, Some(SortOrder::Desc)) {
+            // Across hashes a reversed ascending window reverses hash ties.
+            // Inspection certifies at most INTERNAL_FETCH_CAP candidates;
+            // sort that complete logical set before taking the window.
+            let mut complete = query.clone();
+            complete.filter = Some(HashRangeFilter::Page {
+                offset: 0,
+                limit: INTERNAL_FETCH_CAP,
+            });
+            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+            let (rows, drops) = execute_query_rows_windowed(host, complete, None, ctx).await?;
+            let total = rows.len();
+            let page: Vec<_> = rows
+                .into_iter()
+                .skip(page_offset)
+                .take(page_limit)
+                .collect();
+            let has_more = page_offset.saturating_add(page.len()) < total;
+            return Ok(Some(page_payload(
+                page,
+                Some(total),
+                page_limit,
+                page_offset,
+                has_more,
+                drops,
+            )));
         }
-        Ok(None)
+        let Some(total) = count_rows(host, query, ctx).await? else {
+            return Ok(None);
+        };
+        let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+        let (page, drops) = execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
+        // `total` is an index count, so it counts rows the materializer will
+        // not deliver: a tip whose atom body could not be hydrated, and a
+        // row whose body is a content tombstone (the index gates on
+        // `KeyMetadata.tombstoned`, which a content tombstone need not set).
+        // Add both back before comparing against it, or a page ending on one
+        // reports `has_more` forever and the caller walks an offset that
+        // never advances.
+        let consumed = page_offset
+            .saturating_add(page.len())
+            .saturating_add(drops.total());
+        let has_more = consumed < total;
+        Ok(Some(page_payload(
+            page,
+            Some(total),
+            page_limit,
+            page_offset,
+            has_more,
+            drops,
+        )))
     }
 
     /// Count only when required, select the page, admit the read, and render it.
@@ -97,29 +97,14 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Admit on the page, not the partition — unlike the unfiltered branch
         // below, which admits on `total` because it may hydrate that many rows.
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
-        let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
+        let descending = matches!(query.sort_order, Some(SortOrder::Desc));
         let (page, drops) = execute_query_rows_windowed(host, query, Some(window), ctx).await?;
-        if uses_cursor {
-            return Ok(cursor_payload(
-                page,
-                total,
-                limit,
-                offset,
-                drops,
-                self.comparison.clone(),
-            ));
-        }
-        if let Some(total) = total {
-            return Ok(counted_offset_payload(page, total, limit, offset, drops));
-        }
-        Ok(cursor_payload(
-            page,
-            None,
-            limit,
-            offset,
-            drops,
-            self.comparison.clone(),
-        ))
+        Ok(match (descending, total) {
+            (true, Some(total)) => counted_offset_payload(page, total, limit, offset, drops),
+            (_, total) => {
+                cursor_payload(page, total, limit, offset, drops, self.comparison.clone())
+            }
+        })
     }
 
     /// Unfiltered "list all", no value filters: count rows cheaply, then fetch
