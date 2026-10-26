@@ -30,6 +30,11 @@ impl ProfiledRangeCodec {
         self.profile
     }
 
+    #[must_use]
+    pub fn range_encoding(&self) -> RangeKeyEncoding {
+        self.codec.range_encoding()
+    }
+
     /// Encode a real range value. An absent hash-only/Single range slot is not a
     /// value; its caller must handle that slot without this value codec.
     pub fn encode_range(

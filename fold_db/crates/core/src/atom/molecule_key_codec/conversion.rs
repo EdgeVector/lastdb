@@ -6,7 +6,10 @@
 //! No callback can publish a partial set before validation finishes here.
 
 use super::storage_profile::{ProfiledRangeCodec, RangeStorageProfile};
-use super::{decode_hash_range, hash_range_record_key, MoleculeKeyCodec, MoleculeKeyCodecError};
+use super::{
+    decode_hash_range, hash_range_record_key, MoleculeKeyCodec, MoleculeKeyCodecError,
+    RangeKeyEncoding,
+};
 
 /// Hard bounds on transient conversion metadata, independent of atom size.
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +70,8 @@ pub struct RangeKeyConversionPlan {
     molecule: String,
     source_profile: RangeStorageProfile,
     target_profile: RangeStorageProfile,
+    source_range_encoding: RangeKeyEncoding,
+    target_range_encoding: RangeKeyEncoding,
     key_bytes: usize,
     keys: Vec<ConvertedRangeKey>,
 }
@@ -83,6 +88,11 @@ impl RangeKeyConversionPlan {
     }
 
     #[must_use]
+    pub fn range_encodings(&self) -> (RangeKeyEncoding, RangeKeyEncoding) {
+        (self.source_range_encoding, self.target_range_encoding)
+    }
+
+    #[must_use]
     pub fn key_bytes(&self) -> usize {
         self.key_bytes
     }
@@ -93,8 +103,8 @@ impl RangeKeyConversionPlan {
     }
 }
 
-/// The source and target retain the exact same existing encryption and keys.
-/// No profile is selected from a declaration or inferred from stored bytes.
+/// Source and target use explicit range representations with the same keys.
+/// Hash bytes stay unchanged. No profile or encoding is inferred from stored bytes.
 pub struct RangeKeyConversion {
     molecule: String,
     source: ProfiledRangeCodec,
@@ -106,6 +116,7 @@ impl RangeKeyConversion {
     pub fn new(
         molecule: &str,
         existing: &MoleculeKeyCodec,
+        target_range_encoding: RangeKeyEncoding,
         source_profile: RangeStorageProfile,
         target_profile: RangeStorageProfile,
         limits: KeyConversionLimits,
@@ -119,7 +130,10 @@ impl RangeKeyConversion {
         Ok(Self {
             molecule: molecule.to_owned(),
             source: ProfiledRangeCodec::new(source_profile, existing),
-            target: ProfiledRangeCodec::new(target_profile, existing),
+            target: ProfiledRangeCodec::new(
+                target_profile,
+                &existing.with_range_encoding(target_range_encoding),
+            ),
             limits,
         })
     }
@@ -166,6 +180,8 @@ impl RangeKeyConversion {
             molecule: self.molecule.clone(),
             source_profile: self.source.profile(),
             target_profile: self.target.profile(),
+            source_range_encoding: self.source.range_encoding(),
+            target_range_encoding: self.target.range_encoding(),
             key_bytes,
             keys,
         })

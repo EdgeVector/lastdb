@@ -126,7 +126,9 @@ The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes
 ## Explicit key conversion
 
 `RangeKeyConversion` converts a caller-supplied set of current `mk:` range keys for one molecule.
-The caller selects both source and target profiles and supplies the existing encryption configuration.
+The caller selects both source and target profiles and an explicit target range encoding.
+The source codec supplies its existing range encoding and keys.
+The target retains those keys and the hash encoding; only its range encoding can differ.
 The converter retains the exact hash bytes, including a blinded hash.
 It changes only the range portion and returns the complete mapping in target byte order.
 It never calls storage or writes an atom, tip, profile record, or format marker.
@@ -156,12 +158,14 @@ It does not publish a typed profile, lift the date-key fence, or enable a typed 
 The next conversion stage uses the product command:
 
 ```sh
-lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-conversion --source-range-encoding ope_v1 --json
+lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-conversion --source-range-encoding ope_v1 --target-range-encoding plain --json
 ```
 
 The source range encoding is an explicit assertion about the old node configuration.
 The command accepts `plain` or `ope_v1`. It never guesses a format from key appearance.
-The report includes that assertion and its count and byte limits.
+The target range encoding is also explicit and required.
+The version-2 report includes both choices and its count and byte limits.
+It also reports the checked logical key marker, replay floor, and held home generations and frontiers.
 The command refuses the primary, legacy primary, and archived primary paths, including aliases.
 It has no primary override. It does not create a database, start a node, or copy a home.
 
@@ -267,11 +271,10 @@ This review changes neither that setting nor the current encryption behavior.
 Keep the existing OPE reader for explicit source conversion until that decision and the full reader contract are accepted.
 Keep legacy String fields as String. Date-shaped text does not authorize a type change.
 
-The current inventory uses one molecule codec for source decode and target estimates.
-An OPE source therefore gets an OPE target estimate today.
-Before a different target is estimated, separate the source and target codecs in the report and job identity.
-Extend the key conversion API too; its constructor also gives both profiles one existing codec.
-Do not present today's estimate as the size of a target without OPE.
+The inventory and key conversion API now select the target range encoding explicitly.
+Source decode retains its existing encoding and keys.
+An OPE source can therefore estimate a typed target without OPE, with its hash bytes unchanged.
+These estimates do not convert a home or activate a profile.
 Coordinate-byte totals still do not predict compressed file size.
 
 ### Physical conversion, cloud, and size boundaries

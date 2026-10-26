@@ -190,6 +190,7 @@ impl Catalog {
     pub(super) fn finish(
         &mut self,
         limits: InventoryLimits,
+        target_range_encoding: crate::atom::RangeKeyEncoding,
     ) -> StorageResult<Vec<MoleculeInventory>> {
         self.logical.count_winners(&mut self.molecules)?;
         let mut reports = Vec::new();
@@ -208,7 +209,7 @@ impl Catalog {
             }
             molecule.report.declarations.sort();
             molecule.report.declarations.dedup();
-            super::keys::validate_conversion(molecule, limits)?;
+            super::keys::validate_conversion(molecule, limits, target_range_encoding)?;
             molecule.report.blockers.sort();
             molecule.report.blockers.dedup();
         }

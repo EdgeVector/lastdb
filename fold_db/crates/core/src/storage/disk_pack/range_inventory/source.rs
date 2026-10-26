@@ -8,6 +8,7 @@ use crate::storage::laststore::native_routing;
 use laststore::disk_pack::home::{DiskHome, HomeRead};
 use laststore::disk_pack::ReadBudget;
 use laststore::disk_run::home::RunRead;
+use serde::Serialize;
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
@@ -27,6 +28,22 @@ pub(super) struct FrozenSource {
     pub(super) source: Source,
     pub(super) bindings: Vec<super::binding::Binding>,
     _owner: File,
+    key_format: String,
+    minimum_replay_time: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SourceFacts {
+    pub logical_key_format: String,
+    pub minimum_replay_time: u64,
+    pub roots: Vec<SourceRoot>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SourceRoot {
+    pub home: &'static str,
+    pub generation: u64,
+    pub frontier: u64,
 }
 
 impl FrozenSource {
@@ -98,13 +115,15 @@ impl FrozenSource {
             source,
             bindings,
             _owner: marker,
+            key_format: String::new(),
+            minimum_replay_time: 0,
         };
-        frozen.verify_account(key)?;
+        (frozen.key_format, frozen.minimum_replay_time) = frozen.verify_account(key)?;
         frozen.check_binding()?;
         Ok(frozen)
     }
 
-    fn verify_account(&mut self, key: &[u8; 32]) -> StorageResult<()> {
+    fn verify_account(&mut self, key: &[u8; 32]) -> StorageResult<(String, u64)> {
         let marker = AtomStore::CURRENT_KEY_FORMAT_KEY;
         let cutoff = "layout:v3:delete-replay-cutoff";
         let coordinates = vec![
@@ -133,11 +152,41 @@ impl FrozenSource {
         if values.len() != 3 {
             return Err(invalid("source proof read is incomplete"));
         }
-        AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
+        let minimum_replay_time =
+            AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
         let proof = values[2]
             .as_deref()
             .ok_or_else(|| invalid("source account proof is absent"))?;
-        content_key_proof::verify(key, proof).map_err(|_| invalid("source account key differs"))
+        content_key_proof::verify(key, proof).map_err(|_| invalid("source account key differs"))?;
+        let key_format = values[0]
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .ok_or_else(|| invalid("source logical key format is absent or invalid"))?;
+        Ok((key_format.into(), minimum_replay_time))
+    }
+
+    pub(super) fn facts(&self) -> SourceFacts {
+        let roots = match &self.source {
+            Source::Packed { reader, .. } => vec![SourceRoot {
+                home: "main",
+                generation: reader.current().generation,
+                frontier: reader.current().frontier,
+            }],
+            Source::Runs { main, _cas } => [main, _cas]
+                .into_iter()
+                .zip(["main", "cas"])
+                .map(|(read, home)| SourceRoot {
+                    home,
+                    generation: read.generation(),
+                    frontier: read.frontier(),
+                })
+                .collect(),
+        };
+        SourceFacts {
+            logical_key_format: self.key_format.clone(),
+            minimum_replay_time: self.minimum_replay_time,
+            roots,
+        }
     }
 
     pub(super) fn collect(
