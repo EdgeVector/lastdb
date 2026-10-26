@@ -97,7 +97,7 @@ mod artifact;
 mod host_track;
 mod identity;
 mod proof;
-mod registry;
+pub mod registry;
 
 pub use activation::*;
 pub use artifact::*;

@@ -105,6 +105,15 @@ path = "examples/local_install_proof.rs"
 name = "v2_registry_client_proof"
 path = "examples/v2_registry_client_proof.rs"
 
+[dev-dependencies]
+ed25519-dalek = "2"
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = { workspace = true }
+schema_service_s3 = { path = "../schema_service/crates/schema_service_s3" }
+schema_service_server_shared = { path = "../schema_service/crates/server_shared", features = ["actix"] }
+actix-web = { workspace = true }
+
 [lib]
 test = false
 doctest = false
