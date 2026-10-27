@@ -2,14 +2,6 @@
 use super::*;
 
 impl UdsWorkerPool {
-    /// Keep the synchronous callback API for callers that finish on a worker.
-    pub fn try_submit_connection<F>(&self, stream: UnixStream, work: F) -> Result<(), SubmitError>
-    where
-        F: FnOnce(UnixStream) + Send + 'static,
-    {
-        self.try_submit_owned_connection(stream, move |stream, _completion| work(stream))
-    }
-
     /// Transfer completion ownership when a handler awaits outside the pool.
     /// The token must live until the response finishes or the connection drops.
     pub fn try_submit_owned_connection<F>(
