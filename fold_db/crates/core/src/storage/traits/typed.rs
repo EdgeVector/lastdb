@@ -28,31 +28,6 @@ impl<S: KvStore + ?Sized> TypedKvStore<S> {
 impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
     /// Decode raw `(key, value)` rows into `(String, T)` items.
     /// Shared by all scan helpers so we don't maintain four copy-pasted loops.
-    /// [`Self::scan_items_with_prefix_paged`], but one undecodable row does not
-    /// fail the page. Returns the decoded rows and the keys of the rows that
-    /// did not decode. A reaper uses it so one damaged queue record cannot
-    /// stop the whole maintenance page.
-    pub async fn scan_items_with_prefix_paged_lenient<T: DeserializeOwned + Send + Sync>(
-        &self,
-        prefix: &str,
-        limit: usize,
-    ) -> StorageResult<(Vec<(String, T)>, Vec<String>)> {
-        let rows = self
-            .inner
-            .scan_prefix_paged(prefix.as_bytes(), limit)
-            .await?;
-        let mut items = Vec::with_capacity(rows.len());
-        let mut undecodable = Vec::new();
-        for (key_bytes, value_bytes) in rows {
-            let key = String::from_utf8_lossy(&key_bytes).into_owned();
-            match serde_json::from_slice(&value_bytes) {
-                Ok(value) => items.push((key, value)),
-                Err(_) => undecodable.push(key),
-            }
-        }
-        Ok((items, undecodable))
-    }
-
     fn decode_rows<T: DeserializeOwned>(
         results: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> StorageResult<Vec<(String, T)>> {
@@ -261,17 +236,5 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
     pub async fn batch_delete_keys(&self, keys: Vec<String>) -> StorageResult<()> {
         let selected = keys.into_iter().map(String::into_bytes).collect();
         self.inner.batch_delete(selected).await
-    }
-
-    /// Check if key exists
-    pub async fn exists_item(&self, key: &str) -> StorageResult<bool> {
-        self.inner.exists(key.as_bytes()).await
-    }
-
-    /// Whether each key exists, preserving input order. See
-    /// [`KvStore::exists_many`] for why this is not a `get_items` in disguise.
-    pub async fn exists_items(&self, keys: &[String]) -> StorageResult<Vec<bool>> {
-        let raw_keys = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
-        self.inner.exists_many(raw_keys).await
     }
 }
