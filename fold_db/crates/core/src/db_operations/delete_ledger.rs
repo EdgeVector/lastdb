@@ -131,15 +131,6 @@ impl AtomDeleteLedgerEntry {
     pub fn purge(caller: &str, schema: &str, described_key: &str) -> Self {
         Self::erasure(LEDGER_VERB_PURGE, caller, schema, described_key)
     }
-
-    /// A live-`Delete` tip-converge row, before the tip batch runs.
-    ///
-    /// Carries `schema` + `key_fingerprint` like the other erasure verbs, so
-    /// the audit question "did a delete touch this record, in this window?" is
-    /// answerable on the converge lane as it was on the inline one.
-    pub fn delete_converge(caller: &str, schema: &str, described_key: &str) -> Self {
-        Self::erasure(LEDGER_VERB_DELETE_CONVERGE, caller, schema, described_key)
-    }
 }
 
 /// SHA-256 hex over `{schema}\0{described key}`.
