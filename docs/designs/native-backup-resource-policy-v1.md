@@ -4,10 +4,10 @@ The canonical source is [`lastdb_storage_policy/src/lib.rs`](../../lastdb_storag
 The native store, cloud protocol, capture code, and restore code consume this dependency-light crate.
 This change adds no runtime memory configuration or format migration.
 
-## Fixed native format
+## Disk format v1 sizes
 
-`native_v1` defines the existing native file format.
-Its values fix page addresses, record lengths, and compatible readers.
+`native_v1` holds the sizes of the removed disk format v1.
+The code still uses some of them as bounds, for example the record body and backup file limits.
 They are not environment settings or optional memory targets.
 
 | Item | Native V1 value |
@@ -21,13 +21,13 @@ They are not environment settings or optional memory targets.
 
 A record body can span many native parts.
 An eight MiB part does not limit a user file to eight MiB.
-A change to these format values requires a new format and compatible reader and publication rules.
+No disk format v1 reader remains, so these values no longer define a readable file format.
 
 ## Editable source resource values
 
 `BACKUP_RESOURCES`, `native_read`, and `backup_decode` define source resource policy.
 A source change and the normal build and review gates can change these values.
-They do not change the native V1 file format.
+They do not change the disk format v2 run-file format.
 
 | Resource | Current value |
 | --- | ---: |
@@ -36,8 +36,6 @@ They do not change the native V1 file format.
 | Stream buffer | 1 MiB |
 | Concurrent source streams | 4 |
 | Tracked metadata or temporary object cache | 1 GiB |
-| Native copy run | 16 blocks |
-| Native payload file handles | 32 |
 | Restore external pointer and kind identities | 43,690 within 8 MiB |
 
 Memory values control buffers and bounded decoded metadata, not a complete user file.

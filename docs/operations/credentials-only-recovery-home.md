@@ -33,10 +33,11 @@ It contains only three files, each with mode `0600`:
 - `.cloud_resume_required`: the durable Cloud Sync Off marker.
 
 The command creates no `data` directory or active cloud configuration.
-Use this home as the source of `lastdb restore --remote-latest --env prod`.
-Give restore a different fresh `--into` home and the exact backup manifest.
-The restore reads the backup from the cloud and keeps Cloud Sync Off.
+Use this home as the `--data-dir` of `lastdb cloud backup-v2 restore`.
+Give restore a different fresh `--into` home and the exact `--stream`.
+The restore reads the recovery phrase from stdin and reads the backup from the cloud.
+The restore command requires `LASTDB_BYTE_BACKUP_V2_ENABLED=1`.
 
-No recovery phrase, local database copy, or cloud account registration is required.
+The preparation needs no recovery phrase, local database copy, or cloud account registration.
 A failed preparation removes only the destination files that this command created.
 If the destination changed, the command refuses success and preserves unrelated files.

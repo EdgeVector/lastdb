@@ -294,4 +294,4 @@ The current background path shares the bounded collection window without early p
 Only write preparation reads its private prefix. Ordinary reads retain the committed state.
 The drain returns after durability and paces from its measured writer cost.
 The earlier latency measurements above describe the former sealed-batch path.
-See `docs/lastdb-concurrent-compaction.md` and its product receipts.
+See `docs/lastdb-eager-durable-queue.md` for the current queue and merge.

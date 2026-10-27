@@ -59,7 +59,7 @@ This rule supersedes the local build commands and coordination rules below.
 > `brain get concepts-lastdb-canonical-model` ·
 > `brain get concepts-lastdb-agent-access-model` ·
 > `brain get requirement-lastdb-access-complexity` ·
-> https://thelastdb.com/docs/agent-access-model
+> https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md
 
 One cargo workspace: `fold_db` (core), `schema_service` (cloud schema
 registry), `lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped
@@ -158,10 +158,10 @@ is not checked until you touch it.
 
 ## Current memory and disk boundary
 
-Normal startup and direct logical constructors use native packed storage.
+Normal startup and direct logical constructors use disk format v2 storage (`laststore::disk_run`).
 `CoreWarmSet` owns logical records, definitions, and complete selected keys.
 The private native queue retains prepared disk bytes until flush. Ordinary
-reads cannot use that queue. Native requests complete a durable snapshot and
+reads cannot use that queue. Native requests complete a durable run commit and
 their clean core memory publication before the ack. No collection timer delays them.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,

@@ -23,7 +23,7 @@ client sleeps on /api/local-watch?after_seq=&timeout_ms=
 
 | Property | Value |
 |----------|--------|
-| Storage | In-memory ring only (not sled, not uploaded) |
+| Storage | In-memory ring only (not on disk, not uploaded) |
 | TTL | ~10 minutes (also max 50k events) |
 | Payload | `seq`, `ts_ms`, `schema`, `mutation_type`, `hash?`, `range?` |
 | Truth | Still product schemas (RefEvent, BoardCards, …) |

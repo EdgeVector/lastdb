@@ -11,7 +11,7 @@ The [core model spike](lastdb-core-model-warm-spike.md) records the earlier impl
 The retention choice below extends the full-record model with selected tips that do not yet hold values.
 The [schema preload design](lastdb-schema-range-preload-design.md) defines the first-query load and complete logical key part.
 The [work plan](lastdb-logical-warm-set-plan.md) records the implementation and its evidence limits.
-The [fast range design](lastdb-fast-range-design.md) defines disk work for the initial load and fallback route.
+The [fast range design](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md) defined disk work for the initial load and fallback route. It targeted disk format v1, which is removed.
 The [schema key study](lastdb-schema-range-preload-study.md) preserves the synthetic memory and disk-component measurements.
 
 The core model exposes complete logical operations through a read service.

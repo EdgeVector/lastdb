@@ -1,7 +1,7 @@
 # LastDB read receipts
 
-The native reader uses the [selected snapshot](lastdb-snapshot-commits.md), with no internal journal or local mutation replay.
-Legacy replay counters remain available for their existing legacy paths.
+The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
+The legacy loader and replay counters stay in the response for compatibility. The v2 reader does not use them.
 
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time before the pack file and disk directory changes.
@@ -54,7 +54,7 @@ scope can carry the partial receipt.
 | `read_nanos` | Sum of file read time, including failed calls and OS-cache reads. |
 | `decode_nanos` | Sum of authentication, decompression, and plain-copy time. |
 | `decrypt_nanos` | Sum of at-rest value envelope decode and inflate time in `open_or_discard`. |
-| `lock_wait_nanos` | Sum of waits for selected LastStore locks and core warm-set locks. |
+| `lock_wait_nanos` | Sum of waits for core warm-set locks. |
 | `blocking_queue_wait_nanos` | Sum of dispatch delay before an attached core blocking call starts. |
 | `socket_queue_wait_nanos` | Wait for the socket worker before this request starts. |
 | `open_nanos` | Sum of read-only file open time, including failed attempts. |

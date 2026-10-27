@@ -160,7 +160,7 @@ Larger trees, several hashes, cold device reads, deletes, and schema work can ch
 Current operational limits also require bounded work and continuation for large loads.
 Do not describe the 20 ms tree result as a 100,000-key first-schema-use time.
 
-The [packed-key disk proposal](lastdb-fast-range-design.md#disk-design) removes the ordinary per-key tail-page waste.
+The [packed-key disk proposal](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md#disk-design) removes the ordinary per-key tail-page waste. It targets disk format v1, which is removed.
 It is not implemented or measured here.
 Measure its complete key load before a promise of subsecond schema preload.
 The memory results establish feasibility; the disk results identify work that precedes a fast first use.

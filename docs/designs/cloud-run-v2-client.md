@@ -1,5 +1,7 @@
 # Disk V2 client backup
 
+Status, 2026-10-26: merged. Since decision D1, the client has no disk V1 profile. Restore refuses a backup of a disk format v1 home.
+
 The cloud V2 service is already independent of the local file format.
 The primary now uses disk V2. Its current client admits only disk V1 backups.
 This change adds the disk V2 client adapter and an explicit PROD connection.
@@ -7,7 +9,6 @@ It changes no local file bytes, file format, encryption, or cloud service contra
 
 ## Scope
 
-- Keep the current disk V1 backup and restore profiles.
 - Add client metadata version 3 for a disk V2 file backup.
 - Keep the cloud descriptor null and require the R2 and B2 destinations.
 - Send the existing encrypted file bytes without another encryption or text conversion.
@@ -43,7 +44,7 @@ The vendor API does not depend on cloud types or perform remote work.
 
 ## Client profile
 
-Core keeps the public `ByteBackupCapture` operations for both disk formats.
+Core keeps the public `ByteBackupCapture` operations.
 The disk V2 implementation uses captured file segments, not a stored-record conversion.
 Core owns the new `RunBackupProfile` and its validation.
 The shared cloud protocol receives no new native metadata type.
