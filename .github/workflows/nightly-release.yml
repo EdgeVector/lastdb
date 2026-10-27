@@ -1,0 +1,370 @@
+name: Nightly LastDB release
+
+on:
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/nightly-release.yml'
+      - 'scripts/release/nightly_*.py'
+      - 'scripts/benchmarks/artifact.py'
+      - 'lastdb_node/build.rs'
+      - 'Cargo.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-lastdb-${{ github.event.pull_request.number || 'publication' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      checks: read
+    outputs:
+      source: ${{ steps.source.outputs.source }}
+      version: ${{ steps.source.outputs.version }}
+      tag: ${{ steps.source.outputs.tag }}
+      epoch: ${{ steps.source.outputs.epoch }}
+      base: ${{ steps.source.outputs.base }}
+      publish: ${{ steps.source.outputs.publish }}
+      skip: ${{ steps.existing.outputs.skip }}
+      plan_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Freeze one clean source, version, and immutable tag
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: python3 scripts/release/nightly_plan.py plan --output "$RUNNER_TEMP/nightly-plan.json"
+      - name: Verify an existing nightly before any idempotent skip
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/nightly_publish.py preflight --plan "$RUNNER_TEMP/nightly-plan.json"
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: nightly-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nightly-plan.json
+          if-no-files-found: error
+          retention-days: 14
+
+  source-gates:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}
+      # The normal evidence workflow does not run on main pushes. Run its
+      # accepted policy here against this exact release source as well.
+      - uses: EdgeVector/.github/generated-evidence@31b28c2a07e8ba7f80df6735579c7dc1050b9232
+        with:
+          base: ${{ needs.plan.outputs.base }}
+          head: ${{ needs.plan.outputs.source }}
+      - name: Require exact-source CI, benchmark completion, and security analysis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/nightly_plan.py gates --plan "$RUNNER_TEMP/nightly-plan.json" --wait-seconds 1800
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            architecture: arm64
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            architecture: x86_64
+    # Only fixed standard hosted labels; never larger or self-hosted runners.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SOURCE_SHA: ${{ needs.plan.outputs.source }}
+      NIGHTLY_VERSION: ${{ needs.plan.outputs.version }}
+      SOURCE_EPOCH: ${{ needs.plan.outputs.epoch }}
+      TARGET: ${{ matrix.target }}
+      CARGO_BUILD_JOBS: '3'
+      RUSTC_WRAPPER: ''
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check source syntax and the native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(uname -m)" = '${{ matrix.architecture }}'
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/nightly-target" >> "$GITHUB_ENV"
+          python3 -m py_compile scripts/release/nightly_*.py
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+          mkdir "$RUNNER_TEMP/nightly-evidence"
+          { rustc --version; cargo --version; uname -a; printf '%s\n' "$SOURCE_SHA" "$NIGHTLY_VERSION"; } > "$RUNNER_TEMP/nightly-evidence/build.txt"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nightly-release-${{ matrix.target }}
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Build the exact release CLI and daemon
+        shell: bash
+        env:
+          FOLDDB_BUILD_VERSION_OVERRIDE: ${{ env.NIGHTLY_VERSION }}
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd \
+            2>&1 | tee "$RUNNER_TEMP/nightly-evidence/build.log"
+          for binary in lastdb lastdbd; do
+            path="$CARGO_TARGET_DIR/$TARGET/release/$binary"
+            strip "$path"
+            if [ '${{ runner.os }}' = macOS ]; then
+              codesign --force --sign - "$path"
+              codesign --verify --strict "$path"
+            fi
+          done
+      - name: Package the matched pair with exact versions and hashes
+        run: >-
+          python3 scripts/release/nightly_package.py --target "$TARGET"
+          --bin-dir "$CARGO_TARGET_DIR/$TARGET/release" --out-dir "$RUNNER_TEMP/nightly-bundles"
+          --git-oid "$SOURCE_SHA" --expect-version "$NIGHTLY_VERSION" --source-epoch "$SOURCE_EPOCH"
+      - name: Use the packaged programs for isolated durable writes, reads, and recovery
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release/nightly_probe.py \
+            --bundle "$RUNNER_TEMP/nightly-bundles/lastdb-$TARGET.tar.gz" \
+            --manifest "$RUNNER_TEMP/nightly-bundles/lastdb-$TARGET.manifest.json" \
+            --version "$NIGHTLY_VERSION" --source "$SOURCE_SHA" --output "$RUNNER_TEMP/nightly-evidence/probe"
+          cp "$RUNNER_TEMP/nightly-evidence/probe/probe.json" "$RUNNER_TEMP/nightly-bundles/lastdb-$TARGET.proof.json"
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          # A failed matrix cell can retry after another cell already passed.
+          # Only this run's temporary artifact for this target may be replaced.
+          name: nightly-bundles-${{ github.run_id }}-${{ matrix.target }}
+          overwrite: true
+          path: ${{ runner.temp }}/nightly-bundles/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Verify the uploaded package metadata and expiration
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/nightly-metadata.json"
+          python3 scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/nightly-metadata.json" --output "$RUNNER_TEMP/nightly-evidence/upload"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.target }}
+          path: ${{ runner.temp }}/nightly-evidence/
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    needs: [plan, source-gates, build]
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      publication_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-bundles-${{ github.run_id }}-*
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly-release
+      - name: Validate both native bundles and their operational records
+        run: python3 scripts/release/nightly_publish.py prepare --plan "$RUNNER_TEMP/nightly-plan.json" --assets "$RUNNER_TEMP/nightly-release"
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: nightly-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nightly-release/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Verify the assembled upload and record its expiration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ needs.plan.outputs.source }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/nightly-metadata.json"
+          python3 scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/nightly-metadata.json" --output "$RUNNER_TEMP/nightly-receipt"
+
+  attest:
+    needs: [plan, assemble]
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      needs.plan.outputs.publish == 'true' && needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.assemble.outputs.publication_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly-release
+      - uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/nightly-release/*
+
+  publish:
+    needs: [plan, assemble, attest]
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      needs.plan.outputs.publish == 'true' && needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.assemble.outputs.publication_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly-release
+      - name: Verify provenance, recheck source gates, and publish the immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/nightly_publish.py publish --plan "$RUNNER_TEMP/nightly-plan.json" --assets "$RUNNER_TEMP/nightly-release"
+
+  nightly-complete:
+    if: always() && needs.plan.result != 'skipped'
+    needs: [plan, source-gates, build, assemble, attest, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require complete package validation and the selected publication path
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SKIP: ${{ needs.plan.outputs.skip }}
+          GATES: ${{ needs.source-gates.result }}
+          BUILD: ${{ needs.build.result }}
+          ASSEMBLE: ${{ needs.assemble.result }}
+          SHOULD_PUBLISH: ${{ needs.plan.outputs.publish }}
+          ATTEST: ${{ needs.attest.result }}
+          PUBLISH: ${{ needs.publish.result }}
+        run: |
+          set -euo pipefail
+          test "$PLAN" = success
+          if [ "$SKIP" = true ]; then exit 0; fi
+          test "$GATES" = success
+          test "$BUILD" = success
+          test "$ASSEMBLE" = success
+          if [ "$SHOULD_PUBLISH" = true ]; then
+            test "$ATTEST" = success
+            test "$PUBLISH" = success
+          else
+            test "$ATTEST" = skipped
+            test "$PUBLISH" = skipped
+          fi
