@@ -190,17 +190,4 @@ impl KeepSmallMeters {
         self.hydrate_missed.store(false, Ordering::Relaxed);
         Ok(())
     }
-
-    /// Publish a complete candidate only after its durable snapshot is safe.
-    /// Fails closed: marks incomplete if import fails, never silently partial.
-    pub fn install_repaired_snapshot(&self, snapshot: KeepSmallSnapshot) -> Result<(), String> {
-        self.import(snapshot).inspect_err(|e| {
-            self.mark_incomplete(e);
-        })?;
-        self.stale_after_unclean_stop
-            .store(false, Ordering::Relaxed);
-        self.molecule_counters_complete
-            .store(true, Ordering::Relaxed);
-        Ok(())
-    }
 }
