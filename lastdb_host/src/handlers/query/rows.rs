@@ -3,22 +3,6 @@
 use super::*;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 
-/// Execute a query under the given access context and return the formatted JSON
-/// rows — `{ key, fields, metadata, author_pub_key }` — with the deterministic
-/// `(range, hash)` total order and per-field merge-conflict annotation.
-///
-/// # Errors
-/// Returns a [`HostError`] `500` on a query-executor failure.
-pub async fn execute_query_rows<H: HostNode>(
-    host: &H,
-    query: Query,
-    ctx: &AccessContext,
-) -> Result<Vec<Value>, HostError> {
-    execute_query_rows_windowed(host, query, None, ctx)
-        .await
-        .map(|(rows, _)| rows)
-}
-
 /// Integrity counters and unfilled output slots for one request.
 /// Internal candidate refills retain their integrity counters without making
 /// an exhausted range claim another page — see [`page_payload`].
