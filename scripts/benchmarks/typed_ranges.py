@@ -93,14 +93,16 @@ def convert(node):
 def conversion_lines(output, manifest):
     if not manifest["recipe"].get("typed_range_comparison"):
         return []
+    both = manifest["recipe"].get("typed_range_baseline", False)
     lines = ["", "## Explicit typed range conversion", "",
              "Both versions receive the same String schema, values, and blinded-hash/OPE source configuration.",
-             "Only the candidate converts its stopped generated source with its matching product CLI.",
+             ("Both versions convert their independent stopped sources with their matching product CLIs." if both else
+              "Only the candidate converts its stopped generated source with its matching product CLI."),
              "Measured requests then use that typed target. Repeats retain the same format choice.", "",
              "| Run | Conversion seconds | Source MiB | Typed target MiB | Retained total MiB | Source hashes unchanged |",
              "|---|---:|---:|---:|---:|---|"]
     for run in manifest["runs"]:
-        if run["label"] != "candidate":
+        if run["label"] != "candidate" and not both:
             continue
         result = json.loads((output / run["directory"] / "typed-conversion.json").read_text())
         if not result["source_hashes_unchanged"]:

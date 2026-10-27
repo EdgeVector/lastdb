@@ -34,9 +34,10 @@ on:
         type: boolean
         default: false
       typed_ranges:
-        description: Compare legacy OPE seed with the candidate's explicitly converted typed V2 home
-        type: boolean
-        default: false
+        description: Typed conversion (false = neither, true = candidate, both = baseline and candidate)
+        type: choice
+        options: ["false", "true", "both"]
+        default: "false"
       baseline_workers:
         description: Baseline socket workers (0 uses the product default)
         type: choice
@@ -84,6 +85,7 @@ jobs:
       disk_excess: ${{ inputs.disk_excess }}
       ttl_active: ${{ inputs.ttl_active }}
       investigation: ${{ inputs.investigation }}
-      typed_ranges: ${{ inputs.typed_ranges }}
+      typed_ranges: ${{ inputs.typed_ranges == 'true' || inputs.typed_ranges == 'both' }}
+      baseline_typed_ranges: ${{ inputs.typed_ranges == 'both' }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}
