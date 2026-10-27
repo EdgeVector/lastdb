@@ -12,7 +12,7 @@ linked from each section.
 | Atom | One immutable value of one field. Its body is a record. Many tips can name the same atom. |
 | Tip | The record that says which atom is current for one key of one molecule (`mk:{molecule}:...`). |
 | Molecule | The index of one field. It maps keys to tips. |
-| Hash group | All records whose key shares the part before the first NUL. A hash group is one unit of storage placement. |
+| Hash group | All records whose key shares the part before the first NUL. |
 | Counter | A small record that holds a count of references. |
 | Scope | A storage prefix. The personal scope has none. An org or share scope has a 64-hex prefix. A counter exists in the scope of its atom. |
 | Batch | The set of writes of one request. A crash keeps a whole batch or none of it. |
@@ -479,9 +479,9 @@ empty write scope also counts as a writer for the pacing of the background tasks
 - The totals hold about 32 bytes for each referenced atom, at most `--max-atoms`.
   Beyond it the verifier does not compare counters with totals (`tally_complete:
   false`). The command prints `INCOMPLETE` and exits non-zero.
-- A range read across hash groups seeks all 1,024 hash groups of the collection, and
-  one call may read 4,096 pages. A very large home can exceed that budget before the
-  first row. The verifier then fails with a read resource error.
+- One read call examines at most 10,000 keys, within a byte budget. When a read
+  reaches that limit, the verifier asks for fewer rows or cuts the key range in
+  two. It fails with a read resource error only when a key range cannot be cut.
 - A run checks one storage scope: the personal scope, `--scope PREFIX` (a 64-hex
   prefix), or `--all-scopes` (the personal scope and each scope the database catalog
   names). A scope that holds data and has no catalog entry needs `--scope`. A scope

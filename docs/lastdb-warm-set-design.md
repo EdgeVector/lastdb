@@ -1,5 +1,7 @@
 # Warm set design: one clean warm set and one small write queue
 
+Status (2026-10-27): this proposal describes the LastStore segment engine (hash group files, store write memory, `LASTSTORE_*` settings), which decision D1 (2026-10-26) removed.
+
 Update (2026-10-17): [the logical warm set design](lastdb-logical-warm-set-design.md)
 supersedes this proposal's memory model. It uses one logical state for reads and
 writes, with Hash and HashRange as the two key types. The text below retains the

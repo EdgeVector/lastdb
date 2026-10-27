@@ -121,6 +121,6 @@ not measured here.
 ## Not in this change
 
 - No composition: an item cannot take a key from another item.
-- No change to how a single query loads its hash groups.
+- No change to how a single query reads its keys.
 - No sharing of loads between items (see "What it buys").
 - No client moved to the route yet (brain, kanban, loom, situations).

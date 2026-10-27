@@ -48,7 +48,7 @@ What the design removes: reverse edge records, the live count with its `exact` f
 | S6 | Inside the gate a read sees the committed root, the earlier accepted batches and the pending batch. A read with no write owner sees only the committed root. | `read.rs:72-83`, `read/overlay.rs:1-37`, `read/raw.rs:78-90` |
 | S7 | `flush()` inside a scope returns at once. A "flush as barrier" call in a scope does nothing. | `write.rs:236-239` |
 | S8 | A batch holds at most 4,096 operations (older homes) or 16,384 (fresh home, feature bit 0x20), and 128 MiB. | `docs/lastdb-disk-complete-mutation-admission.md:37-45`, `transaction.rs:130-160` |
-| S9 | An ordinary read call has a budget of 10,000 examined keys. A write-preparation call has 40,000. Pages (4,096), blocks (16,384) and bytes (256 MiB) are the same. The budget is one total for the whole call. An error does not reset it. | `disk_pack/mod.rs:92-97`, vendor `laststore/src/disk_pack/call.rs:26-40` and `:121-134`, `home.rs:262-272`, `read/raw.rs:46-52` |
+| S9 | An ordinary read call has a budget of 10,000 examined keys. A write-preparation call has 40,000. Pages (4,096), blocks (16,384) and bytes (256 MiB) are the same. The budget is one total for the whole call. An error does not reset it. | `disk_pack/mod.rs:92-97`, vendor [`laststore/src/disk_pack/call.rs:26-40`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L26-L40) and [`:121-134`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L121-L134), `home.rs:262-272`, `read/raw.rs:46-52` |
 | S10 | A memory ack returns before the flush (at most 500 ms later). A crash can lose a whole acked batch. It never keeps a part of one. | `docs/lastdb-rehydrate.md:94` |
 
 Run proofs (appendix A):
@@ -92,7 +92,7 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 | Admin repair outside a scope (dangling tips) | **No** | `batch_mutate` for rows and counts, then a header put (`delete.rs:186`, `:194`). |
 | Schema store (molecule edges) | **No** | Four separate steps (`db_operations/schema_operations.rs:68-86`). |
 | Physical restore of a native backup | **Yes** | The restore is the complete root (appendix A.6). |
-| Restore of the legacy chunk backup | not available | The legacy list excludes `atom_ref_edges*` and no rebuild exists (`storage/laststore/backup_manifest/exclusions.rs:60-70`). The native build refuses a cloud restore. |
+| Restore of the legacy chunk backup | not available | The legacy list excludes `atom_ref_edges*` and no rebuild exists ([`storage/laststore/backup_manifest/exclusions.rs:60-70`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/fold_db/crates/core/src/storage/laststore/backup_manifest/exclusions.rs#L60-L70)). The native build refuses a cloud restore. |
 
 ### 1.4 What each gate protects, and what stays necessary if the count is exact and atomic
 
@@ -139,7 +139,7 @@ Measured (appendix A.1 to A.3):
 
 **Where the 40,000 examined-key budget comes from, and what else it limits.**
 
-- It comes from `ReadCall::from_write_preparation`, `vendor/laststore/src/disk_pack/call.rs:121-134` (`keys: 40_000`). `PackRuntime::capture` selects it for every request scope with a write owner (`read.rs:72-73`). `raw.rs:46-52` also lets one batch read name up to 40,000 keys in a write scope and 10,000 outside.
+- It comes from `ReadCall::from_write_preparation`, [`vendor/laststore/src/disk_pack/call.rs:121-134`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L121-L134) (`keys: 40_000`). `PackRuntime::capture` selects it for every request scope with a write owner (`read.rs:72-73`). `raw.rs:46-52` also lets one batch read name up to 40,000 keys in a write scope and 10,000 outside.
 - It limits **every** write request: create, update, delete and purge. All reads of the request share it: idempotency, conditions, tips, counts, edge probes, candidate reads, atom reads. It does not reset after an error.
 - Outside a write scope an ordinary read has 10,000 (`disk_pack/mod.rs:92-97`). The purge planning walk runs there.
 - A range read counts every examined entry, tombstones included (`call.rs:20`). I could not observe this in a receipt (section 19).
@@ -242,7 +242,7 @@ Four questions decide the layout. The answers:
 
 | Event | Rule | Evidence |
 |---|---|---|
-| Native local backup | Copies every file of one complete root. Counters travel. | Run A.6: the bundle held the same count and edge records as the source. `vendor/laststore/src/disk_pack/backup/mod.rs:40-60` has no collection filter. |
+| Native local backup | Copies every file of one complete root. Counters travel. | Run A.6: the bundle held the same count and edge records as the source. [`vendor/laststore/src/disk_pack/backup/mod.rs:40-60`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/backup/mod.rs#L40-L60) has no collection filter. |
 | Native restore | Builds a new root from the bundle with no source. Counters are inside. | Run A.6: `lastdb-disk-recovery restore` gave the same records. |
 | Peer replay | A node derives its own counters by applying each mutation through the planner. The counter record is node-local like the tip. Tips are also on the capture skip list (`sync/policy.rs:85-113`). A counter never goes on the wire. | Rule. Add the counter key family to the skip list. |
 | Cloud snapshot (Layer 3, not built) | A root bundle. Counters inside. | Rule for Layer 3. |

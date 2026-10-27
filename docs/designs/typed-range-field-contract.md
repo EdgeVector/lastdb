@@ -375,7 +375,7 @@ This keeps old physical conversion rules outside typed range conversion.
 Use V2 home commits for target values, with fresh run identities and normal publication rules.
 Keep atom identities, atom content, counters, and portable CAS ciphertext unchanged.
 Transform only the range coordinates and their explicit references.
-The stored value tag belongs to LastStore; the converter must not add or remove it itself.
+The stored value tag belongs to the disk format v2 engine (`laststore::disk_run::value`); the converter must not add or remove it itself.
 
 The job must bind the source descriptors, both `CURRENT` files, logical format, profiles, and source and target codec choices.
 An inventory fingerprint alone does not validate atoms, counters, or CAS files.

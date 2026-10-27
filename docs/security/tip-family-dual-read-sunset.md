@@ -3,6 +3,8 @@
 > Current format notice, 2026-10-19: The code accepts only the current key format.
 > The older conversion commands and fallback reads in this document are removed.
 > Create a fresh home. No migration runs.
+>
+> This note describes the LastStore segment engine, which decision D1 (2026-10-26) removed. Disk format v2 has none of the legacy tip collections or the drain tool that this note names.
 
 Date: 2026-08-07
 
@@ -110,8 +112,7 @@ and that had to be measured rather than assumed.
 - Live candidate lists for `mh:` / `tv:` no longer include
   `field_tip_headers` / `field_tip_versions` (fold #1259).
 - `mk:` / `mo:` similarly pruned earlier (fold #1215).
-- Unit bar: `tip_residue_dual_read_delete_tests` in
-  `fold_db/crates/core/src/storage/laststore/tip_residue_dual_read_delete_tests.rs`.
+- Unit bar: `tip_residue_dual_read_delete_tests` (deleted with all tests on 2026-10-09).
 
 ## Deleted 2026-08-07
 

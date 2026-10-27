@@ -320,10 +320,10 @@ on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
 connection; default off), it copies the encrypted run files.
 
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
-current Mini storage map. The shipped backend is
-LastStore, whose at-rest policy is **atoms-only sealing** (fold #782): atom
-content, blobs, tips, change feed and sync capture carry the value-level `ENC:`
-seal; the boot-critical catalogs in `LASTSTORE_PLAINTEXT_NAMESPACES` do not.
+current Mini storage map. In 2026-07 the shipped backend was
+LastStore, whose at-rest policy was **atoms-only sealing** (fold #782): atom
+content, blobs, tips, change feed and sync capture carried the value-level `ENC:`
+seal; the boot-critical catalogs in `LASTSTORE_PLAINTEXT_NAMESPACES` did not.
 
 **Measured on the live primary**, read-only, classifying every record body as
 `ENC:`-enveloped vs cleartext:
@@ -562,7 +562,10 @@ defense-in-depth.** Concretely:
   before/after. Decision: per-value decryption at the seam, with
   decrypt-once-into-memory caches allowed at specific hot consumers if
   the embedding card's numbers demand it.
-- **Strict check at startup (G1d).** The default-encrypt rollout uses
+- **Strict check at startup (G1d).** Removed: fold #2085 (2026-09-14) deleted
+  this boot check and its dual-read mode. Decision D1 (2026-10-26) later
+  removed the LastStore engine that it read. The text below is history.
+  The default-encrypt rollout uses
   `EncryptingNamespacedStore::enable_strict_if_clean` to enable strict reads.
   A durable strict marker avoids the repeated check after a successful proof.
   Without that marker, the check tests the existing envelope predicate. It
