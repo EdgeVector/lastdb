@@ -1,12 +1,12 @@
 # Native records use their existing element encryption
 
 Disk format v2 compresses each run-file block, then encrypts the block with AES-256-GCM.
-The element encryption below applies inside those blocks.
+The element rules below apply inside those blocks.
 
 The current policy wraps only local CAS blob records.
 Tom set this policy on 2026-10-23.
 
-- Atom bodies keep their existing content encryption and no outer storage envelope.
+- Atom rows are plain JSON inside those blocks, with no content seal and no outer storage envelope.
 - Tip values, counters, history, conflicts, metadata, and change-feed values use direct storage.
 - Local CAS records receive an account storage envelope around their existing file envelope.
 - Molecule key bundles and sensitive identity fields keep their explicit key encryption.
@@ -23,8 +23,8 @@ The wrapper encrypts the complete local CAS record, including the blob metadata 
 The CAS reader can still decode an account-v2 record with only its existing file envelope.
 Every new CAS write receives the outer account envelope.
 
-Atoms retain encryption of the content field.
-The atom header remains readable: atom identity, schema, source filename, creation time, and optional metadata.
+A disk format v2 atom row has no content seal. The block encryption protects it.
+Inside a decrypted block, the atom header is readable: atom identity, schema, source filename, creation time, and optional metadata.
 Tips retain their key encoding, while their atom pointer and per-key metadata remain readable.
 Other direct control records can also contain original API keys and private metadata.
 Native cloud backups copy these exact stored bytes and preserve that visibility.
@@ -32,7 +32,6 @@ This is an explicit policy change, not whole-file encryption.
 
 Reseal and reap accept only `cas_blobs`.
 They cannot add wrappers to atom or tip records or delete those direct records as unsealed residue.
-Replay writes direct non-CAS bytes and cannot restore the broad encryption policy.
 
 The keyed constructors retain a single explicit encrypted account-key proof.
 This small control value verifies the account key before the database can serve requests.

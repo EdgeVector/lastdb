@@ -54,7 +54,7 @@ scope can carry the partial receipt.
 | `read_nanos` | Sum of file read time, including failed calls and OS-cache reads. |
 | `decode_nanos` | Sum of authentication, decompression, and plain-copy time. |
 | `decrypt_nanos` | Sum of at-rest value envelope decode and inflate time in `open_or_discard`. |
-| `lock_wait_nanos` | Sum of waits for selected LastStore locks and core warm-set locks. |
+| `lock_wait_nanos` | Sum of waits for core warm-set locks. |
 | `blocking_queue_wait_nanos` | Sum of dispatch delay before an attached core blocking call starts. |
 | `socket_queue_wait_nanos` | Wait for the socket worker before this request starts. |
 | `open_nanos` | Sum of read-only file open time, including failed attempts. |

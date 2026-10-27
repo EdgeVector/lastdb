@@ -183,18 +183,21 @@ A planner fault that raises `suspect` for a molecule counter works the same way:
 
 Two markers keep one build from opening a home with another counter model.
 
-- A disk format v2 home records the required-feature bit
-  `FEATURE_ATOM_RECORDS` (value 128) from its creation: every atom body is one record at
-  `atom:{uuid}\0b` in `atoms`. A build that does not know the bit refuses the
-  home. This build refuses a home without the bit.
-- The logical key format marker is `layout:v3:keys` with the value `5`
-  (`atom_store/key_format.rs`). Value `4` uses the same counter model.
-  The new reader accepts it and advances the encrypted marker before new writes.
-  Value `5` permits atom and CAS records without a duplicate outer envelope.
-  An older reader refuses value `5` before it can discard those records.
+- The node marker `laststore-pack-node-v1` must name disk format v2. The node
+  refuses any other home by that marker, for example a disk format v1 home
+  (`disk_pack/run_node.rs`, `not_v2`). A v2 home stores no feature bits.
+  `FEATURE_ATOM_RECORDS` (value 128) is part of the compile-time set
+  `V2_FEATURES` (`disk_pack/physical_v2.rs`), so every v2 home has it: every
+  atom body is one record at `atom:{uuid}\0b` in `atoms`. The bit reaches disk
+  only in the byte backup manifest, and restore refuses a manifest with other bits.
+- The logical key format marker is `layout:v3:keys` with the value `6`
+  (`atom_store/key_format.rs`). A home with a delete-replay cutoff holds
+  `6;delete-replay-cutoff=v1`, and a home with typed ranges holds
+  `7;typed-ranges=v1`. The node refuses every other value, including `4` and
+  `5`, before it serves.
 
-Earlier counter layouts remain refused. The marker advance rewrites no existing
-atom, CAS record, or pack file. See [the element encryption policy](designs/native-element-encryption-v1.md).
+Earlier counter layouts remain refused. Startup converts no existing atom, CAS
+record, or run file. See [the element encryption policy](designs/native-element-encryption-v1.md).
 
 ## Conflict records and their retention
 
@@ -571,14 +574,16 @@ clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and 
 ## Crash states
 
 A crash keeps whole batches only, in order. Each batch moves the store from one state
-that holds I1 to another. The table lists the states a crash can leave and what recovers
+that holds I1 to another. One exception: a commit with CAS changes writes up to three
+runs, and a crash between them can leave CAS files that nothing references (see
+[the eager queue design](lastdb-eager-durable-queue.md)).
+The table lists the states a crash can leave and what recovers
 each one.
 
 | Crash point | State on disk | What recovers it |
 |---|---|---|
 | before the batch is accepted | no change | nothing to recover |
-| after a `queued` acknowledgement, before the flush | the whole batch is lost | the client was told `queued`; a retry applies it |
-| during the journal append, or after the commit and before `CURRENT` | no batch, or a complete batch | recovery returns only complete batches |
+| during the run file write, or before the new `CURRENT` | no batch | the next open deletes the temporary file or the run file that `CURRENT` does not name; the client got no ack |
 | after batch N of a job of many batches (TTL pass, janitor, drain, dwell pass, mixed request) | batches 1 to N applied | each batch is valid alone; the next pass continues |
 | a schema drop between the catalog rows and the schema record | rows gone, schema still installed | run the drop again |
 | a molecule drain between batches | header with zero counters, candidate row present | the next wake reads the candidate list and finishes |

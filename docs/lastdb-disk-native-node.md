@@ -50,6 +50,9 @@ Later callers wait behind the worker. Each caller waits for its own completed se
 A private write queue retains prepared bytes and resource owners until completion.
 Ordinary reads cannot inspect that queue. Private write preparation can inspect its ordered pending changes.
 The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and merge handoff.
+`POST /api/db/flush` on the owner socket waits until every earlier accepted local write is durable on disk. It takes an empty body or `{}` and does no cloud work.
+`LASTDB_DISK_CAP_BYTES` caps the file bytes of the main run home (`disk-run`). It has no default: unset means no cap, and each commit then checks only the filesystem free space.
+A value that is not a positive byte count stops the node open. A commit that would pass the cap fails with a no-space error.
 
 ## Home fence
 

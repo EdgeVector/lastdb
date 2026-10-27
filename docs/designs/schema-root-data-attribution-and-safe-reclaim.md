@@ -488,8 +488,8 @@ then on a supervised live run.
 - The atom GC tip-fold gate (a real-data clone harness, deleted 2026-10-12)
   showed that atom reclaim must preserve live fold paths. This design makes
   those paths explicit and durable.
-- `DELETE_RETURNS_BYTES` already defines the delete-to-compaction chain. This
-  design supplies the schema-root proof before the chain begins.
+- `DELETE_RETURNS_BYTES` (removed) defined the delete-to-compaction chain of the
+  LastStore engine. This design supplied the schema-root proof before that chain began.
 - `reap-dropped-schema` remains useful for legacy residue. The new reclaim
   command replaces its limited dropped-tip proof with a complete lifecycle
   proof.
