@@ -50,7 +50,6 @@ pub(super) fn phase_timings(
         change_record_lock_wait_us: phase_totals.change_record_lock_wait_us,
         change_record_write_us: phase_totals.change_record_write_us,
         response_envelope_us: phase_totals.response_envelope_us,
-        status_sync_us: phase_totals.status_sync_us,
         status_backup_us: phase_totals.status_backup_us,
         status_durability_us: phase_totals.status_durability_us,
         status_data_dir_us: phase_totals.status_data_dir_us,

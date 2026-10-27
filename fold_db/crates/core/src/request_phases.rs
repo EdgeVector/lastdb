@@ -9,7 +9,7 @@
 //! For a query it is admission wait, parse, schema resolve, the index
 //! `count`, row `hydrate`, and conflict `annotate`. For status it is the
 //! snapshot components that can otherwise hide synchronous ops-surface work:
-//! sync health, backup progress, durability marker evaluation, data-dir sizing,
+//! backup progress, durability marker evaluation, data-dir sizing,
 //! and request-ops snapshot copying.
 //! Those phases are measured in three different
 //! crates (`lastdb_node` parses, `lastdb_host` resolves/validates/admits,
@@ -213,7 +213,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::ChangeRecordLockWait => &mut totals.change_record_lock_wait_us,
             RequestPhase::ChangeRecordWrite => &mut totals.change_record_write_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,
-            RequestPhase::StatusSync => &mut totals.status_sync_us,
             RequestPhase::StatusBackup => &mut totals.status_backup_us,
             RequestPhase::StatusDurability => &mut totals.status_durability_us,
             RequestPhase::StatusDataDir => &mut totals.status_data_dir_us,

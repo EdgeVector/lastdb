@@ -3,14 +3,10 @@ use super::snapshot_memory::{observe_runtime_memory, persist_lane_rows};
 use super::*;
 
 pub async fn status_snapshot(host: &Host) -> StatusSnapshot {
-    build_snapshot(host, &mut CpuProbe::default(), false).await
+    build_snapshot(host, &mut CpuProbe::default()).await
 }
 
-pub(super) async fn build_snapshot(
-    host: &Host,
-    cpu: &mut CpuProbe,
-    refresh_sync: bool,
-) -> StatusSnapshot {
+pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSnapshot {
     let sampled_at = unix_secs();
     let cpu_percent = cpu.sample_percent();
     let qos: QosHealth = host.qos.snapshot().into();
@@ -20,7 +16,6 @@ pub(super) async fn build_snapshot(
         RequestPhase::StatusRequestOps,
         request_ops_started.elapsed(),
     );
-    let sync = timed_sync_health(host, refresh_sync);
     let durability = durability_health(host);
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
@@ -57,7 +52,6 @@ pub(super) async fn build_snapshot(
         data_dir_size_walks: dirs.data_dir_size_walks,
         data_dir: dirs.data_dir,
         data_dir_path_disclosed: dirs.data_dir_path_disclosed,
-        sync,
         durability,
         sampler: host.self_metrics.snapshot(),
         qos,
@@ -127,24 +121,6 @@ impl DirReport {
             data_dir_path_disclosed,
         }
     }
-}
-
-fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
-    let sync_started = Instant::now();
-    let sync = if refresh_sync {
-        let health = sync_health();
-        // A timed-out / unsampled probe must not replace a last-known snapshot
-        // with empty gauges. Those empty gauges render as last_success=never
-        // and "log plane not recording" — false durability-outage sentences.
-        if health.snapshot_unavailable_reason.is_none() {
-            host.self_metrics.cache_sync_health(health.clone());
-        }
-        health
-    } else {
-        cached_sync_health(host)
-    };
-    request_phases::add_phase(RequestPhase::StatusSync, sync_started.elapsed());
-    sync
 }
 
 fn durability_health(host: &Host) -> DurabilityHealth {

@@ -249,8 +249,6 @@ phase_timings! {
         change_record_write_us => "change_record_write",
         /// Final response envelope/error rendering after route work completes.
         response_envelope_us => "response_envelope",
-        /// Status route: cloud-sync health snapshot.
-        status_sync_us => "status_sync",
         /// Status route: sealed-chunk backup progress snapshot.
         status_backup_us => "status_backup",
         /// Status route: durable backup marker evaluation.

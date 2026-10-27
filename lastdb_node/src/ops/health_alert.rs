@@ -189,7 +189,6 @@ pub fn probe_degradation(socket: &Path, warn_ms: u64) -> Degradation {
     };
     let mut reasons = reasons::memory_budget_reasons(mem, warn_ms);
     reasons.extend(reasons::durability_reason(status));
-    reasons.extend(reasons::sync_reason(status));
     reasons.extend(reasons::integrity_reason(status));
 
     if reasons.is_empty()

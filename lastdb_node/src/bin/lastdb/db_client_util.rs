@@ -23,12 +23,11 @@ pub(crate) fn inventory_client_timeout(timeout_secs: Option<u64>) -> Duration {
 /// Default client deadline for the cheap `lastdb status` health read.
 ///
 /// Shares [`lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS`] — one named 30s
-/// CLI UDS default. `/api/status` is *usually* milliseconds, but its
-/// `status_sync` phase costs tens of seconds on a cold node (measured
-/// 2026-08-08: 50.4s on a primary four minutes past restart, and a
-/// `status_sync_us` phase that was ~100% of a 73s call). A health check should
-/// stay snappy without lying about a node that is merely slow, so this is
-/// generous compared to a warm read and still bounded.
+/// CLI UDS default. `/api/status` is *usually* milliseconds, but it once cost
+/// tens of seconds on a cold node, in a phase since removed (measured
+/// 2026-08-08: 50.4s on a primary four minutes past restart). A health check
+/// should stay snappy without lying about a node that is merely slow, so this
+/// is generous compared to a warm read and still bounded.
 pub(crate) const DEFAULT_STATUS_CLIENT_TIMEOUT_SECS: u64 =
     lastdb_node::exec::DEFAULT_CLI_UDS_TIMEOUT_SECS;
 

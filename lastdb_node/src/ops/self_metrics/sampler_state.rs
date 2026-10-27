@@ -78,9 +78,6 @@ pub(super) const MAX_DRAIN_ATTEMPTS: u32 = 3;
 #[derive(Debug, Default)]
 pub struct SamplerRuntimeState {
     pub(super) inner: Mutex<SamplerStatus>,
-    /// Last complete sync-engine snapshot. The sampler publishes it; the
-    /// request path only clones it and never waits on sync worker locks.
-    pub(super) sync: Mutex<Option<CachedSyncHealth>>,
     pub(super) request_ops_rollup: Mutex<HashMap<String, crate::request_telemetry::OpAggregate>>,
     /// Orphaned-telemetry drain bookkeeping. Per-`Host`, not a process global,
     /// so a test's drain state cannot leak into the next test.
@@ -98,12 +95,6 @@ pub(super) struct DrainState {
     pub(super) settled: bool,
     pub(super) failures: u32,
     pub(super) in_flight: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct CachedSyncHealth {
-    pub(super) health: SyncHealth,
-    pub(super) updated_at: Instant,
 }
 
 #[derive(Debug, Default)]
@@ -178,24 +169,6 @@ impl SamplerRuntimeState {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map(|snapshot| snapshot.as_ref().clone())
-    }
-
-    pub(super) fn cache_sync_health(&self, health: SyncHealth) {
-        *self
-            .sync
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CachedSyncHealth {
-            health,
-            updated_at: Instant::now(),
-        });
-    }
-
-    pub(super) fn cached_sync_health(&self) -> Option<(SyncHealth, Duration)> {
-        self.sync
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .map(|cached| (cached.health.clone(), cached.updated_at.elapsed()))
     }
 
     pub(super) fn drain_settled(&self) -> bool {

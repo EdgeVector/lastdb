@@ -5,9 +5,9 @@ pub(super) async fn record_sample(
     cpu: &mut CpuProbe,
     retention_cap: usize,
 ) -> Result<(u64, usize), String> {
-    // Build vitals without writing to the DB first — process/RSS/sync health
+    // Build vitals without writing to the DB first — process/RSS health
     // must not require a healthy mutation path.
-    let snapshot = build_snapshot(host, cpu, true).await;
+    let snapshot = build_snapshot(host, cpu).await;
     host.self_metrics.publish_status(snapshot.clone());
 
     // PRIMARY sink: JSONL on disk under the node home. If LastDB is down or
