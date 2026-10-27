@@ -68,7 +68,7 @@ impl<'a> BoundedRange<'a> {
                     break;
                 }
             }
-            let Some(key) = self.next_key()? else {
+            let Some((key, slot)) = self.next_key()? else {
                 self.exhausted = true;
                 break;
             };
@@ -79,7 +79,7 @@ impl<'a> BoundedRange<'a> {
                 }
                 return Err(Error::ReadBudgetExceeded);
             }
-            let value = self.value(&key, maximum)?;
+            let value = self.value(&key, maximum, slot)?;
             self.lower = run_key(&self.collection, key.as_bytes())?;
             self.exclusive = true;
             if let Some(memo) = &mut self.memo {
@@ -96,7 +96,7 @@ impl<'a> BoundedRange<'a> {
             resume,
         })
     }
-    fn next_key(&mut self) -> Result<Option<String>> {
+    fn next_key(&mut self) -> Result<Option<(String, Option<usize>)>> {
         if !self.memo_attempted {
             self.memo = HeadMemo::new(
                 self.owner,
@@ -115,17 +115,21 @@ impl<'a> BoundedRange<'a> {
                 self.exclusive,
                 retained,
             )? {
-                Selection::Key(key) => return storage_key(&self.collection, &key).map(Some),
+                Selection::Key(key, slot) => {
+                    return storage_key(&self.collection, &key).map(|key| Some((key, Some(slot))));
+                }
                 Selection::Exhausted => return Ok(None),
                 Selection::Fallback => self.memo = None,
             }
         }
-        self.owner.streamed_next_key(
-            &self.collection,
-            &self.lower,
-            self.upper.as_deref(),
-            self.exclusive,
-        )
+        self.owner
+            .streamed_next_key(
+                &self.collection,
+                &self.lower,
+                self.upper.as_deref(),
+                self.exclusive,
+            )
+            .map(|key| key.map(|key| (key, None)))
     }
     fn coordinate_bytes(&self) -> u64 {
         (self.collection.capacity()
@@ -136,26 +140,36 @@ impl<'a> BoundedRange<'a> {
         self.coordinate_bytes()
             .saturating_add(self.memo.as_ref().map_or(0, HeadMemo::bytes))
     }
-    fn value(&mut self, key: &str, maximum: u64) -> Result<Option<Vec<u8>>> {
+    fn value(&mut self, key: &str, maximum: u64, slot: Option<usize>) -> Result<Option<Vec<u8>>> {
         let costs = self.owner.costs;
-        let value = self.reserved_value(key, maximum);
+        let value = self.reserved_value(key, maximum, slot);
         if matches!(value, Err(Error::ReadBudgetExceeded)) && self.memo.is_some() {
             self.memo = None;
             // An optional cache must not reject a row that the stateless path
             // admits. The selected logical key still consumes one work slot.
             self.owner.costs.examined_keys = costs.examined_keys;
             self.owner.costs.budget_bytes = costs.budget_bytes;
-            return self.reserved_value(key, maximum);
+            return self.reserved_value(key, maximum, None);
         }
         value
     }
-    fn reserved_value(&mut self, key: &str, maximum: u64) -> Result<Option<Vec<u8>>> {
+    fn reserved_value(
+        &mut self,
+        key: &str,
+        maximum: u64,
+        slot: Option<usize>,
+    ) -> Result<Option<Vec<u8>>> {
         let before = self.owner.shared_metadata_bytes;
         self.owner.shared_metadata_bytes = before
             .max(self.owner.retained_bytes())
             .checked_add(self.retained_bytes())
             .ok_or(Error::ReadBudgetExceeded)?;
-        let value = self.owner.streamed_value(&self.collection, key, maximum);
+        let value = match slot {
+            Some(slot) => self
+                .owner
+                .streamed_value_at(slot, &self.collection, key, maximum),
+            None => self.owner.streamed_value(&self.collection, key, maximum),
+        };
         self.owner.shared_metadata_bytes = before;
         value
     }
