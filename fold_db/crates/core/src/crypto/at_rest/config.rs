@@ -78,11 +78,12 @@ pub fn at_rest_compress_min_bytes() -> usize {
 
 /// Whether the **namespaced KV seam** may compress before sealing.
 ///
-/// This is a second, independent switch from [`at_rest_compression_enabled`],
-/// and it defaults **off**. The two seals cover different data: the `at_rest`
-/// codec seals values inside records and fields under a raw key, while the KV
-/// seam wraps the whole product store — `atoms`, `tips`, `indexes`,
+/// It is independent of [`at_rest_compression_enabled`], which gates no
+/// writer, and it defaults **off**. The KV seam is the only seal that
+/// compresses: it wraps the whole product store — `atoms`, `tips`, `indexes`,
 /// `metadata`, `change_feed`, `cas_blobs`, the order log and the locators.
+/// The raw-key `at_rest` seals of values inside records and fields never
+/// compress.
 ///
 /// It defaults off because turning it on changes the **stored format of the
 /// primary's largest planes**, and a node that later runs a build predating
@@ -101,8 +102,9 @@ pub fn kv_at_rest_compression_enabled() -> bool {
 /// Minimum plaintext size the KV seam attempts compression on.
 ///
 /// Override with `LASTDB_KV_AT_REST_COMPRESS_MIN_BYTES`; falls back to
-/// [`at_rest_compress_min_bytes`] so one knob still moves both seals when an
-/// operator only sets the general one.
+/// [`at_rest_compress_min_bytes`], so the general
+/// `LASTDB_AT_REST_COMPRESS_MIN_BYTES` still moves the KV seam when an
+/// operator sets only that one.
 #[must_use]
 pub fn kv_at_rest_compress_min_bytes() -> usize {
     env_flag::var_parsed::<usize>("LASTDB_KV_AT_REST_COMPRESS_MIN_BYTES")
@@ -111,10 +113,11 @@ pub fn kv_at_rest_compress_min_bytes() -> usize {
 
 /// Whether `LASTDB_AT_REST_RAW` is set.
 ///
-/// No writer consults this switch: each seal call site picks its own form
-/// (`seal_at_rest_utf8`, `seal_at_rest_raw`, or the KV seam's `ENB:` form), and
-/// reads accept every form. Only the `codec_policy.writer_policy` status label
-/// reads it.
+/// No writer consults this switch: each raw-key seal call site picks its own
+/// form (`seal_at_rest_utf8` or `seal_at_rest_raw`), the KV seam picks `ENC:`,
+/// `ENZ:`, or `ENB:` from `LASTDB_KV_AT_REST_RAW` and
+/// `LASTDB_KV_AT_REST_COMPRESS`, and reads accept every form. Only the
+/// `codec_policy.writer_policy` status label reads it.
 #[must_use]
 pub fn at_rest_raw_enabled() -> bool {
     matches!(env_flag::var_parse("LASTDB_AT_REST_RAW"), Some(true))

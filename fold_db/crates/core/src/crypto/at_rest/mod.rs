@@ -62,7 +62,7 @@ mod compress;
 mod config;
 mod stats;
 
-pub use compress::*;
+pub(crate) use compress::*;
 pub use config::*;
 pub use stats::*;
 
