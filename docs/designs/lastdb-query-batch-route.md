@@ -50,9 +50,10 @@ Reply (`200`):
 
 ## How it runs
 
-- Each item runs through the same code as `/api/query` (as a sub-request), so
-  parse, schema resolve, access checks, limits, and error bodies are identical
-  by construction. A test compares each item to the single route.
+- Each item uses the same pure query parser, host handler, and receipt renderer
+  as `/api/query`. The batch moves the parsed JSON object into that parser.
+  It does not serialize the item into a synthetic request or parse its bytes again.
+  Schema resolve, access checks, limits, and error bodies remain in those shared rules.
 - Items run **4 at a time**, inside the request task. Each item takes its own QoS
   permit, as a single query does; the batch holds none. The width keeps one
   request from taking the global budget (64 permits by default) while the cold
