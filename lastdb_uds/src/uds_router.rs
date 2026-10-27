@@ -170,6 +170,10 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
             "POST" => ControlRoute::Data(DataRoute::LogFilterSet),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
+        "/api/db/native-status" if owner => match method {
+            "GET" | "POST" => ControlRoute::Data(DataRoute::DbNativeStatus),
+            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
+        },
         "/api/db/cleanup" if owner => match method {
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },

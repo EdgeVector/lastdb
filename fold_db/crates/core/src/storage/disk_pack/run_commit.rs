@@ -73,10 +73,11 @@ impl PackRuntime {
         }
         // The current roots hold this commit; a merge root holds the same data.
         let root = v2.current_root();
-        let _timing = laststore::commit_timing::stage("memory_publication_us");
+        let publication_timing = laststore::commit_timing::stage("memory_publication_us");
         let (generation, frontier) = (root.generation(), root.frontier());
         self.install_committed(root, hidden_changes, key_changes, requests)?;
         self.last_root.observe(generation, frontier);
+        drop(publication_timing);
         drop(space);
         self.failed.store(false, Ordering::Release);
         start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.last_root));
@@ -243,18 +244,29 @@ fn merge_until_settled(
     loop {
         'steps: while !stop.load(Ordering::Acquire) {
             let mut merged = false;
-            for weak in homes {
+            for (home_number, weak) in homes.iter().enumerate() {
                 let Some(home) = weak.upgrade() else {
                     break 'steps;
                 };
-                match home.merge_step() {
+                let (result, report) = laststore::commit_timing::measure(|| {
+                    let result = home.merge_step();
+                    if matches!(&result, Ok(Some(_))) {
+                        drop(home);
+                        laststore::commit_timing::during("v2_merge_root_adoption_us", || {
+                            adopted.install(homes);
+                        });
+                        // Adoption releases the view's previous root before
+                        // the existing pacing wait for readers' older roots.
+                        laststore::commit_timing::during("v2_merge_held_read_wait_us", || {
+                            wait_for_held_runs(weak, stop);
+                        });
+                    }
+                    result
+                });
+                super::timing::merge(report, &result, home_number);
+                match result {
                     Ok(Some(_)) => {
                         merged = true;
-                        drop(home);
-                        adopted.install(homes);
-                        // The view holds the merged root now, so only reads
-                        // that captured an older root keep the replaced runs.
-                        wait_for_held_runs(weak, stop);
                     }
                     Ok(None) => {}
                     Err(error) => {

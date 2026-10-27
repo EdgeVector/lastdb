@@ -19,17 +19,26 @@ on:
         options: ['1', '10']
         default: '1'
       seconds:
-        description: Seconds at each of 100, 1000, and 5000 updates/s (1-1800)
+        description: Seconds at each selected update rate (1-1800)
         type: string
         default: '1800'
+      rates:
+        description: Offered application updates per second
+        type: choice
+        options: ['100,1000,5000', '1000']
+        default: '100,1000,5000'
       seed_seconds:
         description: Maximum seed seconds per corpus (1-1800)
         type: string
         default: '1800'
       try_large:
-        description: After 1 GiB, attempt full 10 GiB phases if disk space permits
+        description: After 1 GiB, attempt 10 GiB if space permits (disabled with diagnostics)
         type: boolean
         default: true
+      diagnostics:
+        description: Capture numeric write stages and post-load disk checkpoints
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,10 +62,13 @@ jobs:
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       # PRs check the driver and recovery on 1 GiB with short load phases.
       # Full 30-minute capacity phases and the guarded 10 GiB attempt are manual.
+      # Diagnostic investigations keep one corpus and do not attempt 10 GiB.
       REQUEST_GIB: ${{ github.event_name == 'workflow_dispatch' && inputs.gib || '1' }}
       REQUEST_SECONDS: ${{ github.event_name == 'pull_request' && '30' || inputs.seconds || '1800' }}
+      REQUEST_RATES: ${{ github.event_name == 'workflow_dispatch' && inputs.rates || '100,1000,5000' }}
       REQUEST_SEED_SECONDS: ${{ inputs.seed_seconds || '1800' }}
-      REQUEST_TRY_LARGE: ${{ github.event_name == 'workflow_dispatch' && inputs.try_large }}
+      REQUEST_TRY_LARGE: ${{ github.event_name == 'workflow_dispatch' && !inputs.diagnostics && inputs.try_large }}
+      REQUEST_DIAGNOSTICS: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
       NO_COLOR: '1'
@@ -66,6 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$REQUEST_GIB" in 1|10) ;; *) exit 1 ;; esac
+          case "$REQUEST_RATES" in '100,1000,5000'|'1000') ;; *) exit 1 ;; esac
           for value in "$REQUEST_SECONDS" "$REQUEST_SEED_SECONDS"; do
             [[ "$value" =~ ^[0-9]{1,4}$ ]]
             (( 10#$value >= 1 && 10#$value <= 1800 ))
@@ -75,7 +88,7 @@ jobs:
           echo "SUSTAINED_OUTPUT=$result" >> "$GITHUB_ENV"
           echo "SUSTAINED_BINARY_ROOT=$RUNNER_TEMP/v2-sustained-programs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           printf '%s\n' "$CANDIDATE_SHA" > "$result/source-revision.txt"
-          printf '%s\n' "ubuntu-24.04; public repository; gib=$REQUEST_GIB; seconds=$REQUEST_SECONDS; seed_seconds=$REQUEST_SEED_SECONDS; rates=100,1000,5000; try_large=$REQUEST_TRY_LARGE" > "$result/recipe.txt"
+          printf '%s\n' "ubuntu-24.04; public repository; gib=$REQUEST_GIB; seconds=$REQUEST_SECONDS; seed_seconds=$REQUEST_SEED_SECONDS; rates=$REQUEST_RATES; try_large=$REQUEST_TRY_LARGE; diagnostics=$REQUEST_DIAGNOSTICS" > "$result/recipe.txt"
 
       - name: Checkout the exact candidate and measurement driver
         uses: actions/checkout@v5
@@ -171,9 +184,12 @@ jobs:
           args=(--binary "$SUSTAINED_BINARY_ROOT/$CANDIDATE_SHA/lastdbd"
                 --revision "$CANDIDATE_SHA" --output "$SUSTAINED_OUTPUT/measurement"
                 --gib "$REQUEST_GIB" --seconds "$REQUEST_SECONDS"
-                --rates 100,1000,5000 --seed-seconds "$REQUEST_SEED_SECONDS")
+                --rates "$REQUEST_RATES" --seed-seconds "$REQUEST_SEED_SECONDS")
           if [ "$REQUEST_GIB" = 1 ] && [ "$REQUEST_TRY_LARGE" = true ]; then
             args+=(--try-large)
+          fi
+          if [ "$REQUEST_DIAGNOSTICS" = true ]; then
+            args+=(--diagnostics)
           fi
           python3 candidate/scripts/benchmarks/sustained/run.py "${args[@]}" \
             2>&1 | tee "$SUSTAINED_OUTPUT/measurement.log"

@@ -65,3 +65,41 @@ the full duration can support conclusions about that duration.
 
 Use the Actions summary and uploaded artifacts as the measurement record. Do not
 commit generated results or duplicate receipts to the repository.
+
+## Opt-in write and disk diagnostics
+
+The manual `diagnostics` option selects numeric write stages and four disk
+checkpoints. The PR recipe selects this option for its short validation run.
+For a sustained investigation, select 1 GiB, `rates=1000`, and `seconds=1800`.
+The diagnostic recipe disables the optional 10 GiB attempt.
+
+The checkpoints follow the initial load, updates, idle time, and crash recovery.
+Idle time is five minutes, or the phase duration when that duration is shorter.
+The checkpoints count current keys and stored value bytes by internal collection.
+They also separate published, retained, temporary, and unreferenced file bytes.
+Resource samples separate the search inbox from native files. The benchmark
+does not start a consumer for that inbox. File entries and unique file inodes
+have separate byte totals, so hardlinks remain visible without a duplicate count.
+The inventory shares a 60-second deadline across both homes. It has a 64 MiB
+memory limit, a 512-cursor input limit, and a 50-million-record work limit.
+The ordered base files share one cursor, with one base file open at a time.
+A partial result remains explicit and makes the investigation incomplete.
+
+The numeric logs separate requests, native write scopes, physical commits,
+completion, Search delivery, and background compaction. Completion covers the
+delivery, resource release, and ack notice after the native disk commit.
+Search delivery includes JSON encode, file write, and rename stages.
+Nested stages and concurrent work overlap. Do not add
+their durations. Request duration excludes the socket queue wait. Diagnostics
+add work, so these times do not establish the uninstrumented write limit.
+Request JSON omits zero phase fields. A request stage mean uses only records
+with that field present; the report shows this count beside the total count.
+The deliberate crash can interrupt a log record. Its exact log byte interval
+is excluded and reported; load capture and request count checks remain strict.
+The separate recovered-key check still requires the last acknowledged version.
+
+The Actions summary shows the results. `diagnostics.json` retains all numeric
+stages, counts, checkpoint totals, coverage checks, and capture errors.
+Logical bytes precede block compression. Do not subtract them from file bytes.
+Normal nodes perform no inventory or numeric log capture without both existing
+isolation and timing flags.

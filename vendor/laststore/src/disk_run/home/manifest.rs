@@ -10,13 +10,9 @@
 
 use super::super::codec::{corrupt, get_len, get_slice, get_varint, put_varint};
 use super::super::{MAX_RUN_KEY_BYTES, RUN_SUFFIX};
-use crate::durability::{sync_directory, sync_dirty_file};
-use crate::frame::{encode_frame, min_encoded_len, FrameHeader};
-use crate::{Error, Result};
+use crate::Result;
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -35,7 +31,7 @@ pub(super) const MAX_LEVELS: usize = 32;
 /// them far below this.
 pub(super) const MAX_LEVEL_RUNS: usize = 4096;
 /// Largest CURRENT file a reader accepts.
-const MAX_CURRENT_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_CURRENT_BYTES: usize = 64 * 1024 * 1024;
 
 /// What CURRENT records about one run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,7 +172,7 @@ impl Manifest {
         self.levels.iter().flatten()
     }
 
-    fn encode(&self) -> Vec<u8> {
+    pub(super) fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(MAGIC);
         out.extend_from_slice(self.home_id.as_bytes());
@@ -243,7 +239,7 @@ impl Manifest {
     /// The facts reads and merges rely on: each run named once, a cut only
     /// during a base merge, and base runs in key order with no overlap and
     /// no tombstone.
-    fn check_shape(&self) -> Result<()> {
+    pub(super) fn check_shape(&self) -> Result<()> {
         let mut seen = HashSet::new();
         if !self.newest_first().all(|run| seen.insert(run.meta.run_id)) {
             return Err(corrupt("CURRENT names a run twice"));
@@ -259,56 +255,6 @@ impl Manifest {
             return Err(corrupt("CURRENT has an unordered base"));
         }
         Ok(())
-    }
-
-    /// Seal this manifest into a synced temporary file in `root`.
-    ///
-    /// It refuses a manifest that [`Manifest::load`] would refuse, so a
-    /// published CURRENT always opens. An error leaves the old CURRENT.
-    pub(super) fn stage(&self, root: &Path, key: &[u8; 32]) -> Result<PathBuf> {
-        self.check_shape()?;
-        let payload = self.encode();
-        if self.levels.len() > MAX_LEVELS
-            || self.levels.iter().any(|level| level.len() > MAX_LEVEL_RUNS)
-            || self.merging.len() > MAX_LEVEL_RUNS
-            || self.base.len() > MAX_LEVEL_RUNS
-            || payload.len() > MAX_CURRENT_BYTES - min_encoded_len()
-        {
-            return Err(Error::WriteCapacity(
-                "disk run home: CURRENT would exceed its open limits; merge first".into(),
-            ));
-        }
-        let header = FrameHeader {
-            chunk_uuid: Uuid::new_v4(),
-            shard: 0,
-            start_csn: 0,
-            counter: 0,
-        };
-        let frame = encode_frame(key, header, &payload)?;
-        // Named by generation, not by the frame id: one owner stages each
-        // generation once, and open removes any leftover.
-        let tmp = root.join(format!(".{CURRENT}.{}.tmp", self.generation));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        let written = file
-            .write_all(&frame)
-            .map_err(Error::from)
-            .and_then(|()| sync_dirty_file(&file));
-        if let Err(error) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(error);
-        }
-        Ok(tmp)
-    }
-
-    /// Rename a staged CURRENT into place and sync the directory. After an
-    /// error here the durable CURRENT is unknown; the caller must stop.
-    pub(super) fn replace(root: &Path, staged: &Path) -> Result<()> {
-        fs::rename(staged, root.join(CURRENT))?;
-        sync_directory(&File::open(root)?)
     }
 
     /// Read and authenticate CURRENT, and check that it names `home_id`.

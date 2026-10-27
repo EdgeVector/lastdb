@@ -1,5 +1,6 @@
 //! Optional, bounded Search delivery. Overflow requires an explicit rebuild.
 
+use laststore::commit_timing as timing;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
@@ -106,24 +107,39 @@ fn fits(inbox: &Path, incoming: u64) -> io::Result<bool> {
 
 /// A cap stops delivery, never database writes. Existing batches stay intact.
 pub(super) fn deliver(inbox: &Path, name: &str, body: &[u8]) -> io::Result<bool> {
-    fs::create_dir_all(inbox)?;
-    let _lock = producer_lock(inbox)?;
-    if inbox.join(REBUILD_REQUIRED).try_exists()? {
+    timing::during("search_mkdir_us", || fs::create_dir_all(inbox))?;
+    let _lock = timing::during("search_lock_wait_us", || producer_lock(inbox))?;
+    if timing::during("search_marker_check_us", || {
+        inbox.join(REBUILD_REQUIRED).try_exists()
+    })? {
+        timing::count("search_rebuild_paused", 1);
         return Ok(false);
     }
-    if !fits(inbox, body.len() as u64)? {
-        mark_rebuild(inbox, "queue_limit")?;
+    if !timing::during("search_capacity_check_us", || {
+        fits(inbox, body.len() as u64)
+    })? {
+        timing::during("search_mark_rebuild_us", || {
+            mark_rebuild(inbox, "queue_limit")
+        })?;
+        timing::count("search_queue_limit", 1);
         return Ok(false);
     }
     atomic_write(inbox, name, body)?;
+    timing::count("search_delivered", 1);
     Ok(true)
 }
 
 fn atomic_write(inbox: &Path, name: &str, body: &[u8]) -> io::Result<()> {
-    let mut temp = tempfile::NamedTempFile::new_in(inbox)?;
-    temp.write_all(body)?;
-    temp.as_file().sync_all()?;
-    temp.persist_noclobber(inbox.join(name))
-        .map_err(|error| error.error)?;
-    File::open(inbox)?.sync_all()
+    let mut temp = timing::during("search_file_create_us", || {
+        tempfile::NamedTempFile::new_in(inbox)
+    })?;
+    timing::during("search_file_write_us", || temp.write_all(body))?;
+    timing::during("search_file_flush_us", || temp.as_file().sync_all())?;
+    timing::during("search_rename_us", || {
+        temp.persist_noclobber(inbox.join(name))
+    })
+    .map_err(|error| error.error)?;
+    timing::during("search_directory_flush_us", || {
+        File::open(inbox)?.sync_all()
+    })
 }

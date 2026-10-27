@@ -180,12 +180,15 @@ def seed(node, args, telemetry):
         raise ValueError("Seed size, batch, workers, and deadline must be positive")
     metadata = {"records": 0, "target_records": target, "body_bytes": body_bytes,
                 "target_payload_bytes": target * body_bytes, "submitted": 0, "failed": 0,
+                "mutation_requests": 0,
                 "complete": False, "errors": [], "payload_recipe": "shake256/base85-v1"}
     started, next_progress = time.monotonic(), time.monotonic() + 60
     deadline, pending, stopped = started + args.seed_seconds, {}, False
     try:
         for name in (SCHEMA, CANARY_SCHEMA):
             node.call("/api/schemas/seed-system", schema_request(name))
+        # Count attempts, including HTTP failures, for exact server-log coverage.
+        metadata["mutation_requests"] += 1
         result, _, _ = node.call("/api/mutations/batch", write_canary_request(0))
         if mutation_outcome(result, 1)[1]:
             raise RuntimeError("The initial durable canary write failed")
@@ -197,6 +200,7 @@ def seed(node, args, telemetry):
                     first = metadata["submitted"]
                     count = min(batch, target - first)
                     pending[executor.submit(_put_seed, node, first, count, body_bytes)] = count
+                    metadata["mutation_requests"] += 1
                     metadata["submitted"] += count
                 done, _ = wait(pending, timeout=.2, return_when=FIRST_COMPLETED)
                 for future in done:

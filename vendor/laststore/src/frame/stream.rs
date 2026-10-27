@@ -15,7 +15,7 @@ use source::Source;
 
 enum Payload {
     Raw(Box<GcmReader>),
-    CompressedPending(Option<Box<GcmReader>>),
+    CompressedPending(Option<Box<GcmReader>>, u32),
     Compressed(Box<zstd::stream::read::Decoder<'static, GcmReader>>),
     Finished,
 }
@@ -29,7 +29,7 @@ impl Read for Payload {
         match self {
             Self::Raw(reader) => reader.read(output),
             Self::Compressed(reader) => reader.read(output),
-            Self::CompressedPending(_) => Err(io::Error::new(
+            Self::CompressedPending(_, _) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "streamed frame decoder is unavailable",
             )),
@@ -40,12 +40,12 @@ impl Read for Payload {
 
 impl Payload {
     fn prepare(&mut self) -> io::Result<()> {
-        if let Self::CompressedPending(input) = self {
+        if let Self::CompressedPending(input, window_log) = self {
             let input = input.take().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "streamed frame decoder failed")
             })?;
             let mut decoder = zstd::stream::read::Decoder::with_buffer(*input)?;
-            decoder.window_log_max(MAX_DECOMPRESSED_FRAME_BYTES.ilog2())?;
+            decoder.window_log_max(*window_log)?;
             *self = Self::Compressed(Box::new(decoder));
         }
         Ok(())
@@ -68,7 +68,7 @@ impl Payload {
                 let mut inner = (*reader).finish();
                 inner.verify_consumed()
             }
-            Self::CompressedPending(_) => Err(io::Error::new(
+            Self::CompressedPending(_, _) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "streamed frame decoder is unavailable",
             )),
@@ -97,8 +97,40 @@ impl VerifiedFrameReader {
         encoded_bytes: u64,
         data_key: &[u8; 32],
     ) -> Result<Self> {
+        Self::open_with_window(
+            file,
+            offset,
+            encoded_bytes,
+            data_key,
+            MAX_DECOMPRESSED_FRAME_BYTES,
+        )
+    }
+
+    /// Checkpoint readers admit a smaller payload and its rounded decoder window.
+    /// Ordinary streams continue to use the full existing format limit.
+    pub(crate) fn open_with_window(
+        file: &File,
+        offset: u64,
+        encoded_bytes: u64,
+        data_key: &[u8; 32],
+        maximum_payload: usize,
+    ) -> Result<Self> {
+        if maximum_payload == 0 || maximum_payload > MAX_DECOMPRESSED_FRAME_BYTES {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let window = maximum_payload
+            .max(1024)
+            .checked_next_power_of_two()
+            .ok_or(Error::ReadBudgetExceeded)?;
         let timer = Timer::start();
-        let result = Self::open_inner(file, offset, encoded_bytes, data_key);
+        let result = Self::open_inner(
+            file,
+            offset,
+            encoded_bytes,
+            data_key,
+            maximum_payload,
+            window,
+        );
         timer.finish(|receipt, nanos| {
             receipt.decode_nanos = receipt.decode_nanos.saturating_add(nanos)
         });
@@ -110,6 +142,8 @@ impl VerifiedFrameReader {
         offset: u64,
         encoded_bytes: u64,
         data_key: &[u8; 32],
+        maximum_payload: usize,
+        window: usize,
     ) -> Result<Self> {
         let source = Arc::new(Source::open(file, offset, encoded_bytes)?);
         GcmReader::new(Arc::clone(&source), data_key)?.authenticate()?;
@@ -126,18 +160,21 @@ impl VerifiedFrameReader {
                     "streamed decompressed frame exceeds existing limit".into(),
                 ));
             }
+            if expected > maximum_payload as u64 {
+                return Err(Error::ReadBudgetExceeded);
+            }
             // Reserve the maximum existing window plus bounded decoder context/block
             // workspace. Callers include this reservation before output allocation.
-            let charge = TemporaryBytes::new(decoder_reserve());
+            let charge = TemporaryBytes::new(decoder_reserve(window));
             (
-                Payload::CompressedPending(Some(Box::new(plain))),
+                Payload::CompressedPending(Some(Box::new(plain)), window.ilog2()),
                 expected,
                 Some(charge),
             )
         };
         let memory_bytes = buffer_bytes
             + if decoder_charge.is_some() {
-                decoder_reserve() as u64
+                decoder_reserve(window) as u64
             } else {
                 0
             };
@@ -227,8 +264,8 @@ fn buffer_size() -> usize {
     lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize
 }
 
-fn decoder_reserve() -> usize {
-    MAX_DECOMPRESSED_FRAME_BYTES + 2 * buffer_size()
+fn decoder_reserve(window: usize) -> usize {
+    window + 2 * buffer_size()
 }
 
 fn as_io(error: Error) -> io::Error {

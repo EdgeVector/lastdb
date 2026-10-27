@@ -11,6 +11,7 @@
 use super::sink::{IndexChangeBatch, IndexSink};
 use crate::schema::SchemaError;
 use async_trait::async_trait;
+use laststore::commit_timing as timing;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 use uuid::Uuid;
@@ -75,18 +76,14 @@ impl SearchOutboxSink {
     pub fn new(inbox: PathBuf) -> Self {
         Self { inbox }
     }
-}
 
-#[async_trait]
-impl IndexSink for SearchOutboxSink {
-    async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
-        if !super::queue_policy::enabled() {
-            return Ok(());
-        }
+    fn write_batch(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
+        timing::count("search_changes", batch.changes.len() as u64);
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());
         let path = self.inbox.join(&name);
-        let body = serde_json::to_vec_pretty(&batch)
+        let body = timing::during("search_json_encode_us", || serde_json::to_vec_pretty(batch))
             .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
+        timing::count("search_json_bytes", body.len() as u64);
         let delivered = super::queue_policy::deliver(&self.inbox, &name, &body).map_err(|e| {
             SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
         })?;
@@ -99,6 +96,29 @@ impl IndexSink for SearchOutboxSink {
             "Search batch delivery decision"
         );
         Ok(())
+    }
+}
+
+#[async_trait]
+impl IndexSink for SearchOutboxSink {
+    async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
+        if !super::queue_policy::enabled() {
+            return Ok(());
+        }
+        let (result, report) = timing::measure(|| self.write_batch(&batch));
+        if let Some(report) = report {
+            timing::emit(
+                "LASTDB_SNAPSHOT_TIMING",
+                &serde_json::json!({
+                    "kind": "search_outbox", "ok": result.is_ok(),
+                    "started_us": report.started_us, "ended_us": report.ended_us,
+                    "total_us": report.total_us, "covered_us": report.covered_us,
+                    "unassigned_us": report.unassigned_us,
+                    "phases_us": report.phases_us, "counts": report.counts,
+                }),
+            );
+        }
+        result
     }
 }
 
