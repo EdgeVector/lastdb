@@ -118,9 +118,9 @@ def refresh_draft(release, plan, folder):
 
 def publish(plan, folder):
     runtime(plan, publishing=True)
-    hashes = validate(folder, plan)
     for path in sorted(folder.iterdir()):
         attest(path, plan)
+    hashes = validate(folder, plan)
     wait_gates(plan, 0)
     stale = previous(plan)
     if stale:

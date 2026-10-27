@@ -81,9 +81,9 @@ def verify_release(release, plan, draft=False):
     with tempfile.TemporaryDirectory(prefix="nightly-verify-", dir=os.environ["RUNNER_TEMP"]) as name:
         folder = Path(name)
         download(release, folder)
-        hashes = validate(folder, plan)
         for path in sorted(folder.iterdir()):
             attest(path, plan)
+        hashes = validate(folder, plan)
     return {"url": release["html_url"], "tag": plan["tag"], "source": plan["source"], "hashes": hashes}
 
 
