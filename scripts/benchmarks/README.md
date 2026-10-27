@@ -279,6 +279,7 @@ At capacity, delivery stops with a durable rebuild marker. Database writes conti
 See [the Search option and recovery policy](../../docs/lastdb-optional-search.md).
 
 Each measured run also compares default-off and explicit enabled modes of the verified candidate.
+Historical manual comparisons opt into `search_queue` only for a candidate that supports the option.
 PRs use 512 records, three full update rounds, two alternating pairs, and a 1 MiB queue cap.
 Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.
 No Search consumer runs. A further full update after reopen verifies writes after saturation.

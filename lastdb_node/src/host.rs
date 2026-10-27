@@ -346,8 +346,6 @@ impl Host {
         let data_path = Self::prepare_boot_home(home)?;
         let search_outbox_inbox =
             fold_db::db_operations::search_index::search_inbox_dir_for_home(home);
-        fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
-            .map_err(|error| format!("Search queue preparation failed: {error}"))?;
 
         let existing_store = data_dir_has_existing_store(&data_path);
 
@@ -359,9 +357,11 @@ impl Host {
             existing_store,
             &keypair,
             &e2e_keys,
-            search_outbox_inbox,
+            search_outbox_inbox.clone(),
         )
         .await?;
+        fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
+            .map_err(|error| format!("Search queue preparation failed: {error}"))?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         clear_last_boot_error(home);
         write_codec_format_requirement(home);

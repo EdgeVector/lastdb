@@ -57,6 +57,8 @@ def measure(args, mode, folder):
         save(folder / "reopen-shutdown.json", json.loads((folder / "shutdown.json").read_text()))
         node.start()
         with workload.monitor():
+            workload.read(0, workload.live_records)
+            result["reopen_values_verified"] = True
             workload.write(0, workload.live_records, "after-reopen", False)
             result["after_reopen_write"] = point(workload, 1)
         result["peak_memory_bytes"] = max(sample["memory_bytes"] for sample in workload.samples)
