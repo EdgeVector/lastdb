@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from node import Node, save  # noqa: E402  (the benchmark daemon driver)
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
+import cleanup  # noqa: E402
 
 LIMIT = 2.0
 MINIMUM_LOGICAL = 16 * 1024 * 1024
@@ -112,6 +113,7 @@ class Case:
         self.sampler = Sampler(self.data)
         self.seed = Seed(SEED_NUMBER)
         self.phases, self.failures = [], []
+        self.cleanup_receipt = None
 
     def execute(self):
         self.sampler.start()
@@ -132,6 +134,7 @@ class Case:
         report = {"case": CASE, "candidate": self.candidate[1], "settings": self.settings,
                   "settings_name": self.settings_name, "seed": self.seed.counts,
                   "phases": self.phases, "failures": self.failures,
+                  "cleanup": self.cleanup_receipt,
                   "sampler_errors": self.sampler.errors[:20]}
         save(self.folder / "report.json", report)
         return report
@@ -184,6 +187,8 @@ class Case:
         logical = self.logical()
         reads = self.reads()
         listed = self.listed("writes on v2")
+        self.cleanup_receipt = cleanup.request_and_wait(self.node)
+        save(self.folder / "cleanup-request.json", self.cleanup_receipt)
         self.node.stop()
         self.phases.append({
             "name": "writes on v2", "writes": writes, "settled": settled,
@@ -195,6 +200,7 @@ class Case:
         self.node.environment = environment
         self.sampler.begin(name)
         self.node.start()
+        cleanup.verify_saved(self.node, self.cleanup_receipt)
         settled = settle(self.data)
         logical = self.logical()
         reads = self.reads()
@@ -418,6 +424,11 @@ def summary(report, candidate):
             f"{reads['absent']:,} absent | {keys:,}, {removed:,} of them deleted |")
     for failure in report["failures"]:
         lines.append(f"- FAIL: {failure}")
+    if report.get("cleanup"):
+        receipt = report["cleanup"]
+        lines.append(f"Explicit cleanup: {receipt['phase']}, both stores, "
+                     f"target {receipt['target']}, completed through {receipt['completed_through']}; "
+                     "same-id repeat and saved receipt after reopen equal.")
     lines.append("")
     return "\n".join(lines)
 

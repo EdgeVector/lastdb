@@ -4,6 +4,20 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
+    /// Reclaim already-deleted v2 data in both active stores.
+    /// The request survives a restart. Backup copies are outside this operation.
+    Cleanup {
+        /// Read the last request without a new cleanup request.
+        #[arg(long)]
+        status: bool,
+        /// Wait for completion, read release, or the client deadline.
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        timeout: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Preview one bounded page of redundant generation delete markers.
     /// Active generations and in-flight generation preparations stay protected.
     CleanupDeleteMarkers {

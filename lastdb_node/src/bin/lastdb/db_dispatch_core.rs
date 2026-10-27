@@ -58,6 +58,12 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
 /// Dispatch the space reclaim and GC verbs.
 pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Result<(), String> {
     match action {
+        DbReclaimCommand::Cleanup {
+            status,
+            wait,
+            timeout,
+            json,
+        } => db_cleanup(socket, status, wait, timeout, json),
         DbReclaimCommand::CleanupDeleteMarkers {
             molecule,
             scope,

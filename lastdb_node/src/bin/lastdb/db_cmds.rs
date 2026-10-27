@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "db_cleanup_cmds.rs"]
+mod db_cleanup_cmds;
+pub(crate) use db_cleanup_cmds::*;
+
 #[path = "db_delete_marker_cmds.rs"]
 mod db_delete_marker_cmds;
 pub(crate) use db_delete_marker_cmds::*;

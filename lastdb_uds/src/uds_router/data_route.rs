@@ -285,6 +285,8 @@ pub enum DataRoute {
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,
+    /// `POST /api/db/cleanup` saves a resumable cleanup request; GET reads its receipt.
+    DbCleanup,
     /// `GET /api/db/native-status` — read native completion and writer state.
     /// OWNER only. This does not request a flush.
     DbNativeStatus,

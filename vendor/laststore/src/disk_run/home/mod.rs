@@ -32,6 +32,8 @@
 
 mod capture;
 mod cleanup;
+mod cleanup_checkpoint;
+mod cleanup_files;
 mod commit;
 mod keys;
 mod manifest;
@@ -41,6 +43,7 @@ mod read;
 mod read_only;
 
 pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
+pub use cleanup_files::RunCleanupFiles;
 pub use commit::{HomeMutation, MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
@@ -370,7 +373,9 @@ fn remove_leftovers(root: &Path, runs: &Path, manifest: &Manifest) -> Result<()>
     for entry in fs::read_dir(root)? {
         let name = entry?.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(".CURRENT.") && name.ends_with(".tmp") {
+        if (name.starts_with(".CURRENT.") || name.starts_with(".NODE_CLEANUP."))
+            && name.ends_with(".tmp")
+        {
             fs::remove_file(root.join(&*name))?;
         }
     }

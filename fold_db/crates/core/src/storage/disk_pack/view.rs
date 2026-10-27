@@ -5,6 +5,7 @@ use super::*;
 /// A read-only operational boundary; this method never wakes a flush worker.
 #[derive(serde::Serialize)]
 pub struct NativeDiskStatus {
+    pub cleanup: NativeCleanupStatus,
     pub generation: u64,
     pub frontier: u64,
     pub accepted_batch: bool,
@@ -99,6 +100,7 @@ impl PackRuntime {
             )
         };
         NativeDiskStatus {
+            cleanup: self.status_cleanup(),
             generation,
             frontier,
             accepted_batch: accepted > 0,
