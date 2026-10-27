@@ -15,9 +15,6 @@ pub struct DiskReadReceipt {
     pub logical_warm_hits: u64,
     /// Logical records absent from the embedding caller's warm set.
     pub logical_warm_misses: u64,
-    /// Has no writer in disk format v2 and stays zero. Request telemetry still
-    /// reports it as `cold_shard_loads`, so the field stays.
-    pub group_opens: u64,
     /// Read-only file open attempts, including failed opens.
     pub file_open_attempts: u64,
     /// Successful read-only file opens; repeated opens count separately.
@@ -26,9 +23,6 @@ pub struct DiskReadReceipt {
     pub metadata_operations: u64,
     /// File read calls, including EOF and failed reads.
     pub read_operations: u64,
-    /// Has no writer in disk format v2 and stays zero. The range continuation
-    /// benchmark scripts still read it from the query read receipt.
-    pub legacy_replay_bytes: u64,
     /// Bytes read for disk run footers and index blocks.
     pub footer_bytes: u64,
     /// Bytes read from disk run data blocks and streamed frame payloads.

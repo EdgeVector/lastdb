@@ -7,7 +7,7 @@ pub(crate) enum DbInspectCommand {
     /// Decrypt/read live store: main key-class + per-schema atom/history sizes.
     ///
     /// **Heavy op:** full-prefix walks over multi-GiB stores can take minutes
-    /// and load many cold shards (see `lastdb ops`). Prefer `--out PATH` over
+    /// (see `lastdb ops`). Prefer `--out PATH` over
     /// shell redirect (`> file`) so a client deadline cannot leave a 0-byte
     /// product file that looks like an empty store.
     ///

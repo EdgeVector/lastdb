@@ -38,16 +38,6 @@ pub trait NamespacedStore: Send + Sync {
         Ok(())
     }
 
-    /// Cold shard loads since open, if this backend tracks them.
-    ///
-    /// **Cheap by contract: one relaxed atomic load, no lock.** This is the
-    /// accessor the per-request telemetry path may call. Wrapper stores
-    /// delegate to their inner store; backends without hash-group shards
-    /// return `None`.
-    fn cold_shard_loads(&self) -> Option<u64> {
-        None
-    }
-
     /// Ids stepped over by keys-only walks since open, if this backend tracks
     /// them. `None` on backends with no walk path.
     ///

@@ -339,9 +339,6 @@ impl SamplerRuntimeState {
                     max_ms: aggregate.max_ms,
                     last_ts_ms: aggregate.last_ts_ms,
                     error_count: aggregate.error_count.saturating_sub(prev.error_count),
-                    sum_cold_shard_loads: aggregate
-                        .sum_cold_shard_loads
-                        .saturating_sub(prev.sum_cold_shard_loads),
                     sum_body_bytes: aggregate.sum_body_bytes.saturating_sub(prev.sum_body_bytes),
                     // Same as max_ms: running max, not an interval delta.
                     max_body_bytes: aggregate.max_body_bytes,

@@ -223,9 +223,9 @@ Add these fields to the native core status (`storage/disk_pack/view.rs`, `CoreWa
 The self-metrics sampler already records the process footprint. Its log line adds `warm_used_bytes` next to the footprint.
 The ratio of the two is the check on the estimate.
 
-`ProcessMemoryBudget` (`memory_budget/process_budget.rs`) charges `resident_graph_bytes` from the 2 GiB `LASTDB_RESIDENT_BYTES` reserve today.
-The code comment says that this reserve stays only "while clean native atom retention has a record cap rather than a global byte cap".
-After this change, that input becomes `warm_limit_bytes`.
+`ProcessMemoryBudget` (`memory_budget/process_budget.rs`) charged `resident_graph_bytes` from the 2 GiB `LASTDB_RESIDENT_BYTES` reserve.
+The code comment said that this reserve stays only "while clean native atom retention has a record cap rather than a global byte cap".
+Done in PR 570 (2026-10-27): the projection charges only the warm set byte limit, and `LASTDB_RESIDENT_BYTES` is removed.
 
 ## Calibration
 

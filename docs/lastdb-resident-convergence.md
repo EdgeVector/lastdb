@@ -53,11 +53,11 @@ change.
 | Cache | Where | Bound | Mode gated |
 |---|---|---|---|
 | `LogicalResidentSet` | store layer, [`storage/laststore/logical_path/`](https://github.com/EdgeVector/lastdb/tree/011b29f3a74eac3eb3a977678630c40345157ed4/fold_db/crates/core/src/storage/laststore/logical_path) (removed) | 10000 records (`RESIDENT_KEY_CAP`), LRU, skips held and dirty records | no, always on |
-| `ResidentGraph` | `DbOperations`, one per database | byte budget (`LASTDB_RESIDENT_BYTES`) | resident-first reads and acknowledge-on-apply depend on the mode; the graph itself is built and written in every mode |
-| Hash-group warm set | store layer, non-logical collections | `LASTDB_HASH_GROUP_WARM_BYTES` | no |
+| `ResidentGraph` (removed) | `DbOperations`, one per database | byte budget (`LASTDB_RESIDENT_BYTES`, removed) | resident-first reads and acknowledge-on-apply depend on the mode; the graph itself is built and written in every mode |
+| Hash-group warm set (removed with disk format v1) | store layer, non-logical collections | `LASTDB_HASH_GROUP_WARM_BYTES` (no longer read) | no |
 
-The hash-group warm set is a storage-layer page cache for indexes and metadata.
-It is out of scope.
+The hash-group warm set was a storage-layer page cache for indexes and metadata.
+Disk format v2 has no hash groups, so it no longer exists.
 
 ## What the graph does that the logical set does not
 

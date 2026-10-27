@@ -12,13 +12,6 @@ pub const RSS_LIMIT_MB_ENV: &str = "LASTDBD_RSS_LIMIT_MB";
 /// (see [`current_phys_footprint_bytes`]).
 pub const GUARD_METRIC_ENV: &str = "LASTDBD_GUARD_METRIC";
 
-/// Env: hash-group warm-set (body) budget for non-logical collections.
-/// Does not size the logical resident set.
-pub const WARM_BYTES_ENV: &str = "LASTDB_HASH_GROUP_WARM_BYTES";
-
-/// Env: hash-group key-index cache budget.
-pub const KEY_CACHE_BYTES_ENV: &str = "LASTDB_HASH_GROUP_KEY_CACHE_BYTES";
-
 /// Env: charged-bytes → RSS multiplier.
 pub const RSS_MULTIPLIER_ENV: &str = "LASTDB_RSS_BUDGET_MULTIPLIER";
 
@@ -143,16 +136,9 @@ pub const FOOTPRINT_EVICT_INEFFECTIVE_STREAK_LIMIT: u32 = 3;
 /// Minimum raw-footprint drop per warm byte freed to count as real progress.
 pub const FOOTPRINT_EVICT_MIN_RESPONSE_RATIO: f64 = 0.25;
 
-/// Warm-byte reservation in the process admission projection when
-/// [`WARM_BYTES_ENV`] is unset.
-pub const PRESET_WARM_BYTES: u64 = 256 * 1024 * 1024;
-
-/// Key-cache reservation in the process admission projection when
-/// [`KEY_CACHE_BYTES_ENV`] is unset.
-pub const PRESET_KEY_CACHE_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Measured charge → RSS ratio on the live primary (4.00 GiB charged warm set,
-/// 6.40 GiB settled RSS, 2026-07-29).
+/// Charge → RSS ratio. Measured on the live primary on 2026-07-29 under disk
+/// format v1 (4.00 GiB charged hash group warm set, 6.40 GiB settled RSS); not
+/// measured again for the warm set byte limit.
 pub const DEFAULT_RSS_MULTIPLIER: f64 = 1.6;
 
 /// A multiplier below 1.0 would claim the process uses less than it budgeted.

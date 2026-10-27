@@ -44,9 +44,9 @@ pub mod fold_db_core;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
-/// One accounted process memory budget — warm set + key cache + resident graph
-/// projected to RSS, with the deferred-write window derived from what is left
-/// under the node's RSS guard.
+/// One accounted process memory budget — the warm set limit projected to RSS,
+/// with the deferred-write window derived from what is left under the node's
+/// RSS guard.
 pub mod memory_budget;
 pub mod mini_cutover;
 #[cfg(unix)]

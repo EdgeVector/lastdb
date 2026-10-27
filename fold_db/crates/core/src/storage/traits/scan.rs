@@ -90,8 +90,6 @@ pub struct PhysicalScanPage {
     pub rows: Vec<(Vec<u8>, Vec<u8>)>,
     /// Resume position, or `None` when the current physical walk is complete.
     pub next_cursor: Option<PhysicalScanCursor>,
-    /// Cold shard loads observed during this call.
-    pub cold_shard_loads: u64,
 }
 
 /// One read of a range that names where the next read continues.
@@ -139,9 +137,5 @@ pub(super) async fn keyset_physical_page<S: KvStore + ?Sized>(
     let next_cursor = more_remaining.then(|| PhysicalScanCursor {
         after_key: rows.last().map(|(key, _)| key.clone()),
     });
-    Ok(PhysicalScanPage {
-        rows,
-        next_cursor,
-        cold_shard_loads: 0,
-    })
+    Ok(PhysicalScanPage { rows, next_cursor })
 }

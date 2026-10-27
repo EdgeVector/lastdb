@@ -145,7 +145,6 @@ impl KvStore for EncryptingKvStore {
         Ok(PhysicalScanPage {
             rows: self.decrypt_rows(page.rows).await?,
             next_cursor: page.next_cursor,
-            cold_shard_loads: page.cold_shard_loads,
         })
     }
 
