@@ -39,7 +39,7 @@ def proposal(expanded=False, check=False, compat=False, ttl=None, confirmed=Fals
 def stable(value):
     if isinstance(value, dict):
         return {k: stable(v) for k, v in sorted(value.items())
-                if k not in {"user_hash", "event_id", "occurred_at", "owner_user_id"}}
+                if k not in {"user_hash", "event_id", "audit_event_id", "occurred_at", "owner_user_id"}}
     if isinstance(value, list):
         return [stable(v) for v in value]
     return value
