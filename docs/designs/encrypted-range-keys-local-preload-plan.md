@@ -6,7 +6,7 @@ The [design](encrypted-range-keys-local-preload.md) defines the target behavior.
 The [reader and writer inventory](encrypted-range-keys-reader-writer-inventory.md) maps the current source dependencies and preload exceptions.
 
 The first release replaces the reversible range codec with encrypted key directories and complete local key trees.
-It keeps hash blinding, atom-content encryption, and file encryption.
+It keeps hash blinding, run-file block encryption, and file encryption.
 A later release adds direct cloud reads and a browser client.
 The local release does not depend on a cloud deployment.
 

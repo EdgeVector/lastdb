@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use super::super::conflict_record::Recorded;
 use super::super::counter::{TipChange, TipChangeSet};
 use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
-use super::super::{AtomStore, SealedAtom};
+use super::super::AtomStore;
 
 fn is_tip_item_key(key: &str) -> bool {
     key.starts_with("mk:") || key.contains(":mk:")

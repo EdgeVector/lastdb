@@ -47,6 +47,12 @@ File paths are repo-relative.
 
 ## Operation Trinity status (2026-07-29)
 
+Update (2026-10-26): the Son atom content seal in item 2 is retired. A disk
+format v2 atom row is plain JSON with no content seal, and the block encryption
+of each run file protects it. The code has no atom content seal, no dual-read
+or strict atom content open, and no `ATB:` binary atom row. The file KDK lives
+inside the plain atom row.
+
 Target posture for Mini personal data (no plaintext fallbacks):
 
 1. **Father — molecules:** product default HashKey `blind_v1` + RangeKey `ope_v1`.
@@ -374,7 +380,7 @@ invented or expanded by agents:
 |---|---|---|
 | Hash key | molecule HashKey in storage | blind (`blind_v1`) |
 | Range key | molecule RangeKey in storage | OPE (`ope_v1`) |
-| Atom content | field `content` | seal under account E2E key (`ENC:`) |
+| Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
 | File blob | CAS / file bytes | per-blob DEK; KDK in sealed atom access metadata |
 
 Consequences for this section:

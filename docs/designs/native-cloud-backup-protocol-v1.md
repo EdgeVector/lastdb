@@ -144,7 +144,8 @@ The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 
 The logical marker `layout:v3:keys` requires direct ASCII value `6`.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
-Atom content and file bytes retain their existing encryption.
+File bytes retain their existing encryption.
+An atom row has no content seal. It is plain JSON inside an encrypted run-file block.
 Tip values and other control values remain readable in the stored backup bytes.
 Earlier logical formats require an explicit offline conversion; restore does not rewrite them.
 The native record transfer converts formats `4` and `5` in a separate inactive target.

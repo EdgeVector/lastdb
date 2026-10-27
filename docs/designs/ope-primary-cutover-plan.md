@@ -35,7 +35,7 @@ After adoption:
 - Each molecule, epoch, and blinded hash has its own ordered range terms.
 - Exact reads and range reads use those terms on disk or in optional memory data.
 - Each tip retains its original range under separate authenticated encryption.
-- Hash blinding, atom content encryption, and file blob encryption retain their current purposes.
+- Hash blinding, run-file block encryption, and file blob encryption retain their current purposes.
 - The active format and epoch come from stored metadata, with explicit compatibility checks.
 
 This change does not require whole-pack encryption or the wrapper change in [PR 321](https://github.com/EdgeVector/lastdb/pull/321).

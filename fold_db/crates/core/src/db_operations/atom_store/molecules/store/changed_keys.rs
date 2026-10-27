@@ -159,7 +159,7 @@ impl AtomStore {
     pub(crate) async fn store_molecules_changed_keys_batch(
         &self,
         molecules: &[(String, MoleculeData, std::collections::HashSet<ChangedKey>)],
-        bodies: &[SealedAtom],
+        bodies: &[crate::atom::Atom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let borrowed: Vec<(&str, &MoleculeData, &std::collections::HashSet<ChangedKey>)> =
@@ -184,7 +184,7 @@ impl AtomStore {
     pub(crate) async fn store_molecules_changed_keys_batch_ref(
         &self,
         molecules: &[(&str, &MoleculeData, &std::collections::HashSet<ChangedKey>)],
-        bodies: &[SealedAtom],
+        bodies: &[crate::atom::Atom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         if molecules.is_empty() {
@@ -242,7 +242,7 @@ impl AtomStore {
         // false complete value.
         self.account_keep_small_items(&accounted, &commit);
         self.keep_small
-            .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
+            .settle_pending_atoms(bodies.iter().map(crate::atom::Atom::uuid));
         // Debounced persist only. A per-write `flush_keep_small` wrote the
         // whole counter map per molecule store and filled one `metadata` group
         // to 39 GB in a day (2026-09-21 restart loop). In-process readers use

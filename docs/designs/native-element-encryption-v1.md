@@ -53,7 +53,8 @@ SHA-256 of that complete envelope becomes the public `sha256:<hash>` CAS address
 The `ENC:` prefix and base64 text are storage representation, not another encryption step.
 Names and media types do not enter the address.
 
-The encrypted atom contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
+The atom row contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
+That row is plain JSON inside an encrypted run-file block.
 The raw CAS record contains the encrypted-byte hash and encrypted bytes.
 It contains neither the original hash nor the file key.
 Nonsecret dependency records and local capture files use the encrypted-byte hash for this suite.
@@ -94,7 +95,8 @@ The metadata and file-dependency decoders read the direct control records.
 
 The run-file format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
-New backups retain only the CAS storage wrapper, atom content encryption, and explicit key encryption.
+Inside the encrypted blocks, new backups retain only the CAS storage wrapper and explicit key encryption.
+An atom row has no content seal.
 
 ## File size and memory
 

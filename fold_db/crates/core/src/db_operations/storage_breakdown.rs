@@ -17,7 +17,7 @@
 
 use crate::{
     db_operations::{
-        atom_store::RangeWalk,
+        atom_store::{decode_plain_atom, RangeWalk},
         keep_small::{atom_histogram, AtomHistogram},
         AtomStore,
     },
@@ -203,7 +203,7 @@ impl AtomStore {
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 page_bytes += (k.len() + v.len()) as u64;
-                self.fold_breakdown_row(&mut walk, k, v).await?;
+                fold_breakdown_row(&mut walk, k, v)?;
             }
             if !rows.is_empty() {
                 range.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
@@ -269,41 +269,34 @@ impl<'a> BreakdownWalk<'a> {
     }
 }
 
-impl AtomStore {
-    /// Fold one `atom:` record into the walk: a counter into the totals, a
-    /// body into the per-schema sizes.
-    async fn fold_breakdown_row(
-        &self,
-        walk: &mut BreakdownWalk<'_>,
-        k: &[u8],
-        v: &[u8],
-    ) -> Result<(), SchemaError> {
-        let key = String::from_utf8_lossy(k);
-        if crate::atom::atom_key_codec::is_counter_key(&key) {
-            note_counter_row(&mut walk.counters, &mut walk.waiting_body, &key, v);
-            return Ok(());
-        }
-        if walk.waiting_body.take().is_some() {
-            walk.counters.bodies_without_counter += 1;
-        }
-        walk.waiting_body = crate::atom::atom_key_codec::body_uuid_of(&key).map(str::to_string);
-        let atom = self.decode_atom_bytes(v).await.map_err(|e| {
-            SchemaError::InvalidData(format!(
-                "storage_breakdown scan: failed to decode {}: {e}",
-                String::from_utf8_lossy(k)
-            ))
-        })?;
-        let name = atom.source_schema_name();
-        if !walk.wanted.is_empty() && !walk.wanted.contains(name) {
-            return Ok(());
-        }
-        let b = serde_json::to_vec(&atom).map_or(0, |v| v.len() as u64);
-        walk.sizes.push(b);
-        let entry = walk.agg.entry(name.to_string()).or_default();
-        entry.0 += b;
-        entry.1 += 1;
-        Ok(())
+/// Fold one `atom:` record into the walk: a counter into the totals, a
+/// body into the per-schema sizes.
+fn fold_breakdown_row(walk: &mut BreakdownWalk<'_>, k: &[u8], v: &[u8]) -> Result<(), SchemaError> {
+    let key = String::from_utf8_lossy(k);
+    if crate::atom::atom_key_codec::is_counter_key(&key) {
+        note_counter_row(&mut walk.counters, &mut walk.waiting_body, &key, v);
+        return Ok(());
     }
+    if walk.waiting_body.take().is_some() {
+        walk.counters.bodies_without_counter += 1;
+    }
+    walk.waiting_body = crate::atom::atom_key_codec::body_uuid_of(&key).map(str::to_string);
+    let atom = decode_plain_atom(v).map_err(|e| {
+        SchemaError::InvalidData(format!(
+            "storage_breakdown scan: failed to decode {}: {e}",
+            String::from_utf8_lossy(k)
+        ))
+    })?;
+    let name = atom.source_schema_name();
+    if !walk.wanted.is_empty() && !walk.wanted.contains(name) {
+        return Ok(());
+    }
+    let b = serde_json::to_vec(&atom).map_or(0, |v| v.len() as u64);
+    walk.sizes.push(b);
+    let entry = walk.agg.entry(name.to_string()).or_default();
+    entry.0 += b;
+    entry.1 += 1;
+    Ok(())
 }
 
 /// Fold one counter record into the totals and settle the body it follows.

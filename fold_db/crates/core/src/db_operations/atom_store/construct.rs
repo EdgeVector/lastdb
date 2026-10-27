@@ -46,8 +46,6 @@ impl AtomStore {
             namespaced_store: None,
             protein_membership_gate: Arc::default(),
             content_key,
-            atom_content_binary: crate::atom::atom_content_binary_enabled(),
-            plain_content: false,
             typed_ranges: false,
             key_codec,
             molecule_keys: None,
@@ -88,8 +86,8 @@ impl AtomStore {
         self
     }
 
-    /// Attach the owner namespace store. A node disk store (always disk format
-    /// v2) selects plain atom rows.
+    /// Attach the owner namespace store. A disk format v2 runtime with typed
+    /// range order selects the typed molecule key codec.
     #[must_use]
     pub(crate) fn with_namespaced_store(mut self, store: Arc<dyn NamespacedStore>) -> Self {
         self.typed_ranges = store.disk_pack_runtime().is_some_and(|runtime| {
@@ -98,7 +96,6 @@ impl AtomStore {
         if self.typed_ranges {
             self.key_codec = self.key_codec.for_typed_home();
         }
-        self.plain_content = store.disk_pack_runtime().is_some();
         self.namespaced_store = Some(store);
         self
     }

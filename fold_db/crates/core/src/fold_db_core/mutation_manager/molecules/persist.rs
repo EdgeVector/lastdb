@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::db_operations::atom_store::SealedAtom;
+use crate::atom::Atom;
 use crate::db_operations::{ChangedKey, MoleculeData};
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
@@ -13,7 +13,7 @@ use super::super::MutationManager;
 
 /// Prepared molecule effects staged within one complete native transaction.
 pub(crate) struct DeferredPersistJob {
-    pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
+    pub deferred_atoms: Option<Vec<Atom>>,
     pub storage_prefix: Option<String>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,
@@ -36,7 +36,7 @@ impl MutationManager {
         schema: &mut Schema,
         modified_fields: &ModifiedFieldKeys,
         share_prefixes: &[String],
-        bodies: &[SealedAtom],
+        bodies: &[Atom],
     ) -> Result<(), SchemaError> {
         let mut molecules_to_store: Vec<(String, &MoleculeData, HashSet<ChangedKey>)> = Vec::new();
         let field_names: Vec<String> = modified_fields.keys().cloned().collect();
@@ -130,7 +130,7 @@ impl MutationManager {
     async fn store_molecules_changed_unlocked(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
-        bodies: &[SealedAtom],
+        bodies: &[Atom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         if molecules.is_empty() {
@@ -175,7 +175,7 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn store_molecules_split(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
-        bodies: &[SealedAtom],
+        bodies: &[Atom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         // Per-key molecules use immutable generations. The selected generation

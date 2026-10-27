@@ -55,7 +55,6 @@ mod time_queue;
 mod types;
 mod writer_watch;
 
-pub(crate) use atoms::SealedAtom;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
     DwellStep, NetStep, DWELL_CHUNK,
@@ -158,16 +157,10 @@ pub struct AtomStore {
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
     /// Serialize protein membership selection and orphan reclamation across clones.
     protein_membership_gate: Arc<tokio::sync::Mutex<()>>,
-    /// When set (plain packaging homes), atom `content` is sealed at rest
-    /// while metadata stays plaintext. `None` leaves content unsealed (tests
-    /// / legacy dual-read of plain content).
+    /// The account key that seals a local CAS file blob (see
+    /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
+    /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
-    /// New-write format for nested atom content. Readers accept both formats.
-    atom_content_binary: bool,
-    /// True over a disk format v2 home: atom rows are plain JSON with no
-    /// content seal and no molecule key bundle name. The block seal of each
-    /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
-    plain_content: bool,
     typed_ranges: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,

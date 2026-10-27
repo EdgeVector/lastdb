@@ -6,7 +6,7 @@ The [OPE recommendation and implementation plan](ope-range-keys-implementation-p
 The [work plan](encrypted-range-keys-local-preload-plan.md) defines delivery packages, dependencies, and release checks.
 The [reader and writer inventory](encrypted-range-keys-reader-writer-inventory.md) identifies the current source changes and preload exceptions.
 
-LastDB keeps hash blinding, atom-content encryption, and file-blob encryption.
+LastDB keeps hash blinding, run-file block encryption, and file-blob encryption.
 The client loads and decrypts the required range keys before it serves reads for a HashRange schema.
 It builds ordinary local B-trees and asks the cloud for data by opaque key identifiers.
 This design removes the need for OPE or ORE on that read path.
@@ -88,7 +88,7 @@ Include original hash values inside encrypted directory entries only where the A
 | Range value | Ordinary authenticated encryption inside directory chunks | Let the client recover and order range values |
 | Range lookup | Stable opaque token | Find a tip without a range comparison |
 | Tip | Atom reference and required revision facts | Resolve the selected key to its atom |
-| Atom content | Existing authenticated encryption | Protect the requested field data |
+| Atom content | Plain JSON inside encrypted run-file blocks; no atom content seal | Protect the requested field data at rest |
 | File blob | Existing file encryption | Protect referenced file bytes |
 | Molecule keys | Explicit encrypted key bundle | Grant access to the required data |
 
