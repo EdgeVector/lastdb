@@ -80,7 +80,7 @@ fn body_sources(
 ) -> StorageResult<Vec<(String, String)>> {
     let mut body = Vec::new();
     for source in coordinates {
-        let decoded = crate::storage::laststore::native_routing::decode(&source.1)?;
+        let decoded = crate::storage::disk_pack::native_routing::decode(&source.1)?;
         if std::str::from_utf8(&decoded)
             .ok()
             .and_then(atom_key_codec::body_uuid_of)

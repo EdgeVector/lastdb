@@ -29,6 +29,7 @@ This rule supersedes the local build commands and coordination rules below.
 - Product PRs require `benchmark-complete`: valid measurements and verified artifact uploads.
 - Documentation-only PRs skip measurements. Main pushes and nightly runs keep their benchmark recipes.
 - Slowdowns are advisory. Build failures, incomplete measurements, and failed uploads block the completion check.
+- Any settled database checkpoint above 1.5× total logical atom bytes blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining logical data.
 - While CI waits, do not substitute a local build or benchmark.
 
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
@@ -59,7 +60,7 @@ This rule supersedes the local build commands and coordination rules below.
 > `brain get concepts-lastdb-canonical-model` ·
 > `brain get concepts-lastdb-agent-access-model` ·
 > `brain get requirement-lastdb-access-complexity` ·
-> https://thelastdb.com/docs/agent-access-model
+> https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md
 
 One cargo workspace: `fold_db` (core), `schema_service` (cloud schema
 registry), `lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped
@@ -72,9 +73,10 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 ## CI checks
 
 **The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
-The required gate (`ci-required`) runs fmt, clippy, lints, and builds only, and
-the repo has no test suite to run. CI and the lints do not require tests or
-test coverage.
+The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
+secret scan (`scripts/lints/lint-secrets.py`), and builds only, and the repo
+has no test suite to run. CI and the lints do not require tests or test
+coverage.
 
 Open or update a PR after the source changes. Read the required checks and
 the `LastDB benchmarks` summary in GitHub. Product changes require completed
@@ -157,10 +159,10 @@ is not checked until you touch it.
 
 ## Current memory and disk boundary
 
-Normal startup and direct logical constructors use native packed storage.
+Normal startup and direct logical constructors use disk format v2 storage (`laststore::disk_run`).
 `CoreWarmSet` owns logical records, definitions, and complete selected keys.
 The private native queue retains prepared disk bytes until flush. Ordinary
-reads cannot use that queue. Native requests complete a durable snapshot and
+reads cannot use that queue. Native requests complete a durable run commit and
 their clean core memory publication before the ack. No collection timer delays them.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,
@@ -181,7 +183,7 @@ caveats, current gates/approvals, and gotchas, ask the brain
 
 - `concepts-fold-build-test-ci-safety` — fmt gate, non-test lints (incl. byte-slice ban), workspace path-dep model, downstream submodule pointer policy.
 - `concepts-fold-dev-run-and-app-isolation` — dev-node flags, app-isolation opt-out, socket-only-default vs `--with-tcp`, keyless dev, log volume knobs, Lambda/CDK.
-- `concepts-fold-error-handling-idioms` — `From<SourceError>` + bare `?` and `.context()` via `fold_db::error_context::ResultExt`; error types; coding standards.
+- `concepts-fold-error-handling-idioms` — `From<SourceError>` + bare `?`; error types; coding standards.
 - `concepts-fold-endpoint-registry` — `folddb_profile/environments.json` single source of truth, `build.rs` codegen, no-hardcoded-urls lint.
 - `concepts-fold-trust-boundary-loopback` — loopback owner-context invariant + target trust model + door-2 release gate.
 - `concepts-fold-db-node-internals` — fold_db core architecture, storage, schema system, feature flags, AI provider config.

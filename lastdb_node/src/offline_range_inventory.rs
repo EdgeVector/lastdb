@@ -9,6 +9,7 @@ use std::path::Path;
 pub struct RangeInventoryArgs<'a> {
     pub home: &'a Path,
     pub source_range_encoding: &'a str,
+    pub target_range_encoding: &'a str,
     pub max_records: usize,
     pub max_metadata_mib: usize,
     pub json: bool,
@@ -25,11 +26,8 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
     );
     let keys = E2eKeys::from_ed25519_seed(&seed)
         .map_err(|_| "source account identity cannot derive its keys")?;
-    let encoding = match args.source_range_encoding {
-        "plain" => RangeKeyEncoding::Plain,
-        "ope_v1" => RangeKeyEncoding::OpeV1,
-        _ => return Err("source range encoding must be plain or ope_v1".into()),
-    };
+    let source_encoding = encoding(args.source_range_encoding)?;
+    let target_encoding = encoding(args.target_range_encoding)?;
     let limits = InventoryLimits {
         max_records: args.max_records,
         max_metadata_bytes: args
@@ -38,7 +36,7 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
             .ok_or("metadata limit overflows")?,
         ..InventoryLimits::default()
     };
-    let report = inspect_range_conversion(&root, &keys, encoding, limits)
+    let report = inspect_range_conversion(&root, &keys, source_encoding, target_encoding, limits)
         .map_err(|error| error.to_string())?;
     if args.json {
         let output = serde_json::json!({"ok": true, "mode": "inspect-range-conversion", "preflight": preflight, "inventory": report});
@@ -56,6 +54,12 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
         println!(
             "Source format: {}; metadata bytes: {}",
             report.source_format, report.metadata_bytes
+        );
+        println!(
+            "Range encoding: {} -> {}; logical key format: {}",
+            report.source_range_encoding,
+            report.target_range_encoding,
+            report.source_facts.logical_key_format
         );
         for molecule in &report.molecules {
             let profile = molecule
@@ -76,4 +80,12 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
         println!("The source stays unchanged. Database conversion and activation remain pending.");
     }
     Ok(())
+}
+
+fn encoding(value: &str) -> Result<RangeKeyEncoding, String> {
+    match value {
+        "plain" => Ok(RangeKeyEncoding::Plain),
+        "ope_v1" => Ok(RangeKeyEncoding::OpeV1),
+        _ => Err("range encoding must be plain or ope_v1".into()),
+    }
 }

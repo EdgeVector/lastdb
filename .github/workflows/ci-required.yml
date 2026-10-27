@@ -3,8 +3,9 @@ name: CI required
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
 # this tree. This workflow runs NO tests (Tom, 2026-10-09: the tests flaked and
-# gave no signal), and the tests are deleted. It keeps fmt, clippy, lints, and
-# builds. No lint or CI step requires tests or test coverage.
+# gave no signal), and the tests are deleted. It keeps fmt, clippy, lints,
+# a tracked-text secret scan, and builds. No lint or CI step requires tests
+# or test coverage.
 # The single required check is the `ci-required` job at the bottom.
 
 on:
@@ -199,6 +200,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 scripts/lints/lint-diff-new-allows.py --base "$BASE_SHA" --head "$HEAD_SHA"
 
+  secret_scan:
+    name: secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan tracked text files for secrets
+        run: python3 scripts/lints/lint-secrets.py
+
   ci-required:
     name: ci-required
     needs:
@@ -206,6 +216,7 @@ jobs:
       - lastdb_app_sdk_check
       - full_workspace_check
       - diff_file_size
+      - secret_scan
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -215,7 +226,9 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
           echo "Required job results: $RESULTS"
-          if [ "$RESULTS" != "success,success,success,success" ]; then
+          # Five jobs: build_test, lastdb_app_sdk_check, full_workspace_check,
+          # diff_file_size, secret_scan. A skip is a failure.
+          if [ "$RESULTS" != "success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

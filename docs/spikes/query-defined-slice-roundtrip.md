@@ -25,7 +25,7 @@ cargo nextest run -p fold_db -- query_defined_multi_schema_slice_roundtrips
 | `payload.blobs[]` | First-class; CAS over **raw** file bytes |
 | File field atoms | `$lastdb_file` **pointer only** (no embedded `content_b64`) |
 | Legacy `$file` embed | Auto-promoted to pointer + blob on materialize |
-| Local CAS on import | `sharing/blob_cas` sled tree `cas_blobs` |
+| Local CAS on import | `sharing/blob_cas` collection `cas_blobs` |
 | Recipient load path | `blob_cas::get_blob_bytes` / `resolve_file_bytes` |
 
 So when you share a data slice that includes photos, **the photo bytes are in
@@ -43,7 +43,7 @@ the sealed slice** (`blobs[]`) and still available after import.
 
 - `delivery_wire::{ContentAddressedBlob, content_addressed_blob, decode_blob_bytes, lastdb_file_pointer, validate_blob_refs}`
 - `blob_cas::{put_blob, get_blob, get_blob_bytes, put_blobs}`
-- `query_slice::{materialize_query_slice, import_slice_via_mutations, resolve_file_bytes}`
+- `query_slice::{materialize_query_slice, resolve_file_bytes}`
 
 ## Recommended next product PRs
 

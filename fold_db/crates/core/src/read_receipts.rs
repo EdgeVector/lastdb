@@ -50,7 +50,8 @@ pub(crate) fn decrypted(bytes: usize, elapsed: std::time::Duration) {
     });
 }
 
-/// Observe the warm-set lock without changing its guard or poison policy.
+/// Observe the lock on a call's native read context without changing its
+/// guard or poison policy. This is the only `lock_wait_nanos` writer.
 pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     let Some(context) = current() else {
         return mutex.lock().expect("poison");

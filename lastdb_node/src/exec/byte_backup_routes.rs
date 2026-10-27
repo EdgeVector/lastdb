@@ -18,3 +18,22 @@ pub(super) async fn execute(req: &UdsRequest, ctx: &AccessContext, host: &Host) 
         Err(error) => error_response(409, &error.to_string(), ctx),
     }
 }
+
+/// Credentials use a separate DTO without Debug. Telemetry records only the route and size.
+pub(super) async fn connect(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    if !ctx.is_owner {
+        return error_response(403, "byte backup connection is owner-only", ctx);
+    }
+    if req.body.len() > 8192 {
+        return error_response(413, "byte backup connection exceeds its byte limit", ctx);
+    }
+    let request: byte_cloud_backup::SensitiveConnectionRequest =
+        match serde_json::from_slice(&req.body) {
+            Ok(value) => value,
+            Err(_) => return error_response(400, "invalid byte backup connection", ctx),
+        };
+    match byte_cloud_backup::connect_existing(host, request).await {
+        Ok(status) => json_ok(&envelope(&status, ctx.user_id.as_str())),
+        Err(error) => error_response(409, &error.to_string(), ctx),
+    }
+}

@@ -110,7 +110,7 @@ impl AtomStore {
             MoleculeData,
             super::super::PreparedMoleculeGeneration,
         )>,
-        bodies: &[SealedAtom],
+        bodies: &[crate::atom::Atom],
         storage_prefix: Option<&str>,
         domain: MoleculeKeyDomain,
     ) -> Result<(), SchemaError> {

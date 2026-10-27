@@ -44,9 +44,6 @@ pub enum StorageError {
     #[error("Upload failed: {0}")]
     UploadFailed(String),
 
-    #[error("Sled error: {0}")]
-    SledError(String),
-
     /// The filesystem holding the database is out of space, so the write did
     /// not land.
     ///
@@ -69,34 +66,6 @@ pub enum StorageError {
          already stored was lost. Underlying error: {detail}"
     )]
     StorageFull { detail: String },
-
-    /// The bounded mutation-capture queue stayed full for the whole admission
-    /// window, so the request was refused before the local commit.
-    ///
-    /// Carried as its own variant for the same reason as [`Self::StorageFull`]
-    /// and [`Self::LockContention`]: it is not a backend defect and not
-    /// something the caller can fix by changing its request. The difference is
-    /// that this one clears itself — the capture worker drains, and the same
-    /// write succeeds moments later with no operator action at all.
-    ///
-    /// Flattening it into [`Self::BackendError`] is what made a burst of
-    /// transient backpressure reach the caller as `400 Bad Request` / "Invalid
-    /// data" and mint one ERROR — one Sentry event — per refused write (issue
-    /// `7699865707`: 123 error events in 13 hours on one node, 0 users
-    /// affected). That is the disk-full storm of issue `7620061902` again, in
-    /// a different lane.
-    ///
-    /// `waited_ms` is the admission window that elapsed, for the operator log.
-    /// It is a `u64`, not the `u128` `Duration::as_millis` hands back: this
-    /// variant is reachable from `FoldDbError`, and a `u128` payload widens
-    /// that enum's alignment past clippy's `result_large_err` bar. Milliseconds
-    /// of an admission window never need 128 bits.
-    #[error(
-        "mutation capture queue remained full for {waited_ms}ms, so the write \
-         did not land and nothing already stored was lost. This is transient \
-         backpressure from the capture worker — retry the same write."
-    )]
-    CaptureQueueFull { waited_ms: u64 },
 
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
@@ -143,16 +112,6 @@ impl StorageError {
     #[must_use]
     pub const fn is_storage_full(&self) -> bool {
         matches!(self, Self::StorageFull { .. })
-    }
-
-    /// True when this error is transient mutation-capture backpressure.
-    ///
-    /// Callers use this to keep self-clearing backpressure out of the paths
-    /// meant for code faults: the request was well formed, and retrying it
-    /// unchanged is the correct response.
-    #[must_use]
-    pub const fn is_capture_queue_full(&self) -> bool {
-        matches!(self, Self::CaptureQueueFull { .. })
     }
 }
 

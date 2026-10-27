@@ -5,6 +5,7 @@ use super::*;
 /// A read-only operational boundary; this method never wakes a flush worker.
 #[derive(serde::Serialize)]
 pub struct NativeDiskStatus {
+    pub cleanup: NativeCleanupStatus,
     pub generation: u64,
     pub frontier: u64,
     pub accepted_batch: bool,
@@ -29,14 +30,43 @@ pub struct NativeDiskStatus {
     pub core_memory: crate::resident::CoreMemoryStats,
     pub(crate) core_model: crate::resident::CoreModelStats,
     pub schema_keys: schema_keys::SchemaKeyStatus,
-    /// Dependency parts of the current generation receipt against their limit.
-    pub parts: parts::NativePartsStatus,
 }
 
 #[derive(Clone)]
 pub(super) struct NativeReadView {
     pub(super) current: physical::PhysicalRoot,
     pub(super) revision: u64,
+}
+
+/// Generation and frontier of the last root that a commit or a merge
+/// installed. Atomics only: a status read uses them while the view lock is
+/// busy, so status never waits for an install.
+pub(super) struct LastRoot {
+    generation: AtomicU64,
+    frontier: AtomicU64,
+}
+
+impl LastRoot {
+    pub(super) fn new(root: &physical::PhysicalRoot) -> Self {
+        Self {
+            generation: AtomicU64::new(root.generation()),
+            frontier: AtomicU64::new(root.frontier()),
+        }
+    }
+
+    /// A commit and a merge adoption can race; the newer generation wins.
+    pub(super) fn observe(&self, generation: u64, frontier: u64) {
+        if self.generation.fetch_max(generation, Ordering::Relaxed) <= generation {
+            self.frontier.store(frontier, Ordering::Relaxed);
+        }
+    }
+
+    fn get(&self) -> (u64, u64) {
+        (
+            self.generation.load(Ordering::Relaxed),
+            self.frontier.load(Ordering::Relaxed),
+        )
+    }
 }
 
 impl PackRuntime {
@@ -50,24 +80,15 @@ impl PackRuntime {
         self.failed.load(Ordering::Acquire)
     }
 
-    /// The dependency-part counters now. They are atomics, so a read never waits for
-    /// maintenance. `lastdb status` overlays them on its sampled snapshot, so the
-    /// part count and the worker state are exact, not up to a sample old.
-    pub fn parts_status(&self) -> parts::NativePartsStatus {
-        self.parts.status()
-    }
-
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
-        // Maintenance holds the view lock while it reclaims. A status read must
-        // not wait behind it, so it reports the last root the ledger saw.
+        // A status read must not wait behind an install, so it reports the
+        // last installed root while the view lock is busy.
         let view = self.view.try_read().ok();
-        let (generation, frontier) = if let Some(view) = view.as_deref() {
-            (view.current.generation(), view.current.frontier())
-        } else {
-            let (generation, frontier) = self.parts.root();
-            (generation, frontier)
-        };
+        let (generation, frontier) = view.as_deref().map_or_else(
+            || self.last_root.get(),
+            |view| (view.current.generation(), view.current.frontier()),
+        );
         let accepted = queue.request_count();
         let (core, core_bytes, core_memory, core_model) = {
             let mut core = self.core.lock().expect("native core status");
@@ -79,6 +100,7 @@ impl PackRuntime {
             )
         };
         NativeDiskStatus {
+            cleanup: self.status_cleanup(),
             generation,
             frontier,
             accepted_batch: accepted > 0,
@@ -101,7 +123,6 @@ impl PackRuntime {
             core_memory,
             core_model,
             schema_keys: self.schema_keys.status(),
-            parts: self.parts.status(),
         }
     }
 
@@ -141,7 +162,6 @@ impl PackRuntime {
                 protection.publish_clean()?;
             }
         }
-        let frontier = current.frontier();
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);
         // The last drop of a root deletes its retired run files, so it
@@ -150,7 +170,6 @@ impl PackRuntime {
         // A merge can publish between the caller's read of `current` and
         // this install; take its root now, not at the next read.
         self.adopt_merged_root();
-        self.publish_native_backup_boundary(frontier);
         Ok(())
     }
 

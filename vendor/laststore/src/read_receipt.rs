@@ -15,39 +15,27 @@ pub struct DiskReadReceipt {
     pub logical_warm_hits: u64,
     /// Logical records absent from the embedding caller's warm set.
     pub logical_warm_misses: u64,
-    /// Attempts to enter a cold loader, including cap refusals.
-    pub loader_calls: u64,
-    /// Existing group directories admitted to the storage parser.
+    /// Has no writer in disk format v2 and stays zero. Request telemetry still
+    /// reports it as `cold_shard_loads`, so the field stays.
     pub group_opens: u64,
     /// Read-only file open attempts, including failed opens.
     pub file_open_attempts: u64,
     /// Successful read-only file opens; repeated opens count separately.
     pub file_opens: u64,
-    /// Largest single disk-pack call descriptor pool; capped at 32.
-    pub pack_file_handles_peak: u64,
-    /// Disk-pack extent reads served by a call-owned open descriptor.
-    pub pack_file_handle_reuses: u64,
-    /// Bounded payload file reads issued by a collected disk-pack batch.
-    pub pack_batch_read_runs: u64,
-    /// Distinct frames addressed by those batch read runs.
-    pub pack_batch_frames: u64,
-    /// File status, existence, and directory-entry status operations.
+    /// Explicit file status operations.
     pub metadata_operations: u64,
-    /// Directory enumeration attempts.
-    pub directory_reads: u64,
-    /// Directory entries returned to the caller.
-    pub directory_entries: u64,
     /// File read calls, including EOF and failed reads.
     pub read_operations: u64,
-    /// Bytes read to reconstruct legacy group state or replay append tails.
+    /// Has no writer in disk format v2 and stays zero. The range continuation
+    /// benchmark scripts still read it from the query read receipt.
     pub legacy_replay_bytes: u64,
-    /// Bytes read for sorted footers and key sidecars.
+    /// Bytes read for disk run footers and index blocks.
     pub footer_bytes: u64,
-    /// Bytes read from addressed record or sorted-block extents.
+    /// Bytes read from disk run data blocks and streamed frame payloads.
     pub payload_bytes: u64,
-    /// Bytes read for format, manifest, part, or allocation-bound probes.
+    /// Bytes read for streamed frame headers and tags.
     pub format_probe_bytes: u64,
-    /// Output bytes produced by successful frame decode or plain replay copies.
+    /// Output bytes produced by successful frame decode.
     pub decoded_bytes: u64,
     /// Plaintext bytes produced by the embedding caller's outer value decrypt.
     pub decrypted_bytes: u64,
@@ -63,15 +51,11 @@ pub struct DiskReadReceipt {
     pub temporary_bytes_peak: u64,
     /// Sum of file read durations, including failed calls and OS-cache reads.
     pub read_nanos: u64,
-    /// Sum of authentication, decompression, and plain-copy durations.
+    /// Sum of frame open, authentication, and decompression durations.
     pub decode_nanos: u64,
-    /// Inclusive admitted group reconstruction time in load_shard.
-    /// This overlaps its nested open, metadata, read, and decode durations.
-    /// Errors and unwinds contribute the elapsed reconstruction time.
-    pub group_load_nanos: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
-    /// Sum of status and directory enumeration durations.
+    /// Sum of explicit file status durations.
     pub metadata_nanos: u64,
 }
 
@@ -165,30 +149,6 @@ pub fn observe_disk_reads<T>(work: impl FnOnce() -> T) -> (T, DiskReadReceipt) {
     (result, context.snapshot())
 }
 
-pub(crate) struct ReadScope {
-    context: DiskReadContext,
-    previous: DiskReadContext,
-}
-
-pub(crate) fn enter_child() -> ReadScope {
-    let context =
-        DiskReadContext::capture().map_or_else(DiskReadContext::new, |scope| scope.child());
-    let previous = CURRENT.with(|scope| scope.replace(context.clone()));
-    ReadScope { context, previous }
-}
-
-impl ReadScope {
-    pub(crate) fn snapshot(&self) -> DiskReadReceipt {
-        self.context.snapshot()
-    }
-}
-
-impl Drop for ReadScope {
-    fn drop(&mut self) {
-        CURRENT.with(|scope| scope.replace(self.previous.clone()));
-    }
-}
-
 pub(crate) fn update(update: impl FnMut(&mut DiskReadReceipt)) {
     if let Some(context) = DiskReadContext::capture() {
         let mut update = update;
@@ -253,22 +213,6 @@ impl Timer {
     }
 }
 
-pub(crate) struct GroupLoadTimer(Option<Timer>);
-
-pub(crate) fn group_load_timer() -> GroupLoadTimer {
-    GroupLoadTimer(Some(Timer::start()))
-}
-
-impl Drop for GroupLoadTimer {
-    fn drop(&mut self) {
-        if let Some(timer) = self.0.take() {
-            timer.finish(|receipt, nanos| {
-                receipt.group_load_nanos = receipt.group_load_nanos.saturating_add(nanos);
-            });
-        }
-    }
-}
-
 /// Charge byte-buffer capacity for the guard's lifetime, across all attached workers.
 pub(crate) struct TemporaryBytes {
     context: Option<DiskReadContext>,
@@ -298,10 +242,6 @@ impl TemporaryBytes {
             });
         }
         self.bytes = next;
-    }
-
-    pub(crate) fn grow(&mut self, bytes: usize) {
-        self.resize((self.bytes as usize).saturating_add(bytes));
     }
 }
 

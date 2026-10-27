@@ -26,9 +26,9 @@ struct QueryBatchRequest {
 /// several schemas. Reply: `{"ok": true, "count": N, "results": [{"status": S,
 /// "response": <the /api/query reply>}, ...]}` in request order.
 ///
-/// Every item runs through [`execute_query_route`] as a sub-request, so parse,
-/// schema resolve, access checks, limits, and error bodies are those of the
-/// single route by construction. One item can fail (its `status` is not 200)
+/// Every item uses the single route's query parser, host handler, and receipt
+/// renderer directly. The parsed JSON never becomes synthetic request bytes.
+/// One item can fail (its `status` is not 200)
 /// while the others succeed; the request itself fails only for a malformed body,
 /// an empty batch, or more than [`QUERY_BATCH_MAX_QUERIES`] items.
 ///
@@ -70,26 +70,42 @@ pub(super) async fn execute_query_batch_route(
             ctx,
         );
     }
-    let headers: Vec<(String, String)> = req
-        .headers
-        .iter()
-        .filter(|(name, _)| !name.eq_ignore_ascii_case("x-lastdb-allow-full-scan"))
-        .cloned()
-        .collect();
     fold_db::request_phases::add_phase(
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
     );
 
-    let items = queries.into_iter().enumerate().map(|(index, query)| {
-        let item = UdsRequest {
-            method: "POST".to_string(),
-            target: "/api/query".to_string(),
-            headers: headers.clone(),
-            body: serde_json::to_vec(&query).unwrap_or_default(),
-        };
-        async move { (index, execute_query_route(&item, ctx, host).await) }
-    });
+    let items = queries
+        .into_iter()
+        .enumerate()
+        .map(|(index, query)| async move {
+            let parse_started = std::time::Instant::now();
+            let Value::Object(obj) = query else {
+                return (index, Reject::malformed_body().response());
+            };
+            let QueryRequest {
+                query,
+                limit,
+                offset,
+                cursor,
+            } = match parse_query_body(obj) {
+                Ok(query) => query,
+                Err(response) => return (index, response),
+            };
+            fold_db::request_phases::add_phase(
+                fold_db::request_phases::RequestPhase::Parse,
+                parse_started.elapsed(),
+            );
+            let response = super::query_read_receipt::render_query(
+                req,
+                ctx,
+                // Batch items always require keys, even if the outer request
+                // carries the owner-only unfiltered-read header.
+                handlers::execute_query(host, query, limit, offset, cursor, ctx, false),
+            )
+            .await;
+            (index, response)
+        });
     let scope = match host.fold_db().db_ops().read_scope().await {
         Ok(scope) => scope,
         Err(error) => return error_response(503, &error.to_string(), ctx),

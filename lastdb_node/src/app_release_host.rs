@@ -49,7 +49,6 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use schema_service_core::app_release::{is_sha256_hex, sha256_hex, ReleaseManifest};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 // ─── Operator-settled constants ───────────────────────────────────────────
 

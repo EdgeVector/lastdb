@@ -157,7 +157,6 @@ impl MutationManager {
             // Queued permits a later flush. Explicit durability waits for disk;
             // admission can also choose disk-first when it cannot retain bytes.
             durability: Self::commit_durability(force_durable),
-            cloud: None,
             stages,
             touched_group_ids: Vec::new(),
         }

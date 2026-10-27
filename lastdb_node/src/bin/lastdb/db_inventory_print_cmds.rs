@@ -17,17 +17,6 @@ fn array_of<'a>(value: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
     value.get(key).and_then(Value::as_array)
 }
 
-/// Comma-joined `name` fields of a non-empty row list, or `None` when empty.
-fn joined_names(planes: &Value, key: &str) -> Option<String> {
-    let rows = array_of(planes, key).filter(|rows| !rows.is_empty())?;
-    Some(
-        rows.iter()
-            .filter_map(|row| row.get("name").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
-}
-
 pub(crate) fn print_inventory_human(inventory: &Value) {
     println!("Live DB inventory (decrypted key+value sizes on running node)");
     println!(
@@ -35,10 +24,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         u64_of(inventory, "main_total_keys"),
         format_bytes(u64_of(inventory, "main_total_bytes"))
     );
-    if let Some(planes) = inventory.get("planes") {
-        println!();
-        print_collection_planes(planes);
-    }
     println!();
     print_main_classes(inventory);
     println!();
@@ -74,37 +59,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
     }
     println!();
     print_history_tips();
-}
-
-fn print_collection_planes(planes: &Value) {
-    println!(
-        "Collection planes: {} collections, {}",
-        u64_of(planes, "collection_count"),
-        format_bytes(u64_of(planes, "total_bytes"))
-    );
-    if let Some(rows) = array_of(planes, "by_role") {
-        for row in rows {
-            let names = array_of(row, "collections")
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str())
-                        .take(4)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            println!(
-                "  {:>10}  {:<16} [{}]",
-                format_bytes(u64_of(row, "bytes")),
-                str_of(row, "label", "?"),
-                names
-            );
-        }
-    }
-    if let Some(names) = joined_names(planes, "unknown_active_collections") {
-        println!("  UNKNOWN active planes: {names}");
-    }
 }
 
 fn print_main_classes(inventory: &Value) {
@@ -287,19 +241,4 @@ fn print_history_tips() {
     println!("  lastdb db clear-history --execute               # keep newest 1 per field key");
     println!("  lastdb db clear-history --keep-last 0           # dry-run full history purge");
     println!("  lastdb db clear-history --keep-last 0 --execute # purge all history (tip = only version)");
-    println!("  lastdb db compact                              # preview whole-home space");
-    println!("  lastdb db compact --execute                    # compact the native home");
-}
-
-/// One line after a `compact --all` walk, so a plane left out of it (the
-/// owner must name `cas_blobs`) is not read as a gap in the report.
-pub(crate) fn print_named_only_note(report: &serde_json::Value) {
-    let Some(names) = report
-        .get("named_only_not_walked")
-        .and_then(|v| v.as_array())
-    else {
-        return;
-    };
-    let names: Vec<&str> = names.iter().filter_map(|n| n.as_str()).collect();
-    println!("Not walked (name with --collection): {}", names.join(", "));
 }

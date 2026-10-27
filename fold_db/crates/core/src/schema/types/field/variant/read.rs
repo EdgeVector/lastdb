@@ -20,6 +20,23 @@ mod resolve;
 mod resolve_scan;
 
 impl FieldVariant {
+    async fn read_range_profile(
+        &self,
+        db_ops: &DbOperations,
+    ) -> Result<Option<schema_types::molecule_range_profile::MoleculeRangeProfile>, SchemaError>
+    {
+        let Some(molecule) = self.common().molecule_uuid() else {
+            return Ok(
+                crate::schema::types::key_comparison::KeyComparisonContext::current_profile(),
+            );
+        };
+        db_ops.atoms().load_molecule_key_bundle(molecule).await?;
+        Ok(db_ops
+            .atoms()
+            .key_codec_for_molecule(molecule)?
+            .range_profile())
+    }
+
     fn require_supported_read(&self, filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {
         use crate::schema::types::schema::DeclarativeSchemaType;
 
@@ -68,14 +85,17 @@ fn retain_visible_values(values: &mut HashMap<KeyValue, FieldValue>, include_tom
     }
 }
 
-/// Map storage-form range (OPE hex) → API plaintext for query responses.
-fn api_key_value_from_storage(kv: KeyValue) -> KeyValue {
-    match kv.range.as_deref() {
-        Some(r) if !r.is_empty() => {
-            let range = crate::crypto::E2eKeys::ope_decode_range_plaintext(r)
-                .unwrap_or_else(|| r.to_string());
-            KeyValue::new(kv.hash, Some(range))
-        }
-        _ => kv,
+/// The exact molecule codec defines the stored range representation.
+fn api_key_value_from_storage(
+    mut kv: KeyValue,
+    codec: &crate::atom::MoleculeKeyCodec,
+) -> Result<KeyValue, SchemaError> {
+    if let Some(range) = kv.range.as_deref() {
+        kv.range = Some(
+            codec
+                .api_range(range)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
+        );
     }
+    Ok(kv)
 }

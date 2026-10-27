@@ -22,14 +22,6 @@ pub(super) fn format_held_secs(secs: u64) -> String {
     format_age_secs(secs)
 }
 
-pub(super) fn format_unix_utc(ts: u64) -> String {
-    use chrono::{TimeZone, Utc};
-    match Utc.timestamp_opt(ts as i64, 0).single() {
-        Some(dt) => dt.format("%Y-%m-%dT%H:%MZ").to_string(),
-        None => format!("unix:{ts}"),
-    }
-}
-
 /// Render an age in seconds compactly (`45s`, `12m`, `3h`, `2d5h`).
 pub(super) fn format_age_secs(secs: u64) -> String {
     if secs < 60 {

@@ -1,9 +1,23 @@
-//! Clap subcommands for `lastdb db`: space reclaim, GC and compaction verbs.
+//! Clap subcommands for `lastdb db`: space reclaim and GC verbs.
 
 use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
+    /// Reclaim already-deleted v2 data in both active stores.
+    /// The request survives a restart. Backup copies are outside this operation.
+    Cleanup {
+        /// Read the last request without a new cleanup request.
+        #[arg(long)]
+        status: bool,
+        /// Wait for completion, read release, or the client deadline.
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        timeout: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Preview one bounded page of redundant generation delete markers.
     /// Active generations and in-flight generation preparations stay protected.
     CleanupDeleteMarkers {
@@ -18,29 +32,6 @@ pub(crate) enum DbReclaimCommand {
         max_keys: u16,
         #[arg(long)]
         execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Pack the native home and reclaim the files that no generation needs.
-    ///
-    /// Without `--execute`, show a preview report and change nothing.
-    /// With `--execute`, the node copies every live record into new parts and
-    /// reclaims old files. The native route works on the whole home, so it
-    /// refuses `--collection` with HTTP 400. The node also runs this work by
-    /// itself when the dependency part count passes its mark
-    /// (`docs/lastdb-storage-parts.md`).
-    Compact {
-        /// One collection. A native home refuses it with HTTP 400: omit it.
-        #[arg(long)]
-        collection: Option<String>,
-        /// The whole home. A native home is always packed as a whole, so this
-        /// changes nothing.
-        #[arg(long)]
-        all: bool,
-        /// Actually pack and reclaim (without this flag, only a preview).
-        #[arg(long)]
-        execute: bool,
-        /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
     },
@@ -74,31 +65,6 @@ pub(crate) enum DbReclaimCommand {
     GcProteins {
         #[arg(long)]
         execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Drop the current `keep_small` group only when its sidecar proves it
-    /// holds the one rebuildable `keep_small:meters` snapshot. This returns
-    /// superseded snapshot bytes without loading the cold group. Default is a
-    /// dry run. Pass `--execute` to remove the directory.
-    ReclaimKeepSmallSnapshot {
-        #[arg(long)]
-        execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Stamp committed atom successor-history SHAs into pending purged
-    /// retirements so the next photograph cut can drop them with a receipt.
-    ///
-    /// Default is dry-run (no sidecar write). `--execute` stamps groups that
-    /// still have a verified local atom chunk. Missing groups are not stamped.
-    /// Skips while a backup cut is held. Owner `compact --execute` rewrites
-    /// the whole home and is not this one-shot.
-    StampPurgedAtomRetirements {
-        /// Actually write pending_shas (without this flag, report only).
-        #[arg(long)]
-        execute: bool,
-        /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
     },

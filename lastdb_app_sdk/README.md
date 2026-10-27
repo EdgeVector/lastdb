@@ -103,8 +103,9 @@ try {
   `handshake: false`.
 - `requireApiVersion: 0` (or unset) declares no requirement and skips the
   read. Raise the number only when the app starts sending a key an older node
-  would refuse — `LASTDB_SDK_API_VERSION` is the grammar this SDK was written
-  against and is pinned to the node's Rust constant by a test.
+  would refuse — `LASTDB_SDK_API_VERSION` is the lowest node grammar this SDK
+  needs (`1`). A node that reports a higher `api_version` (version `2` removed
+  three owner-socket routes the SDK never calls) still serves it.
 - A data route answering `400 {kind:"unknown_key"}` throws `NodeTooOldError`
   too (`.kind === 'unknown_key'`). It subclasses `RequestRejectedError`, so an
   existing `catch` keeps working. The node never echoes the unknown key.
@@ -342,12 +343,6 @@ cannot leave SDK calls pending forever. Override it per client when needed:
 ```ts
 await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'fbrain', timeoutMs: 5000 });
 ```
-
-An exact durable Delete with `cloudPublication: 'wait'` raises the effective
-request timeout to at least 150s. The built-in transports use the larger of
-that floor and the configured `timeoutMs`; they never shorten a larger caller
-budget. Set `timeoutMs` above the server's exact-route budget when the server
-uses a handler-timeout override that makes that route exceed 150s.
 
 ## Capability storage
 

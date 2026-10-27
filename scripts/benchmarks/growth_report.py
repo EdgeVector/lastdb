@@ -11,10 +11,13 @@ import statistics
 from advisories import confirm, lines as confirmation_lines, notices
 from growth import CASES, slope
 from node import save
+from disk_usage import validate as validate_breakdown
+from typed_ranges import conversion_lines
 
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
             "memory_growth_bytes_per_round", "disk_before_compaction_bytes", "compacted_disk_bytes",
-            "disk_growth_bytes", "disk_growth_bytes_per_round", "compacted_disk_bytes_per_record")
+            "disk_growth_bytes", "disk_growth_bytes_per_round", "compacted_disk_bytes_per_record",
+            "search_queue_bytes", "whole_home_disk_bytes", "other_home_bytes")
 ALLOCATED_MEASURES = ("allocated_disk_before_compaction_bytes", "compacted_allocated_disk_bytes",
                       "allocated_disk_growth_bytes", "allocated_disk_growth_bytes_per_round",
                       "compacted_allocated_disk_bytes_per_record")
@@ -28,6 +31,8 @@ def validate(case, result, recipe):
     if len(points) != recipe["rounds"] + 1:
         raise ValueError(f"{case}: missing growth checkpoints")
     for number, point in enumerate(points):
+        validate_breakdown(point["disk_breakdown_before"])
+        validate_breakdown(point["disk_breakdown"])
         expected = recipe["records"] * (1 + number if case == "insert" else 1)
         if point["round"] != number or point["live_records"] != expected:
             raise ValueError(f"{case}: invalid round or live record count")
@@ -149,7 +154,7 @@ def render(manifest, comparison):
         lines.append(f"| {case} | {int(item['candidate']['live_records'])} | {pair(item, 'peak_memory_bytes')} | "
                      f"{pair(item, 'idle_memory_bytes')} | {change(item['changes_percent']['idle_memory_bytes'])} | "
                      f"{pair(item, 'memory_growth_bytes')} | {pair(item, 'memory_growth_bytes_per_round')} |")
-    lines.extend(["", "| Case | Before compaction MiB | After compaction MiB | Disk change | Bytes/live record | Disk growth MiB | Disk MiB/round |",
+    lines.extend(["", "| Case | Database before MiB | Database after MiB | Disk change | Bytes/live record | Disk growth MiB | Disk MiB/round |",
                   "|---|---:|---:|---:|---:|---:|---:|"])
     for case, item in comparison.items():
         lines.append(f"| {case} | {pair(item, 'disk_before_compaction_bytes')} | {pair(item, 'compacted_disk_bytes')} | "
@@ -165,13 +170,18 @@ def render(manifest, comparison):
         lines.append(f"| {case} | {pair(item, 'allocated_disk_before_compaction_bytes')} | "
                      f"{pair(item, name)} | {delta} | {pair(item, 'compacted_allocated_disk_bytes_per_record', 1)} | "
                      f"{pair(item, 'allocated_disk_growth_bytes')} | {pair(item, 'allocated_disk_growth_bytes_per_round')} |")
-    lines.extend(["", "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
-                  "Each checkpoint requires a durable flush. A v1 checkpoint then requires full compaction and complete reclaim with zero grace.",
-                  "A v2 home has no explicit compaction. Its checkpoint waits for its automatic run merges:",
+    lines.extend(["", "| Case | Search queue MiB, base → candidate | Other home MiB, base → candidate | Whole home MiB, base → candidate |",
+                  "|---|---:|---:|---:|"])
+    for case, item in comparison.items():
+        lines.append(f"| {case} | {pair(item, 'search_queue_bytes')} | {pair(item, 'other_home_bytes')} | {pair(item, 'whole_home_disk_bytes')} |")
+    lines.extend(["", "Database figures include data/ and blobs/. Search delivery files stay separate under apps/search/inbox/.",
+                  "Every checkpoint records file lengths and allocated blocks for each category and the whole home.",
+                  "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
+                  "Each checkpoint requires a durable flush. A v2 home has no explicit compaction.",
+                  "Its checkpoint waits for its automatic run merges:",
                   "the disk size must stay constant for three seconds, within 90 seconds. That size is the after value.",
-                  "A v1 baseline and a v2 candidate measure different after states; a disk notice can come from the format.",
-                  f"Idle memory is the median over {recipe['idle_seconds']} seconds after compaction or the v2 wait.",
-                  "Memory peaks include work, compaction or the v2 wait, and idle time. Seed and process startup stay outside the peak.",
+                  f"Idle memory is the median over {recipe['idle_seconds']} seconds after the v2 wait.",
+                  "Memory peaks include work, the v2 wait, and idle time. Seed and process startup stay outside the peak.",
                   "The first disk section counts file lengths across the generated home.",
                   "Allocated disk size sums each file's st_blocks × 512 bytes during the same bounded walk at each checkpoint.",
                   "Allocated sizes do not measure unique shared blocks or device writes. Short-lived disk peaks are unmeasured.",
@@ -200,7 +210,9 @@ def main():
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
-        report, complete = render(manifest, comparison) + confirmation_lines(decision), True
+        report = (render(manifest, comparison) + confirmation_lines(decision)
+                  + "\n".join(conversion_lines(args.output, manifest)) + "\n")
+        complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"
                   f"{type(failure).__name__}: {failure}\n\n"

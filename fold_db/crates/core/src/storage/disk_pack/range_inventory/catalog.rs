@@ -6,7 +6,7 @@ use crate::schema::Schema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MoleculeInventory {
     pub molecule: String,
     pub declarations: Vec<String>,
@@ -52,6 +52,7 @@ impl Catalog {
         configured: &MoleculeKeyCodec,
         limits: InventoryLimits,
     ) -> StorageResult<Self> {
+        let retention = super::retention::RetentionCatalog::new(records);
         let key_rows = records
             .iter()
             .filter(|row| row.collection == "molecule_keys")
@@ -86,6 +87,7 @@ impl Catalog {
                 .populate_runtime_fields()
                 .map_err(|_| invalid("a schema declaration is invalid"))?;
             catalog.schemas += 1;
+            let retention_blocker = super::retention::blocker(&schema, &retention, key, limits)?;
             let range = schema
                 .key
                 .as_ref()
@@ -99,6 +101,9 @@ impl Catalog {
                     .as_deref()
                     .ok_or_else(|| invalid("a schema field has no molecule"))?;
                 let entry = catalog.molecule(molecule, limits)?;
+                if let Some(blocker) = &retention_blocker {
+                    entry.report.blockers.push(blocker.clone());
+                }
                 entry
                     .report
                     .declarations
@@ -190,10 +195,17 @@ impl Catalog {
     pub(super) fn finish(
         &mut self,
         limits: InventoryLimits,
+        target_range_encoding: crate::atom::RangeKeyEncoding,
     ) -> StorageResult<Vec<MoleculeInventory>> {
         self.logical.count_winners(&mut self.molecules)?;
         let mut reports = Vec::new();
         for molecule in self.molecules.values_mut() {
+            if molecule.permits_empty_slot && !molecule.range_profiles.is_empty() {
+                molecule
+                    .report
+                    .blockers
+                    .push("shared molecule mixes range and no-range schema contracts".into());
+            }
             if molecule.report.declarations.is_empty() {
                 molecule
                     .report
@@ -208,12 +220,12 @@ impl Catalog {
             }
             molecule.report.declarations.sort();
             molecule.report.declarations.dedup();
-            super::keys::validate_conversion(molecule, limits)?;
+            super::keys::validate_conversion(molecule, limits, target_range_encoding)?;
             molecule.report.blockers.sort();
             molecule.report.blockers.dedup();
         }
-        for (_, molecule) in std::mem::take(&mut self.molecules) {
-            reports.push(molecule.report);
+        for molecule in self.molecules.values() {
+            reports.push(molecule.report.clone());
         }
         Ok(reports)
     }

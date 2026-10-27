@@ -7,14 +7,15 @@ use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunRoot};
 
 /// Logical format features that every v2 home has from its creation.
-pub(super) const V2_FEATURES: u64 = laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
-    | laststore::disk_pack::FEATURE_LARGE_BATCHES
-    | laststore::disk_pack::FEATURE_ATOM_RECORDS;
+pub(super) const V2_FEATURES: u64 = laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS
+    | laststore::disk_run::FEATURE_LARGE_BATCHES
+    | laststore::disk_run::FEATURE_ATOM_RECORDS;
 /// The collection that holds the CAS files. In format v2 it has its own run home.
 pub(super) const CAS_COLLECTION: &str = "cas_blobs";
 
 /// The v2 run homes (main and CAS) and their background merge thread.
 pub(super) struct V2Home {
+    pub(super) range_order: schema_types::key_comparison::KeyOrderVersion,
     pub(super) home: Arc<RunHome>,
     /// The CAS files only.
     pub(super) cas: Arc<RunHome>,
@@ -28,8 +29,13 @@ pub(super) struct V2Home {
 }
 
 impl V2Home {
-    pub(super) fn new(home: Arc<RunHome>, cas: Arc<RunHome>) -> Self {
+    pub(super) fn new(
+        home: Arc<RunHome>,
+        cas: Arc<RunHome>,
+        range_order: schema_types::key_comparison::KeyOrderVersion,
+    ) -> Self {
         Self {
+            range_order,
             home,
             cas,
             merging: Arc::default(),

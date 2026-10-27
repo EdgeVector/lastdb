@@ -57,11 +57,9 @@ impl CoreNamespaces {
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         // `lineage_forward` / `lineage_reverse` back the derived-molecule
-        // lineage index. Skipped by store-level capture per
-        // `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`; rebuildable from
-        // replay (project 2). Both namespaces are still cloud-backed-up
-        // (encrypted since #1153, not at-rest-exempt) — capture-skip does not
-        // mean cloud-excluded. No production writers exist until
+        // lineage index; rebuildable from replay (project 2). Both namespaces
+        // are in the main run home, which the V2 byte backup copies when on.
+        // No production writers exist until
         // `projects/view-compute-as-mutations` wires them in.
         let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
         let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
@@ -69,11 +67,11 @@ impl CoreNamespaces {
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). It is one
         // whole-map value rewritten every debounce tick, so every put is dead
-        // bytes the moment the next one lands. In `metadata` (no automatic
-        // compaction; shares hash groups with correctness records) that grew
-        // one group to 39 GB and looped the primary. `keep_small` is
-        // capture-skipped, backup-excluded and residual-self-compacted, so the
-        // plane stays one live value plus whatever the last compact left.
+        // bytes the moment the next one lands. In `metadata` under the LastStore
+        // segment engine (no automatic compaction; shared hash groups with
+        // correctness records) that grew one group to 39 GB and looped the
+        // primary. In disk format v2 the plane is part of the main run home,
+        // so the V2 byte backup, when on, copies it with the other run files.
         let keep_small_kv = store
             .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
             .await?;
@@ -104,7 +102,7 @@ impl DbOperations {
     pub async fn from_namespaced_store(
         store: Arc<dyn NamespacedStore>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_atom_content_and_hash_key(
+        Self::from_namespaced_store_with_content_and_hash_key(
             store,
             None,
             crate::atom::MoleculeKeyCodec::plain(),
@@ -112,16 +110,21 @@ impl DbOperations {
         .await
     }
 
-    /// Like [`Self::from_namespaced_store_with_atom_content_key`], with an
-    /// explicit HashKey storage encoding (design-lastdb-hashkey-blind-v1).
-    pub async fn from_namespaced_store_with_atom_content_and_hash_key(
+    /// Like [`Self::from_namespaced_store`], with the account content key and
+    /// an explicit HashKey storage encoding (design-lastdb-hashkey-blind-v1).
+    ///
+    /// `content_key` is the account E2E content key. It seals local file
+    /// blobs, unwraps old `ENC:` schema catalog values, and is the key that
+    /// `content_key_proof` checks on each open. Atom rows are plain JSON on a
+    /// disk format v2 home, so it seals no atom content.
+    pub async fn from_namespaced_store_with_content_and_hash_key(
         store: Arc<dyn NamespacedStore>,
-        atom_content_key: Option<[u8; 32]>,
+        content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_atom_and_molecule_keys_mode(
+        Self::from_namespaced_store_with_content_and_molecule_keys_mode(
             store,
-            atom_content_key,
+            content_key,
             hash_key_codec,
             None,
             true,
@@ -130,15 +133,17 @@ impl DbOperations {
     }
 
     /// Production constructor with a node key for durable molecule-key wraps.
-    pub async fn from_namespaced_store_with_atom_and_molecule_keys(
+    /// The wrap key is also the `content_key_proof` key when `content_key` is
+    /// `None`.
+    pub async fn from_namespaced_store_with_content_and_molecule_keys(
         store: Arc<dyn NamespacedStore>,
-        atom_content_key: Option<[u8; 32]>,
+        content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_atom_and_molecule_keys_mode(
+        Self::from_namespaced_store_with_content_and_molecule_keys_mode(
             store,
-            atom_content_key,
+            content_key,
             hash_key_codec,
             molecule_wrap_key,
             true,
@@ -146,9 +151,9 @@ impl DbOperations {
         .await
     }
 
-    async fn from_namespaced_store_with_atom_and_molecule_keys_mode(
+    async fn from_namespaced_store_with_content_and_molecule_keys_mode(
         store: Arc<dyn NamespacedStore>,
-        atom_content_key: Option<[u8; 32]>,
+        content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_wrap_key: Option<[u8; 32]>,
         admit_meter_trust: bool,
@@ -195,7 +200,7 @@ impl DbOperations {
                 superseded_by_store,
                 store.disk_pack_runtime(),
             );
-            match atom_content_key {
+            match content_key {
                 Some(key) => store.with_catalog_unwrap_key(key),
                 None => store,
             }
@@ -209,11 +214,11 @@ impl DbOperations {
         let atom_store = Self::open_atom_store(
             &store,
             AtomNamespaces::new(main_kv, keep_small_kv),
-            atom_content_key,
+            content_key,
             hash_key_codec,
             &molecule_keys,
             admit_meter_trust,
-            atom_content_key.or(molecule_wrap_key),
+            content_key.or(molecule_wrap_key),
         )
         .await?;
         let public_key_store = PublicKeyStore::new(public_keys_typed);
@@ -240,7 +245,7 @@ impl DbOperations {
     async fn open_atom_store(
         store: &Arc<dyn NamespacedStore>,
         namespaces: AtomNamespaces,
-        atom_content_key: Option<[u8; 32]>,
+        content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_keys: &MoleculeKeyStore,
         admit_meter_trust: bool,
@@ -250,7 +255,7 @@ impl DbOperations {
         // Reopen requires that exact marker and refuses a different setting.
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             namespaces.main,
-            atom_content_key,
+            content_key,
             hash_key_codec,
         )
         .with_namespaced_store(Arc::clone(store))

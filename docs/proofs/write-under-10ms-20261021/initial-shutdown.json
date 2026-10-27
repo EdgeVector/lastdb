@@ -1,9 +1,0 @@
-{
-  "phase": "round2",
-  "SIGTERM_exit_code": 1,
-  "reason": "background task drain timed out before the final disk checkpoint",
-  "timeout_seconds": 30,
-  "remaining_tasks": 8,
-  "initial_SIGKILL_recovery_passed": true,
-  "fix": "The candidate now checkpoints accepted work before the task drain and after an idle period."
-}

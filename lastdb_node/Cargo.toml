@@ -27,12 +27,6 @@ test = false
 name = "lastdb"
 path = "src/bin/lastdb.rs"
 
-[[bin]]
-bench = false
-test = false
-name = "lastdb_storage_recovery_rollback_proof"
-path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
-
 [features]
 # Sentry crash/unclean-exit telemetry is compiled in by default (DSN-gated at
 # runtime: no OBS_SENTRY_DSN ⇒ no client ⇒ every send is a structural no-op),
@@ -106,6 +100,20 @@ path = "src/bin/received_range_seed.rs"
 [[example]]
 name = "local_install_proof"
 path = "examples/local_install_proof.rs"
+
+[[example]]
+name = "v2_registry_client_proof"
+path = "examples/v2_registry_client_proof/main.rs"
+
+[dev-dependencies]
+ed25519-dalek = "2"
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-dynamodb = { workspace = true }
+schema_service_s3 = { path = "../schema_service/crates/schema_service_s3" }
+schema_service_server_shared = { path = "../schema_service/crates/server_shared", features = ["actix"] }
+schema_service_server_http = { path = "../schema_service/crates/server_http" }
+actix-web = { workspace = true }
 
 [lib]
 test = false

@@ -23,24 +23,33 @@ pub struct SchemaDropReceipt {
 
 mod catalog_keys;
 mod claims_retention;
+mod key_format;
 mod name_claims;
 mod native_memory;
 mod read;
 mod read_snapshot;
 mod replay_catalog;
-mod replay_probe;
 mod retention_backfill;
+mod retention_format;
 mod retention_layers;
 mod retention_move;
+mod retention_page;
 mod retention_recheck;
 mod retention_sharing;
-mod retired_replay;
 mod write;
 
+pub(crate) use catalog_keys::SchemaRetentionAnchor;
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
-pub use replay_probe::ReplayAuthorityProbe;
-pub(crate) use retired_replay::RetiredReplayProof;
+pub(crate) use retention_format::require_typed_range_retention;
+
+/// Frozen conversion reads use the same exact retention-key layout as the node.
+pub(crate) fn frozen_retention_keys(schema_name: &str) -> [String; 2] {
+    [
+        catalog_keys::retention_anchor_key(schema_name),
+        catalog_keys::retention_policy_key(schema_name),
+    ]
+}
 
 use catalog_keys::*;
 
@@ -53,7 +62,8 @@ pub struct SchemaStore {
     /// Mini E2E content key. Catalog rows are plaintext-by-policy, but a
     /// mis-wired sealer wrote `ENC:` tips (2026-08-16). Query falls back to
     /// [`Self::get_schema`] on a cache miss; without this key that get would
-    /// serde-fail and become HTTP 400. Same key as atom content seal.
+    /// serde-fail and become HTTP 400. Same account key as the local CAS file
+    /// blob encryption in `AtomStore`.
     catalog_unwrap_key: Option<[u8; 32]>,
     runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
 }

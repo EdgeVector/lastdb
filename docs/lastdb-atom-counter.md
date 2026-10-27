@@ -148,7 +148,13 @@ of keys of the request and never the size of the schema.
 | Writes a delete barrier (`rdel:v2:`) | yes, so a replayed older write cannot bring the key back | no |
 | Reaches the protein siblings of the key | HashRange siblings only | HashRange siblings only |
 | Releases the kept conflict records of the key | yes | yes |
-| Leaves `mgd:v1:` markers | yes | yes |
+| Leaves `mgd:v1:` markers | only for an active or prepared generation | only for an active or prepared generation |
+
+An erase omits the generation marker when no active or prepared generation exists.
+A request guard excludes new generation cuts until the durable commit.
+The same guard covers every erase chunk. Delete replay barriers remain in the batch.
+The barrier keeps the delete order, exact key, replay sequence, and optional TTL cutoff.
+It omits the unused displaced atom identity. Older barriers remain readable.
 
 A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
 safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that
@@ -183,18 +189,21 @@ A planner fault that raises `suspect` for a molecule counter works the same way:
 
 Two markers keep one build from opening a home with another counter model.
 
-- The LastStore `CURRENT` file carries the required-feature bit
-  `FEATURE_ATOM_RECORDS` (value 128): every atom body is one record at
-  `atom:{uuid}\0b` in `atoms`. A build that does not know the bit refuses the
-  home. This build refuses a home without the bit.
-- The logical key format marker is `layout:v3:keys` with the value `5`
-  (`atom_store/key_format.rs`). Value `4` uses the same counter model.
-  The new reader accepts it and advances the encrypted marker before new writes.
-  Value `5` permits atom and CAS records without a duplicate outer envelope.
-  An older reader refuses value `5` before it can discard those records.
+- The node marker `laststore-pack-node-v1` must name disk format v2. The node
+  refuses any other home by that marker, for example a disk format v1 home
+  (`disk_pack/run_node.rs`, `not_v2`). A v2 home stores no feature bits.
+  `FEATURE_ATOM_RECORDS` (value 128) is part of the compile-time set
+  `V2_FEATURES` (`disk_pack/physical_v2.rs`), so every v2 home has it: every
+  atom body is one record at `atom:{uuid}\0b` in `atoms`. The bit reaches disk
+  only in the byte backup manifest, and restore refuses a manifest with other bits.
+- The logical key format marker is `layout:v3:keys` with the value `6`
+  (`atom_store/key_format.rs`). A home with a delete-replay cutoff holds
+  `6;delete-replay-cutoff=v1`, and a home with typed ranges holds
+  `7;typed-ranges=v1`. The node refuses every other value, including `4` and
+  `5`, before it serves.
 
-Earlier counter layouts remain refused. The marker advance rewrites no existing
-atom, CAS record, or pack file. See [the element encryption policy](designs/native-element-encryption-v1.md).
+Earlier counter layouts remain refused. Startup converts no existing atom, CAS
+record, or run file. See [the element encryption policy](designs/native-element-encryption-v1.md).
 
 ## Conflict records and their retention
 
@@ -383,8 +392,7 @@ release the kept conflict records of the slots they remove. See
 | `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
 | `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
 | `lastdb db reap-unsealed` | `POST /api/db/reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
-| `lastdb db compact` | `POST /api/db/compact` | live node | packs the native home and reclaims old files (`docs/lastdb-storage-parts.md`) |
-| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth, parts |
+| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth |
 
 ### `lastdb db verify-refs`
 
@@ -567,20 +575,22 @@ clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and 
 | `Blob counters` | the blob counter totals, dwell queue depth and buckets, next due time, passes, net sweeps |
 | `Conflict retention` | window, janitor interval, last run, queue depth and buckets, released by janitor and by purge, slot drains pending, failed wakes, net sweeps |
 | `Purge stats` | for each schema: purges, records purged, target slots and atoms deleted, since the process started |
-| `Storage parts` | dependency parts of the storage receipt: `docs/lastdb-storage-parts.md` |
 | `Local retention` | the TTL sweep: `docs/lastdb-ttl-sweep.md` |
 
 ## Crash states
 
 A crash keeps whole batches only, in order. Each batch moves the store from one state
-that holds I1 to another. The table lists the states a crash can leave and what recovers
+that holds I1 to another. One exception: a commit with CAS changes writes up to three
+runs, and a crash between them can leave CAS files that nothing references (see
+[the eager queue design](lastdb-eager-durable-queue.md)).
+The table lists the states a crash can leave and what recovers
 each one.
 
 | Crash point | State on disk | What recovers it |
 |---|---|---|
 | before the batch is accepted | no change | nothing to recover |
-| after a `queued` acknowledgement, before the flush | the whole batch is lost | the client was told `queued`; a retry applies it |
-| during the journal append, or after the commit and before `CURRENT` | no batch, or a complete batch | recovery returns only complete batches |
+| during the run file write, or before the new `CURRENT` | no batch | the next open deletes the temporary file or the run file that `CURRENT` does not name; the client got no ack |
+| after the new `CURRENT`, before the ack | the whole batch | nothing to recover; the client got no ack, so it reads the keys to learn the result |
 | after batch N of a job of many batches (TTL pass, janitor, drain, dwell pass, mixed request) | batches 1 to N applied | each batch is valid alone; the next pass continues |
 | a schema drop between the catalog rows and the schema record | rows gone, schema still installed | run the drop again |
 | a molecule drain between batches | header with zero counters, candidate row present | the next wake reads the candidate list and finishes |
@@ -589,7 +599,6 @@ each one.
 | a queue bucket without directory row (outside the queue) | entries that no reader lists | the safety net, `verify-refs`, `recount --execute` |
 | a conflict record with no queue entry | a record that the janitor never releases | `verify-refs` finds it; `recount --execute` writes the entry |
 | a writer that bypassed the planner | a count that is wrong | `verify-refs`, then `recount --execute` |
-| a kill during pack or reclaim | files that no receipt names, an unfinished generation directory | `lastdb-pack-maintain reclaim`, the automatic sweep (`docs/lastdb-storage-parts.md`) |
 | a row without an at-rest envelope | the row reads as absent | `lastdb db reap-unsealed`, then `recount` |
 
 A leak and a loss do not come from a crash. They come from a defect in the planner or in a
@@ -624,11 +633,6 @@ that does not parse gives the default.
 | `LASTDB_TTL_SWEEP_BATCH` | 16 | Keys erased in one batch (1 to 64). |
 | `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | Share of wall time (1 to 100) that the sweep spends in batches. |
 | `LASTDB_TTL_SWEEP_MIN_PAUSE_MS` | 25 | Shortest rest between two batches. |
-| `LASTDB_DEPENDENCY_HIGH_WATER` | 4,096 | Storage parts at which maintenance starts (at most 75 percent of the limit). |
-| `LASTDB_AUTO_MAINTENANCE` | on | `0` or `false` turns the storage maintenance worker off. |
-| `LASTDB_AUTO_MAINTENANCE_GRACE_MS` | 0 | Grace for the reclaim of an automatic run. |
-| `LASTDB_ORPHAN_MIN_AGE_MS` | 600,000 | Youngest unreferenced part file that the sweep removes. |
-| `LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS` | 30 | Wait before the first pack of a process. |
 
 ## Known limits
 

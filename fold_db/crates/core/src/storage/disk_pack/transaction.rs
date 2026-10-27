@@ -5,10 +5,12 @@ mod accounting;
 pub(crate) mod blocked;
 mod effects;
 mod empty;
+mod leases;
 pub(crate) mod publication;
 mod request;
 mod resources;
 pub(crate) use effects::{stage_core_memory, stage_paths};
+pub(crate) use leases::lease;
 pub(crate) use request::{background_scope, request_scope};
 pub(crate) use resources::with_resource;
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
@@ -34,6 +36,7 @@ pub(super) struct PendingBatch {
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
     resources: Mutex<Vec<resources::Resource>>,
+    leases: Mutex<BTreeMap<String, std::sync::Weak<dyn std::any::Any + Send + Sync>>>,
     raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
@@ -59,6 +62,7 @@ impl PendingBatch {
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
             resources: Mutex::new(resources::capture(runtime)),
+            leases: Mutex::new(BTreeMap::new()),
             raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
@@ -69,12 +73,7 @@ impl PendingBatch {
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
             preparation_limit: Mutex::new(None),
-            operation_limit: runtime
-                .view
-                .read()
-                .expect("native complete write view")
-                .current
-                .batch_operation_limit(),
+            operation_limit: runtime.batch_operation_limit(),
         }
     }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {

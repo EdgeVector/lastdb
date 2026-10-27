@@ -3,14 +3,14 @@
 use super::*;
 use fold_db::crypto::E2eKeys;
 use fold_db::security::Ed25519KeyPair;
-use fold_db::storage::disk_pack::{validate_restored_node, RestoredNodeGuard};
+use fold_db::storage::disk_pack::run_restore;
 use std::path::PathBuf;
 
 #[path = "restored_receipt.rs"]
 mod receipt;
 
 pub(super) struct Validation {
-    guard: RestoredNodeGuard,
+    guard: run_restore::RunNodeGuard,
     identity: File,
     seed: zeroize::Zeroizing<[u8; 32]>,
     home: PathBuf,
@@ -52,9 +52,10 @@ impl PreparedHome {
             .map_err(|_| "cannot derive restored native account key")?;
         let content = zeroize::Zeroizing::new(keys.encryption_key());
         let _data = recovery_files::open_directory(&home.join("data"))?;
-        let guard = validate_restored_node(&home.join("data"), &content).map_err(|_| {
-            "restored native home is active, unsupported, or belongs to another identity"
-        })?;
+        let guard =
+            run_restore::validate_restored_node(&home.join("data"), &content).map_err(|_| {
+                "restored native home is active, unsupported, or belongs to another identity"
+            })?;
         let lock = enrollment_lock(&directory)?;
         let prepared = Self {
             parent,

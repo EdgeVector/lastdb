@@ -1,6 +1,6 @@
 name: LastDB benchmarks
 
-# Completion and upload are required for product changes. Speed changes are advisory.
+# Completion, verified upload, and the single-pass 1.5x disk limit are required. Speed stays advisory.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -55,9 +55,10 @@ jobs:
       candidate: ${{ needs.plan.outputs.candidate }}
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ github.event_name == 'schedule' && 'nightly' || 'standard' }}
+      disk_excess: ${{ github.event_name == 'pull_request' && github.head_ref == 'perf/investigate-disk-excess-20261026' }}
       investigation: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 317 }}
       legacy_cache_upgrade: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 363 }}
-      ttl_active: ${{ github.event_name == 'pull_request' && github.head_ref == 'direct/lifecycle-age-marker-ttl-latency-20261025' }}
+      ttl_active: ${{ github.event_name == 'pull_request' && github.head_ref == 'direct/ttl-global-page-bound-20261026' }}
 
   benchmark-complete:
     name: benchmark-complete
@@ -76,7 +77,7 @@ jobs:
           set -euo pipefail
           [ "$PLAN_RESULT" = success ]
           case "$REQUIRED:$BENCHMARK_RESULT" in
-            true:success) echo "Complete benchmark and verified uploads. Speed changes remain advisory." ;;
+            true:success) echo "Complete benchmark, verified uploads, and single-pass 1.5x disk limit passed. Speed stays advisory." ;;
             false:skipped) echo "No product changes; measurements are unnecessary." ;;
             *) echo "::error::Required benchmark or upload did not complete: $BENCHMARK_RESULT"; exit 1 ;;
           esac

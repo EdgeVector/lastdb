@@ -394,15 +394,6 @@ fn slowest_request_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels)
             if let Some(path) = s.path.as_deref() {
                 request.push(format!("path={path}"));
             }
-            if s.partition_read_rejections != 0 {
-                request.push(format!(
-                    "partition_read_rejections={}",
-                    s.partition_read_rejections
-                ));
-            }
-            if s.all_group_walks != 0 {
-                request.push(format!("all_group_walks={}", s.all_group_walks));
-            }
             let uds = uds_pool_detail(s.uds_in_flight, s.uds_workers, s.uds_queue_capacity);
             if !uds.is_empty() {
                 request.push(uds.trim().to_string());

@@ -3,46 +3,42 @@
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
 use crate::resident::PersistLaneMetrics;
-use laststore::disk_pack::home::{DiskHome, HomeMutation, HomeSnapshot};
-use laststore::disk_pack::maintenance::SpaceReservation;
-use laststore::disk_pack::{Current, ReadBudget};
+use laststore::disk_run::home::{HomeMutation, ReadBudget};
+use laststore::space::SpaceReservation;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-mod backup;
-pub mod backup_capture;
-mod boundary;
+mod blocking;
 pub mod byte_backup;
+mod cleanup;
 mod cloud_work;
-mod convert_envelopes;
-mod convert_v2;
-mod convert_v2_copy;
-mod convert_v2_records;
-mod convert_v2_switch;
+mod diagnostics;
+pub use cleanup::{
+    NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
+};
 pub mod file_dependencies;
 pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
-pub use convert_envelopes::convert_transferred_node;
-pub use convert_v2::{kept_v1_path, DiskConversionReport};
+pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
-mod maintenance;
 mod memory;
 mod namespace_delete;
-mod parts;
+pub(in crate::storage) mod native_routing;
 mod physical;
 mod physical_v2;
 mod queue;
 pub mod range_inventory;
 mod read;
-mod restore;
 pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
+mod run_admission;
 mod run_commit;
 mod run_node;
+pub mod run_restore;
 pub(crate) mod schema_keys;
 mod space;
 mod timing;
@@ -51,16 +47,11 @@ mod view;
 mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
-pub use boundary::CoreNativeBackupBoundary;
-pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
+pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
-pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
-pub use restore::{
-    prepare_restored_node, validate_restored_atom_key, validate_restored_node, RestoredNodeGuard,
-};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
@@ -68,19 +59,18 @@ const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
 const NAMESPACES: &str = "namespaces\0";
 
-/// Shared native home, complete published root, and exclusive snapshot writer.
+/// Shared v2 run homes and their complete published root.
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
-    physical: physical::Physical,
+    physical: physical::V2Home,
+    cleanup_job: Arc<cleanup::CleanupJob>,
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     restore_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
-    compaction_slots: Arc<tokio::sync::Semaphore>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
     persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
@@ -88,11 +78,12 @@ pub struct PackRuntime {
     initializing: AtomicBool,
     restore_blocked: AtomicBool,
     serving: AtomicBool,
-    node_home: Option<initialization::NodeHome>,
-    // Failed snapshot publication retains its space charge until this runtime drops.
+    // A failed commit retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
-    space_policy: laststore::disk_pack::maintenance::SpacePolicy,
-    parts: Arc<parts::PartsLedger>,
+    space_policy: laststore::space::SpacePolicy,
+    /// The root that the last commit or merge installed, for a status read
+    /// that does not wait for the view lock.
+    last_root: Arc<view::LastRoot>,
 }
 
 /// All namespaces on one native disk home.
@@ -132,135 +123,55 @@ fn budget() -> ReadBudget {
 }
 
 impl PackNamespacedStore {
-    /// Open an existing v1 node store without the node encryption key. A new
-    /// home is v2, and a v2 home needs the key: use [`Self::open_keyed`].
-    /// The caller must reject cloud sync until its native transfer gate is wired.
-    pub fn open(path: &Path) -> StorageResult<Self> {
-        Self::open_keyed(path, None)
-    }
-
     /// Open a node store with the node encryption key. An absent or empty
     /// home becomes a new v2 home, and a v2 creation that stopped before its
     /// node marker is created again. A v2 home needs the key: its run home
-    /// keys derive from it. With the key and `LASTDB_DISK_FORMAT=2`, a v1 home
-    /// is converted to v2 once first; without the setting it opens as v1.
+    /// keys derive from it. Any other home is refused: this program opens
+    /// only disk format v2.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
-        let space_policy = space::policy_from_env()?;
-        if let Some(node_key) = node_key {
-            convert_v2::resume_or_convert(path, node_key)?;
-        }
-        if path.join("laststore-pack-home-v1").try_exists()? {
-            return Self::open_home(path);
-        }
         if run_node::is_run_node(path)? {
             return Self::open_run(path, node_key);
         }
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
             return Self::create_run(path, run_node::require_key(node_key)?);
         }
-        let node_home = initialization::NodeHome::open(path, &space_policy)?;
-        Self::open_physical(&path.join("disk-pack"), Some(node_home))
+        Err(run_node::not_v2(path))
     }
 
-    /// Open an existing node home for an offline tool: a v2 home with the
-    /// key, a v1 home as v1. The home must be complete: it refuses a home
-    /// whose creation has not written its key-format proofs, and a home whose
-    /// conversion stopped. It never creates a home, finishes a creation, or
-    /// converts a format; the node does those when it starts.
+    /// Open an existing v2 node home for an offline tool. The home must be
+    /// complete: it refuses a home whose creation has not written its
+    /// key-format proofs. It never creates a home or finishes a creation;
+    /// the node does those when it starts.
     pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
-        if !path.join(NODE_MARKER).try_exists()?
-            || path.join(convert_v2::INTENT).try_exists()?
-            || run_node::creation_pending(path)?
-            || initialization::creation_pending(path)?
-        {
+        if !path.join(NODE_MARKER).try_exists()? || run_node::creation_pending(path)? {
             return Err(StorageError::InvalidOperation(format!(
                 "an offline tool needs a complete node home at {}; start the node once, then \
                  stop it",
                 path.display()
             )));
         }
-        if run_node::is_run_node(path)? {
-            return Self::open_run(path, Some(node_key));
+        if !run_node::is_run_node(path)? {
+            return Err(run_node::not_v2(path));
         }
-        let node_home = initialization::NodeHome::open(path, &space::policy_from_env()?)?;
-        Self::open_physical(&path.join("disk-pack"), Some(node_home))
-    }
-
-    /// Create a format v1 node home in an absent or empty `path`. A node never
-    /// does this: a new home is v2. Only the V4 conversion proof uses it, to
-    /// make the v1 home that it converts.
-    #[doc(hidden)]
-    pub fn create_v1_home(path: &Path) -> StorageResult<Self> {
-        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
-        if !run_node::is_new_home(path)? {
-            return Err(StorageError::InvalidOperation(
-                "format v1 creation requires an empty node home".into(),
-            ));
-        }
-        let node_home = initialization::NodeHome::open(path, &space::policy_from_env()?)?;
-        Self::open_physical(&path.join("disk-pack"), Some(node_home))
-    }
-
-    /// Open the native physical home beneath the node format fence.
-    pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
-        initialization::refuse_in_progress_parent(path)?;
-        Self::open_physical(path, None)
-    }
-
-    fn open_physical(
-        path: &Path,
-        node_home: Option<initialization::NodeHome>,
-    ) -> StorageResult<Self> {
-        let space_policy = space::policy_from_env()?;
-        let home = Arc::new(DiskHome::open(path).map_err(map)?);
-        let writer = home.snapshot().map_err(map)?;
-        let restore_blocked = restore_safety::pending(&home, path)?;
-        let read_lease = writer.read_lease();
-        let capture_cleanup = writer.capture_cleanup();
-        let current = writer.current().clone();
-        let native_backup_boundary = tokio::sync::watch::channel(CoreNativeBackupBoundary {
-            source_home: home.descriptor().identity,
-            frontier: current.frontier,
-        })
-        .0;
-        let parts = parts::PartsLedger::from_env(
-            writer.dependency_parts(),
-            current.generation,
-            current.frontier,
-        );
-        let physical = physical::Physical::V1(Box::new(physical::V1Home {
-            home,
-            writer: Mutex::new(writer),
-            read_lease,
-            capture_cleanup,
-        }));
-        Ok(Self::assemble(
-            physical,
-            physical::PhysicalRoot::V1(current),
-            native_backup_boundary,
-            parts,
-            restore_blocked,
-            node_home,
-            space_policy,
-        ))
+        Self::open_run(path, Some(node_key))
     }
 
     /// One runtime over an opened physical home and its published root.
     fn assemble(
-        physical: physical::Physical,
-        current: physical::PhysicalRoot,
-        native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
-        parts: Arc<parts::PartsLedger>,
-        restore_blocked: bool,
-        node_home: Option<initialization::NodeHome>,
-        space_policy: laststore::disk_pack::maintenance::SpacePolicy,
+        physical: physical::V2Home,
+        current: physical::V2Root,
+        initializing: bool,
+        space_policy: laststore::space::SpacePolicy,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
+        let last_root = Arc::new(view::LastRoot::new(&current));
+        let cleanup_job = Arc::new(cleanup::CleanupJob::open(&physical));
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
+                cleanup_job,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
@@ -268,23 +179,18 @@ impl PackNamespacedStore {
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
                 restore_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
-                compaction_slots: Arc::new(tokio::sync::Semaphore::new(2)),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                native_backup_boundary,
                 persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
-                restore_blocked: AtomicBool::new(restore_blocked),
+                restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),
-                initializing: AtomicBool::new(
-                    node_home.as_ref().is_some_and(|home| home.initializing),
-                ),
-                node_home,
+                initializing: AtomicBool::new(initializing),
                 failed_write: Mutex::new(None),
                 space_policy,
-                parts,
+                last_root,
             }),
         }
     }
@@ -320,7 +226,7 @@ impl NamespacedStore for PackNamespacedStore {
         let context = read::ReadContext::current(&self.runtime).await?;
         let pending = transaction::PendingBatch::current(&self.runtime);
         let runtime = Arc::clone(&self.runtime);
-        super::laststore::LastStoreKvStore::run_blocking(move || {
+        run_blocking(move || {
             let (rows, complete) = runtime.raw_rows(
                 &context,
                 REGISTRY,
@@ -353,10 +259,6 @@ impl NamespacedStore for PackNamespacedStore {
     }
 
     async fn restore_durability_barrier(&self) -> StorageResult<()> {
-        self.runtime.flush().await
-    }
-
-    async fn flush_written_keys(&self, _keys: &[laststore::ShardKey]) -> StorageResult<()> {
         self.runtime.flush().await
     }
 

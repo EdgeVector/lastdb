@@ -1,8 +1,0 @@
-{
-  "collection": "receipt-orphan-generated",
-  "end": "zz",
-  "max_pages": 4,
-  "page_size": 2,
-  "prefix": "orphan\u0000",
-  "start": "keeper"
-}

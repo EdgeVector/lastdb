@@ -115,10 +115,6 @@ impl RestoreSession {
     pub fn accepted(&self) -> &AcceptedBackup {
         &self.selection.accepted
     }
-    pub(super) fn physical(&self) -> PathBuf {
-        self.root.join("home/data/disk-pack")
-    }
-
     pub async fn restore(
         &mut self,
         client: &ByteBackupClient,
@@ -162,13 +158,7 @@ impl RestoreSession {
 }
 
 fn scaffold(root: &Path) -> Result<()> {
-    for name in [
-        "cache",
-        "entries",
-        "home",
-        "home/data",
-        "home/data/disk-pack",
-    ] {
+    for name in ["cache", "entries", "home", "home/data"] {
         let path = root.join(name);
         match fs::DirBuilder::new().mode(0o700).create(&path) {
             Ok(()) => {}

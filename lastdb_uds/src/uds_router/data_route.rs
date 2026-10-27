@@ -91,7 +91,7 @@ pub enum DataRoute {
     /// **OWNER socket only**.
     DropSchema,
     /// `GET /api/status` — stateful daemon status: uptime, sampler, process
-    /// vitals, disk usage, and cloud-sync health.
+    /// vitals, disk usage, and backup health.
     ///
     /// Default response is the **cheap health** picture (request-ops scalars
     /// only). Pass `?recent=1` or `?forensics=1` for the full forensic
@@ -235,6 +235,8 @@ pub enum DataRoute {
     SyncCloudOff,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
+    /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.
+    SyncByteBackupV2Connect,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
     /// byte breakdown. OWNER socket only.
     ///
@@ -280,33 +282,17 @@ pub enum DataRoute {
     /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
     /// `keep_last: 0` = full purge (latest tip only).
     DbClearHistory,
-    /// `POST /api/db/compact` — compact one allowlisted LastStore collection
-    /// (`schemas`, `schema_states`, `schema_index`). OWNER only. Body:
-    /// `{ collection: string, dry_run?: bool }` (default dry_run=true).
-    /// Execute skips while a backup cut is held.
-    DbCompact,
-    /// `POST /api/db/native-backup` — local native data bundle at a new absolute
-    /// destination. OWNER only. Node identity material is excluded.
-    DbNativeBackup,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,
+    /// `POST /api/db/cleanup` saves a resumable cleanup request; GET reads its receipt.
+    DbCleanup,
     /// `GET /api/db/native-status` — read native completion and writer state.
     /// OWNER only. This does not request a flush.
     DbNativeStatus,
-    /// `POST /api/db/stamp-purged-atom-retirements` — stamp committed atom
-    /// successor-history SHAs into pending purged retirements, or report
-    /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
-    /// Execute skips while a backup cut is held. Never stamps missing groups.
-    DbStampPurgedAtomRetirements,
     /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
     /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
     DbGcProteins,
-    /// `POST /api/db/reclaim-keep-small-snapshot` — drop the current
-    /// `keep_small` hash group when it holds only the rebuildable
-    /// `keep_small:meters` row, without loading it. OWNER socket only.
-    /// Body: `{ dry_run?: bool }` (default true).
-    DbReclaimKeepSmallSnapshot,
     /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
@@ -325,11 +311,6 @@ pub enum DataRoute {
     /// `{ collection, dry_run?: bool, max_rows?: usize, max_secs?: u64,
     /// progress_only?: bool, restart?: bool }` (dry_run default true).
     DbReapUnsealed,
-    /// `POST /api/db/pin-log-audit` — bounded, resumable, read-only pin-log
-    /// plane audit. Classifies entry rows as confirmed-orphan vs pending using
-    /// durable published-F high-water marks. Never deletes. Body:
-    /// `{ max_keys?: usize, after_key?: string }`.
-    DbPinLogAudit,
     /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` storage
     /// keys (decoded hash/range + collision flag). Read-only.
     DbMoleculeKeys,

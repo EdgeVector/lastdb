@@ -11,6 +11,8 @@
 
 Base of every fact: `EdgeVector/lastdb` `origin/main` at `fadd60ab` (after PRs #212 to #221). Paths without a prefix are under `fold_db/crates/core/src`. Runs used a `dev-release` build of that commit on fresh synthetic homes in `$TMPDIR`, `EXEMEM_ENV=dev`. No primary data was touched.
 
+The disk format v1 removal (decision D1, 2026-10-26) deleted many files that this evidence names, for example `docs/lastdb-disk-journal.md` and `vendor/laststore/src/disk_pack/`. Read them in the [fadd60ab tree](https://github.com/EdgeVector/lastdb/tree/fadd60ab26ee8282576dbe54b710ba7ad0e754e5).
+
 Words: schema, field, record, hash, range, key, molecule, atom, tip, file, memory, disk, flush, counter, reference count, grace window.
 "Record" means one stored key and value unless the text says "record of a key".
 
@@ -170,8 +172,8 @@ Measured (appendix A.1 to A.3):
 | Pending hold (catalog add) | No (hold only) | none | **Gone** |
 | Atom to blob | blob edge `bref:v1` | atom to blob | Blob counter counts atoms |
 | Database catalog | weight | `mref` | **Molecule `bindings`**, not atom weight |
-| Delete barrier (`displaced_atom_uuid`) | No | none | No. It holds a stamp, not a body. |
-| Retired intent | No | none | Cloud only. Out of scope. |
+| Delete barrier | No | none | No. It holds a stamp, not a body. |
+| Retired intent | No | none | Retired with Cloud Sync. No code reads or writes it. |
 | Generation base, `mgd` marker | No | mirrored | Out of scope. See 16. |
 | `keep_small` meters | No | none | No. A gauge, not a reference. |
 
@@ -384,7 +386,7 @@ What can still go wrong, and who sees it: a write path that skips the planner (t
 - **Counters travel with the data in every physical copy.** Run A.6: a native local backup copied 176 files, 2.9 MB, and the bundle had the same count and edge records. `lastdb-disk-recovery restore` built a new root from the bundle with the same records.
 - **No rebuild by scan on restore.** The restored root is the state.
 - **Peer replay builds its own counters.** The counter is derived by the write rule from the logical mutations, like the tip record. The capture skip list carries the counter key family (`sync/policy.rs:85-113`). A snapshot and a log tail replay give the same counters as live writes, because replay uses the same planner.
-- **Cloud sync is off in this build** (`docs/lastdb-rehydrate.md`: startup refuses it). Layer 3 must keep two rules: (1) a cloud snapshot is a root bundle; (2) a log replay goes through the planner. A purge must write its cloud retirement record in the same batch (`retired_intent_retention.rs`). I did not design Layer 3.
+- **Cloud sync is off in this build** (`docs/lastdb-rehydrate.md`: startup refuses it). Layer 3 must keep two rules: (1) a cloud snapshot is a root bundle; (2) a log replay goes through the planner. A purge must write its cloud retirement record in the same batch; the removed `retired_intent_retention.rs` showed that shape. I did not design Layer 3.
 - **No more `peer-apply` row, `.peer_derived` marker, `fresh-home` stamp, completion markers, manifests.** The format fence replaces them (section 17, S1).
 
 ---
@@ -596,8 +598,7 @@ S1 is the one large step. I could not split it, because the planner replaces the
 Sections 1 to 19 are the plan of 2026-10-19. This section records the build. All steps are merged to `main`.
 Questions Q1 to Q10 were accepted as recommended. The pages that describe current behavior are
 `docs/lastdb-atom-counter.md`, `docs/lastdb-molecule-counters.md`, `docs/lastdb-molecule-drain.md`,
-`docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md`, `docs/lastdb-ttl-sweep.md` and
-`docs/lastdb-storage-parts.md`.
+`docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md` and `docs/lastdb-ttl-sweep.md`.
 
 ### 20.1 The steps as merged
 
@@ -635,7 +636,7 @@ that were left (verbs, key families, a status gauge, comments).
 | Molecule drain | A cursor over the tips of a dead molecule, from the header | Candidate rows `mref:v1:d\0{scope}\0{molecule}` written in the batch that lowers `bindings` to zero; bounded batches through the planner; counters read again in the gate; the drain also releases kept conflict records; a schema whose molecules drain answers HTTP 409 on install | The first review found that a schema drop with a large database-scope instance failed with HTTP 500. The drop now removes only the catalog rows and bindings, and the drain erases the instance. |
 | Protein siblings of an erase | Q7: reach every sibling, also a Hash sibling | A purge and a delete reach HashRange siblings only | Not built. A sibling of another layout keeps its tip, so its atom stays. |
 | Pacing of background tasks | The duty and rest knobs stay | The janitor, the dwell pass and the molecule drain (S7c) rest for a share of the time that writers wait, with a sticky writer watch; a write scope that stages nothing (the `verify-refs` fence) is not a writer. The TTL sweep rests for a share of the batch wall time. | A background batch seals the write queue, so writers wait for its flush even though the gate is free. |
-| Storage part limit | Not in the plan | A ledger and one maintenance worker (`docs/lastdb-storage-parts.md`) | Runs of S3 and S5 stopped taking writes at the limit of 65,536 dependency parts. |
+| Storage part limit | Not in the plan | A ledger and one maintenance worker for disk format v1, which is removed (decision D1) | Runs of S3 and S5 stopped taking writes at the limit of 65,536 dependency parts. |
 | Body deletes and memory acknowledgement | Not discussed | The typed publication accepts the atom counter key and the body key, so a write whose old atom reaches zero keeps the memory-acknowledgement path | Without it, such a write took the disk-first path and waited about 250 ms for the flush. |
 
 ### 20.3 What the reviews found
@@ -716,7 +717,7 @@ With `RUST_LOG=lastdb::native_read_budget=debug`, one purge of 16 keys on 1,000 
 
 **A.5 One batch, and a crash.** One durable request creating one key: frontier 25 to 27 (clock batch 26, data batch 27). The tip record, the count record and the edge record all carry physical batch 27. Four `SIGKILL` rounds during queued writes (20-key requests, 5 hashes, 600 keys, values shared across keys): after restart 1,440 tip records, 422 to 512 distinct atoms, every atom had a count record and as many edge records as tips naming it. 0 mismatches.
 
-**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records.
+**A.6 Backup and restore.** `POST /api/db/native-backup` copied 176 files, 2,942,630 bytes. Count and edge records of two atoms read from the bundle equal the source. `lastdb-disk-recovery restore` into a new root: same records. This is a recorded result of disk format v1. The disk format v1 removal deleted the route and the command on 2026-10-26.
 
 ## Appendix B. Evidence index
 

@@ -22,9 +22,8 @@ const FILE_BLOB_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
 /// AES-GCM tag (16). `encrypted_size_bytes = plaintext.len() + this`.
 pub const FILE_BLOB_ENVELOPE_OVERHEAD: u64 = 1 + 12 + 16;
 
-/// Failure of a pure seal step. The message is the same text the cloud-sync
-/// engine reported before the helpers moved, so `SyncError::Crypto` renders
-/// unchanged.
+/// Failure of a pure seal step. The message keeps the text the retired
+/// cloud-sync engine reported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileBlobSealError(String);
 
@@ -176,15 +175,6 @@ pub(crate) fn seal_file_blob(
     let encrypted = encrypt_envelope_with_nonce(&dek, &nonce, plaintext)?;
     let blob_ref = file_blob_ref(file_hash, &dek, &encrypted);
     Ok((blob_ref, encrypted))
-}
-
-/// Compute the reference by sealing once and hashing the binary envelope.
-/// Callers that also need ciphertext should retain the result of `seal_file_blob`.
-pub fn local_file_blob_ref(
-    plaintext: &[u8],
-    account_key: &[u8; 32],
-) -> Result<FileBlobRef, FileBlobSealError> {
-    seal_file_blob(plaintext, account_key).map(|(reference, _)| reference)
 }
 
 fn file_blob_ref(file_hash: String, dek: &[u8; 32], ciphertext: &[u8]) -> FileBlobRef {

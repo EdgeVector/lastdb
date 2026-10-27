@@ -3,22 +3,6 @@
 use super::*;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 
-/// Execute a query under the given access context and return the formatted JSON
-/// rows — `{ key, fields, metadata, author_pub_key }` — with the deterministic
-/// `(range, hash)` total order and per-field merge-conflict annotation.
-///
-/// # Errors
-/// Returns a [`HostError`] `500` on a query-executor failure.
-pub async fn execute_query_rows<H: HostNode>(
-    host: &H,
-    query: Query,
-    ctx: &AccessContext,
-) -> Result<Vec<Value>, HostError> {
-    execute_query_rows_windowed(host, query, None, ctx)
-        .await
-        .map(|(rows, _)| rows)
-}
-
 /// Integrity counters and unfilled output slots for one request.
 /// Internal candidate refills retain their integrity counters without making
 /// an exhausted range claim another page — see [`page_payload`].
@@ -82,7 +66,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     window: Option<KeyWindow>,
     ctx: &AccessContext,
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
-    let comparison = super::comparison::capture(host, &query.schema_name).await?;
+    let comparison = super::capture_key_comparison(host, &query.schema_name).await?;
     let future = execute_rows_captured(host, query, window, ctx);
     match comparison {
         Some(comparison) => comparison.run(future).await,
@@ -155,19 +139,17 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
     let sort_started = std::time::Instant::now();
-    if results.len() > 1 {
+    let sorted = {
         let range_comparison = KeyComparisonContext::capture_current_range_comparison();
-        results.sort_by(|a, b| {
-            super::rules::compare_rows(
-                a,
-                b,
-                sort_order.as_ref(),
-                order_by.as_ref(),
-                range_comparison.as_ref(),
-            )
-        });
-    }
+        super::rules::sort_rows(
+            &mut results,
+            sort_order.as_ref(),
+            order_by.as_ref(),
+            range_comparison.as_ref(),
+        )
+    };
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
+    sorted?;
 
     remove_sort_helper(&mut results, sort_helper.as_deref());
     request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());

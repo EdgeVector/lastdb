@@ -21,14 +21,27 @@ on:
         description: Measure resource growth only with the selected profile
         type: boolean
         default: false
+      disk_excess:
+        description: Also attribute v2 disk excess after updates, idle and reopen on two corpus sizes
+        type: boolean
+        default: false
       ttl_active:
         description: Also measure generated writes with TTL policies, sweep and full compaction
+        type: boolean
+        default: false
+      search_queue:
+        description: Also measure optional Search (candidate must support --enable-search)
         type: boolean
         default: false
       investigation:
         description: Capture native phases in a separate generated-data pass
         type: boolean
         default: false
+      typed_ranges:
+        description: Typed conversion (false = neither, true = candidate, both = baseline and candidate)
+        type: choice
+        options: ["false", "true", "both"]
+        default: "false"
       baseline_workers:
         description: Baseline socket workers (0 uses the product default)
         type: choice
@@ -73,7 +86,11 @@ jobs:
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ inputs.profile }}
       resource_only: ${{ inputs.resource_only }}
+      disk_excess: ${{ inputs.disk_excess }}
+      search_queue: ${{ inputs.search_queue }}
       ttl_active: ${{ inputs.ttl_active }}
       investigation: ${{ inputs.investigation }}
+      typed_ranges: ${{ inputs.typed_ranges == 'true' || inputs.typed_ranges == 'both' }}
+      baseline_typed_ranges: ${{ inputs.typed_ranges == 'both' }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}

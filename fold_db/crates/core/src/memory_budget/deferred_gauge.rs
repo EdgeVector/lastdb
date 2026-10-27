@@ -74,22 +74,6 @@ impl DeferredPersistGauge {
         self.in_flight_count.load(Ordering::Acquire)
     }
 
-    /// Why `try_reserve` refused, for callers that must report it.
-    ///
-    /// `try_reserve` answers `false` for two states that mean opposite things
-    /// to an operator, and it cannot distinguish them from its return value
-    /// alone. Callers used to log both as "defer cap reached", so a window
-    /// that was switched off announced itself, once per write batch, as a
-    /// window under pressure.
-    #[must_use]
-    pub fn refusal_kind(&self) -> DeferRefusal {
-        if self.cap_bytes() == 0 || self.cap_count == 0 {
-            DeferRefusal::Disabled
-        } else {
-            DeferRefusal::WindowFull
-        }
-    }
-
     /// Admit `bytes` of deferred work if it fits under the cap.
     ///
     /// Returns `false` when it does not — the caller then persists inline,

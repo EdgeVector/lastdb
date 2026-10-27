@@ -118,7 +118,7 @@ pub(super) fn dir_size_display(bytes: Option<u64>, walks: u64) -> String {
 ///
 /// So no byte figure is synthesised here any more. `body_bytes` is request-scoped
 /// and exact; per-request cold-load cost is still published, as counts, by
-/// `read_cost` and the `top_by_cold_shard_loads` table.
+/// the `top_by_cold_shard_loads` table.
 pub(super) fn peak_request_bytes_from_ops(
     ops: &crate::request_telemetry::RequestTelemetrySnapshot,
 ) -> (u64, u64) {
@@ -182,8 +182,7 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
          footprint_delta_per_evicted_byte={} governor_state={} governor_state_for={} \
          host_pressure={} swap_used={} \
          compressor={} purge_failed={} malloc_released_last_purge={} \
-         in_flight_loads={} in_flight_bytes={} \
-         peak_request_bytes={} slowest_request_ms={} eviction_events={} effective_warm={}",
+         peak_request_bytes={} slowest_request_ms={} effective_warm={}",
         format_bytes(memory.deferred_persist_bytes),
         format_bytes(memory.deferred_persist_cap_bytes),
         format_bytes(memory.deferred_lane_fair_share_bytes),
@@ -232,11 +231,8 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
         format_bytes(memory.compressor_bytes),
         memory.purge_failed,
         format_bytes(memory.malloc_bytes_released_last_purge),
-        memory.in_flight_cold_load_count,
-        format_bytes(memory.in_flight_cold_load_bytes),
         format_bytes(memory.peak_request_bytes),
         memory.slowest_request_ms,
-        memory.eviction_events,
         format_bytes(memory.effective_warm_budget_bytes),
     ))
 }
@@ -327,7 +323,7 @@ fn limits_line(snapshot: &StatusSnapshot) -> String {
     )
 }
 
-/// Memory, CPU, paths, logs, and the sync/recoverability lines that open the report.
+/// Memory, CPU, paths, logs, and compression lines that open the report.
 fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = vec![
         memory_status_line(snapshot),
@@ -340,15 +336,8 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         node_home_line(snapshot),
         data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
-        molecule_edge_status_line(&snapshot.molecule_edges),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
-        "Automatic backup: disabled".to_string(),
-        sync_status_line(snapshot.sampled_at, &snapshot.sync),
-        upload_policy_status_line(&snapshot.sync),
     ];
-    if let Some(line) = capture_status_line(&snapshot.sync) {
-        lines.push(line);
-    }
     lines.insert(1, logical_keys_status_line(&snapshot.resident));
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
@@ -359,30 +348,9 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     lines
 }
 
-fn backup_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let mut lines = Vec::new();
-    if let Some(backup) = snapshot.backup.as_ref() {
-        if let Some(line) = backup_progress_status_line(backup) {
-            lines.push(line);
-        }
-    }
-    if let Some(storage) = snapshot.backup_storage.as_ref() {
-        lines.push(backup_storage_status_line(storage));
-    }
-    lines.push(durability_status_line(&snapshot.durability));
-    lines
-}
-
 fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
-    let mut lines = Vec::new();
-    if let Some(rc) = snapshot.read_cost.as_ref() {
-        lines.push(read_cost_status_line(rc));
-    }
-    lines.push(resident_status_line(&snapshot.resident));
+    let mut lines = vec![resident_status_line(&snapshot.resident)];
     if let Some(line) = integrity_status_line(&snapshot.integrity) {
-        lines.push(line);
-    }
-    if let Some(line) = file_blob_status_line(&snapshot.file_blob) {
         lines.push(line);
     }
     lines.extend(purge_stats_lines(snapshot));
@@ -390,14 +358,13 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     lines.extend(atom_counter_status_lines(snapshot));
     lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
-    lines.push(storage_parts_status_line(snapshot));
     lines
 }
 
 pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = leading_status_lines(snapshot);
-    lines.extend(backup_status_lines(snapshot));
     lines.extend([
+        durability_status_line(&snapshot.durability),
         sampler_line(snapshot),
         qos_line(snapshot),
         uds_pool_line(snapshot),
@@ -406,14 +373,6 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     ]);
     lines.extend(trailing_status_lines(snapshot));
     lines
-}
-
-pub(super) fn molecule_edge_status_line(health: &MoleculeEdgeHealth) -> String {
-    let bytes = |gauge: &Gauge| match gauge.value {
-        Availability::Measured(value) => format_bytes(value),
-        Availability::Unavailable(_) => "unavailable".to_string(),
-    };
-    format!("Molecule edges: bytes={}", bytes(&health.bytes))
 }
 
 /// At-rest compression effectiveness since this daemon process started.

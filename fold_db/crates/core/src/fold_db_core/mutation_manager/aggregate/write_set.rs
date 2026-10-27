@@ -11,12 +11,11 @@ struct InvalidationCandidate {
 type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
 
 impl MutationManager {
-    /// Single-route sibling that can secure a durable aggregate delete intent.
-    pub async fn write_aggregate_set_with_access_receipt_cloud(
+    /// Commit one aggregate source mutation and its `AggregateSet` atomically.
+    pub async fn write_aggregate_set_with_access_receipt(
         &self,
         mut source: Mutation,
         access_context: &crate::access::AccessContext,
-        cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let aggregate = source.aggregate_set.clone().ok_or_else(|| {
             SchemaError::InvalidData("aggregate commit requires aggregate_set".into())
@@ -33,32 +32,12 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
 
-        let mut envelopes = crate::sync::mutation_intent::encode_mutations(
-            std::slice::from_ref(&source),
-            storage_prefix.as_deref(),
-        );
-        crate::sync::mutation_intent::retain_persisted_field_atom_uuids(
-            &mut envelopes,
-            std::slice::from_ref(&source),
-            |schema_name| {
-                self.schema_manager
-                    .get_schema_metadata(schema_name)
-                    .ok()
-                    .flatten()
-                    .map(|schema| schema.runtime_fields.keys().cloned().collect())
-            },
-        );
-
-        let result = crate::sync::capture::capture_logical_commit_with_policy(
+        let mut receipt = crate::sync::capture::with_mutation_admission(
             self.capture_router(),
-            envelopes,
-            cloud_policy,
             self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request),
         )
-        .await;
-        let (mut receipt, cloud) = result?;
+        .await?;
         receipt.revision = Some(source_revision);
-        receipt.cloud = cloud;
         Ok(receipt)
     }
 
@@ -139,7 +118,7 @@ impl MutationManager {
             ) {
                 continue;
             }
-            let key = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+            let key = self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
             let Some(source_hash) = key.hash.clone() else {
                 continue;
             };

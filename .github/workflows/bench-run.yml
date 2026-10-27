@@ -21,10 +21,22 @@ on:
       resource_only:
         type: boolean
         default: false
+      disk_excess:
+        type: boolean
+        default: false
+      search_queue:
+        type: boolean
+        default: true
       legacy_cache_upgrade:
         type: boolean
         default: false
       ttl_active:
+        type: boolean
+        default: false
+      typed_ranges:
+        type: boolean
+        default: false
+      baseline_typed_ranges:
         type: boolean
         default: false
       baseline_workers:
@@ -40,7 +52,7 @@ permissions:
 
 jobs:
   measure:
-    name: Reads, durable writes, and concurrency (advisory)
+    name: Speed advisory and required disk size
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
@@ -50,7 +62,22 @@ jobs:
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
+      BENCH_TYPED_RANGES: ${{ inputs.typed_ranges }}
+      BENCH_BASELINE_TYPED_RANGES: ${{ inputs.baseline_typed_ranges }}
     steps:
+      - name: Validate the explicit typed comparison configuration
+        env:
+          LEGACY_UPGRADE: ${{ inputs.legacy_cache_upgrade }}
+          TTL_ACTIVE: ${{ inputs.ttl_active }}
+        run: |
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ] && [ "$BENCH_TYPED_RANGES" != true ]; then
+            echo 'A typed baseline requires the typed candidate comparison.' >&2
+            exit 1
+          fi
+          if [ "$BENCH_TYPED_RANGES" = true ] && { [ "$LEGACY_UPGRADE" = true ] || [ "$TTL_ACTIVE" = true ]; }; then
+            echo 'The typed comparison requires separate legacy-upgrade and active-TTL runs.' >&2
+            exit 1
+          fi
       - name: Prepare external result directory
         run: |
           result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
@@ -137,8 +164,7 @@ jobs:
             --context "$BENCH_OUTPUT/build-context.json" \
             --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
 
-      # Only trusted main pushes publish programs that other PRs can reuse.
-      # Cache availability never substitutes for measurements or verified uploads.
+      # Only trusted main caches programs; cache availability never replaces measurements or verified uploads.
       - name: Save the accepted candidate for future baselines
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
@@ -213,6 +239,21 @@ jobs:
       - name: Require corpus space before measurements
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
 
+      - name: Attribute v2 disk excess in separate generated homes
+        if: inputs.disk_excess
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/disk_excess.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/disk-excess"
+
       - name: Measure alternating baseline and candidate pairs
         if: ${{ !inputs.resource_only }}
         id: measurement
@@ -223,6 +264,8 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 65m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -273,6 +316,9 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -282,7 +328,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
+              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth" "${args[@]}"
 
       - name: Repeat resource measurements only when an advisory limit is crossed
         id: growth-confirmation
@@ -297,6 +343,9 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -306,13 +355,15 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
+              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
 
-      - name: Repeat v2 disk size only when a size limit is crossed
-        id: disk-budget-confirmation
+      - name: Measure default-off Search and a full queue without a consumer
+        if: inputs.search_queue
         run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/confirm.py --kind disk --output "$BENCH_OUTPUT/disk-budget"
+          timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
+            --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" --candidate-revision "${{ inputs.candidate }}" \
+            --driver-revision "${{ inputs.driver }}" \
+            --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue"
 
       - name: Capture native phases in separate generated homes
         if: inputs.investigation
@@ -321,6 +372,9 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 20m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -330,7 +384,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
+              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics" "${args[@]}"
 
       - name: Measure writes with active TTL and full compaction
         if: inputs.ttl_active && !inputs.resource_only
@@ -384,15 +438,13 @@ jobs:
             --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME" \
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
-      - name: Publish the advisory v2 disk size budget
+      - name: Require the single-pass v2 disk size limit and publish the summary
         if: always()
         env:
           GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}
-          CONFIRMATION_OUTCOME: ${{ steps.disk-budget-confirmation.outcome }}
         run: |
           python3 driver/scripts/benchmarks/disk_budget_report.py \
-            --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME" \
-            --confirmation-status "$CONFIRMATION_OUTCOME"
+            --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME"
 
       - name: Upload measurements and build receipts
         id: upload

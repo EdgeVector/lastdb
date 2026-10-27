@@ -6,7 +6,13 @@
 > **retired product surface**. Sections below that describe
 > `src/db_operations/native_index/*` indexing/search are historical design
 > notes only — Mini does not host native embeddings. Catalog scrub:
-> `plane_roles`, `backup_manifest`, `sync/policy`.
+> `backup_manifest`, `sync/policy`.
+>
+> **2026-10-26 note:** Atom content encryption (goal item 1 and section 3) is
+> **retired**. Disk format v2 stores each atom row as plain JSON, and the
+> AES-256-GCM block encryption of each run file protects it at rest (Tom,
+> 2026-10-24, compact plain values). The code has no atom content seal. See
+> `docs/security/at-rest-threat-model.md` (Operation Trinity status).
 
 ---
 
@@ -66,6 +72,9 @@ PRF is supported in Chrome 116+, Safari 18+, Edge 116+. Passkeys sync across dev
 ---
 
 ## 3. Encrypted Atom Content
+
+> **Retired (2026-10-26):** this section is historical. A disk format v2 atom
+> row is plain JSON inside an encrypted run-file block, with no content seal.
 
 ### What Changes
 

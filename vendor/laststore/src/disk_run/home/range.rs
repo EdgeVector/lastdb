@@ -1,12 +1,21 @@
 //! Ordered ranges under one hash, merged across the held runs.
 
 use super::keys::{prefix_end, run_key, storage_key};
-use super::read::{RunRead, RunReadCosts};
-use crate::disk_pack::{RangeBounds, ReadBudget};
+use super::read::{ReadBudget, RunRead, RunReadCosts};
 use crate::disk_run::{value, Found, MergeIter, MergeSource, RunSequence};
 use crate::{Error, Result};
 use std::ops::Bound;
 use std::path::PathBuf;
+#[path = "range/stream.rs"]
+mod stream;
+
+/// Half-open encoded range suffix bounds within the held hash.
+pub struct RangeBounds {
+    /// Inclusive encoded range suffix; empty means the first range under this hash.
+    pub start: String,
+    /// Exclusive encoded range suffix; None means the exact end of this hash.
+    pub end: Option<String>,
+}
 
 /// One page of live records. Tombstones count as examined keys but do not
 /// appear here.
@@ -25,6 +34,13 @@ pub struct RunRangePage {
 
 /// An in-process cursor over one range of the held CURRENT.
 pub struct RunHashRange<'a> {
+    mode: RangeMode<'a>,
+}
+enum RangeMode<'a> {
+    Ordinary(OrdinaryRange<'a>),
+    Bounded(stream::BoundedRange<'a>),
+}
+struct OrdinaryRange<'a> {
     records: MergeIter<'a>,
     collection: String,
     costs: &'a mut RunReadCosts,
@@ -95,6 +111,13 @@ impl RunRead {
         upper: Option<Vec<u8>>,
         exclusive: bool,
     ) -> Result<RunHashRange<'_>> {
+        if self.bounded_streams {
+            return Ok(RunHashRange {
+                mode: RangeMode::Bounded(stream::BoundedRange::new(
+                    self, collection, lower, upper, exclusive,
+                )),
+            });
+        }
         // The base runs do not overlap, so they are one source that opens one
         // run at a time; each other run is a source of its own.
         let base_from = self.runs.len() - self.manifest.base.len();
@@ -143,17 +166,19 @@ impl RunRead {
             )));
         }
         Ok(RunHashRange {
-            records: MergeIter::from_sources(sources),
-            collection: collection.to_string(),
-            costs,
-            budget: *budget,
-            exhausted: false,
-            held: None,
+            mode: RangeMode::Ordinary(OrdinaryRange {
+                records: MergeIter::from_sources(sources),
+                collection: collection.to_string(),
+                costs,
+                budget: *budget,
+                exhausted: false,
+                held: None,
+            }),
         })
     }
 }
 
-impl RunHashRange<'_> {
+impl OrdinaryRange<'_> {
     /// Charge a selected pending-write value to this range's call budget.
     pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
         if self.costs.examined_keys >= self.budget.keys {
@@ -252,5 +277,49 @@ impl RunHashRange<'_> {
             exhausted: self.exhausted,
             resume,
         })
+    }
+}
+
+impl RunHashRange<'_> {
+    /// Charge selected pending records to the same range budget.
+    pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+        match &mut self.mode {
+            RangeMode::Ordinary(r) => r.account_memory_record(key_bytes, body_bytes),
+            RangeMode::Bounded(r) => r.account(key_bytes, body_bytes),
+        }
+    }
+    /// Up to `limit` live records under this exact root.
+    pub fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
+        match &mut self.mode {
+            RangeMode::Ordinary(r) => r.next_page(limit),
+            RangeMode::Bounded(r) => r.page(limit, None, u64::MAX),
+        }
+    }
+    /// Yield at the same administrative key budget as the ordinary cursor.
+    pub fn next_page_yielding(
+        &mut self,
+        limit: usize,
+        held_rows: usize,
+        keys_per_row: usize,
+    ) -> Result<RunRangePage> {
+        match &mut self.mode {
+            RangeMode::Ordinary(r) => r.next_page_yielding(limit, held_rows, keys_per_row),
+            RangeMode::Bounded(r) => r.page(limit, Some((held_rows, keys_per_row)), u64::MAX),
+        }
+    }
+    /// Bound each body before allocation on a captured or stopped-home read.
+    pub fn next_page_yielding_bounded(
+        &mut self,
+        limit: usize,
+        held_rows: usize,
+        keys_per_row: usize,
+        maximum: u64,
+    ) -> Result<RunRangePage> {
+        match &mut self.mode {
+            RangeMode::Bounded(r) => r.page(limit, Some((held_rows, keys_per_row)), maximum),
+            RangeMode::Ordinary(_) => Err(Error::Config(
+                "bounded run pages require a captured or stopped-home read".into(),
+            )),
+        }
     }
 }

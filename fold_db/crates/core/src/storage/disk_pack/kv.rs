@@ -1,5 +1,5 @@
-use super::super::laststore::{native_routing, LastStoreKvStore};
-use super::super::traits::{ExecutionModel, FlushBehavior, KvMutation, YieldedScan};
+use super::super::encrypting_namespaced_store::CATALOG_NAMESPACES;
+use super::super::traits::{KvMutation, YieldedScan};
 use super::*;
 
 impl PackKvStore {
@@ -20,7 +20,7 @@ impl PackKvStore {
         let pending = transaction::PendingBatch::current(&runtime);
         let namespace = self.namespace.clone();
         let observed = Arc::clone(&runtime);
-        let (values, keys, addresses) = LastStoreKvStore::run_blocking(move || {
+        let (values, keys, addresses) = run_blocking(move || {
             let addresses: Vec<_> = keys.iter().map(|key| coordinate(&namespace, key)).collect();
             let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
             Ok((bodies, keys, addresses))
@@ -44,7 +44,7 @@ impl PackKvStore {
             let pending = transaction::PendingBatch::current(&runtime);
             let namespace = self.namespace.clone();
             let planning = Arc::clone(&runtime);
-            let operations = LastStoreKvStore::run_blocking(move || {
+            let operations = run_blocking(move || {
                 prepare(&planning, &context, pending.as_ref(), &namespace, mutations)
             })
             .await?;
@@ -93,7 +93,7 @@ fn prepare(
     for (mutation, (target, key)) in mutations.into_iter().zip(targets) {
         match mutation {
             KvMutation::Put { value, .. } => {
-                super::super::laststore::reject_enc_on_plaintext_catalog(namespace, &value)?;
+                reject_enc_on_plaintext_catalog(namespace, &value)?;
                 out.push(HomeMutation {
                     collection: target.clone(),
                     key: key.clone(),
@@ -286,10 +286,25 @@ impl KvStore for PackKvStore {
     fn backend_name(&self) -> &'static str {
         "laststore-disk-pack"
     }
-    fn execution_model(&self) -> ExecutionModel {
-        ExecutionModel::SyncWrapped
+}
+
+/// Catalog collections require direct JSON values with no value envelope (the
+/// run-file blocks encrypt them). An at-rest envelope there is what made Tom's
+/// primary unbootable on 2026-08-16:
+/// `TypedKvStore` parsed ciphertext as JSON (`expected value at line 1 column 1`)
+/// and `get_all_schemas` aborted `open_existing_store`. Reject at the native
+/// put so a legacy replay envelope fails closed instead of poisoning the catalog.
+fn reject_enc_on_plaintext_catalog(collection: &str, value: &[u8]) -> StorageResult<()> {
+    // All at-rest envelopes are equally fatal on a catalog value: the
+    // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
+    // and `ENZ:` / binary `ENB:` bodies would fail identically.
+    let enveloped = crate::crypto::is_sealed_at_rest(value);
+    if enveloped && CATALOG_NAMESPACES.contains(&collection) {
+        return Err(StorageError::InvalidOperation(format!(
+            "refusing to persist ENC:/ENZ:/ENB: envelope in catalog collection \
+             {collection:?} — schema/catalog rows must stay JSON so boot can \
+             deserialize them"
+        )));
     }
-    fn flush_behavior(&self) -> FlushBehavior {
-        FlushBehavior::Persists
-    }
+    Ok(())
 }

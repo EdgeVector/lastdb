@@ -1,9 +1,0 @@
-host_cargo_lock=held pid=46411 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
-    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
-   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
-error: queries overflow the depth limit!
-  |
-  = help: consider increasing the recursion limit by adding a `#![recursion_limit = "256"]` attribute to your crate (`fold_db`)
-  = note: query depth increased by 130 when computing layout of `{async block@fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/lane_writer.rs:35:5: 35:10}`
-
-error: could not compile `fold_db` (lib) due to 1 previous error

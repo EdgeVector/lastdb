@@ -162,22 +162,20 @@ pub fn ensure_node_home(home: &Path) -> io::Result<()> {
 ///
 /// Two reasons this is a default rather than a tuning knob:
 ///
-/// * **At-rest hygiene.** LastStore catalogs are plaintext by design, on the
-///   assumption that they stay inside the data dir. Spotlight copies indexed
-///   content into a system-wide index that sits *outside* the AES-256-GCM
-///   at-rest envelope and outside any LastDB access control.
-/// * **Read-path cost.** Hash-group segments are rewritten constantly by
-///   compaction and eviction, and every rewrite is fresh re-index work against
-///   the same disk the read path is already scanning hard.
+/// * **At-rest hygiene.** The run files are encrypted, but some files in the
+///   home are plain text, for example the Search inbox batches. Spotlight
+///   copies indexed content into a system-wide index that sits *outside* the
+///   home and outside any LastDB access control.
+/// * **Read-path cost.** Each commit writes a new run file and background
+///   merges rewrite them, and every new file is fresh re-index work against the
+///   same disk the read path uses.
 ///
 /// Best-effort by construction: an unwritable home is reported by the
 /// `create_dir_all` in [`ensure_node_home`], and a missing marker must never
 /// fail a boot.
 ///
-/// Deliberately *not* called for `migrate-hash-group --into` /
-/// `restore --into` destinations: `refuse_non_fresh_restore_home` requires a
-/// completely empty destination, and those homes pick the marker up on their
-/// first real boot anyway.
+/// Deliberately *not* called for `restore --into` destinations: those homes
+/// pick the marker up on their first real boot.
 #[cfg(target_os = "macos")]
 pub fn mark_never_indexed(home: &Path) {
     let marker = home.join(SPOTLIGHT_EXCLUSION_FILE);
@@ -196,7 +194,7 @@ pub fn mark_never_indexed(home: &Path) {
             path = %marker.display(),
             error = %e,
             "could not exclude node home from Spotlight indexing; \
-             plaintext catalogs may be copied into the system index"
+             plain text files in the home may be copied into the system index"
         ),
     }
 }
@@ -206,22 +204,21 @@ pub fn mark_never_indexed(home: &Path) {
 #[cfg(not(target_os = "macos"))]
 pub fn mark_never_indexed(_home: &Path) {}
 
-/// The layout descriptor LastStore writes into its root on first open.
-/// Present even for a restored-but-still-empty home, which is why it is checked
-/// before the collection walk.
+/// The layout descriptor that the deleted LastStore engine wrote into its root
+/// on first open. A home from that engine still has it, so the check below
+/// still refuses to start fresh over one.
 const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 
 /// The node marker. Every native node home has it, in disk format v1 and v2.
 const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
 
-/// Whether `<home>/data` already holds a store (Last Store collections or leftover files).
+/// Whether `<home>/data` already holds a store (a layout file, a node marker, or a collection).
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 ///
-/// Must recognise the layout the node actually writes today. Until 2026-07-28
-/// this looked only for sled's `conf`+`db` pair, which LastStore has never
-/// written — so it answered `false` for every real Mini home, including the
-/// primary, and the refuse-to-start-fresh contract below was left resting
-/// entirely on substring-matching the storage layer's error text.
+/// Recognises the layouts the node wrote or writes: the LastStore layout file,
+/// the node marker (disk format v1 and v2), or any collection directory under
+/// `<data>/data`. The refuse-to-start-fresh contract below rests on this
+/// structural answer, not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
     // LastStore: `<data>/laststore-layout-v1` + `<data>/data/<collection>/…`.
     if data_path.join(LASTSTORE_LAYOUT_FILE).is_file() {
@@ -232,21 +229,8 @@ pub fn data_dir_has_existing_store(data_path: &Path) -> bool {
         return true;
     }
     let collections = data_path.join("data");
-    if let Ok(entries) = std::fs::read_dir(&collections) {
-        if entries.filter_map(Result::ok).any(|e| e.path().is_dir()) {
-            return true;
-        }
-    }
-
-    // Legacy sled homes predate the LastStore cutover but must still count as
-    // "there is data here" — this is the branch that refuses a fresh boot over
-    // a home someone restored from an old backup.
-    let conf = data_path.join("conf");
-    let db = data_path.join("db");
-    if !(conf.is_file() && db.exists()) {
-        return false;
-    }
-    std::fs::metadata(&db).map_or(true, |m| m.len() > 0)
+    std::fs::read_dir(&collections)
+        .is_ok_and(|entries| entries.filter_map(Result::ok).any(|e| e.path().is_dir()))
 }
 
 fn is_decrypt_boot_failure(msg: &str) -> bool {
@@ -371,9 +355,11 @@ impl Host {
             existing_store,
             &keypair,
             &e2e_keys,
-            search_outbox_inbox,
+            search_outbox_inbox.clone(),
         )
         .await?;
+        fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
+            .map_err(|error| format!("Search queue preparation failed: {error}"))?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         clear_last_boot_error(home);
         write_codec_format_requirement(home);
@@ -462,18 +448,6 @@ impl lastdb_host::HostNode for Host {
 
     async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {
         self.db.wait_for_background_tasks(timeout).await
-    }
-
-    fn atom_content_key(&self) -> Option<[u8; 32]> {
-        let bytes = std::fs::read(self.home.join(IDENTITY_KEY_FILE)).ok()?;
-        if bytes.len() != 32 {
-            return None;
-        }
-        let mut seed = [0u8; 32];
-        seed.copy_from_slice(&bytes);
-        fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
-            .ok()
-            .map(|keys| keys.encryption_key())
     }
 }
 

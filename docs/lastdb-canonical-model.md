@@ -72,8 +72,8 @@ counter is the only authority for the life of a body
 
 **The ceiling.** A new atom holds at most 256 KiB of content (the JSON value, before
 encryption). `LASTDB_MAX_ATOM_CONTENT_BYTES` can change it between 1 KiB and 1 MiB.
-A sealed 256 KiB atom is about 341 KiB, which fits the 400 KiB item limit of the
-cloud store. Restore replay still accepts 1 MiB, for older atoms. An atom may pack
+V2 compresses and encrypts run blocks that contain the atom. Native backup retains those encrypted bytes.
+The content cap is separate from the stored block and backup limits. An atom may pack
 many small fields up to the ceiling, but it is not a blob store. Shape rules for
 data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
 Shape rules.
@@ -88,8 +88,7 @@ Delete, purge and TTL).
 The atom's data is what points at durable bytes on disk:
 
 - **Physically**, the native disk engine finds the file bytes from the atom identity.
-  Native storage uses packed files and keyed trees.
-  Older physical tools remain separate from the logical database constructors.
+  Native storage uses disk format v2: sorted run files in two run homes.
   File positions remain storage details; molecule tips retain atom identities.
 - **File-scale payloads** (packs, attachments, anything past the atom fence)
   are **content-addressed file blobs** (CAS: `blobs/sha256/…`); the atom holds
@@ -106,7 +105,7 @@ the JSON the API returns. Multi-field records are **co-keyed at read time**.
 Schema (catalog: fields + keying mode)
   └─ Field ── molecule (index: hash[, range] → tip)
                  └─ atom (immutable value, content-addressed)
-                       └─ file (segment on disk; big bytes → CAS blob)
+                       └─ file (run file on disk; big bytes → CAS blob)
 ```
 
 ### Delete, purge and TTL
@@ -272,12 +271,12 @@ An older call can retain its earlier values. Their memory owners stay charged un
 These call lifetimes do not provide an old-value query or stored atom history.
 
 The private disk queue retains prepared bytes until flush. Ordinary reads cannot query that queue.
-The selected searchable snapshot owns local recovery. It does not replace the current logical memory state.
-The writer creates immutable payload files and changed search pages, then publishes one complete snapshot root.
-Reopen validates that root and its generation receipt. It performs no internal-journal replay.
-Legacy Cloud Sync remains disabled. Native backup uses a separate source gate that defaults off.
-Local capture saves an exact snapshot and durable file hold; its source code does not establish production cloud readiness.
-A successful native write completes its disk snapshot and core memory change before the ack.
+The published `CURRENT` of each run home owns local recovery. It does not replace the current logical memory state.
+A commit writes one new immutable run file, makes it durable, then publishes a new `CURRENT`.
+Reopen reads that `CURRENT`. Nothing replays.
+PR 387 and later PRs removed legacy Cloud Sync. The V2 byte backup uses a separate gate, `LASTDB_BYTE_BACKUP_V2_ENABLED`, that defaults off.
+Capture saves an exact cut and a named file hold; its source code does not establish production cloud readiness.
+A successful native write completes its disk commit and core memory change before the ack.
 The disk queue starts immediately. No collection timer delays the ack.
 An internal file change clears affected core records before a later call can use them.
 
@@ -293,21 +292,20 @@ Selected HashRange schemas can load all required membership keys before their fi
 Concurrent first queries share that load. Later range calls select complete keys from memory.
 Tips and values remain partial. Range-key preload does not load unused atom values or file contents.
 The policy remains opt-in through `LASTDB_SCHEMA_PRELOAD_SCHEMAS`.
-See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](proofs/core-owned-writes-20261018/RESULTS.md).
+See the [preload design](lastdb-schema-range-preload-design.md) and [native write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md).
 
 ### Engine cutover
 
-Normal FoldDB startup opens the native packed engine. No selection flag is required.
-The logical constructor rejects a non-native physical store before it opens logical namespaces.
-An empty home initializes directly. Supported snapshot homes can reopen.
-Mandatory snapshot feature `256` replaces the retired native journal feature.
-A nonempty older-format home receives an explicit refusal before writer file creation.
-No automatic conversion or boot migration runs. This change supplies no converter for old native journal homes.
+Normal FoldDB startup opens the disk format v2 engine. No selection flag is required.
+The logical constructor rejects any other physical store before it opens logical namespaces.
+An empty home initializes directly. A disk format v2 home can reopen.
+A disk format v1 home or an older home receives an explicit refusal (decision D1, 2026-10-26).
+No automatic conversion or boot migration runs.
 Cloud sync stays disabled for this optimization round.
 
-See [the snapshot commit protocol](lastdb-snapshot-commits.md) for publication, failure, backup, and compatibility rules.
+See [the engine README](../vendor/laststore/README.md) for the run files, commit, merge, and reopen rules.
 
-Older physical-format tools and vendor code do not provide an alternate logical query or write engine.
+LastDB uses only disk format v2 from the vendor crate. That crate does not provide an alternate logical query or write engine.
 The source review and product receipts must identify the exact native source that they cover.
 
 ---
@@ -359,7 +357,7 @@ database catalog with per-molecule key bundles (it replaces the earlier
 |---|---|
 | **This doc (canonical)** | `docs/lastdb-canonical-model.md` |
 | Core logical memory and native disk | `docs/lastdb-rehydrate.md` |
-| Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://thelastdb.com/docs/agent-access-model |
+| Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md |
 | Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
 | Atom counter, delete and purge, crash states | `docs/lastdb-atom-counter.md` |
 | Molecule counters and the drain | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |

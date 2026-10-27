@@ -129,25 +129,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    /// Block a schema and record its successor for query redirection.
-    /// Used during schema expansion: the old schema is blocked locally,
-    /// and queries against it transparently redirect to the new schema.
-    pub async fn block_and_supersede(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.set_schema_state(old_name, SchemaState::Blocked)
-            .await?;
-
-        self.db_ops.store_superseded_by(old_name, new_name).await?;
-
-        lock_map(&self.superseded_by, "superseded_by")?
-            .insert(old_name.to_string(), new_name.to_string());
-
-        Ok(())
-    }
-
     /// Retire one schema's claim on its `descriptive_name`.
     ///
     /// This is the supported retire primitive. It exists because the two
@@ -210,22 +191,6 @@ impl SchemaCore {
             superseded.remove(schema_name);
         }
         Ok(existed)
-    }
-
-    /// Drop every cached identity whose `owner_app_id` equals `owner_app`.
-    ///
-    /// Walks the in-memory catalog (O(installed schemas)), not product rows.
-    /// Returns the canonical names that were present and dropped.
-    pub async fn drop_schemas_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
-        let names = self.schema_names_owned_by(owner_app)?;
-        let mut dropped = Vec::new();
-        for name in names {
-            if self.drop_schema(&name).await? {
-                dropped.push(name);
-            }
-        }
-        dropped.sort();
-        Ok(dropped)
     }
 
     /// The cached identities whose `owner_app_id` equals `owner_app`.

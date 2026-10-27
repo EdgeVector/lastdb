@@ -4,7 +4,6 @@
 set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
-DB="$(mktemp -d /tmp/schema-org-not-live-XXXXXX)"
 PORT="${SCHEMA_ORG_PROOF_PORT:-19117}"
 BIN="${ROOT}/target/debug/schema_service"
 PID=""
@@ -14,7 +13,6 @@ cleanup() {
     kill "${PID}" 2>/dev/null || true
     wait "${PID}" 2>/dev/null || true
   fi
-  rm -rf "${DB}"
 }
 trap cleanup EXIT
 
@@ -23,17 +21,12 @@ fail() {
   exit 1
 }
 
-case "${DB}" in
-  "${HOME}/.lastdb"|"${HOME}/.lastdb"/*|"${HOME}/.folddb"|"${HOME}/.folddb"/*)
-    fail "refusing to use primary LastDB home"
-    ;;
-esac
-
 if [ ! -x "${BIN}" ]; then
   cargo build -p schema_service_server_http --bin schema_service --manifest-path "${ROOT}/Cargo.toml"
 fi
 
-"${BIN}" --port "${PORT}" --db-path "${DB}" >/tmp/schema-org-not-live-server.log 2>&1 &
+# The dev server keeps its registry in memory; nothing is written to disk.
+"${BIN}" --port "${PORT}" >/tmp/schema-org-not-live-server.log 2>&1 &
 PID=$!
 
 ok=0

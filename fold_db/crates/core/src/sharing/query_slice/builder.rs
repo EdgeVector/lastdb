@@ -1,7 +1,8 @@
 //! Per-leg accumulation of a query-defined slice.
 
 use super::*;
-use std::collections::BTreeSet;
+use crate::schema::types::KeyValue;
+use std::collections::{BTreeSet, HashSet};
 
 /// Accumulates the schemas, molecules, atoms and blobs for the legs of one slice.
 #[derive(Default)]

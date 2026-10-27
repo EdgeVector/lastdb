@@ -8,9 +8,14 @@
 > locators (`atom_locators`, `aloc:`), the atom reverse edges (`atom_ref_edges_v2`,
 > `aref:`), the `gc-atoms` verb and `rekey-atom-partition-prefix`. The atom counter
 > is the only authority for an atom body (`docs/lastdb-atom-counter.md`).
+>
+> Removed by decision D1 (2026-10-26), together with the disk format v1 module:
+> the LastStore segment engine, its HashGroup segment files, and its collection
+> directories. Disk format v2 keeps the records in run files
+> (`docs/lastdb-disk-native-node.md`).
 
 Historical July 29 layout proposal. The [current memory and disk design](lastdb-rehydrate.md)
-and [native cutover results](proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.
+and [native cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.
 The metadata below records the earlier plan. Use the current design for implementation work.
 
 | Field | Value |
@@ -483,7 +488,7 @@ blobs/sha256/<hh>/<hh>/<hash>     # large bytes on filesystem (SOT for blob byte
 cas_blobs/                        # LastStore collection for refs/metadata / small CAS
 ```
 
-**Boundary:** atom content never multi-MB; `cas_blobs` may hold delivery/CAS payloads under policy (`LASTDB_ALLOW_PLAIN_CAS` etc.). FS `blobs/` is the long-term file-scale home.
+**Boundary:** atom content never multi-MB; `cas_blobs` holds sealed delivery and CAS rows. FS `blobs/` is the long-term file-scale home.
 
 #### Dedup trade-off
 
@@ -923,7 +928,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 | Atom empty-via-GC lesson | brain `lastdb-atom-key-flip-would-have-emptied-the-atom-collection-via-gc` |
 | Key codec | `fold_db/crates/core/src/atom/molecule_key_codec.rs` |
 | Locator codec | `fold_db/crates/core/src/atom/atom_locator_codec.rs` (`aloc:`) |
-| Collection routing | `fold_db/crates/core/src/storage/laststore/key_routing.rs` |
+| Collection routing | `fold_db/crates/core/src/storage/disk_pack/native_routing/key_routing.rs` |
 | Main key classify | `fold_db/crates/core/src/mini_cutover/main_keys.rs` |
 | Backup manifest | `fold_db/crates/core/src/storage/laststore/backup_manifest.rs` |
 | Page index rebuild | `fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs` |
@@ -982,7 +987,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 - **Deps:** PR-1 (can parallel PR-3)
 - **Description:** **Already shipped:** write-one tips and `mk:` no longer falls through to `field_tips` after the 2026-07-31 zero-hit primary soak. This PR adds metrics and **copy-verify** of remaining headers/versions residue into tips. Conflict policy: after copy, if both present **tips wins** (write target).
 - **Exit (PR-10-style gates, can land here or follow-up):** zero `dual_read.legacy_hits` for `mh:`/`tv:` over N days on CoW; sample get equality; byte-count bounds; then aside empty field_tip_headers / field_tip_versions.
-- **Operator procedure (CoW first):** `fold_db/docs/field-tip-headers-residue-compact.md` (`lastdb_local_maintain drain-tip-residue --collection headers --execute --drop-empty-collection`).
+- **Operator procedure:** removed. The `lastdb_local_maintain drain-tip-residue` tool and its procedure doc went with the LastStore backend (2026-10-26).
 
 ### PR-6: Indexes reclass with dual-read matrix — *future*
 

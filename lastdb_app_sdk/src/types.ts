@@ -79,9 +79,6 @@ export type MutationConvergence = 'sync' | 'async';
 /** Local persistence policy for `POST /api/mutation`. */
 export type MutationDurability = 'queued' | 'durable';
 
-/** Exact off-box publication policy for one durable delete. */
-export type MutationCloudPublication = 'wait';
-
 /**
  * The full per-row envelope the node returns for `/api/query`. The node's
  * `results` array carries one object per result key shaped
@@ -184,9 +181,7 @@ export interface ConnectOptions {
   /**
    * Per-request transport timeout in milliseconds for consent and data-plane
    * HTTP calls. Defaults to 30_000 so a wedged node cannot leave app requests
-   * pending forever. An exact cloud-publication mutation raises this to at
-   * least 150_000 without shortening a larger value. Set a larger value when
-   * the node's handler-timeout override makes its exact route exceed 150s.
+   * pending forever.
    */
   timeoutMs?: number;
   /**
@@ -241,7 +236,7 @@ export interface ConnectOptions {
   schemaResolver?: SchemaResolver;
   /**
    * The node request-grammar version this app needs (see
-   * `LASTDB_SDK_API_VERSION` for the one the SDK was written against). When
+   * `LASTDB_SDK_API_VERSION` for the lowest node version this SDK needs). When
    * set, `connect` reads `GET /api/version` first and throws
    * `NodeTooOldError` — one line that names the fix — when the node reports
    * a lower number, or `0` because it predates the route. `0` (or unset)
@@ -711,54 +706,12 @@ export interface MutationOp {
    */
   durability?: MutationDurability;
   /**
-   * Optional exact cloud publication wait. The node accepts `wait` only with
-   * `mutationType: "delete"` and `durability: "durable"`. The server validates
-   * this combination and returns an exact target/writer/frontier receipt.
-   */
-  cloudPublication?: MutationCloudPublication;
-  /**
    * Local request policy on `delete`: when `true`, a missing key is a loud
    * miss instead of an idempotent success. Forwarded as the node's
    * `must_exist` field. Omit it (the default) for ordinary delete-means-gone.
    * Not a second eraser — do not send `mutationType: "purge"`.
    */
   mustExist?: boolean;
-}
-
-/** Durable cloud-intent state for one locally committed mutation. */
-export type MutationCloudCaptureState = 'durable' | 'failed';
-
-/** The crash-safe cloud-intent receipt for one mutation. */
-export interface MutationCloudCaptureReceipt {
-  state: MutationCloudCaptureState;
-  durable: boolean;
-  mutationUuid: string;
-  error: string | null;
-}
-
-/** Exact off-box publication state for one mutation. */
-export type MutationCloudPublicationState =
-  | 'not_requested'
-  | 'pending'
-  | 'published'
-  | 'failed';
-
-/** One required cloud target coordinate in an exact publication receipt. */
-export interface MutationCloudPublicationTarget {
-  targetId: string;
-  targetLabel: string;
-  writerId: string;
-  /** Exact decimal frontier. It is a string because it can exceed JS integer precision. */
-  frontier: string;
-}
-
-/** Off-box publication receipt for one mutation. */
-export interface MutationCloudPublicationReceipt {
-  state: MutationCloudPublicationState;
-  published: boolean;
-  mutationUuid: string;
-  targets: MutationCloudPublicationTarget[];
-  error: string | null;
 }
 
 /** `POST /api/mutation` success body. */
@@ -768,12 +721,6 @@ export interface MutationResult {
   firingsObserved: number;
   backgroundTasksDrained?: boolean;
   convergencePending?: boolean;
-  /** Present for a durable delete, including a post-commit cloud failure. */
-  localCommitted?: boolean;
-  /** Present for a durable delete after the node attempts durable intent capture. */
-  cloudCapture?: MutationCloudCaptureReceipt;
-  /** Present for a durable delete; inspect `published` for exact off-box success. */
-  cloudPublication?: MutationCloudPublicationReceipt;
 }
 
 /** Options for the durable, node-scoped app change feed. */

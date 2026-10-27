@@ -1,26 +1,8 @@
-//! Capability hints, partitioned-scan results and the batch mutation enum.
+//! Partitioned-scan results and the batch mutation enum.
 
 use super::KvStore;
 use crate::storage::error::StorageResult;
 use serde::{Deserialize, Serialize};
-
-/// Describes how the backend executes operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionModel {
-    /// Backend is truly async (network I/O, e.g., Exemem API).
-    Async,
-    /// Backend is sync but wrapped in async (local I/O, e.g., Sled).
-    SyncWrapped,
-}
-
-/// Describes flush behavior for the backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlushBehavior {
-    /// Flush is a no-op (eventually consistent backend, e.g., Exemem API).
-    NoOp,
-    /// Flush performs actual persistence (strongly consistent, e.g., Sled).
-    Persists,
-}
 
 /// The result of [`KvStore::scan_prefix_partition_undecryptable`]: rows that
 /// read (decrypt) cleanly, separated from the keys of rows whose at-rest value
@@ -59,10 +41,8 @@ pub struct PartitionedItems<T> {
 /// One ordered mutation in a mixed durable batch.
 ///
 /// Backends that implement [`KvStore::batch_mutate`] must preserve this order.
-/// LastStore applies the operations in order, then runs one durability barrier.
-/// If an operation fails, LastStore restores the applied prefix in reverse
-/// order and flushes that restore before it releases the point-key locks.
-/// This is in-process rollback, not a cross-group write-ahead log.
+/// The disk format v2 backend validates the whole batch before it writes, then
+/// commits it as one write or stages it in the open transaction batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KvMutation {
     /// Insert or replace one raw key/value row.

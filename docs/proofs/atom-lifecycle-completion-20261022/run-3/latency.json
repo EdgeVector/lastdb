@@ -1,6 +1,0 @@
-{
-  "all_mutation_calls": 106,
-  "max_ms": 289.844625,
-  "p50_ms": 130.928375,
-  "scope": "Mixed generated write phases on a shared host; no paired speed claim"
-}

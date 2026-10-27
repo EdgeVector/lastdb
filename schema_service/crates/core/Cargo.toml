@@ -7,11 +7,6 @@ publish.workspace = true
 description = "Schema service registry brain — schema dedup, canonical fields, views, transforms. Embedder injected by callers (no fastembed/ONNX dep)."
 
 [features]
-# Local LastStore registry is on by default for server_http / tests / tools.
-# Lambda opts out with `default-features = false` so laststore is not linked
-# into the bootstrap image (diet cut #3).
-default = ["local-store"]
-local-store = ["dep:laststore"]
 # Offline generators + dump-parse tests only. The Lambda crate must not
 # enable this: include_str! of the Schema.org JSON-LD and classification
 # overlay is several MiB in the bootstrap zip.
@@ -25,6 +20,8 @@ schema_types = { workspace = true }
 # envelope (Ed25519) + JCS verification for `POST /v1/apps` and the
 # `owner_app_id` schema-claim gate on `POST /v1/schemas`.
 app_identity_crypto = { workspace = true }
+# Ed25519 verification for compat-row write endpoint (verifier-signed only).
+ed25519-dalek = { version = "2.2", features = ["std"] }
 base64 = { workspace = true }
 blake3 = { workspace = true }
 hmac = { workspace = true }
@@ -35,8 +32,6 @@ semver = { workspace = true }
 tracing = { workspace = true }
 
 sha2 = { workspace = true }
-# Local registry storage (replaces sled). Cloud Lambda uses S3 via External.
-laststore = { workspace = true, optional = true }
 async-trait = { workspace = true }
 # `time` — backoff sleeps + reconciler interval; `sync` — the in-process
 # cross-env mirror queue (mpsc). `rt`/`macros` come from the binaries that

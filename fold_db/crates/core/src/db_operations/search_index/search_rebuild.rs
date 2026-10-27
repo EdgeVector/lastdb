@@ -1,10 +1,11 @@
 //! Off-hot-path Search rebuild: page product records into IndexChangeBatch
-//! files for the Search app (LastStore-backed index).
+//! files for the Search readers (LastSeek or the Search app).
 //!
 //! **Never call from the mutation critical section.** Live writes use
 //! [`crate::db_operations::search_index::deliver_search_outbox_best_effort`] only (single
 //! batch). Full-corpus walks live here (restore / cold home / explicit rebuild).
 
+use super::inbox_fields::{inbox_value, searchable_fields};
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::atom::is_tombstone_value;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
@@ -52,39 +53,14 @@ pub struct SearchRebuildReport {
     pub inbox: PathBuf,
 }
 
-/// Searchable field names for a schema (mirrors mutation_manager native-index policy).
-fn searchable_fields_for_schema(schema: &Schema) -> Option<HashSet<String>> {
-    if schema.field_classifications.is_empty() {
-        return None;
-    }
-    Some(
-        schema
-            .field_classifications
-            .iter()
-            .filter(|(_, classifications)| {
-                !classifications.iter().any(|c| {
-                    c.eq_ignore_ascii_case("secret")
-                        || c.eq_ignore_ascii_case("no_index")
-                        || c.eq_ignore_ascii_case("no-index")
-                })
-            })
-            .filter(|(_, classifications)| {
-                classifications
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case("word"))
-            })
-            .map(|(field_name, _)| field_name.clone())
-            .collect(),
-    )
-}
-
 /// Collect all searchable field values for one schema into key → fields map.
+/// Each value leaves without its file keys.
 async fn collect_schema_records(
     ops: &DbOperations,
     _schema_name: &str,
     schema: &mut Schema,
 ) -> Result<Vec<(KeyValue, HashMap<String, Value>)>, SchemaError> {
-    let searchable = searchable_fields_for_schema(schema);
+    let searchable = searchable_fields(schema);
     if searchable.as_ref().is_some_and(HashSet::is_empty) {
         return Ok(vec![]);
     }
@@ -117,7 +93,7 @@ async fn collect_schema_records(
             records
                 .entry(key)
                 .or_default()
-                .insert(field_name.clone(), atom.content().clone());
+                .insert(field_name.clone(), inbox_value(atom.content()));
         }
     }
 
@@ -161,7 +137,7 @@ pub async fn page_searchable_records_for_rebuild(
     // Load records for the current schema (per-schema collect; then slice).
     let (schema_name, mut schema) = schemas[cur.schema_idx].clone();
     let records = collect_schema_records(ops, &schema_name, &mut schema).await?;
-    let searchable = searchable_fields_for_schema(&schema);
+    let searchable = searchable_fields(&schema);
 
     if cur.record_idx >= records.len() {
         // Advance to next schema.
@@ -227,7 +203,7 @@ pub fn write_batches_to_search_inbox(
     let mut n = 0usize;
     for batch in batches {
         let name = format!(
-            "rebuild_{}_{}.json",
+            "{}_{}.json",
             crate::clock::unix_millis(),
             Uuid::new_v4().simple()
         );
@@ -276,8 +252,8 @@ pub async fn rebuild_search_outbox_into_inbox(
     Ok(report)
 }
 
-/// Operable entry: open a LastDB **home** (Mini layout: LastStore under
-/// `home/data`, Search inbox under `home/apps/search/inbox`), walk product
+/// Operable entry: open a LastDB **home** (Mini layout: the disk format v2 run
+/// homes under `home/data`, Search inbox under `home/apps/search/inbox`), walk product
 /// records, emit IndexChangeBatch files for the Search app.
 ///
 /// The inbox is derived from `home` directly (see

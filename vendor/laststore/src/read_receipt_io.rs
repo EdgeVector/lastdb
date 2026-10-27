@@ -7,14 +7,11 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Deref;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
-use std::sync::{LockResult, Mutex, MutexGuard};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ReadClass {
-    LegacyReplay,
     Footer,
     Payload,
-    FormatProbe,
 }
 
 thread_local! {
@@ -85,10 +82,8 @@ fn record_read(timer: Timer, count: usize) {
         receipt.read_operations = receipt.read_operations.saturating_add(1);
         receipt.read_nanos = receipt.read_nanos.saturating_add(nanos);
         let target = match class {
-            ReadClass::LegacyReplay => &mut receipt.legacy_replay_bytes,
             ReadClass::Footer => &mut receipt.footer_bytes,
             ReadClass::Payload => &mut receipt.payload_bytes,
-            ReadClass::FormatProbe => &mut receipt.format_probe_bytes,
         };
         *target = target.saturating_add(count as u64);
     });
@@ -110,35 +105,6 @@ pub(crate) fn status<T>(work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
     result
 }
 
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> LockResult<MutexGuard<'_, T>> {
-    let timer = Timer::start();
-    let result = mutex.lock();
-    timer.finish(|receipt, nanos| {
-        receipt.lock_wait_nanos = receipt.lock_wait_nanos.saturating_add(nanos);
-    });
-    result
-}
-
-pub(crate) fn attach<T>(work: impl FnOnce() -> T) -> impl FnOnce() -> T {
-    let context = crate::read_receipt::DiskReadContext::capture();
-    let class = CLASS.with(Cell::get);
-    move || {
-        let _class = class.enter();
-        match context {
-            Some(context) => context.with(work),
-            None => work(),
-        }
-    }
-}
-
-pub(crate) fn exists(path: impl AsRef<Path>) -> bool {
-    try_exists(path).unwrap_or(false)
-}
-
-pub(crate) fn try_exists(path: impl AsRef<Path>) -> io::Result<bool> {
-    status(|| path.as_ref().try_exists())
-}
-
 pub(crate) fn decode<T>(
     work: impl FnOnce() -> crate::Result<T>,
     bytes: impl Fn(&T) -> (usize, usize),
@@ -155,110 +121,4 @@ pub(crate) fn decode<T>(
         .as_ref()
         .map(|value| TemporaryBytes::new(bytes(value).1));
     result
-}
-
-pub(crate) fn plain_copy(bytes: &[u8]) -> crate::Result<Vec<u8>> {
-    decode(
-        || Ok(bytes.to_vec()),
-        |bytes| (bytes.len(), bytes.capacity()),
-    )
-}
-
-pub(crate) struct ReadBuffer {
-    bytes: Vec<u8>,
-    _charge: TemporaryBytes,
-}
-
-impl Deref for ReadBuffer {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.bytes
-    }
-}
-
-pub(crate) fn read_footer(path: impl AsRef<Path>) -> io::Result<ReadBuffer> {
-    let _class = ReadClass::Footer.enter();
-    fs::read(path)
-}
-
-pub(crate) fn read_replay(path: impl AsRef<Path>) -> io::Result<ReadBuffer> {
-    let _class = ReadClass::LegacyReplay.enter();
-    fs::read(path)
-}
-
-pub(crate) fn charge_if(bytes: usize, enabled: bool) -> TemporaryBytes {
-    TemporaryBytes::new(if enabled { bytes } else { 0 })
-}
-
-pub(crate) mod fs {
-    pub(crate) use std::fs::*;
-
-    pub(crate) fn read(path: impl AsRef<std::path::Path>) -> std::io::Result<super::ReadBuffer> {
-        use std::io::Read;
-        let mut file = super::open(path)?;
-        let length = usize::try_from(file.metadata()?.len()).unwrap_or(0);
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(length)
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::OutOfMemory, error))?;
-        let mut charge = super::TemporaryBytes::new(bytes.capacity());
-        file.read_to_end(&mut bytes)?;
-        charge.resize(bytes.capacity());
-        Ok(super::ReadBuffer {
-            bytes,
-            _charge: charge,
-        })
-    }
-
-    pub(crate) fn metadata(path: impl AsRef<std::path::Path>) -> std::io::Result<Metadata> {
-        super::status(|| std::fs::metadata(path))
-    }
-
-    pub(crate) fn symlink_metadata(path: impl AsRef<std::path::Path>) -> std::io::Result<Metadata> {
-        super::status(|| std::fs::symlink_metadata(path))
-    }
-
-    pub(crate) fn read_dir(
-        path: impl AsRef<std::path::Path>,
-    ) -> std::io::Result<super::MeasuredReadDir> {
-        let timer = super::Timer::start();
-        let result = std::fs::read_dir(path);
-        timer.finish(|receipt, nanos| {
-            receipt.directory_reads = receipt.directory_reads.saturating_add(1);
-            receipt.metadata_nanos = receipt.metadata_nanos.saturating_add(nanos);
-        });
-        result.map(super::MeasuredReadDir)
-    }
-}
-
-pub(crate) struct MeasuredReadDir(std::fs::ReadDir);
-
-impl Iterator for MeasuredReadDir {
-    type Item = io::Result<MeasuredDirEntry>;
-    fn next(&mut self) -> Option<Self::Item> {
-        let timer = Timer::start();
-        let result = self.0.next();
-        timer.finish(|receipt, nanos| {
-            receipt.directory_entries = receipt
-                .directory_entries
-                .saturating_add(u64::from(matches!(result, Some(Ok(_)))));
-            receipt.metadata_nanos = receipt.metadata_nanos.saturating_add(nanos);
-        });
-        result.map(|entry| entry.map(MeasuredDirEntry))
-    }
-}
-
-pub(crate) struct MeasuredDirEntry(std::fs::DirEntry);
-
-impl Deref for MeasuredDirEntry {
-    type Target = std::fs::DirEntry;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl MeasuredDirEntry {
-    pub(crate) fn file_type(&self) -> io::Result<std::fs::FileType> {
-        status(|| self.0.file_type())
-    }
 }

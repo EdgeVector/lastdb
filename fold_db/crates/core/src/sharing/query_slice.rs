@@ -1,9 +1,7 @@
-//! Query-defined portable `lastdb.slice.v1` materialization + mutation import.
+//! Query-defined portable `lastdb.slice.v1` materialization.
 //!
-//! Run one or more owner queries, package schemas / molecules / atoms / **first-class
-//! binary blobs** into [`LastDbSlicePayload`], seal with delivery wire helpers, then
-//! import on another node by replaying Create mutations and writing blobs into the
-//! local CAS tree.
+//! Run one or more owner queries and package schemas, molecules, atoms, and
+//! first-class binary blobs into [`LastDbSlicePayload`].
 //!
 //! File-bearing fields are normalized to `$lastdb_file` pointers. The encrypted
 //! delivery payload carries raw file bytes and preserves each original CAS address.
@@ -12,9 +10,7 @@ use crate::access::AccessContext;
 use crate::error::FoldDbError;
 use crate::fold_db_core::FoldDB;
 use crate::schema::types::field::HashRangeFilter;
-use crate::schema::types::operations::{FieldPredicate, MutationType, Query, QueryOrderBy};
-use crate::schema::types::{KeyValue, Mutation};
-use crate::schema::SchemaState;
+use crate::schema::types::operations::{FieldPredicate, Query, QueryOrderBy};
 use crate::sharing::blob_cas;
 use crate::sharing::delivery_wire::{
     blob_ref_from_atom_value, content_addressed_atom, content_addressed_blob,
@@ -24,7 +20,7 @@ use crate::sharing::delivery_wire::{
     LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
 /// One schema leg of a (possibly multi-schema) query-defined slice.
 #[derive(Debug, Clone)]
@@ -228,85 +224,5 @@ async fn resolve_blob_bytes(
     blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
 }
 
-/// Import a portable slice into `db`: load schemas, write Create mutations for
-/// each record, and persist first-class blobs into the local CAS tree.
-///
-/// File fields remain `$lastdb_file` pointers; apps load bytes via
-/// [`blob_cas::get_blob_bytes`] (or [`resolve_file_bytes`]).
-pub async fn import_slice_via_mutations(
-    db: &FoldDB,
-    payload: &LastDbSlicePayload,
-    writer_pubkey: impl Into<String>,
-) -> Result<usize, FoldDbError> {
-    if payload.version != LASTDB_SLICE_PAYLOAD_VERSION {
-        return Err(FoldDbError::Other(format!(
-            "unsupported slice version '{}'; expected '{}'",
-            payload.version, LASTDB_SLICE_PAYLOAD_VERSION
-        )));
-    }
-    validate_blob_refs(payload)?;
-
-    let writer_pubkey = writer_pubkey.into();
-
-    let atoms: HashMap<&str, &Value> = payload
-        .atoms
-        .iter()
-        .map(|a| (a.atom_ref.as_str(), &a.value))
-        .collect();
-
-    let mut records: BTreeMap<(String, String), BTreeMap<String, Value>> = BTreeMap::new();
-    for mol in &payload.molecules {
-        let value = atoms.get(mol.atom_ref.as_str()).ok_or_else(|| {
-            FoldDbError::Other(format!(
-                "molecule {}.{} references missing atom {}",
-                mol.schema_name, mol.field_name, mol.atom_ref
-            ))
-        })?;
-        records
-            .entry((mol.schema_name.clone(), mol.record_key.clone()))
-            .or_default()
-            .insert(mol.field_name.clone(), (*value).clone());
-    }
-
-    let mut written = 0usize;
-    let mut mutations = Vec::new();
-    for ((schema_name, record_key), fields) in records {
-        let key = KeyValue::from_storage_key(&record_key)?;
-        mutations.push(Mutation::new(
-            schema_name,
-            fields.into_iter().collect(),
-            key,
-            writer_pubkey.clone(),
-            MutationType::Create,
-        ));
-        written += 1;
-    }
-
-    blob_cas::put_blobs_in_ops(db.db_ops(), &payload.blobs).await?;
-
-    for schema in &payload.schemas {
-        let json = serde_json::to_string(&schema.definition).map_err(FoldDbError::from)?;
-        let exists = db
-            .schema_manager()
-            .get_schema_following_supersession(&schema.schema_name)
-            .await?
-            .is_some();
-        if !exists {
-            db.load_schema_from_json(&json).await?;
-            db.schema_manager()
-                .set_schema_state(&schema.schema_name, SchemaState::Available)
-                .await?;
-        }
-    }
-
-    if !mutations.is_empty() {
-        db.mutation_manager()
-            .write_mutations_batch_async(mutations, None)
-            .await?;
-    }
-
-    Ok(written)
-}
-
 mod file_recovery;
-pub use file_recovery::{resolve_file_bytes, resolve_file_bytes_kind};
+pub use file_recovery::resolve_file_bytes;

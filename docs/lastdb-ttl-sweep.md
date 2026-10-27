@@ -40,14 +40,17 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 1. The sampler tick starts at most one pass. Each erase batch uses the normal local mutation
    admission. A snapshot cut keeps that admission until the cut completes.
-2. The pass lists the expired keys of each schema once, hash by hash and oldest first inside a
-   hash. The store keeps the rows of one hash in one group, so one batch touches few groups.
-   Range discovery reads 256 keys per request through the normal keyed page reader.
-   An exclusive key cursor advances across each page, including keys without a valid age.
-   Only an empty page ends discovery. A large expired hash does not require one unbounded read.
+2. The pass keeps schema metadata and exclusive cursors. It fetches one key page for the schema
+   that it serves, then erases that page before it fetches another. Hash and Single use a bounded
+   age-entry read. Range and HashRange use the normal keyed page reader. A page holds at most the
+   configured batch size: 16 keys by default, 64 at most, across all schemas combined.
+   Schema and observed-hash metadata still scale with the configured schemas and hashes.
+   An exclusive cursor advances across stale age entries and keys without a valid range age.
+   Only an empty physical page ends an interval. A short page does not end it.
    The next pass starts from the oldest remaining key; no offset survives an erase.
-3. The pass erases in rounds. Each round takes one batch from each schema that still has keys,
-   in schema name order. A large backlog in one schema cannot starve the others.
+3. Each round serves one page from each schema, in schema name order. A size refusal splits the
+   current page into smaller batches. A failed schema releases its page and retains only its
+   outstanding count. Other schemas continue. The status does not call a failed or cut pass complete.
 4. Before each batch the sweep re-checks its keys, inside the batch admission:
    - Hash and Single keys take their age from the write-time index. One batched read drops every
      key that a client rewrote after the pass listed it. A key with no index row was erased by
@@ -87,8 +90,9 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 Both verbs release the kept conflict records of the slots they remove, in the same batch as the
 tip deletes (the slot directory, `docs/lastdb-atom-counter.md`, section Conflict records and their
-retention). A kept loser whose last reference goes is deleted in that batch. Both verbs leave one
-`mgd:v1:` record for each field of each key (see Records that stay).
+retention). A kept loser whose last reference goes is deleted in that batch.
+Both verbs leave a `mgd:v1:` record only when an active or prepared generation needs it.
+A request guard excludes new generation cuts until the durable commit.
 
 Any other value logs one warning at the first sampler tick and uses `purge`. The delete ledger
 (`lastdb db delete-ledger`) names the caller of each erase: `ttl-sweep-purge` or `ttl-sweep-delete`.
@@ -105,8 +109,9 @@ The older build below wrote two barriers for each key and field, about 3,170 B i
 A log that expires 100,000 records per day on a 3-field schema retained about
 28.6 GB of barriers in 30 days (measured on a build from before the counter work: 2,000 keys of 3
 fields gave 12,000 rows and about 19 MB, and a run of 400 keys gave the same bytes per key, so the
-growth is linear). Compaction removed none of them. `purge` writes no barrier. Both verbs also leave about 700 B for each key and field of `mgd:v1:` rows
-(measured on the same earlier build).
+growth is linear). Compaction removed none of them. `purge` writes no barrier.
+The same earlier build left about 700 B of `mgd:v1:` rows for each key and field.
+The current build omits those markers when no active or prepared generation needs them.
 
 What `delete` buys: the barrier stops an older write from bringing the key back. A write that
 a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
@@ -142,7 +147,7 @@ The watch persists between passes. A long rest ends early after the quiet period
 
 Private janitor, dwell, and drain batches can share the bounded collection window.
 They still return after durability. Their ordinary measured cost includes the gate and shared flush holds.
-See `docs/lastdb-concurrent-compaction.md` and `docs/lastdb-time-queue.md`.
+See `docs/lastdb-eager-durable-queue.md` and `docs/lastdb-time-queue.md`.
 
 ## Historical measured cost
 
@@ -251,8 +256,8 @@ An old incorrect Hash age needs explicit backfill or a later nonduplicate write.
 - `mgd:v1:` is a sparse delete marker. It holds the removed tip and stops a read from showing a
   slot of an immutable base generation of the molecule that the delete removed from the live rows
   (`db_operations/atom_store/molecules/delete.rs`, `generation/slots.rs`). The read looks at it
-  only for a molecule that has an active generation (`generation/merge.rs`). Both verbs write it,
-  because both use the same slot removal. It is local to the device (`sync/policy.rs`).
+  only for a molecule that has an active generation (`generation/merge.rs`).
+  Both verbs write it only for an active or prepared generation. It is local to the device (`sync/policy.rs`).
   A whole-molecule drain removes its markers. The owner can also remove redundant markers
   from a molecule with no active generation through bounded cleanup pages (below).
 - `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,
@@ -334,6 +339,7 @@ on a quiet host and up to 7.8 s on a busy one.
 
 | Field | Meaning |
 |---|---|
+| `peak_buffered_keys` | The largest expired-key page held by the pass. It excludes schema/hash metadata and temporary query response bytes. |
 | `finished_backlog` | The last pass erased or dropped every key that it listed, in every schema, with no failed schema. |
 | `keys_left` | The keys that the pass listed and had not reached when it ended. |
 | `cut` | The pass ended early before it reached all listed keys. |

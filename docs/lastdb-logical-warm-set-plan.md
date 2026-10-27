@@ -7,20 +7,20 @@ All native writes now wait for disk commit and clean memory publication. The war
 Status: selected schema preload, shared core memory, and native storage merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
 The [retention choice](lastdb-logical-warm-set-design.md#retention-choice) adds selected tips without values to the same logical warm set.
 Calls that fetch values retain full records. Accepted writes remain complete through flush.
-The [write report](proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
-The [native cutover review](proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
-The [cutover validation](proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
-The [merge review](proofs/core-clarity-20261018/MERGE-REVIEW.md) records the final private-history cleanup and repeated fresh-data checks.
+The [write report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) records the earlier source, product checks, and matched measurements.
+The [native cutover review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/REVIEW.md) records the later default-engine change and source cleanup.
+The [cutover validation](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/VALIDATION.md) identifies its separate source, release, and checks.
+The [merge review](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/MERGE-REVIEW.md) records the final private-history cleanup and repeated fresh-data checks.
 Native reads use the core model. The separate `NativeWriteGraph` is removed.
 A bounded private queue retains prepared disk bytes until flush. Ordinary reads cannot use that queue.
 Raw system writes finish on disk and clear affected core state before success.
-The [write route inventory](proofs/core-owned-writes-20261018/ROUTES.md) names the earlier runtime evidence gaps and backend scope.
+The [write route inventory](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/ROUTES.md) names the earlier runtime evidence gaps and backend scope.
 The package contracts below retain the wider targets; they do not establish proof for those gaps.
 Tom selected complete range-key preload on the first query to selected schemas.
 The [preload design](lastdb-schema-range-preload-design.md) defines that lifecycle.
 The [logical design](lastdb-logical-warm-set-design.md) defines values, fields, and the common read boundary.
 The [study](lastdb-schema-range-preload-study.md) preserves synthetic memory and native disk-component measurements.
-The [fast range design](lastdb-fast-range-design.md) defines the disk-format target for first load and fallback.
+The [fast range design](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md) defined the disk format v1 target for first load and fallback. That format is removed.
 
 ## Target behavior
 
@@ -52,8 +52,8 @@ CoreWarmSet also retains current typed schema and molecule definitions, plus the
 Queries share these objects and retain their memory charges through their full lifetime.
 Accepted changes clear affected definitions before the new state becomes visible.
 Confirmed absence uses the same dependency rules; read errors never enter memory as absence.
-The [core memory report](proofs/core-memory-state-20261018/RESULTS.md) records fresh before-and-after measurements and the operational limits.
-That report preserves the earlier v4 result. The [completion result](proofs/core-memory-completion-20261018/RESULTS.md) records the later fixes and final validation.
+The [core memory report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-memory-state-20261018/RESULTS.md) records fresh before-and-after measurements and the operational limits.
+That report preserves the earlier v4 result. The [completion result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-memory-completion-20261018/RESULTS.md) records the later fixes and final validation.
 The final generated API checks pass. The comparison with v4 shows mixed timings and documented slower first and disjoint range reads.
 It establishes the review fixes on a small generated home; it does not close the wider caller inventory or large-home proof.
 Ready describes complete candidates; it does not promise an exact visible-record count.
@@ -82,7 +82,7 @@ The earlier preload candidate passes both 256-record generated Mini workloads, a
 The [results report](lastdb-schema-range-preload-results.md) records the matched source identities, values, elapsed times, memory, disk size, and regressions.
 Those larger receipts identify that earlier preload candidate. They are not rerun on the final completion executable `a0ad6190…`.
 The completion report identifies its separate small generated workloads and all remaining scope limits.
-The [before report](proofs/schema-preload-product-20261017/before-report.md) preserves the committed engine's 256-, 10,000-, and 20,000-record observations.
+The [before report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/before-report.md) preserves the committed engine's 256-, 10,000-, and 20,000-record observations.
 The earlier candidates remain diagnostic evidence.
 Preload remains opt-in: lower range disk work does not establish a general elapsed-time improvement over the final disk selector.
 The earlier memory prototype remains component evidence, not a complete product result.
@@ -335,7 +335,8 @@ First batch the Locations already selected by the cursor with the existing adjac
 Do not repeat an exact tree lookup for a known selected Location.
 Measure that change against the correct current-format loader before a disk-format change.
 
-Then implement the packed-key locator pages in the [fast range design](lastdb-fast-range-design.md#disk-design).
+Then implement the packed-key locator pages in the [fast range design](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md#disk-design).
+That design targets disk format v1, which is removed. A disk format v2 route needs a new design.
 Update accessors, byte-based splits, capacity quotes, validators, LastDB compaction, and dependency walks together.
 Include backup readers and required format-feature rejection.
 Keep encrypted tip bytes, shared atoms, file packing, and semantic cloud mutation order.
@@ -345,7 +346,7 @@ Use the existing compatible codec for compact OPE bytes in memory.
 Do not change the encryption algorithm with the page format.
 Cached tree-construction time is not complete first-query load time.
 
-Primary sources: [range reader](../vendor/laststore/src/disk_pack/hash_range.rs), [batch reader](../vendor/laststore/src/disk_pack/batch.rs), [page output](../vendor/laststore/src/disk_pack/tree_output.rs), [page editor](../vendor/laststore/src/disk_pack/tree_edit.rs).
+Primary sources (disk format v1, removed): [range reader](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/hash_range.rs), [batch reader](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/batch.rs), [page output](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/tree_output.rs), [page editor](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/tree_edit.rs).
 
 Completion: actual product calls quantify first-load and fallback time, key pages, payload reads, write ack, flush bytes, memory, and changed cloud parts.
 Ordinary packed keys avoid their old per-key tail pages.

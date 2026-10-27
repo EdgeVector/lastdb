@@ -1,2 +1,0 @@
-{"batch_durable":true,"encoded_bytes":17176,"marker_sha256":"fe5012f67522b878d1d43f97f30a5e51ae35b7005b41ca36ef3c405d2f2bc4cb","operations":2,"sequence":1}
-{"artifact_only":true,"batches":1,"complete":true,"elapsed_nanos":97514291,"encoded_bytes":17176,"first_batch":1,"last_batch":1,"mutations":2,"reserved_suffix_bytes":21049}

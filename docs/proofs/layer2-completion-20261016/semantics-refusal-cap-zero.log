@@ -1,2 +1,0 @@
-=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
-Error: "core database boot failed: Database error: Configuration error: LASTDB_DISK_CAP_BYTES must be a positive integer byte count"

@@ -65,79 +65,6 @@ impl ResidentDurability {
     }
 }
 
-/// How the logical cloud intent is secured before the local response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudCaptureState {
-    /// A flushed re-export marker or durable pin-log row survives a process loss.
-    Durable,
-    /// The local commit completed, but the cloud intent did not reach disk.
-    Failed,
-}
-
-impl CloudCaptureState {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Durable => "durable",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Off-box state for one exact mutation-log writer frontier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CloudPublicationState {
-    NotRequested,
-    Pending,
-    Published,
-    Failed,
-}
-
-impl CloudPublicationState {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NotRequested => "not_requested",
-            Self::Pending => "pending",
-            Self::Published => "published",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// One required mutation-log target for an exact publication receipt.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudPublicationTarget {
-    pub target_id: String,
-    pub target_label: String,
-    pub writer_id: String,
-    pub frontier: u64,
-}
-
-/// Cloud-side facts attached only to a durable delete response.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CloudMutationReceipt {
-    pub mutation_uuid: String,
-    pub capture_state: CloudCaptureState,
-    pub publication_state: CloudPublicationState,
-    pub targets: Vec<CloudPublicationTarget>,
-    pub error: Option<String>,
-}
-
-impl CloudMutationReceipt {}
-
-/// Internal capture behavior selected by the owner mutation route.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CloudCapturePolicy {
-    /// Preserve the existing post-response marker path.
-    #[default]
-    Async,
-    /// Flush the crash-safe marker before returning the local receipt.
-    Durable,
-    /// Flush the marker, append the exact pin-log row, and wait for cloud.
-    WaitForPublication { timeout: std::time::Duration },
-}
-
 /// Per-class operation counts for one resident commit.
 ///
 /// Sized by mutation verb rather than by schema, because the caller that sent
@@ -231,8 +158,6 @@ pub struct ResidentCommitReceipt {
     pub operations: ResidentCommitOperations,
     /// Whether the acknowledgment claims disk.
     pub durability: ResidentDurability,
-    /// Present only when a durable delete requested a crash-safe cloud intent.
-    pub cloud: Option<CloudMutationReceipt>,
     /// Stage times for this commit.
     pub stages: ResidentCommitStages,
     /// Legacy fanout slots, retained for receipt compatibility. Native writes
@@ -249,7 +174,6 @@ impl ResidentCommitReceipt {
             revision: None,
             operations: ResidentCommitOperations::default(),
             durability: ResidentDurability::Queued,
-            cloud: None,
             stages: ResidentCommitStages::default(),
             touched_group_ids: Vec::new(),
         }

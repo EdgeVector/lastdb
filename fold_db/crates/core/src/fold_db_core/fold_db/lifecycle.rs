@@ -3,25 +3,12 @@ use crate::storage::StorageError;
 use super::FoldDB;
 
 impl FoldDB {
-    /// Cancel local sync cadences as soon as the daemon stops accepting calls.
-    /// Shutdown joins them before it records a clean flush.
-    pub fn request_background_stop(&self) {
-        self.sync_coordinator.request_background_stop();
-    }
-
     /// Upper bound on how long [`FoldDB::shutdown`] waits for tracked tasks.
     /// The limit matches the cold-cache model start limit.
     const SHUTDOWN_TASK_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
     pub async fn shutdown(&self) -> Result<(), StorageError> {
-        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT, true)
-            .await
-    }
-
-    /// An exact retained cloud cut cannot accept a final remote replay. Join
-    /// every cadence, retain its queues, and complete all local flush barriers.
-    pub async fn shutdown_local_only(&self) -> Result<(), StorageError> {
-        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT, false)
+        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT)
             .await
     }
 
@@ -79,14 +66,12 @@ impl FoldDB {
     async fn shutdown_with_task_drain_timeout(
         &self,
         task_drain_timeout: std::time::Duration,
-        final_cloud_sync: bool,
     ) -> Result<(), StorageError> {
         let mut pre_flush_errors = Vec::new();
         tracing::info!(
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
-        self.request_background_stop();
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;
@@ -94,19 +79,13 @@ impl FoldDB {
         self.background_conflict_janitor.stop();
         self.background_molecule_drain.stop();
         // Drain accepted persist-lane work FIRST, while admission stays open.
-        // The capture wait and the final sync below can take many seconds,
-        // and a supervisor can SIGKILL the process before they finish (the
-        // primary LaunchAgent had a 5 s exit timeout on 2026-09-24, and the
-        // kill landed inside the final sync). Acked writes must not wait
-        // behind that work to become durable.
+        // A supervisor can SIGKILL the process before a long shutdown ends
+        // (the primary LaunchAgent had a 5 s exit timeout on 2026-09-24).
+        // Acked writes must not wait behind later shutdown work to become
+        // durable.
         self.drain_persist_lanes_before_sync(task_drain_timeout)
             .await;
-        pre_flush_errors.extend(
-            self.stop_sync_for_shutdown(task_drain_timeout, final_cloud_sync)
-                .await,
-        );
-        // The final sync can apply remote mutations. Stop lane admission only
-        // after that sync finishes, then drain each accepted envelope.
+        // Stop lane admission, then drain each accepted envelope.
         self.mutation_manager.persist_lanes().stop();
         let persist_lane_timeout = self
             .drain_persist_lanes_at_shutdown(task_drain_timeout)
@@ -148,39 +127,9 @@ impl FoldDB {
         flush_result
     }
 
-    async fn stop_sync_for_shutdown(
-        &self,
-        task_drain_timeout: std::time::Duration,
-        _final_cloud_sync: bool,
-    ) -> Vec<String> {
-        let mut errors = Vec::new();
-        if !self
-            .mutation_manager
-            .wait_for_capture_tasks(task_drain_timeout)
-            .await
-        {
-            tracing::warn!(
-                target: "fold_node::database",
-                "shutdown: post-ack capture queue did not drain before final sync"
-            );
-            errors.push("post-ack capture queue did not drain".to_string());
-        }
-        if let Err(error) = self
-            .sync_coordinator
-            .join_background_tasks(task_drain_timeout)
-            .await
-        {
-            tracing::error!(target: "fold_node::database", %error, "shutdown: local sync task did not stop");
-            errors.push(format!("local sync task did not stop: {error}"));
-            return errors;
-        }
-
-        errors
-    }
-
     /// First shutdown drain: wait for every accepted lane envelope to become
-    /// durable without closing admission. The later stop + drain still covers
-    /// work that the final sync adds.
+    /// durable without closing admission. The later stop + drain covers work
+    /// accepted after this wait.
     async fn drain_persist_lanes_before_sync(&self, timeout: std::time::Duration) {
         let lanes = self.mutation_manager.persist_lanes();
         let depth = lanes.depth();

@@ -23,16 +23,39 @@ const API_VERSION_PATH: &str = "/api/version";
 /// compatibility handshake.**
 ///
 /// Bump it when the socket grammar changes in a way a client can observe: a new
-/// key a route accepts, a key a route stops accepting, or a changed value
-/// grammar. A client that needs a key this node does not know gets a
-/// typed `unknown_key` rejection (`lastdb_host::reject`) instead of the
+/// key a route accepts, a key a route stops accepting, a removed route, or a
+/// changed value grammar. The `contract-diff` CI check reads this number
+/// (through `lastdb_node::version::CURRENT_API_VERSION`) and fails a breaking
+/// route change that does not raise it.
+///
+/// A client that needs a key this node does not know gets a typed
+/// `unknown_key` rejection (`lastdb_host::reject`) instead of the
 /// bare `Bad Request` that hid the 2026-09-03 brain 0.8.0 `durability`
 /// incident for hours; comparing its required version against `GET
 /// /api/version` is how it tells "wrong request" from "node too old".
 ///
 /// `1` names the grammar that shipped as LastDB Mini `v0.23.4` (2026-09-18):
 /// the first build with the per-mutation `durability` key and this route.
-pub const API_VERSION: u32 = 1;
+///
+/// `2` (2026-10-26) removes three retired owner-socket routes:
+/// `POST /api/db/stamp-purged-atom-retirements`,
+/// `POST /api/db/reclaim-keep-small-snapshot` and `POST /api/db/pin-log-audit`.
+/// No app-socket route and no request key changed, so a client that requires
+/// `1` still works; `MIN_SUPPORTED_API_VERSION` stays `1`.
+///
+/// `3` (2026-10-26) removes the `cloud_publication` mutation key and the
+/// `local_committed`, `cloud_capture` and `cloud_publication` reply fields of
+/// `POST /api/mutation` and `POST /api/mutations/batch`. They carried a fixed
+/// failed cloud receipt, because no cloud capture engine exists. A request
+/// that sends `cloud_publication` now gets the typed `unknown_key` rejection.
+/// No app in the EdgeVector repos sends the key or reads the fields, so a
+/// client that requires `1` or `2` still works; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+///
+/// `4` (2026-10-26) removes the two disk format v1 owner-socket routes
+/// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
+/// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 4;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -145,6 +168,14 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
         API_LOG_FILTER_PATH if owner => match method {
             "GET" => ControlRoute::Data(DataRoute::LogFilterGet),
             "POST" => ControlRoute::Data(DataRoute::LogFilterSet),
+            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
+        },
+        "/api/db/native-status" if owner => match method {
+            "GET" | "POST" => ControlRoute::Data(DataRoute::DbNativeStatus),
+            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
+        },
+        "/api/db/cleanup" if owner => match method {
+            "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
         // The counter verifier: GET reads the last result, POST runs one step.

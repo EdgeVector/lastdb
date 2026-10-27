@@ -26,6 +26,7 @@
 //! sole arbiter of who wins a race. See the design doc for the full
 //! discussion.
 
+mod per_record;
 mod persistence_impl;
 mod quota_store;
 pub mod store_config;
@@ -137,6 +138,16 @@ impl S3BlobPersistence {
             ddb,
             embeddings_table,
         }
+    }
+
+    /// Access the S3 client (for test/example use).
+    pub fn client(&self) -> &S3Client {
+        &self.client
+    }
+
+    /// Access the bucket name (for test/example use).
+    pub fn bucket(&self) -> &str {
+        &self.bucket
     }
 
     /// Encode a `Vec<f32>` into a `Blob` for DynamoDB. Little-endian
@@ -269,7 +280,7 @@ impl S3BlobPersistence {
             Ok(resp) => {
                 let etag = resp.e_tag().map(String::from);
                 let body = resp.body.collect().await.map_err(|e| {
-                    FoldDbError::Config(format!("Failed to read S3 body for '{key}': {e}"))
+                    FoldDbError::S3(format!("Failed to read S3 body for '{key}': {e}"))
                 })?;
                 let bytes = body.into_bytes();
                 if bytes.is_empty() {
@@ -284,7 +295,7 @@ impl S3BlobPersistence {
                 if error_code(&e).as_deref() == Some("NoSuchKey") {
                     Ok((DomainBlob::default(), None))
                 } else {
-                    Err(FoldDbError::Config(format!(
+                    Err(FoldDbError::S3(format!(
                         "Failed to get S3 object '{}': {}",
                         key,
                         short_error(&e)
@@ -335,7 +346,7 @@ impl S3BlobPersistence {
                     continue;
                 }
                 Err(e) => {
-                    return Err(FoldDbError::Config(format!(
+                    return Err(FoldDbError::S3(format!(
                         "Failed to put S3 object '{}': {}",
                         key,
                         short_error(&e)
@@ -343,7 +354,7 @@ impl S3BlobPersistence {
                 }
             }
         }
-        Err(FoldDbError::Config(format!(
+        Err(FoldDbError::S3(format!(
             "Exceeded {MAX_RMW_RETRIES} retries updating S3 blob '{key}' (ETag contention)"
         )))
     }
@@ -357,21 +368,21 @@ impl S3BlobPersistence {
 // variant so these helpers are operation-agnostic (GetObject, PutObject,
 // etc. all surface the same shape).
 
-fn error_code<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> Option<String>
+pub(crate) fn error_code<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> Option<String>
 where
     E: ProvideErrorMetadata,
 {
     err.code().map(String::from)
 }
 
-fn is_precondition_failed<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> bool
+pub(crate) fn is_precondition_failed<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> bool
 where
     E: ProvideErrorMetadata,
 {
     matches!(err.code(), Some("PreconditionFailed"))
 }
 
-fn short_error<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> String
+pub(crate) fn short_error<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> String
 where
     E: ProvideErrorMetadata,
 {

@@ -92,7 +92,7 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False, lega
         if receipt["http_status"] == 503:
             message = result.get("message", "")
             known_limit = "bounded continuation" in message or (reopened and message ==
-                "read resource limit exceeded: disk-pack v1: read resource limit exceeded")
+                "read resource limit exceeded: read resource limit exceeded")
             if (samples or result.get("error") != "read_resource_limit"
                     or result.get("retryable") is not False
                     or not known_limit):

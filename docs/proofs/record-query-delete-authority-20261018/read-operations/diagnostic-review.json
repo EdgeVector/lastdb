@@ -1,9 +1,0 @@
-{
-  "acceptance_claim": false,
-  "binary_sha256": "8a1588e696350d03592ba7ff3ff01d80564a1f69f7d12f4950afa547bb680b68",
-  "classification": "procedure-diagnostic",
-  "complete": false,
-  "original_result_preserved": true,
-  "reason": "The procedure compared baseline exact/range molecule_version metadata before compaction. That established behavior is outside the changed envelope metadata rule. Values and atom/molecule identities pass for both baseline reads; no compaction or update occurred.",
-  "source_commit": "8c26bd4d41cbc1cd6921cac2702646241f0ddb24"
-}

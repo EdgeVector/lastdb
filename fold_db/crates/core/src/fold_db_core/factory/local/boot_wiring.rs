@@ -22,7 +22,7 @@ pub(super) async fn open_db_operations(
         Some(e2e_keys.index_key()),
         Some(e2e_keys.ope_key()),
     );
-    DbOperations::from_namespaced_store_with_atom_and_molecule_keys(
+    DbOperations::from_namespaced_store_with_content_and_molecule_keys(
         store,
         Some(e2e_keys.encryption_key()),
         hash_key_codec,

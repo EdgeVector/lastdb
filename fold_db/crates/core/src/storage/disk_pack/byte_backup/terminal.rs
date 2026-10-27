@@ -1,6 +1,5 @@
 use super::{invalid, protocol, ByteBackupCapture, StorageResult};
 use cloud_backup_protocol::v2::jobs::{JobResult, JobStatus};
-use laststore::disk_pack::lifetime::{release_owned_reference, ReferencePurpose};
 
 impl ByteBackupCapture {
     /// Only authenticated exact terminal authority releases a submitted job.
@@ -50,28 +49,14 @@ impl ByteBackupCapture {
         }
         self.inner.require_idle()?;
         if !state.released {
-            self.inner.home.validate()?;
-            let mut digest = [0u8; 32];
-            for (index, out) in digest.iter_mut().enumerate() {
-                *out = u8::from_str_radix(
-                    &state.native_root.current_sha256.as_str()[index * 2..index * 2 + 2],
-                    16,
-                )
-                .map_err(|_| invalid("byte source CURRENT digest"))?;
-            }
-            release_owned_reference(
-                self.inner.home.home().path(),
-                state.reference_id,
-                ReferencePurpose::CloudRecovery,
-                &digest,
-            )
-            .map_err(super::super::map)?;
+            let root = super::run_capture::held_root(&self.inner.runtime, state.reference_id);
+            super::run_source::RunSource::release_saved(&root)?;
+            self.inner.store.remove("run-intent.json")?;
             let mut released = state.clone();
             released.released = true;
             self.inner.store.write("job.json", &released)?;
             *state = released;
         }
-        super::certify::scratch_cleanup(&self.inner.store.root)?;
         super::capture::clear_previous(&self.inner.store, &state)
     }
 }

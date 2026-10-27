@@ -1,4 +1,4 @@
-//! Plane residue drain, reseal, compaction, pin-log audit and history clearing.
+//! Reseal, unsealed-row reap and history clearing.
 
 use super::*;
 
@@ -34,48 +34,6 @@ impl FoldDB {
             .reap_unsealed(options)
             .await
             .map_err(|e| FoldDbError::Database(format!("reap-unsealed: {e}")))
-    }
-
-    /// Compact one allowlisted LastStore collection (default dry-run).
-    ///
-    /// Reclaims superseded segment bodies on allowlisted planes. Atom execute
-    /// records durable retirement provenance for the next backup-manifest cut.
-    pub async fn compact_collection(
-        &self,
-        collection: &str,
-        dry_run: bool,
-    ) -> Result<crate::storage::laststore::CollectionCompactReport, FoldDbError> {
-        self.db_ops()
-            .namespaced_store()
-            .compact_collection(crate::storage::laststore::CollectionCompactOptions {
-                collection: collection.to_string(),
-                dry_run,
-                seed_committed_history: collection == "atoms" && !dry_run,
-            })
-            .await
-            .map_err(|e| FoldDbError::Database(format!("compact collection: {e}")))
-    }
-
-    /// Read-only, bounded pin-log plane audit (`lastdb db pin-log-audit`).
-    ///
-    /// Opens `sync_pin_log`, loads durable published-F maps, and classifies
-    /// each entry row as confirmed-orphan (frontier ≤ writer HWM) or
-    /// genuinely pending. Never deletes.
-    pub async fn audit_pin_log(
-        &self,
-        max_keys: Option<usize>,
-        after_key: Option<&str>,
-    ) -> Result<crate::sync::engine::PinLogPlaneReport, FoldDbError> {
-        let store = self
-            .db_ops()
-            .namespaced_store()
-            .open_namespace(crate::sync::engine::PIN_LOG_NAMESPACE)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("open sync_pin_log: {e}")))?;
-        let max_keys = max_keys.unwrap_or(crate::sync::engine::PIN_LOG_OPERATOR_KEYS_PER_CALL);
-        crate::sync::engine::audit_pin_log_plane(store.as_ref(), max_keys, after_key)
-            .await
-            .map_err(|e| admin_op_error("pin-log-audit", e))
     }
 
     /// Clear mutation history rows. `schema` = None means all schemas.

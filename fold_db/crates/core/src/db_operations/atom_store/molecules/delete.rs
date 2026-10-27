@@ -68,10 +68,12 @@ impl AtomStore {
         release_records: bool,
     ) -> Result<TipCommit, SchemaError> {
         let current = self.read_removed_slots(removals).await?;
+        let (generation_markers, _generation_guards) =
+            self.removal_generation_markers(removals).await?;
         let mut plans: BTreeMap<Option<&str>, SlotRemovalPlan> = BTreeMap::new();
-        for removal in removals {
+        for (removal, needs_marker) in removals.iter().zip(generation_markers) {
             let plan = plans.entry(removal.3).or_default();
-            Self::plan_molecule_removal(removal, &current, plan)?;
+            Self::plan_molecule_removal(removal, &current, needs_marker, plan)?;
         }
         let mut extra_rows = Some(extra_rows);
         let mut total = TipCommit::default();
@@ -125,6 +127,74 @@ impl AtomStore {
             total.absorb(commit);
         }
         Ok(total)
+    }
+
+    /// An immutable base needs a shadow marker. An in-progress generation cut
+    /// does too, even before its first pointer exists. Try the cleanup guard
+    /// without waiting: a held read guard means preparation may still publish
+    /// an older cut, so keep the marker. Otherwise hold the exclusive guard
+    /// through the counter commit, which prevents a cut across this removal.
+    /// Delete replay barriers remain independent rows in that same batch.
+    async fn removal_generation_markers(
+        &self,
+        removals: &[MoleculeKeyRemoval<'_>],
+    ) -> Result<
+        (
+            Vec<bool>,
+            Vec<std::sync::Arc<tokio::sync::OwnedRwLockWriteGuard<()>>>,
+        ),
+        SchemaError,
+    > {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        let mut guards = Vec::new();
+        let protected: Vec<_> = removals
+            .iter()
+            .map(|removal| {
+                let key = build_storage_key(
+                    removal.3,
+                    &molecule_key_codec::molecule_generation_pointer_key(removal.0),
+                );
+                match crate::storage::disk_pack::transaction::lease(
+                    runtime.as_deref(),
+                    format!("delete-generation:{key}"),
+                    || {
+                        self.generation_cleanup_lock(removal.0, removal.3)
+                            .try_write_owned()
+                            .ok()
+                    },
+                )? {
+                    Some(guard) => {
+                        guards.push(guard);
+                        Ok(true)
+                    }
+                    None => Ok(false),
+                }
+            })
+            .collect::<Result<_, SchemaError>>()?;
+        let keys: Vec<_> = removals
+            .iter()
+            .map(|removal| {
+                build_storage_key(
+                    removal.3,
+                    &molecule_key_codec::molecule_generation_pointer_key(removal.0),
+                )
+            })
+            .collect();
+        let pointers: Vec<Option<super::super::MoleculeGenerationPointer>> =
+            self.main_store.get_items(&keys).await.map_err(|error| {
+                SchemaError::InvalidData(format!("read removal generation pointers: {error}"))
+            })?;
+        Ok((
+            pointers
+                .into_iter()
+                .zip(protected)
+                .map(|(pointer, protected)| pointer.is_some() || !protected)
+                .collect(),
+            guards,
+        ))
     }
 
     /// The releases for the kept conflict records of the slots that the
@@ -181,6 +251,7 @@ impl AtomStore {
     fn plan_molecule_removal(
         removal: &MoleculeKeyRemoval<'_>,
         current: &HashMap<String, PerKeyRecord>,
+        needs_marker: bool,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let (molecule_uuid, data, removed_slots, storage_prefix) = removal;
@@ -189,7 +260,15 @@ impl AtomStore {
         }
         plan.keys.reserve(removed_slots.len());
         for (hash, range) in *removed_slots {
-            Self::plan_slot_removal(molecule_uuid, hash, range, *storage_prefix, current, plan)?;
+            Self::plan_slot_removal(
+                molecule_uuid,
+                hash,
+                range,
+                *storage_prefix,
+                current,
+                needs_marker,
+                plan,
+            )?;
         }
 
         let header = MoleculeHeader {
@@ -208,19 +287,22 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Plan the deletes for one removed slot: its row and its generation-delete
-    /// marker. The planner reads the stored row, so it also finds the atom whose
-    /// reference this removal ends.
+    /// Delete one live slot, and keep its shadow when an active or prepared
+    /// generation needs it. The stored winner still drives the counter release.
     fn plan_slot_removal(
         molecule_uuid: &str,
         hash: &str,
         range: &str,
         storage_prefix: Option<&str>,
         current: &HashMap<String, PerKeyRecord>,
+        needs_marker: bool,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
-        if let Some(current) = current.get(&build_storage_key(storage_prefix, &base_key)) {
+        if let Some(current) = current
+            .get(&build_storage_key(storage_prefix, &base_key))
+            .filter(|_| needs_marker)
+        {
             let marker = super::super::MoleculeGenerationDelete {
                 shadow: current.entry.clone(),
             };

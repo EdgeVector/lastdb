@@ -15,14 +15,10 @@ impl MutationManager {
     /// Persist the durable attribution root for a batch, then append its
     /// source events and clear the pending-scope markers.
     ///
-    /// This runs once per mutation batch, from exactly one of two mutually
-    /// exclusive call sites: the live request write
-    /// (`write_mutations_batch_with_receipt_cloud`) or a captured-mutation
-    /// replay (`apply_replayed_mutations`). A given batch takes one path or
-    /// the other, never both, so the two call sites are not two attribution
-    /// writes for the same operation — they are the shared attribution tail
-    /// for two different upstream pipelines. No-op when source events are
-    /// disabled or the batch carries no attribution scopes.
+    /// This runs once per mutation batch, from its one call site: the live
+    /// request write (`write_mutations_batch_with_receipt_admitted`). No-op
+    /// when source events are disabled or the batch carries no attribution
+    /// scopes.
     pub(super) async fn record_attribution_scopes(
         &self,
         attribution_scopes: &[AttributionPendingScope],

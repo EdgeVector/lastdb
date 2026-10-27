@@ -1,11 +1,12 @@
 # Blind write path: ack from memory with no read first
 
 Status: historical proposal. The [current memory and disk design](lastdb-rehydrate.md)
-and [native cutover report](proofs/core-clarity-20261018/RESULTS.md) supersede its serving path.
+and [native cutover report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) supersede its serving path.
 Native create/update requests prepare related protein changes before the core publication.
 Cloud activation stays disabled. The proposal and measurements below retain their original scope.
 The atom reverse edges and the live count that this text names (`atom_ref_edges`) were removed by the
 counter lifecycle (`docs/lastdb-atom-counter.md`). Read those passages as history.
+The code citations name files at commit f7369af0, and many of those files are removed, for example `write/cloud_entry.rs` and the LastStore store. Read them in the [f7369af0 tree](https://github.com/EdgeVector/lastdb/tree/f7369af060ac715dab54d29724a91f0f20ad7d7c).
 
 Status (2026-10-13): design for Tom's review. Nothing here is built. It follows
 `docs/lastdb-warm-set-design.md` (the warm set and the write queue) and changes

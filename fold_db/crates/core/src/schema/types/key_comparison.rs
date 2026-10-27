@@ -2,27 +2,40 @@
 
 use super::{FieldValueType, KeyValue, Schema, SchemaError};
 pub use schema_types::key_comparison::{KeyOrderVersion, RangeKeyComparison};
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use sha2::{Digest, Sha256};
-use std::{cmp::Ordering, future::Future, sync::Arc};
+use std::{
+    cmp::Ordering,
+    future::Future,
+    sync::{Arc, OnceLock},
+};
 
 tokio::task_local! {
     static COMPARISON: Arc<KeyComparisonContext>;
 }
 
+mod field;
+pub(crate) mod normalize;
+
 #[derive(Debug, Clone)]
 pub struct KeyComparisonContext {
     identity: String,
     range: RangeKeyComparison,
+    failure: OnceLock<String>,
+    profile: Option<MoleculeRangeProfile>,
 }
 
 impl KeyComparisonContext {
     pub(crate) fn for_schema(
         schema: &Schema,
         formats: &[(String, String, &'static str)],
+        order: KeyOrderVersion,
     ) -> Result<Self, SchemaError> {
-        schema
-            .validate_key_field_types()
-            .map_err(SchemaError::InvalidData)?;
+        match order {
+            KeyOrderVersion::LegacyUtf8V1 => schema.validate_legacy_key_field_types(),
+            KeyOrderVersion::TypedScalarV1 => schema.validate_key_field_types(),
+        }
+        .map_err(SchemaError::InvalidData)?;
         let hash = schema
             .key
             .as_ref()
@@ -32,8 +45,30 @@ impl KeyComparisonContext {
             .as_ref()
             .and_then(|key| key.range_field.as_deref());
         let hash_type = hash.map(|path| schema.key_field_type(path));
-        let range_type = range.map_or(FieldValueType::Any, |path| schema.key_field_type(path));
-        let range_comparison = RangeKeyComparison::legacy(range_type);
+        let range_type = range.map_or_else(
+            || {
+                if order == KeyOrderVersion::LegacyUtf8V1 {
+                    FieldValueType::Any
+                } else {
+                    FieldValueType::String
+                }
+            },
+            |path| schema.key_field_type(path),
+        );
+        let range_comparison = match order {
+            KeyOrderVersion::LegacyUtf8V1 => RangeKeyComparison::legacy(range_type),
+            KeyOrderVersion::TypedScalarV1 => {
+                RangeKeyComparison::typed(range_type).map_err(SchemaError::InvalidData)?
+            }
+        };
+        let profile = if order == KeyOrderVersion::TypedScalarV1 {
+            Some(
+                MoleculeRangeProfile::for_field_type(range.map(|_| &range_comparison.field_type))
+                    .map_err(SchemaError::InvalidData)?,
+            )
+        } else {
+            None
+        };
         let bytes = serde_json::to_vec(&(
             "lastdb-key-comparison-v1",
             &schema.name,
@@ -51,6 +86,8 @@ impl KeyComparisonContext {
         Ok(Self {
             identity: format!("kc1:{:x}", Sha256::digest(bytes)),
             range: range_comparison,
+            failure: OnceLock::new(),
+            profile,
         })
     }
 
@@ -92,9 +129,13 @@ impl KeyComparisonContext {
                 )
                 .into());
             }
-            return future.await;
+            let result = future.await?;
+            active.require_valid_comparison()?;
+            return Ok(result);
         }
-        COMPARISON.scope(self, future).await
+        let result = COMPARISON.scope(Arc::clone(&self), future).await?;
+        self.require_valid_comparison()?;
+        Ok(result)
     }
 
     /// Capture the active range rule once for data-only response ordering.
@@ -108,8 +149,32 @@ impl KeyComparisonContext {
     #[must_use]
     pub fn compare_current_ranges(left: &str, right: &str) -> Ordering {
         COMPARISON
-            .try_with(|ctx| ctx.range.compare(left, right))
+            .try_with(|ctx| ctx.compare_ranges(left, right))
             .unwrap_or_else(|_| left.cmp(right))
+    }
+
+    fn compare_ranges(&self, left: &str, right: &str) -> Ordering {
+        match self.range.compare(left, right) {
+            Ok(order) => order,
+            Err(detail) => {
+                let _ = self.failure.set(detail);
+                // Keep a total temporary order: invalid values precede valid
+                // values, and invalid values use text order. Returning Equal
+                // for every error could violate a sort's ordering contract.
+                self.range
+                    .validate_value(left)
+                    .is_ok()
+                    .cmp(&self.range.validate_value(right).is_ok())
+                    .then_with(|| left.cmp(right))
+            }
+        }
+    }
+
+    fn require_valid_comparison(&self) -> Result<(), SchemaError> {
+        match self.failure.get() {
+            Some(detail) => Err(SchemaError::InvalidData(detail.clone())),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn compare_current_keys(left: &KeyValue, right: &KeyValue) -> Ordering {

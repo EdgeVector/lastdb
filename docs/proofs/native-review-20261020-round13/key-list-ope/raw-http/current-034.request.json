@@ -1,1 +1,0 @@
-{"schema_name":"Round13KeyListA","fields":["bucket","left","right","payload"],"filter":{"HashRangeKey":{"hash":"named","range":""}}}

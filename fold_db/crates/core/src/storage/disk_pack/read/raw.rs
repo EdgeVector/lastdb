@@ -119,11 +119,10 @@ fn trace_families(coordinates: &[(String, String)]) {
             "schema_superseded_by" => "schema_successor",
             "molecule_keys" => "molecule_encryption_keys",
             "share_subscriptions" => "receiver_registry",
-            "sync_foreign_share_bindings" => "receiver_binding",
             "db_catalog" => "database_membership",
             _ => {
                 let raw =
-                    crate::storage::laststore::native_routing::decode(key).unwrap_or_default();
+                    crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
                 [
                     b"hcu".as_slice(),
                     b"mgp",

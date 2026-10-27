@@ -141,7 +141,7 @@ async fn run_recount(
                 }
             }
             Err(error) => {
-                let _ = db.shutdown_local_only().await;
+                let _ = db.shutdown().await;
                 return Err(format!("list the scopes: {error}"));
             }
         }
@@ -153,7 +153,7 @@ async fn run_recount(
         .await
         .map_err(|e| format!("recount: {e}"));
     let shutdown = db
-        .shutdown_local_only()
+        .shutdown()
         .await
         .map_err(|e| format!("local shutdown after the recount: {e}"));
     match (outcome, shutdown) {

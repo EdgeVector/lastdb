@@ -6,7 +6,6 @@ impl Host {
     pub(super) fn prepare_boot_home(home: &Path) -> Result<PathBuf, String> {
         ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
-        fold_db::sync::check_retired_cloud_repair(home).map_err(|error| error.to_string())?;
         if crate::cloud::cloud_backup_source_copy_path(home).exists() {
             return Err("a stopped backup copy cannot boot as a daemon".into());
         }

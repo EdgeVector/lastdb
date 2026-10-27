@@ -1,5 +1,8 @@
 # LastDB
 
+Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
+See [optional Search and its queue limit](docs/lastdb-optional-search.md).
+
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
 `schema_service` (schema registry), shared host/identity crates,
@@ -35,7 +38,7 @@ deleted the desktop node on **2026-07-12**.
 ├── schema_service/             # cloud schema registry
 │   ├── crates/{core,client,server_shared,server_http,server_lambda,worker,…}
 │   └── openapi.yaml
-├── vendor/{laststore,lastdb_docstore}/
+├── vendor/laststore/
 └── docs/                       # operator + release docs (Mini / Homebrew)
 ```
 
@@ -133,10 +136,11 @@ smoke helpers). Never copy `~/.lastdb`.
 ### schema_service dev server
 
 ```bash
-cargo run -p schema_service_server_http --bin schema_service -- --port 9102 --db-path schema_registry
+cargo run -p schema_service_server_http --bin schema_service -- --port 9102
 ```
 
-Use `--features fastembed` on that command only when validating the real
+The dev server keeps its registry in memory only; a restart starts again
+from the built-in seeds. Use `--features fastembed` on that command only when validating the real
 local embedding path.
 
 ### Schema service deploys

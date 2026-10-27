@@ -7,7 +7,6 @@
 //! | [`KvStore`] | Byte key/value ops. **Implement this** for a new backend. |
 //! | [`NamespacedStore`] | Open/list/delete logical trees. **Implement this** too. |
 //! | [`TypedKvStore`] | JSON serialize/deserialize helper on top of any `KvStore`. **Use, don't reimplement.** |
-//! | [`ExecutionModel`] / [`FlushBehavior`] | Capability hints for callers (sync-wrapped vs true async). |
 //! | [`PartitionedScan`] | Result of poison-aware scans (encrypting backends). |
 //!
 //! Scan variants on [`KvStore`] (`scan_prefix`, `_keys`, `_paged`, `scan_range`,
@@ -30,11 +29,9 @@ pub(crate) fn key_u64_after_last_marker(key: &[u8], marker: &[u8]) -> Option<u64
 }
 
 mod scan;
-mod stats;
 mod typed;
 
 pub use scan::*;
-pub use stats::*;
 pub use typed::*;
 
 mod kv;

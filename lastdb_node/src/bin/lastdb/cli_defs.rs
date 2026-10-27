@@ -35,39 +35,20 @@ impl ResealAtRestTargetArg {
     }
 }
 
-/// Optional off-box publication policy for one durable Delete request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub(super) enum CloudPublicationArg {
-    /// Wait for every required cloud target to confirm the exact mutation frontier.
-    Wait,
-}
-
-impl CloudPublicationArg {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Wait => "wait",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct MutateRequestOptions {
     pub(super) must_exist: bool,
     pub(super) durable: bool,
-    pub(super) cloud_publication: Option<CloudPublicationArg>,
 }
 
-/// Client headroom above the full exact-mutation server route budget.
-pub(super) const MUTATION_CLOUD_PUBLICATION_CLIENT_HEADROOM_SECS: u64 = 20;
+/// Client headroom above the server's mutation route budget.
+pub(super) const MUTATION_CLIENT_HEADROOM_SECS: u64 = 20;
 
-pub(super) fn mutation_cloud_publication_client_timeout() -> Duration {
-    mutation_cloud_publication_client_timeout_for(lastdb_node::exec::exact_mutation_route_budget())
-}
-
-pub(super) fn mutation_cloud_publication_client_timeout_for(route_budget: Duration) -> Duration {
-    route_budget.saturating_add(Duration::from_secs(
-        MUTATION_CLOUD_PUBLICATION_CLIENT_HEADROOM_SECS,
-    ))
+/// Client deadline for a durable mutation: the server's handler budget, which
+/// the same env var sets, plus headroom for the response.
+pub(super) fn durable_mutation_client_timeout() -> Duration {
+    lastdb_node::exec::handler_timeout()
+        .saturating_add(Duration::from_secs(MUTATION_CLIENT_HEADROOM_SECS))
 }
 
 /// Client-side deadline for admin scans, from the **same** env var the server
@@ -104,14 +85,14 @@ pub(super) enum Command {
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does
     /// not; the first human line is then `lastdbd: not reachable — <reason>`.
     /// `--json` adds `"reachable": false` and the reason, and also exits 1.
-    /// A reachable-but-degraded node (QoS, sync_failing) still exits 0.
+    /// A reachable-but-degraded node (QoS, backup) still exits 0.
     ///
     /// Human lines by default. Pass `--json` for a machine-readable plane map
     /// (ideal storage roles + bytes) plus live dual-read counters when the
     /// daemon is up. Key counts are intentionally omitted — use
     /// `lastdb db inventory` for scanned key totals.
     ///
-    /// Live `/api/status` is the **cheap health** path: process vitals, sync,
+    /// Live `/api/status` is the **cheap health** path: process vitals,
     /// backup, QoS, and request-ops *scalars* only. The forensic request-ops
     /// ring (256 recent samples + rankings) is opt-in via `lastdb ops` or
     /// `GET /api/status?recent=1`.
@@ -126,8 +107,6 @@ pub(super) enum Command {
         contract: bool,
         /// Seconds to wait for the daemon's status read (default: 30, or
         /// `LASTDB_UDS_ADMIN_TIMEOUT_SECS` when that is exported).
-        /// Raise when the node is cold — `status_sync` costs tens of seconds
-        /// shortly after a restart.
         #[arg(long)]
         timeout: Option<u64>,
     },
@@ -246,15 +225,12 @@ pub(super) enum Command {
         /// Delete rows whose range starts with this prefix under --key-hash.
         #[arg(long, conflicts_with = "key_range", requires = "key_hash")]
         key_range_prefix: Option<String>,
-        /// Refuse if the target is already gone. Incompatible with --cloud-publication.
+        /// Refuse if the target is already gone.
         #[arg(long)]
         must_exist: bool,
         /// Wait for the Delete to reach local durable storage before the response.
         #[arg(long)]
         durable: bool,
-        /// Wait for exact off-box publication. Requires --durable.
-        #[arg(long, value_enum, value_name = "MODE", requires = "durable")]
-        cloud_publication: Option<CloudPublicationArg>,
         /// Emit the raw node JSON response.
         #[arg(long)]
         json: bool,
@@ -361,7 +337,7 @@ pub(super) enum Command {
     ///
     /// Exclusive offline open of `--data-dir` / LASTDB_HOME (stop `lastdbd` first
     /// for the primary home). Emits IndexChangeBatch JSON under
-    /// `apps/search/inbox` for the Search app to drain into LastStore.
+    /// `apps/search/inbox` for LastSeek or the Search app to read.
     /// After restore/cold home: run this, then `search rebuild` / drain.
     SearchRebuild {
         /// Records per page when walking schemas (default 32).

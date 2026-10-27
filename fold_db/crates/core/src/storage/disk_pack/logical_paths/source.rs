@@ -26,7 +26,7 @@ pub(in crate::storage::disk_pack) fn body_present_in_coordinates(
     atom: &str,
 ) -> StorageResult<bool> {
     for (_, key) in coordinates {
-        let raw = crate::storage::laststore::native_routing::decode(key)?;
+        let raw = crate::storage::disk_pack::native_routing::decode(key)?;
         let Ok(raw) = std::str::from_utf8(&raw) else {
             continue;
         };
@@ -54,8 +54,8 @@ pub(super) fn body_matches_coordinates(coordinates: &[(String, String)], request
 
 fn primary_coordinate(requested: &str) -> (&'static str, String) {
     (
-        crate::storage::laststore::native_routing::collection_for_key(requested.as_bytes()),
-        crate::storage::laststore::native_routing::encode(requested.as_bytes()),
+        crate::storage::disk_pack::native_routing::collection_for_key(requested.as_bytes()),
+        crate::storage::disk_pack::native_routing::encode(requested.as_bytes()),
     )
 }
 
@@ -203,7 +203,7 @@ pub(crate) fn note_atom(
     let Some(source) = sources.reads.get(requested).cloned() else {
         return Ok(());
     };
-    let decoded = crate::storage::laststore::native_routing::decode(&source.key)?;
+    let decoded = crate::storage::disk_pack::native_routing::decode(&source.key)?;
     let Ok(decoded) = std::str::from_utf8(&decoded) else {
         return Ok(());
     };

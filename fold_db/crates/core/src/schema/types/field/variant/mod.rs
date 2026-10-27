@@ -40,7 +40,7 @@ pub struct FieldVariant {
     /// [`DeclarativeSchemaType`].
     pub kind: FieldKind,
     /// Transient hydrated molecule cache. Not a durability root — the
-    /// durable link is `inner.molecule_uuid` + on-disk `mk:`/`ref:` records.
+    /// durable link is `inner.molecule_uuid` + on-disk `mk:` records.
     /// Skipped in serde so a schema clone never accidentally rehydrates
     /// stale molecule bytes from a serialized snapshot.
     #[serde(skip)]

@@ -1,8 +1,0 @@
-{
-  "cause": "The existing write-limit and new mutation-limit errors need one shared match branch.",
-  "complete": false,
-  "exit_code": 101,
-  "gate": "broad workspace Clippy",
-  "runtime_operations": 0,
-  "source_commit": "a23a2a65d76670fb6d5cd2245f943c150068793f"
-}

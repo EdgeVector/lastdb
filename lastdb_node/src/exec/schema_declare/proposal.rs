@@ -29,17 +29,41 @@ pub(crate) enum SchemaSyncIntent {
     Check,
 }
 
-/// True when a raw declare body asks for the read-only `check` intent. The
-/// reject path uses it to keep a refused check out of the audit log.
-pub(crate) fn raw_body_is_check_intent(body: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|raw| {
-            raw.get("intent")
+/// Body facts needed by retention and rejection audit. The typed request
+/// decoder stays separate so its grammar and error locations remain intact.
+pub(crate) struct DeclareRequestFacts {
+    pub(crate) check: bool,
+    pub(crate) embedded_retention: bool,
+    pub(crate) app_id: String,
+    pub(crate) schema: String,
+    pub(crate) proposal_identity_hash: Option<String>,
+}
+
+impl DeclareRequestFacts {
+    pub(crate) fn from_body(body: &[u8]) -> Self {
+        let raw = serde_json::from_slice::<Value>(body).unwrap_or_default();
+        Self {
+            check: raw.get("intent").and_then(Value::as_str) == Some("check"),
+            embedded_retention: raw.get("schema").and_then(|s| s.get("retention")).is_some(),
+            app_id: raw
+                .get("app_id")
+                .or_else(|| raw.get("namespace"))
                 .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .is_some_and(|intent| intent == "check")
+                .unwrap_or("unknown")
+                .to_string(),
+            schema: raw
+                .get("schema")
+                .and_then(|s| s.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            proposal_identity_hash: raw
+                .get("schema")
+                .and_then(|s| s.get("identity_hash"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

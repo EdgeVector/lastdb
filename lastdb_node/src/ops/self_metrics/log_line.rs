@@ -12,7 +12,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) memory_limit_bytes: Option<u64>,
     pub(super) warm_resident_bytes: u64,
     pub(super) warm_budget_bytes: u64,
-    pub(super) warm_resident_groups: u64,
     pub(super) resident_graph_bytes: u64,
     pub(super) resident_graph_budget_bytes: u64,
     pub(super) deferred_persist_bytes: u64,
@@ -55,15 +54,9 @@ pub(super) struct SelfMetricLogLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) allocator_reserved_bytes: Option<u64>,
     #[serde(default)]
-    pub(super) in_flight_cold_load_bytes: u64,
-    #[serde(default)]
-    pub(super) in_flight_cold_load_count: u64,
-    #[serde(default)]
     pub(super) peak_request_bytes: u64,
     #[serde(default)]
     pub(super) slowest_request_ms: u64,
-    #[serde(default)]
-    pub(super) eviction_events: u64,
     #[serde(default)]
     pub(super) effective_warm_budget_bytes: u64,
     /// Warm set byte gauge, next to the footprint fields above.
@@ -76,15 +69,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) home_size_walks: u64,
     pub(super) data_dir_bytes: Option<u64>,
     pub(super) data_dir_size_walks: u64,
-    pub(super) sync_enabled: bool,
-    pub(super) sync_state: Option<String>,
-    pub(super) sync_degraded: Option<bool>,
-    pub(super) sync_local_writable: Option<bool>,
-    pub(super) sync_last_success_ts: Option<u64>,
-    pub(super) sync_pending_count: Option<usize>,
-    pub(super) sync_durable_outbox_count: Option<usize>,
-    pub(super) sync_upload_queue_count: Option<usize>,
-    pub(super) sync_last_error: Option<String>,
     pub(super) uds_workers: usize,
     pub(super) uds_queue_capacity: usize,
     pub(super) uds_in_flight: usize,
@@ -106,7 +90,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             memory_limit_bytes: s.memory_limit_bytes,
             warm_resident_bytes: s.memory_budget.warm_resident_bytes,
             warm_budget_bytes: s.memory_budget.warm_budget_bytes,
-            warm_resident_groups: s.memory_budget.warm_resident_groups,
             resident_graph_bytes: s.memory_budget.resident_graph_bytes,
             resident_graph_budget_bytes: s.memory_budget.resident_graph_budget_bytes,
             deferred_persist_bytes: s.memory_budget.deferred_persist_bytes,
@@ -133,11 +116,8 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             allocator_name: s.memory_budget.allocator_name.clone(),
             allocator_committed_bytes: s.memory_budget.allocator_committed_bytes,
             allocator_reserved_bytes: s.memory_budget.allocator_reserved_bytes,
-            in_flight_cold_load_bytes: s.memory_budget.in_flight_cold_load_bytes,
-            in_flight_cold_load_count: s.memory_budget.in_flight_cold_load_count,
             peak_request_bytes: s.memory_budget.peak_request_bytes,
             slowest_request_ms: s.memory_budget.slowest_request_ms,
-            eviction_events: s.memory_budget.eviction_events,
             effective_warm_budget_bytes: s.memory_budget.effective_warm_budget_bytes,
             core_warm_used_bytes: s.memory_budget.core_warm.used_bytes,
             core_warm_limit_bytes: s.memory_budget.core_warm.limit_bytes,
@@ -146,18 +126,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             home_size_walks: s.home_size_walks,
             data_dir_bytes: s.data_dir_bytes,
             data_dir_size_walks: s.data_dir_size_walks,
-            sync_enabled: s.sync.enabled,
-            sync_state: s.sync.state.clone(),
-            sync_degraded: s.sync.sync_degraded,
-            sync_local_writable: s.sync.local_writable,
-            sync_last_success_ts: wire_u64(&s.sync.last_success_ts),
-            sync_pending_count: wire_u64(&s.sync.pending_count)
-                .map(|n| usize::try_from(n).unwrap_or(usize::MAX)),
-            sync_durable_outbox_count: wire_u64(&s.sync.durable_outbox_count)
-                .map(|n| usize::try_from(n).unwrap_or(usize::MAX)),
-            sync_upload_queue_count: wire_u64(&s.sync.upload_queue_count)
-                .map(|n| usize::try_from(n).unwrap_or(usize::MAX)),
-            sync_last_error: s.sync.last_error.clone(),
             uds_workers: gauge_or_zero_usize(&s.uds.workers),
             uds_queue_capacity: gauge_or_zero_usize(&s.uds.queue_capacity),
             uds_in_flight: gauge_or_zero_usize(&s.uds.in_flight),

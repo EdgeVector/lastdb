@@ -114,6 +114,6 @@ impl MutationManager {
             ));
         }
         let probe = Self::aggregate_probe(schema_name.to_string(), key_value.clone());
-        Self::resolve_mutation_key_value(schema_name, &schema, &probe)
+        self.resolve_mutation_key_value(schema_name, &schema, &probe)
     }
 }

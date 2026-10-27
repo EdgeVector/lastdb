@@ -63,7 +63,9 @@ impl DbOperations {
         let new_edges = schema_molecule_ref_edges(schema_name, schema);
         self.refuse_while_draining(schema_name, &old_edges, &new_edges)
             .await?;
-        self.molecule_keys().ensure_schema(schema).await?;
+        self.molecule_keys()
+            .establish_schema_for_publication(schema, old.as_ref())
+            .await?;
         // Bind first. Each new binding record and the counter of its molecule
         // are one batch, and a binding that already exists changes nothing.
         let bound = self.atoms().add_molecule_bindings(&new_edges, None).await?;
@@ -197,14 +199,6 @@ impl DbOperations {
 
     pub async fn get_all_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
         self.schemas().get_all_schemas().await
-    }
-
-    pub async fn store_superseded_by(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.schemas().store_superseded_by(old_name, new_name).await
     }
 
     pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {

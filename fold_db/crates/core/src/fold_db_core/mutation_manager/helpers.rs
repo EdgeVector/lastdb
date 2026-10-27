@@ -36,44 +36,9 @@ pub(crate) fn clear_storage_prefix_on_schema(schema: &mut Schema) {
 
 /// Per modified field, the set of keys touched in a write batch — the unit the
 /// O(changed) persist path uses to write only the changed `mk:` records. A
-/// field mapped to an empty set is `Single` (no per-key shape; whole-blob
-/// `ref:` rewrite).
+/// field mapped to an empty set is `Single`: it has no per-key shape, and the
+/// per-key store path takes it with an empty changed set.
 pub(crate) type ModifiedFieldKeys = HashMap<String, HashSet<ChangedKey>>;
-
-/// Fields eligible for Search-app outbox delivery for this schema.
-///
-/// Returns `None` when the schema has no field classifications (caller treats
-/// that as "no allowlist filter"). Otherwise returns the set of fields tagged
-/// `word` that are not excluded by [`is_search_outbox_excluded`].
-pub(crate) fn searchable_outbox_fields(schema: &Schema) -> Option<HashSet<String>> {
-    if schema.field_classifications.is_empty() {
-        return None;
-    }
-
-    Some(
-        schema
-            .field_classifications
-            .iter()
-            .filter(|(_, classifications)| !is_search_outbox_excluded(classifications))
-            .filter(|(_, classifications)| {
-                classifications
-                    .iter()
-                    .any(|classification| classification.eq_ignore_ascii_case("word"))
-            })
-            .map(|(field_name, _)| field_name.clone())
-            .collect(),
-    )
-}
-
-/// True when field classifications ban Search-app outbox delivery
-/// (`secret`, `no_index`, or `no-index`).
-pub(crate) fn is_search_outbox_excluded(classifications: &[String]) -> bool {
-    classifications.iter().any(|classification| {
-        classification.eq_ignore_ascii_case("secret")
-            || classification.eq_ignore_ascii_case("no_index")
-            || classification.eq_ignore_ascii_case("no-index")
-    })
-}
 
 /// Reject any mutation carrying `Provenance::Derived`.
 ///

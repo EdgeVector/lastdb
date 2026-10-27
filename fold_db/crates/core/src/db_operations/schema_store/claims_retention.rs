@@ -17,10 +17,14 @@ impl SchemaStore {
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
         self.require_installed_schema(schema_name).await?;
         let anchor = self.retention_anchor(schema_name).await?;
-        Ok(self
+        let policy = self
             .schema_states_store
             .get_item(&retention_policy_key(&anchor))
-            .await?)
+            .await?;
+        if policy.is_some() {
+            self.require_retention_format(&anchor).await?;
+        }
+        Ok(policy)
     }
 
     /// Set the operator retention policy for an installed schema.
@@ -33,6 +37,7 @@ impl SchemaStore {
         policy: SchemaRetentionPolicy,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
+        self.require_retention_format(schema_name).await?;
         let anchor = self.retention_anchor(schema_name).await?;
         let schema_name = anchor.as_str();
         if policy.ttl_seconds == 0 {
@@ -107,21 +112,6 @@ impl SchemaStore {
         self.schema_states_store.batch_delete_keys(keys).await?;
         self.schema_states_store.inner().flush().await?;
         Ok(())
-    }
-
-    /// Refresh the node-local age index for successful writes to a retained
-    /// Hash/Single schema. The forward key is age-ordered; the reverse key
-    /// makes rewrites and purges O(1). Stale forward rows are harmless because
-    /// expiry selection validates them against the reverse row.
-    pub async fn record_schema_retention_writes(
-        &self,
-        schema_name: &str,
-        keys: &[KeyValue],
-        written_at: u64,
-    ) -> Result<(), SchemaError> {
-        let ages: Vec<_> = keys.iter().cloned().map(|key| (key, written_at)).collect();
-        self.record_schema_retention_write_ages(schema_name, &ages)
-            .await
     }
 
     /// Record the original clocks of the current tips, not replay arrival time.
@@ -287,43 +277,6 @@ impl SchemaStore {
         hashes.sort();
         hashes.dedup();
         Ok(hashes)
-    }
-
-    /// Select keys with `written_at < cutoff` from one schema's age partition.
-    /// This is a bounded range read, never an enumeration of product rows.
-    pub async fn expired_schema_retention_keys(
-        &self,
-        schema_name: &str,
-        cutoff: u64,
-    ) -> Result<Vec<KeyValue>, SchemaError> {
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
-        let prefix = retention_age_prefix(schema_name);
-        let rows = self
-            .schema_states_store
-            .scan_items_in_range::<SchemaRetentionAgeEntry>(
-                &format!("{prefix}{:020}", 0),
-                &format!("{prefix}{cutoff:020}"),
-            )
-            .await?;
-        let latest_keys: Vec<_> = rows
-            .iter()
-            .map(|(_, entry)| retention_age_latest_key(schema_name, &entry.key))
-            .collect();
-        let latest = self
-            .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
-            .await?;
-        let mut keys: Vec<_> = rows
-            .into_iter()
-            .zip(latest)
-            .filter_map(|((_, entry), current)| {
-                (current == Some(entry.clone())).then_some(entry.key)
-            })
-            .collect();
-        keys.sort_by(KeyValue::cmp_storage_order);
-        keys.dedup();
-        Ok(keys)
     }
 
     /// Enumerate node-local retention policies for schemas that still exist.

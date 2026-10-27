@@ -7,10 +7,6 @@ pub(super) fn plan(
     index: &mut u64,
     file: &SnapshotFile,
 ) -> StorageResult<()> {
-    let source = inner
-        .source
-        .as_ref()
-        .ok_or_else(|| invalid("byte retained source unavailable"))?;
     let path = RelativePath::try_from(
         file.path
             .to_str()
@@ -18,7 +14,7 @@ pub(super) fn plan(
             .to_owned(),
     )
     .map_err(protocol)?;
-    let mut reader = inner.home.reader(source, &file.path)?;
+    let mut reader = inner.file_reader(&file.path)?;
     let mut file_hash = Sha256::new();
     let mut offset = 0u64;
     let mut extents = Vec::new();
@@ -41,7 +37,7 @@ pub(super) fn plan(
             Object {
                 sha256: hex(hash.finalize().into())?,
                 bytes: DecimalU64::new(length),
-                destination: None,
+                destination: inner.destination(&file.path)?,
             },
         )?;
         extents.push(ClientExtent {
@@ -78,8 +74,6 @@ pub(super) fn plan(
                 metadata_pack: false,
                 ciphertext: None,
                 receipt: None,
-                record_segments: Vec::new(),
-                client_stream: None,
             },
         )?;
         *index += 1;

@@ -17,8 +17,14 @@
 
 use crate::crypto::E2eKeys;
 
-pub mod conversion;
+mod conflict_identity;
+pub use conflict_identity::ConflictKeyIdentity;
+mod profile;
+mod range_decode;
 pub mod storage_profile;
+
+/// Logical typed-range format; physical run blocks keep their existing format.
+pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
 
 /// Chokepoint: API HashKey/RangeKey → storage segments.
 ///
@@ -27,6 +33,8 @@ pub mod storage_profile;
 pub struct MoleculeKeyCodec {
     hash_encoding: HashKeyEncoding,
     range_encoding: RangeKeyEncoding,
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    conflict_identity: ConflictKeyIdentity,
     /// Required when hash encoding is blind.
     index_key: Option<[u8; 32]>,
     /// Required when range encoding is OPE.
@@ -38,6 +46,8 @@ impl std::fmt::Debug for MoleculeKeyCodec {
         f.debug_struct("MoleculeKeyCodec")
             .field("hash_encoding", &self.hash_encoding)
             .field("range_encoding", &self.range_encoding)
+            .field("range_profile", &self.range_profile)
+            .field("conflict_identity", &self.conflict_identity)
             .finish_non_exhaustive()
     }
 }
@@ -47,6 +57,8 @@ impl Default for MoleculeKeyCodec {
         Self {
             hash_encoding: HashKeyEncoding::Plain,
             range_encoding: RangeKeyEncoding::Plain,
+            range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key: None,
             ope_key: None,
         }
@@ -60,6 +72,8 @@ impl MoleculeKeyCodec {
         Self {
             hash_encoding: encoding,
             range_encoding: RangeKeyEncoding::Plain,
+            range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key,
             ope_key: None,
         }
@@ -76,6 +90,8 @@ impl MoleculeKeyCodec {
         Self {
             hash_encoding,
             range_encoding,
+            range_profile: None,
+            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key,
             ope_key,
         }
@@ -96,9 +112,31 @@ impl MoleculeKeyCodec {
         self.range_encoding
     }
 
+    /// Select a range representation without changing hash encoding or keys.
+    pub fn with_range_encoding(
+        &self,
+        range_encoding: RangeKeyEncoding,
+    ) -> Result<Self, MoleculeKeyCodecError> {
+        if self.range_profile.is_some() && range_encoding != RangeKeyEncoding::Plain {
+            return Err(MoleculeKeyCodecError::InvalidRange(
+                "a typed molecule range cannot use OPE".into(),
+            ));
+        }
+        Ok(Self {
+            range_encoding,
+            ..self.clone()
+        })
+    }
+
     /// Public format identity only; no encryption key material enters a cursor.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {
+        if self.range_profile.is_some() {
+            return match self.hash_encoding {
+                HashKeyEncoding::Plain => "plain/plain:typed-scalar-v1",
+                HashKeyEncoding::BlindV1 => "blind-v1/plain:typed-scalar-v1",
+            };
+        }
         match (self.hash_encoding, self.range_encoding) {
             (HashKeyEncoding::Plain, RangeKeyEncoding::Plain) => "plain/plain:utf8-v1",
             (HashKeyEncoding::Plain, RangeKeyEncoding::OpeV1) => "plain/ope-v1:utf8-v1",
@@ -109,6 +147,9 @@ impl MoleculeKeyCodec {
 
     #[must_use]
     pub fn key_order(&self) -> schema_types::key_comparison::KeyOrderVersion {
+        if self.range_profile.is_some() {
+            return schema_types::key_comparison::KeyOrderVersion::TypedScalarV1;
+        }
         match self.range_encoding {
             RangeKeyEncoding::Plain | RangeKeyEncoding::OpeV1 => {
                 schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1
@@ -147,6 +188,11 @@ impl MoleculeKeyCodec {
         molecule_uuid: &str,
         api_range: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
+        if let Some(profile) = self.range_profile {
+            return profile
+                .encode_value(api_range)
+                .map_err(MoleculeKeyCodecError::InvalidRange);
+        }
         if api_range.is_empty() {
             return Ok(String::new());
         }
@@ -219,9 +265,9 @@ impl std::fmt::Display for MoleculeKeyCodecError {
 
 impl std::error::Error for MoleculeKeyCodecError {}
 
-/// Sled key prefix for a per-key molecule record.
+/// Storage key prefix for a per-key molecule record.
 pub const MK_PREFIX: &str = "mk:";
-/// Sled key prefix for a molecule header record.
+/// Storage key prefix for a molecule header record.
 pub const MH_PREFIX: &str = "mh:";
 /// Active molecule-generation pointer. The pointer is the only mutable row in
 /// a generation activation; generation bodies are immutable.
@@ -233,16 +279,6 @@ pub const MOLECULE_GENERATION_DELETE_PREFIX: &str = "mgd:v1:";
 
 const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
 const ESC: char = '\u{1}'; // escape byte for the hash segment
-
-/// The separator, exported for keys built *outside* this module that must land
-/// in the same LastStore partition as a molecule's per-key records.
-///
-/// LastStore's `HashGroupKey::PartitionPrefix` placement treats everything up to
-/// and including the first occurrence of this byte as the partition. That is why
-/// the hash segment is byte-stuffed: it makes "the first separator" an
-/// unambiguous boundary rather than a guess. [`crate::atom::atom_key_codec`]
-/// relies on both properties to give an atom body the same partition as its tip.
-pub const PARTITION_SEP: char = SEP;
 
 /// Byte-stuff a hash so it contains no `\0` (and no bare `\u{1}`), making the
 /// `\0` separator and the escape unambiguous. `\0 -> \x01\x01`, `\x01 -> \x01\x02`.

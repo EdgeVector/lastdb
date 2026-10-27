@@ -5,7 +5,7 @@
 Every local file blob has one counter record. The counter holds the number of
 references to the blob. The counter is the only authority for the life of the
 blob row. No other structure allows a delete of the row. No other structure
-blocks one, with one exception for a cloud feature (see "Retired-intent roots").
+blocks one.
 
 A reference is one of:
 
@@ -159,7 +159,7 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
    The blob changes are summed for the whole run first. `blob_counter::BlobDeltas`
    does that, and `AtomStore::blob_counter_mutations` reads the counters by key and
    builds the writes.
-2. **An upload** of a blob row (`blob_cas::put_raw_record` and the dedup put)
+2. **An upload** of a blob row (`blob_cas::put_blob_sealed_with_access_dedup_in_ops`)
    calls `AtomStore::register_blob_upload` in the same native write request as the
    row. A blob at zero starts its dwell again. A blob with references is left alone.
 3. **The drop of a storage scope** (`delete_catalog_membership`) lowers the blobs
@@ -208,9 +208,9 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    gate, and stops at the first key that is not due (the bucket then waits for its
    time). Then it takes the entries of the page, up to a chunk of 32
    (`LASTDB_BLOB_DWELL_CHUNK`, 1 to 64), takes the local mutation admission and the
-   native write gate, takes the blob gates, reads each counter again, and reads the
-   retired-intent roots of the blobs. The cursor moves only after the chunk's batch
-   is accepted. A step that fails leaves it where it was;
+   native write gate, takes the blob gates, and reads each counter again. The cursor
+   moves only after the chunk's batch is accepted. A step that fails leaves it where
+   it was;
 4. in one batch, deletes the blob row (and any resident `cas_blob:` copy), the
    counter and the queue entry of every blob that is still at exactly zero with the
    same `zero_since`. A stale queue entry (the counter is gone, has references, is
@@ -314,15 +314,6 @@ after the net read the row and before it read the hash. The net then registers t
 bucket with its own token, which is harmless: the row names a live bucket, and the
 next retirement of that bucket checks the token it reads.
 
-## Retired-intent roots
-
-A cloud retired intent keeps permanent roots on the blobs it needs
-(`retired_intent_retention`). No code path of a node with cloud sync off writes
-one. The dwell pass reads them with the chunk and does not delete a blob that one
-roots. It starts a new dwell for that blob. This is the one structure besides the
-counter that blocks a delete. A later cloud design should make a retained root a
-counted reference, and this read can go.
-
 ## Format fence
 
 The key format marker `layout:v3:keys` is `4`. A home from a build that kept blob
@@ -394,8 +385,6 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   the directory (24 each day with the default dwell). No read passes them again, but
   a restart of the node walks each live bucket and the directory from their start
   with bounded reads, which cost one read call for every 10,000 deleted keys.
-  `lastdb db compact --execute` (the whole native home; a named collection is refused)
-  returns them.
 - The clock of the dwell ignores a forward excursion beyond a quarter of the dwell
   only (see "The clock of the dwell"). A smaller forward jump ends dwells early by its
   size.

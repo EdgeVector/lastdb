@@ -1,26 +1,8 @@
-# Counter safety during replay and restore
+# Counter safety during restore
 
 Normal writes change records and counts in one native batch.
-Replay and restore must preserve that rule before cleanup can delete data.
-
-## Replay
-
-Complete mutation envelopes use the normal FoldDB mutation writer.
-That writer updates tips, retained conflicts, atoms, molecule counts, and file holds together.
-
-Raw lifecycle entries lack the complete mutation data that this writer requires.
-Replay refuses those entries before their first effect.
-The refusal covers single operations, batches, and mixed physical changes.
-It leaves the replay cursor before the refused entry.
-A current snapshot supplies the recovery route.
-
-Physical namespace aliases cannot bypass this rule.
-The refusal also covers protein membership, schema authority, and database catalogs.
-Those records require the related molecule binding records and counts in the same batch.
-Complete snapshots retain these logical namespaces and validate their stored counts.
-Opaque metadata keeps its existing replay path.
-The legacy raw tip, header, and conflict writers are removed.
-Cloud activation stays disabled.
+Restore must preserve that rule before cleanup can delete data.
+The local mutation replay and its raw lifecycle entries are removed.
 
 ## Restore
 

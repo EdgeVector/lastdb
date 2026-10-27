@@ -3,7 +3,6 @@
 use super::*;
 
 pub(crate) fn db_inventory(
-    home: &Path,
     socket: &Path,
     json_only: bool,
     out: Option<&Path>,
@@ -21,18 +20,10 @@ pub(crate) fn db_inventory(
     }
     let response = get_path(socket, "/api/db/inventory", deadline)?;
     let value = parse_json_response(&response, "inventory")?;
-    let mut inventory = value
+    let inventory = value
         .get("inventory")
         .cloned()
         .ok_or_else(|| "response missing inventory field".to_string())?;
-    let breakdown = fold_db::mini_cutover::plane_breakdown_for_store_root(&home.join("data"));
-    let planes = breakdown.to_plane_map_report();
-    if let Some(obj) = inventory.as_object_mut() {
-        obj.insert(
-            "planes".to_string(),
-            serde_json::to_value(&planes).map_err(|e| format!("serialize planes: {e}"))?,
-        );
-    }
 
     let pretty = serde_json::to_string_pretty(&inventory)
         .map_err(|e| format!("serialize inventory: {e}"))?;

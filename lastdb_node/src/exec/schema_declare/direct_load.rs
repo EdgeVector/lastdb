@@ -47,22 +47,8 @@ async fn reuse_loaded_binding(
     let Ok(schemas) = host.db.schema_manager().get_schemas() else {
         return Ok(None);
     };
-    let persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        Some(declare.namespace.as_str()),
-        &schemas,
-        schemas.values().filter(|schema| {
-            schema.identity_hash.as_deref() == Some(proposed_hash)
-                && schema.owner_app_id.as_deref() == Some(declare.namespace.as_str())
-        }),
-    )
-    .await?;
-    let Some(resolution) = locally_loaded_catalog_reuse_resolution(
-        &schemas,
-        declare,
-        proposed_hash,
-        &persisted_aliases,
-    )?
+    let Some(resolution) =
+        read_loaded_catalog_reuse(host, declare, proposed_hash, &schemas).await?
     else {
         return Ok(None);
     };
@@ -79,8 +65,16 @@ async fn reuse_loaded_binding(
     } = &resolution
     {
         if let Some(schema) = schemas.get(catalog_hash) {
-            persist_repaired_mapper_source_aliases(host, schema, &schemas, field_mappers, true)
+            for alias in repaired_mapper_source_aliases(schema, &schemas, field_mappers) {
+                let alias = alias?;
+                persist_proposal_catalog_alias(
+                    host,
+                    alias.owner_app_id,
+                    alias.proposal,
+                    alias.repaired.source_schema(),
+                )
                 .await?;
+            }
         }
         persist_proposal_catalog_alias(host, &declare.namespace, proposed_hash, catalog_hash)
             .await?;
@@ -119,33 +113,19 @@ async fn reuse_exact_catalog(
         .schema_manager()
         .get_schemas()
         .map_err(|e| format!("failed to inspect loaded schemas for exact reuse: {e}"))?;
-    let mut persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        fold_schema.owner_app_id.as_deref(),
-        &loaded_schemas,
-        std::iter::once(&fold_schema),
-    )
-    .await?;
-    recover_proposal_catalog_aliases_from_exact_target(
-        &fold_schema,
-        &loaded_schemas,
-        &mut persisted_aliases,
-    )?;
-    let resolution = exact_catalog_reuse_resolution(
-        proposed_hash,
-        &fold_schema,
-        Some(&loaded_schemas),
-        &persisted_aliases,
-    )?;
+    let resolution =
+        read_exact_catalog_reuse(host, proposed_hash, &fold_schema, &loaded_schemas).await?;
     if let DirectDeclareResolution::Reuse { field_mappers, .. } = &resolution {
-        persist_repaired_mapper_source_aliases(
-            host,
-            &fold_schema,
-            &loaded_schemas,
-            field_mappers,
-            true,
-        )
-        .await?;
+        for alias in repaired_mapper_source_aliases(&fold_schema, &loaded_schemas, field_mappers) {
+            let alias = alias?;
+            persist_proposal_catalog_alias(
+                host,
+                alias.owner_app_id,
+                alias.proposal,
+                alias.repaired.source_schema(),
+            )
+            .await?;
+        }
     }
     host.db
         .schema_manager()
@@ -172,14 +152,20 @@ async fn resolve_or_register_catalog(
     url: &str,
     declare: &DirectDeclareProposal,
 ) -> Result<(DirectDeclareResolution, Option<Schema>), String> {
-    let result = resolve_direct_declare_result(host, url, declare).await?;
+    let result = resolve_direct_declare_result(host, url, declare).await;
     let resolved = result
         .as_ref()
         .map(|result| resolve_declare_bind(&declare.catalog_schema, result));
     if let Some(Ok(resolution)) = &resolved {
         return Ok((resolution.clone(), None));
     }
-    let fallback = catalog_registration_fallback(host, declare, result.as_ref(), &resolved);
+    let mut fallback = catalog_registration_fallback(declare, result.as_ref(), &resolved);
+    if fallback.predecessor.is_none() {
+        if let Ok(schemas) = host.db.schema_manager().get_schemas() {
+            fallback.predecessor =
+                anchor_catalog_expansion_from_local(&schemas, &mut fallback.schema, declare);
+        }
+    }
     let schema = fallback.schema;
     let fallback_reason = fallback.reason;
     let service_schema = schema_types::DeclarativeSchemaDefinition::from(&schema);

@@ -171,37 +171,6 @@ impl Mutation {
         }
     }
 
-    #[must_use]
-    pub fn with_source_file_name(mut self, file_name: String) -> Self {
-        self.source_file_name = Some(file_name);
-        self
-    }
-
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata = Some(metadata);
-        self
-    }
-
-    /// Attach a compare-and-set precondition. The node will apply this
-    /// mutation only if the current state at its key matches `expected`,
-    /// atomically with respect to other same-key writes on the node; on a
-    /// mismatch it returns
-    /// [`SchemaError::CasConflict`](super::errors::SchemaError::CasConflict)
-    /// and writes nothing.
-    #[must_use]
-    pub fn with_expected(mut self, expected: CasExpectation) -> Self {
-        self.expected = Some(expected);
-        self
-    }
-
-    /// Local must-exist policy for a user `Delete` or `Update`. Not replayed.
-    #[must_use]
-    pub fn with_must_exist(mut self, must_exist: bool) -> Self {
-        self.must_exist = Some(must_exist);
-        self
-    }
-
     /// Name the node job that issues this `Delete`. The delete ledger row
     /// carries the name as its caller, so an audit read can tell the job from
     /// a client delete. Local only: it is not captured or synced.
@@ -215,13 +184,6 @@ impl Mutation {
     #[must_use]
     pub fn with_erase_tips_before_nanos(mut self, nanos: u64) -> Self {
         self.erase_tips_before_nanos = Some(nanos);
-        self
-    }
-
-    /// Attach a concrete aggregate-member replacement to this source write.
-    #[must_use]
-    pub fn with_aggregate_set(mut self, aggregate_set: AggregateSet) -> Self {
-        self.aggregate_set = Some(aggregate_set);
         self
     }
 

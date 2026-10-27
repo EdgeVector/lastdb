@@ -1,9 +1,0 @@
-{
-  "checked_utc": "2026-10-18T20:27:56.930378+00:00",
-  "commit": "b391b080dd0fbb32e1336f041f9be2cc7809c431",
-  "tree": "ed15f735faea07c49fa811aa48219bdc22eea94f",
-  "source_inputs_checked": 1883,
-  "method": "Each captured SHA256/size and current Git blob SHA1 matches the exact committed tree. No product file differs.",
-  "errors": [],
-  "passed": true
-}

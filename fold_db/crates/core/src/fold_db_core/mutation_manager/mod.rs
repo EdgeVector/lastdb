@@ -26,11 +26,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use aggregate::AggregateRepairReceipt;
-pub(crate) use author_clock::AuthorClockPersistBarrier;
 pub use receipt::{
-    CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
-    CloudPublicationTarget, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
+    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 
 use crate::db_operations::DbOperations;
@@ -301,13 +298,6 @@ impl MutationManager {
             .clone()
     }
 
-    pub(crate) async fn wait_for_capture_tasks(&self, timeout: std::time::Duration) -> bool {
-        match self.capture_router() {
-            Some(router) => router.wait_for_completion(timeout).await,
-            None => true,
-        }
-    }
-
     /// Admit one deferred persist of `bytes`, or refuse.
     ///
     /// Both caps must pass: the deferred-persist task **count** window
@@ -334,15 +324,6 @@ impl MutationManager {
             self.defer_gauge.in_flight_bytes(),
             self.defer_gauge.cap_bytes(),
         )
-    }
-
-    /// Why the defer window would refuse right now — `Disabled` (zero window)
-    /// or `WindowFull` (live backpressure). The degrade log must separate
-    /// these: only one of them is something an operator can act on.
-    #[inline]
-    #[must_use]
-    pub fn defer_refusal_kind(&self) -> crate::memory_budget::DeferRefusal {
-        self.defer_gauge.refusal_kind()
     }
 
     /// Feed the periodic physical-footprint sample back into the defer window.

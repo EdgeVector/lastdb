@@ -1,6 +1,7 @@
 # Native cloud backup protocol, version 1
 
 Status: unreleased draft, revision 7. Runtime support stays disabled.
+Since 2026-10-26, the V1 client, capture, upload, and restore code is removed. The active backup is the [V2 byte transport](cloud-byte-transport-v2.md). Some shared types of this protocol stay in the V2 code.
 This revision separates bounded closure observations from exact allocation comparison and live provider proof.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 4118c7baa12539c8c6bcf4391c497159f2a1529a and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
@@ -140,14 +141,15 @@ home identity and digest, full CURRENT digest, native generation, frontier, and 
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
 The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
-The logical marker `layout:v3:keys` requires direct ASCII value `6`.
+The logical marker `layout:v3:keys` requires direct ASCII value `6` or `6;delete-replay-cutoff=v1` for the UTF-8 key order, and `7;typed-ranges=v1` for a home with typed ranges.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
-Atom content and file bytes retain their existing encryption.
+File bytes retain their existing encryption.
+An atom row has no content seal. It is plain JSON inside an encrypted run-file block.
 Tip values and other control values remain readable in the stored backup bytes.
-Earlier logical formats require an explicit offline conversion; restore does not rewrite them.
-The native record transfer converts formats `4` and `5` in a separate inactive target.
-The original native reader restores an older physical backup before that transfer.
+Restore does not rewrite an earlier logical format.
+The native record transfer that converted formats `4` and `5` is removed with disk format v1.
+This program has no reader and no converter for another format, so restore refuses an older physical backup.
 Unsupported features cause refusal before destination publication.
 The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
 Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.
@@ -616,8 +618,8 @@ Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
 
 B1 backup capture, S1 cloud jobs and transfers, R1 restore, B2 file coverage, and S2 acceptance now have disabled source implementations.
-The [second source wave](native-cloud-backup-wave-two.md) records their original boundaries.
-The [Mini integration wave](native-cloud-backup-mini-v1.md) supplies the saved worker, manifest assembler, native client, and normal commands.
+The [second source wave](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/designs/native-cloud-backup-wave-two.md) (removed) recorded their original boundaries.
+The [Mini integration wave](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/designs/native-cloud-backup-mini-v1.md) (removed) supplied the saved worker, manifest assembler, native client, and normal commands.
 The source now supplies read-only scoped Main-file grants and timestamped native usage observations.
 Legacy grant isolation, complete allocation reconciliation, and purge exclusion remain release gates.
 Scoped thumbnails and posters require a separate exact source grant. Missing consumer copies refuse before backup completion.

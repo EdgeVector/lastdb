@@ -11,6 +11,9 @@ name: app-install-smoke
 # Tests all four priority apps across both contract surfaces with evidence collection.
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/app-install-smoke.yml
   workflow_dispatch:
     inputs:
       apps:
@@ -202,6 +205,11 @@ jobs:
         run: |
           set -o pipefail  # Make pipe failures detectable
           cd "$TEST_HOME"
+
+          if [ -z "${PROVED_BUILD:-}" ]; then
+            echo "PROVED_BUILD is empty"
+            exit 1
+          fi
           
           # Attempt install
           if lastdb app install ${{ matrix.app }} --channel stable 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then

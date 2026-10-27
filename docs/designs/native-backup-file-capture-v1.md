@@ -1,5 +1,7 @@
 # Native backup file capture, first release
 
+Status, 2026-10-26: the V1 capture code that this page describes is removed. The file dependency records in the Atomic directory section are current.
+
 This source change extends Backup Capture with a file dependency directory and exact source proof.
 It does not activate a cloud worker, publish a backup, or change a native pack file.
 The shared protocol remains `native-cloud-backup-protocol-v1.md`.

@@ -1,39 +1,26 @@
 #!/usr/bin/env python3
-"""Disk format v2 node proof (phase V1b): a real lastdbd converts a v1 home.
+"""Disk format v2 node proof (phase V3): a real lastdbd on a new home.
 
-The home has the shape of the primary (seed.py). In case "format-1" the
-program that runs the primary writes the seed: node format 1, key format 5,
-and an outer envelope on each record. Case "format-1-deflate" repeats
-format-1 without the two raw settings, so the KV seam writes its deflate
-envelope (ENZ:). Case "format-1-defaults" repeats format-1 with the default
-settings. In each of these cases:
+The candidate starts on an empty home. The home must be v2 from the first
+start, with no v1 file. The candidate writes a seed with the shape of the
+primary (seed.py) under the engine settings of the primary job, so the
+records have the envelope forms of the primary (compressed and raw). Then:
 
-1. the seed program writes the seed, and every key reads back as the model
-   expects;
-2. the candidate opens the home with LASTDB_DISK_FORMAT=2, which converts it;
-   every key reads back the same, and the v1 files stay in the kept folder;
-3. the candidate writes more on v2, and every key reads back as expected;
-4. the home opens again with the variable (no second conversion), then
-   without it, and every key reads back the same.
-
-In case "new-home" (phase V3) the candidate starts on an empty home without
-LASTDB_DISK_FORMAT. The home must be v2 from the first start, with no v1
-file and no kept folder. The candidate writes the seed, then steps 3 and 4
-run as above. Case "format-1" and this case run with the engine settings of
-the primary job, so the records have the envelope forms of the primary
-(compressed and raw).
+1. every key of the seed reads back as the model expects;
+2. the candidate writes more, and every key reads back as expected;
+3. the home opens again, and every key reads back the same.
 
 After each step the key list of each seed schema (GET /api/list, the
 `lastdb list` pages) must hold each live key of the model and no key that
-the model does not know. The conversion and each later open must keep the
-reads, the key lists, and the logical atom bytes and atom count of each seed
-schema equal to the step before it. Only the proof writes the seed schemas,
-so a change there comes from the conversion or the open.
+the model does not know. The open must keep the reads, the key lists, and
+the logical atom bytes and atom count of each seed schema equal to the step
+before it. Only the proof writes the seed schemas, so a change there comes
+from the open.
 
-A sampler reads the size of the node folder during the conversion, the
-writes, the merges, and each open. The proof fails when the v2 data is above
-2.0x of the logical atom bytes that the node reports (GET /api/db/schemas,
-the `lastdb db schemas` walk), when the node reports under 16 MiB of logical
+A sampler reads the size of the node folder during the writes, the merges,
+and the open. The proof fails when the v2 data is above 2.0x of the logical
+atom bytes that the node reports (GET /api/db/schemas, the
+`lastdb db schemas` walk), when the node reports under 16 MiB of logical
 atoms, because a smaller home does not test the limit, or when the sampler
 cannot read the node folder.
 """
@@ -41,7 +28,6 @@ cannot read the node folder.
 import argparse
 import hashlib
 from pathlib import Path
-import re
 import sys
 import time
 from urllib.parse import quote
@@ -51,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from node import Node, save  # noqa: E402  (the benchmark daemon driver)
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
+import cleanup  # noqa: E402
 
 LIMIT = 2.0
 MINIMUM_LOGICAL = 16 * 1024 * 1024
@@ -62,17 +49,15 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-FORMAT_1 = b"format=1\nhome=disk-pack\n"
 RUN_NODE = b"format=3\nhome=disk-run\ncas=disk-cas\n"
-# The settings of the primary's launchd job that both programs read: the
+# The settings of the primary's launchd job that the node reads: the
 # envelope forms at rest (the KV seam compresses and writes binary
 # envelopes), the atom size limit, the memory budget, and the admin timeout.
-# Neither program reads the other LASTDB_* settings of the job.
+# The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
     "LASTDB_ENGINE": "laststore",
     "LASTDB_KV_AT_REST_COMPRESS": "1",
     "LASTDB_KV_AT_REST_RAW": "1",
-    "LASTDB_AT_REST_RAW": "1",
     "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
     "LASTDB_HASH_GROUP_WARM_BYTES": "4294967296",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
@@ -80,21 +65,10 @@ PRIMARY_SETTINGS = {
     "LASTDBD_RSS_LIMIT_MB": "16384",
     "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
 }
-# The primary job without the two settings that select the binary envelope:
-# the KV seam then writes the deflate envelope (ENZ:), and a byte store ENC:.
-DEFLATE_SETTINGS = {name: value for name, value in PRIMARY_SETTINGS.items()
-                    if name not in ("LASTDB_KV_AT_REST_RAW", "LASTDB_AT_REST_RAW")}
-# Case: (the program that writes the seed, its node marker, the engine
-# settings, the name of the settings). The candidate makes a new home v2.
-CASES = {
-    "format-1": ("primary", FORMAT_1, PRIMARY_SETTINGS, "the primary job"),
-    "new-home": ("candidate", RUN_NODE, PRIMARY_SETTINGS, "the primary job"),
-    "format-1-deflate": ("primary", FORMAT_1, DEFLATE_SETTINGS,
-                         "the primary job without the raw settings"),
-    "format-1-defaults": ("primary", FORMAT_1, {}, "the defaults"),
-}
-KEPT = "data-disk-format-v1"
-CONVERTED = "disk format conversion to v2 complete"
+CASE = "new-home"
+# The generator number of the seed: the number this case had among the four
+# cases of the conversion proof, so the seed data stays the same.
+SEED_NUMBER = 2
 PROFILE = {
     "seed": {"base": 3000, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
@@ -114,38 +88,6 @@ def brief(value):
     return text if len(text) <= 400 else text[:400] + "..."
 
 
-def listing(folder):
-    """(relative path, size) of every file under folder, to see a change."""
-    return sorted((str(path.relative_to(folder)), path.stat().st_size)
-                  for path in folder.rglob("*") if path.is_file())
-
-
-def log_size(path):
-    return path.stat().st_size if path.exists() else 0
-
-
-def conversion_report(path, start):
-    """The values of the conversion line that the node logged after `start`."""
-    if not path.exists():
-        return None
-    with path.open("rb") as stream:
-        stream.seek(start)
-        text = stream.read().decode(errors="replace")
-    for line in text.splitlines():
-        if CONVERTED not in line:
-            continue
-        plain = re.sub(r"\x1b\[[0-9;]*m", "", line)
-        values = {}
-        for name in ("records", "logical_bytes", "v1_disk_bytes", "v2_disk_bytes", "seconds"):
-            found = re.search(rf"\b{name}=([0-9.]+)", plain)
-            if found:
-                values[name] = float(found.group(1))
-        source = re.search(r"source_format=(\w+ \{ fenced: \w+ \})", plain)
-        values["source_format"] = source.group(1) if source else None
-        return values
-    return None
-
-
 def settle(data, seconds=180):
     """Wait until the node folder keeps one size for 3 seconds."""
     deadline, previous = time.monotonic() + seconds, None
@@ -159,17 +101,18 @@ def settle(data, seconds=180):
 
 
 class Case:
-    def __init__(self, name, seeder, candidate, output, number):
-        self.name, self.seeder, self.candidate = name, seeder, candidate
-        _, self.seed_marker, self.settings, self.settings_name = CASES[name]
-        self.folder = output / name
+    def __init__(self, candidate, output):
+        self.candidate = candidate
+        self.settings, self.settings_name = PRIMARY_SETTINGS, "the primary job"
+        self.folder = output / CASE
         self.folder.mkdir(parents=True)
-        self.node = Node(seeder[0], seeder[1], self.folder, environment=dict(self.settings),
+        self.node = Node(candidate[0], candidate[1], self.folder, environment=dict(self.settings),
                          start_seconds=START_SECONDS)
-        self.data, self.kept = self.node.home / "data", self.node.home / KEPT
+        self.data = self.node.home / "data"
         self.sampler = Sampler(self.data)
-        self.seed = Seed(number)
+        self.seed = Seed(SEED_NUMBER)
         self.phases, self.failures = [], []
+        self.cleanup_receipt = None
 
     def execute(self):
         self.sampler.start()
@@ -187,57 +130,27 @@ class Case:
             self.failures.append(f"the sampler could not read the node folder "
                                  f"{len(self.sampler.errors)} times; the first: "
                                  f"{self.sampler.errors[0]}")
-        report = {"case": self.name, "seed_program": self.seeder[1],
-                  "candidate": self.candidate[1], "settings": self.settings,
+        report = {"case": CASE, "candidate": self.candidate[1], "settings": self.settings,
                   "settings_name": self.settings_name, "seed": self.seed.counts,
                   "phases": self.phases, "failures": self.failures,
+                  "cleanup": self.cleanup_receipt,
                   "sampler_errors": self.sampler.errors[:20]}
         save(self.folder / "report.json", report)
         return report
 
     def run(self):
-        if self.seed_marker == RUN_NODE:
-            self.seed_new_home()
-        else:
-            self.seed_v1()
-            self.convert()
+        self.seed_new_home()
         self.write_v2()
-        kept = listing(self.kept) if self.kept.exists() else None
-        self.reopen("open again with LASTDB_DISK_FORMAT=2",
-                    {**self.settings, "LASTDB_DISK_FORMAT": "2"})
-        self.reopen("open again without LASTDB_DISK_FORMAT", dict(self.settings))
-        if kept is None:
-            if self.seed_marker != RUN_NODE:
-                self.failures.append("the conversion left no kept v1 folder")
-            elif self.kept.exists():
-                self.failures.append("a new v2 home has a kept v1 folder")
-        elif listing(self.kept) != kept:
-            self.failures.append("the kept v1 folder changed after the conversion")
-
-    def seed_v1(self):
-        self.node.start()
-        for schema in SCHEMAS:
-            self.node.call("/api/schemas/seed-system", schema_request(schema))
-        name = f"seed (v1, {self.seeder[1][:12]})"
-        writes = self.write(self.seed.phase(**PROFILE["seed"]))
-        logical = self.logical()
-        reads = self.reads()
-        listed = self.listed(name)
-        self.node.stop()
-        marker = (self.data / NODE_MARKER).read_bytes()
-        if marker != self.seed_marker:
-            raise ProofError(f"the seed home has the node marker {marker!r}")
-        self.phases.append({"name": name, "gated": False, "writes": writes, "logical": logical,
-                            "reads": reads, "listed": listed, **self.disk()})
+        self.reopen("open again", dict(self.settings))
 
     def seed_new_home(self):
-        """The candidate starts on an empty home without LASTDB_DISK_FORMAT:
-        the home must be v2 before the first write."""
+        """The candidate starts on an empty home: the home must be v2 before
+        the first write."""
         self.node.start()
         self.check_new_home()
         for schema in SCHEMAS:
             self.node.call("/api/schemas/seed-system", schema_request(schema))
-        name = f"seed (new v2 home, {self.seeder[1][:12]})"
+        name = f"seed (new v2 home, {self.candidate[1][:12]})"
         writes = self.write(self.seed.phase(**PROFILE["seed"]))
         # The writes start from an empty home, under the 16 MiB that the limit
         # check needs. The window opens when they end, and stays open until
@@ -249,7 +162,7 @@ class Case:
         listed = self.listed(name)
         self.check_new_home()
         self.phases.append({
-            "name": name, "gated": True, "writes": writes, "settled": settled,
+            "name": name, "writes": writes, "settled": settled,
             "logical": logical, "reads": reads, "listed": listed, **self.disk(),
             "bounds": (logical["bytes"], logical["bytes"])})
 
@@ -263,47 +176,6 @@ class Case:
         for name in ("disk-run", "disk-cas"):
             if not (self.data / name).is_dir():
                 raise ProofError(f"a new v2 home lacks {name}")
-        if self.kept.exists():
-            raise ProofError("a new v2 home has a kept v1 folder")
-
-    def convert(self):
-        self.node.binary, self.node.revision = self.candidate
-        self.node.environment = {**self.settings, "LASTDB_DISK_FORMAT": "2"}
-        log_start = log_size(self.folder / "node.log")
-        self.sampler.begin("conversion")
-        started = time.monotonic()
-        self.node.start()
-        seconds = round(time.monotonic() - started, 1)
-        self.check_converted()
-        settled = settle(self.data)
-        logical = self.logical()
-        reads = self.reads()
-        name = "conversion (LASTDB_DISK_FORMAT=2)"
-        listed = self.listed(name)
-        self.compare(name, logical, reads, listed)
-        least = min(logical["bytes"], self.phases[-1]["logical"]["bytes"])
-        # The window stays open: the node runs on until the v2 writes start.
-        self.phases.append({
-            "name": name, "gated": True, "start_seconds": seconds, "settled": settled,
-            "logical": logical, "reads": reads, "listed": listed, **self.disk(),
-            "kept_v1": folder_sizes(self.kept), "bounds": (least, least),
-            "report": conversion_report(self.folder / "node.log", log_start)})
-
-    def check_converted(self):
-        marker = (self.data / NODE_MARKER).read_bytes()
-        if marker != RUN_NODE:
-            raise ProofError(f"after the conversion the node marker is {marker!r}")
-        if (self.kept / NODE_MARKER).read_bytes() != self.seed_marker:
-            raise ProofError("the kept folder lacks the v1 node marker")
-        for name in ("disk-pack", "laststore-layout-v1"):
-            if (self.data / name).exists() or not (self.kept / name).exists():
-                raise ProofError(f"{name} is not in the kept folder only")
-        for name in ("disk-run", "disk-cas"):
-            if not (self.data / name).is_dir():
-                raise ProofError(f"the v2 node folder lacks {name}")
-        for name in ("disk-run.converting", "disk-cas.converting", "laststore-disk-convert-v2"):
-            if (self.data / name).exists():
-                raise ProofError(f"the conversion left {name}")
 
     def write_v2(self):
         before = self.phases[-1]["logical"]["bytes"]
@@ -314,18 +186,20 @@ class Case:
         logical = self.logical()
         reads = self.reads()
         listed = self.listed("writes on v2")
+        self.cleanup_receipt = cleanup.request_and_wait(self.node)
+        save(self.folder / "cleanup-request.json", self.cleanup_receipt)
         self.node.stop()
         self.phases.append({
-            "name": "writes on v2", "gated": True, "writes": writes, "settled": settled,
+            "name": "writes on v2", "writes": writes, "settled": settled,
             "logical": logical, "reads": reads, "listed": listed, **self.disk(),
             "bounds": (before, logical["bytes"])})
         self.close_phase(self.sampler.end())
 
     def reopen(self, name, environment):
         self.node.environment = environment
-        log_start = log_size(self.folder / "node.log")
         self.sampler.begin(name)
         self.node.start()
+        cleanup.verify_saved(self.node, self.cleanup_receipt)
         settled = settle(self.data)
         logical = self.logical()
         reads = self.reads()
@@ -333,11 +207,9 @@ class Case:
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
             self.failures.append(f"{name}: the node marker is not the v2 marker")
-        if conversion_report(self.folder / "node.log", log_start):
-            self.failures.append(f"{name}: the node converted the home again")
         self.compare(name, logical, reads, listed)
         self.phases.append({
-            "name": name, "gated": True, "settled": settled, "logical": logical,
+            "name": name, "settled": settled, "logical": logical,
             "reads": reads, "listed": listed, **self.disk(),
             "bounds": (logical["bytes"], logical["bytes"])})
         self.close_phase(self.sampler.end())
@@ -521,77 +393,58 @@ def series(window):
             for sample in samples[::step]]
 
 
-def summary(reports, primary, candidate):
-    lines = ["## Disk v2 node proof (V1b)", "",
-             f"Candidate `{candidate}`. Program that runs the primary: `{primary}`.", "",
+def summary(report, candidate):
+    lines = ["## Disk v2 node proof (V3)", "",
+             f"Candidate `{candidate}` on a new home.", "",
              f"Limit: the v2 node folder at or under {LIMIT}x of the logical atom bytes "
              "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of logical atoms.", ""]
-    for report in reports:
-        verdict = "FAIL" if report["failures"] else "PASS"
-        counts = report["seed"]
-        lines += [f"### {report['case']}: {verdict}", "",
-                  f"Seed program `{report['seed_program'][:12]}`, engine settings of "
-                  f"{report['settings_name']}. Mutations: "
-                  f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
-                  f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
-                  "| Phase | Logical atoms | Node folder at end | Peak v2 / logical | Samples "
-                  "(torn) | Keys read | Keys listed |",
-                  "|---|---|---|---|---|---|---|"]
-        for phase in report["phases"]:
-            logical, disk, reads = phase["logical"], phase["disk"], phase["reads"]
-            stored = v2_bytes(disk) if phase["gated"] else max(disk["allocated"], disk["apparent"])
-            if phase.get("peak"):
-                peak = f"{phase['peak']['ratio']:.2f}x"
-            else:
-                peak = "no sample" if phase["gated"] else "not checked (v1)"
-            samples = f"{phase['samples']} ({phase['torn']})" if "samples" in phase else "-"
-            listed = phase.get("listed") or {}
-            keys = sum(value.get("keys", 0) for value in listed.values())
-            removed = sum(value.get("deleted", 0) for value in listed.values())
-            lines.append(
-                f"| {phase['name']} | {mib(logical['bytes'])}, {logical['atoms']:,} atoms, "
-                f"p50 {logical['p50']} B | {mib(stored)} "
-                f"({stored / max(1, logical['bytes']):.2f}x) | "
-                f"{peak} | {samples} | {reads['live']:,} equal, "
-                f"{reads['absent']:,} absent | {keys:,}, {removed:,} of them deleted |")
-        conversion = next((phase for phase in report["phases"]
-                           if phase["name"].startswith("conversion")), None)
-        if conversion and conversion.get("report"):
-            values = conversion["report"]
-            lines += ["", f"Conversion: {values.get('source_format')}, "
-                          f"{int(values.get('records', 0)):,} records, "
-                          f"{mib(values.get('logical_bytes', 0))} of record bytes, v1 "
-                          f"{mib(values.get('v1_disk_bytes', 0))}, v2 "
-                          f"{mib(values.get('v2_disk_bytes', 0))}, "
-                          f"{values.get('seconds', 0):.1f} s. The node start took "
-                          f"{conversion['start_seconds']} s."]
-        for failure in report["failures"]:
-            lines.append(f"- FAIL: {failure}")
-        lines.append("")
+    verdict = "FAIL" if report["failures"] else "PASS"
+    counts = report["seed"]
+    lines += [f"### {report['case']}: {verdict}", "",
+              f"Engine settings of {report['settings_name']}. Mutations: "
+              f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
+              f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
+              "| Phase | Logical atoms | Node folder at end | Peak v2 / logical | Samples "
+              "(torn) | Keys read | Keys listed |",
+              "|---|---|---|---|---|---|---|"]
+    for phase in report["phases"]:
+        logical, disk, reads = phase["logical"], phase["disk"], phase["reads"]
+        stored = v2_bytes(disk)
+        peak = f"{phase['peak']['ratio']:.2f}x" if phase.get("peak") else "no sample"
+        samples = f"{phase['samples']} ({phase['torn']})" if "samples" in phase else "-"
+        listed = phase.get("listed") or {}
+        keys = sum(value.get("keys", 0) for value in listed.values())
+        removed = sum(value.get("deleted", 0) for value in listed.values())
+        lines.append(
+            f"| {phase['name']} | {mib(logical['bytes'])}, {logical['atoms']:,} atoms, "
+            f"p50 {logical['p50']} B | {mib(stored)} "
+            f"({stored / max(1, logical['bytes']):.2f}x) | "
+            f"{peak} | {samples} | {reads['live']:,} equal, "
+            f"{reads['absent']:,} absent | {keys:,}, {removed:,} of them deleted |")
+    for failure in report["failures"]:
+        lines.append(f"- FAIL: {failure}")
+    if report.get("cleanup"):
+        receipt = report["cleanup"]
+        lines.append(f"Explicit cleanup: {receipt['phase']}, both stores, "
+                     f"target {receipt['target']}, completed through {receipt['completed_through']}; "
+                     "same-id repeat and saved receipt after reopen equal.")
+    lines.append("")
     return "\n".join(lines)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--primary", type=Path, required=True,
-                        help="the lastdbd of the program that runs the primary")
-    parser.add_argument("--primary-revision", required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--candidate-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--case", choices=list(CASES), action="append")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     candidate = (args.candidate.resolve(strict=True), args.candidate_revision)
-    primary = (args.primary.resolve(strict=True), args.primary_revision)
-    reports = []
-    for number, name in enumerate(args.case or list(CASES), start=1):
-        seeder = primary if CASES[name][0] == "primary" else candidate
-        reports.append(Case(name, seeder, candidate, args.output, number).execute())
+    report = Case(candidate, args.output).execute()
     save(args.output / "node-proof.json", {"limit": LIMIT, "profile": PROFILE,
-                                           "reports": reports})
-    print(summary(reports, args.primary_revision, args.candidate_revision), flush=True)
-    if any(report["failures"] for report in reports):
+                                           "reports": [report]})
+    print(summary(report, args.candidate_revision), flush=True)
+    if report["failures"]:
         sys.exit(1)
 
 

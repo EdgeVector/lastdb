@@ -1,6 +1,6 @@
 # Current core memory and historical convergence record
 
-Current summary, 2026-10-24: the native packed engine is the sole logical engine.
+Current summary, 2026-10-26: disk format v2 is the sole native engine.
 The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
 The recency list selects logical records for purge without a second set of values.
 The old serving graph, logical cache, mode controls, and alternate write branch are removed.
@@ -13,8 +13,8 @@ There is no 500 ms collection timer. Legacy Cloud Sync activation stays disabled
 
 Use the [current native summary](lastdb-disk-native-node.md) and [memory and disk routes](lastdb-rehydrate.md) for current responsibilities.
 The [October work plan](lastdb-logical-warm-set-plan.md) records the earlier implementation sequence.
-The [cutover results](proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.
-The [earlier V6 benchmark](proofs/core-owned-writes-20261018/RESULTS.md) measures its earlier source, rather than this final cleanup.
+The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.
+The [earlier V6 benchmark](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) measures its earlier source, rather than this final cleanup.
 No primary operation forms part of this cutover proof.
 
 ## Historical plan and receipts, 2026-10-12 to 2026-10-14
@@ -362,7 +362,7 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
 - 2026-10-12, warm set design: `docs/lastdb-warm-set-design.md` written and open for
   Tom's decisions. No code change.
 - 2026-10-13, designs: `docs/lastdb-blind-write-design.md` and
-  `docs/lastdb-write-ahead-journal-design.md` written. Built since the warm set
+  `docs/lastdb-write-ahead-journal-design.md` (since deleted) written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
   (The atom GC reaper and its verb were removed by the counter lifecycle,

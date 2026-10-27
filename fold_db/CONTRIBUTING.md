@@ -15,12 +15,11 @@ and embedded React frontend (`static-react`) were removed on **2026-07-12**
    dir). See workspace `README.md` / `bin/wt start`.
 2. Create a feature branch from `main`.
 3. Make changes under `fold_db/` (and related crates if needed).
-4. Check your change from the **workspace root**:
+4. Format your change from the **workspace root**:
    ```bash
-   cargo check -p fold_db --benches
-   cargo clippy -p fold_db --all-targets -- -D warnings
    cargo fmt -p fold_db
    ```
+   The PR's GitHub Actions run the build, clippy and the benchmarks.
 5. Open a PR on **GitHub** (`gh -R EdgeVector/lastdb pr create`).
    LastGit and the Forgejo copy are retired.
 

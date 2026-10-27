@@ -64,8 +64,12 @@ pub struct ContentAddressedAtom {
 /// ## Operation Trinity (Holy Ghost) — local CAS
 /// When [`Self::local_cipher_suite`] is set, `bytes_b64` holds the UTF-8
 /// `ENC:…` envelope of the file bytes sealed under the **file KDK** (per-blob
-/// DEK). The DEK itself is **not** stored in `cas_blobs` — it lives only in
-/// sealed atom content (`FileBlobAccess.dek`).
+/// DEK). The DEK itself is **not** stored in `cas_blobs`. At rest in the
+/// local store it lives in the `$lastdb_file` pointer of the atom row
+/// (`FileBlobAccess.dek`), which the run-file block encryption protects. A
+/// delivery slice also carries it (`Self::access`). A Search inbox batch
+/// keeps only the pointer's `name` and `media_type`; inbox files written
+/// before that rule can still hold a copy of the pointer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAddressedBlob {
     /// `sha256:<hex>` of the ciphertext (v2) or plaintext (older suites).
@@ -93,7 +97,7 @@ pub struct ContentAddressedBlob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_cipher_suite: Option<String>,
     /// RFC3339 instant this row was durably stored (stamped by
-    /// `blob_cas::put_raw_record`). Information only: the blob counter decides
+    /// `put_blob_sealed_with_access_dedup_in_ops`). Information only: the blob counter decides
     /// when a row may go (`db_operations::atom_store::blob_counter`). Not part
     /// of content addressing.
     #[serde(default, skip_serializing_if = "Option::is_none")]

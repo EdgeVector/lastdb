@@ -94,14 +94,6 @@ pub(super) fn insert_allocator_and_disk_fields(
         json!(snapshot.memory_budget.allocator_reserved_bytes),
     );
     fields.insert(
-        "in_flight_cold_load_bytes".to_string(),
-        json!(snapshot.memory_budget.in_flight_cold_load_bytes),
-    );
-    fields.insert(
-        "in_flight_cold_load_count".to_string(),
-        json!(snapshot.memory_budget.in_flight_cold_load_count),
-    );
-    fields.insert(
         "peak_request_bytes".to_string(),
         json!(snapshot.memory_budget.peak_request_bytes),
     );
@@ -110,53 +102,12 @@ pub(super) fn insert_allocator_and_disk_fields(
         json!(snapshot.memory_budget.slowest_request_ms),
     );
     fields.insert(
-        "eviction_events".to_string(),
-        json!(snapshot.memory_budget.eviction_events),
-    );
-    fields.insert(
         "effective_warm_budget_bytes".to_string(),
         json!(snapshot.memory_budget.effective_warm_budget_bytes),
     );
     fields.insert("cpu_percent".to_string(), json!(snapshot.cpu_percent));
     fields.insert("home_bytes".to_string(), json!(snapshot.home_bytes));
     fields.insert("data_dir_bytes".to_string(), json!(snapshot.data_dir_bytes));
-}
-
-/// Cloud sync status fields.
-pub(super) fn insert_sync_status_fields(
-    fields: &mut HashMap<String, Value>,
-    snapshot: &StatusSnapshot,
-) {
-    fields.insert("sync_enabled".to_string(), json!(snapshot.sync.enabled));
-    fields.insert("sync_state".to_string(), json!(snapshot.sync.state));
-    fields.insert(
-        "sync_last_success_ts".to_string(),
-        json!(wire_u64(&snapshot.sync.last_success_ts)),
-    );
-    fields.insert(
-        "sync_local_writable".to_string(),
-        json!(snapshot.sync.local_writable),
-    );
-    fields.insert(
-        "sync_degraded".to_string(),
-        json!(snapshot.sync.sync_degraded),
-    );
-    fields.insert(
-        "sync_last_error_at".to_string(),
-        json!(wire_u64(&snapshot.sync.last_error_at)),
-    );
-    fields.insert(
-        "sync_consecutive_failures".to_string(),
-        json!(wire_u64(&snapshot.sync.consecutive_sync_failures)),
-    );
-    fields.insert(
-        "sync_failing_since".to_string(),
-        json!(wire_u64(&snapshot.sync.failing_since)),
-    );
-    fields.insert(
-        "sync_degraded_reasons".to_string(),
-        json!(snapshot.sync.degraded_reasons),
-    );
 }
 
 /// Backup durability fields.
@@ -183,150 +134,6 @@ pub(super) fn insert_backup_durability_fields(
     fields.insert(
         "backup_durability_reasons".to_string(),
         json!(snapshot.durability.reasons),
-    );
-}
-
-/// Sync queue, mutation-log and last-error fields.
-pub(super) fn insert_sync_queue_and_log_fields(
-    fields: &mut HashMap<String, Value>,
-    snapshot: &StatusSnapshot,
-) {
-    fields.insert(
-        "sync_staging_count".to_string(),
-        json!(wire_u64(&snapshot.sync.durable_outbox_count)),
-    );
-    fields.insert(
-        "sync_staging_max".to_string(),
-        json!(wire_u64(&snapshot.sync.durable_outbox_max)),
-    );
-    fields.insert(
-        "sync_pending_count".to_string(),
-        json!(wire_u64(&snapshot.sync.pending_count)),
-    );
-    fields.insert(
-        "sync_durable_outbox_count".to_string(),
-        json!(wire_u64(&snapshot.sync.durable_outbox_count)),
-    );
-    fields.insert(
-        "sync_durable_outbox_max".to_string(),
-        json!(wire_u64(&snapshot.sync.durable_outbox_max)),
-    );
-    fields.insert(
-        "sync_upload_queue_count".to_string(),
-        json!(wire_u64(&snapshot.sync.upload_queue_count)),
-    );
-    fields.insert(
-        "sync_upload_queue_max".to_string(),
-        json!(wire_u64(&snapshot.sync.upload_queue_max)),
-    );
-    fields.insert(
-        "sync_recording_local_changes".to_string(),
-        json!(snapshot.sync.recording_local_changes),
-    );
-    fields.insert(
-        "sync_off_grace_expired".to_string(),
-        json!(snapshot.sync.sync_off_grace_expired),
-    );
-    fields.insert(
-        "sync_reenable_strategy".to_string(),
-        json!(snapshot.sync.reenable_strategy),
-    );
-    fields.insert(
-        "sync_cloud_disabled_at".to_string(),
-        json!(wire_u64(&snapshot.sync.cloud_sync_disabled_at)),
-    );
-    fields.insert(
-        "sync_off_grace_secs".to_string(),
-        json!(wire_u64(&snapshot.sync.sync_off_grace_secs)),
-    );
-}
-
-/// Sync mutation-log and last-error fields.
-pub(super) fn insert_sync_mutation_log_fields(
-    fields: &mut HashMap<String, Value>,
-    snapshot: &StatusSnapshot,
-) {
-    fields.insert(
-        "sync_mutation_log_active".to_string(),
-        json!(snapshot.sync.mutation_log_active),
-    );
-    fields.insert(
-        "sync_mutation_log_writer_id".to_string(),
-        json!(snapshot.sync.mutation_log_writer_id),
-    );
-    fields.insert(
-        "sync_mutation_log_frontier_f".to_string(),
-        json!(wire_u64(&snapshot.sync.mutation_log_frontier_f)),
-    );
-    fields.insert(
-        "sync_mutation_log_published_through".to_string(),
-        json!(wire_u64(&snapshot.sync.mutation_log_published_through)),
-    );
-    fields.insert(
-        "sync_mutation_log_last_durable_frontier".to_string(),
-        json!(wire_u64(&snapshot.sync.mutation_log_last_durable_frontier)),
-    );
-    fields.insert(
-        "sync_mutation_log_recovery_point_age_secs".to_string(),
-        json!(wire_u64(
-            &snapshot.sync.mutation_log_recovery_point_age_secs
-        )),
-    );
-    fields.insert(
-        "sync_mutation_log_lag".to_string(),
-        json!(wire_u64(&snapshot.sync.mutation_log_lag)),
-    );
-    fields.insert(
-        "sync_mutation_log_segments_uploaded".to_string(),
-        json!(wire_u64(&snapshot.sync.mutation_log_segments_uploaded)),
-    );
-    fields.insert(
-        "sync_mutation_log_lag_degraded".to_string(),
-        json!(snapshot.sync.mutation_log_lag_degraded),
-    );
-    fields.insert(
-        "sync_mutation_log_capture_registered".to_string(),
-        json!(snapshot.sync.mutation_log_capture_registered),
-    );
-    fields.insert(
-        "sync_capture_reexport_pending_count_estimate".to_string(),
-        json!(wire_u64(
-            &snapshot.sync.capture_reexport_pending_count_estimate
-        )),
-    );
-    fields.insert(
-        "sync_capture_reexport_pending_known_nonempty".to_string(),
-        json!(snapshot.sync.capture_reexport_pending_known_nonempty),
-    );
-    fields.insert(
-        "sync_last_error".to_string(),
-        json!(snapshot.sync.last_error),
-    );
-}
-
-/// Last sync download fields.
-pub(super) fn insert_sync_download_fields(
-    fields: &mut HashMap<String, Value>,
-    snapshot: &StatusSnapshot,
-) {
-    let (dl_bytes, dl_entries, dl_deferred, dl_health_deferred) = match &snapshot.sync.last_download
-    {
-        Some(v) => (
-            v.get("bytes_downloaded").cloned().unwrap_or(json!(null)),
-            v.get("entries_replayed").cloned().unwrap_or(json!(null)),
-            v.get("entries_deferred").cloned().unwrap_or(json!(null)),
-            v.get("entries_health_deferred")
-                .cloned()
-                .unwrap_or_else(|| v.get("entries_deferred").cloned().unwrap_or(json!(null))),
-        ),
-        None => (json!(null), json!(null), json!(null), json!(null)),
-    };
-    fields.insert("sync_download_bytes_last".to_string(), dl_bytes);
-    fields.insert("sync_download_entries_last".to_string(), dl_entries);
-    fields.insert("sync_download_deferred_last".to_string(), dl_deferred);
-    fields.insert(
-        "sync_download_health_deferred_last".to_string(),
-        dl_health_deferred,
     );
 }
 

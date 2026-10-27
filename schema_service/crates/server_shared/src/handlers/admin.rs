@@ -40,7 +40,7 @@ pub async fn reset_database(
         schemas.clear();
     }
 
-    // Local Last Store supports clear; S3/Lambda backends return an error.
+    // The in-memory dev backend supports clear; S3/Lambda backends return an error.
     if let Err(e) = state.storage.backend().clear_all_schemas().await {
         return HttpResponse::BadRequest().json(ResetResponse {
             success: false,
@@ -132,14 +132,13 @@ pub async fn snapshot_export_shared_only(state: web::Data<SchemaServiceState>) -
 
 /// `POST /v1/snapshot/import` — replace every persisted dimension of the
 /// local registry with the contents of the supplied
-/// [`SnapshotEnvelope`]. Sled-only (the Lambda binary intentionally
-/// does not mount this route).
+/// [`SnapshotEnvelope`]. In-memory dev backend only (the Lambda binary
+/// intentionally does not mount this route).
 ///
 /// Status codes:
 ///   * 200 — import succeeded; body is a `SnapshotImportReport`.
 ///   * 400 — envelope rejected (bad `format_version`, embedder
-///     mismatch, or non-Sled storage).
-///   * 500 — Sled write or in-memory cache update failed mid-way.
+///     mismatch, unsupported storage backend, or a failed write).
 #[allow(
     clippy::unused_async,
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
@@ -160,7 +159,7 @@ pub async fn snapshot_import(
             );
             // The errors that come back from `import_snapshot` are all
             // caller-correctable: format_version mismatch, embedder
-            // mismatch, or Sled-only-route. Surface them as 400.
+            // mismatch, or unsupported backend. Surface them as 400.
             HttpResponse::BadRequest().json(ErrorResponse {
                 error: format!("Failed to import snapshot: {msg}"),
             })

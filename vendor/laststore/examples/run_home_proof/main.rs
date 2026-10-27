@@ -12,15 +12,14 @@
 //! opened.
 
 mod bound;
+mod cleanup;
 mod crash;
 mod gen;
 mod value_gen;
 mod values;
 
 use gen::{apply, batch, logical_bytes, overwrite_batch, tip_key, Model, TIP_SCHEMAS};
-use laststore::disk_pack::home::HomeMutation;
-use laststore::disk_pack::{RangeBounds, ReadBudget};
-use laststore::disk_run::home::{RunHome, RunRead};
+use laststore::disk_run::home::{HomeMutation, RangeBounds, ReadBudget, RunHome, RunRead};
 use laststore::disk_run::{RunOptions, RunWriter};
 use std::fs;
 use std::io::Read;
@@ -115,6 +114,7 @@ fn run(scratch: &Path) -> Result<()> {
         logical as f64 / MIB
     );
     println!("| Overwrite-heavy | {overwrites} |");
+    println!("| Explicit cleanup | {} |", cleanup::run(scratch, &key)?);
     println!("| Compact values (V1b) | {values_row} |");
     println!("| Read back | {checked} keys equal by key and by batch; {ranges} |");
     println!("| Held read across merges | {held_check} |");

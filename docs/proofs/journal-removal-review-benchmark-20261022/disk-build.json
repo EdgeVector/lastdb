@@ -1,8 +1,0 @@
-{
-  "revision": "8f5e6515fbc4fd0c623bec18ea9fe8f94388596e",
-  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdb-disk-home",
-  "binary_sha256": "192a687285d4f656ddf0e1ed08f82bf46c03ff9ed25d94a9f25f7de7776819b0",
-  "build_command": "scripts/ci/with-fold-host-cargo-lock.sh -- cargo build --locked --release -p laststore --bin lastdb-disk-home",
-  "compiler_elapsed_seconds": 26.89,
-  "product_source_clean": true
-}

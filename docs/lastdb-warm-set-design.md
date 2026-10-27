@@ -14,7 +14,7 @@ steps 3 to 6. Steps 1, 2, 2b and 2c of that document are merged.
 
 Related designs: `docs/lastdb-blind-write-design.md` (the write path: ack from memory with
 no read first, protein siblings as background writes) and
-`docs/lastdb-write-ahead-journal-design.md` (a store journal; not built, group
+`docs/lastdb-write-ahead-journal-design.md` (since deleted; a store journal; not built, group
 reduction goes first).
 
 How this was made: six agents read the code (logical set, graph, mutation and
@@ -422,7 +422,7 @@ WRITE ACK AS THE BAR SEES IT
 
 SUSTAINED WRITES
 - Lane: about 7 mutations each second for each schema (measured). Unchanged by A, B, D and C.
-- If the fsync gauge shows that calls for each hash group dominate, the fix is Track S3b (sidecar without fsync, exact flush mark). The sidecar part was built on 2026-10-14: a group under half the cold-load cap is no longer flushed (see docs/lastdb-write-ahead-journal-design.md, B6). Group commit helps only the fixed part. I removed the 5 to 10 times claim.
+- If the fsync gauge shows that calls for each hash group dominate, the fix is Track S3b (sidecar without fsync, exact flush mark). The sidecar part was built on 2026-10-14: a group under half the cold-load cap is no longer flushed (see docs/lastdb-write-ahead-journal-design.md, B6; since deleted). Group commit helps only the fixed part. I removed the 5 to 10 times claim.
 - Six clients still get persist_queue_full until Track S.
 
 MEMORY

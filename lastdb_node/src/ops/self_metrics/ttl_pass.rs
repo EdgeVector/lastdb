@@ -21,6 +21,9 @@ pub struct TtlPassReport {
     /// Keys of a purge batch that were already gone. The sweep dropped them
     /// and sent the rest of the batch.
     pub missing_dropped: u64,
+    /// Maximum expired-key page retained by this pass. Schema/hash metadata
+    /// and temporary query response bytes are separate from this key count.
+    pub peak_buffered_keys: u64,
 }
 
 impl SamplerRuntimeState {

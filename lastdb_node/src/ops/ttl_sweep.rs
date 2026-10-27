@@ -35,9 +35,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::Instrument;
 
 use fold_db::access::{AccessContext, CallerTransport};
-use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::schema::DeclarativeSchemaType;
-use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyValue};
+use fold_db::schema::types::KeyValue;
 use fold_db::schema::SchemaRetentionPolicy;
 
 use crate::host::Host;
@@ -168,7 +167,8 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
         return Ok(erase::PassTotals::default());
     }
 
-    // List every schema first, then erase one batch from each schema in turn.
+    // Keep schema metadata and cursors here. Discovery and erasure serve
+    // one bounded page per schema in turn, with only one page buffered globally.
     // A large backlog in one schema cannot starve the others for a paced pass,
     // and a schema that fails to list is skipped, not fatal to the pass.
     let now = unix_secs();
@@ -182,7 +182,7 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
             totals.cut = true;
             return Ok(totals);
         }
-        match list_expired(host, &schema_name, policy, now, shutdown).await {
+        match prepare_backlog(host, &schema_name, policy, now).await {
             Ok(listed) => backlogs.extend(listed),
             Err(error) => {
                 tracing::warn!(
@@ -198,14 +198,13 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
     Ok(erase::purge_round_robin(host, backlogs, shutdown, totals).await)
 }
 
-/// The expired keys of one schema, hash by hash. `None` when the schema is
-/// absent, has no usable range field, or holds nothing expired.
-async fn list_expired(
+/// Prepare one schema cursor without collecting expired keys. `None` means
+/// the schema is absent or has no usable range field.
+async fn prepare_backlog(
     host: &Host,
     schema_name: &str,
     policy: SchemaRetentionPolicy,
     now: u64,
-    shutdown: &AtomicBool,
 ) -> Result<Option<Backlog>, String> {
     let Some(schema) = host
         .db
@@ -216,14 +215,10 @@ async fn list_expired(
         return Ok(None);
     };
     let cutoff = now.saturating_sub(policy.ttl_seconds);
-    let mut expired = match &schema.schema_type {
-        DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => host
-            .db
-            .db_ops()
-            .schemas()
-            .expired_schema_retention_keys(schema_name, cutoff)
-            .await
-            .map_err(|e| e.to_string())?,
+    let source = match &schema.schema_type {
+        DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => {
+            discovery::Source::Ages { after: None }
+        }
         DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange => {
             let Some(range_field) = schema
                 .key
@@ -246,76 +241,24 @@ async fn list_expired(
                 hash_partitions.sort();
                 hash_partitions.dedup();
             }
-            query_expired_keys(
-                host,
-                schema_name,
-                &schema,
-                &range_field,
-                &hash_partitions,
-                cutoff,
-                shutdown,
-            )
-            .await?
+            if matches!(schema.schema_type, DeclarativeSchemaType::Range) {
+                hash_partitions = vec![String::new()];
+            }
+            discovery::Source::Range {
+                field: range_field,
+                hashes: hash_partitions,
+                partition: 0,
+                after: None,
+            }
         }
     };
-    expired.sort_by(partition_then_age);
-    Ok((!expired.is_empty()).then(|| {
-        Backlog::new(
-            schema_name.to_string(),
-            schema.schema_type.clone(),
-            schema.runtime_fields.len(),
-            cutoff,
-            expired,
-        )
-    }))
-}
-
-async fn query_expired_keys(
-    host: &Host,
-    schema_name: &str,
-    schema: &DeclarativeSchemaDefinition,
-    range_field: &str,
-    hash_partitions: &[String],
-    cutoff: u64,
-    shutdown: &AtomicBool,
-) -> Result<Vec<KeyValue>, String> {
-    // The read starts at the lowest dated key, so a key below it (for example
-    // one that starts with `-` or `/`) is never selected.
-    let first_key = "0".repeat(AGE_KEY_DIGITS);
-    let cutoff_key = format!("{cutoff:0AGE_KEY_DIGITS$}");
-    let filters: Vec<HashRangeFilter> = match &schema.schema_type {
-        DeclarativeSchemaType::Range => vec![HashRangeFilter::RangeRange {
-            start: first_key,
-            end: cutoff_key,
-        }],
-        DeclarativeSchemaType::HashRange => hash_partitions
-            .iter()
-            .map(|hash| HashRangeFilter::HashRangeRange {
-                hash: hash.clone(),
-                start: first_key.clone(),
-                end: cutoff_key.clone(),
-            })
-            .collect(),
-        DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single => Vec::new(),
-    };
-    let mut keys = Vec::new();
-    for filter in filters {
-        keys.extend(
-            discovery::expired_range_keys(
-                host,
-                schema_name,
-                range_field,
-                &filter,
-                &schema.schema_type,
-                cutoff,
-                shutdown,
-            )
-            .await?,
-        );
-    }
-    keys.sort_by(partition_then_age);
-    keys.dedup();
-    Ok(keys)
+    Ok(Some(Backlog::new(
+        schema_name.to_string(),
+        schema.schema_type.clone(),
+        schema.runtime_fields.len(),
+        cutoff,
+        source,
+    )))
 }
 
 /// Order keys by hash, then by range (oldest first within one hash).

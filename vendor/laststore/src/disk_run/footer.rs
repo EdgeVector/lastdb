@@ -2,7 +2,7 @@
 
 use super::codec::{corrupt, get_key, get_len, get_slice, get_varint, put_key, put_varint};
 use super::MAX_RUN_KEY_BYTES;
-use crate::Result;
+use crate::{Error, Result};
 use uuid::Uuid;
 
 const MAGIC: [u8; 8] = *b"LDRUN\x01\0\0";
@@ -105,6 +105,59 @@ pub(super) fn get_refs(bytes: &[u8], at: &mut usize) -> Result<Vec<BlockRef>> {
     Ok(refs)
 }
 
+/// Backup-only decode admission includes the retained input, reference entries,
+/// and every expanded prefix key. No key buffer grows before that admission.
+pub(super) fn get_refs_bounded(
+    bytes: &[u8],
+    at: &mut usize,
+    maximum: u64,
+) -> Result<Vec<BlockRef>> {
+    let count = get_len(bytes, at, MAX_ENTRIES)?;
+    let entries = count
+        .checked_mul(std::mem::size_of::<BlockRef>())
+        .ok_or(Error::ReadBudgetExceeded)?;
+    let mut used = admit(admit(0, bytes.len(), maximum)?, entries, maximum)?;
+    let mut refs: Vec<BlockRef> = Vec::new();
+    refs.try_reserve_exact(count)
+        .map_err(|_| Error::ReadBudgetExceeded)?;
+    for _ in 0..count {
+        let previous = refs
+            .last()
+            .map_or(&[][..], |entry| entry.first_key.as_slice());
+        let shared = get_len(bytes, at, previous.len())?;
+        let suffix_len = get_len(bytes, at, MAX_RUN_KEY_BYTES - shared)?;
+        let suffix = get_slice(bytes, at, suffix_len)?;
+        let key_len = shared
+            .checked_add(suffix_len)
+            .ok_or(Error::ReadBudgetExceeded)?;
+        used = admit(used, key_len, maximum)?;
+        let number = get_varint(bytes, at)?;
+        let offset = get_varint(bytes, at)?;
+        let len = u32::try_from(get_varint(bytes, at)?).map_err(|_| corrupt("block length"))?;
+        let mut key = Vec::new();
+        key.try_reserve_exact(key_len)
+            .map_err(|_| Error::ReadBudgetExceeded)?;
+        key.extend_from_slice(&previous[..shared]);
+        key.extend_from_slice(suffix);
+        if refs.last().is_some_and(|prev| prev.first_key >= key) {
+            return Err(corrupt("block entries are not ascending"));
+        }
+        refs.push(BlockRef {
+            first_key: key,
+            number,
+            offset,
+            len,
+        });
+    }
+    Ok(refs)
+}
+
+fn admit(used: u64, bytes: usize, maximum: u64) -> Result<u64> {
+    used.checked_add(u64::try_from(bytes).map_err(|_| Error::ReadBudgetExceeded)?)
+        .filter(|value| *value <= maximum)
+        .ok_or(Error::ReadBudgetExceeded)
+}
+
 /// The authenticated summary in the top block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Top {
@@ -138,6 +191,42 @@ impl Top {
         if at != bytes.len() {
             return Err(corrupt("trailing bytes in top block"));
         }
+        Ok(Self {
+            records,
+            data_blocks,
+            max_payload,
+            indexes,
+            last_key,
+        })
+    }
+
+    /// The bounded backup reader keeps the source payload and decoded top
+    /// together, so both count before any expanded key allocation.
+    pub(super) fn decode_bounded(bytes: &[u8], maximum: u64) -> Result<Self> {
+        let mut at = 0;
+        let records = get_varint(bytes, &mut at)?;
+        let data_blocks = get_varint(bytes, &mut at)?;
+        let max_payload = get_varint(bytes, &mut at)?;
+        let indexes = get_refs_bounded(bytes, &mut at, maximum)?;
+        let entries = indexes
+            .capacity()
+            .checked_mul(std::mem::size_of::<BlockRef>())
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let mut used = admit(admit(0, bytes.len(), maximum)?, entries, maximum)?;
+        for entry in &indexes {
+            used = admit(used, entry.first_key.capacity(), maximum)?;
+        }
+        let last_len = get_len(bytes, &mut at, MAX_RUN_KEY_BYTES)?;
+        admit(used, last_len, maximum)?;
+        let last = get_slice(bytes, &mut at, last_len)?;
+        if at != bytes.len() {
+            return Err(corrupt("trailing bytes in top block"));
+        }
+        let mut last_key = Vec::new();
+        last_key
+            .try_reserve_exact(last_len)
+            .map_err(|_| Error::ReadBudgetExceeded)?;
+        last_key.extend_from_slice(last);
         Ok(Self {
             records,
             data_blocks,

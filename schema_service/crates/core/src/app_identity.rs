@@ -84,6 +84,11 @@ pub struct AppIdentityConfig {
     /// offline mechanism the design's "redeploy schema_service" remedy
     /// relies on for key compromise. Refreshed on deploy.
     pub revoked_dev_pubkeys: HashSet<String>,
+    /// Verifier Ed25519 public key (base64) that is allowed to write
+    /// compatibility rows. Only signatures from this key are accepted
+    /// on `POST /v2/releases/{release_id}/compat`. Set from
+    /// `APP_REGISTRY_VERIFIER_PUBKEY` env var.
+    pub verifier_pubkey: Option<String>,
 }
 
 impl Default for AppIdentityConfig {
@@ -92,6 +97,7 @@ impl Default for AppIdentityConfig {
             deployment_env: Env::Dev,
             trusted_roots: HashMap::new(),
             revoked_dev_pubkeys: HashSet::new(),
+            verifier_pubkey: None,
         }
     }
 }
@@ -104,6 +110,8 @@ impl AppIdentityConfig {
     ///   KMS GetPublicKey output of the `exemem-app-identity-root` key).
     /// - `APP_IDENTITY_REVOKED_DEV_PUBKEYS` — comma-separated base64
     ///   Ed25519 dev pubkeys to refuse.
+    /// - `APP_REGISTRY_VERIFIER_PUBKEY` — base64 Ed25519 public key of
+    ///   the verifier identity that can write compatibility rows.
     pub fn from_env() -> Self {
         let deployment_env = deployment_env_from_process();
         let trusted_roots = std::env::var("APP_IDENTITY_ROOT_PUBKEYS")
@@ -120,10 +128,21 @@ impl AppIdentityConfig {
                     .collect()
             })
             .unwrap_or_default();
+        let verifier_pubkey = std::env::var("APP_REGISTRY_VERIFIER_PUBKEY")
+            .ok()
+            .and_then(|s| {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            });
         Self {
             deployment_env,
             trusted_roots,
             revoked_dev_pubkeys,
+            verifier_pubkey,
         }
     }
 

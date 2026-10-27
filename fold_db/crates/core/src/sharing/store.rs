@@ -1,4 +1,4 @@
-use super::types::{PendingDelivery, ShareRule, ShareSubscription, StagedDeliveryArtifact};
+use super::types::{PendingDelivery, ShareRule, ShareSubscription};
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
 use crate::storage::KvStore;
@@ -34,29 +34,6 @@ pub async fn list_share_subscriptions_in_ops(
     ops: &DbOperations,
 ) -> Result<Vec<ShareSubscription>, FoldDbError> {
     collect_namespace(ops, SHARE_SUB_TREE, "share subscriptions").await
-}
-
-pub async fn store_pending_delivery_in_ops(
-    ops: &DbOperations,
-    delivery: &PendingDelivery,
-) -> Result<(), FoldDbError> {
-    let store = namespace(ops, SHARE_DELIVERY_OUTBOX_TREE).await?;
-    let key = format!("delivery:{}", delivery.delivery_id);
-    let value = serde_json::to_vec(delivery)?;
-    store.put(key.as_bytes(), value).await?;
-    Ok(())
-}
-
-pub async fn store_staged_delivery_artifact_in_ops(
-    ops: &DbOperations,
-    delivery_id: &str,
-    artifact: &StagedDeliveryArtifact,
-) -> Result<(), FoldDbError> {
-    let store = namespace(ops, SHARE_DELIVERY_OUTBOX_TREE).await?;
-    let key = format!("delivery_artifact:{delivery_id}");
-    let value = serde_json::to_vec(artifact)?;
-    store.put(key.as_bytes(), value).await?;
-    Ok(())
 }
 
 pub async fn list_pending_deliveries_in_ops(
@@ -102,18 +79,6 @@ pub async fn get_pending_delivery_in_ops(
 ) -> Result<Option<PendingDelivery>, FoldDbError> {
     let store = namespace(ops, SHARE_DELIVERY_OUTBOX_TREE).await?;
     let key = format!("delivery:{delivery_id}");
-    Ok(match store.get(key.as_bytes()).await? {
-        Some(value) => Some(serde_json::from_slice(&value)?),
-        None => None,
-    })
-}
-
-pub async fn get_staged_delivery_artifact_in_ops(
-    ops: &DbOperations,
-    delivery_id: &str,
-) -> Result<Option<StagedDeliveryArtifact>, FoldDbError> {
-    let store = namespace(ops, SHARE_DELIVERY_OUTBOX_TREE).await?;
-    let key = format!("delivery_artifact:{delivery_id}");
     Ok(match store.get(key.as_bytes()).await? {
         Some(value) => Some(serde_json::from_slice(&value)?),
         None => None,

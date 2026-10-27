@@ -2,7 +2,7 @@
 
 Status: historical exact-read spike, 2026-10-17.
 The later [schema preload design](lastdb-schema-range-preload-design.md) supersedes its range recommendation.
-The [product receipts](proofs/schema-preload-product-20261017/) record the subsequent implementation and measurements.
+The [product receipts](https://github.com/EdgeVector/lastdb/tree/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-product-20261017/) record the subsequent implementation and measurements.
 
 The later [use-case design](lastdb-logical-warm-set-design.md) and
 [execution plan](lastdb-logical-warm-set-plan.md) define completeness for ranges,
@@ -207,13 +207,13 @@ The comparison measures those complete versions. It does not isolate one core me
 
 | Identity | Receipt |
 |---|---|
-| Before binary | [Preserved binary identity](proofs/core-model-warm-spike-20261017/before-binary.json) |
-| Initial after source and binary | [Initial source and binary hashes](proofs/core-model-warm-spike-20261017/candidate-source-initial.json) |
+| Before binary | [Preserved binary identity](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/before-binary.json) |
+| Initial after source and binary | [Initial source and binary hashes](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/candidate-source-initial.json) |
 | Final after source and binary | Final source and binary hashes (receipt not kept in this repository) |
-| Initial workload and configuration | [Inputs](proofs/core-model-warm-spike-20261017/run/inputs.json) and [exact driver sources](proofs/core-model-warm-spike-20261017/run/driver-sources/manifest.json) |
-| Product observations | [Owner counters and outcomes](proofs/core-model-warm-spike-20261017/run/observations.json) |
+| Initial workload and configuration | [Inputs](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run/inputs.json) and [exact driver sources](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run/driver-sources/manifest.json) |
+| Product observations | [Owner counters and outcomes](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run/observations.json) |
 | Detailed request receipts | Request records (receipt not kept in this repository) |
-| Source and build checks | [Initial checks](proofs/core-model-warm-spike-20261017/checks-initial.json) and [final checks](proofs/core-model-warm-spike-20261017/checks.json) |
+| Source and build checks | [Initial checks](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/checks-initial.json) and [final checks](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/checks.json) |
 
 All 112 query calls and 96 Hash item replies returned the expected values.
 The driver also checked keys, required metadata, page flags, flush, and normal reopen.
@@ -281,7 +281,7 @@ The final candidate repeats the same workload on another fresh synthetic home.
 This run contains one candidate node and no baseline node. It supplies behavior
 and cost observations for the final source. It is not a second paired comparison.
 
-The [final receipts](proofs/core-model-warm-spike-20261017/run-final/observations.json)
+The [final receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run-final/observations.json)
 record 56 query calls and 48 Hash item replies. All values and required metadata
 match. All six owned node stops return exit code zero. No call receives a refusal.
 
@@ -308,9 +308,9 @@ Dirty counts return to zero after flush. Only the two range calls establish
 pending disk work before and after their reads. All sampled holds remain zero.
 The earlier preflush and overlapping-call limits therefore still apply.
 
-The final [inputs](proofs/core-model-warm-spike-20261017/run-final/inputs.json),
+The final [inputs](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run-final/inputs.json),
 request receipts (receipt not kept in this repository),
-and [driver sources](proofs/core-model-warm-spike-20261017/run-final/driver-sources/manifest.json)
+and [driver sources](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/run-final/driver-sources/manifest.json)
 remain separate from the initial run.
 
 ### Checks and cleanup
@@ -320,8 +320,8 @@ The run uses ordinary product calls on generated data. It adds no test suite
 and does not use an existing home.
 
 The supported cleanup command removes only the two fresh owned synthetic roots.
-The [initial cleanup](proofs/core-model-warm-spike-20261017/cleanup.json) and
-[final cleanup](proofs/core-model-warm-spike-20261017/cleanup-final.json) each record
+The [initial cleanup](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/cleanup.json) and
+[final cleanup](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-model-warm-spike-20261017/cleanup-final.json) each record
 exit code zero. Both roots no longer exist. Product receipts remain here.
 
 ## Source locations

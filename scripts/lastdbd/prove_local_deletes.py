@@ -66,8 +66,6 @@ def mutation(schema, key, fields, kind):
 def validate_receipt(receipt, operation):
     require(receipt.get('ok') is True and receipt.get('success') is True, 'mutation_failed')
     require(receipt.get('durability') == 'durable', 'mutation_not_durable')
-    if operation == 'deleted':
-        require(receipt.get('local_committed') is True, 'delete_not_locally_committed')
     require(receipt.get('operations', {}).get(operation) == 1
             and receipt['operations'].get('total') == 1, 'mutation_count_mismatch')
     require(isinstance(receipt.get('mutation_id'), str) and bool(receipt['mutation_id']),
@@ -229,7 +227,7 @@ class Proof:
     def local_status(self):
         status = self.request('GET', '/api/status')
         require(status.get('ok') is True, 'status_not_ok')
-        require(status['status']['sync']['enabled'] is False, 'cloud_enabled')
+        require(status['status']['durability']['automatic_enabled'] is False, 'cloud_enabled')
         require(status['status']['build']['version'] == self.result['binaries']['lastdbd']['version'],
                 'daemon_version_changed')
 

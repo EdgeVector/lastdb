@@ -1,8 +1,5 @@
-//! AEAD frame primitives for Last Store encrypted chunk files.
-//!
-//! The default keyless store continues to write raw segment bytes. When a store
-//! is opened with a data key, group-commit batches are persisted as these
-//! authenticated frames.
+//! AEAD frame primitives. Every block of a disk format v2 run file and every
+//! `CURRENT` list is one of these authenticated frames.
 
 use crate::{Error, Result};
 use aes_gcm::aead::{AeadInPlace, KeyInit};
@@ -10,6 +7,9 @@ use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
+
+mod stream;
+pub(crate) use stream::VerifiedFrameReader;
 
 /// Magic prefix for encrypted Last Store frames.
 pub const MAGIC: [u8; 4] = *b"LSF1";
@@ -69,23 +69,6 @@ pub struct EncodedFrame {
     pub compression: FrameCompression,
 }
 
-/// Total encoded length of one frame, read from its clear authenticated header.
-pub fn encoded_len(frame: &[u8]) -> Result<usize> {
-    if frame.len() < HEADER_SIZE {
-        return Err(Error::Corrupt("bad frame header length".into()));
-    }
-    let (_, payload_len, _) = decode_header_prefix(&frame[..HEADER_SIZE])?;
-    HEADER_SIZE
-        .checked_add(payload_len)
-        .and_then(|n| n.checked_add(TAG_SIZE))
-        .ok_or_else(|| Error::Corrupt("frame length overflow".into()))
-}
-
-/// Cleartext header size for frame scanners.
-pub fn header_size() -> usize {
-    HEADER_SIZE
-}
-
 /// Minimum valid encoded frame length.
 pub fn min_encoded_len() -> usize {
     HEADER_SIZE + TAG_SIZE
@@ -105,6 +88,7 @@ pub fn encode_frame_with_stats(
     header: FrameHeader,
     payload: &[u8],
 ) -> Result<EncodedFrame> {
+    let compression_timing = crate::commit_timing::stage("frame_compression_us");
     let compressed = (payload.len() <= MAX_DECOMPRESSED_FRAME_BYTES)
         .then(|| zstd::bulk::compress(payload, ZSTD_LEVEL))
         .transpose()
@@ -121,6 +105,11 @@ pub fn encode_frame_with_stats(
     } else {
         payload.to_vec()
     };
+    drop(compression_timing);
+    crate::commit_timing::count("frame_input_bytes", payload.len() as u64);
+    crate::commit_timing::count("frame_stored_bytes", stored.len() as u64);
+    crate::commit_timing::count("frame_compressed_frames", u64::from(use_compressed));
+    let encryption_timing = crate::commit_timing::stage("frame_encryption_us");
     let flags = if use_compressed { FLAG_ZSTD } else { 0 };
     let header_bytes = encode_header(header, stored.len() as u64, flags);
     let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
@@ -130,7 +119,9 @@ pub fn encode_frame_with_stats(
     let tag = cipher
         .encrypt_in_place_detached(nonce, &header_bytes, &mut stored)
         .map_err(|_| Error::AeadAuthFail)?;
+    drop(encryption_timing);
 
+    let _assembly_timing = crate::commit_timing::stage("frame_assembly_us");
     let mut out = Vec::with_capacity(HEADER_SIZE + stored.len() + TAG_SIZE);
     out.extend_from_slice(&header_bytes);
     out.extend_from_slice(&stored);

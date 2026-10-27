@@ -11,6 +11,7 @@ use std::cmp::Ordering;
 #[serde(rename_all = "snake_case")]
 pub enum KeyOrderVersion {
     LegacyUtf8V1,
+    TypedScalarV1,
 }
 
 /// Captured once per schema read, never stored on each molecule key.
@@ -29,12 +30,27 @@ impl RangeKeyComparison {
         }
     }
 
+    pub fn typed(field_type: FieldValueType) -> Result<Self, String> {
+        ordered_type(&field_type)?;
+        Ok(Self {
+            field_type,
+            order: KeyOrderVersion::TypedScalarV1,
+        })
+    }
+
     /// Compare API coordinates using the order promised by their disk format.
     /// A declared Integer alone must not reinterpret existing UTF-8 files.
-    #[must_use]
-    pub fn compare(&self, left: &str, right: &str) -> Ordering {
+    pub fn compare(&self, left: &str, right: &str) -> Result<Ordering, String> {
         match self.order {
-            KeyOrderVersion::LegacyUtf8V1 => left.cmp(right),
+            KeyOrderVersion::LegacyUtf8V1 => Ok(left.cmp(right)),
+            KeyOrderVersion::TypedScalarV1 => self.compare_typed(left, right),
+        }
+    }
+
+    pub fn validate_value(&self, text: &str) -> Result<(), String> {
+        match self.order {
+            KeyOrderVersion::LegacyUtf8V1 => Ok(()),
+            KeyOrderVersion::TypedScalarV1 => self.canonical_value(text).map(|_| ()),
         }
     }
 

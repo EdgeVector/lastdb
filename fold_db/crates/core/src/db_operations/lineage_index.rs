@@ -13,11 +13,9 @@
 //!   Vec<String>` of derived UUIDs. "List all derivatives of X." This is the
 //!   redaction-case index.
 //!
-//! Both namespaces are skipped by store-level **capture**.
-//! `crate::sync::policy` lists them in `CAPTURE_SKIP_NAMESPACES`, which is
-//! about capture/snapshot only — both namespaces are still cloud-**backed
-//! up** (encrypted since #1153; not on the at-rest-exemption list, so
-//! `BACKUP_EXCLUDED_EXACT` doesn't touch them either). Rebuilding either
+//! Both namespaces are in the main run home. When the V2 byte backup is on
+//! (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
+//! connection), it copies them inside the encrypted run files. Rebuilding either
 //! index is possible by replaying local molecule state — see
 //! [`LineageIndex::verify_merkle_consistency`] for the consistency check used
 //! during replay to confirm stored sources match the derived molecule's

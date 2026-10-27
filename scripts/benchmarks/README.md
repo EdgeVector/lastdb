@@ -3,6 +3,7 @@
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
 It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
+The single-pass 1.5× total settled database-size limit also blocks merge.
 Build failures, rejected requests, incomplete measurements, and upload failures block completion.
 Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
@@ -108,6 +109,24 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
+The manual comparison also accepts `typed_ranges: true`.
+Both versions receive the same explicit String schema, values, blinded hashes, and OPE source configuration.
+The candidate stops after the seed and uses its matching `lastdb` CLI to create a separate typed V2 target.
+The converter must preserve every source data-file checksum and publish the exact typed marker.
+Only the candidate switches to that target before the normal reads and writes.
+The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
+For a typed-format before/after comparison, select `typed_ranges: both`.
+Each version then converts its independent stopped source with its own matching CLI.
+The request, growth, disk, and confirmation recipes retain that format on both sides.
+This option leaves ordinary PR measurements unchanged. The `false` and `true` choices retain their existing behavior.
+The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
+The retained sum excludes transient merge files. It does not establish peak disk use.
+The artifact retains the product output, CLI checksum, and Linux process resource measurements.
+The normal schema and encryption choices stay unchanged when this option is false.
+This comparison covers String ranges. Date, DateTime, Integer, and Boolean need their separate product operations.
+Typed comparison requires a GitHub-hosted runner and excludes the separate legacy-upgrade and active-TTL options.
+The benchmark build retains and verifies both matching programs. It never reuses an unverified companion CLI.
+
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads and exact compiled baseline programs.
 Main pushes build and save the accepted candidate before baseline work or measurements.
@@ -165,12 +184,10 @@ The cases run in this order on each fresh generated home:
 Writes use durable batches of at most 128 records. Reads use at most 64 exact keys per call.
 Each write requires its complete durable ack and a keyed read of the new values.
 Each case records an initial checkpoint and one checkpoint after each round.
-A checkpoint requires a durable flush. On a v1 home, it then requires an explicit full LastDB compaction with zero reclaim grace.
-The compaction receipt must confirm complete reclaim. These settings affect only the generated home.
-A v2 home has no explicit compaction. Its checkpoint waits until the disk size stays constant for three seconds, within 90 seconds.
-After compaction or the v2 wait, keyed reads verify all known records and their latest values before the idle period.
+A checkpoint requires a durable flush. A v2 home has no explicit compaction.
+The checkpoint then waits until the disk size stays constant for three seconds, within 90 seconds.
+After the wait, keyed reads verify all known records and their latest values before the idle period.
 The normal daemon memory limits and automatic maintenance stay enabled.
-On a v1 home, this recipe measures retained space after explicit compaction. It does not measure the default retention policy.
 
 ### Active TTL latency comparison
 
@@ -189,20 +206,19 @@ The result uses its own homes and stays separate from the standard benchmark met
 - `no-policy`: no retention policy, sweep disabled.
 - `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
 - `active-sweep`: the same policies, default TTL batch size and duty share.
-- `active-sweep-compact`: the active sweep plus one explicit full compaction during the write window.
-  A v2 home has no explicit compaction. In this state, its automatic run merges run during the write window.
+- `active-sweep-compact`: the active sweep with the automatic run merges during the write window.
+  A v2 home has no explicit compaction.
 
 CAUTION: The CI sampler interval is one second. The normal sampler interval remains unchanged.
 The Hash policy lasts one hour, so the accepted fresh keys must survive the measurement.
 The old HashRange keys expire from their original range times.
 Every active case requires committed TTL purge batches planned during the measured write window.
-On a v1 home, the compaction case also requires an actual compaction response and an intersecting request window.
 These checks establish overlap with the case; they do not claim that every request meets a TTL batch.
-The retained ledger and compaction timestamps describe that exposure.
+The retained ledger timestamps describe that exposure.
 Exact keyed reads verify every accepted fresh value after the measured window.
 Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
 Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
-A v1 generated home undergoes full compaction before the final fresh-value reads. Every home restarts before those reads.
+Every home restarts before the final fresh-value reads.
 These calls use ordinary generated records. They inject no damaged age entries or active generations.
 Payload construction and validation stay outside request latency. Throughput includes client overhead.
 Request phase coverage stays explicit; omitted phases do not mean zero wait.
@@ -242,38 +258,89 @@ The report separates allocated space before and after compaction. These checkpoi
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It selects `LASTDB_DISK_FORMAT=2` for both generated homes and verifies the format-3 node marker.
-The ordinary speed and resource passes keep the product default format.
-Since phase V3, the product default for a new home is v2. The setting stays so that a baseline program from before V3 also makes a v2 home.
+It verifies the format-3 node marker of both generated homes. Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
-It uses two alternating pairs on PRs and three at night. Reads, updates, and inserts use the same four generated fields.
+It uses one baseline/candidate pair on PRs and at night, with no automatic disk-size repeat.
+Reads, updates, inserts, and deletes use the same four generated fields.
+Before deletes, the driver extends the known corpus to at least **10 MiB of logical atom data on PRs** or **40 MiB nightly**.
+It adds at most 128 records per batch and records the actual byte count. The seed has a five-minute and 512-batch bound.
+The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
+Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
+Logical atom bytes and the atom count must decrease after each delete round.
+Each delete checkpoint also records a bounded, complete inventory of current storage collections.
+The inventory follows the size sample and does not alter the measured bytes.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
-The v2 engine keeps its default automatic run merges. The pass does not request the v1 compaction command.
+The v2 engine keeps its default automatic run merges.
+The isolated size pass enables native counters and records physical published, stale, held, and temporary file totals at each checkpoint.
+It does not request explicit cleanup. Read and write speed measurements keep their normal settings.
+This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search off before and after each run.
+Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
+Historical programs that lack the Search-off status cannot satisfy this required size pass.
 
 The ratio is retained disk bytes divided by logical atom bytes:
 
-- Retained disk uses the greater of whole-home file lengths and allocated file blocks.
+- Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
+  The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
-- Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
+- The required maximum ratio includes every settled checkpoint in the single candidate run.
+  The report states the room below the cap in bytes and as a percent of the limit at each case's highest ratio.
 
-The advisory ceiling is **1.5×**. Equality is within the budget.
-CI also notes a final retained-disk increase of **at least 10% and 64 KiB** against the base commit.
+The required ceiling is **1.5×**. Equality is within the budget.
+This is total database size. For example, 10 MiB of logical atoms permits at most 15 MiB of database files.
+After deletes, the denominator is the logical data that remains.
+CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
-Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
-Only the same case and measure above its limit in both comparisons produces a warning.
-Excess size stays advisory. Invalid measurements, an unstable checkpoint, and failed uploads block `benchmark-complete`.
-CI warns above 1.5× even when the base also exceeds that ceiling. This states current excess, not PR causation.
+Any candidate checkpoint above 1.5× fails the report step and the required `benchmark-complete` check after one pass.
+CI retains the measurements and verified upload even when this limit fails. The failure blocks merge.
+Relative database and Search queue growth stays advisory, with a notice from this single size pass.
+Invalid measurements, an unstable checkpoint, and failed uploads also block `benchmark-complete`.
+The absolute limit fails even when the base also exceeds 1.5×. This states current excess, not PR causation.
 
 The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
-Do not compare these ratios with the v1 growth pass or with a different workload.
+Do not compare these ratios with a different workload.
 
 ## Request phases
+
+### Optional Search queue growth
+
+Search delivery is off by default. `lastdbd --enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
+The live queue has a default cap of 64 MiB of batch file lengths and 4,096 files.
+At capacity, delivery stops with a durable rebuild marker. Database writes continue.
+See [the Search option and recovery policy](../../docs/lastdb-optional-search.md).
+
+Each measured run also compares default-off and explicit enabled modes of the verified candidate.
+Historical manual comparisons opt into `search_queue` only for a candidate that supports the option.
+PRs use 512 records, three full update rounds, two alternating pairs, and a 1 MiB queue cap.
+Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.
+No Search consumer runs. A further full update after reopen verifies writes after saturation.
+The artifact retains the policy status, keyed-value checks, size categories, shutdown and cleanup receipts.
+Only the same limit finding in the first two independent mode runs produces an advisory warning.
+Incomplete measurements fail completion; size findings stay advisory.
+
+The resource-growth disk fields now describe database storage. Separate queue and whole-home columns retain total disk visibility.
+Before/after comparisons use the same driver and category rules. Do not compare an older whole-home ratio with the database ratio.
+
+### Optional v2 disk excess investigation
+
+The manual comparison accepts `disk_excess`. It adds a separate generated-data pass with the verified programs.
+The investigation PR branch `perf/investigate-disk-excess-20261026` also enables that pass.
+Ordinary PRs, main pushes, and nightly runs keep their existing recipes and advisory policy.
+The diagnostic uses two alternating pairs at 512 and 16,384 seed records, with three complete update rounds.
+It records size after updates, after 30 idle seconds, and after a stop and reopen of the same owned home.
+Every state verifies all generated keys and their current values. The artifact retains file lengths and allocated blocks by relative path.
+
+The final `GET /api/db/inventory` supplies live key-class sizes and atom-counter facts.
+CAUTION: This owner report writes attribution-ledger records. It runs after all original size observations.
+The diagnostic records its extra disk cost separately and checks that the logical atom total stays unchanged.
+Its class sizes describe decrypted live records; they are not physical file sizes or a complete report of every namespace.
+The pass has a 40-minute deadline. Its source revisions, executable hashes, driver hashes, data recipe, and raw results stay in the verified artifact.
+It does not force compaction, change retention, relax the 1.5× ceiling, or use primary data.
 
 Each measured call carries a unique request ID.
 After each write case, the driver requests the current request records from the explicit diagnostic status route.
@@ -326,17 +393,6 @@ The scope count must equal the actual successful write-call count for that case.
 Missing or ambiguous evidence fails the diagnostic capture.
 Each physical commit enters the totals once, even when it serves several requests.
 The artifact retains request counts, phase coverage, physical counts, and the slowest native records.
-The parent section uses exact summed integer counters from the same accepted physical commits; means are for display only.
-Each tree kind separates tracked and untracked lifetime-accounting modes. Those modes do not identify foreground versus compaction.
-Root and nonroot parent visits include child-count bands, levels 1–7, and same-generation versus older-generation counts.
-Older-generation does not mean published: a private compaction base can contain older pages.
-For successful captures, started and completed edit calls match the root-leaf plus root-parent visits.
-Visited parents equal reconstructed parent inputs. Parent output equals visited parents plus split extra pages plus added-level pages.
-From-root-input output can split and does not necessarily describe final roots. Low-level output also includes bulk writer pages.
-A foreground Publisher batch reconciles existing edits, template creates, and bulk creates with its changed collection/hash count.
-The probe counts inserted, different, and identical explicit replacement values. Identical values alone do not prove an unchanged leaf.
-These are bounded events, not a distinct-page census. Source review supplies the one-visit recursion and one-edit-per-hash interpretation.
-Missing old parent families show unreported. Partial families, invalid inputs, and failed exact reconciliations reject the diagnostic summary.
 Missing phase fields stay unreported. Parent and child phase totals can overlap.
 The physical request count can include background work. It is not an exclusive cost for each client call.
 
@@ -370,7 +426,8 @@ A new suspect in the repeat produces no warning because it lacks confirmation. C
 Both passes retain their raw results and comparisons in the same artifact, under each suite's `confirmation/` directory.
 The artifact also retains `repeat-plan.json` and `advisory-confirmation.json` for the decision.
 An absent, failed, invalid, or mismatched required repeat means incomplete evidence and fails `benchmark-complete`.
-The notice does not change the exit status. No speed limit enters branch protection.
+Speed and relative-growth notices do not change the exit status. No speed limit enters branch protection.
+The absolute disk-size limit uses one pass and fails `benchmark-complete` through the measurement job's result.
 
 Cold means a LastDB warm-set miss. The operating system file cache stays uncontrolled.
 The workflow does not claim a physical-device cold read.
@@ -384,3 +441,22 @@ Files and directories removed before their size read contribute no bytes to that
 The standard insert and single-record update p99 use only 32 samples per run.
 The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.
+
+### Shared-seed cold-read comparison
+
+`cold-shared-seed.yml` is a separate CI-only, manually dispatchable comparison.
+Its defaults revisit the exact before/after programs of app-selector PR #436.
+It seeds once with the baseline, observes stable V2 files, requires a clean durable
+shutdown, and makes eight independent byte-verified copies of that stopped home.
+Four pairs alternate baseline/candidate order. Each clone measures the existing
+cold/1 and cold/32 cases, retaining every opening request. Both programs must open
+format V2, preserve every inherited run file, and record exactly one bounded boot
+metadata append (the clean-stop re-arm). New metadata bytes are not claimed identical.
+Unexpected startup rewrites, removals, or differing append sizes fail. During each
+timed case, `CURRENT` and all post-boot run files must stay unchanged, with an empty
+logical warm set, positive disk-payload receipts, a fixed generation/frontier,
+and exactly the same request sequence. Raw work-counter differences are reported.
+Content verification reads files before timing, so this is logical-record-cold,
+not physical-device-cold. The standard startup-tail recipe stays unchanged.
+The snapshot and its generated credentials are never uploaded; only fingerprints,
+request receipts, validation results, and timings enter the verified CI artifact.

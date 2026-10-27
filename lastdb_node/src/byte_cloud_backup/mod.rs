@@ -1,4 +1,5 @@
 //! Explicit V2 byte backup. The native format remains a client responsibility.
+mod connection;
 mod control;
 mod credentials;
 mod invocation;
@@ -6,13 +7,13 @@ mod model;
 mod publication;
 mod retry;
 mod source;
-pub mod standalone;
 mod store;
 mod transfer;
 mod wait;
 mod worker;
 
 pub use crate::backup_runtime::{BackupError, BackupRuntime};
+pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
 pub use control::request;
 pub(crate) use control::status;
 pub use credentials::client_from_home;

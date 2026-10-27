@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "db_cleanup_cmds.rs"]
+mod db_cleanup_cmds;
+pub(crate) use db_cleanup_cmds::*;
+
 #[path = "db_delete_marker_cmds.rs"]
 mod db_delete_marker_cmds;
 pub(crate) use db_delete_marker_cmds::*;
@@ -7,10 +11,6 @@ pub(crate) use db_delete_marker_cmds::*;
 #[path = "db_reap_unsealed_cmds.rs"]
 mod db_reap_unsealed_cmds;
 pub(crate) use db_reap_unsealed_cmds::*;
-
-#[path = "db_pin_log_cmds.rs"]
-mod db_pin_log_cmds;
-pub(crate) use db_pin_log_cmds::*;
 
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
@@ -59,7 +59,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         ));
     }
     match action {
-        DbCommand::Inspect(action) => db_inspect_command(&home, &socket, action),
+        DbCommand::Inspect(action) => db_inspect_command(&socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
@@ -94,8 +94,29 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
+        DbOfflineCommand::ConvertTypedRanges {
+            target_home,
+            source_hash_encoding,
+            source_range_encoding,
+            resume,
+            max_records,
+            max_metadata_mib,
+            json,
+        } => lastdb_node::offline_range_conversion::convert(
+            &lastdb_node::offline_range_conversion::RangeConversionArgs {
+                source_home: home,
+                target_home: &target_home,
+                source_hash_encoding: &source_hash_encoding,
+                source_range_encoding: &source_range_encoding,
+                resume,
+                max_records,
+                max_metadata_mib,
+                json,
+            },
+        ),
         DbOfflineCommand::InspectRangeConversion {
             source_range_encoding,
+            target_range_encoding,
             max_records,
             max_metadata_mib,
             json,
@@ -103,17 +124,12 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             &lastdb_node::offline_range_inventory::RangeInventoryArgs {
                 home,
                 source_range_encoding: &source_range_encoding,
+                target_range_encoding: &target_range_encoding,
                 max_records,
                 max_metadata_mib,
                 json,
             },
         ),
-        DbOfflineCommand::PrepareNativeTransfer {
-            source_home,
-            i_know_this_is_primary,
-        } => {
-            lastdb_node::native_transfer_target::prepare(&source_home, home, i_know_this_is_primary)
-        }
         DbOfflineCommand::Recount {
             execute,
             scopes,

@@ -18,7 +18,7 @@
 //! records, then CAS deletes. A crash between them can leave a CAS file that
 //! nothing references, but never a reference to a CAS file that is not there.
 
-use super::physical::{Physical, PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
+use super::physical::{PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
 use super::*;
 use laststore::disk_run::home::RunHome;
 
@@ -44,11 +44,9 @@ impl PackRuntime {
             Some(previous) => previous
                 .space()
                 .reserve_extension(&self.space_policy, batch_bytes),
-            None => laststore::disk_pack::maintenance::reserve_space(
-                v2.home.path(),
-                &self.space_policy,
-                batch_bytes,
-            ),
+            None => {
+                laststore::space::reserve_space(v2.home.path(), &self.space_policy, batch_bytes)
+            }
         }
         .map_err(map)?;
         Ok(write::PreparedCommit::for_run(
@@ -58,8 +56,8 @@ impl PackRuntime {
         ))
     }
 
-    /// The caller holds the write gate. An error fails the runtime, as a
-    /// failed v1 publication does: accepted writes did not become durable.
+    /// The caller holds the write gate. An error fails the runtime: accepted
+    /// writes did not become durable.
     pub(super) fn commit_run(
         &self,
         v2: &V2Home,
@@ -75,43 +73,33 @@ impl PackRuntime {
         }
         // The current roots hold this commit; a merge root holds the same data.
         let root = v2.current_root();
-        let _timing = laststore::commit_timing::stage("memory_publication_us");
+        let publication_timing = laststore::commit_timing::stage("memory_publication_us");
         let (generation, frontier) = (root.generation(), root.frontier());
-        self.install_committed(
-            PhysicalRoot::V2(root),
-            hidden_changes,
-            key_changes,
-            requests,
-        )?;
-        self.parts.observe_root(generation, frontier);
+        self.install_committed(root, hidden_changes, key_changes, requests)?;
+        self.last_root.observe(generation, frontier);
+        drop(publication_timing);
         drop(space);
         self.failed.store(false, Ordering::Release);
-        start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
+        start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.last_root));
         Ok(())
     }
 
     /// Start the merge thread when a home needs a merge, as after a crash
     /// during a base merge. Otherwise each commit starts it.
     pub(super) fn resume_merges(&self) {
-        let Physical::V2(v2) = &self.physical else {
-            return;
-        };
+        let v2 = &self.physical;
         if v2.home.needs_merge() || v2.cas.needs_merge() {
-            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
+            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.last_root));
         }
     }
 
     /// Replace the readable root with a merged root of the same frontier.
     /// It never waits: a busy view keeps its root until the next capture.
     pub(super) fn adopt_merged_root(&self) {
-        let Physical::V2(v2) = &self.physical else {
-            return;
-        };
-        let replaced = self
-            .view
-            .try_write()
-            .ok()
-            .and_then(|mut view| adopt(&mut view, v2.current_root(), &self.parts));
+        let replaced = self.view.try_write().ok().and_then(|mut view| {
+            let latest = self.physical.current_root();
+            adopt(&mut view, latest, &self.last_root)
+        });
         drop(replaced);
     }
 }
@@ -122,19 +110,14 @@ impl PackRuntime {
 fn adopt(
     view: &mut view::NativeReadView,
     latest: V2Root,
-    parts: &parts::PartsLedger,
+    last_root: &view::LastRoot,
 ) -> Option<PhysicalRoot> {
-    let PhysicalRoot::V2(held) = &view.current else {
-        return None;
-    };
+    let held = &view.current;
     if held.frontier() != latest.frontier() || held.generation() >= latest.generation() {
         return None;
     }
-    parts.observe_root(latest.generation(), latest.frontier());
-    Some(std::mem::replace(
-        &mut view.current,
-        PhysicalRoot::V2(latest),
-    ))
+    last_root.observe(latest.generation(), latest.frontier());
+    Some(std::mem::replace(&mut view.current, latest))
 }
 
 /// Commit one batch across the main and CAS homes in the safe order. For a
@@ -176,7 +159,7 @@ fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result
 fn start_merges(
     v2: &V2Home,
     view: Arc<RwLock<view::NativeReadView>>,
-    parts: Arc<parts::PartsLedger>,
+    last_root: Arc<view::LastRoot>,
 ) {
     let waiting = v2
         .retry_after
@@ -193,7 +176,7 @@ fn start_merges(
     let spawned = std::thread::Builder::new()
         .name("lastdb-run-merge".into())
         .spawn(move || {
-            let adopted = Adopted { view, parts };
+            let adopted = Adopted { view, last_root };
             merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after);
         });
     match spawned {
@@ -228,7 +211,7 @@ const HELD_POLL: std::time::Duration = std::time::Duration::from_millis(2);
 /// Where the merge thread installs merged roots.
 struct Adopted {
     view: Arc<RwLock<view::NativeReadView>>,
-    parts: Arc<parts::PartsLedger>,
+    last_root: Arc<view::LastRoot>,
 }
 
 impl Adopted {
@@ -246,7 +229,7 @@ impl Adopted {
             .view
             .write()
             .ok()
-            .and_then(|mut view| adopt(&mut view, latest, &self.parts));
+            .and_then(|mut view| adopt(&mut view, latest, &self.last_root));
         drop(replaced);
     }
 }
@@ -261,18 +244,29 @@ fn merge_until_settled(
     loop {
         'steps: while !stop.load(Ordering::Acquire) {
             let mut merged = false;
-            for weak in homes {
+            for (home_number, weak) in homes.iter().enumerate() {
                 let Some(home) = weak.upgrade() else {
                     break 'steps;
                 };
-                match home.merge_step() {
+                let (result, report) = laststore::commit_timing::measure(|| {
+                    let result = home.merge_step();
+                    if matches!(&result, Ok(Some(_))) {
+                        drop(home);
+                        laststore::commit_timing::during("v2_merge_root_adoption_us", || {
+                            adopted.install(homes);
+                        });
+                        // Adoption releases the view's previous root before
+                        // the existing pacing wait for readers' older roots.
+                        laststore::commit_timing::during("v2_merge_held_read_wait_us", || {
+                            wait_for_held_runs(weak, stop);
+                        });
+                    }
+                    result
+                });
+                super::timing::merge(report, &result, home_number);
+                match result {
                     Ok(Some(_)) => {
                         merged = true;
-                        drop(home);
-                        adopted.install(homes);
-                        // The view holds the merged root now, so only reads
-                        // that captured an older root keep the replaced runs.
-                        wait_for_held_runs(weak, stop);
                     }
                     Ok(None) => {}
                     Err(error) => {

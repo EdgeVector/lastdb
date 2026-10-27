@@ -50,20 +50,18 @@ mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
-mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
 mod writer_watch;
 
-pub(crate) use atoms::SealedAtom;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
     DwellStep, NetStep, DWELL_CHUNK,
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use codec::{decode_plain_atom, encode_plain_atom};
+pub(crate) use codec::decode_plain_atom;
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -85,9 +83,8 @@ pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{
-    record_digest, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
+    record_digest, slot_dir_prefix, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
 };
-pub(crate) use retired_intent_retention::RetiredIntentRetentionProof;
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
@@ -158,21 +155,13 @@ pub struct AtomStore {
     /// Legacy constructors leave this unset. Production construction and the
     /// drain tests attach it explicitly.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
-    /// Retired outcome roots commit exclusively; reclaim retains a shared fence
-    /// through its final deletion. Every clone shares the same fence.
-    retired_intent_retention_gate: Arc<tokio::sync::RwLock<()>>,
     /// Serialize protein membership selection and orphan reclamation across clones.
     protein_membership_gate: Arc<tokio::sync::Mutex<()>>,
-    /// When set (plain packaging homes), atom `content` is sealed at rest
-    /// while metadata stays plaintext. `None` leaves content unsealed (tests
-    /// / legacy dual-read of plain content).
+    /// The account key that seals a local CAS file blob (see
+    /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
+    /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
-    /// New-write format for nested atom content. Readers accept both formats.
-    atom_content_binary: bool,
-    /// True over a disk format v2 home: atom rows are plain JSON with no
-    /// content seal and no molecule key bundle name. The block seal of each
-    /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
-    plain_content: bool,
+    typed_ranges: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
@@ -326,13 +315,18 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
-        let codec = match self.molecule_keys.as_ref() {
-            Some(store) => store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
-                || self.key_codec.clone(),
-                |bundle| bundle.key_codec(&self.key_codec),
-            ),
-            None => self.key_codec.clone(),
-        };
+        let codec = self
+            .molecule_keys
+            .as_ref()
+            .map(|store| store.codec_for_molecule(molecule_uuid, &self.key_codec))
+            .transpose()?
+            .flatten();
+        if self.typed_ranges && codec.is_none() {
+            return Err(crate::schema::SchemaError::InvalidData(
+                "the typed molecule has no admitted range profile".into(),
+            ));
+        }
+        let codec = codec.unwrap_or_else(|| self.key_codec.clone());
         crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
             codec.key_order(),
         )?;

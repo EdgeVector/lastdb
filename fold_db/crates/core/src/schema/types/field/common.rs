@@ -57,7 +57,7 @@ pub struct FieldCommon {
     #[serde(default = "default_writable")]
     pub writable: bool,
     /// Org hash inherited from the parent schema.
-    /// When set, all Sled keys for this field's data are prefixed with `{storage_prefix}:`.
+    /// When set, all storage keys for this field's data are prefixed with `{storage_prefix}:`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_prefix: Option<String>,
 }

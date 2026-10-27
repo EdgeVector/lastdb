@@ -21,8 +21,9 @@
 //! base runs of 1/64 of the base each, so the peak is about 1.25 L. The file
 //! bytes follow when the runs compress alike. The bound leaves out the run
 //! of one large commit and the runs of commits during a base merge, and each
-//! trigger needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that
-//! much more.
+//! tier trigger needs [`MIN_BASE_MERGE_BYTES`]. Stale records have the smaller
+//! [`MIN_STALE_MERGE_BYTES`] floor, so deletes and replacements in a small
+//! home cannot retain a full MiB before compaction starts.
 //!
 //! The bound also takes a replaced run off the disk at once. A read that
 //! holds an older CURRENT keeps the runs that later steps replace, so one
@@ -62,8 +63,11 @@ pub const TIER_SHARE: u64 = 16;
 /// A base merge starts when the stale bytes are more than 1/8 of the record
 /// bytes.
 pub const STALE_SHARE: u64 = 8;
-/// Neither trigger fires below this many bytes.
+/// The tiered-byte trigger does not fire below this many bytes.
 pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
+/// Stale bytes need a smaller floor: one MiB can exceed the live data after
+/// deletes. Keep the relative stale share, with at most 64 KiB of slack.
+const MIN_STALE_MERGE_BYTES: u64 = 64 << 10;
 /// A base run holds about 1/64 of the base, inside the bounds below. With
 /// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB. The
 /// minimum keeps the two base runs of a step near 1/32 of a base of 16 MiB
@@ -74,7 +78,7 @@ const MAX_PIECE_BYTES: u64 = 1 << 30;
 /// Keys of one batch lookup when a run's hidden bytes are counted.
 const COUNT_KEYS: usize = 4096;
 
-enum Plan {
+pub(super) enum Plan {
     Tiered {
         level: usize,
         inputs: Vec<Arc<RunFile>>,
@@ -86,7 +90,7 @@ enum Plan {
 
 /// The next merge, or `None`. A run without a hidden count counts as zero;
 /// [`RunHome::merge_step`] counts every run first.
-fn plan(held: &Manifest) -> Option<Plan> {
+pub(super) fn plan(held: &Manifest) -> Option<Plan> {
     if let Some(level) = held.levels.iter().position(|l| l.len() >= MERGE_WIDTH) {
         let full = &held.levels[level];
         let inputs = full[full.len().saturating_sub(MAX_MERGE_INPUTS)..].to_vec();
@@ -106,10 +110,12 @@ fn plan(held: &Manifest) -> Option<Plan> {
                 .saturating_add(run.meta.tombstone_bytes)
         })
         .sum();
-    let over = |bytes: u64, share: u64| {
-        bytes > MIN_BASE_MERGE_BYTES && bytes.saturating_mul(share) > total
+    let over = |bytes: u64, share: u64, minimum: u64| {
+        bytes > minimum && bytes.saturating_mul(share) > total
     };
-    if !over(tier, TIER_SHARE) && !over(stale, STALE_SHARE) {
+    if !over(tier, TIER_SHARE, MIN_BASE_MERGE_BYTES)
+        && !over(stale, STALE_SHARE, MIN_STALE_MERGE_BYTES)
+    {
         return None;
     }
     // The oldest tiered runs: every tiered run left is newer than them.
@@ -128,31 +134,6 @@ fn piece_bytes(merging: &[Arc<RunFile>], base: &[Arc<RunFile>]) -> u64 {
 }
 
 impl RunHome {
-    /// Run one merge step: a tiered merge of a full level, the start or the
-    /// next step of a base merge. Returns `None` when the home needs no
-    /// merge. It first counts the hidden bytes of new tiered runs.
-    ///
-    /// Commits continue during a step; only its publish waits for a
-    /// commit's publish. Reads that hold an older CURRENT keep the input
-    /// files until they end. A crash during a base merge leaves a CURRENT
-    /// that names its progress, and the next step continues it.
-    pub fn merge_step(&self) -> Result<Option<RunMerge>> {
-        self.refuse_if_poisoned()?;
-        let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
-        // One state for the count and the plan: a run that a commit adds
-        // after it waits for the next step, so the plan sees counted runs.
-        let held = self.held();
-        self.count_hidden(&held)?;
-        let Some(plan) = plan(&held) else {
-            return Ok(None);
-        };
-        match plan {
-            Plan::Tiered { level, inputs } => self.merge_tiered(level, inputs),
-            Plan::Base(start) => self.base_step(start),
-        }
-        .map(Some)
-    }
-
     /// True when [`RunHome::merge_step`] has work: a new run to count, a
     /// full level, a base merge in progress, or a base merge trigger.
     pub fn needs_merge(&self) -> bool {
@@ -163,7 +144,7 @@ impl RunHome {
     /// Count the hidden bytes of each tiered run of `held` that has no count
     /// yet. Only merges change the runs older than a tiered run, and the
     /// caller holds the merge lock.
-    fn count_hidden(&self, held: &Manifest) -> Result<()> {
+    pub(super) fn count_hidden(&self, held: &Manifest) -> Result<()> {
         let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
         let tiered = held.tiered().count();
         for (at, run) in runs.iter().enumerate().take(tiered) {
@@ -255,7 +236,8 @@ impl RunHome {
 
     /// One step of a base merge. `start` names the tiered runs of a new
     /// base merge; `None` continues the base merge in progress.
-    fn base_step(&self, start: Option<Vec<Arc<RunFile>>>) -> Result<RunMerge> {
+    pub(super) fn base_step(&self, start: Option<Vec<Arc<RunFile>>>) -> Result<RunMerge> {
+        let _total = crate::commit_timing::stage("v2_base_merge_us");
         let held = self.held();
         let (merging, cut) = match &start {
             Some(runs) => (runs.clone(), None),
@@ -286,7 +268,9 @@ impl RunHome {
             self.write_base_pieces(&merging, taken, cut.as_deref(), upper.as_deref(), target)?;
         let records: u64 = pieces.iter().map(|run| run.meta.records).sum();
         let run_bytes: u64 = pieces.iter().map(|run| run.meta.file_bytes).sum();
-        let _publish = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let _publish = crate::commit_timing::during("v2_publish_lock_wait_us", || {
+            self.publish.lock().unwrap_or_else(|e| e.into_inner())
+        });
         self.refuse_if_poisoned()?;
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;

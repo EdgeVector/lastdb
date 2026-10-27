@@ -11,13 +11,13 @@ bench = false
 test = false
 # Phase D one-shot operator CLI: backfills `purpose_statement` on
 # every canonical schema persisted before Phase A. Invoked manually
-# (Sled-local for dev; S3 for prod) — never deployed as a Lambda.
+# against S3 — never deployed as a Lambda.
 # See `schema_service/README.md` for invocation.
 name = "schema_service_backfill_purpose"
 path = "src/bin/schema_service_backfill_purpose.rs"
 
 [dependencies]
-schema_service_core = { path = "../core", features = ["local-store"] }
+schema_service_core = { path = "../core" }
 schema_service_server_shared = { path = "../server_shared", features = ["fastembed"] }
 schema_service_s3 = { path = "../schema_service_s3" }
 observability = { workspace = true, features = ["otel"] }

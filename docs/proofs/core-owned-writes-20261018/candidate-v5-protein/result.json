@@ -1,1 +1,0 @@
-{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-protein-complete":1,"core-owned-queue-drained":2,"core-owned-read":14,"core-owned-write":4,"flush":2,"native-status":4,"owned-node-start":2,"owned-node-stop":2,"request":28},"role":"candidate","workflow":"protein"}

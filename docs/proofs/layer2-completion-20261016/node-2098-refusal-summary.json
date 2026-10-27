@@ -1,1 +1,0 @@
-[{"batch":64,"durability_requested":"durable","max_ms":5150.475708,"median_ms":5150.475708,"median_records_per_second":12.426036666980432,"operation":"write","p95_ms":null,"runs":1,"shape":null,"temperature":null,"variant":"candidate"}]

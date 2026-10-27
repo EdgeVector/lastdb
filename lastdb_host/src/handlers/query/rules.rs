@@ -2,10 +2,11 @@
 
 use std::cmp::Ordering;
 
+use fold_db::access::AccessContext;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::key_comparison::RangeKeyComparison;
+use fold_db::schema::types::key_comparison::{KeyComparisonContext, RangeKeyComparison};
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
-use fold_db::schema::types::KeyValue;
+use fold_db::schema::types::{KeyValue, QueryCursor, SchemaError};
 use serde_json::Value;
 
 use crate::qos::Lane;
@@ -37,6 +38,72 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
         ));
     }
     Ok(())
+}
+
+/// Canonical request coordinates and their continuation binding. No host state.
+pub(super) struct PreparedQuery {
+    pub(super) query: Query,
+    pub(super) cursor: Option<KeyValue>,
+    pub(super) binding: Option<String>,
+}
+
+/// Prepare the filter, validate the cursor tag, then normalize its key.
+/// The request supplies the captured contract after option validation.
+pub(super) fn prepare_comparison(
+    mut query: Query,
+    cursor: Option<QueryCursor>,
+    ctx: &AccessContext,
+    comparison: Option<&KeyComparisonContext>,
+) -> Result<PreparedQuery, HostError> {
+    if let Some(comparison) = comparison {
+        query.filter = comparison
+            .canonical_filter(query.filter.take())
+            .map_err(HostError::from)?;
+    }
+    let binding = comparison
+        .map(|comparison| {
+            comparison
+                .cursor_binding(&(
+                    &query.filter,
+                    &query.fields,
+                    query.include_tombstones,
+                    &query.sort_order,
+                    &ctx.db_locator,
+                    &ctx.storage_prefix,
+                ))
+                .map_err(HostError::from)
+        })
+        .transpose()?;
+    if let Some(cursor) = cursor.as_ref() {
+        match cursor.comparison.as_deref() {
+            Some(received) if binding.as_deref() != Some(received) => {
+                return Err(HostError::new(
+                    409,
+                    "cursor comparison context changed; restart from the first page",
+                ));
+            }
+            None if comparison.is_some_and(|comparison| !comparison.accepts_legacy_cursor()) => {
+                return Err(HostError::new(
+                    409,
+                    "legacy cursor cannot continue this key order; restart from the first page",
+                ));
+            }
+            _ => {}
+        }
+    }
+    let cursor = cursor.map(QueryCursor::into_key);
+    let cursor = match comparison {
+        Some(comparison) => cursor
+            .map(|key| comparison.canonical_key(key))
+            .transpose()
+            .map_err(HostError::from)?,
+        None => cursor,
+    };
+    Ok(PreparedQuery {
+        query,
+        cursor,
+        binding,
+    })
 }
 
 /// Validate an optional count and select a keyed window from known inputs.
@@ -88,20 +155,55 @@ pub(super) fn keyed_window(
     Ok(Some(window))
 }
 
+/// Sort with the caller's captured range rule, without ambient request state.
+/// Validate even a one-row response before any comparator can see a bad range.
+pub(super) fn sort_rows(
+    rows: &mut [Value],
+    sort_order: Option<&SortOrder>,
+    order_by: Option<&QueryOrderBy>,
+    range_comparison: Option<&RangeKeyComparison>,
+) -> Result<(), HostError> {
+    if let Some(comparison) = range_comparison {
+        for row in rows.iter() {
+            comparison
+                .validate_value(row["key"]["range"].as_str().unwrap_or(""))
+                .map_err(SchemaError::InvalidData)?;
+        }
+    }
+    let mut error = None;
+    rows.sort_by(|left, right| {
+        match compare_rows(left, right, sort_order, order_by, range_comparison) {
+            Ok(order) => order,
+            Err(detail) => {
+                error.get_or_insert(detail);
+                Ordering::Equal
+            }
+        }
+    });
+    match error {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
+}
+
 /// Compare response rows using only the supplied values and range rule.
 /// Field ordering uses the core's JSON order; otherwise the range is primary.
 /// Equal primary values use ascending range and then ascending hash ties, even
 /// when the caller requests descending order.
-pub(super) fn compare_rows(
+fn compare_rows(
     a: &Value,
     b: &Value,
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
     range_comparison: Option<&RangeKeyComparison>,
-) -> Ordering {
-    let compare_ranges = |left: &str, right: &str| match range_comparison {
-        Some(comparison) => comparison.compare(left, right),
-        None => left.cmp(right),
+) -> Result<Ordering, SchemaError> {
+    let a_range = a["key"]["range"].as_str().unwrap_or("");
+    let b_range = b["key"]["range"].as_str().unwrap_or("");
+    let range_order = match range_comparison {
+        Some(comparison) => comparison
+            .compare(a_range, b_range)
+            .map_err(SchemaError::InvalidData)?,
+        None => a_range.cmp(b_range),
     };
     let primary = if let Some(order_by) = order_by {
         let af = a
@@ -116,24 +218,16 @@ pub(super) fn compare_rows(
             _ => ordering,
         }
     } else {
-        let a_range = a["key"]["range"].as_str().unwrap_or("");
-        let b_range = b["key"]["range"].as_str().unwrap_or("");
         match sort_order {
-            Some(SortOrder::Desc) => compare_ranges(b_range, a_range),
-            _ => compare_ranges(a_range, b_range),
+            Some(SortOrder::Desc) => range_order.reverse(),
+            _ => range_order,
         }
     };
-    primary
-        .then_with(|| {
-            let a_range = a["key"]["range"].as_str().unwrap_or("");
-            let b_range = b["key"]["range"].as_str().unwrap_or("");
-            compare_ranges(a_range, b_range)
-        })
-        .then_with(|| {
-            let a_hash = a["key"]["hash"].as_str().unwrap_or("");
-            let b_hash = b["key"]["hash"].as_str().unwrap_or("");
-            a_hash.cmp(b_hash)
-        })
+    Ok(primary.then(range_order).then_with(|| {
+        let a_hash = a["key"]["hash"].as_str().unwrap_or("");
+        let b_hash = b["key"]["hash"].as_str().unwrap_or("");
+        a_hash.cmp(b_hash)
+    }))
 }
 
 /// Key/partition filters that do **not** require a full-schema product scan.

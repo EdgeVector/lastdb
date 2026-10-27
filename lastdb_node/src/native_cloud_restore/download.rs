@@ -51,9 +51,7 @@ pub(super) fn check_capacity(root: &Path, bytes: u64) -> Result<()> {
         .checked_mul(fs.f_frsize as u64)
         .ok_or(RestoreError::Limit("disk capacity"))?;
     let required = bytes
-        .checked_add(
-            laststore::disk_pack::maintenance::SpacePolicy::default().free_space_reserve_bytes,
-        )
+        .checked_add(laststore::space::SpacePolicy::default().free_space_reserve_bytes)
         .ok_or(RestoreError::Limit("disk capacity"))?;
     if available < required {
         return Err(RestoreError::Limit("disk capacity"));

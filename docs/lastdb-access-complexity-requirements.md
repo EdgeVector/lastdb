@@ -63,7 +63,7 @@ Ranges seek within one named hash and examine the required candidates in memory.
 They do not enumerate unrelated hashes or reload schema membership for each call.
 This policy adds no public query without a key; unselected schemas keep their current keyed routes.
 The selected route is built in the native engine. The policy remains opt-in.
-The [native write report](proofs/core-owned-writes-20261018/RESULTS.md) separates its product evidence from remaining runtime gaps.
+The [native write report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md) separates its product evidence from remaining runtime gaps.
 
 ## Forbidden: full scan
 

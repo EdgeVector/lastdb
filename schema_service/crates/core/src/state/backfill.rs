@@ -48,8 +48,8 @@ impl SchemaServiceState {
     /// but schemas already persisted before Phase A still carry
     /// `purpose_statement = None`. This method walks the in-memory
     /// registry, picks a value for each empty record, and rewrites it
-    /// via [`Self::persist_schema`] so both Sled (dev) and S3 (prod)
-    /// backends end up consistent with the Phase A default.
+    /// via [`Self::persist_schema`] so the backend (in-memory for dev, S3
+    /// for prod) ends up consistent with the Phase A default.
     ///
     /// For each candidate, the chosen value is:
     /// 1. `mapping[descriptive_name]` if a curated entry hits, else

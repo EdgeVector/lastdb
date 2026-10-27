@@ -1,9 +1,0 @@
-{
-  "batches": 4,
-  "items": 12,
-  "all_status_200": true,
-  "all_expected_counts": true,
-  "all_fields_present": true,
-  "all_values_correct": true,
-  "unresolved_rows": 0
-}

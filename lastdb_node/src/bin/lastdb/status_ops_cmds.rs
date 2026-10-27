@@ -32,9 +32,6 @@ pub(super) fn status(
         && health_err.is_some()
         && lastdb_node::crash_attribution::live_daemon_pid_alive(&home);
     let store_root = home.join("data");
-    let breakdown = status_plane_breakdown_with(json, contract, &store_root, |root| {
-        fold_db::mini_cutover::plane_breakdown_for_store_root(root)
-    });
 
     if contract {
         status_contract(&socket, running, json, probe_timeout)?;
@@ -45,15 +42,10 @@ pub(super) fn status(
         return status_json(&home, &socket, running, health_err, probe_timeout);
     }
 
-    let breakdown = breakdown
-        .as_ref()
-        .expect("text status always loads the offline plane inventory");
-
     let view = StatusView {
         home: &home,
         socket: &socket,
         store_root: &store_root,
-        breakdown,
         session_live: running || daemon_pid_alive,
     };
 
@@ -64,22 +56,6 @@ pub(super) fn status(
 
     view.print_serving(running, health_err, probe_timeout);
     Ok(StatusRun::Serving)
-}
-
-pub(super) fn status_plane_breakdown_with<F>(
-    json: bool,
-    contract: bool,
-    store_root: &Path,
-    walk: F,
-) -> Option<fold_db::mini_cutover::PlaneBreakdown>
-where
-    F: FnOnce(&Path) -> fold_db::mini_cutover::PlaneBreakdown,
-{
-    if json || contract {
-        None
-    } else {
-        Some(walk(store_root))
-    }
 }
 
 pub(super) fn safe_status_plane_fields() -> (serde_json::Value, serde_json::Value) {
@@ -156,10 +132,6 @@ pub(super) fn status_json(
             .as_str()
             .to_string()
     });
-    let capture = snapshot
-        .as_ref()
-        .and_then(|s| s.sync.capture.as_ref())
-        .cloned();
     let at_rest_compression = snapshot.as_ref().and_then(|s| s.at_rest_compression);
     let codec_policy = snapshot
         .as_ref()
@@ -183,15 +155,12 @@ pub(super) fn status_json(
         "daemon_build": daemon_build,
         "cli_build": lastdb_node::crash_attribution::build_version(),
         "build_agreement": build_agreement,
-        "capture": capture,
         "at_rest_compression": at_rest_compression,
         "codec_policy": codec_policy,
         "planes": planes,
         "plane_inventory": plane_inventory,
         "notes": [
             "planes is null by design — use `lastdb db inventory` for disk plane totals",
-            "capture pin_log_disk_bytes and reexport_disk_bytes are collection-directory \
-             stat walks, not compact dry-runs or key inventories",
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
              null daemon_build = daemon predates the field, build unknowable — not agreement",
         ],
@@ -208,114 +177,15 @@ pub(super) fn status_json(
     }
 }
 
-/// Human spotlight lines for named SOT + residue + unattributed + history-adjacent
-/// mass.
-///
-/// `residue:` carries only what the plane map CLASSIFIED as residue. Collections
-/// the map does not recognize get their own `unattributed:` line, which says so.
-/// Folding them into `residue:` — what this printed until 2026-09-06 — reported
-/// a 936.7 MiB collection of live data as reclaimable migration leftovers on
-/// the primary. `lastdb db inventory` already named them
-/// `UNKNOWN active planes`; `status` is the command operators actually run.
-pub(super) fn plane_sot_spotlight_lines(
-    breakdown: &fold_db::mini_cutover::PlaneBreakdown,
-) -> Vec<String> {
-    let report = breakdown.to_plane_map_report();
-    let mut lines = Vec::new();
-    if !report.sot_named.is_empty() {
-        let bits: Vec<String> = report
-            .sot_named
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!("  SOT named: {}", bits.join(" ")));
-    }
-    if !report.unknown_active_collections.is_empty() {
-        let bits: Vec<String> = report
-            .unknown_active_collections
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!(
-            "  unattributed: {} (not in the plane map; liveness unknown, not a reclaim target)",
-            bits.join(" ")
-        ));
-    }
-    lines
-}
-
 /// `status` lines describing the home's durable physical placement.
 ///
-/// Silent when there is no descriptor to read (a home that predates them, or
-/// one never opened) — `status` should not invent a layout it cannot see.
+/// Silent when the home has no disk format v2 node marker (one never opened):
+/// `status` should not invent a layout it cannot see.
 pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
-    match native_layout_status_line(store_root) {
-        Ok(Some(line)) => return vec![line],
-        Ok(None) => {}
-        Err(error) => return vec![format!("Layout: unreadable ({error})")],
-    }
-    let descriptor = match laststore::describe_home(store_root) {
-        Ok(Some(descriptor)) => descriptor,
-        Ok(None) => return Vec::new(),
-        Err(e) => return vec![format!("Layout: unreadable ({e})")],
-    };
-
-    let mut lines = vec![format!(
-        "Layout: {:?} key={:?} epoch={} groups={} packaging={:?}",
-        descriptor.layout_mode,
-        descriptor.hash_group_key,
-        descriptor.layout_epoch,
-        descriptor.group_count(),
-        descriptor.packaging,
-    )];
-
-    // The operator-facing consequence, not just the setting: under full-key
-    // placement `limit` cannot prune, so a partition read returning one row
-    // costs the same sweep as an unbounded one.
-    if descriptor.layout_mode == laststore::LayoutMode::HashGroup
-        && !descriptor.prunes_partition_reads()
-    {
-        lines.push(format!(
-            "  WARNING: full-key placement — every HashRange partition read visits \
-             all {} groups, and `limit` does not prune.",
-            descriptor.groups_per_partition_read()
-        ));
-    }
-    lines
+    run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The native fence deliberately rejects the legacy descriptor parser. Inspect
-/// its exact format through read-only metadata opens, without a reader lease or
-/// writer: `status` must not create files or contend with the serving node.
-fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String> {
-    use laststore::disk_pack::home::{DiskHome, LEGACY_FENCE_BYTES};
-
-    let fence = match std::fs::File::open(store_root.join("laststore-layout-v1")) {
-        Ok(file) => file,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Ok(run_layout_status_line(store_root));
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut bytes = Vec::new();
-    fence
-        .take(LEGACY_FENCE_BYTES.len() as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| error.to_string())?;
-    if bytes != LEGACY_FENCE_BYTES {
-        return Ok(None);
-    }
-    // Open validates the descriptor checksum, supported codecs, and CURRENT's
-    // binding to that descriptor. Real native corruption remains an error.
-    let home = DiskHome::open(&store_root.join("disk-pack")).map_err(|error| error.to_string())?;
-    let descriptor = home.descriptor();
-    Ok(Some(format!(
-        "Layout: native packed storage key=hash-prefix epoch={} groups=1024 fanout={}",
-        descriptor.layout_epoch, descriptor.hash_fanout
-    )))
-}
-
-/// A disk format v2 home has no layout file; its node marker names the run home.
+/// The node marker of a disk format v2 home names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
     (marker == b"format=3\nhome=disk-run\ncas=disk-cas\n").then(|| {

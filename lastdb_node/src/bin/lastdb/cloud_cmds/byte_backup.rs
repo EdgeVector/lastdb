@@ -3,32 +3,16 @@ use super::*;
 use cloud_backup_protocol::Id;
 use lastdb_node::byte_cloud_backup::ByteBackupRequest;
 
+#[path = "byte_backup/existing.rs"]
+mod existing;
 #[path = "byte_backup/offline.rs"]
 mod offline;
 #[path = "byte_backup/setup.rs"]
 mod setup;
-#[path = "byte_backup/standalone.rs"]
-mod standalone;
 pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let (request, json) = match action {
-        ByteBackupCommand::Standalone {
-            state_dir,
-            credentials_home,
-            env,
-            action,
-        } => {
-            return standalone::run(home, state_dir, credentials_home, &env, action);
-        }
-        ByteBackupCommand::Boundary { json } => {
-            let report = lastdb_node::byte_cloud_backup::standalone::boundary(home)
-                .map_err(|error| error.to_string())?;
-            return print(
-                &serde_json::to_value(report).map_err(|_| "cannot encode native boundary")?,
-                json,
-            );
-        }
         ByteBackupCommand::Start { request_id, json } => {
             let request_id =
                 Id::try_from(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))

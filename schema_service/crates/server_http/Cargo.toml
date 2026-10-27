@@ -20,7 +20,7 @@ default = []
 fastembed = ["schema_service_server_shared/fastembed"]
 
 [dependencies]
-schema_service_core = { path = "../core", features = ["local-store"] }
+schema_service_core = { path = "../core" }
 schema_service_server_shared = { path = "../server_shared", features = ["actix"] }
 # `--hydrate-from` reuses the typed `SchemaServiceClient::fetch_snapshot`
 # helper — same retry/propagation behavior as every other call site,
@@ -42,6 +42,17 @@ tracing-opentelemetry = { workspace = true }
 opentelemetry = { workspace = true }
 http = { workspace = true }
 futures-util = { workspace = true }
+
+[dev-dependencies]
+app_identity_crypto = { workspace = true }
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+ed25519-dalek = "2.1"
+schema_service_s3 = { path = "../schema_service_s3" }
+serde_json = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 
 [lints]
 workspace = true

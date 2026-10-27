@@ -38,13 +38,18 @@ struct TipPageCursor {
 impl TipPageCursor {
     /// Consume merged rows up to the common frontier. Returns whether any
     /// row advanced the cursor.
-    fn consume(&mut self, union: BTreeMap<String, TipRow>, frontier: Option<&String>) -> bool {
+    fn consume(
+        &mut self,
+        codec: &molecule_key_codec::MoleculeKeyCodec,
+        union: BTreeMap<String, TipRow>,
+        frontier: Option<&String>,
+    ) -> Result<bool, SchemaError> {
         let mut advanced = false;
         for (range, row) in union {
             if frontier.is_some_and(|end| range > *end) {
                 break;
             }
-            self.after = Some(range);
+            self.after = Some(codec.api_range(&range).map_err(codec_err)?);
             advanced = true;
             if !self.include_tombstones && row.1.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
                 continue;
@@ -58,7 +63,7 @@ impl TipPageCursor {
                 break;
             }
         }
-        advanced
+        Ok(advanced)
     }
 }
 
@@ -180,7 +185,7 @@ impl AtomStore {
                     frontier = Some(frontier.map_or(last.clone(), |current| current.min(last)));
                 }
             }
-            let advanced = page.consume(union, frontier.as_ref());
+            let advanced = page.consume(&codec, union, frontier.as_ref())?;
             if !advanced || frontier.is_none() {
                 break;
             }
@@ -240,11 +245,9 @@ impl AtomStore {
         for (key, record) in rows {
             let (_, range) = molecule_key_codec::decode_hash_range_any(&key)
                 .ok_or_else(|| SchemaError::InvalidData("invalid partition page key".into()))?;
-            let range = if writes_ope {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
-            } else {
-                range
-            };
+            // The stream frontier uses the ordered stored payload. API text
+            // order differs for typed integers and other scalar profiles.
+            codec.api_range(&range).map_err(codec_err)?;
             last = Some(range.clone());
             union.entry(range).or_insert((key, record));
         }

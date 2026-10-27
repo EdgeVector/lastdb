@@ -13,74 +13,63 @@ pub(super) struct QueryRun<'a, H: HostNode> {
 }
 
 impl<H: HostNode> QueryRun<'_, H> {
+    /// Choose and execute the existing query paths in their rejection order.
+    pub(super) async fn execute(self, query: Query) -> Result<Value, HostError> {
+        if let Some(payload) = self.caller_supplied_page(&query).await? {
+            return Ok(payload);
+        }
+        if rules::can_push_down_key_restricted(&query) {
+            return self.key_restricted(query).await;
+        }
+        if rules::can_push_down(&query) {
+            if let Some(payload) = self.unfiltered_pushdown(&query).await? {
+                return Ok(payload);
+            }
+        }
+        self.bounded_fallback(query).await
+    }
+
     /// A caller-supplied bare `Page` filter is already the requested bounded
     /// fetch. `Ok(None)` means this shape does not apply.
-    pub(super) async fn caller_supplied_page(
-        &self,
-        query: &Query,
-    ) -> Result<Option<Value>, HostError> {
+    async fn caller_supplied_page(&self, query: &Query) -> Result<Option<Value>, HostError> {
         let (host, ctx) = (self.host, self.ctx);
-        // A caller-supplied bare Page filter is already the requested bounded fetch;
-        // it still needs the cheap exact count so pagination metadata reflects the
-        // full live set.
-        if let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) {
-            if matches!(query.sort_order, Some(SortOrder::Desc)) {
-                // Across hashes a reversed ascending window reverses hash ties.
-                // Inspection certifies at most INTERNAL_FETCH_CAP candidates;
-                // sort that complete logical set before taking the window.
-                let mut complete = query.clone();
-                complete.filter = Some(HashRangeFilter::Page {
-                    offset: 0,
-                    limit: INTERNAL_FETCH_CAP,
-                });
-                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (rows, drops) = execute_query_rows_windowed(host, complete, None, ctx).await?;
-                let total = rows.len();
-                let page: Vec<_> = rows
-                    .into_iter()
-                    .skip(page_offset)
-                    .take(page_limit)
-                    .collect();
-                let has_more = page_offset.saturating_add(page.len()) < total;
-                return Ok(Some(page_payload(
-                    page,
-                    Some(total),
-                    page_limit,
-                    page_offset,
-                    has_more,
-                    drops,
-                )));
-            }
-            if let Some(total) = count_rows(host, query, ctx).await? {
-                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (page, drops) =
-                    execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
-                // `total` is an index count, so it counts rows the materializer will
-                // not deliver: a tip whose atom body could not be hydrated, and a
-                // row whose body is a content tombstone (the index gates on
-                // `KeyMetadata.tombstoned`, which a content tombstone need not set).
-                // Add both back before comparing against it, or a page ending on one
-                // reports `has_more` forever and the caller walks an offset that
-                // never advances.
-                let consumed = page_offset
-                    .saturating_add(page.len())
-                    .saturating_add(drops.total());
-                let has_more = consumed < total;
-                return Ok(Some(page_payload(
-                    page,
-                    Some(total),
-                    page_limit,
-                    page_offset,
-                    has_more,
-                    drops,
-                )));
-            }
+        let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) else {
+            return Ok(None);
+        };
+        if matches!(query.sort_order, Some(SortOrder::Desc)) {
+            // Across hashes a reversed ascending window reverses hash ties.
+            // Sort the complete bounded set before taking the requested page.
+            let mut complete = query.clone();
+            complete.filter = Some(HashRangeFilter::Page {
+                offset: 0,
+                limit: INTERNAL_FETCH_CAP,
+            });
+            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+            let (rows, drops) = execute_query_rows_windowed(host, complete, None, ctx).await?;
+            return Ok(Some(materialized_page_payload(
+                rows,
+                page_limit,
+                page_offset,
+                drops,
+                false,
+            )));
+        }
+        if let Some(total) = count_rows(host, query, ctx).await? {
+            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+            let (page, drops) = execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
+            return Ok(Some(counted_page_payload(
+                page,
+                total,
+                page_limit,
+                page_offset,
+                drops,
+            )));
         }
         Ok(None)
     }
 
     /// Count only when required, select the page, admit the read, and render it.
-    pub(super) async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
+    async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
         let total = if rules::key_restricted_count_is_required(&query, self.cursor.as_ref()) {
@@ -99,35 +88,17 @@ impl<H: HostNode> QueryRun<'_, H> {
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
         let uses_cursor = !matches!(query.sort_order, Some(SortOrder::Desc));
         let (page, drops) = execute_query_rows_windowed(host, query, Some(window), ctx).await?;
-        if uses_cursor {
-            return Ok(cursor_payload(
-                page,
-                total,
-                limit,
-                offset,
-                drops,
-                self.comparison.clone(),
-            ));
-        }
-        if let Some(total) = total {
-            return Ok(counted_offset_payload(page, total, limit, offset, drops));
-        }
-        Ok(cursor_payload(
-            page,
-            None,
-            limit,
-            offset,
-            drops,
-            self.comparison.clone(),
-        ))
+        Ok(match (uses_cursor, total) {
+            (false, Some(total)) => overfetched_offset_payload(page, total, limit, offset, drops),
+            (_, total) => {
+                cursor_payload(page, total, limit, offset, drops, self.comparison.clone())
+            }
+        })
     }
 
     /// Unfiltered "list all", no value filters: count rows cheaply, then fetch
     /// ONLY the requested page. `Ok(None)` means a view or unknown schema.
-    pub(super) async fn unfiltered_pushdown(
-        &self,
-        query: &Query,
-    ) -> Result<Option<Value>, HostError> {
+    async fn unfiltered_pushdown(&self, query: &Query) -> Result<Option<Value>, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
         let mut query = query.clone();
@@ -169,42 +140,23 @@ impl<H: HostNode> QueryRun<'_, H> {
                 )));
             }
 
-            return self.offset_paged(query, total).await.map(Some);
+            query.filter = Some(rules::page_filter_for(
+                query.sort_order.as_ref(),
+                total,
+                offset,
+                limit,
+            ));
+            let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+            let (page, drops) = execute_query_rows_windowed(host, query, None, ctx).await?;
+            return Ok(Some(counted_page_payload(
+                page, total, limit, offset, drops,
+            )));
         }
         Ok(None)
     }
 
-    /// Cross-hash administrative pages continue by offset, without a key cursor.
-    async fn offset_paged(&self, mut query: Query, total: usize) -> Result<Value, HostError> {
-        let (host, ctx) = (self.host, self.ctx);
-        let (limit, offset) = (self.limit, self.offset);
-        query.filter = Some(rules::page_filter_for(
-            query.sort_order.as_ref(),
-            total,
-            offset,
-            limit,
-        ));
-        let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-        let (page, drops) = execute_query_rows_windowed(host, query, None, ctx).await?;
-        // Same index-count reconciliation as the caller-supplied-page shape
-        // above: dropped rows were counted by `total`, so they have to be
-        // counted as consumed here too.
-        let consumed = offset
-            .saturating_add(page.len())
-            .saturating_add(drops.total());
-        let has_more = consumed < total;
-        Ok(page_payload(
-            page,
-            Some(total),
-            limit,
-            offset,
-            has_more,
-            drops,
-        ))
-    }
-
     /// Fallback / filtered / value-filtered path.
-    pub(super) async fn bounded_fallback(&self, mut query: Query) -> Result<Value, HostError> {
+    async fn bounded_fallback(&self, mut query: Query) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
         // Fallback / filtered / value-filtered path: a no-filter query here (a view,
@@ -234,18 +186,14 @@ impl<H: HostNode> QueryRun<'_, H> {
         let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
         let (all_results, drops) = execute_query_rows_windowed(host, query, None, ctx).await?;
-        let total_count = all_results.len();
-        let page: Vec<Value> = all_results.into_iter().skip(offset).take(limit).collect();
         // Native inspection proves its bounded set is complete, including an
         // exact ceiling-sized set. Views keep their existing truncation signal.
-        let has_more = compute_has_more(offset, page.len(), total_count, cap_may_truncate);
-        Ok(page_payload(
-            page,
-            Some(total_count),
+        Ok(materialized_page_payload(
+            all_results,
             limit,
             offset,
-            has_more,
             drops,
+            cap_may_truncate,
         ))
     }
 }

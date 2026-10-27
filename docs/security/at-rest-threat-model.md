@@ -3,6 +3,19 @@
 Status: **adopted design** (2026-06-10). Implementation tracked as one
 fkanban card per gap — see [Gaps → follow-up cards](#gaps--follow-up-cards).
 
+**Current V2 boundary (2026-10-26):** The current node uses compact V2 run files.
+Data, logical keys, and lookup blocks use compression followed by AES-256-GCM.
+Atom JSON is plain inside those encrypted blocks. Native cloud backup retains the same ciphertext.
+Typed homes replace OPE lookup ranges with canonical ordered scalar payloads inside those blocks.
+The explicit converter preserves a stopped V2 source and writes a separate target. The primary stays unchanged.
+See [the complete typed V2 contract](../designs/typed-range-field-contract.md) for profiles, key authority, recovery, and measured release limits.
+
+CAUTION: `identity.key` is a plaintext 32-byte seed with owner-only permissions.
+A person who obtains that seed can derive the data keys. This model does not provide protection against complete home/key compromise.
+The cloud native-file backup excludes the identity file and cloud credentials.
+Clear file identities, lengths, positions, object counts, and request times remain visible.
+The June and Trinity sections below describe the older design. They do not override this V2 representation.
+
 **Update 2026-07-13 (Mini / identity.key):** LastDB Mini's shipping key root is
 the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed` + optional
 `at_rest_kek_from_seed` for keyring wrap). The Argon2id **passphrase root**
@@ -34,6 +47,43 @@ File paths are repo-relative.
 
 ## Operation Trinity status (2026-07-29)
 
+Update (2026-10-26): the Son atom content seal in item 2 is retired. A disk
+format v2 atom row is plain JSON with no content seal. Inside the run files,
+the AES-256-GCM block encryption of each run file protects it. The code has no
+atom content seal, no dual-read or strict atom content open, and no `ATB:`
+binary atom row. In the run files, the file KDK (the `dek` field of the
+`$lastdb_file` pointer) lives in the plain atom row.
+
+CAUTION: With Search on, or after an offline `lastdb search-rebuild`,
+searchable field values are plain JSON on disk, outside the run files, with no
+encryption. Inbox files that an earlier LastDB wrote, and the Search app text
+indexed from them, can also hold the other fields and file keys.
+
+Search inbox contents. Two paths write plain JSON batch files to the Search
+inbox: `apps/search/inbox/*.json` in the node home, or the directory that
+`LASTDB_SEARCH_INBOX` names (`search_index/search_outbox.rs`).
+
+- Search on: the daemon starts with `lastdbd --enable-search` or with
+  `LASTDB_SEARCH_ENABLED=1` (`search_index/queue_policy.rs`, `enabled`). Each
+  committed write then writes one batch file for each changed schema
+  (`mutation_manager/write/native.rs`, then `serde_json::to_vec_pretty` in
+  `search_index/search_outbox.rs`).
+- Offline rebuild: `lastdb search-rebuild` pages the records of a stopped home
+  into the same inbox with no Search gate (`search_index/search_rebuild.rs`,
+  `run_search_rebuild_for_home`).
+
+Both paths use `search_index/inbox_fields.rs`. A batch carries only the
+searchable fields: a field with the `word` classification and no `secret`,
+`no_index`, or `no-index` classification. A schema with no field
+classifications has no allowlist, so its batches carry every field. A batch
+carries no file key: a `$lastdb_file` pointer or a legacy `$file` value keeps
+only `name` and `media_type`, and a legacy `$blob_ref` goes. The `dek`,
+`blob_ref`, `file_hash`, the thumbnail, and `content_b64` go, because a
+convergent-v1 key derives from the plaintext hash. A batch file stays on disk
+until a reader deletes it (for example `lastseek drain --consume`). Inbox files
+from before PR 515, and the text that the Search app indexed from them, keep
+their old contents.
+
 Target posture for Mini personal data (no plaintext fallbacks):
 
 1. **Father — molecules:** product default HashKey `blind_v1` + RangeKey `ope_v1`.
@@ -44,21 +94,24 @@ Target posture for Mini personal data (no plaintext fallbacks):
    migrate. **Product primaries after reseal** must set durable
    `LASTDB_ATOM_CONTENT_STRICT=1` on the LaunchAgent forever (fail-closed open).
    File KDK (per-blob DEK) lives inside sealed content / access metadata.
+   (Retired in disk format v2: see the update note above.)
 3. **Holy Ghost — files:** cloud CAS under per-blob DEK; durable local `cas_blobs`
-   sealed under the same DEK (DEK not stored in the CAS row). Plain CAS writes
-   require `LASTDB_ALLOW_PLAIN_CAS=1`.
+   sealed under the same DEK (DEK not stored in the CAS row). The local write
+   is the sealed dedup put.
 
 ### Mini file-blob plane (threat surface)
 
 | Asset | Where it lives | Sensitivity |
 |---|---|---|
-| File blob bytes (photos, packs, imports) | Local `cas_blobs` (LastStore) + cloud CAS | Highest — raw user files |
-| File KDK / per-blob DEK | Inside sealed atom content / access metadata | Critical — unlocks blob bytes |
+| File blob bytes (photos, packs, imports) | Local `cas_blobs` in the CAS run home (`disk-cas`) + cloud CAS | Highest — raw user files |
+| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block. Search inbox batches do not carry it (older inbox files can; see the CAUTION above) | Critical — unlocks blob bytes |
 
 Mini file-blob plane is **live** (`/api/db/file-blob`, fetch, fork). Durable local
-cache must not store plaintext blob bytes when a DEK is available. Packaging of
-atom hash groups remains structural plaintext — body secrecy is content seal +
-file-KDK, not frame AEAD alone.
+cache must not store plaintext blob bytes when a DEK is available. Inside the
+run files, an atom row and its file KDK are plain JSON, and the AES-256-GCM
+block encryption is their only protection at rest. Blob bytes also have the
+per-blob DEK. The Search inbox is outside the run files and has no encryption
+(see the CAUTION above).
 
 **Terminal product bar:** `scripts/operation-trinity-cow-bar.sh` on a fresh
 empty home with synthetic data (the script is not in this tree): Father encoding log + Board Option I + mk: storage scan; Son reseal
@@ -72,7 +125,8 @@ Design: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` · brain `project-operation-t
 ## 1. Scope
 
 In scope: everything a fold_db node persists on the local disk —
-the Last Store home, sensitive files under `$FOLDDB_HOME`, uploaded file
+the run homes (`data/disk-run` for the records and `data/disk-cas` for
+`cas_blobs`), sensitive files under `$FOLDDB_HOME`, uploaded file
 blobs, the embedding index, and the key material protecting them.
 
 Out of scope (separate workstreams):
@@ -89,12 +143,21 @@ Out of scope (separate workstreams):
 
 ## 2. Assets
 
-| Asset | Where it lives today | Sensitivity |
+**V2 note (2026-10-27):** Most locations in this table come from the
+LastStore segment engine (2026-07). In disk format v2, the `cas_blobs`
+collection is in the CAS run home (`disk-cas`), and each other collection,
+for example `atoms`, `metadata`, `schemas` or `lineage_forward`, is in the
+main run home (`disk-run`). No collection has its own directory, and each
+block of a run file uses AES-256-GCM. The `native_index`, `node_identity`,
+`node_config` and consent collections and the `fold_db_node/` paths do not
+exist now.
+
+| Asset | Where it lives (see the V2 note) | Sensitivity |
 |---|---|---|
 | Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
 | Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
 | Embedding vectors | Last Store `native_index` collection (`emb:` / `graveyard:emb:` keys) | High — embeddings of private content leak that content |
-| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in sealed atom access metadata); desktop `UploadStorage` removed | Highest |
+| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain atom row, inside an AES-256-GCM run-file block; not in Search inbox batches); desktop `UploadStorage` removed | Highest |
 | Schemas, schema states, views, transforms, lineage | Last Store schema/catalog and lineage collections | Medium — reveals what kinds of data the user keeps and how records relate |
 | Permissions & trust data | Last Store permission/public-key collections | Medium |
 | Consent ledger (app grants) | Last Store app-identity consent collection (`fold_db_node/src/fold_node/consent.rs`) | Medium-high — which apps may read what |
@@ -247,6 +310,15 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
 
 ### 4.5 LastStore catalog plaintext — measured, and why the recorded reason was wrong (2026-07-25)
 
+**V2 note (2026-10-27):** This section is a record of the LastStore segment
+engine (`laststore-layout-v1`, `.seg` files). Decision D1 (2026-10-26)
+deleted it together with the disk format v1 module. Disk format v2 has no
+`LASTSTORE_PLAINTEXT_NAMESPACES`. Catalog values still carry no value
+envelope, but they are in the run files, and each block of a run file uses
+AES-256-GCM. The chunk backup plane is also gone. When the V2 byte backup is
+on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
+connection; default off), it copies the encrypted run files.
+
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
 current Mini storage map. The shipped backend is
 LastStore, whose at-rest policy is **atoms-only sealing** (fold #782): atom
@@ -361,8 +433,8 @@ invented or expanded by agents:
 |---|---|---|
 | Hash key | molecule HashKey in storage | blind (`blind_v1`) |
 | Range key | molecule RangeKey in storage | OPE (`ope_v1`) |
-| Atom content | field `content` | seal under account E2E key (`ENC:`) |
-| File blob | CAS / file bytes | per-blob DEK; KDK in sealed atom access metadata |
+| Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
+| File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block (not in Search inbox batches) |
 
 Consequences for this section:
 
@@ -697,8 +769,11 @@ long-lived node safe (no data loss, no full re-index):
 ## 8. Non-goals
 
 - Encrypting local-store key names (accepted leak for now; blind-token
-  hardening noted in 5.3).
-- Replacing Last Store with an encrypted storage engine (option d).
+  hardening noted in 5.3). Disk format v2 keeps the keys inside its
+  encrypted run file blocks.
+- Replacing the LastStore segment engine with an encrypted storage engine
+  (option d). Disk format v2 (`laststore::disk_run`) later did this: its
+  run files encrypt each block.
 - Defending against root/kernel compromise or live-memory attackers.
 - Runtime read-access control between apps (app-isolation workstream).
 - Any prod deploy or migration of the port-9001 brain as part of these

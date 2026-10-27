@@ -1,1 +1,0 @@
-{"benchmark_result":false,"complete":true,"error":null,"operation_counts":{"core-owned-concurrent-cohort":3,"core-owned-prime-scope":1,"core-owned-queue-drained":6,"core-owned-read":74,"core-owned-replacement-scope":1,"core-owned-write":12,"flush":6,"native-status":14,"owned-node-start":4,"owned-node-stop":4,"request":112},"role":"candidate","workflow":"logical"}

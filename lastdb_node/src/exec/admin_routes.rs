@@ -19,11 +19,6 @@ pub(super) async fn execute_status_route(
     // ranking tables dominate the status body (~97% of ~188 KB on a busy
     // primary). Forensic consumers opt in with ?recent=1 / ?forensics=1
     // (`lastdb ops` always does). Scalars sample_count / ring_capacity remain.
-    // The sampler runs about once a minute. The part count and the worker state
-    // are atomics, so read them now: a status call never shows an old part count.
-    if let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() {
-        snapshot.storage_parts = Some(runtime.parts_status());
-    }
     let wants_forensics = query_flag(&req.target, "recent") || query_flag(&req.target, "forensics");
     if wants_forensics {
         // Diagnostic callers need the current ring, not the minute-old sampler
@@ -36,12 +31,16 @@ pub(super) async fn execute_status_route(
     }
     // Additive PR-5 contract block: unit + window + availability for every
     // typed gauge. Existing field names/types stay wire-compatible.
-    let status = match crate::ops::status_gauge_contract::status_value_with_contract(&snapshot) {
+    let mut status = match crate::ops::status_gauge_contract::status_value_with_contract(&snapshot)
+    {
         Ok(v) => v,
         Err(e) => {
             return error_response(500, &format!("status contract serialize: {e}"), ctx);
         }
     };
+    status["search"] = fold_db::db_operations::search_index::queue_policy::status(
+        &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home),
+    );
     json_ok(&envelope(
         &serde_json::json!({ "status": status }),
         ctx.user_id.as_str(),

@@ -44,31 +44,3 @@ pub fn encoded_json_bytes<T: Serialize>(value: &T, maximum: u64) -> Result<u64, 
     }
     Ok(length)
 }
-
-/// Count stored UTF-8 attribute-name and string-value bytes, not SDK JSON.
-/// `other_attribute_bytes` must include each other stored name and value.
-/// The caller supplies the complete final item, with unique attribute names.
-pub fn control_item_stored_bytes(
-    string_attributes: &[(&str, &str)],
-    other_attribute_bytes: u64,
-) -> Result<u64, ProtocolError> {
-    if other_attribute_bytes > CONTROL_STORED_ITEM_MAX_BYTES {
-        return Err(ProtocolError::limit("control item exceeds its byte limit"));
-    }
-    let mut total = other_attribute_bytes;
-    for (name, value) in string_attributes {
-        if name.is_empty() {
-            return Err(ProtocolError::invalid("control attribute name is empty"));
-        }
-        let bytes = name
-            .len()
-            .checked_add(value.len())
-            .and_then(|length| u64::try_from(length).ok())
-            .ok_or_else(|| ProtocolError::invalid("control item byte count overflow"))?;
-        total = total
-            .checked_add(bytes)
-            .filter(|total| *total <= CONTROL_STORED_ITEM_MAX_BYTES)
-            .ok_or_else(|| ProtocolError::limit("control item exceeds its byte limit"))?;
-    }
-    Ok(total)
-}

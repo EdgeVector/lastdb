@@ -6,8 +6,9 @@ The [design](encrypted-range-keys-local-preload.md) defines the target behavior.
 The [reader and writer inventory](encrypted-range-keys-reader-writer-inventory.md) maps the current source dependencies and preload exceptions.
 
 The first release replaces the reversible range codec with encrypted key directories and complete local key trees.
-It keeps hash blinding, atom-content encryption, and file encryption.
+It keeps hash blinding, run-file block encryption, and file encryption.
 A later release adds direct cloud reads and a browser client.
+That release must add per-atom encryption first: disk format v2 atom rows are plain JSON inside encrypted run-file blocks (see the gap section of the [design](encrypted-range-keys-local-preload.md)).
 The local release does not depend on a cloud deployment.
 
 ## Current state and scope
@@ -248,7 +249,7 @@ Keep account generations, share permissions, object grants, quotas, and resource
 Add authorized directory discovery and chunk reads by opaque domain and revision.
 Add batched exact tip and atom reads by opaque key identifiers.
 Choose individual objects, authenticated pack byte ranges, or both through the package 7 contract.
-The service receives no private identity key, directory key, or atom-content key.
+The service receives no private identity key, directory key, or atom content key (the per-atom encryption that the design gap section requires).
 
 Bind every returned location and byte range to the requested revision and its authenticated content.
 Reject requests across accounts, expired revisions, and grants outside their shared scope.
@@ -282,7 +283,7 @@ The initial key download remains visible as a separate cost from later exact fet
 | Load and publication | `fold_db/crates/core/src/storage/disk_pack/schema_keys.rs` and `storage/disk_pack/schema_keys/` |
 | Query selection | `fold_db/crates/core/src/db_operations/atom_store/schema_keys/`, `filter/`, `schema/types/field/filter_utils/` |
 | Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/`, `protein/` |
-| Format and recovery | `fold_db/crates/core/src/storage/current_keys.rs`, `mini_cutover/`, `storage/disk_pack/backup_capture/` |
+| Format and recovery | `fold_db/crates/core/src/storage/current_keys.rs`, `mini_cutover/`, `storage/disk_pack/byte_backup/` |
 | Cloud contract and client | `cloud_backup_protocol/src/`, `fold_db/crates/core/src/sync/auth/`, `sync/engine/` |
 | Cloud service | `exemem_service/lambdas/storage_service/src/` in `exemem-infra` |
 | SDK split | `lastdb_app_sdk/src/client.ts`, `transport.ts`, and `capabilityStore.ts` |

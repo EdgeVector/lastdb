@@ -9,7 +9,7 @@ import threading
 import time
 
 from node import save
-from phases import capture_native_boundary, capture_phases
+from phases import capture_phases
 from range_continuation.process_counters import counter_delta, read_counters
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
@@ -106,6 +106,8 @@ class Workload:
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
                   "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
                   "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
+        if self.recipe.get("typed_range_comparison"):
+            schema["field_types"] = {field: "String" for field in FIELDS}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         for start in range(0, self.recipe["records"], 128):
             numbers = list(range(start, min(start + 128, self.recipe["records"])))
@@ -119,6 +121,9 @@ class Workload:
             save(self.output / "seed-native-status.json", self.node.call("/api/db/native-status")[0])
             save(self.output / "seed-version.json", json.loads((self.output / "version.json").read_text()))
         self.node.stop()
+        if self.recipe.get("typed_range_target"):
+            from typed_ranges import convert
+            convert(self.node)
         if self.upgrade_target:
             save(self.output / "seed-shutdown.json", json.loads((self.output / "shutdown.json").read_text()))
             save(self.output / "upgrade-source.json", {
@@ -211,7 +216,6 @@ class Workload:
         self.case = name
         samples = samples or self.recipe["samples"]
         jobs = self.prepare(mode, batch, samples, clients)
-        native_before = capture_native_boundary(self.node) if name == "update/128" else None
         before = self.node.disk_bytes()
         sequence = len(self.metrics)
         barrier, stopped, monitor_stop = threading.Barrier(clients + 1), threading.Event(), threading.Event()
@@ -245,9 +249,6 @@ class Workload:
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
-        if name == "update/128":
-            metric["native_before"] = native_before
-            metric["native_after"] = capture_native_boundary(self.node)
         # Capture after timed work and its resource observations. The diagnostic
         # call never enters latency, throughput, memory, or the disk-size window.
         if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:

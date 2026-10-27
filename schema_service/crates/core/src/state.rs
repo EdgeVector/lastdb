@@ -3,9 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::embedder::{cosine_similarity, Embedder};
-#[cfg(feature = "local-store")]
-use crate::laststore_persistence::LastStoreSchemaPersistence;
 use crate::lock_helpers::{read_lock, write_lock};
+use crate::memory_persistence::InMemorySchemaPersistence;
 use schema_types::Schema;
 use schema_types::{FoldDbError, FoldDbResult};
 
@@ -112,19 +111,20 @@ fn truncate_on_char_boundary(s: &str, max_bytes: usize) -> &str {
 /// Storage backend for the schema service.
 ///
 /// All durable paths go through [`ExternalSchemaPersistence`]:
-/// - **Local / tests:** [`LastStoreSchemaPersistence`] (Last Store on disk)
+/// - **Dev server / eval / seed tools:** [`InMemorySchemaPersistence`]
+///   (lost on restart)
 /// - **Lambda:** S3 (and friends) via schema-infra
 ///
 /// In-memory caches still live on [`SchemaServiceState`]; this only
 /// owns durability.
 #[derive(Clone)]
 pub enum SchemaStorage {
-    /// Caller-supplied persistence backend (Last Store, S3, …).
+    /// Caller-supplied persistence backend (in-memory, S3, …).
     External(Arc<dyn ExternalSchemaPersistence>),
 }
 
 impl SchemaStorage {
-    /// The durability backend (Last Store, S3, …).
+    /// The durability backend (in-memory, S3, …).
     pub fn backend(&self) -> &Arc<dyn ExternalSchemaPersistence> {
         match self {
             Self::External(b) => b,

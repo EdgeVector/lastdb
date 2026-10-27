@@ -37,7 +37,7 @@ The smallest honest LastDB. Without these, it is a generic KV or file store.
 
 | # | Capability | Notes |
 |---|------------|--------|
-| K0.1 | Open durable store at a path | `FoldDB::new(path)` |
+| K0.1 | Open durable store at a path | factory `create_fold_db` |
 | K0.2 | Declare a multi-field schema | ≥3 fields; hash key |
 | K0.3 | Approve / make schema Available | write path requires Available |
 | K0.4 | Create N records | `MutationType::Create` batch |
@@ -92,7 +92,7 @@ Present in the monorepo; **not** required for local LastDB constitution.
 
 | Area | Rough LOC (core) | Peel notes |
 |------|------------------|------------|
-| Cloud sync (`sync/`) | ~14k | default-off candidate |
+| Cloud backup transport (`sync/`) | ~1k | V2 byte backup only |
 | Cross-user sharing | ~1k+ | product, not kernel |
 | Schema service client in daemon | host | optional for solo local |
 | Sentry / crash telemetry | host | packaging |
@@ -103,12 +103,10 @@ Present in the monorepo; **not** required for local LastDB constitution.
 Anything in K3 may be deleted or feature-gated **only if** K0 (and the
 product’s chosen K1/K2 subset) stay green.
 
-**Cloud sync peel (2026-07-15):** the first in-tree peel is a Cargo feature,
-not a workspace crate split. `fold_db/cloud-sync` compiles the S3/auth sync
-engine, sync store decorators, and runtime sync coordinator; feature-off
-`fold_db` keeps the local encrypted Sled stack and rejects `cloud_sync`
-configuration at construction. `lastdb_node` opts into `cloud-sync` by default
-so the shipped Mini daemon continues to build with the product cloud path.
+**Cloud sync peel (2026-07-15):** the first in-tree peel was a Cargo feature,
+`fold_db/cloud-sync`. PRs 82 and 85 removed that feature. PR 387 and later
+PRs removed the legacy Cloud Sync engine. `sync/` now holds only the V2 byte
+backup transport.
 
 ## Kernel scenario
 

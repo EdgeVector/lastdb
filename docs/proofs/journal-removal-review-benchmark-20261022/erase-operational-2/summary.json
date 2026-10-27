@@ -1,9 +1,0 @@
-{
-  "all_owned_processes_stopped": true,
-  "complete": false,
-  "error": "Expecting value: line 1 column 1 (char 0)",
-  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lde.HYBwVN/home",
-  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lde.HYBwVN",
-  "scratch_retained": true,
-  "source_revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b"
-}

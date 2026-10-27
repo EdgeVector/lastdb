@@ -2,8 +2,8 @@
 //!
 //! This trait lets deployments plug in their own storage backend without
 //! the `fold_db` library having to know about any particular cloud service.
-//! The built-in local backend is **Last Store**
-//! (`LastStoreSchemaPersistence`). Remote deployments (e.g. the
+//! The built-in local backend is **in-memory**
+//! (`InMemorySchemaPersistence`). Remote deployments (e.g. the
 //! schema-infra Lambda) implement this trait with S3 and construct the
 //! schema service via `SchemaServiceState::new_with_external`.
 //!
@@ -181,6 +181,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(HashMap::new())
     }
 
+    /// Load a single app from durable storage by `app_id`. Used by the
+    /// release and channel operations to verify ownership from the source
+    /// of truth before any mutation. Returns `None` if the app does not
+    /// exist. Default: falls back to `load_all_apps` and filters.
+    async fn load_app(&self, app_id: &str) -> FoldDbResult<Option<AppRecord>> {
+        let all = self.load_all_apps().await?;
+        Ok(all.get(app_id).cloned())
+    }
+
     // ============== App releases + channels (`/v2` registry) ============
     //
     // A release is content-addressed: its key is the SHA-256 of its
@@ -243,6 +252,30 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     /// id index and the `(owner, handle)` index that keeps re-declare
     /// idempotent across restarts.
     async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
+        Ok(Vec::new())
+    }
+
+    // ============== Compatibility rows (`/v2` registry) ============
+    //
+    // Compat rows are written only by a configured verifier identity (not
+    // by app publishers). Storage: per-record at
+    // `compat/{release_id}/{contract_version}.json` with conditional writes
+    // (If-None-Match: *) so each row is immutable.
+    //
+    // Default impls are no-ops / empty so a backend that predates compat
+    // rows runs without them rather than failing startup.
+
+    /// Persist one compat row, keyed by `(record.release_id, record.contract_version)`.
+    /// Must use conditional write (If-None-Match: *) to ensure immutability.
+    async fn save_compat_row(&self, _record: &crate::app_release::CompatRow) -> FoldDbResult<()> {
+        Ok(())
+    }
+
+    /// Load all compat rows for a specific release_id.
+    async fn load_compat_rows_for_release(
+        &self,
+        _release_id: &str,
+    ) -> FoldDbResult<Vec<crate::app_release::CompatRow>> {
         Ok(Vec::new())
     }
 

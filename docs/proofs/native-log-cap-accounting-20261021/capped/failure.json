@@ -1,4 +1,0 @@
-{
-  "type": "RuntimeError",
-  "message": "the measured workload contains refused or missing requests"
-}

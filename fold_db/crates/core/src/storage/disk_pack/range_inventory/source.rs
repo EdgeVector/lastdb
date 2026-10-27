@@ -3,30 +3,40 @@
 use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
 use crate::crypto::content_key_proof;
 use crate::db_operations::atom_store::AtomStore;
-use crate::storage::disk_pack::{initialization, map, run_node, NODE_MARKER};
-use crate::storage::laststore::native_routing;
-use laststore::disk_pack::home::{DiskHome, HomeRead};
-use laststore::disk_pack::ReadBudget;
+use crate::storage::disk_pack::native_routing;
+use crate::storage::disk_pack::{map, run_node, NODE_MARKER};
+use laststore::disk_run::home::ReadBudget;
 use laststore::disk_run::home::RunRead;
-use std::fs::{File, OpenOptions};
-use std::os::unix::fs::OpenOptionsExt;
+use serde::Serialize;
+use std::fs::File;
 use std::path::Path;
 
-pub(super) enum Source {
-    Packed {
-        home: DiskHome,
-        reader: Box<HomeRead>,
-    },
-    Runs {
-        main: RunRead,
-        _cas: RunRead,
-    },
+/// One read of each run home of a stopped v2 node home.
+pub(super) struct Source {
+    pub(super) main: RunRead,
+    pub(super) cas: RunRead,
 }
 
 pub(super) struct FrozenSource {
     pub(super) source: Source,
     pub(super) bindings: Vec<super::binding::Binding>,
     _owner: File,
+    key_format: String,
+    minimum_replay_time: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SourceFacts {
+    pub logical_key_format: String,
+    pub minimum_replay_time: u64,
+    pub roots: Vec<SourceRoot>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SourceRoot {
+    pub home: &'static str,
+    pub generation: u64,
+    pub frontier: u64,
 }
 
 impl FrozenSource {
@@ -38,73 +48,50 @@ impl FrozenSource {
             .map_err(|_| invalid("a node owner holds the source"))?;
         let bytes = super::binding::read(&mut marker, 128)?;
         let mut bindings = vec![super::binding::Binding::capture(&root.join(NODE_MARKER))?];
-        let source = if bytes == run_node::RUN_NODE_BYTES {
-            for name in [run_node::RUN_DIR, run_node::CAS_DIR] {
-                require_directory(&root.join(name))?;
-                bindings.push(super::binding::Binding::capture(
-                    &root.join(name).join("laststore-run-home-v2"),
-                )?);
-                bindings.push(super::binding::Binding::capture(
-                    &root.join(name).join("LOCK"),
-                )?);
-                bindings.push(super::binding::Binding::capture(
-                    &root.join(name).join("CURRENT"),
-                )?);
-            }
-            Source::Runs {
-                main: RunRead::open_existing(
-                    &root.join(run_node::RUN_DIR),
-                    &run_node::home_key(key),
-                    budget(8 * 1024 * 1024, 8),
-                )
-                .map_err(map)?,
-                _cas: RunRead::open_existing(
-                    &root.join(run_node::CAS_DIR),
-                    &run_node::cas_key(key),
-                    budget(8 * 1024 * 1024, 8),
-                )
-                .map_err(map)?,
-            }
-        } else if bytes == initialization::NODE_BYTES {
-            require_directory(&root.join("disk-pack"))?;
-            let fence = std::fs::read(root.join("laststore-layout-v1"))?;
-            if fence != laststore::disk_pack::home::LEGACY_FENCE_BYTES {
-                return Err(invalid("source native fence differs"));
-            }
-            // HomeRead must not initialize a missing lifetime lock.
-            let lifetime = OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(root.join("disk-pack/LIFETIME_LOCK"))?;
-            if !lifetime.metadata()?.is_file() {
-                return Err(invalid("source lifetime lock is not a file"));
-            }
+        if bytes != run_node::RUN_NODE_BYTES {
+            return Err(invalid(
+                "source native format is unsupported; this program reads only disk format v2",
+            ));
+        }
+        for name in [run_node::RUN_DIR, run_node::CAS_DIR] {
+            require_directory(&root.join(name))?;
             bindings.push(super::binding::Binding::capture(
-                &root.join("disk-pack/CURRENT"),
+                &root.join(name).join("laststore-run-home-v2"),
             )?);
             bindings.push(super::binding::Binding::capture(
-                &root.join("disk-pack/laststore-pack-home-v1"),
+                &root.join(name).join("LOCK"),
             )?);
-            let home = DiskHome::open(&root.join("disk-pack")).map_err(map)?;
-            let reader = home.read(budget(8 * 1024 * 1024, 8)).map_err(map)?;
-            Source::Packed {
-                home,
-                reader: Box::new(reader),
-            }
-        } else {
-            return Err(invalid("source native format is unsupported"));
+            bindings.push(super::binding::Binding::capture(
+                &root.join(name).join("CURRENT"),
+            )?);
+        }
+        let source = Source {
+            main: RunRead::open_existing(
+                &root.join(run_node::RUN_DIR),
+                &run_node::home_key(key),
+                budget(8 * 1024 * 1024, 8),
+            )
+            .map_err(map)?,
+            cas: RunRead::open_existing(
+                &root.join(run_node::CAS_DIR),
+                &run_node::cas_key(key),
+                budget(8 * 1024 * 1024, 8),
+            )
+            .map_err(map)?,
         };
         let mut frozen = Self {
             source,
             bindings,
             _owner: marker,
+            key_format: String::new(),
+            minimum_replay_time: 0,
         };
-        frozen.verify_account(key)?;
+        (frozen.key_format, frozen.minimum_replay_time) = frozen.verify_account(key)?;
         frozen.check_binding()?;
         Ok(frozen)
     }
 
-    fn verify_account(&mut self, key: &[u8; 32]) -> StorageResult<()> {
+    fn verify_account(&mut self, key: &[u8; 32]) -> StorageResult<(String, u64)> {
         let marker = AtomStore::CURRENT_KEY_FORMAT_KEY;
         let cutoff = "layout:v3:delete-replay-cutoff";
         let coordinates = vec![
@@ -121,23 +108,45 @@ impl FrozenSource {
                 native_routing::encode(content_key_proof::KEY),
             ),
         ];
-        let values = match &mut self.source {
-            Source::Packed { reader, .. } => {
-                reader.get_many_bounded(&coordinates, 8192).map_err(map)?
-            }
-            Source::Runs { main, .. } => main.get_many_bounded(&coordinates, 8192).map_err(map)?,
-        }
-        .into_iter()
-        .collect::<laststore::Result<Vec<_>>>()
-        .map_err(map)?;
+        let values = self
+            .source
+            .main
+            .get_many_bounded(&coordinates, 8192)
+            .map_err(map)?
+            .into_iter()
+            .collect::<laststore::Result<Vec<_>>>()
+            .map_err(map)?;
         if values.len() != 3 {
             return Err(invalid("source proof read is incomplete"));
         }
-        AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
+        let minimum_replay_time =
+            AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
         let proof = values[2]
             .as_deref()
             .ok_or_else(|| invalid("source account proof is absent"))?;
-        content_key_proof::verify(key, proof).map_err(|_| invalid("source account key differs"))
+        content_key_proof::verify(key, proof).map_err(|_| invalid("source account key differs"))?;
+        let key_format = values[0]
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .ok_or_else(|| invalid("source logical key format is absent or invalid"))?;
+        Ok((key_format.into(), minimum_replay_time))
+    }
+
+    pub(super) fn facts(&self) -> SourceFacts {
+        let roots = [&self.source.main, &self.source.cas]
+            .into_iter()
+            .zip(["main", "cas"])
+            .map(|(read, home)| SourceRoot {
+                home,
+                generation: read.generation(),
+                frontier: read.frontier(),
+            })
+            .collect();
+        SourceFacts {
+            logical_key_format: self.key_format.clone(),
+            minimum_replay_time: self.minimum_replay_time,
+            roots,
+        }
     }
 
     pub(super) fn collect(
@@ -155,11 +164,9 @@ impl FrozenSource {
         Ok(())
     }
 
+    /// The source format name in the report. Only disk format v2 opens.
     pub(super) fn format(&self) -> &'static str {
-        match &self.source {
-            Source::Packed { .. } => "packed_v1",
-            Source::Runs { .. } => "runs_v2",
-        }
+        "runs_v2"
     }
 }
 

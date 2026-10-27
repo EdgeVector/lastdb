@@ -28,6 +28,8 @@ pub struct AtRestCompressionHealth {
     /// Values that did not qualify because compression was disabled.
     #[serde(default)]
     pub skipped_compression_disabled: u64,
+    /// Whether the KV seam may compress new `cas_blobs` values
+    /// (`LASTDB_KV_AT_REST_COMPRESS`).
     pub enabled: bool,
     /// Rows read from an encrypted namespace with no at-rest envelope, and so
     /// served as absent. `decision-2026-09-14-drop-dual-read-unsealed-is-gone`.
@@ -47,7 +49,8 @@ pub struct AtRestCompressionHealth {
 /// Codec policy: effective writer format and supported read formats.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodecPolicyHealth {
-    /// Effective writer policy: format and compression (e.g. "ENC" or "ENB:deflate").
+    /// The form the KV seam writes for new `cas_blobs` values: "ENC",
+    /// "ENC:deflate" (an `ENZ:` value), "ENB", or "ENB:deflate".
     pub writer_policy: String,
     /// Supported read formats in order: ENC, ENZ, ENB.
     pub supported_read_formats: Vec<String>,
@@ -69,15 +72,16 @@ impl CodecPolicyHealth {
     }
 }
 
-/// Determine the effective writer policy based on environment flags.
+/// The KV seam writer form, from `LASTDB_KV_AT_REST_RAW` and
+/// `LASTDB_KV_AT_REST_COMPRESS`. No other seal reads a write switch.
 pub(super) fn determine_writer_policy() -> String {
-    let base_format = if fold_db::crypto::at_rest_raw_enabled() {
+    let base_format = if fold_db::crypto::kv_at_rest_raw_enabled() {
         "ENB"
     } else {
         "ENC"
     };
 
-    if fold_db::crypto::at_rest_compression_enabled() {
+    if fold_db::crypto::kv_at_rest_compression_enabled() {
         format!("{base_format}:deflate")
     } else {
         base_format.to_string()
@@ -100,7 +104,7 @@ impl AtRestCompressionHealth {
             skipped_above_inflate_ceiling: stats.skipped_above_inflate_ceiling,
             skipped_output_not_smaller: stats.skipped_output_not_smaller,
             skipped_compression_disabled: stats.skipped_compression_disabled,
-            enabled: fold_db::crypto::at_rest_compression_enabled(),
+            enabled: fold_db::crypto::kv_at_rest_compression_enabled(),
             unsealed_discarded: fold_db::crypto::unsealed_discarded_count(),
             unsealed_reaped_rows: reaped_rows,
             unsealed_reaped_bytes: reaped_bytes,

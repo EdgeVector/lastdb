@@ -1,1 +1,0 @@
-lint-no-write-path-syncing-store: ok

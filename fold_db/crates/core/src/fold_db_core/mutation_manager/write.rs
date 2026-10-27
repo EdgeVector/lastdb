@@ -7,8 +7,7 @@ use crate::schema::{SchemaError, SchemaState};
 use tracing::info;
 
 use super::receipt::{
-    CloudCapturePolicy, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
+    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
 use super::MutationManager;
 
@@ -17,10 +16,10 @@ use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance
 /// Keys in one chunk of an erase. The budget in `purge::budget` counts the same chunks.
 const PURGE_BARRIER_CHUNK: usize = super::super::purge::budget::ERASE_CHUNK_KEYS;
 
+mod access_entry;
 mod admission;
 mod attribution;
 mod batch_inner;
-mod cloud_entry;
 mod create_update_batch;
 mod delete_winners;
 mod erase_guards;
@@ -58,20 +57,19 @@ mod timing;
 /// peer that never held the record. A refuse-on-absent replay still pins
 /// the cursor; restore must treat already-gone as convergence.
 ///
-/// Getting this wrong is not a stray warning. A replay error propagates to
-/// `SyncEngine::replay_entry`, which pins the download cursor at that seq; the
-/// target's uploads queue behind the pin, so **cloud backup stops and RPO grows
-/// without bound** until an operator runs `lastdb cloud quarantine-replay`.
-/// Observed on the primary 2026-08-17: the telemetry reaper purged 64
+/// Getting this wrong was not a stray warning. In the retired sync engine a
+/// replay error pinned the download cursor at that seq; the target's uploads
+/// queued behind the pin, so **cloud backup stopped and RPO grew without
+/// bound** until an operator cleared the pin. Observed on the primary
+/// 2026-08-17: the telemetry reaper purged 64
 /// `lastdb_telemetry/RequestOpsRollup` rows, the same intent came back down the
 /// log, replay found 64 of 64 keys absent, and the pipeline stopped — RPO
 /// climbing 270 s → 449 s across four cycles, not recovering, until the pin was
 /// cleared by hand.
 ///
-/// Half of this was already fixed one layer up and only for one verb:
-/// `encode_mutations` strips `must_exist` from the envelope so a replayed
-/// must-exist delete decodes as a plain `Delete` and routes to `Skip`
-/// (`replayed_must_exist_delete_of_absent_key_succeeds`). `MutationType::Purge`
+/// Half of this was fixed one layer up and only for one verb: the retired
+/// envelope encoder stripped `must_exist`, so a replayed must-exist delete
+/// decodes as a plain `Delete` and routes to `Skip`. `MutationType::Purge`
 /// has no such downgrade — the verb *is* the mutation type, and rewriting it to
 /// `Delete` on the wire would change the ledger verb and CDC record — so the
 /// policy is chosen here, at the apply site, where the origin is known.
@@ -104,28 +102,6 @@ impl WriteOrigin {
 }
 
 impl MutationManager {
-    /// Write mutations with local caller context.
-    ///
-    /// Local callers approved by the host consent layer get full local DB write
-    /// access. Trust tiers, capability quotas, payment gates, and namespace walls
-    /// no longer gate this path (consent-only local control).
-    ///
-    /// When `access_context.storage_prefix` is set (org multi-DB handle from
-    /// `X-LastDB-Db`), molecule keys land under `{prefix}:…` so cohabiting DBs
-    /// on one Mini node stay isolated.
-    pub async fn write_mutations_with_access_receipt(
-        &self,
-        mutations: Vec<Mutation>,
-        access_context: &crate::access::AccessContext,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_mutations_with_access_receipt_cloud(
-            mutations,
-            access_context,
-            CloudCapturePolicy::Async,
-        )
-        .await
-    }
-
     /// [`Self::write_mutations_with_access_receipt`] returning only the
     /// accepted input mutation ids, in caller order.
     ///
@@ -164,24 +140,6 @@ impl MutationManager {
             .write_mutations_batch_with_receipt(mutations, storage_prefix)
             .await?
             .mutation_ids)
-    }
-
-    /// [`Self::write_mutations_batch_async`] answering with the full
-    /// [`ResidentCommitReceipt`] instead of only the mutation ids.
-    ///
-    /// This is the real body; the id-returning entry point above is a thin
-    /// projection of it, so the two cannot drift.
-    pub async fn write_mutations_batch_with_receipt(
-        &self,
-        mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_mutations_batch_with_receipt_cloud(
-            mutations,
-            storage_prefix,
-            CloudCapturePolicy::Async,
-        )
-        .await
     }
 
     pub(super) async fn write_mutations_batch_inner(

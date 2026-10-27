@@ -30,27 +30,48 @@
 //! read returns the value as given. The block seal of every run is the
 //! encryption at rest; the home key protects every run and CURRENT.
 
+mod capture;
+mod cleanup;
+mod cleanup_checkpoint;
+mod cleanup_files;
 mod commit;
+mod create;
+mod diagnostic;
+mod diagnostic_cursor;
+mod diagnostic_files;
+mod diagnostic_inventory;
+mod inventory;
 mod keys;
+mod maintenance;
 mod manifest;
+mod mutation_counts;
 mod plan;
+mod publication;
 mod range;
 mod read;
 mod read_only;
 
-pub use commit::{MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use capture::{CapturedRunFile, CapturedRunHome, CapturedRunKind, SnapshotFile};
+pub use cleanup_files::RunCleanupFiles;
+pub use commit::{HomeMutation, MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use diagnostic::{
+    CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
+    RunHomeDiagnostics,
+};
+pub use inventory::AdministrativePage;
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
-pub use range::{RunHashRange, RunRangePage};
-pub use read::{RunRead, RunReadCosts, RunRoot};
+pub use range::{RangeBounds, RunHashRange, RunRangePage};
+pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
-use crate::durability::{sync_directory, sync_dirty_file};
+use crate::durability::sync_directory;
 use crate::{Error, Result};
+use create::build_empty;
 use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -290,47 +311,14 @@ impl RunHome {
         }
         Ok(())
     }
-
-    /// Publish `next` as CURRENT and make it the readable state.
-    /// The caller holds the publish lock. An error before the rename leaves
-    /// the old CURRENT in force; an error after it poisons the home.
-    fn install(&self, next: Manifest) -> Result<Arc<Manifest>> {
-        let staged = next.stage(&self.root, &self.key)?;
-        if let Err(error) = Manifest::replace(&self.root, &staged) {
-            // The rename may or may not have happened: stop all writes.
-            self.poisoned.store(true, Ordering::Release);
-            return Err(error);
-        }
-        let next = Arc::new(next);
-        *self.current.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&next);
-        Ok(next)
-    }
-}
-
-/// Write the descriptor and the first CURRENT of an empty home in `dir`.
-fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
-    fs::create_dir(dir.join(RUNS))?;
-    let identity = Uuid::new_v4();
-    let mut descriptor = [0u8; DESCRIPTOR_BYTES];
-    descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
-    descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
-    descriptor[16..32].copy_from_slice(identity.as_bytes());
-    let crc = crc32fast::hash(&descriptor[..60]);
-    descriptor[60..].copy_from_slice(&crc.to_le_bytes());
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.join(RUN_HOME_MARKER))?;
-    file.write_all(&descriptor)?;
-    sync_dirty_file(&file)?;
-    let staged = Manifest::empty(identity).stage(dir, key)?;
-    Manifest::replace(dir, &staged)?;
-    sync_directory(&File::open(dir.join(RUNS))?)
 }
 
 fn read_descriptor(root: &Path) -> Result<Uuid> {
-    let mut file = File::open(root.join(RUN_HOME_MARKER))?;
+    read_descriptor_file(&root.join(RUN_HOME_MARKER))
+}
+
+fn read_descriptor_file(path: &Path) -> Result<Uuid> {
+    let mut file = File::open(path)?;
     if file.metadata()?.len() != DESCRIPTOR_BYTES as u64 {
         return Err(corrupt("home descriptor length"));
     }
@@ -363,7 +351,9 @@ fn remove_leftovers(root: &Path, runs: &Path, manifest: &Manifest) -> Result<()>
     for entry in fs::read_dir(root)? {
         let name = entry?.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with(".CURRENT.") && name.ends_with(".tmp") {
+        if (name.starts_with(".CURRENT.") || name.starts_with(".NODE_CLEANUP."))
+            && name.ends_with(".tmp")
+        {
             fs::remove_file(root.join(&*name))?;
         }
     }

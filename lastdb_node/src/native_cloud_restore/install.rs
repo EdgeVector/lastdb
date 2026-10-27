@@ -1,8 +1,7 @@
 use super::{
-    download, session, NativeFileProof, NativeInventory, RecoveryKeys, RestoreError, RestoreReport,
-    Result, VerifiedNativeContext,
+    session, NativeInventory, RecoveryKeys, RestoreError, RestoreReport, Result,
+    VerifiedNativeContext,
 };
-use cloud_backup_protocol::bytes_sha256;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -48,43 +47,31 @@ pub(super) fn published_context(
     Ok(Some(receipt.report))
 }
 
-pub(super) fn finish_context(
+pub(super) fn finish_run_context(
+    session: &VerifiedNativeContext<'_>,
+    keys: &RecoveryKeys,
+    inventory: NativeInventory,
+    proof: &fold_db::storage::disk_pack::run_restore::RunRestoreGuard,
+) -> Result<RestoreReport> {
+    proof
+        .validate_context(&session.data_root(), session.native_root)
+        .map_err(|_| RestoreError::Invalid("verified run publication"))?;
+    let (files, bytes) = proof
+        .totals()
+        .map_err(|_| RestoreError::Invalid("verified run totals"))?;
+    if files != inventory.files || bytes != inventory.bytes || inventory.dependencies != 0 {
+        return Err(RestoreError::Invalid("verified run inventory"));
+    }
+    publish_context(session, keys, inventory, proof.verified_atoms())
+}
+
+fn publish_context(
     session: &VerifiedNativeContext<'_>,
     keys: &RecoveryKeys,
     inventory: NativeInventory,
     atoms: u64,
-    entry_for: impl Fn(&str) -> Result<NativeFileProof>,
 ) -> Result<RestoreReport> {
-    let physical = session.physical();
-    let native = laststore::disk_pack::backup::validate_snapshot(&physical)
-        .map_err(|_| RestoreError::Invalid("native snapshot validation"))?;
-    let expected = session.native_root;
-    let current = download::bytes(&physical.join("CURRENT"), 4096)?;
-    if native.home_id.to_string() != expected.home_id.as_str()
-        || bytes_sha256(&current) != expected.current_sha256
-        || hex::encode(native.current.home_digest) != expected.home_digest.as_str()
-        || native.current.generation != expected.generation.get()
-        || native.current.frontier != expected.frontier.get()
-        || native.current.required_features != expected.required_features.get()
-        || native.files.len() as u64 != inventory.files
-    {
-        return Err(RestoreError::Invalid("native accepted boundary"));
-    }
-    for file in native.files {
-        let path = file
-            .path
-            .to_str()
-            .ok_or(RestoreError::Invalid("native inventory path"))?;
-        let entry = entry_for(path)?;
-        if entry.path != path || entry.bytes != file.bytes {
-            return Err(RestoreError::Invalid("exact native inventory"));
-        }
-        download::verify_file(&physical.join(&file.path), &entry.sha256, file.bytes)?;
-    }
     let home = session.root.join("home");
-    let _native_lock =
-        fold_db::storage::disk_pack::prepare_restored_node(&home.join("data"), &keys.content)
-            .map_err(|_| RestoreError::Invalid("native node wrapper"))?;
     install_identity(&home, keys)?;
     let (config, paused) = crate::cloud::cloud_sync_paths(&home);
     if config.try_exists()? || paused.try_exists()? {

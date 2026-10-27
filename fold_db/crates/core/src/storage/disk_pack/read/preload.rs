@@ -15,7 +15,7 @@ impl ReadContext {
                 bytes: 16 * 1024 * 1024,
                 keys: 4096,
             }),
-        )?;
+        );
         Ok(PackReadScope {
             context: Arc::new(Self {
                 call: Arc::new(Mutex::new(call)),

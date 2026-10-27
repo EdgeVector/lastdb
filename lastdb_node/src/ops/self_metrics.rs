@@ -2,7 +2,7 @@
 //!
 //! **Primary sink (default):** append-only JSONL under the node home
 //! (`logs/self-metrics.jsonl`). This does **not** depend on LastDB mutations, so
-//! RSS / sync / UDS vitals remain reviewable when the database is wedged
+//! RSS / UDS vitals remain reviewable when the database is wedged
 //! (Tom 2026-07-19).
 //!
 //! **Optional sink:** set `LASTDB_SELF_METRICS_TO_DB=1` to also best-effort write
@@ -41,7 +41,6 @@ mod drain;
 mod durability;
 mod env;
 mod fields;
-mod file_blob;
 mod format;
 mod gauge_wire;
 mod health_lines;
@@ -49,13 +48,13 @@ mod integrity;
 mod log_line;
 mod log_streams;
 mod memory_budget;
-mod molecule_edge_health;
 mod process_probes;
 mod prune;
 mod purge_lines;
 mod qos_uds_watchers;
 mod read_health;
 mod recoverability;
+mod request_ops_lines;
 mod resident;
 mod sampler;
 mod sampler_state;
@@ -64,11 +63,6 @@ mod snapshot_build;
 mod snapshot_memory;
 mod status_lines;
 mod status_snapshot;
-mod storage_parts_lines;
-mod sync_health;
-mod sync_health_wire;
-mod sync_lines;
-mod sync_probe;
 mod ttl_backoff;
 mod ttl_pass;
 mod write;
@@ -83,7 +77,6 @@ pub use drain::*;
 pub use durability::*;
 pub use env::*;
 use fields::*;
-pub use file_blob::*;
 use format::*;
 use gauge_wire::*;
 use health_lines::*;
@@ -91,14 +84,13 @@ pub use integrity::*;
 pub use log_line::*;
 pub use log_streams::*;
 pub use memory_budget::*;
-pub use molecule_edge_health::*;
 pub use process_probes::*;
 use prune::*;
 pub use purge_lines::*;
 pub use qos_uds_watchers::*;
 pub use read_health::*;
-pub(crate) use recoverability::crash_loss_window_secs_from_status_json;
 use recoverability::*;
+pub use request_ops_lines::*;
 pub use resident::*;
 pub use sampler::*;
 pub use sampler_state::*;
@@ -106,9 +98,5 @@ use schema::*;
 pub use snapshot_build::*;
 pub use status_lines::*;
 pub use status_snapshot::*;
-pub use storage_parts_lines::*;
-pub use sync_health::*;
-pub use sync_lines::*;
-use sync_probe::*;
 pub use ttl_pass::TtlPassReport;
 use write::*;

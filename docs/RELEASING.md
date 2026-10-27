@@ -68,30 +68,20 @@ git tag -a v0.22.8 -m "v0.22.8" <sha>
 git push github v0.22.8
 ```
 
-**Upgrade-decrypt gate (2026-07-13; hard-break 0.23):** script
-`scripts/release/validate-mini-upgrade-decrypt.sh` still exists for local/
-manual checks. **`release.yml` skips it for the 0.23 line** (Tom 2026-07-24):
-public `0.22.9` homes are still **sled**; post-cutover Mini is **Last Store
-only**, and there are no other production users. **No in-place upgrade path
-from 0.22.x sled is promised.** Fresh-install gate remains required.
-
-Local repro (when re-enabled against a laststore-era previous tag):
-
-```bash
-cargo build --release -p lastdb_node --bin lastdb --bin lastdbd
-bash scripts/release/validate-mini-upgrade-decrypt.sh \
-  --previous-tag v0.22.9 \
-  --candidate-built target/release
-```
-
-This is the gate that would have blocked v0.22.6 (incident-lastdbd-0226).
+**Upgrade-decrypt gate: removed (2026-10-26).** The 0.23 line was a hard
+break from the public `0.22.9` sled homes (Tom 2026-07-24), and `release.yml`
+had skipped the gate since then. The skipped step and
+`scripts/release/validate-mini-upgrade-decrypt.sh` are gone. **No in-place
+upgrade path from 0.22.x sled is promised.** Fresh-install gate remains
+required. The program also refuses a disk format v1 home (decision D1,
+2026-10-26), so no in-place upgrade path from disk format v1 exists either.
 
 **Semantic-search release posture:** Homebrew LastDB Mini ships the default
 `lastdb` and `lastdbd` binaries fastembed/ONNX-free. Shadow-pack/FastEmbed
 coverage stays in the explicit non-shipping semantic smoke lane, guarded by
 `scripts/release/validate-mini-semantic-release-test.sh`.
 
-**Fresh-install first-run gate (2026-07-14):** same job also runs
+**Fresh-install first-run gate (2026-07-14):** the `build` job also runs
 `scripts/release/validate-mini-fresh-install.sh --built …`, which boots the
 candidate on a pristine throwaway home and exercises `/api/schemas/declare`,
 `/api/apps/declare-schema` (brain/kanban init path), mutation/query, semantic

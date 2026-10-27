@@ -1,6 +1,6 @@
 {
   "name": "@lastdb/app-sdk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Runtime SDK for LastDB apps \u2014 connect, request consent, and query/mutate a node's /api/* surface with a capability.",
   "license": "Apache-2.0",
   "keywords": [

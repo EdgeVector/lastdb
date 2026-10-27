@@ -4,11 +4,11 @@ name = "laststore"
 version = "0.1.0"
 edition.workspace = true
 rust-version = "1.75"
-description = "Last Store — multi-collection local document store (segment files, group-commit, real compact)"
+description = "Last Store — the LastDB disk engine (disk format v2: sorted, encrypted run files)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/EdgeVector/laststore"
 readme = "README.md"
-keywords = ["database", "embedded", "document-store", "segments", "last-db"]
+keywords = ["database", "embedded", "lsm", "last-db"]
 categories = ["database-implementations", "filesystem"]
 exclude = ["target/", ".git/"]
 
@@ -19,27 +19,16 @@ serde.workspace = true
 serde_json = "1"
 aes-gcm = "0.10"
 hkdf = "0.12"
+openssl = "0.10.76"
 sha2 = "0.10"
 rustix = { version = "1", features = ["fs"] }
 uuid = { version = "1", features = ["v4"] }
 zstd = "0.13"
+zeroize.workspace = true
 
 # Hardware SHA-256 on aarch64. The x86 backend of `sha2` uses SHA-NI without this feature.
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
-
-[[example]]
-bench = false
-test = false
-name = "basic"
-path = "examples/basic.rs"
-
-# Tom's 2026-10-24 exception permits this one CI-only native storage proof.
-[[example]]
-bench = false
-test = false
-name = "extended_keys_proof"
-path = "examples/extended_keys_proof.rs"
 
 # Tom approved the disk format v2 plan on 2026-10-24 ("Prove it works and
 # then I want to use it"). This CI-only proof is its V1 read-back gate.
@@ -57,52 +46,7 @@ test = false
 name = "run_home_proof"
 path = "examples/run_home_proof/main.rs"
 
-[[bin]]
-bench = false
-test = false
-name = "lastdb-maintenance"
-path = "src/bin/lastdb-maintenance.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-pack"
-path = "src/bin/lastdb-pack.rs"
-
 [lib]
 test = false
 doctest = false
 bench = false
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-range"
-path = "src/bin/lastdb-range.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-disk-home"
-path = "src/bin/lastdb-disk-home.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-disk-recovery"
-path = "src/bin/lastdb-disk-recovery.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-pack-maintain"
-path = "src/bin/lastdb-pack-maintain.rs"
-
-[[bin]]
-bench = false
-test = false
-name = "lastdb-native-transfer"
-path = "src/bin/lastdb-native-transfer.rs"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-nix = { version = "0.30", default-features = false, features = ["fs"] }

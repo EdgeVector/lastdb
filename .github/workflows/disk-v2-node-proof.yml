@@ -1,27 +1,22 @@
 name: Disk v2 node proof
 
-# Disk format v2, phase V1b, item 4 (docs/design-lastdb-disk-size-20261024.md
-# in the EdgeVector workspace). Tom, 2026-10-24: "Build V1b (compact plain
-# values, conversion writes the compact record) first, prove it in CI against
-# the 2x limit, then do the one conversion of my primary."
-# A real lastdbd converts a home with the shape of the primary
-# (scripts/disk_v2). The program that runs the primary writes the format-1
-# seeds. In the new-home case (phase V3) the candidate starts on an empty
-# home, which must be v2 from the first start. The proof fails when the v2
-# node folder is above 2.0x of the logical atom bytes at any sample, or when
-# a key list, a read, or the logical atoms of a seed schema change.
-# The paths are the code that the conversion reads or writes with: the run
-# and pack homes, the at-rest envelopes and seals, the atom codec, and the
-# node start that selects the home.
+# Disk format v2, phase V3 (docs/design-lastdb-disk-size-20261024.md in the
+# EdgeVector workspace). A real lastdbd starts on an empty home, which must be
+# v2 from the first start, and writes a seed with the shape of the primary
+# (scripts/disk_v2). The proof fails when the v2 node folder is above 2.0x of
+# the logical atom bytes at any sample, or when a key list, a read, or the
+# logical atoms of a seed schema change. The disk format v1 conversion cases
+# went with disk format v1 (Tom, 2026-10-26: decision D1).
+# The paths are the code that the node reads or writes with: the run homes,
+# the at-rest envelopes and seals, the atom codec, and the node start that
+# selects the home.
 on:
   pull_request:
     paths:
-      - 'vendor/laststore/src/disk_run/**'
-      - 'vendor/laststore/src/disk_pack/**'
-      - 'vendor/laststore/src/frame.rs'
+      # Every laststore source file is disk format v2 code since D1.
+      - 'vendor/laststore/src/**'
       - 'vendor/laststore/Cargo.toml'
       - 'fold_db/crates/core/src/storage/disk_pack/**'
-      - 'fold_db/crates/core/src/storage/laststore/**'
       - 'fold_db/crates/core/src/storage/encrypting_*'
       - 'fold_db/crates/core/src/storage/encrypting_*/**'
       - 'fold_db/crates/core/src/atom/**'
@@ -51,8 +46,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 170
     env:
-      # The program that runs the primary: ~/.lastdb/native-v2-programs/<sha>/lastdbd.
-      PRIMARY_SHA: 877eed74913c37e183ec57a2ca587a51617f7c6a
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
@@ -64,12 +57,6 @@ jobs:
           ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
           persist-credentials: false
-      - name: Checkout the program that runs the primary
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.PRIMARY_SHA }}
-          path: primary
-          persist-credentials: false
       - name: Check the proof script syntax
         run: python3 -m py_compile candidate/scripts/disk_v2/*.py candidate/scripts/benchmarks/node.py
       - name: Check the free disk space
@@ -79,9 +66,8 @@ jobs:
           set -euo pipefail
           df -h "$RUNNER_TEMP" /tmp
           echo "free=$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print int($4 / 1048576)}')" >> "$GITHUB_OUTPUT"
-      # Each build removes its target folder after the copy, so the runner
-      # holds one target folder at a time.
-      - name: Reclaim disk space for two builds
+      # The build removes its target folder after the copy.
+      - name: Reclaim disk space for the build
         if: runner.os == 'Linux' && steps.space.outputs.free < 40
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
@@ -92,16 +78,6 @@ jobs:
           large-packages: false
           docker-images: true
           swap-storage: false
-      - name: Restore the program that runs the primary
-        id: primary-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/programs/primary
-          key: disk-v2-primary-lastdbd-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.PRIMARY_SHA }}
-      # Each build has its own target folder. The metadata hash of a workspace
-      # crate does not include the checkout folder, and cargo judges a path
-      # crate fresh from the file times in its dep-info, so in a shared folder
-      # the second build reused crates compiled from the first checkout.
       - name: Build the candidate
         shell: bash
         working-directory: candidate
@@ -115,33 +91,13 @@ jobs:
           cp "$RUNNER_TEMP/target-candidate/dev-release/lastdbd" "$RUNNER_TEMP/programs/candidate/lastdbd"
           rm -rf "$RUNNER_TEMP/target-candidate"
           "$RUNNER_TEMP/programs/candidate/lastdbd" --version
-      - name: Build the program that runs the primary
-        if: steps.primary-cache.outputs.cache-hit != 'true'
-        shell: bash
-        working-directory: primary
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$PRIMARY_SHA"
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PRIMARY_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target-primary" \
-            cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-          mkdir -p "$RUNNER_TEMP/programs/primary"
-          cp "$RUNNER_TEMP/target-primary/dev-release/lastdbd" "$RUNNER_TEMP/programs/primary/lastdbd"
-          rm -rf "$RUNNER_TEMP/target-primary"
-      - name: Save the program that runs the primary
-        if: steps.primary-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/programs/primary
-          key: disk-v2-primary-lastdbd-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.PRIMARY_SHA }}
       - name: Run the node proof
         shell: bash
         timeout-minutes: 100
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/programs/primary/lastdbd" --version | grep -F "bench-$PRIMARY_SHA"
           df -h "$RUNNER_TEMP" /tmp
           python3 candidate/scripts/disk_v2/node_proof.py \
-            --primary "$RUNNER_TEMP/programs/primary/lastdbd" --primary-revision "$PRIMARY_SHA" \
             --candidate "$RUNNER_TEMP/programs/candidate/lastdbd" --candidate-revision "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/disk-v2-node-proof" | tee "$RUNNER_TEMP/disk-v2-node-proof.md"
       - name: Publish the proof summary

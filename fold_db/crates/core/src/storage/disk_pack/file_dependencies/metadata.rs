@@ -7,14 +7,12 @@
 //! Unrelated tips rows over four MiB explicitly refuse this bounded source profile.
 //! Unsupported metadata on a losing overlay also refuses before selection; no
 //! stale reference is copied or silently treated as covered.
-use super::{budget_json, expected, invalid, open_atom, read_directories, StorageResult};
+use super::{budget_json, expected, invalid, StorageResult};
 use crate::atom::{atom_key_codec, file_pointer, KeyMetadata};
 use crate::db_operations::atom_store::PerKeyRecord;
 use crate::schema::types::field::build_storage_key;
-use crate::storage::laststore::native_routing;
+use crate::storage::disk_pack::native_routing;
 use cloud_backup_protocol::Digest;
-use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::{Current, RangeRecord, ReadBudget};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -22,83 +20,40 @@ use std::collections::HashMap;
 mod generation;
 const ROW_MAX: u64 = 4 * 1024 * 1024;
 
-/// Run after complete atom/directory/file-byte proof, against that same CURRENT.
-/// Each native reader and metadata tree drops before the atom decoder starts.
-pub fn verify_metadata_coverage(
-    current: &Current,
-    account_key: &[u8; 32],
-    read: impl FnMut(ReadBudget) -> StorageResult<HomeRead>,
-) -> StorageResult<u64> {
-    let mut proof = Proof {
-        current,
-        key: account_key,
-        read,
-    };
-    let mut checked = 0u64;
-    for group in 0..1024u16 {
-        let mut start = Vec::new();
-        loop {
-            let page = {
-                let mut read = proof.reader(32 * 1024 * 1024, 10000)?;
-                let mut cursor = read
-                    .administrative_group_range("tips", group, &start, &[0xff])
-                    .map_err(super::super::map)?;
-                cursor
-                    .next_page_yielding_bounded(1, 0, 0, ROW_MAX)
-                    .map_err(super::super::map)?
-            };
-            let next = page
-                .resume
-                .clone()
-                .or_else(|| page.records.last().map(|row| row.key.as_bytes().to_vec()));
-            for row in page.records {
-                checked = checked
-                    .checked_add(u64::from(proof.row(row)?))
-                    .ok_or_else(|| invalid("metadata proof count overflow"))?;
-            }
-            if page.exhausted {
-                break;
-            }
-            let mut next = next.ok_or_else(|| invalid("metadata proof continuation"))?;
-            if next.len() >= 65535 || (!start.is_empty() && next < start) {
-                return Err(invalid("metadata proof continuation differs"));
-            }
-            next.push(0);
-            start = next;
-        }
-    }
-    Ok(checked)
+/// Physical readers retain their own immutable root and release native pages
+/// before these shared selectors decode metadata or an atom.
+pub(crate) trait MetadataRead {
+    fn get(&mut self, collection: &str, key: &str) -> StorageResult<Option<Vec<u8>>>;
+    fn open_atom(&mut self, stored: &[u8]) -> StorageResult<crate::atom::Atom>;
+    fn directories(
+        &mut self,
+        scope: Option<&str>,
+        atom_id: &str,
+        dependencies: &[super::FileDependency],
+    ) -> StorageResult<()>;
 }
 
-struct Proof<'a, F> {
-    current: &'a Current,
-    key: &'a [u8; 32],
-    read: F,
+/// The live/generation selection and file-pointer coverage. The caller
+/// supplies complete, bounded metadata pages.
+pub(crate) struct MetadataProof<R> {
+    source: R,
 }
-impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
-    fn reader(&mut self, bytes: u64, keys: u64) -> StorageResult<HomeRead> {
-        let read = (self.read)(ReadBudget {
-            pages: 512,
-            blocks: 8192,
-            bytes,
-            keys,
-        })?;
-        if read.current() != self.current {
-            return Err(invalid("metadata proof root differs"));
-        }
-        Ok(read)
+
+impl<R: MetadataRead> MetadataProof<R> {
+    pub(crate) fn new(source: R) -> Self {
+        Self { source }
     }
 
-    fn row(&mut self, row: RangeRecord) -> StorageResult<bool> {
-        let raw = native_routing::decode(&row.key)?;
+    pub(crate) fn row(&mut self, key: &str, body: Vec<u8>) -> StorageResult<bool> {
+        let raw = native_routing::decode(key)?;
         let raw = std::str::from_utf8(&raw).map_err(|_| invalid("metadata record key"))?;
         crate::storage::current_keys::validate("main", raw.as_bytes())?;
         let bare = crate::storage::current_keys::source_key(raw)?;
         let scope = crate::storage::current_keys::exact_scope(raw)?.map(str::to_owned);
         let record = if bare.starts_with("mk:") {
-            self.live(scope.as_deref(), bare, row.body)?
+            self.live(scope.as_deref(), bare, body)?
         } else if bare.starts_with("mgr:v1:") {
-            self.generation(scope.as_deref(), bare, row.body)?
+            self.generation(scope.as_deref(), bare, body)?
         } else {
             None
         };
@@ -124,13 +79,11 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
         metadata: Option<&HashMap<String, String>>,
     ) -> StorageResult<()> {
         let raw = build_storage_key(scope, &atom_key_codec::body_key(atom_id));
-        let body = {
-            let mut read = self.reader(24 * 1024 * 1024, 1)?;
-            read.get_bounded("atoms", &native_routing::encode(raw.as_bytes()), ROW_MAX)
-                .map_err(super::super::map)?
-                .ok_or_else(|| invalid("metadata references an absent atom"))?
-        };
-        let atom = open_atom(self.key, &body, self.current, &mut self.read)?;
+        let body = self
+            .source
+            .get("atoms", &native_routing::encode(raw.as_bytes()))?
+            .ok_or_else(|| invalid("metadata references an absent atom"))?;
+        let atom = self.source.open_atom(&body)?;
         if atom.uuid() != atom_id {
             return Err(invalid("metadata atom identity differs"));
         }
@@ -148,8 +101,7 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
         }
         drop(atom);
         drop(body);
-        let mut read = self.reader(8 * 1024 * 1024, 3)?;
-        read_directories(&mut read, scope, atom_id, &dependencies)?;
+        self.source.directories(scope, atom_id, &dependencies)?;
         Ok(())
     }
 
@@ -159,11 +111,9 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
         bare: &str,
     ) -> StorageResult<Option<T>> {
         let raw = build_storage_key(scope, bare);
-        let row = {
-            let mut read = self.reader(24 * 1024 * 1024, 1)?;
-            read.get_bounded("tips", &native_routing::encode(raw.as_bytes()), ROW_MAX)
-                .map_err(super::super::map)?
-        };
+        let row = self
+            .source
+            .get("tips", &native_routing::encode(raw.as_bytes()))?;
         row.map(|bytes| decode(bytes)).transpose()
     }
 }

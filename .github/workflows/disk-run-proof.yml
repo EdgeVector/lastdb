@@ -5,19 +5,16 @@ name: Disk run proof
 # and then I want to use it." The proof writes a synthetic seed through
 # laststore::disk_run, reads it back, and fails over 2x the logical bytes.
 # The V2b step runs the node store (fold_db disk_pack) on a synthetic v2 home.
-# The V4 step converts a synthetic v1 node home to v2 and checks each record.
 on:
   pull_request:
     paths:
-      - 'vendor/laststore/src/disk_run/**'
-      - 'vendor/laststore/src/frame.rs'
+      # Every laststore source file is disk format v2 code since D1.
+      - 'vendor/laststore/src/**'
       - 'vendor/laststore/examples/disk_run_proof/**'
       - 'vendor/laststore/examples/run_home_proof/**'
       - 'vendor/laststore/Cargo.toml'
       - 'fold_db/crates/core/src/storage/disk_pack/**'
       - 'fold_db/crates/core/examples/disk_v2_node_proof.rs'
-      - 'fold_db/crates/core/examples/disk_v2_convert_proof.rs'
-      - 'fold_db/crates/core/examples/disk_v2_convert_proof/**'
       - '.github/workflows/disk-run-proof.yml'
   workflow_dispatch:
 
@@ -79,18 +76,6 @@ jobs:
             echo "Source: $(git rev-parse HEAD)"
             cat "$RUNNER_TEMP/node-v2-proof.txt"
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Lint and run the conversion proof (V4)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo clippy --locked -p fold_db --example disk_v2_convert_proof -- -D warnings
-          cargo run --locked --release -p fold_db --example disk_v2_convert_proof \
-            | tee "$RUNNER_TEMP/convert-v2-proof.txt"
-          {
-            echo '## Conversion proof (V4)'
-            echo "Source: $(git rev-parse HEAD)"
-            cat "$RUNNER_TEMP/convert-v2-proof.txt"
-          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -99,6 +84,5 @@ jobs:
             ${{ runner.temp }}/disk-run-proof.txt
             ${{ runner.temp }}/run-home-proof.txt
             ${{ runner.temp }}/node-v2-proof.txt
-            ${{ runner.temp }}/convert-v2-proof.txt
           if-no-files-found: ignore
           retention-days: 14

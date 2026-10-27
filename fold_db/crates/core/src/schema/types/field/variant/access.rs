@@ -31,12 +31,6 @@ impl FieldVariant {
         self.molecule = None;
     }
 
-    /// Clone the molecule data for persistence, if present.
-    #[must_use]
-    pub fn clone_molecule_data(&self) -> Option<MoleculeData> {
-        self.molecule.clone()
-    }
-
     /// Borrow the hydrated molecule data for persistence without deep-copying
     /// large fields.
     #[must_use]
@@ -66,15 +60,6 @@ impl FieldVariant {
                 .map(|e| e.writer_pubkey().to_string())
                 .filter(|pk| !pk.is_empty()),
             _ => None,
-        }
-    }
-
-    /// Collect every atom UUID currently referenced by this field's molecule.
-    pub fn collect_atom_uuids(&self, out: &mut std::collections::HashSet<String>) {
-        if let Some(m) = &self.molecule {
-            for (_h, _r, uuid) in m.iter_all_atoms() {
-                out.insert(uuid.clone());
-            }
         }
     }
 }

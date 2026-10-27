@@ -50,7 +50,7 @@ mod window;
 
 pub(crate) use entry::QueueValue;
 
-pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest};
+pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest, slot_dir_prefix};
 pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
