@@ -20,8 +20,8 @@
  * `appId` alone, and the stored value is a small JSON envelope that *also*
  * records the `boundNode` it was minted for. `load(key, { expectedNode })`
  * returns the capability only when its `boundNode` matches the connection's
- * node; a mismatch (or a legacy bare-string entry from before this envelope)
- * is treated as **absent** (`null`), never blindly replayed. The composite key
+ * node; a mismatch, or a value that is not this envelope, is treated as
+ * **absent** (`null`), never blindly replayed. The composite key
  * already makes a cross-node hit structurally unlikely; the `boundNode` check
  * is the defense-in-depth that also catches a hand-injected or stale entry.
  *
@@ -59,14 +59,9 @@ export interface LoadOptions {
 /**
  * A pluggable capability store. Entries are addressed by an opaque `key` the
  * client builds from `(appId, nodeTarget)` via {@link capabilityStoreKey}, so
- * the store itself never has to know the keying scheme. The default store is
- * {@link defaultCapabilityStore}.
- *
- * NOTE (v2 — gap #2): the interface keys by an opaque `key: string`, not by
- * `appId`. Pre-v2 the methods took an `appId`; the client now passes a
- * node-scoped composite key so a capability minted for one node is stored
- * separately from another node's. A custom store written against the old
- * single-arg shape only needs to treat the first arg as an opaque id.
+ * the store itself never has to know the keying scheme. The node-scoped key
+ * stores a capability minted for one node apart from another node's. The
+ * default store is {@link defaultCapabilityStore}.
  */
 export interface CapabilityStore {
   /** Persist the base64 `capability` bound to `boundNode` under `key`. */
@@ -193,10 +188,8 @@ function encodeEnvelope(capability: string, boundNode: string): string {
 /**
  * Parse a stored value into `{ capability, boundNode }`, applying the
  * wrong-node guard. Returns the capability when it is usable for
- * `expectedNode`, or `null` when the entry is for a different node. A
- * legacy bare-string value (pre-envelope) has no `boundNode`, so it is
- * accepted only when no `expectedNode` is requested — otherwise it is
- * treated as absent (we cannot prove it was minted for this node).
+ * `expectedNode`, or `null` when the entry is for a different node or is not
+ * a `v: 1` envelope.
  */
 function decodeEnvelope(
   raw: string,
@@ -206,26 +199,21 @@ function decodeEnvelope(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    parsed = undefined;
-  }
-  if (
-    parsed &&
-    typeof parsed === 'object' &&
-    (parsed as StoredEnvelope).v === 1 &&
-    typeof (parsed as StoredEnvelope).capability === 'string'
-  ) {
-    const env = parsed as StoredEnvelope;
-    if (expectedNode !== undefined && env.boundNode !== expectedNode) {
-      return null; // wrong-node: treat as absent
-    }
-    return env.capability;
-  }
-  // Legacy bare-string value (no bound node recorded). Usable only when the
-  // caller is not asserting a specific node.
-  if (expectedNode !== undefined) {
     return null;
   }
-  return raw.trim();
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    (parsed as StoredEnvelope).v !== 1 ||
+    typeof (parsed as StoredEnvelope).capability !== 'string'
+  ) {
+    return null;
+  }
+  const env = parsed as StoredEnvelope;
+  if (expectedNode !== undefined && env.boundNode !== expectedNode) {
+    return null; // wrong-node: treat as absent
+  }
+  return env.capability;
 }
 
 /**
@@ -367,12 +355,11 @@ export class FileCapabilityStore implements CapabilityStore {
   }
 
   private pathFor(key: string): string {
-    // The composite key is `^[a-z][a-z0-9-]{0,39}@[0-9a-f]{16}$` when built by
-    // `capabilityStoreKey`; guard against a caller passing something that
-    // isn't a safe filename.
-    if (!/^[a-z][a-z0-9-]{0,39}(@[0-9a-f]{1,64})?$/.test(key)) {
+    // Accept only the composite key `capabilityStoreKey` builds; it is also a
+    // safe filename.
+    if (!/^[a-z][a-z0-9-]{0,39}@[0-9a-f]{16}$/.test(key)) {
       throw new Error(
-        `invalid capability key '${key}' (must be an app id, optionally @<node-hash>)`,
+        `invalid capability key '${key}' (must be capabilityStoreKey(appId, nodeTarget): <app-id>@<16-hex node hash>)`,
       );
     }
     return join(this.dir, `${key}.cap`);
@@ -520,8 +507,8 @@ export function defaultCapabilityStore(
 /**
  * Convenience: load a capability or throw {@link CapabilityNotFoundError}.
  * Used where a missing capability is a hard error (vs. `load` which returns
- * `null`). `appId` is for the error message only; `key` is the actual store
- * key (which may be node-scoped).
+ * `null`). `appId` is for the error message only; `key` is the node-scoped
+ * store key from {@link capabilityStoreKey}.
  */
 export async function loadCapabilityOrThrow(
   store: CapabilityStore,

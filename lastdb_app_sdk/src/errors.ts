@@ -516,9 +516,8 @@ export class RequestRejectedError extends FoldDbError {
 /**
  * Why the SDK decided the node is too old for this client.
  *
- * - `api_version_below_required`: the preflight read `GET /api/version` (or
- *   got a 404 from a node that predates the route, reported as `0`) and the
- *   number is below what the app declared.
+ * - `api_version_below_required`: the preflight read `GET /api/version` and
+ *   the number is below what the app declared.
  * - `unknown_key`: a data route answered `400 {kind:"unknown_key"}` — the node
  *   does not know a key this client sent. The key is never echoed by the node
  *   (its I4 rule), which is fine: the fix is the same either way.
@@ -530,7 +529,7 @@ export interface NodeTooOldDetail {
   reason: NodeTooOldReason;
   /** What the app declared it needs (`connect({ requireApiVersion })`). */
   required?: number;
-  /** What the node reported (`0` = predates the handshake; `null` = unknown). */
+  /** What the node reported (`null` = unknown). */
   reported: number | null;
   /** The node's baked build string when it reported one. */
   build: string | null;

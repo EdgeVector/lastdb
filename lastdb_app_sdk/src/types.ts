@@ -82,9 +82,8 @@ export type MutationDurability = 'queued' | 'durable';
 /**
  * The full per-row envelope the node returns for `/api/query`. The node's
  * `results` array carries one object per result key shaped
- * `{ key, fields, metadata, author_pub_key }` — see
- * `fold_db_node` `execute_query_json_internal` (the production
- * `/api/query` row builder) and `fold_db_node::dev_mode` `app_endpoints::api_query`.
+ * `{ key, fields, metadata, author_pub_key }` — see `lastdb_host`
+ * `handlers::query::rows::format_rows` (the `/api/query` row builder).
  *
  * A real app needs `key` to update/delete a specific row, and typically
  * `authorPubKey` + `metadata` for provenance — flattening to bare `fields`
@@ -92,22 +91,19 @@ export type MutationDurability = 'queued' | 'durable';
  */
 export interface QueryRow {
   /**
-   * The row's storage key rendered to a string. Production `fold_db_node`
-   * returns `key` as a structured `{hash, range}` object; the SDK renders it
-   * the same way fold_db's `KeyValue::Display` does (`"hash:range"`,
-   * `"hash"`, or `"range"`). A dev node (`fold_db_node::dev_mode`) already sends the
-   * rendered string, which is kept verbatim. NOTE the rendered form is
-   * ambiguous for range values containing `:` — for row addressing prefer
-   * the structured {@link QueryRow.keyValue}.
+   * The row's storage key rendered to a string. The node returns `key` as a
+   * structured `{hash, range}` object; the SDK renders it the same way
+   * fold_db's `KeyValue::Display` does (`"hash:range"`, `"hash"`, or
+   * `"range"`). NOTE the rendered form is ambiguous for range values
+   * containing `:` — for row addressing prefer the structured
+   * {@link QueryRow.keyValue}.
    */
   key: string;
   /**
-   * The row's STRUCTURED storage key, when the node sent one (production
-   * `/api/query` returns `key` as a `{hash, range}` object). Pass it back
-   * verbatim as `MutationOp.key` to update or delete this exact row — unlike
-   * the rendered `key` string, it is never ambiguous. `null` when the node
-   * sent a pre-rendered string key (the dev-node mirror) or no key at all
-   * (bare field-map rows).
+   * The row's STRUCTURED storage key (`{hash, range}`). Pass it back verbatim
+   * as `MutationOp.key` to update or delete this exact row — unlike the
+   * rendered `key` string, it is never ambiguous. `null` only when the key
+   * has neither a hash nor a range.
    */
   keyValue: KeyValue | null;
   /** The row's field values, keyed by field name. */
@@ -144,10 +140,8 @@ export interface ConnectOptions {
   /**
    * Socket-first discovery for the `baseUrl` (local-node) case. Default
    * `true`: `connect` prefers the node's Unix-domain data-plane socket and
-   * falls back to `baseUrl`'s TCP listener only when no socket file is found —
-   * the discovery order the Rust client uses, with the brand-forward
-   * `LASTDB_SOCKET_PATH` preferred (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH`
-   * legacy alias → `FOLDDB_SOCK` legacy alias → `<data_dir>/folddb.sock` →
+   * falls back to `baseUrl`'s TCP listener only when no socket file is found
+   * (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` → `<data_dir>/folddb.sock` →
    * TCP). Set `false`
    * to force the TCP listener (e.g. a remote/non-local node). Ignored when
    * `socketPath` is given (an explicit socket is always used verbatim).
@@ -239,8 +233,8 @@ export interface ConnectOptions {
    * `LASTDB_SDK_API_VERSION` for the lowest node version this SDK needs). When
    * set, `connect` reads `GET /api/version` first and throws
    * `NodeTooOldError` — one line that names the fix — when the node reports
-   * a lower number, or `0` because it predates the route. `0` (or unset)
-   * declares no requirement and skips the read. Declare it in the app's
+   * a lower number. `0` (or unset) declares no requirement and skips the
+   * read. Declare it in the app's
    * manifest and pass it through; raise it only when the app starts sending
    * a key an older node would refuse.
    */
@@ -254,11 +248,10 @@ export interface ConnectOptions {
 
 /**
  * The node's answer to `GET /api/version`, the client↔node compatibility
- * handshake. `handshake` is `false` when the node predates the route (404):
- * every other field then carries its "unknown" value and `apiVersion` is `0`.
+ * handshake.
  */
 export interface NodeVersion {
-  /** The request-grammar version the node speaks (`0` = predates the route). */
+  /** The request-grammar version the node speaks. */
   apiVersion: number;
   /** The node's baked build string (`null` when unknown). */
   build: string | null;
@@ -266,8 +259,6 @@ export interface NodeVersion {
   capabilities: Record<string, boolean>;
   /** Process-lifetime instance id (`null` when unknown). */
   instanceId: string | null;
-  /** Whether the node answered the route at all. */
-  handshake: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,15 +293,12 @@ export interface RequestConsentResult {
  * `queryAll` follows `page.nextCursor` when the node returns one and otherwise
  * advances by offset.
  *
- * Pagination: production `fold_db_node` applies `limit` (default 100 —
- * `DEFAULT_QUERY_LIMIT` — clamped to `MAX_QUERY_LIMIT` 1000) and `offset`
- * after fold_db returns, and reports `total_count`/`has_more` so truncation
- * is detectable (surfaced as {@link QueryResult.page}). Even when you pass NO
- * limit the node still caps the page at its default — use
- * `LastDbClient.queryAll` to drain a >100-row schema. The dev node
- * (`fold_db_node::dev_mode`) implements the SAME pagination (default 100, clamp 1000,
- * `total_count`/`has_more` metadata), so `limit`/`offset` and the page
- * metadata behave identically against both.
+ * Pagination: the node applies `limit` (default 100 — `DEFAULT_QUERY_LIMIT`
+ * — clamped to `MAX_QUERY_LIMIT` 1000) and `offset`, and reports
+ * `total_count`/`has_more` so truncation is detectable (surfaced as
+ * {@link QueryResult.page}). Even when you pass NO limit the node still caps
+ * the page at its default — use `LastDbClient.queryAll` to drain a >100-row
+ * schema.
  */
 export interface QueryFilter {
   /**
@@ -451,10 +439,8 @@ export type SchemaResolver = (
 
 /**
  * Pagination metadata the node's `/api/query` returns alongside its
- * `results`/`rows` page, surfaced verbatim (snake_case → camelCase). Both
- * production `fold_db_node` and the dev node (`fold_db_node::dev_mode`) return it. See
- * `fold_db_node/src/handlers/query.rs::QueryResponse` and
- * `fold_db_node::dev_mode` `app_endpoints::QueryResponse`.
+ * `results` page, surfaced verbatim (snake_case → camelCase). See
+ * `lastdb_host` `handlers::query::paging::page_payload`.
  */
 export interface QueryPage {
   /**
@@ -489,9 +475,7 @@ export interface QueryResult {
    */
   rows: QueryRow[];
   /**
-   * Pagination metadata, when the node reported it (production `fold_db_node`
-   * and the dev node `fold_db_node::dev_mode` both always do; only an older
-   * pre-pagination node omits it — then `null`). When present, `page.hasMore`
+   * Pagination metadata (`null` when the body carries none). `page.hasMore`
    * is the truncation signal: a plain `query()` against a >100-row schema
    * returns only the node's default page.
    */
@@ -658,9 +642,7 @@ export type AutoIdentityResult =
  *   value"; pair with `mutationType: "update"`).
  *
  * Forwarded verbatim under the node's `expected` key; the SDK never invents a
- * dialect the node would reject. Requires a node that implements the
- * `/api/mutation` `expected` primitive (`fold-node-cas-mutation-primitive`);
- * an older node ignores it and applies the write unconditionally.
+ * dialect the node would reject.
  */
 export type CasExpectation =
   | { type: 'absent'; field: string }
@@ -701,8 +683,9 @@ export interface MutationOp {
    */
   convergence?: MutationConvergence;
   /**
-   * Optional requested local policy. Current native nodes always commit to disk.
-   * Pass `durable` to require that guarantee from older nodes as well.
+   * Optional local durability policy, forwarded as the node's `durability`
+   * key. Omit for the node default (`queued`). Pass `durable` to make the
+   * node persist the write before it returns a `durable` receipt.
    */
   durability?: MutationDurability;
   /**
@@ -716,9 +699,8 @@ export interface MutationOp {
 
 /** `POST /api/mutation` success body. */
 export interface MutationResult {
-  written: number;
-  mutationIds: string[];
-  firingsObserved: number;
+  /** The node's `mutation_id` for this write. */
+  mutationId: string;
   backgroundTasksDrained?: boolean;
   convergencePending?: boolean;
 }

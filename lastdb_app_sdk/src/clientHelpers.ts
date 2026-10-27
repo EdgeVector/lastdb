@@ -1,7 +1,6 @@
 /** Small shared helpers for the runtime client: error details, delay, batch pairing. */
 
 import {
-  TransportError,
   UnexpectedResponseError,
   type CapabilityDenialDetail,
   type CasConflictDetail,
@@ -84,15 +83,6 @@ export function casConflictDetailOf(body: unknown): CasConflictDetail {
 /** Promise-based sleep (used between consent polls). */
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** A 404/405 the transport threw as a `protocol` error: the node lacks the route. */
-export function isMissingRouteError(error: unknown): boolean {
-  return (
-    error instanceof TransportError &&
-    error.kind === 'protocol' &&
-    (error.status === 404 || error.status === 405)
-  );
 }
 
 export function toError(error: unknown): Error {

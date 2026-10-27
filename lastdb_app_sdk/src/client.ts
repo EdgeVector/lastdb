@@ -5,13 +5,10 @@
  * poll → query/mutation-with-capability. Every method maps the node's
  * discriminated responses to the typed errors in `errors.ts` — no catch-all.
  *
- * Surface verified against `origin/main`:
- * - consent flow handlers: `fold_db_node/src/server/routes/apps.rs`
- * - data path handlers: `fold_db_node::dev_mode` `app_endpoints.rs` (the dev mirror of
- *   production `fold_db_node`'s control-socket route table)
- * - capability header: `fold_db_node/src/handlers/caller.rs`
- *   (`X-App-Capability` = base64 JSON CapabilityToken, `X-Capability-Ts` =
- *   unix epoch seconds)
+ * Data path routes: `lastdb_uds/src/uds_router/route_table.rs`; their
+ * handlers live in `lastdb_host/src/handlers/` and `lastdb_node/src/exec/`.
+ * The capability headers are `X-App-Capability` (base64 JSON
+ * CapabilityToken) and `X-Capability-Ts` (unix epoch seconds).
  */
 
 import {
@@ -42,7 +39,6 @@ import {
   PermissionDeniedError,
   QueryPaginationError,
   RequestRejectedError,
-  TransportError,
   UnexpectedResponseError,
   UnknownAppError,
 } from './errors.js';
@@ -55,7 +51,6 @@ import {
   httpTransport,
   udsTransport,
   type Transport,
-  type RawResponse,
 } from './transport.js';
 import {
   QueryBatchItem,
@@ -96,12 +91,9 @@ import {
   parseListResponse,
   parseQueryResponse,
   isObject,
-  parseMutationIds,
-  parseMutationWritten,
-  parseMutationFiringsObserved,
+  parseMutationId,
   parseChangesResponse,
   parseSearchResponse,
-  PRE_HANDSHAKE_NODE,
   parseNodeVersion,
   parseAutoIdentityResponse,
   parseSchemaListResponse,
@@ -112,7 +104,6 @@ import {
   capabilityDetailOf,
   casConflictDetailOf,
   delay,
-  isMissingRouteError,
   toError,
   BatchEntry,
   pairBatchReplies,
@@ -161,13 +152,9 @@ function nowEpochSecs(): string {
  *
  * **Socket-first discovery.** When you pass `baseUrl` (the local-node case),
  * the SDK PREFERS the node's Unix-domain data-plane socket and falls back to
- * the `baseUrl` TCP listener only when no socket file is present. This follows
- * the discovery order the Rust client uses, with the brand-forward
- * `LASTDB_SOCKET_PATH` preferred ahead of the Rust client's
- * `FOLDDB_SOCKET_PATH` (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` legacy
- * alias → `FOLDDB_SOCK` legacy alias → `<data_dir>/folddb.sock` → TCP),
- * making the
- * socket the normal app path while keeping TCP working mid-migration. Opt out
+ * the `baseUrl` TCP listener only when no socket file is present
+ * (`LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` → `<data_dir>/folddb.sock` →
+ * TCP), making the socket the normal app path. Opt out
  * with `connect({ baseUrl, discoverSocket: false })` to force the TCP listener
  * (e.g. against a remote/non-local node, or a browser-style HTTP path). An
  * explicit `socketPath` always uses that socket verbatim with no discovery.
@@ -302,14 +289,9 @@ export interface LastDbClientOptions {
 /** Most queries the node accepts in one `/api/queries/batch` request. */
 const QUERY_BATCH_MAX_ITEMS = 64;
 
-/** Queries in flight at once when the node lacks the batch route. */
-const QUERY_BATCH_FALLBACK_WIDTH = 4;
-
 export class LastDbClient {
   private readonly verifyCapability: boolean;
   private readonly schemaResolver: SchemaResolver | null;
-  /** `null` until the node answers; `false` once it lacks `/api/queries/batch`. */
-  private queryBatchSupported: boolean | null = null;
   /** Canonical multi-DB locator forwarded on every data-path request. */
   readonly dbLocator: string;
 
@@ -345,27 +327,10 @@ export class LastDbClient {
 
   /**
    * `GET /api/version` — the client↔node compatibility handshake. Reads no
-   * node state and needs no capability. A node that predates the route (404)
-   * yields `{ apiVersion: 0, handshake: false }` rather than an error, so a
-   * caller can still print what it learned.
+   * node state and needs no capability. Both node sockets serve the route.
    */
   async version(): Promise<NodeVersion> {
-    let res: RawResponse;
-    try {
-      res = await this.transport.send('GET', LASTDB_API_ROUTES.version);
-    } catch (err) {
-      // A node that predates the route answers the content-free bytes
-      // `Not Found`, which the stock transports report as a `protocol`
-      // TransportError carrying the status. That is the "no handshake"
-      // answer, not a transport failure — every other error still throws.
-      if (err instanceof TransportError && err.kind === 'protocol' && err.status === 404) {
-        return PRE_HANDSHAKE_NODE;
-      }
-      throw err;
-    }
-    if (res.status === 404) {
-      return PRE_HANDSHAKE_NODE;
-    }
+    const res = await this.transport.send('GET', LASTDB_API_ROUTES.version);
     if (res.status !== 200) {
       throw new UnexpectedResponseError(
         `version returned ${res.status}`,
@@ -635,10 +600,6 @@ export class LastDbClient {
    * More than 64 items go out as several requests, joined in order. The
    * full-scan opt-in is never sent, so an unkeyed item fails with the node's
    * refusal.
-   *
-   * A node that predates the route answers 404/405. The client then runs the
-   * items as plain `query` calls, a few at a time, with the same outcomes,
-   * and remembers the answer for its life so later calls do not probe again.
    */
   async queryBatch(
     items: readonly QueryBatchItem[],
@@ -661,38 +622,19 @@ export class LastDbClient {
 
     for (let start = 0; start < ready.length; start += QUERY_BATCH_MAX_ITEMS) {
       const chunk = ready.slice(start, start + QUERY_BATCH_MAX_ITEMS);
-      if (this.queryBatchSupported !== false) {
-        const queries = chunk.map(({ item, resolved }) =>
-          this.queryBody(resolved, item.filter ?? {}),
-        );
-        let res: RawResponse | null;
-        try {
-          res = await this.transport.send('POST', LASTDB_API_ROUTES.queryBatch, {
-            headers: this.capabilityHeaders(),
-            body: { queries },
-          });
-        } catch (error) {
-          // A node without the route answers the content-free bytes `Not Found`.
-          // The stock transports report that as a `protocol` TransportError that
-          // carries the status (as for `version()`), so it arrives as a throw.
-          if (!isMissingRouteError(error)) {
-            throw error;
-          }
-          res = null;
-        }
-        if (res !== null && res.status === 200) {
-          this.queryBatchSupported = true;
-          for (const [entry, reply] of pairBatchReplies(chunk, res.body)) {
-            outcomes[entry.index] = this.batchOutcome(entry, reply);
-          }
-          continue;
-        }
-        if (res !== null && res.status !== 404 && res.status !== 405) {
-          throw this.mapDataError('query batch', res.status, res.body);
-        }
-        this.queryBatchSupported = false;
+      const queries = chunk.map(({ item, resolved }) =>
+        this.queryBody(resolved, item.filter ?? {}),
+      );
+      const res = await this.transport.send('POST', LASTDB_API_ROUTES.queryBatch, {
+        headers: this.capabilityHeaders(),
+        body: { queries },
+      });
+      if (res.status !== 200) {
+        throw this.mapDataError('query batch', res.status, res.body);
       }
-      await this.queryEach(chunk, outcomes);
+      for (const [entry, reply] of pairBatchReplies(chunk, res.body)) {
+        outcomes[entry.index] = this.batchOutcome(entry, reply);
+      }
     }
     return outcomes;
   }
@@ -716,36 +658,6 @@ export class LastDbClient {
     } catch (error) {
       return { ok: false, error: toError(error) };
     }
-  }
-
-  /** Run batch items as plain `query` calls (node without the batch route). */
-  private async queryEach(
-    chunk: readonly BatchEntry[],
-    outcomes: QueryBatchOutcome[],
-  ): Promise<void> {
-    let next = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const entry = chunk[next++];
-        if (entry === undefined) {
-          return;
-        }
-        try {
-          outcomes[entry.index] = {
-            ok: true,
-            result: await this.query(entry.item.schemaName, entry.item.filter ?? {}),
-          };
-        } catch (error) {
-          outcomes[entry.index] = { ok: false, error: toError(error) };
-        }
-      }
-    };
-    await Promise.all(
-      Array.from(
-        { length: Math.min(QUERY_BATCH_FALLBACK_WIDTH, chunk.length) },
-        worker,
-      ),
-    );
   }
 
   /**
@@ -925,13 +837,8 @@ export class LastDbClient {
         );
       }
       const b = res.body;
-      const mutationIds = parseMutationIds(b, res.body);
-      const written = parseMutationWritten(b, res.body);
-      const firingsObserved = parseMutationFiringsObserved(b, res.body);
       const result: MutationResult = {
-        written,
-        mutationIds,
-        firingsObserved,
+        mutationId: parseMutationId(b, res.body),
       };
       if (typeof b['background_tasks_drained'] === 'boolean') {
         result.backgroundTasksDrained = b['background_tasks_drained'];

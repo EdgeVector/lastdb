@@ -237,8 +237,8 @@ Needed SDK additions:
    lexical/native keyword mode. The current `target` accepts one schema and is
    intentionally narrowing-only; that security property should remain.
 5. Surface convergence fields in `MutationResult`. The node already returns
-   these concepts, but the SDK currently normalizes mutation results to
-   `written`, `mutationIds`, and `firingsObserved`.
+   these concepts; the SDK result carries `mutationId` plus the optional
+   `backgroundTasksDrained` and `convergencePending` flags.
 
 ## Node Changes
 
