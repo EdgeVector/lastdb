@@ -202,36 +202,4 @@ impl MutationManager {
             .await?;
         Self::require_durable_receipt(receipt, "losing replay")
     }
-
-    pub(super) fn plan_publish(ctx: &ApplyCtx<'_>, gs: &GuardState) -> PublishPlan {
-        let expected = &ctx.expected_guard;
-        let old_target_guard_key = gs.current.as_ref().and_then(|current| {
-            let old_key = aggregate_target_guard_key(
-                ctx.storage_prefix,
-                &current.target_schema_name,
-                &current.target_key,
-            );
-            (old_key != gs.target_guard_key).then_some(old_key)
-        });
-        let mut desired_guard = expected.clone();
-        for existing in gs.current.iter().chain(gs.target_owner.iter()) {
-            if existing.same_association(expected)
-                && existing.cmp_enrollment(&desired_guard).is_gt()
-            {
-                desired_guard = existing.clone();
-            }
-        }
-        let advances = |current: &AggregateGuard| {
-            !current.same_association(&desired_guard)
-                || desired_guard.cmp_enrollment(current).is_gt()
-        };
-        let publish_forward = gs.current.as_ref().is_none_or(advances);
-        let publish_target = gs.target_owner.as_ref().is_none_or(advances);
-        PublishPlan {
-            desired_guard,
-            publish_forward,
-            publish_target,
-            old_target_guard_key,
-        }
-    }
 }
