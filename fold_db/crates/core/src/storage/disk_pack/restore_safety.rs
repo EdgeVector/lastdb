@@ -54,6 +54,7 @@ impl PackRuntime {
         let _gate = self.enter_prepare().await;
         self.require_restore_validated()?;
         self.serving.store(true, Ordering::Release);
+        self.resume_native_cleanup();
         Ok(())
     }
 

@@ -114,6 +114,10 @@ The candidate stops after the seed and uses its matching `lastdb` CLI to create 
 The converter must preserve every source data-file checksum and publish the exact typed marker.
 Only the candidate switches to that target before the normal reads and writes.
 The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
+For a typed-format before/after comparison, select `typed_ranges: both`.
+Each version then converts its independent stopped source with its own matching CLI.
+The request, growth, disk, and confirmation recipes retain that format on both sides.
+This option leaves ordinary PR measurements unchanged. The `false` and `true` choices retain their existing behavior.
 The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
 The retained sum excludes transient merge files. It does not establish peak disk use.
 The artifact retains the product output, CLI checksum, and Linux process resource measurements.
@@ -351,17 +355,6 @@ The scope count must equal the actual successful write-call count for that case.
 Missing or ambiguous evidence fails the diagnostic capture.
 Each physical commit enters the totals once, even when it serves several requests.
 The artifact retains request counts, phase coverage, physical counts, and the slowest native records.
-The parent section uses exact summed integer counters from the same accepted physical commits; means are for display only.
-Each tree kind separates tracked and untracked lifetime-accounting modes. Those modes do not identify foreground versus compaction.
-Root and nonroot parent visits include child-count bands, levels 1–7, and same-generation versus older-generation counts.
-Older-generation does not mean published: a private compaction base can contain older pages.
-For successful captures, started and completed edit calls match the root-leaf plus root-parent visits.
-Visited parents equal reconstructed parent inputs. Parent output equals visited parents plus split extra pages plus added-level pages.
-From-root-input output can split and does not necessarily describe final roots. Low-level output also includes bulk writer pages.
-A foreground Publisher batch reconciles existing edits, template creates, and bulk creates with its changed collection/hash count.
-The probe counts inserted, different, and identical explicit replacement values. Identical values alone do not prove an unchanged leaf.
-These are bounded events, not a distinct-page census. Source review supplies the one-visit recursion and one-edit-per-hash interpretation.
-Missing old parent families show unreported. Partial families, invalid inputs, and failed exact reconciliations reject the diagnostic summary.
 Missing phase fields stay unreported. Parent and child phase totals can overlap.
 The physical request count can include background work. It is not an exclusive cost for each client call.
 

@@ -29,11 +29,9 @@ pub(crate) fn key_u64_after_last_marker(key: &[u8], marker: &[u8]) -> Option<u64
 }
 
 mod scan;
-mod stats;
 mod typed;
 
 pub use scan::*;
-pub use stats::*;
 pub use typed::*;
 
 mod kv;

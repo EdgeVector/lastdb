@@ -33,6 +33,9 @@ on:
       typed_ranges:
         type: boolean
         default: false
+      baseline_typed_ranges:
+        type: boolean
+        default: false
       baseline_workers:
         type: string
         default: "0"
@@ -57,12 +60,17 @@ jobs:
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
       BENCH_TYPED_RANGES: ${{ inputs.typed_ranges }}
+      BENCH_BASELINE_TYPED_RANGES: ${{ inputs.baseline_typed_ranges }}
     steps:
       - name: Validate the explicit typed comparison configuration
         env:
           LEGACY_UPGRADE: ${{ inputs.legacy_cache_upgrade }}
           TTL_ACTIVE: ${{ inputs.ttl_active }}
         run: |
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ] && [ "$BENCH_TYPED_RANGES" != true ]; then
+            echo 'A typed baseline requires the typed candidate comparison.' >&2
+            exit 1
+          fi
           if [ "$BENCH_TYPED_RANGES" = true ] && { [ "$LEGACY_UPGRADE" = true ] || [ "$TTL_ACTIVE" = true ]; }; then
             echo 'The typed comparison requires separate legacy-upgrade and active-TTL runs.' >&2
             exit 1
@@ -255,6 +263,7 @@ jobs:
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
           if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 65m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -307,6 +316,7 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -333,6 +343,7 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -359,6 +370,7 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
+          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 20m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \

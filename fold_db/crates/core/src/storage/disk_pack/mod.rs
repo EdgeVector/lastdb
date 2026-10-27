@@ -12,8 +12,12 @@ use std::sync::{Arc, Mutex, RwLock};
 mod blocking;
 mod boundary;
 pub mod byte_backup;
+mod cleanup;
 mod cloud_work;
 mod diagnostics;
+pub use cleanup::{
+    NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
+};
 pub mod file_dependencies;
 pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
@@ -61,6 +65,7 @@ const NAMESPACES: &str = "namespaces\0";
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     physical: physical::V2Home,
+    cleanup_job: Arc<cleanup::CleanupJob>,
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
@@ -166,9 +171,11 @@ impl PackNamespacedStore {
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
+        let cleanup_job = Arc::new(cleanup::CleanupJob::open(&physical));
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
+                cleanup_job,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,

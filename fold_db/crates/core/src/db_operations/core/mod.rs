@@ -155,14 +155,6 @@ impl DbOperations {
         self.store.walk_ids_visited()
     }
 
-    /// Full read-cost picture (cold loads + warm residency vs budget).
-    ///
-    /// Takes the warm-set lock — sampler and `/api/status` only. Use
-    /// [`Self::cold_shard_loads`] on hot paths.
-    pub fn read_cost(&self) -> Option<crate::storage::traits::ReadCostStats> {
-        self.store.read_cost()
-    }
-
     /// Open a side namespace on the primary storage backend.
     pub async fn open_namespace(
         &self,

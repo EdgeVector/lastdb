@@ -152,7 +152,7 @@ impl CoreWarmSet {
 
     fn install_model_changes(&mut self, update: &CoreModelUpdate) {
         for (path, value) in &update.changes {
-            self.install_owned(path, Arc::clone(value));
+            self.install_clean_slot(path, value);
             self.clear_sources(path);
             for (collection, key) in &value.sources {
                 let retained = self.link_source(path, collection, key);
@@ -165,9 +165,9 @@ impl CoreWarmSet {
         }
     }
 
-    fn install_owned(&mut self, path: &CorePath, value: Arc<CoreModelSlot>) {
-        // The immutable slot/root retains this allocation even if admission
-        // shares an equal current atom. Both allocations must stay measured.
+    fn install_clean_slot(&mut self, path: &CorePath, value: &CoreModelSlot) {
+        // Preparation still owns this allocation until publication returns,
+        // including when admission shares an equal current atom.
         if let Some(slot) = &value.value {
             self.track_atom(&slot.atom);
         }
@@ -177,7 +177,10 @@ impl CoreWarmSet {
         };
         debug_assert!(result.is_ok(), "prepared and held core path");
         if let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get_mut(id)) {
-            slot.owned = Some(value);
+            // The complete disk root is already committed. Ordinary warm-set
+            // charges and read-held atom owners now cover the clean value;
+            // do not retain the temporary write metadata/quota for its life.
+            slot.owned = None;
         }
     }
 

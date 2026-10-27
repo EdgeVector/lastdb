@@ -49,12 +49,8 @@ impl QueryExecutor {
             .await?
         {
             Some(schema) => {
-                let owner = schema.owner_app_id.clone();
-                crate::warm_admit::with_schema_owner(
-                    owner.as_deref(),
-                    self.run_query_on_schema(schema, query, window, storage_prefix),
-                )
-                .await
+                self.run_query_on_schema(schema, query, window, storage_prefix)
+                    .await
             }
             None => Err(SchemaError::InvalidData(format!(
                 "Schema '{}' not found",

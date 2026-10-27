@@ -483,7 +483,7 @@ blobs/sha256/<hh>/<hh>/<hash>     # large bytes on filesystem (SOT for blob byte
 cas_blobs/                        # LastStore collection for refs/metadata / small CAS
 ```
 
-**Boundary:** atom content never multi-MB; `cas_blobs` may hold delivery/CAS payloads under policy (`LASTDB_ALLOW_PLAIN_CAS` etc.). FS `blobs/` is the long-term file-scale home.
+**Boundary:** atom content never multi-MB; `cas_blobs` holds sealed delivery and CAS rows. FS `blobs/` is the long-term file-scale home.
 
 #### Dedup trade-off
 

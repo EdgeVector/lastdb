@@ -90,7 +90,6 @@ pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
     ACTIVE.with(|active| {
         *active.borrow_mut() = Some(Report {
             started_us: unix_us(),
-            counts: crate::disk_pack::page_usage::initial_counts(),
             ..Report::default()
         });
     });

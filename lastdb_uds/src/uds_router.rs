@@ -174,6 +174,10 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
             "GET" | "POST" => ControlRoute::Data(DataRoute::DbNativeStatus),
             _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
         },
+        "/api/db/cleanup" if owner => match method {
+            "GET" | "POST" => ControlRoute::Data(DataRoute::DbCleanup),
+            _ => ControlRoute::MethodNotAllowed { allow: "GET, POST" },
+        },
         // The counter verifier: GET reads the last result, POST runs one step.
         "/api/db/verify-refs" if owner => match method {
             "GET" => ControlRoute::Data(DataRoute::DbVerifyRefsLast),

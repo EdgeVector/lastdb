@@ -1,19 +1,18 @@
 //! Duplicate-put handling for local CAS rows.
 //!
 //! A `cas_blobs` write is an append to a log-structured store, and nothing
-//! compacts the plane on its own. A second [`super::put_blob_sealed_under_dek_in_ops`]
-//! of the same bytes therefore leaves a second full copy on disk. The local blob
-//! PUT is retried by design (a push that crashed before its pointer batch runs
-//! again with the same bytes), so it uses
-//! [`put_blob_sealed_under_dek_dedup_in_ops`] instead.
+//! compacts the plane on its own. A second put of the same bytes therefore
+//! leaves a second full copy on disk. The local blob PUT is retried by design
+//! (a push that crashed before its pointer batch runs again with the same
+//! bytes), so it uses [`put_blob_sealed_with_access_dedup_in_ops`].
 //!
 //! # The design
 //!
-//! Hash the bytes, take the blob's liveness target gate, and read the row that
-//! is already there BEFORE sealing anything:
+//! Take the blob's liveness target gate, and read the row that is already
+//! there before a write:
 //!
-//! - **No row, or a row that does not open and hash to its key:** seal and
-//!   write. A damaged row is repaired by the next put of its bytes.
+//! - **No row, or a row that does not open and hash to its key:** write the
+//!   prepared envelope. A damaged row is repaired by the next put of its bytes.
 //! - **An intact row:** write no second copy.
 //!
 //! "Intact" covers both row formats. A sealed row must open under the DEK. A
@@ -38,15 +37,11 @@
 use super::{decode_blob_bytes_with_dek, is_local_cas_sealed, namespace, ContentAddressedBlob};
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
-use crate::hex::sha256_hex;
 use crate::schema::SchemaError;
 use crate::sharing::delivery_wire::{
     content_addressed_blob_from_envelope, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
-    FILE_BLOB_CIPHER_SUITE_LEGACY,
 };
-use crate::sharing::file_blob_seal::{
-    file_blob_storage_hash, seal_file_blob_for_access, FILE_BLOB_ENVELOPE_OVERHEAD,
-};
+use crate::sharing::file_blob_seal::file_blob_storage_hash;
 use crate::storage::{KvStore, StorageError};
 use chrono::Utc;
 use std::sync::Arc;
@@ -75,37 +70,6 @@ enum Existing {
     Unusable,
     /// A row that opens (sealed) or hashes (plain) to its key.
     Intact,
-}
-
-/// Seal `plaintext` under `dek_hex` and store it unless an intact row for the
-/// same bytes is already there. Register the upload with the blob counter. See
-/// the module docs.
-pub async fn put_blob_sealed_under_dek_dedup_in_ops(
-    ops: &DbOperations,
-    plaintext: &[u8],
-    media_type: Option<String>,
-    name: Option<String>,
-    dek_hex: &str,
-) -> Result<SealedPutOutcome, FoldDbError> {
-    let file_hash = sha256_hex(plaintext);
-    let access = FileBlobAccess {
-        blob_ref: format!("sha256:{file_hash}"),
-        file_hash,
-        owner_scope: None,
-        cipher_suite: FILE_BLOB_CIPHER_SUITE_LEGACY.into(),
-        dek: dek_hex.into(),
-        encrypted_size_bytes: Some(plaintext.len() as u64 + FILE_BLOB_ENVELOPE_OVERHEAD),
-    };
-    let envelope = seal_file_blob_for_access(plaintext, &access)?;
-    put_blob_sealed_with_access_dedup_in_ops(
-        ops,
-        plaintext.len() as u64,
-        media_type,
-        name,
-        &access,
-        &envelope,
-    )
-    .await
 }
 
 /// Put one prepared envelope without changing its key, suite or CAS reference.

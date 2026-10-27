@@ -21,8 +21,6 @@ pub(super) async fn build_snapshot(
         request_ops_started.elapsed(),
     );
     let sync = timed_sync_health(host, refresh_sync);
-    // Retired cloud engines do not provide progress or provider inventory gauges.
-    let (backup, backup_storage) = (None, None);
     let durability = durability_health(host);
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
@@ -36,14 +34,8 @@ pub(super) async fn build_snapshot(
         .status_native();
     let resident =
         ResidentHealth::from_native(&native, host.db.db_ops().persist_metrics().snapshot());
-    let (mut memory_budget, read_cost) = memory_budget_health(
-        host,
-        &namespaced_store,
-        footprint,
-        runtime_memory,
-        &resident,
-        &mut request_ops,
-    );
+    let mut memory_budget =
+        memory_budget_health(host, footprint, runtime_memory, &resident, &mut request_ops);
     memory_budget.core_warm = CoreWarmBytesHealth::from(&native.core_warm_bytes);
     StatusSnapshot {
         logs: daemon_log_streams(),
@@ -66,8 +58,6 @@ pub(super) async fn build_snapshot(
         data_dir: dirs.data_dir,
         data_dir_path_disclosed: dirs.data_dir_path_disclosed,
         sync,
-        backup,
-        backup_storage,
         durability,
         sampler: host.self_metrics.snapshot(),
         qos,
@@ -79,12 +69,9 @@ pub(super) async fn build_snapshot(
         watchers: host.watch_gate.snapshot().into(),
         request_ops,
         limits: LimitsHealth::default(),
-        read_cost,
         resident,
         build: BuildHealth::current(),
         integrity: integrity_health(host),
-        molecule_edges: configured_molecule_edge_health(host),
-        file_blob: FileBlobHealth::default(),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
@@ -179,28 +166,21 @@ fn integrity_health(host: &Host) -> IntegrityHealth {
     )
 }
 
-/// Memory budget plus the read-cost row it reads. Also stamps the persist-lane
-/// rows onto `request_ops`.
+/// Memory budget. Also stamps the persist-lane rows onto `request_ops`.
 fn memory_budget_health(
     host: &Host,
-    namespaced_store: &std::sync::Arc<dyn fold_db::storage::NamespacedStore>,
     footprint: Option<PhysFootprint>,
     runtime_memory: Option<fold_db::memory_budget::RuntimeMemoryBudgetObservation>,
     resident: &ResidentHealth,
     request_ops: &mut crate::request_telemetry::RequestTelemetrySnapshot,
-) -> (MemoryBudgetHealth, Option<ReadCostHealth>) {
-    // Read after the pressure correction so this status response reports the
-    // corrected metadata. The accessor only takes the warm-set mutex.
-    let read_cost = host.db.db_ops().read_cost().map(ReadCostHealth::from);
+) -> MemoryBudgetHealth {
     let (_, _, deferred_persist_bytes, deferred_persist_cap_bytes) =
         host.db.mutation_manager().defer_window_in_flight();
     let persist_lanes = host.db.mutation_manager().persist_lane_pressure();
     request_ops.persist_lanes = persist_lane_rows(&persist_lanes);
-    let admission = namespaced_store.warm_set_admission_stats();
     let allocator = crate::allocator::metrics();
     let (slowest_request_ms, peak_request_bytes) = peak_request_bytes_from_ops(request_ops);
-    let memory_budget = MemoryBudgetHealth::measured(
-        read_cost.as_ref(),
+    MemoryBudgetHealth::measured(
         resident,
         deferred_persist_bytes,
         deferred_persist_cap_bytes,
@@ -208,13 +188,11 @@ fn memory_budget_health(
         footprint.map(|f| f.current_bytes),
         runtime_memory,
         MemoryBudgetAttribution {
-            admission,
             allocator,
             peak_request_bytes,
             slowest_request_ms,
         },
-    );
-    (memory_budget, read_cost)
+    )
 }
 
 pub(super) fn persist_lane_row_is_visible(

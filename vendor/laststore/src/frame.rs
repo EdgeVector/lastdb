@@ -1,8 +1,5 @@
-//! AEAD frame primitives for Last Store encrypted chunk files.
-//!
-//! The default keyless store continues to write raw segment bytes. When a store
-//! is opened with a data key, group-commit batches are persisted as these
-//! authenticated frames.
+//! AEAD frame primitives. Every block of a disk format v2 run file and every
+//! `CURRENT` list is one of these authenticated frames.
 
 use crate::{Error, Result};
 use aes_gcm::aead::{AeadInPlace, KeyInit};
@@ -70,23 +67,6 @@ pub struct EncodedFrame {
     pub bytes: Vec<u8>,
     /// Compression accounting for the encrypted payload.
     pub compression: FrameCompression,
-}
-
-/// Total encoded length of one frame, read from its clear authenticated header.
-pub fn encoded_len(frame: &[u8]) -> Result<usize> {
-    if frame.len() < HEADER_SIZE {
-        return Err(Error::Corrupt("bad frame header length".into()));
-    }
-    let (_, payload_len, _) = decode_header_prefix(&frame[..HEADER_SIZE])?;
-    HEADER_SIZE
-        .checked_add(payload_len)
-        .and_then(|n| n.checked_add(TAG_SIZE))
-        .ok_or_else(|| Error::Corrupt("frame length overflow".into()))
-}
-
-/// Cleartext header size for frame scanners.
-pub fn header_size() -> usize {
-    HEADER_SIZE
 }
 
 /// Minimum valid encoded frame length.
