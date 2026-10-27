@@ -32,15 +32,13 @@ pub(super) fn applied_report(
 
 pub(super) fn preview_report(
     assessment: &Assessment,
-    current: Option<SchemaRetentionPolicy>,
+    current: Option<&SchemaRetentionPolicy>,
     binding: &str,
     anchor: &str,
     confirmed: bool,
-    blocked: Option<String>,
+    blocked: Option<&str>,
 ) -> Value {
-    let operator_wins = current
-        .as_ref()
-        .is_some_and(|policy| policy.source == RetentionSource::Operator);
+    let operator_wins = current.is_some_and(|policy| policy.source == RetentionSource::Operator);
     let mut report = assessment.report(binding, anchor, confirmed);
     report.insert(
         "would_apply".into(),

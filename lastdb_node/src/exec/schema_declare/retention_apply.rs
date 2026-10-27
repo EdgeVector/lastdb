@@ -219,10 +219,10 @@ pub(crate) async fn preview_declare_retention(
     let blocked = assessment.refusal(declare, anchor, retention.confirmed());
     Ok(Some(super::retention_reply::preview_report(
         &assessment,
-        current,
+        current.as_ref(),
         binding,
         anchor,
         retention.confirmed(),
-        blocked,
+        blocked.as_deref(),
     )))
 }
