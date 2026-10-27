@@ -1,7 +1,6 @@
 # LastDB read receipts
 
 The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
-The `group_opens` and `legacy_replay_bytes` counters stay in the response for compatibility. They have no writer in disk format v2 and stay `0`.
 
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time.
@@ -11,8 +10,7 @@ The receipt does not change the file format or the warm-set byte budget.
 
 Send `x-lastdb-read-receipt: true` with `POST /api/query` on the owner socket.
 The response header `x-lastdb-read-receipt` contains a compact JSON object.
-Ordinary queries omit the receipt header. Request telemetry uses its own
-per-request scope. Its `cold_shard_loads` value comes from `group_opens`, so it stays `0`.
+Ordinary queries omit the receipt header. Request telemetry does not read the receipt.
 
 The `query_storage` scope covers one query after request parse and before the
 response envelope. It includes schema resolution and the final record result.
@@ -34,13 +32,11 @@ scope can carry the partial receipt.
 | `requested_keys` | Storage lookup attempts. This includes fallback probes and repeated requests for the same key. It is not the number of API records. |
 | `logical_warm_hits` | Exact lookup results from the logical core path, including confirmed absence. |
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
-| `group_opens` | Has no writer in disk format v2 and stays `0`. Request telemetry reports it as `cold_shard_loads`. |
 | `returned_body_bytes` | Exact response body bytes after the result envelope. Header bytes are separate. |
 | `file_open_attempts` | Read-only file open attempts, including failed attempts. |
 | `file_opens` | Successful read-only file opens. A repeated open counts again. |
 | `metadata_operations` | Explicit file status calls. |
 | `read_operations` | File read calls, including EOF and failed calls. |
-| `legacy_replay_bytes` | Has no writer in disk format v2 and stays `0`. |
 | `footer_bytes` | Bytes read for disk run footers and index blocks. |
 | `payload_bytes` | Bytes read from disk run data blocks and streamed frame payloads. |
 | `format_probe_bytes` | Bytes read for streamed frame headers and tags. |

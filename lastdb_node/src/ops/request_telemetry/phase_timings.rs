@@ -163,7 +163,7 @@ phase_timings! {
         hydrate_us => "hydrate",
         /// Query: the executor call — key-index resolution, window push-down and
         /// atom-body materialization. The only hydrate sub-step that touches
-        /// storage, so it is the one that tracks `sum_cold_shard_loads`.
+        /// storage.
         hydrate_atoms_us => "hydrate_atoms",
         /// Query: response-envelope build, `O(rows x fields)` and storage-free.
         /// Large here with `hydrate_atoms` small means the read is cheap and the

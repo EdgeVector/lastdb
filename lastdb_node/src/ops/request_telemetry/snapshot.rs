@@ -21,10 +21,6 @@ pub struct RequestTelemetrySnapshot {
     /// Aggregates ranked by call count. Forensic; opt-in.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top_by_count: Vec<OpAggregate>,
-    /// Aggregates ranked by cold shard loads — who is paying the read path's
-    /// dominant cost, as opposed to who is merely slow. Forensic; opt-in.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub top_by_cold_shard_loads: Vec<OpAggregate>,
     /// Aggregates ranked by total request body bytes — who is stuffing the
     /// node (mutation / batch / file-blob write volume), not who is slow.
     ///
@@ -110,7 +106,6 @@ impl RequestTelemetrySnapshot {
             top_by_duration: Vec::new(),
             top_by_total_ms: Vec::new(),
             top_by_count: Vec::new(),
-            top_by_cold_shard_loads: Vec::new(),
             top_by_body_bytes: Vec::new(),
             app_verb: Vec::new(),
             idle_wait: Vec::new(),
@@ -172,7 +167,6 @@ impl Default for RequestTelemetrySnapshot {
             top_by_duration: Vec::new(),
             top_by_total_ms: Vec::new(),
             top_by_count: Vec::new(),
-            top_by_cold_shard_loads: Vec::new(),
             top_by_body_bytes: Vec::new(),
             app_verb: Vec::new(),
             idle_wait: Vec::new(),

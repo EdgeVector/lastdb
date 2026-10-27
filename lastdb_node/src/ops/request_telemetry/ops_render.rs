@@ -76,8 +76,6 @@ pub fn snapshot_lines_with_schema_labels(
 
     lines.extend(key_use_lines(snap));
     lines.extend(top_total_time_lines(snap, labels));
-    lines.extend(ring_cold_load_lines(snap, labels));
-    lines.extend(lifetime_cold_load_lines(snap, labels));
     lines.extend(body_volume_lines(snap, labels));
     lines.extend(idle_wait_lines(snap));
     lines.extend(slowest_request_lines(snap, labels));
@@ -161,108 +159,6 @@ fn top_total_time_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) 
             true, false, false, false, true, true, true, true, true, false,
         ],
     ));
-    lines
-}
-
-/// Cold shard loads over the recent ring window.
-fn ring_cold_load_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
-    let mut lines = Vec::new();
-    // Ring-window cold loads first: the ranking agents use for the *live*
-    // window. Lifetime averages retain start-of-day cold-miss bursts forever and
-    // must never be presented as the current per-call load.
-    //
-    // Neither table is a per-caller read cost, and the header must not imply one
-    // — the counter behind both is store-wide (see `OpSample::cold_shard_loads`),
-    // so a long request is charged for every concurrent caller's loads.
-    let ring_cold = ring_cold_load_rows(snap);
-    if !ring_cold.is_empty() {
-        lines.push(String::new());
-        lines.push("Cold shard loads — recent ring (observed during, not caused by)".to_string());
-        lines.push("  Store-wide counter sampled around each request: a call is charged for loads concurrent callers triggered while it ran.".to_string());
-        lines.push("  So LOAD/CALL rises with a key's DURATION. Compare LOAD/SEC — if it is flat across keys, this is one store-wide rate, not one heavy caller.".to_string());
-        let rows: Vec<Vec<String>> = ring_cold
-            .iter()
-            .take(10)
-            .enumerate()
-            .map(|(i, row)| {
-                vec![
-                    (i + 1).to_string(),
-                    truncate_cell(&row.client, OPS_CLIENT_CELL_WIDTH),
-                    row.kind.as_str().to_string(),
-                    identity_cell(row.schema.as_deref(), row.route.as_deref(), labels),
-                    human_count(row.sum_loads),
-                    human_count(row.count),
-                    human_count(row.loads_per_call()),
-                    human_count(row.loads_per_service_second()),
-                    human_duration_ms(row.sum_ms),
-                ]
-            })
-            .collect();
-        lines.extend(aligned_table(
-            &[
-                "#",
-                "CLIENT",
-                "KIND",
-                "SCHEMA / ROUTE",
-                "LOADS",
-                "CALLS",
-                "LOAD/CALL",
-                "LOAD/SEC",
-                "TIME",
-            ],
-            &rows,
-            &[true, false, false, false, true, true, true, true, true],
-        ));
-    }
-    lines
-}
-
-/// Cold shard loads over the process lifetime.
-fn lifetime_cold_load_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels) -> Vec<String> {
-    let mut lines = Vec::new();
-    if !snap.top_by_cold_shard_loads.is_empty() {
-        lines.push(String::new());
-        lines.push(
-            "Cold shard loads — process lifetime (observed during, not caused by)".to_string(),
-        );
-        lines.push("  Start-of-process cold misses remain in this average.".to_string());
-        lines.push("  Store-wide counter sampled around each request: a call is charged for loads concurrent callers triggered while it ran.".to_string());
-        lines.push("  So LOAD/CALL rises with a key's DURATION. Compare LOAD/SEC — if it is flat across keys, this is one store-wide rate, not one heavy caller.".to_string());
-        let rows: Vec<Vec<String>> = snap
-            .top_by_cold_shard_loads
-            .iter()
-            .take(10)
-            .enumerate()
-            .map(|(i, a)| {
-                vec![
-                    (i + 1).to_string(),
-                    truncate_cell(&a.client, OPS_CLIENT_CELL_WIDTH),
-                    a.kind.as_str().to_string(),
-                    identity_cell(a.schema.as_deref(), a.route.as_deref(), labels),
-                    human_count(a.sum_cold_shard_loads),
-                    human_count(a.count),
-                    human_count(a.avg_cold_shard_loads()),
-                    human_count(a.cold_shard_loads_per_service_second()),
-                    human_duration_ms(a.sum_ms),
-                ]
-            })
-            .collect();
-        lines.extend(aligned_table(
-            &[
-                "#",
-                "CLIENT",
-                "KIND",
-                "SCHEMA / ROUTE",
-                "LOADS",
-                "CALLS",
-                "LOAD/CALL",
-                "LOAD/SEC",
-                "TIME",
-            ],
-            &rows,
-            &[true, false, false, false, true, true, true, true, true],
-        ));
-    }
     lines
 }
 
@@ -364,8 +260,6 @@ fn slowest_request_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels)
                     s.status.to_string(),
                     s.rows.map_or_else(|| "-".to_string(), human_count),
                     human_bytes(s.body_bytes),
-                    s.cold_shard_loads
-                        .map_or_else(|| "-".to_string(), human_count),
                 ]
             })
             .collect();
@@ -379,10 +273,9 @@ fn slowest_request_lines(snap: &RequestTelemetrySnapshot, labels: &SchemaLabels)
                 "HTTP",
                 "ROWS",
                 "BODY",
-                "LOADS",
             ],
             &rows,
-            &[true, true, false, false, false, true, true, true, true],
+            &[true, true, false, false, false, true, true, true],
         ));
 
         let mut detail_lines = Vec::new();
@@ -447,10 +340,9 @@ pub(super) fn uds_pool_detail(
 /// rollup: for each (client, kind, schema) key whose requests reported a
 /// per-phase breakdown, where inside the node that key's time went.
 ///
-/// Zero-hide on both axes, per the cold-load precedent
-/// (`cold_load_table_is_absent_when_nothing_reports_loads`): the table is
-/// ABSENT when no key reports phases, and within a row zero phases are
-/// omitted ([`PhaseTimings::detail`]). Flush in particular is ~0 by design
+/// Zero-hide on both axes. As with the body-volume table, the table is ABSENT
+/// when no key reports phases. Within a row, zero phases are also omitted
+/// ([`PhaseTimings::detail`]). Flush in particular is ~0 by design
 /// on default builds (background flusher), so a printed `flush=0us` would
 /// read as broken instrumentation rather than a measurement.
 ///

@@ -41,7 +41,6 @@ impl Inner {
             max_ms: 0,
             last_ts_ms: 0,
             error_count: 0,
-            sum_cold_shard_loads: 0,
             sum_body_bytes: 0,
             max_body_bytes: 0,
             error_statuses: BTreeMap::new(),
@@ -60,9 +59,6 @@ impl Inner {
         agg.sum_ms = agg.sum_ms.saturating_add(sample.duration_ms);
         agg.max_ms = agg.max_ms.max(sample.duration_ms);
         agg.last_ts_ms = sample.ts_ms;
-        agg.sum_cold_shard_loads = agg
-            .sum_cold_shard_loads
-            .saturating_add(sample.cold_shard_loads.unwrap_or(0));
         agg.sum_body_bytes = agg.sum_body_bytes.saturating_add(sample.body_bytes);
         agg.max_body_bytes = agg.max_body_bytes.max(sample.body_bytes);
         agg.sum_molecules_persisted = agg
@@ -151,7 +147,6 @@ impl Inner {
 
         let top_by_total_ms = rank_by_total_ms(&work, self.top_n);
         let top_by_body_bytes = rank_by_body_bytes(&work, self.top_n);
-        let top_by_cold_shard_loads = rank_by_cold_shard_loads(work, self.top_n);
 
         aggregates.sort_by(|a, b| {
             b.count
@@ -168,7 +163,6 @@ impl Inner {
             top_by_duration: by_duration,
             top_by_total_ms,
             top_by_count: aggregates,
-            top_by_cold_shard_loads,
             top_by_body_bytes,
             app_verb,
             idle_wait,
@@ -314,26 +308,10 @@ fn rank_by_body_bytes(work: &[OpAggregate], top_n: usize) -> Vec<OpAggregate> {
             .then_with(|| a.client.cmp(&b.client))
     });
     ranked.truncate(top_n);
-    // Hide the table when nothing reported a body — same precedent as
-    // cold-load ranking so quiet windows stay byte-identical.
+    // Hide the table when nothing reported a body, so quiet windows stay
+    // byte-identical rather than printing a column of zeroes.
     if ranked.first().is_none_or(|a| a.sum_body_bytes == 0) {
         ranked.clear();
     }
     ranked
-}
-
-fn rank_by_cold_shard_loads(mut work: Vec<OpAggregate>, top_n: usize) -> Vec<OpAggregate> {
-    work.sort_by(|a, b| {
-        b.sum_cold_shard_loads
-            .cmp(&a.sum_cold_shard_loads)
-            .then_with(|| b.sum_ms.cmp(&a.sum_ms))
-            .then_with(|| b.count.cmp(&a.count))
-    });
-    work.truncate(top_n);
-    // Nothing to rank when the backend reports no loads at all — keep the
-    // table absent rather than printing a column of zeroes.
-    if work.first().is_none_or(|a| a.sum_cold_shard_loads == 0) {
-        work.clear();
-    }
-    work
 }

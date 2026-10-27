@@ -141,12 +141,6 @@ impl DbOperations {
             .map(|runtime| runtime.batch_operation_limit())
     }
 
-    /// Cold shard loads since open — one relaxed atomic load, safe to call on
-    /// the per-request telemetry path. `None` on backends without hash groups.
-    pub fn cold_shard_loads(&self) -> Option<u64> {
-        self.store.cold_shard_loads()
-    }
-
     /// Ids stepped over by keys-only walks since open — the scan sensor.
     ///
     /// One relaxed atomic load. A read path that claims to be scan-free can be

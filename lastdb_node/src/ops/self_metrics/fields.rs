@@ -66,13 +66,9 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "max_ms",
     "last_ts_ms",
     "error_count",
-    // Added after the schema shipped; `ensure_request_ops_rollup_schema` sees
-    // it as a missing field and upgrades in place. Rows written before this
-    // read back as 0 via the reader's `unwrap_or(0)`, which is correct — those
-    // samples genuinely carry no load attribution.
-    "sum_cold_shard_loads",
-    // Write-volume attribution — same additive-migration path as
-    // `sum_cold_shard_loads`. Interval SUM of request body bytes so
+    // Write-volume attribution. Added after the schema shipped;
+    // `ensure_request_ops_rollup_schema` sees it as a missing field and
+    // upgrades in place. Interval SUM of request body bytes so
     // `lastdb ops --since` can answer "who stuffed the node" after restarts.
     // Rows written before this field read back as 0.
     "sum_body_bytes",
@@ -80,7 +76,7 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     // not delta'd; persisted as the current max for the interval snapshot).
     "max_body_bytes",
     // Mutation phase observability — same additive-migration path as
-    // `sum_cold_shard_loads` above. One `sum_<phase>_us` interval SUM per
+    // `sum_body_bytes` above. One `sum_<phase>_us` interval SUM per
     // `PhaseTimings::PHASE_NAMES` entry (microseconds; sums stay honest under
     // the delta writer, maxes would not), plus `phase_count`: how many
     // requests in the interval reported a phase set at all (the denominator

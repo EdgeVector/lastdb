@@ -97,28 +97,8 @@ pub(super) fn dir_size_display(bytes: Option<u64>, walks: u64) -> String {
 ///
 /// Both halves are **measured**, and they are deliberately taken from different
 /// samples: the slowest request and the biggest one are rarely the same request,
-/// and a field named for bytes must not be selected by time.
-///
-/// This used to report `body_bytes + cold_shard_loads * (warm_bytes / warm_groups)`
-/// for the slowest sample, which was wrong three ways at once, and wrong by enough
-/// to be visible from the status line: on the live primary on 2026-09-06 it
-/// published 20.17 GiB for one request while the whole process footprint was
-/// 11.29 GiB, and 42.13 GiB earlier the same hour on a 36 GiB machine.
-///
-///  1. It charged **sequential** work as **simultaneous** residency. Cold loads
-///     count groups admitted and evicted over the life of a request; the whole
-///     warm set was 1039 groups, so a request logging thousands of loads plainly
-///     never held them at once.
-///  2. [`OpSample::cold_shard_loads`] says of itself that the underlying counter
-///     is store-wide, so a sample is charged for loads other requests caused, and
-///     that it is therefore "a bad forensic claim about one sample". Converting
-///     it into a byte figure for one sample is precisely that claim.
-///  3. The per-group price was the warm-set charge, which is dominated by each
-///     group's open write buffer rather than by the bytes read.
-///
-/// So no byte figure is synthesised here any more. `body_bytes` is request-scoped
-/// and exact; per-request cold-load cost is still published, as counts, by
-/// the `top_by_cold_shard_loads` table.
+/// and a field named for bytes must not be selected by time. `body_bytes` is
+/// request-scoped and exact.
 pub(super) fn peak_request_bytes_from_ops(
     ops: &crate::request_telemetry::RequestTelemetrySnapshot,
 ) -> (u64, u64) {

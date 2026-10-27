@@ -354,8 +354,7 @@ pub(crate) fn http_status_and_body(response: &str) -> String {
 /// Every rollup column this build knows how to read.
 ///
 /// `/api/query` `fields` is a real projection: a field absent from this list
-/// never reaches the merge and silently reads as 0 (which is exactly how
-/// `sum_cold_shard_loads` was dropped before it was listed here). Phase fields
+/// never reaches the merge and silently reads as 0. Phase fields
 /// derive from the model's PHASE_NAMES so a new phase cannot be persisted by
 /// the sampler yet projected away by the CLI.
 ///
@@ -372,7 +371,6 @@ pub(crate) fn rollup_projection() -> Vec<String> {
         "max_ms",
         "last_ts_ms",
         "error_count",
-        "sum_cold_shard_loads",
         "sum_body_bytes",
         "max_body_bytes",
         "phase_count",
