@@ -89,7 +89,7 @@ try {
 } catch (e) {
   if (e instanceof NodeTooOldError) {
     console.error(e.message);
-    // brain 0.8.1 needs LastDB api_version >= 1; this node reports api_version 0.
+    // brain 0.9.0 needs LastDB api_version >= 2; this node reports api_version 1.
     // Run: brew upgrade lastdb && brew services restart lastdb
     process.exit(3);
   }
@@ -98,9 +98,8 @@ try {
 ```
 
 - `GET /api/version` answers on both sockets with no node state:
-  `{ok, api_version, build, capabilities, instance_id}`. `fold.version()`
-  reads it; a node that predates the route reports `apiVersion: 0`,
-  `handshake: false`.
+  `{ok, api_version, build, capabilities, instance_id, ...}`. `fold.version()`
+  reads it; a body without `api_version` throws `UnexpectedResponseError`.
 - `requireApiVersion: 0` (or unset) declares no requirement and skips the
   read. Raise the number only when the app starts sending a key an older node
   would refuse — `LASTDB_SDK_API_VERSION` is the lowest node grammar this SDK
@@ -153,12 +152,12 @@ loopback TCP fallback).
 import { ownerClient } from '@lastdb/app-sdk';
 
 // Owner socket: NodeOwner, no consent, no namespace jail.
-// FOLDDB_SOCKET_PATH is the node's control socket (LASTDB_SOCKET_PATH is the
-// brand-forward alias); over UDS peer credentials authenticate you, so no
-// X-User-Hash header is needed.
+// LASTDB_SOCKET_PATH names the node's owner socket (the same variable the
+// `lastdb` CLI reads; default ~/.lastdb/data/folddb.sock). Over UDS, peer
+// credentials authenticate you, so no X-User-Hash header is needed.
 const db = ownerClient({
   appId: 'fbrain',
-  socketPath: process.env.FOLDDB_SOCKET_PATH,
+  socketPath: process.env.LASTDB_SOCKET_PATH,
   // baseUrl: 'http://127.0.0.1:9001',  // loopback TCP fallback; then pass
   // defaultHeaders: { 'X-User-Hash': userHash }  // (from autoIdentity())
 });
@@ -185,8 +184,9 @@ request-consent → await-grant flow and stores the resulting capability):
 ```ts
 import { connect } from '@lastdb/app-sdk';
 
-// App socket: attributed app on the consumer's node. See "Transports" below for
-// baseUrl (production TCP) vs socketPath (a dev node's UDS).
+// App socket: attributed app on the consumer's node. See "Transports" below:
+// socketPath (the node's UDS) is the local path; baseUrl first tries socket
+// discovery, then TCP.
 const db = await connect({ baseUrl: 'http://127.0.0.1:9001', appId: 'my-app' });
 
 if (!db.hasCapability) {                                  // first run: no capability yet
@@ -274,26 +274,19 @@ When you pass `baseUrl` — typically a loopback HTTP URL — the SDK **prefers 
 node's Unix-domain data-plane socket** and falls back to the `baseUrl` TCP
 listener only when no socket file is present. The socket is the normal app path
 (`folddb.sock`, peer-credential authenticated); TCP is the optional fallback for
-remote or non-Unix clients. This mirrors the discovery order the Rust client
-(`FoldDbHttpClient`, used by the CLI + MCP) follows — with the brand-forward
-`LASTDB_SOCKET_PATH` preferred ahead of the Rust client's `FOLDDB_SOCKET_PATH`
-— so a TypeScript app and the Rust client agree on where the socket lives
-(both explicit overrides point at the same socket when only one is set):
+remote or non-Unix clients. The `lastdb` CLI reads the same
+`LASTDB_SOCKET_PATH` override, so a TypeScript app and the CLI agree on where
+the socket lives:
 
-1. **`LASTDB_SOCKET_PATH`** — canonical explicit socket-path override
-   (brand-forward; SDK-preferred). Used when the file exists; a missing path
-   falls through.
-2. **`FOLDDB_SOCKET_PATH`** — legacy socket-path alias (the current Rust
-   client's canonical override), still honored when `LASTDB_SOCKET_PATH` is
-   unset.
-3. **`FOLDDB_SOCK`** — deprecated socket-path alias, still honored for older
-   callers when neither `LASTDB_SOCKET_PATH` nor `FOLDDB_SOCKET_PATH` is set.
-   Prefer `LASTDB_SOCKET_PATH` for new scripts.
-4. **`<data_dir>/folddb.sock`** — the default the node binds, resolved the same
-   way the Rust client resolves it: `<folddb_home>/data/folddb.sock` where
+1. **`LASTDB_SOCKET_PATH`** — canonical explicit socket-path override. Used
+   when the file exists; a missing path falls through.
+2. **`FOLDDB_SOCKET_PATH`** — second explicit override, read when
+   `LASTDB_SOCKET_PATH` is unset.
+3. **`<data_dir>/folddb.sock`** — the default the node binds:
+   `<folddb_home>/data/folddb.sock` where
    `folddb_home` honors `LASTDB_HOME` → `FOLDDB_HOME` → an existing `~/.lastdb`
    → an existing `~/.folddb` → `~/.lastdb`. Used only when the file exists.
-5. **Loopback TCP at `baseUrl`** — the fallback when no socket file exists (a
+4. **Loopback TCP at `baseUrl`** — the fallback when no socket file exists (a
    pre-data-plane node, or one whose socket bind failed).
 
 ```ts
@@ -372,22 +365,21 @@ to more than one node (or whose node URL changes) therefore never replays
 node A's capability against node B: the entry for B is a different key, and as
 defense-in-depth the stored value records the `boundNode` it was minted for —
 a loaded capability whose bound node ≠ the current connection is treated as
-**absent** (`load` returns `null`), never blindly sent. The single-node case
-is unchanged: one node, one key, auto-loaded on `connect`.
+**absent** (`load` returns `null`), never blindly sent.
 
 `connect` auto-loads any stored capability for `(appId, node)`. You can also
 drive storage explicitly with `storeCapability` / `loadCapability`, or inject
 a custom `capabilityStore`.
 
-> **API note (CapabilityStore v2).** The `CapabilityStore` interface now keys
-> by an opaque `key: string` the client builds from `(appId, node)`, and
-> records the bound node:
+> **API note (CapabilityStore).** The `CapabilityStore` interface keys by an
+> opaque `key: string` the client builds from `(appId, node)`, and records the
+> bound node:
 > `store(key, capability, boundNode)` /
-> `load(key, { expectedNode? })` / `remove(key)`. Pre-v2 the methods took a
-> bare `appId`. A custom store written against the old single-arg shape only
-> needs to treat the first arg as an opaque id; to gain the wrong-node guard,
-> honor `expectedNode` in `load`. Build the key with the exported
-> `capabilityStoreKey(appId, nodeTarget)` helper.
+> `load(key, { expectedNode? })` / `remove(key)`. A custom store honors
+> `expectedNode` in `load` for the wrong-node guard. Build the key with the
+> exported `capabilityStoreKey(appId, nodeTarget)` helper. The built-in stores
+> read only the `{ v: 1, capability, boundNode }` envelope they write; any
+> other stored value loads as absent (`null`).
 
 ## Keys-only membership
 
@@ -425,16 +417,16 @@ Each `QueryRow` carries:
 | Field | Meaning |
 |---|---|
 | `key` | the row's storage key rendered to a string (`"hash:range"` / `"hash"` / `"range"`, fold_db's `KeyValue::Display` rendering) — ambiguous when a range contains `:`, so prefer `keyValue` for addressing |
-| `keyValue` | the row's **structured** `{hash, range}` key when the node sent one (production `/api/query` does) — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` when the node sent a pre-rendered string key (the dev-node mirror) |
+| `keyValue` | the row's **structured** `{hash, range}` key — pass it back verbatim as `MutationOp.key` to update/delete this exact row; `null` only when the key has neither a hash nor a range |
 | `fields` | the field values, keyed by field name (the flattened convenience shape) |
 | `metadata` | per-field write metadata as the node stores it (atom/molecule ids, `writer_pubkey`, …), keyed by field name |
 | `authorPubKey` | the pubkey that authored the row (first non-empty `writer_pubkey`), or `null` |
 
-This is the exact shape Mini / production `lastdbd`'s `/api/query` builds
-(`{key, fields, metadata, author_pub_key}` per result key); the SDK surfaces
-those fields faithfully and invents none. A node that returns bare field-map
-rows is still accepted (the object becomes `fields`; `key`/`metadata`/
-`authorPubKey` come back empty/`null`).
+This is the exact shape `lastdbd`'s `/api/query` builds
+(`{key, fields, metadata, author_pub_key}` per result key, under `results`);
+the SDK surfaces those fields faithfully and invents none. A body without a
+`results` array, or a row without an object `key` and `fields`, throws
+`UnexpectedResponseError`.
 
 ## Pagination
 
@@ -453,9 +445,7 @@ exposes the node's pagination params and metadata:
 - `queryAll(schema, filter?, { pageSize?, maxRows? })` — auto-paginates until
   the node reports no more rows and returns everything as one result.
   `maxRows` (default 100k) is the safety ceiling; when hit, the returned
-  `page.hasMore` stays `true` so the truncation is visible. Works against
-  both node kinds — the dev node paginates `/api/query` with production-parity
-  semantics, so the drain follows `page.hasMore` identically.
+  `page.hasMore` stays `true` so the truncation is visible.
 
 ```ts
 const all = await fold.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
@@ -465,8 +455,8 @@ console.log(all.rowCount, all.page?.hasMore); // every row; false unless maxRows
 ## Batch reads (`queryBatch`)
 
 `queryBatch(items)` sends several **independent** reads, possibly from
-different schemas, in one request (`POST /api/queries/batch`, nodes that carry
-PR #1527 or later). Each item is the arguments of `query`:
+different schemas, in one request (`POST /api/queries/batch`). Each item is
+the arguments of `query`:
 
 ```ts
 const [note, task] = await fold.queryBatch([
@@ -488,9 +478,7 @@ else console.error(note.error); // the typed error `query` would have thrown
   overlaps the items; it does not merge their disk reads.
 - The full-scan opt-in is never sent, so an unkeyed item fails with the node's
   refusal, as `query` does without `allowFullScan`.
-- A node that predates the route answers 404/405. The client then runs the items
-  as plain `query` calls (four at a time), returns the same outcomes, and remembers
-  the answer for its life, so later calls do not probe again.
+- A non-200 answer to the whole request throws the typed error for its status.
 
 ## Search (scoped)
 
@@ -708,7 +696,11 @@ interface MutationOp {
 type CasExpectation =
   | { type: 'absent'; field: string }               // succeed only if `field` has no current value
   | { type: 'value'; field: string; value: JsonValue } // succeed only if `field` == value
-interface MutationResult { written: number; mutationIds: string[]; firingsObserved: number }
+interface MutationResult {
+  mutationId: string                   // the node's `mutation_id` for this write
+  backgroundTasksDrained?: boolean
+  convergencePending?: boolean
+}
 
 // CAS precondition failure — mutation 409 {error:"cas_conflict"}
 class CasConflictError extends FoldDbError {
@@ -752,50 +744,12 @@ tokenIntegrityValid(token: CapabilityToken): boolean  // payload_hash == sha256(
 verifyCapabilityBlob(blob: string, expectedAppId: string): CapabilityBlobVerification
 ```
 
-## What the dev node supports vs. production
+## Node surface
 
-The consent + capability-enforcement endpoints
-(`/api/apps/request-consent`, `/api/apps/consent-status/{id}`, and the
-`X-App-Capability` write gate) are served by a **production Mini `lastdbd`**.
-Local `folddb`/dev tooling serves the same data dialect (`/api/query`,
-`/api/mutation`, `/api/schemas`) but gates app isolation via pid-based dev-trust
-(`folddb app trust`) rather than the capability header, and does **not**
-serve the consent endpoints. **The app data surface is UDS-first on Mini and
-on local dev tooling:** prefer `socketPath` (typically
-`~/.lastdb/data/folddb.sock`). Where TCP app routes are closed, a TCP
-`/api/*` caller is refused with `403 tcp_app_surface_closed` — the TCP surface
-runs as the node owner, so serving the app routes there would bypass isolation.
-Connect with `socketPath`, not `baseUrl`, for local work. So:
-
-- Against Mini / local `folddb`: `connect` (via `socketPath`) + `query` +
-  `mutate` work end to end once you've `folddb app trust`ed your binary when
-  required (the capability header may be accepted-but-ignored; the connecting
-  pid's app identity is what's enforced). This is what `e2e/roundtrip.mjs`
-  exercises — over the control socket, including the full query-row envelope
-  (`key` + `fields` + `metadata` + `authorPubKey`): local `/api/query` emits
-  the same envelope production Mini does, so an app's query parsing is identical
-  against either node. The e2e also drives the paginated read path
-  (`limit`/`offset` + `page` metadata) and a `queryAll` drain.
-- The consent flow (`requestConsent` / `awaitConsent`) targets a production
-  Mini node. It is covered by the SDK's unit tests (mock transport asserting the
-  exact request/poll JSON + the full error taxonomy).
-
-> **CLI vs SDK mutation shape.** This SDK's `mutate(schema, op)` and the
-> dev-loop CLI's `folddb mutate --file` take **different** mutation JSON.
-> The SDK submits one row at the `/api/*` boundary —
-> `{ mutationType, fields, key: { hash, range } }` (camelCase, schema as the
-> 1st arg). The CLI's `POST /dev/mutations` wraps a *batch* with snake_case
-> keys — `{ "mutations": [ { schema, mutation_type, key: { range }, fields } ] }`.
-> Both paths name the schema `fbrain/Note`: the SDK uses the **canonical
-> published** name, and the CLI uses the **namespaced registered** name
-> `folddb dev post dev/schemas --app fbrain` produces (it prefixes `<app>/`
-> to the file's bare `name`). They agree by construction. 
-- `search()` targets the node-authoritative `POST /api/app/search` (fold #693).
-  Mini / local dev `/api/*` **routes it** (#130): the node serves
-  `POST /api/app/search` with node-authoritative scope (it resolves `S(A)` from
-  the caller's verified posture against the active namespace ACL — the app never
-  names its own scope). `e2e/search.mjs` drives the SDK against an ephemeral
-  node end-to-end.
+The node serves the app routes only on its Unix sockets. Connect with
+`socketPath` (typically `~/.lastdb/data/folddb.sock`). `search()` calls
+`POST /api/app/search`; the node resolves the search scope from the caller's
+verified posture, so the app never names its own scope.
 
 ## Owner / Host Helpers
 
@@ -871,8 +825,6 @@ point; this just keeps the client's cache clean and fails fast.
 ```bash
 npm install
 npm run build        # tsc → dist/
-npm test             # vitest (mock-transport error mapping + capability store)
+npm run typecheck
 npm run lint
-node e2e/roundtrip.mjs   # connect → mutate → query, against an ephemeral folddb dev node
-node e2e/search.mjs      # scoped search() contract + node-authoritative scope (see e2e/)
 ```

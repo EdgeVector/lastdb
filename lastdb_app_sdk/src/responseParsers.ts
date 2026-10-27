@@ -63,42 +63,31 @@ export function parseListResponse(body: unknown): ListResult {
 
 /**
  * Parse a `200` `/api/query` body into a {@link QueryResult}, surfacing the
- * full per-row envelope (gap #3).
+ * full per-row envelope.
  *
- * The node returns its rows under `results` (production `fold_db_node`) or
- * `rows` (the `fold_db_node::dev_mode` mirror); both carry per-key objects shaped
- * `{ key, fields, metadata, author_pub_key }`. Each row is normalized to a
- * {@link QueryRow}. A bare field-map row (a node that pre-dates the envelope)
- * is still accepted: its `key`/`metadata`/`authorPubKey` come back empty/null
- * and the whole object is its `fields` — so the SDK never throws away an
- * envelope the node sends, nor invents one it doesn't.
+ * The node returns its rows under `results`, one object per key shaped
+ * `{ key, fields, metadata, author_pub_key }` (`lastdb_host`
+ * `handlers::query::rows::format_rows`). Each row is normalized to a
+ * {@link QueryRow}; a body without a `results` array, or a row without the
+ * envelope, is an unexpected response. The node sends no schema name, so
+ * `schema` is empty here and the client sets the app schema name.
  */
 export function parseQueryResponse(body: unknown): QueryResult {
-  const b = (body ?? {}) as {
-    schema?: unknown;
-    row_count?: unknown;
-    results?: unknown;
-    rows?: unknown;
-  };
-  const rawRows: unknown[] = Array.isArray(b.results)
-    ? b.results
-    : Array.isArray(b.rows)
-      ? b.rows
-      : [];
-  const rows = rawRows.map(parseQueryRow);
-  const schema = typeof b.schema === 'string' ? b.schema : '';
-  const rowCount =
-    typeof b.row_count === 'number' ? b.row_count : rows.length;
-  return { schema, rowCount, rows, page: parseQueryPage(body, rows.length) };
+  const results = isObject(body) ? body['results'] : undefined;
+  if (!Array.isArray(results)) {
+    throw new UnexpectedResponseError('query returned no results array', 200, body);
+  }
+  const rows = results.map(parseQueryRow);
+  return { schema: '', rowCount: rows.length, rows, page: parseQueryPage(body, rows.length) };
 }
 
 /**
- * Read production's pagination metadata (`total_count` / `returned_count` /
- * `limit` / `offset` / `has_more`, per `fold_db_node`'s `QueryResponse`) off
- * a 200 `/api/query` body. Returns `null` when the node reported none (the
- * dev-node mirror, pre-pagination nodes) — the SDK never invents pagination
- * the node didn't do. A paginated response may set `total_count: null` when
- * the node intentionally skipped an exact count; keep the page metadata so
+ * Read the pagination metadata (`total_count` / `returned_count` / `limit` /
+ * `offset` / `has_more`, per `lastdb_host` `handlers::query::paging::page_payload`)
+ * off a 200 `/api/query` body. Returns `null` when the body carries none — the
+ * SDK never invents pagination the node didn't do. A paginated response may
+ * set `total_count: null` when the node intentionally skipped an exact count;
+ * keep the page metadata so
  * `queryAll` can fail closed instead of treating the drain as clean.
  */
 export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {
@@ -141,140 +130,75 @@ export function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-/** Normalize the legacy ID list and the current single-route mutation ID. */
-export function parseMutationIds(
+/**
+ * Read the `mutation_id` off a `200` `POST /api/mutation` body. The single
+ * route answers `{ mutation_id, success: true, ... }`; a body without a
+ * non-empty `mutation_id` and `success: true` is an unexpected response.
+ * (`POST /api/mutations/batch` answers `mutation_ids`; this SDK does not call
+ * that route.)
+ */
+export function parseMutationId(
   body: Record<string, JsonValue>,
   raw: unknown,
-): string[] {
-  if ('mutation_ids' in body) {
-    const ids = body['mutation_ids'];
-    if (
-      Array.isArray(ids) &&
-      ids.length > 0 &&
-      ids.every(isNonEmptyString)
-    ) {
-      return ids;
-    }
-    throw new UnexpectedResponseError(
-      'mutation returned invalid mutation_ids',
-      200,
-      raw,
-    );
-  }
+): string {
   const id = body['mutation_id'];
-  if (isNonEmptyString(id)) {
-    return [id];
-  }
-  throw new UnexpectedResponseError(
-    'mutation returned no mutation ID',
-    200,
-    raw,
-  );
-}
-
-/** Preserve legacy `written`; otherwise normalize current `success: true`. */
-export function parseMutationWritten(
-  body: Record<string, JsonValue>,
-  raw: unknown,
-): number {
-  if ('written' in body) {
-    const written = body['written'];
-    if (typeof written === 'number') {
-      return written;
-    }
+  if (!isNonEmptyString(id)) {
     throw new UnexpectedResponseError(
-      'mutation returned an invalid written count',
+      'mutation returned no mutation ID',
       200,
       raw,
     );
   }
-  if (body['success'] === true) {
-    return 1;
+  if (body['success'] !== true) {
+    throw new UnexpectedResponseError(
+      'mutation returned no success marker',
+      200,
+      raw,
+    );
   }
-  throw new UnexpectedResponseError(
-    'mutation returned no success marker',
-    200,
-    raw,
-  );
-}
-
-/** Preserve the legacy firing count; current single-route responses omit it. */
-export function parseMutationFiringsObserved(
-  body: Record<string, JsonValue>,
-  raw: unknown,
-): number {
-  if (!('firings_observed' in body)) {
-    return 0;
-  }
-  const firingsObserved = body['firings_observed'];
-  if (typeof firingsObserved === 'number') {
-    return firingsObserved;
-  }
-  throw new UnexpectedResponseError(
-    'mutation returned an invalid firings_observed count',
-    200,
-    raw,
-  );
+  return id;
 }
 
 /**
- * Normalize one raw query row into a {@link QueryRow}. An enveloped row
- * (`{key, fields, metadata, author_pub_key}`) is surfaced faithfully; a bare
- * field-map row is wrapped (its fields are the whole object; key empty,
- * metadata null, author null).
- *
- * The row `key` arrives in one of two node dialects: production
- * `fold_db_node` sends the structured `KeyValue` object (`{hash, range}`),
- * the dev-node mirror sends a pre-rendered string. A structured key is
- * preserved verbatim as `keyValue` (the unambiguous row address) AND rendered
- * to the `key` string the same way fold_db's `KeyValue::Display` does; a
- * string key is kept verbatim with `keyValue: null`. Coercing a structured
- * key to `''` (the pre-fix behavior) lost row addressing and dedup entirely.
+ * Normalize one raw query row (`{key, fields, metadata, author_pub_key}`)
+ * into a {@link QueryRow}. The structured `{hash, range}` key is preserved
+ * verbatim as `keyValue` (the unambiguous row address) AND rendered to the
+ * `key` string the same way fold_db's `KeyValue::Display` does. A row without
+ * an object `key` and an object `fields` is an unexpected response.
  */
 export function parseQueryRow(raw: unknown): QueryRow {
-  if (isObject(raw) && 'fields' in raw && isObject(raw.fields)) {
-    const author = raw['author_pub_key'];
-    const { key, keyValue } = parseRowKey(raw['key']);
-    return {
-      key,
-      keyValue,
-      fields: raw.fields as RowFields,
-      metadata: 'metadata' in raw ? (raw['metadata'] as JsonValue) : null,
-      authorPubKey: typeof author === 'string' && author.length > 0 ? author : null,
-    };
+  const fields = isObject(raw) ? raw['fields'] : undefined;
+  const rawKey = isObject(raw) ? raw['key'] : undefined;
+  if (!isObject(raw) || !isObject(fields) || !isObject(rawKey)) {
+    throw new UnexpectedResponseError('query returned an invalid row', 200, raw);
   }
-  // Bare field-map row (no envelope): the object *is* the fields.
+  const author = raw['author_pub_key'];
+  const { key, keyValue } = parseRowKey(rawKey);
   return {
-    key: '',
-    keyValue: null,
-    fields: isObject(raw) ? (raw as RowFields) : {},
-    metadata: null,
-    authorPubKey: null,
+    key,
+    keyValue,
+    fields: fields as RowFields,
+    metadata: 'metadata' in raw ? (raw['metadata'] as JsonValue) : null,
+    authorPubKey: typeof author === 'string' && author.length > 0 ? author : null,
   };
 }
 
 /**
- * Parse a row's raw `key` into the (rendered string, structured KeyValue)
- * pair. A string is the dev-node dialect — kept verbatim, no structure to
- * recover (the rendered form is ambiguous, so the SDK never reverse-parses
- * it). A `{hash, range}` object is production's `KeyValue` — preserved
- * structurally and rendered like fold_db's `KeyValue::Display`
- * (`"hash:range"` / `"hash"` / `"range"` / `""`). Anything else (absent,
- * null, unrecognized) yields the empty key.
+ * Render a row's structured `{hash, range}` key like fold_db's
+ * `KeyValue::Display` (`"hash:range"` / `"hash"` / `"range"`). A key with
+ * neither coordinate (a single-record schema) renders as `""` with
+ * `keyValue: null`.
  */
-export function parseRowKey(rawKey: unknown): { key: string; keyValue: KeyValue | null } {
+export function parseRowKey(rawKey: Record<string, JsonValue>): { key: string; keyValue: KeyValue | null } {
   const keyValue = parseKeyValue(rawKey);
-  if (keyValue !== null) {
-    const key =
-      keyValue.hash !== null && keyValue.range !== null
-        ? `${keyValue.hash}:${keyValue.range}`
-        : (keyValue.hash ?? keyValue.range ?? '');
-    return { key, keyValue };
+  if (keyValue === null) {
+    return { key: '', keyValue: null };
   }
-  if (typeof rawKey === 'string') {
-    return { key: rawKey, keyValue: null };
-  }
-  return { key: '', keyValue: null };
+  const key =
+    keyValue.hash !== null && keyValue.range !== null
+      ? `${keyValue.hash}:${keyValue.range}`
+      : (keyValue.hash ?? keyValue.range ?? '');
+  return { key, keyValue };
 }
 
 export function parseKeyValue(rawKey: unknown): KeyValue | null {
@@ -369,7 +293,7 @@ export function parseChangesResponse(body: unknown): ChangesResult {
  * relevance order and are surfaced verbatim — the SDK preserves it.
  *
  * The row part is parsed by the SAME {@link parseQueryRow} used for `query()`,
- * so the envelope handling (enveloped vs bare row, null author) is identical.
+ * so the envelope handling (structured key, null author) is identical.
  */
 export function parseSearchResponse(body: unknown): SearchResult {
   const b = (body ?? {}) as { results?: unknown };
@@ -378,20 +302,10 @@ export function parseSearchResponse(body: unknown): SearchResult {
   return { hits };
 }
 
-/** Parse `GET /api/system/auto-identity` success JSON. */
-/** The answer for a node that predates `GET /api/version`. */
-export const PRE_HANDSHAKE_NODE: NodeVersion = Object.freeze({
-  apiVersion: 0,
-  build: null,
-  capabilities: {},
-  instanceId: null,
-  handshake: false,
-});
-
 /**
- * Parse a `GET /api/version` 200 body. Tolerant of a node that omits a
- * field: a missing `api_version` reads as `0`, the same as a 404, because a
- * handshake that cannot state its version has not stated compatibility.
+ * Parse a `GET /api/version` 200 body (`lastdb_uds`
+ * `uds_router::responses::version_response`). A body without a non-negative
+ * integer `api_version` is an unexpected response.
  */
 export function parseNodeVersion(body: unknown): NodeVersion {
   const b = (body ?? {}) as {
@@ -400,10 +314,10 @@ export function parseNodeVersion(body: unknown): NodeVersion {
     capabilities?: unknown;
     instance_id?: unknown;
   };
-  const apiVersion =
-    typeof b.api_version === 'number' && Number.isInteger(b.api_version) && b.api_version >= 0
-      ? b.api_version
-      : 0;
+  const apiVersion = b.api_version;
+  if (typeof apiVersion !== 'number' || !Number.isInteger(apiVersion) || apiVersion < 0) {
+    throw new UnexpectedResponseError('version returned no api_version', 200, body);
+  }
   const capabilities: Record<string, boolean> = {};
   if (b.capabilities && typeof b.capabilities === 'object') {
     for (const [k, v] of Object.entries(b.capabilities as Record<string, unknown>)) {
@@ -417,10 +331,10 @@ export function parseNodeVersion(body: unknown): NodeVersion {
     build: typeof b.build === 'string' && b.build.length > 0 ? b.build : null,
     capabilities,
     instanceId: typeof b.instance_id === 'string' && b.instance_id.length > 0 ? b.instance_id : null,
-    handshake: true,
   };
 }
 
+/** Parse `GET /api/system/auto-identity` success JSON. */
 export function parseAutoIdentityResponse(body: unknown): AutoIdentityResult {
   const b = isObject(body) ? body : {};
   const userHash = b['user_hash'];

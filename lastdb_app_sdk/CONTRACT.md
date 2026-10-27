@@ -39,8 +39,8 @@ const app = await connect({ appId, baseUrl });        // production: TCP + conse
   path calls, so a wedged node rejects with `TransportError` instead of hanging.
 - **`requireApiVersion`** is the node request-grammar version the app needs.
   `connect` reads `GET /api/version` first and throws `NodeTooOldError` — one
-  line that names the fix — when the node reports less (a node that predates
-  the route reports `0`). Declare it in the app manifest; raise it only when
+  line that names the fix — when the node reports less. Declare it in the app
+  manifest; raise it only when
   the app starts sending a key an older node would refuse. A data route that
   answers `400 {kind:"unknown_key"}` throws the same error: that is the node
   saying "this client is newer than me", never "you sent a bad request".
@@ -94,8 +94,8 @@ await app.search(query, { k, target });                    // node-scoped associ
   `POST /api/queries/batch` and returns one `{ok, result | error}` outcome per
   item in request order. A failing item carries the typed error `query` would
   throw; the call throws only for a whole-request refusal. Items are not joined and
-  share no work. More than 64 items are chunked. A node without the route (404/405)
-  is served by plain `query` calls, with the answer remembered per client.
+  share no work. More than 64 items are chunked. A non-200 answer to the whole
+  request throws the typed error for its status.
 - **`list`** returns only live record keys plus an opaque cursor. Drain while
   `has_more` is true, then point-read the members whose fields you need. It is
   not implemented as unfiltered `queryAll({allowFullScan:true})`.
