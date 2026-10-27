@@ -227,7 +227,7 @@ pub fn write_batches_to_search_inbox(
     let mut n = 0usize;
     for batch in batches {
         let name = format!(
-            "rebuild_{}_{}.json",
+            "{}_{}.json",
             crate::clock::unix_millis(),
             Uuid::new_v4().simple()
         );

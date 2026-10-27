@@ -68,8 +68,9 @@ pub async fn execute_mutation<H: HostNode>(
         return Ok(empty_delete_response());
     }
 
+    let convergence = plan.components.convergence;
     let (receipt, aggregate_write) =
-        commit_mutation(host, &plan, key_values, ctx, payload_bytes).await?;
+        commit_mutation(host, plan, key_values, ctx, payload_bytes).await?;
     let mutation_id = if aggregate_write {
         source_mutation_id(&receipt)?
     } else {
@@ -79,8 +80,7 @@ pub async fn execute_mutation<H: HostNode>(
             .cloned()
             .ok_or_else(|| HostError::internal("Mutation returned no IDs"))?
     };
-    let background_tasks_drained =
-        wait_for_requested_convergence(host, plan.components.convergence).await;
+    let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
     Ok(mutation_response(
         &mutation_id,
         background_tasks_drained,

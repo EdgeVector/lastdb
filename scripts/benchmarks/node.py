@@ -7,10 +7,11 @@ import os
 from pathlib import Path
 import shutil
 import socket
-import stat
 import subprocess
 import tempfile
 import time
+
+from disk_usage import usage
 
 
 # The node marker of a disk format v2 home. Every new home is v2.
@@ -43,11 +44,12 @@ class UnixConnection(http.client.HTTPConnection):
 
 class Node:
     def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
-                 start_seconds=120):
+                 start_seconds=120, arguments=()):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
         self.environment = environment or {}
+        self.arguments = tuple(arguments)
         # The first health reply can wait for the new home creation.
         self.start_seconds = start_seconds
         # This short private path also fits the macOS Unix-socket path limit.
@@ -104,7 +106,8 @@ class Node:
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
-             "--full-socket-path", str(self.root / "f.sock")],
+             "--full-socket-path", str(self.root / "f.sock"), *self.arguments],
+            # Arguments are explicit driver inputs, never inherited from the host.
             env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + self.start_seconds
         while time.monotonic() < deadline:
@@ -186,34 +189,7 @@ class Node:
         return self.disk_usage()["logical_bytes"]
 
     def disk_usage(self):
-        # Bound the generated-home walk by depth, entry count, and elapsed time.
-        stack, entries, logical, allocated = [(self.home, 0)], 0, 0, 0
-        deadline = time.monotonic() + 15
-        while stack:
-            parent, depth = stack.pop()
-            if depth > 12 or entries > 1_000_000 or time.monotonic() > deadline:
-                raise RuntimeError("The owned-home size check exceeded its bound")
-            try:
-                children = list(parent.iterdir())
-            except FileNotFoundError:
-                # Maintenance can remove a queued retired-generation directory.
-                continue
-            for path in children:
-                entries += 1
-                if entries > 1_000_000 or time.monotonic() > deadline:
-                    raise RuntimeError("The owned-home size check exceeded its bound")
-                try:
-                    info = path.lstat()
-                except FileNotFoundError:
-                    # The product maintenance worker can reclaim a file.
-                    continue
-                if stat.S_ISLNK(info.st_mode):
-                    raise RuntimeError("A generated home contains an unexpected symlink")
-                if stat.S_ISDIR(info.st_mode):
-                    stack.append((path, depth + 1))
-                else:
-                    if not hasattr(info, "st_blocks"):
-                        raise RuntimeError("The generated-home filesystem lacks allocated block counts")
-                    logical += info.st_size
-                    allocated += info.st_blocks * 512
-        return {"logical_bytes": logical, "allocated_bytes": allocated}
+        return self.disk_breakdown()["whole_home"]
+
+    def disk_breakdown(self):
+        return usage(self.home)

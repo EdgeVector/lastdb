@@ -61,6 +61,25 @@ pub struct MutationComponents {
 }
 
 impl MutationComponents {
+    /// Allocate one mutation identity and move the owned payload and options.
+    /// Callers resolve the schema and validate request/field rules first.
+    fn into_mutation(self, canonical: String, public_key: String) -> Mutation {
+        configure_mutation(
+            Mutation::new(
+                canonical,
+                self.fields_and_values,
+                self.key_value,
+                public_key,
+                self.mutation_type,
+            ),
+            self.source_file_name,
+            self.durability,
+            self.expected,
+            self.must_exist,
+            self.aggregate_set,
+        )
+    }
+
     /// Move parsed fields into a request without host or storage access.
     /// An operation's convergence overrides the caller's default. The caller
     /// supplies the separately decoded aggregate sidecar, when supported.
@@ -185,13 +204,19 @@ fn empty_delete_response() -> Value {
     })
 }
 
-/// Build one mutation identity per selected key. UUID allocation stays
-/// outside the pure request policy.
+/// Move the payload for one selected key. Multi-key prefix deletes retain
+/// their independent payloads and the existing per-key identity order.
 fn build_mutations<H: HostNode>(
     host: &H,
-    key_values: Vec<KeyValue>,
-    plan: &MutationPlan,
+    mut key_values: Vec<KeyValue>,
+    mut plan: MutationPlan,
 ) -> Vec<Mutation> {
+    if key_values.len() == 1 {
+        plan.components.key_value = key_values.pop().expect("one selected key");
+        return vec![plan
+            .components
+            .into_mutation(plan.canonical, host.public_key())];
+    }
     let components = &plan.components;
     key_values
         .into_iter()
@@ -237,7 +262,7 @@ fn configure_mutation(
 /// context. Return the receipt and whether it came from the aggregate path.
 async fn commit_mutation<H: HostNode>(
     host: &H,
-    plan: &MutationPlan,
+    plan: MutationPlan,
     key_values: Vec<KeyValue>,
     ctx: &AccessContext,
     payload_bytes: usize,

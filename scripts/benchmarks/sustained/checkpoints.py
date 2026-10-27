@@ -22,10 +22,10 @@ class Checkpoints:
         if not self.capture:
             return
         started = unix_us()
-        audit = self.node.native_status(inventory=True)
+        audit, search = self.node.native_status(inventory=True, include_search=True)
         home_files = self.node.disk_usage()
         ended = unix_us()
-        self.capture.checkpoint(name, audit, started, ended, home_files=home_files)
+        self.capture.checkpoint(name, audit, started, ended, home_files=home_files, search_status=search)
         self.capture.interval(f"checkpoint_{name}", started, ended)
         # Diagnostics validates completeness and fails the final result. Keep
         # independent load/timing evidence even when an audit reaches its cap.

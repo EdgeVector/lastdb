@@ -23,8 +23,11 @@ pub(in crate::exec) async fn execute(
         .retry_cache_status()
         .await
         .unwrap_or_else(|error| serde_json::json!({"error": error.to_string()}));
-    let mut status =
-        serde_json::json!({"native_disk":runtime.status_native(), "retry_cache": retry_cache});
+    let mut status = serde_json::json!({
+        "native_disk": runtime.status_native(), "retry_cache": retry_cache,
+        "search": fold_db::db_operations::search_index::queue_policy::status(
+            &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home)),
+    });
     // This existing owner route is also the isolated benchmark checkpoint.
     // Normal requests keep their prior response and perform no diagnostic work.
     if laststore::commit_timing::enabled() {

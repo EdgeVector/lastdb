@@ -47,12 +47,12 @@ class SustainedNode(Node):
         finally:
             connection.close()
 
-    def native_status(self, inventory=False):
+    def native_status(self, inventory=False, include_search=False):
         result, _, _ = self.call("/api/db/native-status", {"inventory": inventory}, timeout=85)
         audit = result.get("storage_diagnostics")
         if not isinstance(audit, dict) or set(audit) != {"main", "cas"}:
             raise RuntimeError("The isolated native diagnostic checkpoint is unavailable")
-        return audit
+        return (audit, result.get("search")) if include_search else audit
 
     def disk_usage(self):
         stack, entries, logical, allocated = [(self.home, 0)], 0, 0, 0

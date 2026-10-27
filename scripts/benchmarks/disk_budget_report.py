@@ -43,7 +43,8 @@ def compare(output, manifest):
                         for name in disk_budget.MEASURES} for label, runs in values.items()}
         item["paired_changes_percent"] = {
             name: [100 * (values["candidate"][p][case]["metrics"][name]
-                          / values["baseline"][p][case]["metrics"][name] - 1) for p in sorted(pairs)]
+                          / values["baseline"][p][case]["metrics"][name] - 1)
+                   if values["baseline"][p][case]["metrics"][name] else None for p in sorted(pairs)]
             for name in disk_budget.MEASURES}
         item["advisories"] = disk_budget.advisories(item["baseline"], item["candidate"])
         comparison[case] = item

@@ -31,12 +31,16 @@ pub(super) async fn execute_status_route(
     }
     // Additive PR-5 contract block: unit + window + availability for every
     // typed gauge. Existing field names/types stay wire-compatible.
-    let status = match crate::ops::status_gauge_contract::status_value_with_contract(&snapshot) {
+    let mut status = match crate::ops::status_gauge_contract::status_value_with_contract(&snapshot)
+    {
         Ok(v) => v,
         Err(e) => {
             return error_response(500, &format!("status contract serialize: {e}"), ctx);
         }
     };
+    status["search"] = fold_db::db_operations::search_index::queue_policy::status(
+        &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home),
+    );
     json_ok(&envelope(
         &serde_json::json!({ "status": status }),
         ctx.user_id.as_str(),

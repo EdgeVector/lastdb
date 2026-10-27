@@ -4,14 +4,14 @@
 //!   `{LASTDB_HOME|FOLDDB_HOME}/apps/search/inbox/{uuid}.json`
 //! or `LASTDB_SEARCH_INBOX` when set.
 //!
-//! The Search app (`https://github.com/EdgeVector/search`) drains this inbox into a regenerable
-//! local index. No FastEmbed/ONNX on this path — default Mini write stays thin.
+//! LastSeek drains this optional inbox into its regenerable local store.
+//! Delivery is off unless `--enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
+//! No FastEmbed/ONNX runs on this path.
 
 use super::sink::{IndexChangeBatch, IndexSink};
 use crate::schema::SchemaError;
 use async_trait::async_trait;
 use laststore::commit_timing as timing;
-use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::debug;
 use uuid::Uuid;
@@ -66,6 +66,9 @@ pub struct SearchOutboxSink {
 
 impl SearchOutboxSink {
     pub fn from_env() -> Option<Self> {
+        if !super::queue_policy::enabled() {
+            return None;
+        }
         let inbox = resolve_search_inbox_dir()?;
         Some(Self { inbox })
     }
@@ -76,29 +79,23 @@ impl SearchOutboxSink {
 
     fn write_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
         timing::count("search_changes", batch.changes.len() as u64);
-        timing::during("search_mkdir_us", || fs::create_dir_all(&self.inbox)).map_err(|e| {
-            SchemaError::InvalidData(format!("search outbox mkdir {}: {e}", self.inbox.display()))
-        })?;
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());
-        let path = self.inbox.join(name);
-        let tmp = path.with_extension("json.tmp");
+        let path = self.inbox.join(&name);
         let body = timing::during("search_json_encode_us", || {
             serde_json::to_vec_pretty(&batch)
         })
         .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
         timing::count("search_json_bytes", body.len() as u64);
-        timing::during("search_file_write_us", || fs::write(&tmp, &body)).map_err(|e| {
-            SchemaError::InvalidData(format!("search outbox write {}: {e}", tmp.display()))
-        })?;
-        timing::during("search_rename_us", || fs::rename(&tmp, &path)).map_err(|e| {
-            SchemaError::InvalidData(format!("search outbox rename {}: {e}", path.display()))
+        let delivered = super::queue_policy::deliver(&self.inbox, &name, &body).map_err(|e| {
+            SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
         })?;
         debug!(
             target: "search_outbox",
             path = %path.display(),
             schema = %batch.schema_name,
             changes = batch.changes.len(),
-            "delivered IndexChangeBatch to Search inbox"
+            delivered,
+            "Search batch delivery decision"
         );
         Ok(())
     }
@@ -107,6 +104,9 @@ impl SearchOutboxSink {
 #[async_trait]
 impl IndexSink for SearchOutboxSink {
     async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
+        if !super::queue_policy::enabled() {
+            return Ok(());
+        }
         let (result, report) = timing::measure(|| self.write_batch(batch));
         if let Some(report) = report {
             timing::emit(

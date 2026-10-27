@@ -19,8 +19,9 @@ def timing_lines(report):
              "Concurrent durations overlap. Nested stages overlap their parents. Do not add stage or layer totals.",
              "Completion and physical commit describe separate intervals at the commit-group level.",
              "Search outbox work is inside completion post-commit delivery. It also overlaps scope durable wait and the request span.",
-             "Completion counts describe commit groups; search outbox counts describe SchemaBatch deliveries. Neither must equal the HTTP write count.",
-             "This workload always delivers search changes. Each nonempty load window requires nonzero completion and search outbox event coverage.",
+             "Completion counts describe commit groups; search outbox counts describe SchemaBatch delivery attempts. Neither must equal the HTTP write count.",
+             "Each nonempty load window requires nonzero completion coverage. Search outbox coverage is required only when the seed checkpoint reports Search enabled.",
+             "An enabled Search attempt can stop at its queue cap. Missing file-write stages do not imply missing attempt coverage.",
              "Background merge events are observed in a phase window; they are not assigned to particular writes.",
              "Request total excludes socket queue wait. Scope durable wait overlaps physical commits.",
              "Request JSON omits zero phase fields. Request stage means and percentiles use only events with the field present.",
@@ -58,6 +59,23 @@ def timing_lines(report):
                     lines.append(f"| emitted {count} | {item['reported']}/{family['events']} | {item['total']} | {value(item['mean'])} |")
             lines.append("Zero counters remain explicit in diagnostics.json. Absent fields are unreported, not measured zero.")
             lines.append(f"Event classifications: `{family['labels']}`.")
+    return lines
+
+
+def search_lines(report):
+    mode = report.get("search_enabled")
+    lines = ["", "### Search delivery mode", "",
+             f"Seed checkpoint enable state: **{mode if mode is not None else 'unreported'}**.",
+             "The driver does not enable Search. Unknown status or a mode change makes the capture incomplete.",
+             "Disabled Search requires zero captured outbox events and zero inbox file entries in this fresh generated home.",
+             "Status reports queue limits, not current queue depth. Status error text is not retained.", "",
+             "| Checkpoint | Enabled | Batch byte cap | Batch file cap | Rebuild required | Status error present |",
+             "|---|---|---:|---:|---|---|"]
+    for checkpoint in report["checkpoints"]:
+        status = checkpoint.get("search") or {}
+        fields = ("enabled", "max_batch_bytes", "max_batch_files", "rebuild_required", "status_error_present")
+        cells = [str(status.get(name)) if status.get(name) is not None else "unreported" for name in fields]
+        lines.append(f"| {checkpoint['name']} | " + " | ".join(cells) + " |")
     return lines
 
 
@@ -168,5 +186,5 @@ def render(report):
                   f"Excluded region bytes: {region['excluded_bytes']}; overlapping lines: {region['excluded_lines']}; complete line bytes skipped: {region['excluded_line_bytes']}.",
                   "Only this explicit crash region and its boundary lines leave numeric capture. The raw log remains in the artifact.",
                   "The recovery canary and reopened inventory remain separate evidence. Load request coverage stays strict."]
-    lines += timing_lines(report) + home_file_lines(report) + storage_lines(report) + collection_lines(report)
+    lines += search_lines(report) + timing_lines(report) + home_file_lines(report) + storage_lines(report) + collection_lines(report)
     return "\n".join(lines) + "\n"

@@ -29,6 +29,11 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) full_socket_path: Option<PathBuf>,
 
+    /// Enable bounded change delivery to LastSeek/Search. Off by default.
+    /// A new or interrupted Search corpus needs a full rebuild from LastDB.
+    #[arg(long)]
+    pub(crate) enable_search: bool,
+
     #[command(subcommand)]
     pub(crate) command: Option<Command>,
 }

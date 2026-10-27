@@ -179,6 +179,19 @@ def validate_home_files(home_files):
         raise ValueError("Duplicate hardlink entries exceed the observed file entries")
 
 
+def search_policy(status):
+    if not isinstance(status, dict) or type(status.get("enabled")) is not bool:
+        raise ValueError("The checkpoint Search enable state is unavailable")
+    if status["rebuild_required"] is not None and type(status["rebuild_required"]) is not bool:
+        raise ValueError("The checkpoint Search rebuild state is invalid")
+    if status["status_error"] is not None and not isinstance(status["status_error"], str):
+        raise ValueError("The checkpoint Search status error is invalid")
+    return {"enabled": status["enabled"], "rebuild_required": status["rebuild_required"],
+            "max_batch_bytes": integer(status["max_batch_bytes"]),
+            "max_batch_files": integer(status["max_batch_files"]),
+            "status_error_present": status["status_error"] is not None}
+
+
 class Diagnostics:
     def __init__(self, output, log_path):
         self.output, self.log_path = Path(output), Path(log_path)
@@ -191,13 +204,19 @@ class Diagnostics:
         if len(self.errors) < MAX_ERRORS:
             self.errors.append(str(message)[:500])
 
-    def checkpoint(self, name, audit_dict, start_us, end_us, home_files=None):
+    def checkpoint(self, name, audit_dict, start_us, end_us, home_files=None, search_status=None):
         self._bounds(name, start_us, end_us)
         if len(self.checkpoints) >= MAX_WINDOWS or any(c["name"] == name for c in self.checkpoints):
             raise ValueError("Checkpoint names repeat or exceed their bound")
-        self.checkpoints.append({"name": name, "started_us": start_us,
-                                 "ended_us": end_us, "audit": audit_dict,
-                                 "home_files": home_files})
+        checkpoint = {"name": name, "started_us": start_us, "ended_us": end_us,
+                      "audit": audit_dict, "home_files": home_files, "search": None}
+        self.checkpoints.append(checkpoint)
+        try:
+            checkpoint["search"] = search_policy(search_status)
+            if checkpoint["search"]["status_error_present"] or checkpoint["search"]["rebuild_required"] is None:
+                raise ValueError("The checkpoint Search marker status is unavailable")
+        except (KeyError, TypeError, ValueError) as error:
+            self.error(f"checkpoint {name}/search: {error}")
         try:
             validate_audit(audit_dict)
         except (KeyError, TypeError, ValueError) as error:
@@ -291,6 +310,27 @@ class Diagnostics:
                 return True
         return False
 
+    def _search_enabled(self):
+        seed = next((c for c in self.checkpoints if c["name"] == "seed"), {})
+        selected = (seed.get("search") or {}).get("enabled")
+        if type(selected) is not bool:
+            self.error("The seed checkpoint lacks an explicit Search enable state")
+        for checkpoint in self.checkpoints:
+            if (checkpoint.get("search") or {}).get("enabled") is not selected:
+                self.error(f"checkpoint {checkpoint['name']}: Search enable state differs from seed")
+            if selected is False:
+                home = checkpoint.get("home_files")
+                if not isinstance(home, dict):
+                    self.error(f"checkpoint {checkpoint['name']}: disabled Search lacks whole-home file coverage")
+                elif home.get("families", {}).get("search_inbox", {}).get("files", 0):
+                    self.error(f"checkpoint {checkpoint['name']}: disabled Search created inbox file entries")
+        observed = sum(w["families"]["search_outbox"].events for w in self.windows
+                       if "search_outbox" in w["families"])
+        observed += self.crossing.get("search_outbox", 0) + self.unassigned.get("search_outbox", 0)
+        if selected is False and observed:
+            self.error("Disabled Search emitted search_outbox events")
+        return selected
+
     def finish(self):
         if self.finished:
             raise ValueError("The diagnostic capture already finished")
@@ -299,6 +339,7 @@ class Diagnostics:
             self._read()
         except (OSError, ValueError) as error:
             self.error(error)
+        search_enabled = self._search_enabled()
         windows = []
         for window in sorted(self.windows, key=lambda w: w["started_us"]):
             families = {k: v.summary() for k, v in window["families"].items()}
@@ -307,7 +348,8 @@ class Diagnostics:
             if expected is not None and requests != expected:
                 self.error(f"{window['name']}: request events {requests} differ from expected {expected}")
             if expected and window["name"].startswith("load"):
-                for name in ("request", "scope", "commit", "completion", "search_outbox"):
+                required = ("request", "scope", "commit", "completion")
+                for name in required + (("search_outbox",) if search_enabled is True else ()):
                     if not families.get(name, {}).get("events"):
                         self.error(f"{window['name']}: missing nonzero {name} event coverage")
             windows.append({**window, "families": families, "observed_requests": requests})
@@ -318,11 +360,12 @@ class Diagnostics:
         report = {"version": 1, "complete": not self.errors, "errors": self.errors,
                   "log_lines": self.lines, "events": self.events, "intervals": windows,
                   "crossing_events": self.crossing, "unassigned_events": self.unassigned,
-                  "checkpoints": self.checkpoints, "log_exclusions": self.exclusions}
+                  "checkpoints": self.checkpoints, "log_exclusions": self.exclusions,
+                  "search_enabled": search_enabled}
         self.output.mkdir(parents=True, exist_ok=True)
         (self.output / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         (self.output / "diagnostic-summary.md").write_text(render(report))
-        return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events")} | {
+        return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events", "search_enabled")} | {
             "intervals": len(windows), "checkpoints": len(self.checkpoints),
             "log_exclusions": self.exclusions,
             "request_coverage": [{"interval": w["name"], "expected": w["expected_requests"],

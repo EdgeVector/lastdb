@@ -97,7 +97,7 @@ def recipe_for(args):
         if args.disk_budget_only:
             recipe.update(disk_budget=True, disk_format=2,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
-                          disk="max of whole-home file lengths and allocated blocks after three stable seconds; no forced compaction",
+                          disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
                           logical="GET /api/db/schemas total_logical_bytes; plaintext serialized atoms")
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
@@ -178,7 +178,7 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
                                          "native_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py", "disk_budget.py", "disk_budget_report.py",
+                                         "growth.py", "growth_report.py", "disk_usage.py", "disk_budget.py", "disk_budget_report.py",
                                          "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
                                          "range_continuation/process_counters.py", "typed_ranges.py")}}
