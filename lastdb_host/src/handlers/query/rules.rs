@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 
+use fold_db::access::AccessContext;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::{KeyComparisonContext, RangeKeyComparison};
 use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
@@ -39,26 +40,70 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
     Ok(())
 }
 
-/// Validate a continuation using only its tag and the captured comparison.
-/// The caller resolves the schema and derives the request binding first.
-pub(super) fn validate_cursor_comparison(
-    cursor: &QueryCursor,
-    binding: Option<&str>,
+/// Canonical request coordinates and their continuation binding. No host state.
+pub(super) struct PreparedQuery {
+    pub(super) query: Query,
+    pub(super) cursor: Option<KeyValue>,
+    pub(super) binding: Option<String>,
+}
+
+/// Prepare the filter, validate the cursor tag, then normalize its key.
+/// The request supplies the captured contract after option validation.
+pub(super) fn prepare_comparison(
+    mut query: Query,
+    cursor: Option<QueryCursor>,
+    ctx: &AccessContext,
     comparison: Option<&KeyComparisonContext>,
-) -> Result<(), HostError> {
-    match cursor.comparison.as_deref() {
-        Some(received) if binding != Some(received) => Err(HostError::new(
-            409,
-            "cursor comparison context changed; restart from the first page",
-        )),
-        None if comparison.is_some_and(|comparison| !comparison.accepts_legacy_cursor()) => {
-            Err(HostError::new(
-                409,
-                "legacy cursor cannot continue this key order; restart from the first page",
-            ))
-        }
-        _ => Ok(()),
+) -> Result<PreparedQuery, HostError> {
+    if let Some(comparison) = comparison {
+        query.filter = comparison
+            .canonical_filter(query.filter.take())
+            .map_err(HostError::from)?;
     }
+    let binding = comparison
+        .map(|comparison| {
+            comparison
+                .cursor_binding(&(
+                    &query.filter,
+                    &query.fields,
+                    query.include_tombstones,
+                    &query.sort_order,
+                    &ctx.db_locator,
+                    &ctx.storage_prefix,
+                ))
+                .map_err(HostError::from)
+        })
+        .transpose()?;
+    if let Some(cursor) = cursor.as_ref() {
+        match cursor.comparison.as_deref() {
+            Some(received) if binding.as_deref() != Some(received) => {
+                return Err(HostError::new(
+                    409,
+                    "cursor comparison context changed; restart from the first page",
+                ));
+            }
+            None if comparison.is_some_and(|comparison| !comparison.accepts_legacy_cursor()) => {
+                return Err(HostError::new(
+                    409,
+                    "legacy cursor cannot continue this key order; restart from the first page",
+                ));
+            }
+            _ => {}
+        }
+    }
+    let cursor = cursor.map(QueryCursor::into_key);
+    let cursor = match comparison {
+        Some(comparison) => cursor
+            .map(|key| comparison.canonical_key(key))
+            .transpose()
+            .map_err(HostError::from)?,
+        None => cursor,
+    };
+    Ok(PreparedQuery {
+        query,
+        cursor,
+        binding,
+    })
 }
 
 /// Validate an optional count and select a keyed window from known inputs.
