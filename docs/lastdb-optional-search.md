@@ -16,6 +16,19 @@ Disable delivery through the next daemon start without the flag or enabled envir
 If an inbox already exists, that start records the rebuild requirement before further database writes.
 Existing queue files stay in place. This change does not remove installed data or upgrade a daemon.
 
+## Batch contents
+
+A batch file is plain JSON outside the encrypted run files. A Search reader can keep the file after it reads it.
+An upsert carries only the searchable fields of its schema.
+A searchable field has the `word` classification and no `secret`, `no_index`, or `no-index` classification.
+A schema with no field classifications has no allowlist, so its batches carry every field.
+A batch carries no file key and no file bytes. A `$lastdb_file` pointer or a legacy `$file` value keeps only `name` and `media_type`.
+The writers remove the `dek`, the hashes, the blob address, the thumbnail, `content_b64`, and a legacy `$blob_ref`. A convergent file key derives from the plaintext hash.
+The live writes and `lastdb search-rebuild` use the same rules (`search_index/inbox_fields.rs`).
+
+CAUTION: Batch files that an earlier LastDB wrote can still hold every field and file keys.
+The Search app keeps the text of each indexed record. A record indexed by an earlier LastDB keeps its old text, with any file keys, until its next upsert. A Search rebuild does not clear the index; delete the index and rebuild it.
+
 ## Queue limit
 
 The live producer permits at most 64 MiB of batch file lengths and 4,096 files.

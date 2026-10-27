@@ -67,8 +67,9 @@ pub struct ContentAddressedAtom {
 /// DEK). The DEK itself is **not** stored in `cas_blobs`. At rest in the
 /// local store it lives in the `$lastdb_file` pointer of the atom row
 /// (`FileBlobAccess.dek`), which the run-file block encryption protects. A
-/// delivery slice also carries it (`Self::access`), and the
-/// Search inbox can hold a copy of the pointer when Search is on.
+/// delivery slice also carries it (`Self::access`). A Search inbox batch
+/// keeps only the pointer's `name` and `media_type`; inbox files written
+/// before that rule can still hold a copy of the pointer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAddressedBlob {
     /// `sha256:<hex>` of the ciphertext (v2) or plaintext (older suites).

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::db_operations::search_index::inbox_fields::{inbox_fields, searchable_fields};
 use crate::db_operations::search_index::{
     IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink, SearchOutboxSink,
 };
@@ -10,10 +11,9 @@ use crate::schema::types::{KeyValue, Mutation, Schema};
 
 use super::MutationManager;
 
-use super::helpers::searchable_outbox_fields;
-
 impl MutationManager {
-    /// Build one Search change batch without durable side effects.
+    /// Build one Search change batch without durable side effects. An upsert
+    /// carries only the searchable fields, with file keys removed.
     pub(super) fn build_index_change_batch(
         schema_name: &str,
         schema: &Schema,
@@ -23,6 +23,7 @@ impl MutationManager {
         if !crate::db_operations::search_index::queue_policy::enabled() {
             return None;
         }
+        let searchable = searchable_fields(schema);
         let mut changes = Vec::with_capacity(schema_mutations.len());
         for (idx, mutation) in schema_mutations.iter().enumerate() {
             let key_value = &mutation_key_values[idx];
@@ -32,7 +33,10 @@ impl MutationManager {
                         mutation_id: mutation.uuid.clone(),
                         kind: IndexChangeKind::Upsert,
                         key_value: key_value.clone(),
-                        fields_and_values: mutation.fields_and_values.clone(),
+                        fields_and_values: inbox_fields(
+                            &mutation.fields_and_values,
+                            searchable.as_ref(),
+                        ),
                     });
                 }
                 // Purge is hard-erase: Search must drop vectors the same way
@@ -55,7 +59,7 @@ impl MutationManager {
         Some(IndexChangeBatch {
             format_version: 1,
             schema_name: schema_name.to_string(),
-            searchable_fields: searchable_outbox_fields(schema),
+            searchable_fields: searchable,
             changes,
         })
     }
