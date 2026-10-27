@@ -337,7 +337,7 @@ pub(super) enum Command {
     ///
     /// Exclusive offline open of `--data-dir` / LASTDB_HOME (stop `lastdbd` first
     /// for the primary home). Emits IndexChangeBatch JSON under
-    /// `apps/search/inbox` for the Search app to drain into LastStore.
+    /// `apps/search/inbox` for LastSeek or the Search app to read.
     /// After restore/cold home: run this, then `search rebuild` / drain.
     SearchRebuild {
         /// Records per page when walking schemas (default 32).
