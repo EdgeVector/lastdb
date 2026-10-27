@@ -112,23 +112,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    pub async fn set_schema_state(
-        &self,
-        schema_name: &str,
-        schema_state: SchemaState,
-    ) -> Result<(), SchemaError> {
-        // Persist to database first - this is the source of truth
-        self.db_ops
-            .store_schema_state(schema_name, &schema_state)
-            .await?;
-
-        // Update in-memory cache only after successful persistence
-        lock_map(&self.schema_states, "schema_states")?
-            .insert(schema_name.to_string(), schema_state);
-
-        Ok(())
-    }
-
     /// Retire one schema's claim on its `descriptive_name`.
     ///
     /// This is the supported retire primitive. It exists because the two
@@ -211,8 +194,7 @@ impl SchemaCore {
         schema_name: &str,
         retired: bool,
     ) -> Result<bool, SchemaError> {
-        // Persist first — the durable record is the source of truth, exactly
-        // like `set_schema_state`.
+        // Persist first. The durable record is the source of truth.
         let changed = self
             .db_ops
             .set_schema_name_claim_retired(schema_name, retired)
