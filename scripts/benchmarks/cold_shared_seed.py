@@ -57,7 +57,7 @@ def rpc(node, path, body, expected=200):
         elapsed = (time.perf_counter_ns() - started) / 1e6
         if reply.status != expected:
             raise RuntimeError(f"{path}: expected {expected}, got {reply.status}: {raw[:1500]!r}")
-        result = json.loads(raw)
+        result = json.loads(raw) if expected == 200 else {"status": reply.status, "error": raw.decode("utf-8")}
         if expected == 200 and result.get("ok") is not True:
             raise RuntimeError(f"The operation lacks its ack: {raw[:1500]!r}")
         return stable(result), elapsed, len(raw)
@@ -106,7 +106,7 @@ def data(node, write=False):
     found = {r["fields"]["id"]: r["fields"]["title"] for r in rows}
     if len(rows) != 32 or found != {f"book-{i:04d}": f"Book {i}" for i in range(32)}:
         raise RuntimeError(f"The known-key batch read lost data: {result}")
-    return {"records": 32, "values_sha256": hashlib.sha256(encoded(found)).hexdigest()}
+    return {"records": 32, "values_sha256": hashlib.sha256(encoded(stable(found))).hexdigest()}
 
 
 def measure(binary, revision, service_binary, output):
