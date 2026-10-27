@@ -65,7 +65,8 @@ that `LASTDB_SEARCH_INBOX` names (`search_index/search_outbox.rs`).
 - Search on: the daemon starts with `lastdbd --enable-search` or with
   `LASTDB_SEARCH_ENABLED=1` (`search_index/queue_policy.rs`, `enabled`). Each
   committed write then writes one batch file for each changed schema
-  (`mutation_manager/write/native.rs`, `serde_json::to_vec_pretty`). The batch
+  (`mutation_manager/write/native.rs`, then `serde_json::to_vec_pretty` in
+  `search_index/search_outbox.rs`). The batch
   copies every field value of the mutation (`fields_and_values`), not only the
   searchable fields (`mutation_manager/index.rs`, `build_index_change_batch`).
 - Offline rebuild: `lastdb search-rebuild` pages the records of a stopped home
