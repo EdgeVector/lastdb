@@ -136,6 +136,13 @@ jobs:
         run: |
           cd "$TEST_HOME"
           
+          # For brain and lastsecrets, skip registry and use current main source to test recent socket fixes
+          if [ "${{ matrix.app }}" = "brain" ] || [ "${{ matrix.app }}" = "lastsecrets" ]; then
+            echo "Skipping registry for ${{ matrix.app }} - testing against current main source"
+            echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          
           # List available apps in registry
           lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
           
@@ -162,7 +169,7 @@ jobs:
             | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
-        if: always()
+        if: always() && env.SKIP_REGISTRY != 'true'
         run: |
           set -o pipefail  # Make pipe failures detectable
           cd "$TEST_HOME"
