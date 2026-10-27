@@ -81,10 +81,8 @@ impl SearchOutboxSink {
         timing::count("search_changes", batch.changes.len() as u64);
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());
         let path = self.inbox.join(&name);
-        let body = timing::during("search_json_encode_us", || {
-            serde_json::to_vec_pretty(&batch)
-        })
-        .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
+        let body = timing::during("search_json_encode_us", || serde_json::to_vec_pretty(batch))
+            .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
         timing::count("search_json_bytes", body.len() as u64);
         let delivered = super::queue_policy::deliver(&self.inbox, &name, &body).map_err(|e| {
             SchemaError::InvalidData(format!("search outbox delivery {}: {e}", path.display()))
