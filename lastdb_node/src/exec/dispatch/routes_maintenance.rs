@@ -41,12 +41,6 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbDeleteLedger => {
             heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
         }
-        DataRoute::DbResealAtRest => {
-            heap_route!(execute_db_reseal_at_rest_route, req, ctx, host).await
-        }
-        DataRoute::DbReapUnsealed => {
-            heap_route!(execute_db_reap_unsealed_route, req, ctx, host).await
-        }
         DataRoute::DbMoleculeKeys => {
             heap_route!(execute_db_molecule_keys_route, req, ctx, host).await
         }

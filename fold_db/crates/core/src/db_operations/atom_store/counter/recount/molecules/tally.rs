@@ -65,9 +65,6 @@ impl AtomStore {
             let mut walk = RangeWalk::new(&start, &end, 512);
             while !walk.done() {
                 let page = self.walk_step(&mut walk).await?;
-                if page.unsealed != 0 {
-                    return Err(invalid("a source read discarded undecodable storage; no molecule changes were written"));
-                }
                 match family {
                     Family::Tips | Family::Records => {
                         tally_references(&mut counts, &page.rows, family, pass)?;

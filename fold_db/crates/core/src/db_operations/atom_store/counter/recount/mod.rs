@@ -45,14 +45,6 @@ const TALLY_PAGE_ROWS: usize = 2_000;
 /// Rows asked for in each read of the atoms.
 const ATOM_PAGE_ROWS: usize = 1_000;
 
-/// The refusal of a recount that met rows without an at-rest envelope.
-fn unsealed_refusal(reads: u64) -> SchemaError {
-    SchemaError::InvalidData(format!(
-        "{reads} read(s) dropped a row with no at-rest envelope; such a row reads as absent, so the recount cannot count it and writes nothing. \
-         Run `lastdb db reap-unsealed --collection <name>` for the collections that hold them (dry run first), then recount again"
-    ))
-}
-
 /// One pass: a scope and a shard of the atom ids.
 struct Pass<'a> {
     scope: Option<&'a str>,
@@ -134,9 +126,6 @@ impl AtomStore {
                 report.unreadable_rows
             )));
         }
-        if report.unsealed_row_reads > 0 && execute {
-            return Err(unsealed_refusal(report.unsealed_row_reads));
-        }
         report.referenced_atoms += tally.len() as u64;
         self.recount_atoms(pass, &mut tally, execute, report)
             .await?;
@@ -175,7 +164,6 @@ impl AtomStore {
                     _ => report.tips_read += rows.len() as u64,
                 }
                 report.unreadable_rows += bad.total;
-                report.unsealed_row_reads += step.unsealed;
             }
             for (atom, count) in holders {
                 if pass.owns(&atom) {
@@ -201,17 +189,7 @@ impl AtomStore {
         while let Some((read_start, _, _)) = walk.request() {
             let step = self.walk_step(&mut walk).await?;
             let paired = self.pair_rows(&step.rows, &read_start, pass.scope).await?;
-            // A row without an at-rest envelope reads as absent. A body or a
-            // counter that is only absent for that reason must not decide a
-            // delete, so an execute stops here and writes nothing of this page.
-            let dropped = step.unsealed + paired.unsealed;
-            if pass.index == 0 {
-                report.unsealed_row_reads += dropped;
-            }
-            if dropped > 0 && execute {
-                return Err(unsealed_refusal(dropped));
-            }
-            let may_delete = report.unreadable_rows == 0 && report.unsealed_row_reads == 0;
+            let may_delete = report.unreadable_rows == 0;
             for pair in paired
                 .pairs
                 .into_iter()

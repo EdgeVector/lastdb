@@ -298,32 +298,6 @@ fn clear_last_boot_error(home: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
-/// Mark this home as supporting ENB and ENZ codec formats.
-/// This prevents unsupported openers from treating these formats as plaintext.
-fn write_codec_format_requirement(home: &Path) {
-    let path = home.join(CODEC_FORMAT_REQUIREMENT_FILE);
-    match std::fs::write(&path, "") {
-        Ok(_) => {
-            tracing::debug!(
-                target: "lastdb_node::host",
-                path = %path.display(),
-                "marked home as supporting ENB and ENZ codec formats"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(
-                target: "lastdb_node::host",
-                error = %e,
-                path = %path.display(),
-                "could not write codec format requirement marker"
-            );
-        }
-    }
-}
-
-/// Marker file indicating this home supports ENB and ENZ codec formats.
-pub const CODEC_FORMAT_REQUIREMENT_FILE: &str = "lastdb-codec-enb-enz-supported-v1";
-
 mod boot;
 
 impl Host {
@@ -362,7 +336,6 @@ impl Host {
             .map_err(|error| format!("Search queue preparation failed: {error}"))?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         clear_last_boot_error(home);
-        write_codec_format_requirement(home);
         // Mini always boots with content-key at-rest (see module docs).
         let at_rest_provider = fold_db::fold_db_core::factory::at_rest_provider_label(None);
         tracing::info!(

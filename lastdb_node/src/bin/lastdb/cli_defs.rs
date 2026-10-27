@@ -17,24 +17,6 @@ pub(super) use cloud::*;
 pub(super) use db::*;
 pub(super) use schema::*;
 
-/// Target envelope policy for `db reseal-at-rest`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub(super) enum ResealAtRestTargetArg {
-    /// ENB without compression.
-    Binary,
-    /// ENB with optional deflate compression.
-    BinaryCompress,
-}
-
-impl ResealAtRestTargetArg {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Binary => "binary",
-            Self::BinaryCompress => "binary-compress",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct MutateRequestOptions {
     pub(super) must_exist: bool,

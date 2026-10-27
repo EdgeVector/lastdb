@@ -48,7 +48,7 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
         Some(last) => {
             let m = &last.mismatches;
             format!(
-                "Verify refs: last run {} scope={} complete pages={} tips={} faults={} suspect_atoms={} candidates={} (below_tips={} above_tips={} body_without_counter={} counter_without_body={} zero={} tip_without_body={} queue_rows={} unsealed_rows={}){}{}",
+                "Verify refs: last run {} scope={} complete pages={} tips={} faults={} suspect_atoms={} candidates={} (below_tips={} above_tips={} body_without_counter={} counter_without_body={} zero={} tip_without_body={} queue_rows={}){}{}",
                 last.finished_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
                 last.scope.as_deref().unwrap_or("personal"),
                 last.pages,
@@ -63,7 +63,6 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
                 m.zero_counter,
                 m.tip_without_body + m.record_without_body,
                 m.record_without_queue_entry + m.queue_entry_without_directory,
-                m.unsealed_rows,
                 if last.tally_complete {
                     ""
                 } else {

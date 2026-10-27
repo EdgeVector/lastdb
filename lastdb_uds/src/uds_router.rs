@@ -55,7 +55,12 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `4` (2026-10-26) removes the two disk format v1 owner-socket routes
 /// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
 /// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 4;
+///
+/// `5` (2026-10-27) removes the two at-rest migration owner-socket routes
+/// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
+/// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 5;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

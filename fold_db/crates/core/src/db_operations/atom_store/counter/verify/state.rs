@@ -154,32 +154,6 @@ impl Run {
         }
     }
 
-    /// Record reads that dropped a row with no at-rest envelope. Such a row
-    /// reads as absent, so this run cannot judge it.
-    pub(super) fn note_unsealed(&mut self, count: u64) {
-        if count == 0 {
-            return;
-        }
-        let phase = match self.phase {
-            Phase::Tips => "tip",
-            Phase::Records => "history",
-            Phase::Headers => "molecule header",
-            Phase::Bindings | Phase::BindingRecords => "molecule binding",
-            Phase::Blobs => "blob counter",
-            Phase::BlobQueue => "blob queue",
-            _ => "atom",
-        };
-        self.note_faults(
-            super::report::Kind::UnsealedRows,
-            "",
-            format!(
-                "{count} read(s) of the {phase} rows dropped a row with no at-rest envelope; the row reads as absent. \
-                 Run `lastdb db reap-unsealed --collection <name>` (dry run first), then verify again"
-            ),
-            count,
-        );
-    }
-
     /// Remember that a page reported this atom as below its holders.
     /// Returns false when an earlier page did, so one atom counts once.
     pub(super) fn first_below(&mut self, atom: u128) -> bool {

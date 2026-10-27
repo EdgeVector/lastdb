@@ -66,7 +66,6 @@ pub(crate) enum Kind {
     UnreadableTip,
     UnreadableRecord,
     UnreadableCounter,
-    UnsealedRows,
     SlotsAboveTips,
     SlotsBelowTips,
     RecordsAboveRecords,
@@ -124,7 +123,6 @@ impl Kind {
             Self::UnreadableTip => "unreadable_tip",
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
-            Self::UnsealedRows => "unsealed_rows",
             Self::SlotsAboveTips => "molecule_slots_above_tips",
             Self::SlotsBelowTips => "molecule_slots_below_tips",
             Self::RecordsAboveRecords => "molecule_records_above_records",
@@ -188,11 +186,6 @@ pub struct Mismatches {
     pub unreadable_tip: u64,
     pub unreadable_record: u64,
     pub unreadable_counter: u64,
-    /// Reads that dropped a row with no at-rest envelope. Such a row reads as
-    /// absent, so the verifier cannot judge it. `lastdb db reap-unsealed`
-    /// removes these rows.
-    #[serde(default)]
-    pub unsealed_rows: u64,
     /// The molecule counter faults (headers, `bindings` counters, binding records).
     #[serde(flatten)]
     pub molecule: MoleculeMismatches,
@@ -226,7 +219,6 @@ impl Mismatches {
             Kind::UnreadableTip => &mut self.unreadable_tip,
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
-            Kind::UnsealedRows => &mut self.unsealed_rows,
             kind if kind.is_blob() => self.blob.slot(kind),
             _ => self.molecule.slot(kind),
         }
@@ -248,7 +240,6 @@ impl Mismatches {
             + self.unreadable_tip
             + self.unreadable_record
             + self.unreadable_counter
-            + self.unsealed_rows
             + self.molecule.total()
             + self.blob.total()
     }

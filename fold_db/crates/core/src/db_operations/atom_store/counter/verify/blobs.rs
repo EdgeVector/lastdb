@@ -52,8 +52,6 @@ pub(super) struct BlobsPage {
     pub rows: usize,
     /// The last key the read examined, or `None` when the range ended.
     pub resume: Option<Vec<u8>>,
-    pub scan_unsealed: u64,
-    pub point_unsealed: u64,
     pub entries: Vec<BlobEntry>,
 }
 
@@ -79,8 +77,6 @@ pub(super) struct QueuePage {
     pub rows: usize,
     /// The last key the read examined, or `None` when the range ended.
     pub resume: Option<Vec<u8>>,
-    pub scan_unsealed: u64,
-    pub point_unsealed: u64,
     pub entries: Vec<QueueEntry>,
     pub unlisted: Vec<UnlistedBucket>,
 }

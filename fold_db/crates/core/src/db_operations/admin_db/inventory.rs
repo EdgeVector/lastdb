@@ -137,14 +137,7 @@ impl AtomStore {
             .await?;
 
         let scan = self.range_walks().snapshot().since(walks_before);
-        let mut notes = inventory_notes(&main_classes);
-        if scan.unsealed_rows > 0 {
-            notes.push(format!(
-                "{} read(s) dropped a row with no at-rest envelope. Such a row reads as absent and is not in these totals. \
-                 Run `lastdb db reap-unsealed --collection <name>` (dry run first) to remove them.",
-                scan.unsealed_rows
-            ));
-        }
+        let notes = inventory_notes(&main_classes);
         let molecule_counters = self.inventory_molecule_counters(storage_prefix).await?;
 
         Ok(DbInventory {

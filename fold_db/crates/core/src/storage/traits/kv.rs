@@ -28,49 +28,6 @@ pub trait KvStore: Send + Sync {
     /// Put a key-value pair
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()>;
 
-    /// Replace (`new = Some`) or delete (`new = None`) `key` only when its
-    /// current raw value is exactly `expected`, as **one atomic step**.
-    ///
-    /// `Ok(true)` means the write applied; `Ok(false)` means the current value
-    /// differed and nothing was written. No write to `key` through any other
-    /// method of this store can land between the compare and the write.
-    ///
-    /// There is deliberately no get-then-put default: that pair is the race
-    /// this method exists to close
-    /// (`papercut-lastdb-reseal-check-then-put-race-20260923`). A backend
-    /// without a native conditional write refuses instead, so a maintenance
-    /// pass fails loudly rather than overwriting a concurrent write.
-    async fn compare_and_swap(
-        &self,
-        key: &[u8],
-        expected: &[u8],
-        new: Option<Vec<u8>>,
-    ) -> StorageResult<bool> {
-        let _ = (key, expected, new);
-        Err(StorageError::InvalidOperation(format!(
-            "backend `{}` has no native compare_and_swap",
-            self.backend_name()
-        )))
-    }
-
-    /// Delete every key whose current raw value is exactly the value given
-    /// with it. Returns, in input order, whether each key was deleted.
-    ///
-    /// The batched counterpart of [`Self::compare_and_swap`] with `new = None`:
-    /// a key whose value differs is left alone and reports `false`. The
-    /// default compares and deletes one key at a time. A backend whose commit
-    /// is costly should override it to commit the matching keys together.
-    async fn compare_and_delete_many(
-        &self,
-        items: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> StorageResult<Vec<bool>> {
-        let mut deleted = Vec::with_capacity(items.len());
-        for (key, expected) in items {
-            deleted.push(self.compare_and_swap(&key, &expected, None).await?);
-        }
-        Ok(deleted)
-    }
-
     /// Delete a key
     async fn delete(&self, key: &[u8]) -> StorageResult<bool>;
 

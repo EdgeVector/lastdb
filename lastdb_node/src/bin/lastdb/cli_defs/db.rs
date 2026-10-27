@@ -15,15 +15,12 @@ mod offline;
 mod reclaim;
 #[path = "db_repair.rs"]
 mod repair;
-#[path = "db_seal.rs"]
-mod seal;
 
 pub(crate) use blob::*;
 pub(crate) use inspect::*;
 pub(crate) use offline::*;
 pub(crate) use reclaim::*;
 pub(crate) use repair::*;
-pub(crate) use seal::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbCommand {
@@ -33,8 +30,6 @@ pub(crate) enum DbCommand {
     Reclaim(DbReclaimCommand),
     #[command(flatten)]
     Repair(DbRepairCommand),
-    #[command(flatten)]
-    Seal(DbSealCommand),
     #[command(flatten)]
     Blob(DbBlobCommand),
     #[command(flatten)]

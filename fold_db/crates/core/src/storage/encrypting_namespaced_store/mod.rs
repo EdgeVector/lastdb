@@ -1,18 +1,5 @@
-mod checkpoints;
-mod reap_chunks;
-mod reseal;
-
 use super::encrypting_store::EncryptingKvStore;
-use super::error::{StorageError, StorageResult};
-use super::reap_unsealed::{
-    reap_checkpoint_key, ReapUnsealedCheckpoint, ReapUnsealedOptions, ReapUnsealedReport,
-    REAP_CHECKPOINT_NAMESPACE,
-};
-use super::reseal_at_rest::{
-    checkpoint_key, collection_is_allowed, ResealAtRestCheckpoint, ResealAtRestOptions,
-    ResealAtRestReport, RESEAL_AT_REST_ALLOWLIST, RESEAL_CHECKPOINT_NAMESPACE,
-    RESEAL_CHECKPOINT_VERSION, RESEAL_TARGET_FORMAT_VERSION,
-};
+use super::error::StorageResult;
 use super::traits::{KvStore, NamespacedStore};
 use crate::crypto::CryptoProvider;
 use std::sync::Arc;

@@ -386,7 +386,7 @@ pub(super) fn at_rest_compression_status_line(stats: Option<&AtRestCompressionHe
             .to_string();
     };
     format!(
-        "At-rest compression: {:.1}% saved ({} -> {}; {} saved) sealed={} compressed / {} plain; attempts={} cpu={}ns skips=below_min:{} above_ceiling:{} not_smaller:{} disabled:{}; enabled={}; unsealed_discarded={} reaped={} ({}); process-lifetime counters (reset on daemon restart)",
+        "At-rest compression: {:.1}% saved ({} -> {}; {} saved) sealed={} compressed / {} plain; attempts={} cpu={}ns skips=below_min:{} above_ceiling:{} not_smaller:{} disabled:{}; enabled={}; process-lifetime counters (reset on daemon restart)",
         stats.percent_saved(),
         format_bytes(stats.bytes_in),
         format_bytes(stats.bytes_out),
@@ -400,8 +400,5 @@ pub(super) fn at_rest_compression_status_line(stats: Option<&AtRestCompressionHe
         stats.skipped_output_not_smaller,
         stats.skipped_compression_disabled,
         stats.enabled,
-        stats.unsealed_discarded,
-        stats.unsealed_reaped_rows,
-        format_bytes(stats.unsealed_reaped_bytes),
     )
 }

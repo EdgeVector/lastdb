@@ -14,8 +14,8 @@ use serde_json::{json, Value};
 
 use super::gauge::Gauge;
 use super::self_metrics::{
-    CodecPolicyHealth, IntegrityHealth, LimitsHealth, QosHealth, ResidentHealth, SamplerStatus,
-    StatusSnapshot, UdsPoolHealth, WatchersHealth,
+    IntegrityHealth, LimitsHealth, QosHealth, ResidentHealth, SamplerStatus, StatusSnapshot,
+    UdsPoolHealth, WatchersHealth,
 };
 
 /// One gauge declaration in the additive contract block.
@@ -168,29 +168,6 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     );
 }
 
-fn collect_codec_policy(out: &mut Vec<GaugeContractEntry>, _c: &CodecPolicyHealth) {
-    out.push(GaugeContractEntry {
-        path: "codec_policy.writer_policy".to_string(),
-        unit: "text".to_string(),
-        unit_noun: "text".to_string(),
-        window: "instant".to_string(),
-        window_qualifier: "now".to_string(),
-        since_unix: None,
-        availability: "measured".to_string(),
-        unavailable_reason: None,
-    });
-    out.push(GaugeContractEntry {
-        path: "codec_policy.supported_read_formats".to_string(),
-        unit: "text_array".to_string(),
-        unit_noun: "text_array".to_string(),
-        window: "instant".to_string(),
-        window_qualifier: "now".to_string(),
-        since_unix: None,
-        availability: "measured".to_string(),
-        unavailable_reason: None,
-    });
-}
-
 fn push_process_counter(
     out: &mut Vec<GaugeContractEntry>,
     path: &str,
@@ -238,9 +215,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_integrity(&mut gauges, &snapshot.integrity);
     if snapshot.at_rest_compression.is_some() {
         collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
-    }
-    if let Some(ref cp) = snapshot.codec_policy {
-        collect_codec_policy(&mut gauges, cp);
     }
     StatusGaugeContract {
         version: StatusGaugeContract::VERSION,

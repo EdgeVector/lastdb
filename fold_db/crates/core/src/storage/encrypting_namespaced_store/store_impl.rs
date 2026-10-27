@@ -17,7 +17,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
 
         if self.should_encrypt(name) {
             Ok(Arc::new(EncryptingKvStore::new(
-                name,
                 inner_store,
                 self.crypto.clone(),
             )))
@@ -33,20 +32,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
 
     async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
         self.inner.delete_namespace(name).await
-    }
-
-    async fn reseal_at_rest(
-        &self,
-        options: ResealAtRestOptions,
-    ) -> StorageResult<ResealAtRestReport> {
-        self.reseal_at_rest_impl(options).await
-    }
-
-    async fn reap_unsealed(
-        &self,
-        options: ReapUnsealedOptions,
-    ) -> StorageResult<ReapUnsealedReport> {
-        self.reap_unsealed_impl(options).await
     }
 
     // Read cost is a property of the physical store, not of the encryption

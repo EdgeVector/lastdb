@@ -141,16 +141,12 @@ impl AtomStore {
         };
         match page {
             Ok(Page::Referenced(page)) => {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                run.walk
-                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_referenced(run, page);
             }
             Ok(Page::Suspects(page)) => apply_suspects(run, &page),
             Ok(Page::Atoms(page)) => {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                run.walk
-                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_atoms(run, watch, page);
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {

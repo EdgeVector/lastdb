@@ -178,10 +178,4 @@ pub struct StatusSnapshot {
     /// switch being engaged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at_rest_compression: Option<AtRestCompressionHealth>,
-    /// Effective codec policy and supported read formats.
-    ///
-    /// Published to indicate which formats this node can write and read,
-    /// and to gate unsupported openers. `None` means predates this field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub codec_policy: Option<CodecPolicyHealth>,
 }

@@ -1,13 +1,11 @@
-//! At-rest compression and process-lifetime effectiveness counters, plus the
-//! unsealed-row discard/reap totals reported by `lastdb status`.
+//! At-rest compression and process-lifetime effectiveness counters reported
+//! by `lastdb status`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Process-lifetime counters for at-rest compression qualification.
 ///
-/// The production codec uses [`COMPRESS_COUNTERS`]. Tests can use a fresh
-/// instance to assert an exact decision partition without concurrent tests
-/// adding to the process-wide status metrics.
+/// The codec uses the one process-wide instance, [`COMPRESS_COUNTERS`].
 pub(super) struct AtRestCompressionCounters {
     pub(super) bytes_in: AtomicU64,
     pub(super) bytes_out: AtomicU64,
@@ -61,105 +59,6 @@ impl AtRestCompressionCounters {
 /// Process-wide source for the `lastdb status` compression metrics.
 pub(super) static COMPRESS_COUNTERS: AtRestCompressionCounters = AtRestCompressionCounters::new();
 
-/// Rows read from an **encrypted** namespace that carried no at-rest envelope.
-///
-/// `decision-2026-09-14-drop-dual-read-unsealed-is-gone`: a value without
-/// `ENC:` / `ENZ:` / `ENB:` in a namespace LastDB encrypts is not user data. It
-/// reads as absent rather than being served as cleartext or re-sealed on the
-/// read path, which is how a stray plaintext write used to be laundered into
-/// the store.
-///
-/// Plaintext-by-policy namespaces never reach this counter: `open_namespace`
-/// returns the inner store unwrapped for them, so no `EncryptingKvStore`
-/// exists to discard anything.
-static UNSEALED_DISCARDED: AtomicU64 = AtomicU64::new(0);
-
-/// Namespaces already named in a discard warning this process, so the log
-/// carries the fact once per namespace instead of once per row.
-static UNSEALED_WARNED: std::sync::Mutex<Option<std::collections::BTreeSet<String>>> =
-    std::sync::Mutex::new(None);
-
-/// Count one unsealed row discarded in `namespace`, and warn the first time
-/// that namespace discards anything.
-///
-/// Never logs the key or the value. A discarded row is by definition not
-/// something this store wrote, so its bytes are untrusted.
-pub fn record_unsealed_discard(namespace: &str) {
-    UNSEALED_DISCARDED.fetch_add(1, Ordering::Relaxed);
-    // A caller that counts the discards of its own reads (see
-    // [`count_unsealed_discards`]) sees this one. No other task does.
-    let _ = SCOPED_DISCARDS.try_with(|count| count.fetch_add(1, Ordering::Relaxed));
-    let first = match UNSEALED_WARNED.lock() {
-        Ok(mut guard) => guard
-            .get_or_insert_with(std::collections::BTreeSet::new)
-            .insert(namespace.to_string()),
-        // A poisoned lock must not swallow the read or silence every later
-        // warning; log this one and carry on.
-        Err(_) => true,
-    };
-    if first {
-        tracing::warn!(
-            namespace,
-            "at-rest: discarding unsealed row(s) in an encrypted namespace; they read as absent. \
-             Count is in `lastdb status`. If this is a restored home, check that the restore \
-             sealed its mutation-log replay."
-        );
-    }
-}
-
-tokio::task_local! {
-    /// Discards in the reads of one [`count_unsealed_discards`] scope.
-    static SCOPED_DISCARDS: std::sync::Arc<AtomicU64>;
-}
-
-/// Run `read` and count the rows it discarded for carrying no at-rest envelope.
-///
-/// A scan that drops such a row returns fewer rows than it read, so a short
-/// page does not mean the end of the range. A walk adds the count to the rows
-/// it got to know whether the page was full. The count belongs to this read
-/// alone: a concurrent read of another task does not change it.
-pub async fn count_unsealed_discards<T>(read: impl std::future::Future<Output = T>) -> (T, u64) {
-    let count = std::sync::Arc::new(AtomicU64::new(0));
-    let out = SCOPED_DISCARDS
-        .scope(std::sync::Arc::clone(&count), read)
-        .await;
-    (out, count.load(Ordering::Relaxed))
-}
-
-/// Rows discarded for carrying no at-rest envelope, since process start.
-#[must_use]
-pub fn unsealed_discarded_count() -> u64 {
-    UNSEALED_DISCARDED.load(Ordering::Relaxed)
-}
-
-/// Un-enveloped rows the `reap-unsealed` pass deleted, since process start.
-static UNSEALED_REAPED_ROWS: AtomicU64 = AtomicU64::new(0);
-/// Stored value bytes those deletions returned, since process start.
-static UNSEALED_REAPED_BYTES: AtomicU64 = AtomicU64::new(0);
-
-/// Count rows and bytes removed by one `reap-unsealed` invocation.
-///
-/// Lives next to [`record_unsealed_discard`] on purpose: `lastdb status` shows
-/// how many unsealed rows reads have *hidden* and how many the reaper has
-/// *removed* on the same line, so a home that keeps discarding after a reap
-/// completed is visibly still writing past the seam.
-pub fn record_unsealed_reap(rows: u64, bytes: u64) {
-    if rows == 0 && bytes == 0 {
-        return;
-    }
-    UNSEALED_REAPED_ROWS.fetch_add(rows, Ordering::Relaxed);
-    UNSEALED_REAPED_BYTES.fetch_add(bytes, Ordering::Relaxed);
-}
-
-/// `(rows, bytes)` removed by `reap-unsealed` since process start.
-#[must_use]
-pub fn unsealed_reaped_totals() -> (u64, u64) {
-    (
-        UNSEALED_REAPED_ROWS.load(Ordering::Relaxed),
-        UNSEALED_REAPED_BYTES.load(Ordering::Relaxed),
-    )
-}
-
 /// Observed at-rest compression effectiveness for this process.
 ///
 /// Reported so an operator can see ratio and percent saved rather than trust
@@ -177,9 +76,9 @@ pub struct AtRestCompressionStats {
     pub bytes_in: u64,
     /// Bytes handed to the sealer after the compress-or-skip decision.
     pub bytes_out: u64,
-    /// Values sealed after deflate (`ENZ:`, or `ENB:` with the deflate flag).
+    /// Values sealed after deflate (`ENB:` with the deflate flag).
     pub sealed_compressed: u64,
-    /// Values sealed without deflate (`ENC:`, or `ENB:` without the flag).
+    /// Values sealed without deflate (`ENB:` without the flag).
     pub sealed_plain: u64,
     /// Deflate calls made while qualifying values for compression.
     pub compression_attempts: u64,

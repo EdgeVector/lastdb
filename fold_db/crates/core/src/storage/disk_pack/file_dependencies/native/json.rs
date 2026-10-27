@@ -10,7 +10,6 @@ pub(super) fn extract(
     input: impl BufRead,
     output: &mut impl Write,
     dependency: &FileDependency,
-    require_inner_only: bool,
 ) -> StorageResult<u64> {
     let mut json = Json { input };
     json.expect(b'{')?;
@@ -60,10 +59,6 @@ pub(super) fn extract(
                 }
             }
             "bytes_b64" => json.string(output)?,
-            "access" if require_inner_only => {
-                json.peek()?;
-                json.literal(b"null")?;
-            }
             _ => json.skip(0)?,
         }
         match json.peek()? {

@@ -30,8 +30,8 @@ never returned as API keys.
 
 ## Product defaults
 
-| Knob | Binary default (unset env) | Trinity product primary (resealed home) | Escape (tests / migrate only) |
-|------|----------------------------|------------------------------------------|--------------------------------|
+| Knob | Binary default (unset env) | Trinity product primary | Escape (tests / migrate only) |
+|------|----------------------------|-------------------------|--------------------------------|
 | `LASTDB_HASH_KEY_ENCODING` | unset → `blind_v1` | same | `plain` |
 | `LASTDB_RANGE_KEY_ENCODING` | unset → `ope_v1` | same | `plain` |
 | Local CAS write | sealed dedup put | same | none |
