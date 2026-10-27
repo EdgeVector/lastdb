@@ -77,7 +77,7 @@ impl SearchOutboxSink {
         Self { inbox }
     }
 
-    fn write_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
+    fn write_batch(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
         timing::count("search_changes", batch.changes.len() as u64);
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());
         let path = self.inbox.join(&name);
@@ -107,7 +107,7 @@ impl IndexSink for SearchOutboxSink {
         if !super::queue_policy::enabled() {
             return Ok(());
         }
-        let (result, report) = timing::measure(|| self.write_batch(batch));
+        let (result, report) = timing::measure(|| self.write_batch(&batch));
         if let Some(report) = report {
             timing::emit(
                 "LASTDB_SNAPSHOT_TIMING",
