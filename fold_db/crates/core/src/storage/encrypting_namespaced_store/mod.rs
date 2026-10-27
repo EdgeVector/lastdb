@@ -36,8 +36,9 @@ pub const CATALOG_NAMESPACES: &[&str] = &[
 ];
 
 /// Only local CAS blob records receive a storage-level encryption envelope.
-/// Atoms retain their content encryption. Tips, counters, catalogs, and other
-/// control records pass directly to storage. No packed file is encrypted here.
+/// Atom rows are plain JSON on a v2 home; the run-file block encryption
+/// protects them. Tips, counters, catalogs, and other control records pass
+/// directly to storage. No packed file is encrypted here.
 pub struct EncryptingNamespacedStore {
     inner: Arc<dyn NamespacedStore>,
     crypto: Arc<dyn CryptoProvider>,
