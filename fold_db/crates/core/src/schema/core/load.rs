@@ -8,8 +8,8 @@ use super::locks::{lock_map, write_map};
 use super::SchemaCore;
 
 mod coherence;
-mod install;
 mod predecessor;
+mod rules;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
 use schema_types::IdentityRecompute;
@@ -266,67 +266,46 @@ impl SchemaCore {
         }) // end Box::pin
     }
 
-    pub async fn load_schema_internal(&self, schema: Schema) -> Result<(), SchemaError> {
-        // Ensure runtime_fields are populated. Schemas arriving from the schema
-        // service have runtime_fields empty (it's #[serde(skip)]). Without this
-        // call, mutations fail with "Field not found in runtime_fields".
-        // Only populate if empty — callers like interpret_declarative_schema may
-        // have already populated and set additional state (molecule UUIDs, policies).
-        let mut schema = schema;
+    /// Prepare definitions, keep local molecule ownership, write durable metadata,
+    /// then publish the matching cache state and establish multi-key proteins.
+    pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
+        // Preserve runtime metadata supplied by callers; wire schemas need population.
         if schema.runtime_fields.is_empty() {
             schema.populate_runtime_fields()?;
         }
-        // Mint any field identity the catalog did not supply. Schema Service
-        // mints these when it is in the loop, but most schemas on a local node
-        // arrive without them, and a node that cannot name its own fields can
-        // never detect that two of its schemas index the same record. Fills only
-        // what is missing, so a Schema-Service-minted identity always wins, and
-        // uses the same `compute_field_hash` formula so both agree.
         schema.ensure_field_hashes();
-        // Data continuity for an externally-expanded schema: restore this
-        // identity's own stored molecule map, or adopt the LOCAL predecessor's,
-        // BEFORE the first sync persists derived values
-        // (see `adopt_predecessor_molecule_uuids`). The stored row is fetched
-        // once here and reused by the existing-schema branch below.
-        let existing_schema = self.db_ops.get_schema(&schema.name).await?;
-        self.adopt_predecessor_molecule_uuids(&mut schema, existing_schema.as_ref())?;
-        // Persist field → molecule UUID map for field_hash protein bind and
-        // multi-key coherence (runtime molecules themselves are still cleared).
+
+        // One raw read supplies both continuity and the new/refresh decision.
+        let existing = self.db_ops.get_schema(&schema.name).await?;
+        self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
         schema.sync_molecule_uuids();
-
-        // Drop any materialized in-memory molecules before this schema enters
-        // the in-memory cache. The cache is *cloned* on every query
-        // (`get_schema_following_supersession`), so a schema carrying
-        // fully-materialized molecules makes each clone — and its eventual
-        // drop — O(field cardinality). That cost (cloning/dropping every key on
-        // every keyed read) is exactly what swamped the per-key O(1) read
-        // primitive and kept `indexed_point_lookup` scaling O(field) even
-        // though the lookup itself touches a single key. The molecule data is
-        // redundant here: the `mk:`/`mh:` per-key records on disk are the
-        // source of truth, and both the read path (`refresh_for_read` /
-        // `refresh_from_db`) and the write path (`restore_missing_molecules`)
-        // re-hydrate from each field's retained `molecule_uuid` on demand. So
-        // the cache only needs the field metadata, never the data.
+        // Cache definitions only: retained UUIDs drive per-key molecule fetches.
         schema.clear_runtime_molecules();
+        Self::stamp_identity_for_load(&mut schema, existing.as_ref());
 
-        Self::stamp_identity_for_load(&mut schema, existing_schema.as_ref());
-
-        let name = schema.name.clone();
-        match existing_schema {
-            Some(existing) => {
-                self.refresh_existing_schema(&name, schema, existing)
-                    .await?;
-            }
-            None => {
-                self.install_new_schema(&name, schema).await?;
-            }
+        let refresh = existing.is_some();
+        if let Some(stored) = existing {
+            rules::prepare_refresh(&mut schema, stored)?;
         }
+        let name = schema.name.clone();
+        self.db_ops.store_schema(&name, &schema).await?;
 
-        // Multi-key coherence: when this schema is another key layout over a
-        // product already loaded, bind their matching fields into proteins so
-        // writes fold across both partitions. Non-blocking.
+        // Read state AFTER the schema write. A missing durable state uses the
+        // cached value lazily, so a refresh cannot turn Blocked into Available.
+        let state = if refresh {
+            match self.db_ops.get_schema_state(&name).await? {
+                Some(state) => state,
+                None => self.get_schema_state_cached(&name)?,
+            }
+        } else {
+            self.db_ops
+                .store_schema_state(&name, &SchemaState::Available)
+                .await?;
+            SchemaState::Available
+        };
+        // Native writes stage this publication until the complete disk root.
+        self.publish_schema_cache(&name, schema, state)?;
         self.apply_field_hash_coherence_on_load(&name).await?;
-
         Ok(())
     }
 
@@ -363,22 +342,15 @@ impl SchemaCore {
         // already on disk was stamped by a newer binary. Recomputing above is
         // harmless; *persisting* it over the stored row would be the downgrade.
         // Adopt the stored identity instead.
-        if let Some(stored_row) = existing_schema {
-            if let Some(stored) = schema_types::refuses_identity_downgrade(
-                stored_row.identity_hash.as_deref(),
-                stored_row.identity_hash_algo_version,
-            ) {
-                tracing::warn!(
-                    schema = %schema.name,
-                    stored_algo_version = stored,
-                    binary_algo_version = schema_types::IDENTITY_HASH_ALGO_VERSION,
-                    "refusing to overwrite a stored schema identity minted by a newer \
-                     identity algorithm than this binary implements. Keeping the stored \
-                     identity for this row.",
-                );
-                schema.identity_hash = stored_row.identity_hash.clone();
-                schema.identity_hash_algo_version = stored_row.identity_hash_algo_version;
-            }
+        if let Some(stored) = rules::preserve_stored_identity(schema, existing_schema) {
+            tracing::warn!(
+                schema = %schema.name,
+                stored_algo_version = stored,
+                binary_algo_version = schema_types::IDENTITY_HASH_ALGO_VERSION,
+                "refusing to overwrite a stored schema identity minted by a newer \
+                 identity algorithm than this binary implements. Keeping the stored \
+                 identity for this row.",
+            );
         }
     }
 }

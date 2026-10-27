@@ -24,7 +24,6 @@
 // Internal modules
 pub mod core;
 pub mod field_hash_coherence;
-pub mod field_mapper;
 
 pub mod interpreter;
 mod logical_rules;
@@ -40,7 +39,6 @@ pub use field_hash_coherence::{
     declared_identities_match, field_identity_hashes, overlap_coefficient, shared_field_identities,
     KeyLayoutFingerprint, SharedFieldIdentity, MULTI_KEY_SIBLING_OVERLAP,
 };
-pub use field_mapper::FieldMapperService;
 pub use interpreter::SchemaInterpreter;
 pub use logical_rules::{
     require_logical_filter, require_logical_layout, require_logical_query_controls,
@@ -56,7 +54,7 @@ pub use schema_types::{
 };
 pub use types::{Schema, SchemaError};
 
-/// Public prelude module containing types needed by tests and external code
+/// Public prelude module for external callers.
 pub mod prelude {
     pub use super::SchemaCore;
 }

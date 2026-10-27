@@ -2,21 +2,6 @@ use super::SchemaCore;
 use crate::schema::types::{DeclarativeSchemaDefinition, SchemaError};
 
 impl SchemaCore {
-    /// Apply this schema's `FieldMapper` entries, copying molecule UUIDs from the
-    /// referenced source fields onto the corresponding target runtime fields.
-    ///
-    /// This is the schema-expansion adoption step: a superset schema's shared
-    /// fields point back at the superseded source schema, and this resolves them
-    /// so reads/writes land on the same molecules (no data migration). It is a
-    /// no-op for schemas without field mappers and is idempotent.
-    ///
-    /// Must run AFTER `validate_field_mapper_compatibility` (cross-type molecule
-    /// copies corrupt reads) and, during expansion, BEFORE the old schema is
-    /// blocked (so the source resolves without following its redirect).
-    pub async fn apply_field_mappers(&self, schema_name: &str) -> Result<(), SchemaError> {
-        self.field_mapper.apply_field_mappers(schema_name).await
-    }
-
     /// Load schema from JSON string (creates Available schema)
     /// Only supports declarative schema format
     pub async fn load_schema_from_json(&self, json_str: &str) -> Result<(), SchemaError> {
