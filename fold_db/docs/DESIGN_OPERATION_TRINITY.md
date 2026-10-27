@@ -41,9 +41,10 @@ never returned as API keys.
 - Codec: `fold_db/crates/core/src/atom/molecule_key_codec.rs`
 - Atom row codec: `fold_db/crates/core/src/db_operations/atom_store/codec.rs`
   (`encode_plain_atom`, `decode_plain_atom`)
-- File KDK seal/open: `fold_db/crates/core/src/sync/engine/file_blob.rs`
+- File KDK seal: `fold_db/crates/core/src/sharing/file_blob_seal.rs`
+  (`seal_file_blob`, `seal_file_blob_for_access`)
 - Local CAS: `fold_db/crates/core/src/sharing/blob_cas.rs`
-- Resolve with DEK: `fold_db/crates/core/src/sharing/query_slice.rs` (`resolve_file_bytes`)
+- Resolve with DEK: `fold_db/crates/core/src/sharing/query_slice/file_recovery.rs` (`resolve_file_bytes`)
 - Factory: `fold_db/crates/core/src/fold_db_core/factory/local.rs`
 
 ## Accepted residuals (v1)

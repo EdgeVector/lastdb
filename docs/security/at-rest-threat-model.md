@@ -50,8 +50,9 @@ File paths are repo-relative.
 Update (2026-10-26): the Son atom content seal in item 2 is retired. A disk
 format v2 atom row is plain JSON with no content seal, and the block encryption
 of each run file protects it. The code has no atom content seal, no dual-read
-or strict atom content open, and no `ATB:` binary atom row. The file KDK lives
-inside the plain atom row.
+or strict atom content open, and no `ATB:` binary atom row. The file KDK (the
+`dek` field of the `$lastdb_file` pointer) lives in the plain atom row, inside
+an AES-256-GCM run-file block.
 
 Target posture for Mini personal data (no plaintext fallbacks):
 
@@ -63,6 +64,7 @@ Target posture for Mini personal data (no plaintext fallbacks):
    migrate. **Product primaries after reseal** must set durable
    `LASTDB_ATOM_CONTENT_STRICT=1` on the LaunchAgent forever (fail-closed open).
    File KDK (per-blob DEK) lives inside sealed content / access metadata.
+   (Retired in disk format v2: see the update note above.)
 3. **Holy Ghost — files:** cloud CAS under per-blob DEK; durable local `cas_blobs`
    sealed under the same DEK (DEK not stored in the CAS row). The local write
    is the sealed dedup put.
@@ -72,12 +74,13 @@ Target posture for Mini personal data (no plaintext fallbacks):
 | Asset | Where it lives | Sensitivity |
 |---|---|---|
 | File blob bytes (photos, packs, imports) | Local `cas_blobs` (LastStore) + cloud CAS | Highest — raw user files |
-| File KDK / per-blob DEK | Inside sealed atom content / access metadata | Critical — unlocks blob bytes |
+| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block | Critical — unlocks blob bytes |
 
 Mini file-blob plane is **live** (`/api/db/file-blob`, fetch, fork). Durable local
-cache must not store plaintext blob bytes when a DEK is available. Packaging of
-atom hash groups remains structural plaintext — body secrecy is content seal +
-file-KDK, not frame AEAD alone.
+cache must not store plaintext blob bytes when a DEK is available. An atom row
+and its file KDK are plain JSON inside the run-file block, so the AES-256-GCM
+block encryption is the only protection at rest for both. Blob bytes also have
+the per-blob DEK.
 
 **Terminal product bar:** `scripts/operation-trinity-cow-bar.sh` on a fresh
 empty home with synthetic data (the script is not in this tree): Father encoding log + Board Option I + mk: storage scan; Son reseal
@@ -113,7 +116,7 @@ Out of scope (separate workstreams):
 | Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
 | Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
 | Embedding vectors | Last Store `native_index` collection (`emb:` / `graveyard:emb:` keys) | High — embeddings of private content leak that content |
-| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in sealed atom access metadata); desktop `UploadStorage` removed | Highest |
+| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain atom row, inside an AES-256-GCM run-file block); desktop `UploadStorage` removed | Highest |
 | Schemas, schema states, views, transforms, lineage | Last Store schema/catalog and lineage collections | Medium — reveals what kinds of data the user keeps and how records relate |
 | Permissions & trust data | Last Store permission/public-key collections | Medium |
 | Consent ledger (app grants) | Last Store app-identity consent collection (`fold_db_node/src/fold_node/consent.rs`) | Medium-high — which apps may read what |
@@ -381,7 +384,7 @@ invented or expanded by agents:
 | Hash key | molecule HashKey in storage | blind (`blind_v1`) |
 | Range key | molecule RangeKey in storage | OPE (`ope_v1`) |
 | Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
-| File blob | CAS / file bytes | per-blob DEK; KDK in sealed atom access metadata |
+| File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block |
 
 Consequences for this section:
 

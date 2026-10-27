@@ -11,6 +11,16 @@ The client loads and decrypts the required range keys before it serves reads for
 It builds ordinary local B-trees and asks the cloud for data by opaque key identifiers.
 This design removes the need for OPE or ORE on that read path.
 
+## Gap: per-atom content encryption
+
+This design assumed per-atom content encryption.
+Disk format v2 removed it.
+Tom approved compact plain values on 2026-10-24 (workspace disk size plan, section 9.6).
+A disk format v2 atom row is plain JSON inside an AES-256-GCM run-file block.
+Block encryption does not protect one atom that the cloud sends to a browser.
+The cloud and browser path must add its own atom encryption before this design can ship.
+In this document, "encrypted atom" and "atom content key" name that required addition, not current code.
+
 ## Current state
 
 The [current preload design](../lastdb-schema-range-preload-design.md) loads complete keys only for explicitly selected HashRange schemas.
@@ -68,7 +78,7 @@ flowchart TD
 5. A query names one hash and selects ranges from the local tree under that hash.
 6. The client sends the selected opaque key identifiers in one batch.
 7. The cloud checks permissions and resolves the current tips for the selected revision.
-8. The cloud returns the required encrypted atoms, which the client verifies and decrypts.
+8. The cloud returns the required encrypted atoms, which the client verifies and decrypts. This step needs the per-atom encryption that the gap section names.
 9. An explicit file request fetches only its referenced encrypted file blob.
 
 The browser needs no local daemon or full database restore.
@@ -88,7 +98,7 @@ Include original hash values inside encrypted directory entries only where the A
 | Range value | Ordinary authenticated encryption inside directory chunks | Let the client recover and order range values |
 | Range lookup | Stable opaque token | Find a tip without a range comparison |
 | Tip | Atom reference and required revision facts | Resolve the selected key to its atom |
-| Atom content | Plain JSON inside encrypted run-file blocks; no atom content seal | Protect the requested field data at rest |
+| Atom content | Local disk: plain JSON inside an encrypted run-file block, with no per-atom seal. Cloud read path: per-atom encryption that this design must add (see the gap section) | Protect the requested field data |
 | File blob | Existing file encryption | Protect referenced file bytes |
 | Molecule keys | Explicit encrypted key bundle | Grant access to the required data |
 
@@ -98,7 +108,7 @@ A key move changes the lookup identifier and directory membership together.
 
 A keyed hash can produce the range lookup token from the exact range bytes and the key's scope.
 The input must bind the format version, molecule, key epoch, and blinded hash with unambiguous lengths.
-Use a separate purpose key from content encryption and hash blinding.
+Use a separate purpose key from the required atom content encryption and hash blinding.
 The final token size and collision rule remain implementation decisions.
 An opaque token supplies an address; the cloud still checks access permission.
 
@@ -209,7 +219,7 @@ A schema directory is a view of the authorized molecule directories, rather than
 A share grants the required molecule keys without a whole-pack key or a separate copy of each encrypted atom.
 File access continues through the encrypted atom's file reference and file key.
 
-Keep distinct key purposes for atom content, hash tokens, directory encryption, and range lookup tokens.
+Keep distinct key purposes for the required atom content encryption, hash tokens, directory encryption, and range lookup tokens.
 Private identity keys and unwrapped molecule keys stay with authorized clients.
 Directory manifests, cloud metadata, and ordinary logs contain no plaintext secret keys.
 Key rotation changes the relevant epoch and directory compatibility facts.
