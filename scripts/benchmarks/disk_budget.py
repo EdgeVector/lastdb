@@ -15,6 +15,14 @@ MEASURES = ("logical_atom_bytes", "retained_disk_bytes", "disk_to_logical_ratio"
             "search_queue_files", "other_home_bytes", "whole_home_disk_bytes")
 
 
+def require_search_off(node, output, phase):
+    status, _, _ = node.call("/api/db/native-status")
+    search = status.get("search")
+    save(output / f"disk-search-{phase}.json", search)
+    if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
+        raise ValueError("The disk budget requires a daemon that reports Search off without a status error")
+
+
 def logical_storage(node):
     report, _, _ = node.call("/api/db/schemas")
     report = report["schema_storage"]
@@ -92,6 +100,8 @@ def validate(case, result, recipe):
             raise ValueError(f"{case}: invalid disk checkpoint count")
         validate_logical(point["logical_storage"])
         validate_breakdown(point["disk_breakdown"])
+        if point["disk_breakdown"]["search_queue_files"] != 0:
+            raise ValueError(f"{case}: the disk budget requires an empty Search queue")
         if point["disk"] != point["disk_breakdown"]["whole_home"]:
             raise ValueError(f"{case}: the whole-home totals differ")
         if (set(point["disk"]) != {"logical_bytes", "allocated_bytes"}
@@ -153,10 +163,12 @@ def render(comparison):
                   "Each category retains both file lengths and allocated blocks; its raw totals add exactly to the whole home.",
                   "Each checkpoint follows durable flush and verified keyed reads, then three stable seconds, with a 90-second deadline.",
                   "The v2 format uses its default automatic run merges. This run does not force compaction or measure transient disk peaks.",
+                  "Search is explicitly off before and after each run; every checkpoint requires an empty Search queue.",
                   "The maximum is taken across checkpoints in each run, then the median across alternating pairs.",
                   "A candidate above 1.5× requires confirmation even when the baseline also exceeds the ceiling.",
                   "A database or Search queue increase of at least 10% and 64 KiB also requires confirmation.",
-                  "Only the same case and measure across its limit in both comparisons produces an advisory warning.",
-                  "An absolute ceiling warning describes current excess; it does not prove that this PR caused the excess.",
+                  "The same case above 1.5× in both comparisons fails benchmark-complete and blocks merge.",
+                  "Equality passes. Relative database and Search queue growth remains advisory.",
+                  "The absolute limit fails even if the baseline also exceeds it; this does not prove PR causation.",
                   "The generated v2 workload supplies a guard for this data shape, not a measurement of the primary.", ""])
     return "\n".join(lines)

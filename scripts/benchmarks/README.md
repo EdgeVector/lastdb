@@ -3,6 +3,7 @@
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
 It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
+The confirmed 1.5× settled database-size limit also blocks merge.
 Build failures, rejected requests, incomplete measurements, and upload failures block completion.
 Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
@@ -265,6 +266,9 @@ It uses two alternating pairs on PRs and three at night. Reads, updates, and ins
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
+This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search off before and after each run.
+Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
+Historical programs that lack the Search-off status cannot satisfy this required size pass.
 
 The ratio is retained disk bytes divided by logical atom bytes:
 
@@ -275,13 +279,15 @@ The ratio is retained disk bytes divided by logical atom bytes:
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
 
-The advisory ceiling is **1.5×**. Equality is within the budget.
+The required ceiling is **1.5×**. Equality is within the budget.
 CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
 Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
-Only the same case and measure above its limit in both comparisons produces a warning.
-Excess size stays advisory. Invalid measurements, an unstable checkpoint, and failed uploads block `benchmark-complete`.
-CI warns above 1.5× even when the base also exceeds that ceiling. This states current excess, not PR causation.
+The same case above 1.5× in both comparisons fails the report step and the required `benchmark-complete` check.
+CI retains the measurements and verified upload even when this limit fails. The failure blocks merge.
+Relative database and Search queue growth stays advisory, with a warning only after the increase repeats.
+Invalid measurements, an unstable checkpoint, and failed uploads also block `benchmark-complete`.
+The absolute limit fails even when the base also exceeds 1.5×. This states current excess, not PR causation.
 
 The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
@@ -408,7 +414,8 @@ A new suspect in the repeat produces no warning because it lacks confirmation. C
 Both passes retain their raw results and comparisons in the same artifact, under each suite's `confirmation/` directory.
 The artifact also retains `repeat-plan.json` and `advisory-confirmation.json` for the decision.
 An absent, failed, invalid, or mismatched required repeat means incomplete evidence and fails `benchmark-complete`.
-The notice does not change the exit status. No speed limit enters branch protection.
+Speed and relative-growth notices do not change the exit status. No speed limit enters branch protection.
+The confirmed absolute disk-size limit fails `benchmark-complete` through the measurement job's result.
 
 Cold means a LastDB warm-set miss. The operating system file cache stays uncontrolled.
 The workflow does not claim a physical-device cold read.

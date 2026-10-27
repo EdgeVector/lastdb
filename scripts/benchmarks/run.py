@@ -15,7 +15,7 @@ from node import RUN_NODE_MARKER, Node, file_hash, save
 from native_phases import collect_native_phases
 from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
-from disk_budget import DiskBudgetWorkload
+from disk_budget import DiskBudgetWorkload, require_search_off
 
 
 def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0):
@@ -23,18 +23,20 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
     started = time.monotonic()
     try:
         program = seed or (binary, revision, workers)
-        environment = {}
+        environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
         if recipe.get("typed_range_comparison"):
             environment.update(LASTDB_HASH_KEY_ENCODING="blind_v1", LASTDB_RANGE_KEY_ENCODING="ope_v1")
         node = Node(program[0], program[1], output, native_timing=recipe["native_timing"], workers=program[2],
                     environment=environment)
         node.start()
         if recipe.get("disk_budget"):
+            require_search_off(node, output, "before")
             marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
             save(output / "disk-format.json", {"marker": marker})
             if marker != RUN_NODE_MARKER:
                 raise ValueError("The disk budget requires a v2 run home")
             DiskBudgetWorkload(node, recipe, output).run()
+            require_search_off(node, output, "after")
         elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:
@@ -95,7 +97,7 @@ def recipe_for(args):
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
-            recipe.update(disk_budget=True, disk_format=2,
+            recipe.update(disk_budget=True, disk_format=2, search_enabled=False,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
                           logical="GET /api/db/schemas total_logical_bytes; plaintext serialized atoms")

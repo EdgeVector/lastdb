@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a confirmed, advisory v2 disk-size budget in the CI summary."""
+"""Require the confirmed v2 disk-size limit and report relative-growth advisories."""
 
 import argparse
 import json
@@ -13,16 +13,23 @@ from growth import CASES
 from node import save
 from typed_ranges import conversion_lines
 
+REQUIRED_METRICS = {"max_disk_to_logical_ratio"}
+
 
 def compare(output, manifest):
     recipe = manifest["recipe"]
-    if recipe.get("disk_budget") is not True or recipe.get("disk_format") != 2:
-        raise ValueError("The disk budget recipe requires v2 generated homes")
+    if (recipe.get("disk_budget") is not True or recipe.get("disk_format") != 2
+            or recipe.get("search_enabled") is not False):
+        raise ValueError("The disk budget recipe requires v2 generated homes with Search off")
     values = {label: {} for label in ("baseline", "candidate")}
     for run in manifest["runs"]:
         if not run["complete"]:
             raise ValueError("A disk budget measurement did not complete")
         directory = output / run["directory"]
+        for phase in ("before", "after"):
+            search = json.loads((directory / f"disk-search-{phase}.json").read_text())
+            if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
+                raise ValueError("The disk budget does not establish Search off")
         marker = json.loads((directory / "disk-format.json").read_text())
         if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
             raise ValueError("The disk budget did not measure a v2 run home")
@@ -58,6 +65,7 @@ def main():
     parser.add_argument("--confirmation-status", required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    exceeded = False
     try:
         manifest = json.loads((args.output / "benchmark.json").read_text())
         if not manifest["complete"] or args.job_status != "success":
@@ -65,12 +73,14 @@ def main():
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         decision = confirm(args.output, manifest, comparison, compare, "disk", args.confirmation_status)
-        report = ("# LastDB v2 disk size budget — advisory\n\n"
+        exceeded = any(row["confirmed"] and row["metric"] in REQUIRED_METRICS for row in decision["results"])
+        report = ("# LastDB v2 disk size budget — required 1.5× limit\n\n"
+                  f"Required limit: **{'FAIL' if exceeded else 'PASS'}**. Relative growth stays advisory.\n\n"
                   f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**.  \n"
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
                   f"Driver: `{manifest['driver_revision']}`\n"
-                  + disk_budget.render(comparison) + lines(decision)
+                  + disk_budget.render(comparison) + lines(decision, REQUIRED_METRICS)
                   + "\n".join(conversion_lines(args.output, manifest)) + "\n")
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
@@ -82,8 +92,8 @@ def main():
             stream.write(report)
     print(report)
     if complete:
-        notices(decision)
-    return 0 if complete else 1
+        notices(decision, REQUIRED_METRICS)
+    return 0 if complete and not exceeded else 1
 
 
 if __name__ == "__main__":

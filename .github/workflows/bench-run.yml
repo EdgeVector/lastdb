@@ -52,7 +52,7 @@ permissions:
 
 jobs:
   measure:
-    name: Reads, durable writes, and concurrency (advisory)
+    name: Speed advisory and required disk size
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
@@ -444,7 +444,7 @@ jobs:
             --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME" \
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
-      - name: Publish the advisory v2 disk size budget
+      - name: Require the confirmed v2 disk size limit and publish the summary
         if: always()
         env:
           GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}

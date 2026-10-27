@@ -55,27 +55,35 @@ def values(pair, kind, metric=""):
     return " → ".join(f"{pair[label] / divisor:.3f}" for label in ("baseline", "candidate")) + unit
 
 
-def lines(decision):
+def lines(decision, required_metrics=()):
     result = ["", "## Automatic advisory confirmation", ""]
     if not decision["repeat_required"]:
-        return "\n".join(result + ["No measure crossed an advisory limit. CI skipped the repeat.", ""])
+        return "\n".join(result + ["No measure crossed its limit. CI skipped the repeat.", ""])
     result.extend(["CI repeated this suite once with the same programs, recipe, and fresh generated homes.",
-                   "Only the same case and measure above its limit in both runs produces a warning.", "",
+                   "Only the same case and measure above its limit in both runs produces a notice.", "",
                    "| Case | Measure | First base → candidate | Repeat base → candidate | Result |",
                    "|---|---|---:|---:|---|"])
     for row in decision["results"]:
-        state = "Confirmed advisory" if row["confirmed"] else "Did not repeat; no warning"
+        state = "Did not repeat; no warning"
+        if row["confirmed"]:
+            state = "Required limit exceeded" if row["metric"] in required_metrics else "Confirmed advisory"
         result.append(f"| {row['case']} | {row['metric']} | {values(row['initial'], decision['kind'], row['metric'])} | "
                       f"{values(row['repeat'], decision['kind'], row['metric'])} | {state} |")
     result.extend(["", "A measure first above its limit in the repeat has no confirmation and produces no warning.",
-                   "Both comparisons remain in the artifact. Confirmed changes stay advisory.", ""])
+                   "Both comparisons remain in the artifact. "
+                   + ("Confirmed required limits block merge; other changes stay advisory." if required_metrics
+                      else "Confirmed changes stay advisory."), ""])
     return "\n".join(result)
 
 
-def notices(decision):
+def notices(decision, required_metrics=()):
     for row in decision["results"]:
         if row["confirmed"]:
-            print(f"::warning title=Confirmed advisory {decision['kind']} change::{row['case']}: {row['metric']}; "
+            required = row["metric"] in required_metrics
+            level = "error" if required else "warning"
+            title = "Required disk size limit exceeded" if required else f"Confirmed advisory {decision['kind']} change"
+            print(f"::{level} title={title}::{row['case']}: {row['metric']}; "
                   f"first {values(row['initial'], decision['kind'], row['metric'])}; "
                   f"repeat {values(row['repeat'], decision['kind'], row['metric'])}. "
-                  "Both comparisons crossed the advisory limit. This does not block merge.")
+                  + ("Both comparisons exceeded the required limit. This blocks merge." if required
+                     else "Both comparisons crossed the advisory limit. This does not block merge."))
