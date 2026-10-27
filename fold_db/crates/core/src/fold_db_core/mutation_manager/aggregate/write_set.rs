@@ -23,7 +23,12 @@ impl MutationManager {
         // Validate before clock allocation and before guard enrollment.
         self.validate_aggregate_contract(&source, &aggregate)?;
         let storage_prefix = self
-            .resolve_aggregate_storage_prefix(&source.schema_name, &aggregate, access_context)
+            .resolve_aggregate_storage_prefix(
+                &source.schema_name,
+                &aggregate.target_schema_name,
+                &aggregate.member_schema_name,
+                access_context,
+            )
             .await?;
         let source_clock =
             self.prepare_mutation_author_clocks(std::slice::from_mut(&mut source))?;
