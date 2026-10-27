@@ -25,10 +25,10 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
 
 /// Product molecule store must never emit `ref:{M}` whole-molecule blobs.
 ///
-/// Those keys map to the cold `legacy_blob_refs` collection. Create/update
-/// paths use per-key tips (`mk:`/`mh:`/…). Inventory + purge (and sync
-/// migrate-on-receive for peer residual) still address existing `ref:` rows;
-/// this guard only blocks the product store from reintroducing them.
+/// Create/update paths use per-key tips (`mk:`/`mh:`/…). The disk format v1
+/// engine kept `ref:` keys in a `legacy_blob_refs` collection; no reader or
+/// purge for them remains, and this guard keeps the product store from
+/// writing one.
 fn refuse_legacy_ref_blob_store_items(items: &[(String, Value)]) -> Result<(), SchemaError> {
     for (key, _) in items {
         let bare = key
