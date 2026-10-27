@@ -35,6 +35,7 @@ mod cleanup;
 mod cleanup_checkpoint;
 mod cleanup_files;
 mod commit;
+mod commit_log;
 mod create;
 mod diagnostic;
 mod diagnostic_cursor;
