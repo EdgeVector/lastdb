@@ -1,18 +1,17 @@
 //! Reads of the current head and fixed-field row state for CAS and aggregates.
 
-use std::collections::BTreeMap;
-
 use crate::atom::AtomEntry;
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
+use super::cas_rules::{self, CurrentHead};
 use super::MutationManager;
 
 impl MutationManager {
     /// Read the current head at `mutation.key_value` for `field`: its head atom
     /// UUID (the record's content hash for CAS purposes) and its dereferenced
-    /// content value. Returns `(None, None)` when the field has no live value
+    /// content value. Returns an empty head when the field has no live value
     /// at the key, INCLUDING when the head is a tombstone — a deleted key reads
     /// as absent so `Absent` matches after a delete and `Value`/`ContentHash`
     /// correctly miss.
@@ -24,7 +23,7 @@ impl MutationManager {
         mutation: &Mutation,
         field: &str,
         storage_prefix: Option<&str>,
-    ) -> Result<(Option<String>, Option<serde_json::Value>), SchemaError> {
+    ) -> Result<CurrentHead, SchemaError> {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
 
         let key_value =
@@ -41,7 +40,7 @@ impl MutationManager {
             .current_key_belongs(&schema, &key_value, storage_prefix)
             .await?
         {
-            return Ok((None, None));
+            return Ok(CurrentHead::default());
         }
 
         let Some(entry) = self
@@ -54,7 +53,7 @@ impl MutationManager {
             )
             .await?
         else {
-            return Ok((None, None));
+            return Ok(CurrentHead::default());
         };
         let uuid = entry.atom_uuid;
         let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
@@ -69,10 +68,13 @@ impl MutationManager {
         // A tombstoned head reads as absent — a deleted record has no live
         // value to compare against.
         if crate::atom::is_tombstone_value(atom.content()) {
-            return Ok((None, None));
+            return Ok(CurrentHead::default());
         }
 
-        Ok((Some(uuid), Some(atom.content().clone())))
+        Ok(CurrentHead {
+            atom_uuid: Some(uuid),
+            value: Some(atom.content().clone()),
+        })
     }
 
     fn load_schema_for_point_read(
@@ -192,42 +194,7 @@ impl MutationManager {
             storage_prefix,
         )
         .await?;
-        if atoms.len() != selected.len() {
-            return Err(SchemaError::StorageRead {
-                detail: "point-read atom count differs from selected field count".into(),
-            });
-        }
-        let mut values = BTreeMap::new();
-        let mut latest_winner: Option<AggregateWinner> = None;
-        let mut tombstone = None;
-        for ((field, entry), atom) in selected.into_iter().zip(atoms) {
-            if crate::atom::is_tombstone_value(atom.content()) {
-                tombstone.get_or_insert_with(|| CurrentRowFields::Corrupt {
-                    field: field.clone(),
-                    atom_uuid: entry.atom_uuid,
-                });
-                continue;
-            }
-            let winner = AggregateWinner {
-                logical_counter: entry.logical_counter,
-                written_at: entry.written_at,
-                writer_id: entry.lww_device().to_string(),
-                mutation_uuid: entry.mutation_uuid.clone(),
-            };
-            match &mut latest_winner {
-                Some(current) if winner.cmp_source(current).is_gt() => *current = winner,
-                None => latest_winner = Some(winner),
-                _ => {}
-            }
-            values.insert(field.clone(), atom.content().clone());
-        }
-        if values.is_empty() {
-            return Ok((CurrentRowFields::Absent, None));
-        }
-        if let Some(tombstone) = tombstone {
-            return Ok((tombstone, None));
-        }
-        Ok((CurrentRowFields::Present(values), latest_winner))
+        cas_rules::assemble_current_row(selected, atoms)
     }
 
     /// Load the current selected tip of one field through the core storage

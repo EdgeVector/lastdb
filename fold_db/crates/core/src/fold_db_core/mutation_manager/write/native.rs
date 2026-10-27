@@ -71,7 +71,11 @@ impl MutationManager {
             // Compare once inside the exclusive native gate. A prior
             // request can commit while this request waits to enter it.
             let started = std::time::Instant::now();
-            let (already_seen_ids, mutations, hashes) = self
+            let super::super::cas_idempotency::FilteredMutations {
+                already_seen_ids,
+                mutations,
+                hashes,
+            } = self
                 .filter_idempotent_mutations(request.mutations, request.storage_prefix)
                 .await?;
             Self::add_timing(

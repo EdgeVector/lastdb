@@ -24,6 +24,14 @@ pub(super) enum CurrentRowFields {
     Corrupt { field: String, atom_uuid: String },
 }
 
+impl CurrentRowFields {
+    /// A mixed live/tombstone record still exists for a presence-only check.
+    /// Aggregate reconstruction separately rejects that corrupt state.
+    pub(super) fn has_live_field(&self) -> bool {
+        matches!(self, Self::Present(_) | Self::Corrupt { .. })
+    }
+}
+
 /// Resolve one sibling key value from the source row.
 ///
 /// An absent or non-scalar optional field names no peer association. The
