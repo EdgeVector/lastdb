@@ -18,7 +18,12 @@ impl FieldVariant {
     /// Refreshes the field's data from the database.
     pub async fn refresh_from_db(&mut self, db_ops: &DbOperations) -> Result<(), SchemaError> {
         self.require_supported_read(None)?;
-        captured_field_read(db_ops, self.refresh_from_db_captured(db_ops).boxed()).await
+        let profile = self.read_range_profile(db_ops).await?;
+        crate::schema::types::key_comparison::KeyComparisonContext::run_for_molecule(
+            profile,
+            captured_field_read(db_ops, self.refresh_from_db_captured(db_ops).boxed()),
+        )
+        .await
     }
 
     async fn refresh_from_db_captured(&mut self, db_ops: &DbOperations) -> Result<(), SchemaError> {

@@ -62,16 +62,10 @@ impl Source {
             blocked_reason: None,
         }
     }
-    /// A disk format v2 job has a null client descriptor and both
-    /// destinations. A saved job with a descriptor came from a disk format v1
-    /// home, which this program does not open.
     pub fn validate(&self, saved: &Saved) -> Result<()> {
         saved.validate()?;
         if saved.account != self.account || saved.source_home != self.source_home {
             return Err(BackupError::Identity);
-        }
-        if saved.format_v1() {
-            return Err(BackupError::FormatV1Job);
         }
         if let Some(begin) = &saved.begin {
             if begin.required_destinations != [Destination::R2, Destination::B2] {

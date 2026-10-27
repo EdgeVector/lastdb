@@ -63,7 +63,9 @@ impl DbOperations {
         let new_edges = schema_molecule_ref_edges(schema_name, schema);
         self.refuse_while_draining(schema_name, &old_edges, &new_edges)
             .await?;
-        self.molecule_keys().ensure_schema(schema).await?;
+        self.molecule_keys()
+            .establish_schema_for_publication(schema, old.as_ref())
+            .await?;
         // Bind first. Each new binding record and the counter of its molecule
         // are one batch, and a binding that already exists changes nothing.
         let bound = self.atoms().add_molecule_bindings(&new_edges, None).await?;

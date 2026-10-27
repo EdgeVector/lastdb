@@ -8,7 +8,8 @@
 ///
 /// [`Default`] for this enum stays [`Self::Plain`] so
 /// `MoleculeKeyCodec::default()` / `plain()` stay unencoded without env.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HashKeyEncoding {
     /// Storage hash segment == API HashKey (explicit opt-out).
     #[default]
@@ -52,7 +53,8 @@ impl HashKeyEncoding {
 /// Explicit `plain` remains a supported unencoded placement choice.
 ///
 /// [`Default`] for this enum stays [`Self::Plain`] for library `plain()` codecs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RangeKeyEncoding {
     /// Storage range segment == API RangeKey (tests / explicit opt-out).
     #[default]

@@ -11,6 +11,7 @@ from advisories import confirm, lines, notices
 import disk_budget
 from growth import CASES
 from node import save
+from typed_ranges import conversion_lines
 
 
 def compare(output, manifest):
@@ -69,7 +70,8 @@ def main():
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
                   f"Driver: `{manifest['driver_revision']}`\n"
-                  + disk_budget.render(comparison) + lines(decision))
+                  + disk_budget.render(comparison) + lines(decision)
+                  + "\n".join(conversion_lines(args.output, manifest)) + "\n")
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = f"# LastDB v2 disk size budget — incomplete\n\n{type(failure).__name__}: {failure}\n"

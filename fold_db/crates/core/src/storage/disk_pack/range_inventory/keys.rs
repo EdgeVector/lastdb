@@ -164,7 +164,7 @@ fn history_molecule(key: &str) -> StorageResult<&str> {
         .ok_or_else(|| invalid("a history key is invalid"))
 }
 
-fn slot_parts<'a>(
+pub(super) fn slot_parts<'a>(
     key: &'a str,
     family: &str,
 ) -> StorageResult<(&'a str, Option<&'a str>, &'a str)> {
@@ -199,10 +199,15 @@ fn register<'a>(
     }
     let bare = current_keys::source_key(key)?;
     let (molecule, _, _) = slot_parts(bare, "mk")?;
-    if decode_hash_range(bare, molecule).is_none() {
-        return Err(invalid("a referenced molecule key is malformed"));
-    }
+    let (_, range) = decode_hash_range(bare, molecule)
+        .ok_or_else(|| invalid("a referenced molecule key is malformed"))?;
     let entry = catalog.molecule(molecule, limits)?;
+    if entry.permits_empty_slot && entry.range_profiles.is_empty() && !range.is_empty() {
+        entry
+            .report
+            .blockers
+            .push("a no-range molecule contains a nonempty range slot".into());
+    }
     entry.coordinates.insert(key.into(), bare.into());
     Ok(entry)
 }
@@ -220,7 +225,10 @@ pub(super) fn validate_conversion(
         .map(|key| key.len() as u64)
         .sum();
     let source = ProfiledRangeCodec::new(RangeStorageProfile::LegacyUtf8V1, &molecule.codec);
-    let target_codec = molecule.codec.with_range_encoding(target_range_encoding);
+    let target_codec = molecule
+        .codec
+        .with_range_encoding(target_range_encoding)
+        .map_err(|_| invalid("the target range representation is incompatible"))?;
     let target = report
         .proposed_profile
         .filter(|_| report.blockers.is_empty())

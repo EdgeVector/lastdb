@@ -193,31 +193,34 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 ## 8. Encryption (agent-relevant only)
 
-**Product defaults (Operation Trinity / Mini):**
+**Current Mini uses encrypted V2 run files. The logical range format remains an explicit home contract.**
 
 | Piece | Shipping default | Notes |
 |-------|------------------|--------|
-| HashKey in `mk:…` | **`blind_v1`** when env unset | Explicit unencoded homes use `LASTDB_HASH_KEY_ENCODING=plain` |
-| RangeKey in `mk:…` | **`ope_v1`** when env unset | Explicit unencoded homes use `LASTDB_RANGE_KEY_ENCODING=plain` |
-| Atom **content** | Sealed under account E2E key on write | **Dual-read** of legacy plain until reseal; **`LASTDB_ATOM_CONTENT_STRICT=1`** = fail-closed open (Trinity Son) |
-| File KDK + local CAS | Per-blob DEK in sealed content; local `cas_blobs` sealed under DEK | Plain CAS writes need `LASTDB_ALLOW_PLAIN_CAS=1` |
-| Per-field unique DEK | **Not the model** | Same account `encryption_key` for content seal |
-| Schema catalog | Mixed plain / `ENC:…` over history | Open before parse |
+| HashKey in `mk:…` | `blind_v1` for fresh and typed homes | Existing explicit unencoded homes retain their own configuration. |
+| RangeKey in `mk:…` | Legacy homes retain `ope_v1` by default. Typed homes use one canonical ordered scalar payload. | The persisted node and molecule profiles control the choice. |
+| Run data and lookup blocks | Compression, then AES-256-GCM | Main and CAS use separate derived home keys. |
+| Atom content | Plain logical JSON inside encrypted V2 blocks | No extra atom envelope. |
+| Portable file blobs | Existing portable ciphertext and access bundles | The enclosing CAS run blocks also use V2 encryption. |
+| Schema records | Inside encrypted V2 blocks; historical `ENC:` records remain readable | Open recognized historical envelopes before JSON parsing. |
+| Local `identity.key` | A plaintext 32-byte seed with owner-only permissions | Possession of this seed permits data decryption. |
 
-The storage wrapper covers only local `cas_blobs` records in logical format `6`.
-Atom content keeps its own encryption. Atom headers, tip values, counters, and other control values have no outer storage envelope.
-Lookup keys remain outside the wrapper. Hash blinding and the range codec remain separate.
-A single explicit encrypted account-key proof protects keyed startup and native restore.
-Earlier node formats require an offline conversion; startup does not rewrite them.
-The explicit native record transfer converts logical formats `4` and `5` in its inactive target.
-It preserves the source and publishes the new format with its account-key proof last.
+The block encryption covers logical keys, metadata, atom headers, tips, counters, and control values together.
+Clear file descriptors, footers, frame sizes, and object counts remain visible.
+The cloud adapter retains the same ciphertext for both native homes. It excludes the local identity file and cloud credentials.
+The account-key proof and exact format checks protect startup and native restore admission.
+The typed converter uses a stopped compact V2 source and a separate target. Startup never converts or resumes a home.
+Current main removes the active V1 path. Do not restore it for typed conversion.
+
+CAUTION: The identity file is a separate key boundary.
+A person who reads that seed can derive the file encryption keys. Database encryption does not replace operating-system disk protection.
 
 **Agent rules:**
 
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
-2. Assume product keys are **blind+OPE** unless the home explicitly selects plain keys.
-3. Do not enable `LASTDB_ATOM_CONTENT_STRICT=1` on a home until atom content is re-sealed (or dual-read is intentional).
-4. Depth: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` (today vs target).
+2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE. Legacy conflict identifiers can retain their source codec.
+3. Preserve the V2 plain atom representation inside encrypted blocks. Do not add an atom envelope or a second ordered lookup.
+4. See `docs/designs/typed-range-field-contract.md` for the complete contract and release limits. Trinity describes the older record-encryption design.
 
 ---
 
@@ -233,7 +236,7 @@ It preserves the source and publishes the new format with its account-key proof 
 [ ] Load: lastdb status (exit 0 = socket reachable) / ops (or /api/status request_ops) before blaming “node down”
 [ ] Version: GET /api/version api_version ≥ what the client needs; a 400 kind=unknown_key is version skew, not a bad request
 [ ] Secrets: LastSecrets only — never put secrets in brain/kanban bodies
-[ ] ENC: open before parse; keys default blind_v1+ope_v1; content dual-read until STRICT after reseal
+[ ] Read the home/profile contract; V2 blocks protect plain atoms and ordered keys; keep the private identity outside backups
 ```
 
 ---

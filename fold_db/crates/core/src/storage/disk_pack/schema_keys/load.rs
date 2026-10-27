@@ -94,10 +94,7 @@ impl PackRuntime {
             encoding_identity: encoding_identity(&db_ops, &entry.id.1)?,
             membership_rules: "current-candidates-with-exact-visibility-v1".into(),
         };
-        let encoding = db_ops
-            .atoms()
-            .key_codec_for_molecule(&entry.id.1)?
-            .range_encoding();
+        let codec = db_ops.atoms().key_codec_for_molecule(&entry.id.1)?;
         let page_charge = match self.reserve_key_work(&entry.id) {
             Ok(charge) => charge,
             Err(error) => {
@@ -108,7 +105,8 @@ impl PackRuntime {
         };
         let domain = match CoreKeyDomain::new_loading(
             identity,
-            encoding,
+            codec.range_encoding(),
+            codec.range_profile(),
             Arc::clone(&self.schema_keys.budget),
         ) {
             Ok(domain) => domain,

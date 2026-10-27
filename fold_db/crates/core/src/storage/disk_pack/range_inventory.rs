@@ -15,12 +15,20 @@ use std::path::Path;
 mod binding;
 mod capture;
 mod catalog;
+mod conversion_copy;
+mod conversion_plan;
+mod conversion_references;
+mod conversion_target;
+mod conversion_validate;
+mod convert;
 mod keys;
 mod logical;
+mod retention;
 mod run_pages;
 mod source;
 
 pub use catalog::MoleculeInventory;
+pub use convert::{PreparedRangeConversion, RangeConversionOptions, RangeConversionReport};
 pub use source::{SourceFacts, SourceRoot};
 
 #[derive(Debug, Clone, Copy, Serialize)]

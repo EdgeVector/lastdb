@@ -43,6 +43,7 @@ impl SchemaStore {
         schema
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
+        self.require_schema_key_format(schema)?;
         match self.schemas_store.get_item::<Schema>(schema_name).await {
             Ok(Some(existing)) if durable_schema_eq(&existing, schema) => {
                 self.stage_native_snapshot(schema_name).await?;

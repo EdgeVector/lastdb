@@ -25,16 +25,22 @@ impl<'a> HashTipSelection<'a> {
         window: &KeyWindow,
     ) -> Result<Option<Self>, SchemaError> {
         let (api_hash, start, end, prefix) = match filter {
-            HashRangeFilter::HashKey(hash) => (hash.as_str(), "", None, None),
-            HashRangeFilter::HashRangePrefix { hash, prefix } => (
-                hash.as_str(),
-                prefix.as_str(),
-                None,
-                (!prefix.is_empty()).then_some(prefix.as_str()),
-            ),
-            HashRangeFilter::HashRangeRange { hash, start, end } => {
-                (hash.as_str(), start.as_str(), Some(end.as_str()), None)
+            HashRangeFilter::HashKey(hash) => (hash.as_str(), None, None, None),
+            HashRangeFilter::HashRangePrefix { hash, prefix } => {
+                codec.require_text_range_prefix().map_err(codec_error)?;
+                (
+                    hash.as_str(),
+                    Some(prefix.as_str()),
+                    None,
+                    (!prefix.is_empty()).then_some(prefix.as_str()),
+                )
             }
+            HashRangeFilter::HashRangeRange { hash, start, end } => (
+                hash.as_str(),
+                Some(start.as_str()),
+                Some(end.as_str()),
+                None,
+            ),
             _ => return Ok(None),
         };
         let (skip, limit, cursor) = match window {
@@ -53,7 +59,7 @@ impl<'a> HashTipSelection<'a> {
             skip,
             limit,
             after,
-            empty: limit == 0 || end.is_some_and(|end| start >= end),
+            empty: limit == 0,
         };
         // Empty intervals need no encryption keys or physical key construction.
         if selection.empty {
@@ -63,7 +69,7 @@ impl<'a> HashTipSelection<'a> {
         selection.storage_hash = codec
             .storage_hash(molecule, api_hash)
             .map_err(codec_error)?;
-        selection.range_start = encode(start)?;
+        selection.range_start = start.map(encode).transpose()?.unwrap_or_default();
         selection.range_end = end.map(encode).transpose()?;
         selection.range_prefix = prefix.map(encode).transpose()?;
         if let Some(cursor) = cursor {

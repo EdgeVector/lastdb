@@ -48,10 +48,25 @@ impl FieldVariant {
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         self.require_supported_read(filter.as_ref())?;
-        captured_field_read(
-            db_ops,
-            self.resolve_value_windowed_captured(db_ops, filter, window, include_tombstones)
-                .boxed(),
+        let profile = self.read_range_profile(db_ops).await?;
+        let filter =
+            crate::schema::types::key_comparison::normalize::canonical_filter(profile, filter)?;
+        let window = match window {
+            Some(KeyWindow::After { mut after, limit }) => {
+                crate::schema::types::key_comparison::normalize::canonical_key(
+                    profile, &mut after,
+                )?;
+                Some(KeyWindow::after(after, limit))
+            }
+            other => other,
+        };
+        crate::schema::types::key_comparison::KeyComparisonContext::run_for_molecule(
+            profile,
+            captured_field_read(
+                db_ops,
+                self.resolve_value_windowed_captured(db_ops, filter, window, include_tombstones)
+                    .boxed(),
+            ),
         )
         .await
     }

@@ -78,11 +78,9 @@ impl KeyValue {
     /// descending page back onto the matching ascending window before it ever
     /// reaches this comparison.
     ///
-    /// Under order-preserving range encoding (OPE) the storage-form and
-    /// API-form ranges sort identically, so it does not matter which form a
-    /// call site holds — that equivalence is the whole point of OPE, and it is
-    /// what lets the window be applied before keys are decoded back to
-    /// plaintext.
+    /// These are API coordinates under the captured schema comparison.
+    /// Raw stored payloads require `cmp_storage_order`; typed API text and
+    /// ordered disk payloads use different representations.
     #[must_use]
     pub fn cmp_page_order(&self, other: &Self) -> std::cmp::Ordering {
         super::key_comparison::KeyComparisonContext::compare_current_keys(self, other)

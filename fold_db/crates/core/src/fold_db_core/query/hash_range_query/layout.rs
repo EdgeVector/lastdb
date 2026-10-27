@@ -21,9 +21,7 @@ impl HashRangeQueryProcessor {
             return Ok(HashMap::new());
         };
         if range_field == primary_name {
-            values.retain(|key, value| {
-                scalar_key_coordinate(&value.value).as_deref() == key.range.as_deref()
-            });
+            values.retain(|key, value| range_matches_scalar(key, &value.value));
             return Ok(HashMap::new());
         }
         let keys: Vec<_> = values.keys().cloned().collect();
@@ -42,11 +40,26 @@ impl HashRangeQueryProcessor {
             .await?;
         let mut range_values = fields.remove(range_field).unwrap_or_default();
         values.retain(|key, _| {
-            range_values.get(key).is_some_and(|value| {
-                scalar_key_coordinate(&value.value).as_deref() == key.range.as_deref()
-            })
+            range_values
+                .get(key)
+                .is_some_and(|value| range_matches_scalar(key, &value.value))
         });
         range_values.retain(|key, _| values.contains_key(key));
         Ok(range_values)
     }
+}
+
+fn range_matches_scalar(key: &KeyValue, value: &serde_json::Value) -> bool {
+    key.range.as_deref().is_some_and(|range| {
+        scalar_key_coordinate(value).is_some_and(|coordinate| {
+            // Atom content retains its original text, while typed API keys use
+            // canonical text. The captured comparison also retains any error
+            // so the complete query refuses invalid values before it returns.
+            crate::schema::types::key_comparison::KeyComparisonContext::compare_current_ranges(
+                &coordinate,
+                range,
+            )
+            .is_eq()
+        })
+    })
 }

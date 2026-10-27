@@ -18,7 +18,7 @@ impl MoleculeKeyStore {
             if let Some(value) =
                 core_memory_get::<Option<BundleMetadata>>(self.runtime.clone(), owner, &key)?
             {
-                validate(molecule, value.as_ref().as_ref())?;
+                self.validate_metadata(molecule, value.as_ref().as_ref())?;
                 output[at] = value.as_ref().as_ref().cloned();
             } else {
                 keys.push(key);
@@ -35,7 +35,7 @@ impl MoleculeKeyStore {
             ));
         }
         for ((_, molecule), value) in missing.iter().zip(&metadata) {
-            validate(molecule, value.as_ref())?;
+            self.validate_metadata(molecule, value.as_ref())?;
         }
         for (((at, _), key), value) in missing.into_iter().zip(keys).zip(metadata) {
             let sources = core_memory_sources("molecule_keys", key.as_bytes());
@@ -47,13 +47,4 @@ impl MoleculeKeyStore {
         }
         Ok(output)
     }
-}
-
-fn validate(molecule: &str, metadata: Option<&BundleMetadata>) -> StorageResult<()> {
-    if metadata.is_some_and(|metadata| !metadata.is_legacy_for(molecule)) {
-        return Err(StorageError::InvalidOperation(
-            "molecule key metadata does not match its identity or format".into(),
-        ));
-    }
-    Ok(())
 }

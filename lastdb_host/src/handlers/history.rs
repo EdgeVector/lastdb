@@ -57,6 +57,22 @@ pub async fn molecule_history<H: HostNode>(
         .get_mutation_events(molecule_uuid, None)
         .await
         .map_err(|e| HostError::internal(e.to_string()))?;
+    let key = host
+        .fold_db()
+        .db_ops()
+        .atoms()
+        .canonical_history_field_key(
+            molecule_uuid,
+            &fold_db::atom::FieldKey {
+                hash: scope.hash.clone(),
+                range: scope.range.clone(),
+            },
+        )
+        .map_err(|error| HostError::new(400, error.to_string()))?;
+    let scope = HistoryScope {
+        hash: key.hash,
+        range: key.range,
+    };
 
     let summaries: Vec<Value> = events
         .into_iter()
