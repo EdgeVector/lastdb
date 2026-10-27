@@ -77,52 +77,50 @@ pub(crate) fn reuse_field_mappers_with_loaded_sources(
         .collect()
 }
 
-pub(crate) async fn persist_repaired_mapper_source_aliases(
-    host: &Host,
-    schema: &DeclarativeSchemaDefinition,
-    schemas: &HashMap<String, Schema>,
-    field_mappers: &HashMap<String, String>,
-    write: bool,
-) -> Result<(), String> {
-    let Some(owner_app_id) = schema.owner_app_id.as_deref() else {
-        return Ok(());
-    };
-    let Some(original_mappers) = schema.field_mappers.as_ref() else {
-        return Ok(());
-    };
-    for (field, original) in original_mappers {
-        if schemas.contains_key(original.source_schema()) {
-            continue;
-        }
-        let Some(repaired) = field_mappers.get(field) else {
-            continue;
-        };
-        let repaired = FieldMapper::try_from(repaired.as_str())
-            .map_err(|e| format!("invalid repaired field mapper for {field}: {e}"))?;
-        if repaired.source_schema() == original.source_schema()
-            || !schemas.contains_key(repaired.source_schema())
-        {
-            continue;
-        }
-        if write {
-            persist_proposal_catalog_alias(
-                host,
+/// One repaired source. Selection is lazy so a later parse refusal cannot
+/// move ahead of an earlier alias read or write.
+pub(crate) struct MapperSourceAlias<'a> {
+    pub(crate) owner_app_id: &'a str,
+    pub(crate) proposal: &'a str,
+    pub(crate) repaired: FieldMapper,
+}
+
+/// Select repairs without host access. Callers explicitly check or persist
+/// each selected alias at the existing boundary.
+pub(crate) fn repaired_mapper_source_aliases<'a>(
+    schema: &'a DeclarativeSchemaDefinition,
+    schemas: &'a HashMap<String, Schema>,
+    field_mappers: &'a HashMap<String, String>,
+) -> impl Iterator<Item = Result<MapperSourceAlias<'a>, String>> + 'a {
+    schema
+        .field_mappers
+        .iter()
+        .flat_map(|mappers| mappers.iter())
+        .filter_map(move |(field, original)| {
+            let owner_app_id = schema.owner_app_id.as_deref()?;
+            if schemas.contains_key(original.source_schema()) {
+                return None;
+            }
+            let repaired = field_mappers.get(field)?;
+            let repaired = match FieldMapper::try_from(repaired.as_str()) {
+                Ok(repaired) => repaired,
+                Err(e) => {
+                    return Some(Err(format!(
+                        "invalid repaired field mapper for {field}: {e}"
+                    )))
+                }
+            };
+            if repaired.source_schema() == original.source_schema()
+                || !schemas.contains_key(repaired.source_schema())
+            {
+                return None;
+            }
+            Some(Ok(MapperSourceAlias {
                 owner_app_id,
-                original.source_schema(),
-                repaired.source_schema(),
-            )
-            .await?;
-        } else {
-            check_proposal_catalog_alias(
-                host,
-                owner_app_id,
-                original.source_schema(),
-                repaired.source_schema(),
-            )
-            .await?;
-        }
-    }
-    Ok(())
+                proposal: original.source_schema(),
+                repaired,
+            }))
+        })
 }
 
 /// Resolve a proposal that this node already bound to a catalog identity.
