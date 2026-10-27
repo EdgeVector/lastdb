@@ -1,10 +1,9 @@
 //! Authenticated restore instructions. Native files retain their stored bytes.
 
 use crate::limits::*;
-use crate::transfer::ObjectReceipt;
 use crate::{
-    bytes_sha256, canonical_bytes, BackupJob, DecimalU64, Digest, Id, ObjectKind, ProtocolError,
-    ReferenceRoot, RelativePath, Text, Version,
+    bytes_sha256, canonical_bytes, BackupJob, DecimalU64, Digest, Id, ProtocolError, ReferenceRoot,
+    RelativePath, Text, Version,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -276,26 +275,6 @@ impl NativeBackupManifest {
             || self.recovery_commitment != accepted.recovery.commitment()?
         {
             return Err(ProtocolError::invalid("native_manifest.accepted_backup"));
-        }
-        Ok(())
-    }
-
-    pub fn validate_page_receipt(
-        &self,
-        page_index: u32,
-        receipt: &ObjectReceipt,
-    ) -> Result<(), ProtocolError> {
-        receipt.validate()?;
-        let page = self
-            .pages
-            .get(page_index as usize)
-            .ok_or_else(|| ProtocolError::invalid("native_manifest.page_receipt.index"))?;
-        if page.page_index != page_index
-            || page.receipt_id != receipt.receipt_id
-            || receipt.scope != self.job.stream.scope
-            || receipt.object.kind != ObjectKind::ManifestPage
-        {
-            return Err(ProtocolError::invalid("native_manifest.page_receipt"));
         }
         Ok(())
     }
