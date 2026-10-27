@@ -340,9 +340,9 @@ pub(super) fn uds_pool_detail(
 /// rollup: for each (client, kind, schema) key whose requests reported a
 /// per-phase breakdown, where inside the node that key's time went.
 ///
-/// Zero-hide on both axes, the same rule as the body-volume table: the table is
-/// ABSENT when no key reports phases, and within a row zero phases are
-/// omitted ([`PhaseTimings::detail`]). Flush in particular is ~0 by design
+/// Zero-hide on both axes. As with the body-volume table, the table is ABSENT
+/// when no key reports phases. Within a row, zero phases are also omitted
+/// ([`PhaseTimings::detail`]). Flush in particular is ~0 by design
 /// on default builds (background flusher), so a printed `flush=0us` would
 /// read as broken instrumentation rather than a measurement.
 ///

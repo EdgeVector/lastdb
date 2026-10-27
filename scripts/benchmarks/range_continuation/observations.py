@@ -15,7 +15,7 @@ def observations(grouped, mode):
             means.append({name: statistics.mean(receipt[name] for receipt in receipts)
                           for name in ("requested_keys", "logical_warm_hits", "read_operations", "temporary_bytes_peak")})
             means[-1]["read_bytes"] = statistics.mean(sum(receipt[name] for name in (
-                "legacy_replay_bytes", "footer_bytes", "payload_bytes", "format_probe_bytes")) for receipt in receipts)
+                "footer_bytes", "payload_bytes", "format_probe_bytes")) for receipt in receipts)
             memory.append("| " + mode + " / " + role + " / pair " + str(value["pair"]) + " | "
                 + " | ".join(str(value["narrow_memory_" + phase]["process_memory_bytes"][name])
                     for phase, name in (("before", "VmRSS"), ("after", "VmRSS"), ("after", "VmHWM"))) + " |")

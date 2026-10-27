@@ -65,7 +65,8 @@ the interval reported a phase breakdown). `max_ms`, `max_body_bytes`, and
 `last_ts_ms` are copied cumulatively (running max / latest, not deltas). Phase fields are sums in microseconds precisely so intervals
 stay delta-able and merge by addition.
 
-Compatibility is append-only in both directions: the sampler upgrades the
+Compatibility is append-only in both directions, except for the removed
+`sum_cold_shard_loads` field: the sampler upgrades the
 rollup schema in place when it sees missing fields, and rows written before a
 field shipped read back as 0 — for phase fields that means "no phases
 reported", not a measurement of zero.

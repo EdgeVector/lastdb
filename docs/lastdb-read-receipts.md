@@ -1,7 +1,6 @@
 # LastDB read receipts
 
 The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
-The `group_opens` and `legacy_replay_bytes` counters stay in the response for compatibility. They have no writer in disk format v2 and stay `0`.
 
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time.
@@ -33,13 +32,11 @@ scope can carry the partial receipt.
 | `requested_keys` | Storage lookup attempts. This includes fallback probes and repeated requests for the same key. It is not the number of API records. |
 | `logical_warm_hits` | Exact lookup results from the logical core path, including confirmed absence. |
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
-| `group_opens` | Has no writer in disk format v2 and stays `0`. |
 | `returned_body_bytes` | Exact response body bytes after the result envelope. Header bytes are separate. |
 | `file_open_attempts` | Read-only file open attempts, including failed attempts. |
 | `file_opens` | Successful read-only file opens. A repeated open counts again. |
 | `metadata_operations` | Explicit file status calls. |
 | `read_operations` | File read calls, including EOF and failed calls. |
-| `legacy_replay_bytes` | Has no writer in disk format v2 and stays `0`. |
 | `footer_bytes` | Bytes read for disk run footers and index blocks. |
 | `payload_bytes` | Bytes read from disk run data blocks and streamed frame payloads. |
 | `format_probe_bytes` | Bytes read for streamed frame headers and tags. |

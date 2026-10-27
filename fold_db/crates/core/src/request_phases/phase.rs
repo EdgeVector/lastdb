@@ -227,9 +227,10 @@ pub enum RequestPhase {
     /// window push-down, and atom-body materialization for the matched rows.
     ///
     /// The only sub-step that touches storage, so it is the one that moves
-    /// with resident-cache hit rate. Large here with a warm cache is in-memory
+    /// with the warm set hit rate (the read receipt's `logical_warm_hits` and
+    /// `logical_warm_misses`). Large here with mostly hits is in-memory
     /// materialization cost (molecule walk, decrypt, value decode), which is a
-    /// different fix from large here with cache misses climbing — that is a
+    /// different fix from large here with misses climbing — that is a
     /// placement or pruning problem.
     HydrateAtoms,
     /// Query only: building the response envelopes — `records_from_field_map`
