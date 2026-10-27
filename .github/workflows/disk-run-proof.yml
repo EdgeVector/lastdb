@@ -8,9 +8,8 @@ name: Disk run proof
 on:
   pull_request:
     paths:
-      - 'vendor/laststore/src/disk_run/**'
-      - 'vendor/laststore/src/frame.rs'
-      - 'vendor/laststore/src/space.rs'
+      # Every laststore source file is disk format v2 code since D1.
+      - 'vendor/laststore/src/**'
       - 'vendor/laststore/examples/disk_run_proof/**'
       - 'vendor/laststore/examples/run_home_proof/**'
       - 'vendor/laststore/Cargo.toml'

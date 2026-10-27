@@ -1,20 +1,13 @@
 use super::*;
 
-/// Logical records plus background work. Historical wire fields remain for
-/// installed clients; the native sampler does not maintain retired counters.
+/// Logical records plus background work. Historical wire fields that installed
+/// clients require remain; the native sampler does not maintain retired counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResidentHealth {
     /// Historical graph-cache wire field. Native values use core_model counters.
     pub resident_bytes: u64,
     /// Historical graph-cache wire field; always zero.
     pub resident_entries: u64,
-    /// Historical graph revision wire field; always zero.
-    #[serde(
-        default = "default_keys_instant_gauge",
-        serialize_with = "serialize_gauge_wire",
-        deserialize_with = "deserialize_keys_instant"
-    )]
-    pub revision_slots: Gauge,
     /// Historical graph budget wire field; zero does not describe native limits.
     pub budget_bytes: u64,
     /// Retired cache-kind counters, retained as zero for installed clients.
@@ -32,33 +25,9 @@ pub struct ResidentHealth {
     pub persist_enqueued: u64,
     pub persist_flushed: u64,
     pub deferred_persist_failed: u64,
-    /// Retired completion gauge; unavailable from the native sampler.
-    #[serde(default = "default_deferred_persist_completed_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_deferred_persist_completed")]
-    pub deferred_persist_completed: Gauge,
-    /// Retired duration gauge; unavailable from the native sampler.
-    #[serde(default = "default_deferred_persist_us_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_deferred_persist_us")]
-    pub deferred_persist_us: Gauge,
     /// Retired graph counters. Current purge counts use resident_purged_keys.
     pub evicted: u64,
     pub evict_refused_dirty: u64,
-    #[serde(default)]
-    pub key_set_hits: u64,
-    /// Retired key-set counter, retained as zero for installed clients.
-    #[serde(default)]
-    pub key_set_misses: u64,
-    #[serde(default)]
-    pub key_set_overlays: u64,
-    #[serde(default)]
-    pub key_set_unknowns: u64,
-    #[serde(default)]
-    pub key_set_demotes: u64,
-    /// Retired key-set counter, retained as zero for installed clients.
-    #[serde(default)]
-    pub key_set_marked_complete: u64,
     /// Current FIFO depth across schema persist lanes.
     #[serde(default)]
     pub persist_lane_depth: u64,
@@ -68,9 +37,6 @@ pub struct ResidentHealth {
     /// Persist-lane write failures.
     #[serde(default)]
     pub persist_lane_failures: u64,
-    /// Reserved resident-minus-durable revision lag gauge. It is zero.
-    #[serde(default)]
-    pub resident_minus_durable_revision: u64,
     /// Used logical records currently in the logical resident set.
     #[serde(default = "default_keys_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
@@ -97,51 +63,6 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_lifetime")]
     pub resident_purged_keys: Gauge,
-    /// Retired loader gauge; unavailable from the native sampler.
-    #[serde(default = "default_bytes_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_bytes_instant")]
-    pub loader_pin_bytes: Gauge,
-    /// Retired loader gauge; unavailable from the native sampler.
-    #[serde(default = "default_groups_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_groups_instant")]
-    pub loader_groups_open_now: Gauge,
-    /// Retired point-read gauge; current lookups use warm_lookup_hits.
-    #[serde(default = "default_events_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_events_lifetime")]
-    pub resident_point_hits: Gauge,
-    /// Retired point-read gauge; current lookups use warm_lookup_misses.
-    #[serde(default = "default_events_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_events_lifetime")]
-    pub resident_point_misses: Gauge,
-    /// Retired graph gauge; unavailable from the native sampler.
-    #[serde(default = "default_events_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_events_lifetime")]
-    pub resident_purge_runs: Gauge,
-    /// Retired graph gauge; unavailable from the native sampler.
-    #[serde(default = "default_events_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_events_lifetime")]
-    pub resident_over_cap_stalls: Gauge,
-    /// Retired graph gauge; unavailable from the native sampler.
-    #[serde(default = "default_keys_instant_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_keys_instant")]
-    pub resident_over_cap_keys: Gauge,
-    /// Retired loader gauge; unavailable from the native sampler.
-    #[serde(default = "default_events_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_events_lifetime")]
-    pub loader_loads: Gauge,
-    /// Retired loader gauge; unavailable from the native sampler.
-    #[serde(default = "default_micros_lifetime_gauge")]
-    #[serde(serialize_with = "serialize_gauge_wire")]
-    #[serde(deserialize_with = "deserialize_micros_lifetime")]
-    pub loader_load_us: Gauge,
     /// Logical records with a known tip and no full value.
     #[serde(default = "default_keys_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
@@ -163,7 +84,6 @@ impl Default for ResidentHealth {
         Self {
             resident_bytes: 0,
             resident_entries: 0,
-            revision_slots: default_keys_instant_gauge(),
             budget_bytes: 0,
             schema_hits: 0,
             schema_rehydrates: 0,
@@ -178,34 +98,16 @@ impl Default for ResidentHealth {
             persist_enqueued: 0,
             persist_flushed: 0,
             deferred_persist_failed: 0,
-            deferred_persist_completed: default_deferred_persist_completed_gauge(),
-            deferred_persist_us: default_deferred_persist_us_gauge(),
             evicted: 0,
             evict_refused_dirty: 0,
-            key_set_hits: 0,
-            key_set_misses: 0,
-            key_set_overlays: 0,
-            key_set_unknowns: 0,
-            key_set_demotes: 0,
-            key_set_marked_complete: 0,
             persist_lane_depth: 0,
             persist_lane_oldest_age_ms: 0,
             persist_lane_failures: 0,
-            resident_minus_durable_revision: 0,
             resident_key_count: default_keys_instant_gauge(),
             resident_held_keys: default_keys_instant_gauge(),
             resident_dirty_keys: default_keys_instant_gauge(),
             resident_key_budget: default_keys_instant_gauge(),
             resident_purged_keys: default_keys_lifetime_gauge(),
-            loader_pin_bytes: default_bytes_instant_gauge(),
-            loader_groups_open_now: default_groups_instant_gauge(),
-            resident_point_hits: default_events_lifetime_gauge(),
-            resident_point_misses: default_events_lifetime_gauge(),
-            resident_purge_runs: default_events_lifetime_gauge(),
-            resident_over_cap_stalls: default_events_lifetime_gauge(),
-            resident_over_cap_keys: default_keys_instant_gauge(),
-            loader_loads: default_events_lifetime_gauge(),
-            loader_load_us: default_micros_lifetime_gauge(),
             resident_tip_only_keys: default_keys_instant_gauge(),
             warm_lookup_hits: default_events_lifetime_gauge(),
             warm_lookup_misses: default_events_lifetime_gauge(),

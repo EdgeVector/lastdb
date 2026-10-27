@@ -49,12 +49,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.reap_unsealed_impl(options).await
     }
 
-    // Bytes on disk are bytes on disk: encryption changes the size of a record
-    // but not which backend owns the directory.
-    fn collection_disk_bytes(&self, collection: &str) -> Option<u64> {
-        self.inner.collection_disk_bytes(collection)
-    }
-
     // Read cost is a property of the physical store, not of the encryption
     // seam.
     fn cold_shard_loads(&self) -> Option<u64> {
@@ -63,13 +57,5 @@ impl NamespacedStore for EncryptingNamespacedStore {
 
     fn walk_ids_visited(&self) -> Option<u64> {
         self.inner.walk_ids_visited()
-    }
-
-    fn read_cost(&self) -> Option<crate::storage::traits::ReadCostStats> {
-        self.inner.read_cost()
-    }
-
-    fn warm_set_admission_stats(&self) -> Option<crate::storage::traits::WarmSetAdmissionStats> {
-        self.inner.warm_set_admission_stats()
     }
 }

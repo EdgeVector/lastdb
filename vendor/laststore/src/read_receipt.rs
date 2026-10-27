@@ -165,30 +165,6 @@ pub fn observe_disk_reads<T>(work: impl FnOnce() -> T) -> (T, DiskReadReceipt) {
     (result, context.snapshot())
 }
 
-pub(crate) struct ReadScope {
-    context: DiskReadContext,
-    previous: DiskReadContext,
-}
-
-pub(crate) fn enter_child() -> ReadScope {
-    let context =
-        DiskReadContext::capture().map_or_else(DiskReadContext::new, |scope| scope.child());
-    let previous = CURRENT.with(|scope| scope.replace(context.clone()));
-    ReadScope { context, previous }
-}
-
-impl ReadScope {
-    pub(crate) fn snapshot(&self) -> DiskReadReceipt {
-        self.context.snapshot()
-    }
-}
-
-impl Drop for ReadScope {
-    fn drop(&mut self) {
-        CURRENT.with(|scope| scope.replace(self.previous.clone()));
-    }
-}
-
 pub(crate) fn update(update: impl FnMut(&mut DiskReadReceipt)) {
     if let Some(context) = DiskReadContext::capture() {
         let mut update = update;
@@ -253,22 +229,6 @@ impl Timer {
     }
 }
 
-pub(crate) struct GroupLoadTimer(Option<Timer>);
-
-pub(crate) fn group_load_timer() -> GroupLoadTimer {
-    GroupLoadTimer(Some(Timer::start()))
-}
-
-impl Drop for GroupLoadTimer {
-    fn drop(&mut self) {
-        if let Some(timer) = self.0.take() {
-            timer.finish(|receipt, nanos| {
-                receipt.group_load_nanos = receipt.group_load_nanos.saturating_add(nanos);
-            });
-        }
-    }
-}
-
 /// Charge byte-buffer capacity for the guard's lifetime, across all attached workers.
 pub(crate) struct TemporaryBytes {
     context: Option<DiskReadContext>,
@@ -298,10 +258,6 @@ impl TemporaryBytes {
             });
         }
         self.bytes = next;
-    }
-
-    pub(crate) fn grow(&mut self, bytes: usize) {
-        self.resize((self.bytes as usize).saturating_add(bytes));
     }
 }
 

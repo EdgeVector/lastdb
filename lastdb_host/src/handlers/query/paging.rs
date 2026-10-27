@@ -86,7 +86,8 @@ pub(in crate::handlers) fn cursor_payload(
     payload
 }
 
-pub(in crate::handlers) fn counted_offset_payload(
+/// A keyed descending window includes a probe row; trim it before the reply.
+pub(in crate::handlers) fn overfetched_offset_payload(
     mut page: Vec<Value>,
     total_count: usize,
     limit: usize,
@@ -98,6 +99,43 @@ pub(in crate::handlers) fn counted_offset_payload(
     if page.len() > limit {
         page.truncate(limit);
     }
+    page_payload(page, Some(total_count), limit, offset, has_more, drops)
+}
+
+/// Reconcile a bounded page with an independent key count. Unresolved and
+/// tombstoned records counted by the molecule still consume a page slot.
+pub(in crate::handlers) fn counted_page_payload(
+    page: Vec<Value>,
+    total_count: usize,
+    limit: usize,
+    offset: usize,
+    drops: RowDrops,
+) -> Value {
+    let consumed = offset
+        .saturating_add(page.len())
+        .saturating_add(drops.total());
+    page_payload(
+        page,
+        Some(total_count),
+        limit,
+        offset,
+        consumed < total_count,
+        drops,
+    )
+}
+
+/// Slice a materialized result, whose count includes only delivered records.
+/// Unknown views retain the injected-cap signal; complete sets do not.
+pub(in crate::handlers) fn materialized_page_payload(
+    results: Vec<Value>,
+    limit: usize,
+    offset: usize,
+    drops: RowDrops,
+    cap_may_truncate: bool,
+) -> Value {
+    let total_count = results.len();
+    let page: Vec<_> = results.into_iter().skip(offset).take(limit).collect();
+    let has_more = compute_has_more(offset, page.len(), total_count, cap_may_truncate);
     page_payload(page, Some(total_count), limit, offset, has_more, drops)
 }
 

@@ -36,6 +36,5 @@ The examples `disk_run_proof` and `run_home_proof` are CI-only proofs.
 
 ## Old engines
 
-The old LastStore segment engine (`store`) and the disk_pack v1 module (`disk_pack`) are still in this crate.
-A later removal PR deletes them.
-Their command-line tools, examples, and docs are deleted.
+The old LastStore segment engine (`store`) and the disk format v1 module (`disk_pack`) are deleted (decision D1, 2026-10-26).
+This crate holds only disk format v2 and the frame, space, and read-receipt code that it uses.

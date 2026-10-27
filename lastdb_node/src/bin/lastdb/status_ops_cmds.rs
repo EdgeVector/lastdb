@@ -132,10 +132,6 @@ pub(super) fn status_json(
             .as_str()
             .to_string()
     });
-    let capture = snapshot
-        .as_ref()
-        .and_then(|s| s.sync.capture.as_ref())
-        .cloned();
     let at_rest_compression = snapshot.as_ref().and_then(|s| s.at_rest_compression);
     let codec_policy = snapshot
         .as_ref()
@@ -159,15 +155,12 @@ pub(super) fn status_json(
         "daemon_build": daemon_build,
         "cli_build": lastdb_node::crash_attribution::build_version(),
         "build_agreement": build_agreement,
-        "capture": capture,
         "at_rest_compression": at_rest_compression,
         "codec_policy": codec_policy,
         "planes": planes,
         "plane_inventory": plane_inventory,
         "notes": [
             "planes is null by design — use `lastdb db inventory` for disk plane totals",
-            "capture pin_log_disk_bytes and reexport_disk_bytes are collection-directory \
-             stat walks, not compact dry-runs or key inventories",
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
              null daemon_build = daemon predates the field, build unknowable — not agreement",
         ],

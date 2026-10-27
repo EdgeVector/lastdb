@@ -37,7 +37,8 @@ pub const DELETE_OPERATIONS_PER_TIP: usize = 5;
 /// Rows of a chunk that do not depend on the tips: the ledger row and others.
 const CHUNK_FIXED_OPERATIONS: usize = 8;
 /// Examined keys of all reads in one write request (the write-preparation
-/// budget of a native read call, `vendor/laststore/src/disk_pack/call.rs`).
+/// budget of a native read call, `PackRuntime::physical_read` in
+/// `storage/disk_pack/physical.rs`).
 pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
 /// Examined keys for each tip of a purge, at most (measured 9.1 to 10.1 at 6 to
 /// 24 fields and 11.8 at 300 fields).
