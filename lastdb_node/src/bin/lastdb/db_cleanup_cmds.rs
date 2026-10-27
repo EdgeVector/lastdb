@@ -14,7 +14,7 @@ pub(crate) fn db_cleanup(
         read_status(socket, Duration::from_secs(30))?
     } else {
         let value = db_post_json(socket, "/api/db/cleanup", &serde_json::json!({}))?;
-        decode(value)?
+        decode(&value)?
     };
     let id = status.request_id.clone();
     let started = std::time::Instant::now();
@@ -44,10 +44,10 @@ pub(crate) fn db_cleanup(
 
 fn read_status(socket: &Path, timeout: Duration) -> Result<NativeCleanupStatus, String> {
     let response = get_path(socket, "/api/db/cleanup", timeout)?;
-    decode(parse_json_response(&response, "cleanup status")?)
+    decode(&parse_json_response(&response, "cleanup status")?)
 }
 
-fn decode(value: serde_json::Value) -> Result<NativeCleanupStatus, String> {
+fn decode(value: &serde_json::Value) -> Result<NativeCleanupStatus, String> {
     let report = value
         .get("cleanup")
         .cloned()
