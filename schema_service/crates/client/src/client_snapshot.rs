@@ -7,19 +7,6 @@ impl SchemaServiceClient {
         self.fetch_snapshot_at("/v1/snapshot", api_key).await
     }
 
-    /// Fetch the **shared-only** registry projection (`GET /v1/snapshot/shared-only`).
-    ///
-    /// Use this for resolver-pack publishing. Private legacy bootstrap
-    /// schemas are excluded; only system-owned and explicit shared rows
-    /// appear.
-    pub async fn fetch_shared_only_snapshot(
-        &self,
-        api_key: Option<&str>,
-    ) -> FoldDbResult<SnapshotEnvelope> {
-        self.fetch_snapshot_at("/v1/snapshot/shared-only", api_key)
-            .await
-    }
-
     pub(super) async fn fetch_snapshot_at(
         &self,
         path: &str,
