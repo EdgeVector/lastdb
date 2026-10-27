@@ -6,7 +6,7 @@ use std::path::Path;
 
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE};
-use lastdb_node::host::{CLOUD_SYNC_CONFIG_FILE, IDENTITY_KEY_FILE};
+use lastdb_node::host::IDENTITY_KEY_FILE;
 
 #[path = "recovery_home/files.rs"]
 pub(super) mod files;
@@ -122,14 +122,10 @@ fn run(
 }
 
 fn read_credentials(source: &std::fs::File) -> Result<Credentials, String> {
-    let active = files::entry_present(source, CLOUD_SYNC_CONFIG_FILE)?;
-    let paused = files::entry_present(source, CLOUD_SYNC_PAUSED_FILE)?;
-    let name = match (active, paused) {
-        (true, false) => CLOUD_SYNC_CONFIG_FILE,
-        (false, true) => CLOUD_SYNC_PAUSED_FILE,
-        _ => return Err("source requires exactly one active or paused cloud configuration".into()),
-    };
-    let bytes = read_private_file(source, name, 65_536)?;
+    if !files::entry_present(source, CLOUD_SYNC_PAUSED_FILE)? {
+        return Err("source requires saved paused cloud credentials".into());
+    }
+    let bytes = read_private_file(source, CLOUD_SYNC_PAUSED_FILE, 65_536)?;
     serde_json::from_slice(&bytes).map_err(|_| "invalid source cloud credentials".into())
 }
 

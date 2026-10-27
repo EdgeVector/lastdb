@@ -69,7 +69,6 @@ pub struct ManualConnectionStatus {
     pub environment: String,
     pub manual_backup_enabled: bool,
     pub automatic_backup_enabled: bool,
-    pub legacy_cloud_sync_enabled: bool,
     pub registration_attempted: bool,
 }
 
@@ -81,7 +80,6 @@ impl From<ManualConnectionRecord> for ManualConnectionStatus {
             environment: record.environment,
             manual_backup_enabled: true,
             automatic_backup_enabled: false,
-            legacy_cloud_sync_enabled: false,
             registration_attempted: false,
         }
     }

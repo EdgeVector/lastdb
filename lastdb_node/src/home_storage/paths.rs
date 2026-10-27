@@ -53,7 +53,6 @@ pub(super) fn classify_path(relative: &Path) -> HomeStorageBucketKind {
             | b"identity.key"
             | b"at_rest_key"
             | b"autostart-enrolled"
-            | b"cloud_sync.json"
             | b"config.json"
             | b"data.app-sock"
             | b"folddb.sock"

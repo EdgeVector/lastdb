@@ -67,14 +67,6 @@ impl From<FoldDbError> for HostError {
             FoldDbError::Config(msg) | FoldDbError::Serialization(msg) => {
                 Self::new(400, msg.clone())
             }
-            // Permanent cloud storage cap — surface as 429 (not 500) so the
-            // render() choke point does not ERROR-log every attempt to Sentry.
-            FoldDbError::QuotaExceeded(msg) => Self::new(
-                429,
-                format!(
-                    "storage quota exceeded: {msg}; free space or run `lastdb cloud upgrade`, then `lastdb cloud status`"
-                ),
-            ),
             FoldDbError::InProgress(msg) => Self::new(503, msg.clone()),
             other => Self::internal(other.to_string()),
         }

@@ -25,7 +25,6 @@ mod maintenance_admission;
 mod provenance;
 mod schema_api;
 mod schema_drop;
-mod sync;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;

@@ -37,8 +37,8 @@ pub const NON_OBJECT_PAYLOAD_MARKER: &str = "contract_violation";
 /// `ok` and `user_hash` are the envelope's assertion *about* the response, so a
 /// payload field of the same name is dropped rather than spread over them.
 /// Spreading the payload last — the original order — meant any handler could
-/// overwrite the success discriminator, and one already sets `"ok"` in its own
-/// payload (`POST /api/sync/cloud-off`). A handler that set `"ok": false` would
+/// overwrite the success discriminator by setting `"ok"` in its own payload.
+/// A handler that set `"ok": false` would
 /// have shipped a `200` whose envelope said the call failed, and every caller
 /// that branches on `ok` would have believed it.
 ///

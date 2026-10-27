@@ -73,8 +73,7 @@ fn publish_context(
 ) -> Result<RestoreReport> {
     let home = session.root.join("home");
     install_identity(&home, keys)?;
-    let (config, paused) = crate::cloud::cloud_sync_paths(&home);
-    if config.try_exists()? || paused.try_exists()? {
+    if crate::cloud::cloud_credentials_path(&home).try_exists()? {
         return Err(RestoreError::Invalid("restore cloud configuration"));
     }
     let report = RestoreReport {

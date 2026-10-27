@@ -32,7 +32,7 @@ pub mod reseal_at_rest;
 pub mod traits;
 
 // Re-exports for convenience
-pub use config::{CloudSyncConfig, DatabaseConfig, P2pSyncConfig, StorageEngine};
+pub use config::{DatabaseConfig, StorageEngine};
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};

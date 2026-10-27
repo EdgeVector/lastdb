@@ -138,7 +138,7 @@ receipt_pid=$!
 
 The native engine is the default. Every native write waits for disk commit and clean core publication before the ack.
 No engine or resident-mode option is required. There is no collection timer or early memory ack.
-Legacy Cloud Sync activation receives an explicit disabled error. A fresh local home needs no cloud configuration.
+Legacy Cloud Sync is removed. A fresh local home needs no cloud configuration.
 The [native route summary](lastdb-disk-native-node.md) separates local operation from the gated native backup source.
 Wait for the socket, then read the health result. Continue when `status` is `ok`.
 

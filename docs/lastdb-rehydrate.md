@@ -288,10 +288,9 @@ A nonempty older-format home receives an explicit refusal. No boot migration or 
 Startup namespace errors propagate. An unreadable record in an enforcing encryption check causes a refusal without deletion.
 The encryption-key proof precedes namespace checks. A new proof follows only successful checks; optional diagnostic counts stay separate.
 Normal page readers contain no plaintext-to-blinded legacy duplicate cleanup.
-The configuration reader also refuses obsolete type tags and invalid path values.
-It does not convert an older configuration or discard its cloud or engine settings.
+No configuration file decodes into the database configuration. Callers build it in code.
 
-Legacy Cloud Sync stays disabled. Startup and runtime activation refuse it before side effects.
+Legacy Cloud Sync is removed. No configuration can activate it.
 The V2 byte backup uses a separate gate, `LASTDB_BYTE_BACKUP_V2_ENABLED`, that defaults off.
 Capture saves an exact cut and a named file hold. The [native summary](lastdb-disk-native-node.md#backup-boundary) separates this source from cloud readiness.
 Raw physical format tools and vendor code do not provide an alternate logical engine.

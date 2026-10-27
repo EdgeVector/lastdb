@@ -51,7 +51,7 @@ The result has mode `0700` and exactly three files with mode `0600`:
 - `cloud_sync.json.paused`: the minted API key and compiled DEV URL.
 - `.cloud_resume_required`: the Cloud Sync Off marker.
 
-There is no `data` directory or active cloud configuration.
+There is no `data` directory.
 The product verifies final names, descriptors, owner, mode, single links, and bytes before success.
 Its receipt contains no seed, API key, phrase, or response body.
 The receipt reports the fresh device ID and the account equality check.

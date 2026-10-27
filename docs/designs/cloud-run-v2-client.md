@@ -128,7 +128,7 @@ The response must match that account, its current generation, both destinations,
 A rejected or wrong-account key causes no registration or credential publication.
 Account registration remains a separate explicit fallback with a durable device intent.
 
-Under the backup transition lock, connection refuses active work and active legacy credentials.
+Under the backup transition lock, connection refuses active work.
 It atomically writes the existing private paused credential format and a source-bound manual connection record.
 The record binds the account, native source, environment, endpoint, and credential hash.
 It does not copy an identity, reset data, create `.cloud_resume_required`, or enable automatic work.

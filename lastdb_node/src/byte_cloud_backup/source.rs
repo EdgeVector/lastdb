@@ -5,12 +5,10 @@ use cloud_backup_protocol::{AccountId, Digest, Id, RecoveryDescriptor};
 use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::byte_backup::ByteBackupCapture;
 use fold_db::storage::disk_pack::PackRuntime;
-use std::path::PathBuf;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
 pub(super) struct Source {
-    pub home: PathBuf,
     runtime: Arc<PackRuntime>,
     pub account: AccountId,
     pub source_home: Id,
@@ -28,7 +26,6 @@ impl Source {
             .disk_pack_runtime()
             .ok_or(BackupError::Source)?;
         Ok(Self {
-            home: host.home.clone(),
             account: AccountId::try_from(host.user_hash.clone())?,
             source_home: Id::try_from(runtime.native_home_id().to_string())?,
             recovery: RecoveryDescriptor {
