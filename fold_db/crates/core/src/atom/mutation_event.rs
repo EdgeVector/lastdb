@@ -138,12 +138,6 @@ impl FieldKey {
         }
     }
 
-    /// True when this key identifies the same slot as `kv`.
-    #[must_use]
-    pub fn matches_key_value(&self, kv: &KeyValue) -> bool {
-        self.hash.as_deref() == kv.hash.as_deref() && self.range.as_deref() == kv.range.as_deref()
-    }
-
     /// True for the Single-schema (no key dimensions) slot.
     #[must_use]
     pub fn is_single(&self) -> bool {
