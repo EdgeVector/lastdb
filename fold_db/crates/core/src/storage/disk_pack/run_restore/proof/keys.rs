@@ -5,7 +5,7 @@ use crate::storage::disk_pack::native_routing;
 use crate::storage::disk_pack::restore_safety;
 use lastdb_storage_policy::backup_decode as budget;
 
-pub(super) fn verify(main: &RunRead, account_key: &[u8; 32]) -> StorageResult<()> {
+pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {
     let names = [
         AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
         key_format::DELETE_REPLAY_CUTOFF_KEY.as_bytes(),
@@ -31,6 +31,18 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32]) -> StorageResult<()
         return Err(invalid("run backup counter restore validation is pending"));
     }
     AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
+    let marker = values[0]
+        .as_deref()
+        .ok_or_else(|| invalid("run backup logical marker is absent"))?;
+    match version {
+        1 if key_format::is_supported_key_format(marker) => {}
+        2 if marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT => {}
+        _ => {
+            return Err(invalid(
+                "run backup logical marker differs from its node profile",
+            ))
+        }
+    }
     let stored = {
         let mut read = main
             .fork_bounded(read_budget(budget::DIRECTORY_READ_BYTES, 1))

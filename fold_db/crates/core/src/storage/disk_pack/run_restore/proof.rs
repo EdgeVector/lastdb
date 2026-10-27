@@ -3,6 +3,7 @@ mod atoms;
 mod keys;
 mod metadata;
 mod native;
+mod ranges;
 mod rows;
 
 use crate::storage::disk_pack::{file_dependencies as files, map};
@@ -20,6 +21,7 @@ pub(super) fn verify(
     cas: &RunRead,
     account_key: &[u8; 32],
     scratch: &Path,
+    version: u16,
 ) -> StorageResult<u64> {
     let proof = Proof {
         main,
@@ -28,15 +30,16 @@ pub(super) fn verify(
         scratch,
     };
     native::prepare(scratch)?;
-    verify_account(main, account_key)?;
+    verify_account(main, account_key, version)?;
+    ranges::verify(main, account_key, version)?;
     let atoms = atoms::verify(&proof)?;
     metadata::verify(&proof)?;
     Ok(atoms)
 }
 
 /// Account admission is separate from the complete atom and file proof.
-pub(super) fn verify_account(main: &RunRead, key: &[u8; 32]) -> StorageResult<()> {
-    keys::verify(main, key)
+pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
+    keys::verify(main, key, version)
 }
 
 struct Proof<'a> {

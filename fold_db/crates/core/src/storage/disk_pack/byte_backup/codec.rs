@@ -163,7 +163,7 @@ impl ClientRoot {
             .main
             .bytes
             .checked_add(profile.cas.bytes)
-            .and_then(|n| n.checked_add(super::super::run_node::RUN_NODE_BYTES.len() as u64));
+            .and_then(|n| n.checked_add(profile.node_marker().ok()?.len() as u64));
         if files != Some(self.native_file_count) || bytes != Some(self.native_bytes) {
             return Err(invalid("run root exact native totals"));
         }

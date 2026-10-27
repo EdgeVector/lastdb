@@ -165,6 +165,8 @@ impl HashRangeQueryProcessor {
             hash: hash.into(),
             bounds: bounds.unwrap_or_default(),
             receiver: self.db_ops.change_feed().subscribe(),
+            db_ops: Arc::clone(&self.db_ops),
+            comparison: None,
         }
     }
 

@@ -132,7 +132,7 @@ impl RangeKeyConversion {
             source: ProfiledRangeCodec::new(source_profile, existing),
             target: ProfiledRangeCodec::new(
                 target_profile,
-                &existing.with_range_encoding(target_range_encoding),
+                &existing.with_range_encoding(target_range_encoding)?,
             ),
             limits,
         })

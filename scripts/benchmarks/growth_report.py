@@ -11,6 +11,7 @@ import statistics
 from advisories import confirm, lines as confirmation_lines, notices
 from growth import CASES, slope
 from node import save
+from typed_ranges import conversion_lines
 
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
             "memory_growth_bytes_per_round", "disk_before_compaction_bytes", "compacted_disk_bytes",
@@ -199,7 +200,9 @@ def main():
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
-        report, complete = render(manifest, comparison) + confirmation_lines(decision), True
+        report = (render(manifest, comparison) + confirmation_lines(decision)
+                  + "\n".join(conversion_lines(args.output, manifest)) + "\n")
+        complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"
                   f"{type(failure).__name__}: {failure}\n\n"

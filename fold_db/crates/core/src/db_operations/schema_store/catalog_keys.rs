@@ -57,8 +57,8 @@ pub(super) struct SchemaRetentionHashPartition {
 
 /// The schema that holds the retention state for the name the row is keyed by.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub(super) struct SchemaRetentionAnchor {
-    pub(super) anchor: String,
+pub(crate) struct SchemaRetentionAnchor {
+    pub(crate) anchor: String,
 }
 
 pub(super) fn retention_anchor_key(schema_name: &str) -> String {

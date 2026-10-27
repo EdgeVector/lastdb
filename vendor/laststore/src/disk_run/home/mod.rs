@@ -33,9 +33,11 @@
 mod capture;
 mod cleanup;
 mod commit;
+mod create;
 mod diagnostic;
 mod diagnostic_files;
 mod diagnostic_inventory;
+mod inventory;
 mod keys;
 mod maintenance;
 mod manifest;
@@ -52,18 +54,20 @@ pub use diagnostic::{
     CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
     RunHomeDiagnostics,
 };
+pub use inventory::AdministrativePage;
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
-use crate::durability::{sync_directory, sync_dirty_file};
+use crate::durability::sync_directory;
 use crate::{Error, Result};
+use create::build_empty;
 use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -303,28 +307,6 @@ impl RunHome {
         }
         Ok(())
     }
-}
-
-/// Write the descriptor and the first CURRENT of an empty home in `dir`.
-fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
-    fs::create_dir(dir.join(RUNS))?;
-    let identity = Uuid::new_v4();
-    let mut descriptor = [0u8; DESCRIPTOR_BYTES];
-    descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
-    descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
-    descriptor[16..32].copy_from_slice(identity.as_bytes());
-    let crc = crc32fast::hash(&descriptor[..60]);
-    descriptor[60..].copy_from_slice(&crc.to_le_bytes());
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(dir.join(RUN_HOME_MARKER))?;
-    file.write_all(&descriptor)?;
-    sync_dirty_file(&file)?;
-    let staged = Manifest::empty(identity).stage(dir, key)?;
-    Manifest::replace(dir, &staged)?;
-    sync_directory(&File::open(dir.join(RUNS))?)
 }
 
 fn read_descriptor(root: &Path) -> Result<Uuid> {

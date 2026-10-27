@@ -2,7 +2,6 @@
 
 use super::*;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
-use fold_db::schema::types::operations::{QueryOrderBy, SortOrder};
 
 /// Execute a query under the given access context and return the formatted JSON
 /// rows — `{ key, fields, metadata, author_pub_key }` — with the deterministic
@@ -156,7 +155,15 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
     let sort_started = std::time::Instant::now();
-    let sorted = sort_rows(&mut results, sort_order.as_ref(), order_by.as_ref());
+    let sorted = {
+        let range_comparison = KeyComparisonContext::capture_current_range_comparison();
+        super::rules::sort_rows(
+            &mut results,
+            sort_order.as_ref(),
+            order_by.as_ref(),
+            range_comparison.as_ref(),
+        )
+    };
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
     sorted?;
 
@@ -169,36 +176,6 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
 
     Ok((results, drops))
-}
-
-/// Validate even a one-row response before any comparator can see a bad range.
-fn sort_rows(
-    rows: &mut [Value],
-    sort_order: Option<&SortOrder>,
-    order_by: Option<&QueryOrderBy>,
-) -> Result<(), HostError> {
-    let comparison = KeyComparisonContext::capture_current_range_comparison();
-    if let Some(comparison) = comparison.as_ref() {
-        for row in rows.iter() {
-            comparison
-                .validate_value(row["key"]["range"].as_str().unwrap_or(""))
-                .map_err(fold_db::schema::SchemaError::InvalidData)?;
-        }
-    }
-    let mut error = None;
-    rows.sort_by(|left, right| {
-        match super::rules::compare_rows(left, right, sort_order, order_by, comparison.as_ref()) {
-            Ok(order) => order,
-            Err(detail) => {
-                error.get_or_insert(detail);
-                std::cmp::Ordering::Equal
-            }
-        }
-    });
-    match error {
-        Some(error) => Err(error.into()),
-        None => Ok(()),
-    }
 }
 
 /// Build `/api/query` row envelopes without clocks, host access, or telemetry.

@@ -32,9 +32,11 @@ impl HashRangeQueryProcessor {
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
         let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
+        let filter = comparison.canonical_filter(filter.cloned())?;
         self.current_query_scope(
             comparison,
-            self.count_rows_captured(schema, fields, filter).boxed(),
+            self.count_rows_captured(schema, fields, filter.as_ref())
+                .boxed(),
         )
         .await
     }

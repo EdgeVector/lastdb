@@ -5,6 +5,7 @@ use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FieldValueType, KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use std::collections::HashMap;
 
 impl MutationManager {
@@ -34,8 +35,8 @@ impl MutationManager {
             }
             let schema = &schemas[&mutation.schema_name];
             let key_value =
-                Self::resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
-            Self::validate_key_fields(&mutation.schema_name, schema, mutation, &key_value)?;
+                self.resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
+            self.validate_key_fields(&mutation.schema_name, schema, mutation, &key_value)?;
         }
         Ok(())
     }
@@ -50,6 +51,7 @@ impl MutationManager {
     /// making atom preparation, changed-key restore, resident apply, Search,
     /// and durable persistence use one complete atomic field set.
     pub(super) fn materialize_key_fields(
+        &self,
         schema_name: &str,
         schema: &Schema,
         mutation: &mut Mutation,
@@ -65,6 +67,7 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
+                self.db_ops.molecule_keys().schema_profile(schema)?,
             )? {
                 mutation
                     .fields_and_values
@@ -75,6 +78,7 @@ impl MutationManager {
     }
 
     fn validate_key_fields(
+        &self,
         schema_name: &str,
         schema: &Schema,
         mutation: &Mutation,
@@ -90,6 +94,7 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
+                self.db_ops.molecule_keys().schema_profile(schema)?,
             )?;
         }
         Ok(())
@@ -160,6 +165,7 @@ fn validated_materialized_key_field(
     mutation: &Mutation,
     field_name: &str,
     coordinate: &str,
+    profile: Option<MoleculeRangeProfile>,
 ) -> Result<Option<serde_json::Value>, SchemaError> {
     if !schema.runtime_fields.contains_key(field_name) {
         return Err(SchemaError::InvalidData(format!(
@@ -173,7 +179,20 @@ fn validated_materialized_key_field(
                 mutation.uuid
             ))
         })?;
-        if explicit_coordinate != coordinate {
+        let is_range = schema
+            .key
+            .as_ref()
+            .and_then(|key| key.range_field.as_deref())
+            == Some(field_name);
+        let matches = if is_range && profile.is_some() {
+            crate::schema::types::key_comparison::normalize::canonical_range(
+                profile,
+                &explicit_coordinate,
+            )? == coordinate
+        } else {
+            explicit_coordinate == coordinate
+        };
+        if !matches {
             return Err(SchemaError::InvalidData(format!(
                 "Schema '{schema_name}' mutation {} key field '{field_name}' conflicts with key_value: payload={explicit_coordinate:?}, coordinate={coordinate:?}",
                 mutation.uuid
@@ -207,6 +226,10 @@ fn materialized_key_value(
 
     match field_type {
         FieldValueType::Any | FieldValueType::String => Some(Value::String(coordinate.to_string())),
+        FieldValueType::Date | FieldValueType::DateTime => {
+            let value = Value::String(coordinate.to_string());
+            field_type.validate(&value).ok().map(|()| value)
+        }
         FieldValueType::Integer => coordinate
             .parse::<i64>()
             .map(serde_json::Number::from)
@@ -222,9 +245,7 @@ fn materialized_key_value(
             materialized_key_value(variant, coordinate)
                 .filter(|value| scalar_key_coordinate(value).as_deref() == Some(coordinate))
         }),
-        FieldValueType::Date
-        | FieldValueType::DateTime
-        | FieldValueType::Null
+        FieldValueType::Null
         | FieldValueType::Array(_)
         | FieldValueType::Map(_)
         | FieldValueType::Object(_)

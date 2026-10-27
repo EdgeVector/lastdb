@@ -72,8 +72,8 @@ counter is the only authority for the life of a body
 
 **The ceiling.** A new atom holds at most 256 KiB of content (the JSON value, before
 encryption). `LASTDB_MAX_ATOM_CONTENT_BYTES` can change it between 1 KiB and 1 MiB.
-A sealed 256 KiB atom is about 341 KiB, which fits the 400 KiB item limit of the
-cloud store. Restore replay still accepts 1 MiB, for older atoms. An atom may pack
+V2 compresses and encrypts run blocks that contain the atom. Native backup retains those encrypted bytes.
+The content cap is separate from the stored block and backup limits. An atom may pack
 many small fields up to the ceiling, but it is not a blob store. Shape rules for
 data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
 Shape rules.

@@ -17,10 +17,14 @@ impl SchemaStore {
     ) -> Result<Option<SchemaRetentionPolicy>, SchemaError> {
         self.require_installed_schema(schema_name).await?;
         let anchor = self.retention_anchor(schema_name).await?;
-        Ok(self
+        let policy = self
             .schema_states_store
             .get_item(&retention_policy_key(&anchor))
-            .await?)
+            .await?;
+        if policy.is_some() {
+            self.require_retention_format(&anchor).await?;
+        }
+        Ok(policy)
     }
 
     /// Set the operator retention policy for an installed schema.
@@ -33,6 +37,7 @@ impl SchemaStore {
         policy: SchemaRetentionPolicy,
     ) -> Result<(), SchemaError> {
         self.require_installed_schema(schema_name).await?;
+        self.require_retention_format(schema_name).await?;
         let anchor = self.retention_anchor(schema_name).await?;
         let schema_name = anchor.as_str();
         if policy.ttl_seconds == 0 {
