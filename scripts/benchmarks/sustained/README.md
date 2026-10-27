@@ -85,8 +85,11 @@ memory limit, a 512-cursor input limit, and a 50-million-record work limit.
 The ordered base files share one cursor, with one base file open at a time.
 A partial result remains explicit and makes the investigation incomplete.
 
-The numeric logs separate requests, native write scopes, physical commits, and
-background compaction. Nested stages and concurrent work overlap. Do not add
+The numeric logs separate requests, native write scopes, physical commits,
+completion, Search delivery, and background compaction. Completion covers the
+delivery, resource release, and ack notice after the native disk commit.
+Search delivery includes JSON encode, file write, and rename stages.
+Nested stages and concurrent work overlap. Do not add
 their durations. Request duration excludes the socket queue wait. Diagnostics
 add work, so these times do not establish the uninstrumented write limit.
 Request JSON omits zero phase fields. A request stage mean uses only records

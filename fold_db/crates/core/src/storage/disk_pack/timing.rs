@@ -72,6 +72,29 @@ pub(super) fn commit(
     }
 }
 
+/// Sequential work after the disk result, before the queue reports completion.
+/// Delivery overlaps each waiting request's durable wait; never add these totals.
+pub(super) fn completion(timing: Option<Timeline>, sequence: u64, requests: usize, ok: bool) {
+    if let Some(timing) = timing {
+        let total_us = timing
+            .started
+            .elapsed()
+            .as_micros()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        let covered_us: u64 = timing.phases.values().copied().sum();
+        laststore::commit_timing::emit(
+            "LASTDB_SNAPSHOT_TIMING",
+            &serde_json::json!({
+                "kind": "completion", "sequence": sequence, "requests": requests, "ok": ok,
+                "started_us": timing.started_us, "ended_us": laststore::commit_timing::unix_us(),
+                "total_us": total_us, "phases_us": timing.phases,
+                "covered_us": covered_us, "unassigned_us": total_us.saturating_sub(covered_us),
+            }),
+        );
+    }
+}
+
 /// A background step owns a separate thread-local capture. Its intervals can
 /// overlap foreground commits and must never enter request latency totals.
 pub(super) fn merge(

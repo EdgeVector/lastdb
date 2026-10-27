@@ -10,6 +10,7 @@
 use super::sink::{IndexChangeBatch, IndexSink};
 use crate::schema::SchemaError;
 use async_trait::async_trait;
+use laststore::commit_timing as timing;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::debug;
@@ -72,23 +73,24 @@ impl SearchOutboxSink {
     pub fn new(inbox: PathBuf) -> Self {
         Self { inbox }
     }
-}
 
-#[async_trait]
-impl IndexSink for SearchOutboxSink {
-    async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
-        fs::create_dir_all(&self.inbox).map_err(|e| {
+    fn write_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
+        timing::count("search_changes", batch.changes.len() as u64);
+        timing::during("search_mkdir_us", || fs::create_dir_all(&self.inbox)).map_err(|e| {
             SchemaError::InvalidData(format!("search outbox mkdir {}: {e}", self.inbox.display()))
         })?;
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());
         let path = self.inbox.join(name);
         let tmp = path.with_extension("json.tmp");
-        let body = serde_json::to_vec_pretty(&batch)
-            .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
-        fs::write(&tmp, &body).map_err(|e| {
+        let body = timing::during("search_json_encode_us", || {
+            serde_json::to_vec_pretty(&batch)
+        })
+        .map_err(|e| SchemaError::InvalidData(format!("search outbox serialize: {e}")))?;
+        timing::count("search_json_bytes", body.len() as u64);
+        timing::during("search_file_write_us", || fs::write(&tmp, &body)).map_err(|e| {
             SchemaError::InvalidData(format!("search outbox write {}: {e}", tmp.display()))
         })?;
-        fs::rename(&tmp, &path).map_err(|e| {
+        timing::during("search_rename_us", || fs::rename(&tmp, &path)).map_err(|e| {
             SchemaError::InvalidData(format!("search outbox rename {}: {e}", path.display()))
         })?;
         debug!(
@@ -99,6 +101,26 @@ impl IndexSink for SearchOutboxSink {
             "delivered IndexChangeBatch to Search inbox"
         );
         Ok(())
+    }
+}
+
+#[async_trait]
+impl IndexSink for SearchOutboxSink {
+    async fn apply_change_batch(&self, batch: IndexChangeBatch) -> Result<(), SchemaError> {
+        let (result, report) = timing::measure(|| self.write_batch(batch));
+        if let Some(report) = report {
+            timing::emit(
+                "LASTDB_SNAPSHOT_TIMING",
+                &serde_json::json!({
+                    "kind": "search_outbox", "ok": result.is_ok(),
+                    "started_us": report.started_us, "ended_us": report.ended_us,
+                    "total_us": report.total_us, "covered_us": report.covered_us,
+                    "unassigned_us": report.unassigned_us,
+                    "phases_us": report.phases_us, "counts": report.counts,
+                }),
+            );
+        }
+        result
     }
 }
 

@@ -10,7 +10,7 @@ from diagnostic_report import render
 
 
 MARKERS = {"LASTDB_WRITE_REQUEST_TIMING ": {"request"},
-           "LASTDB_SNAPSHOT_TIMING ": {"scope", "commit", "merge"}}
+           "LASTDB_SNAPSHOT_TIMING ": {"scope", "commit", "completion", "search_outbox", "merge"}}
 MAX_LOG_BYTES, MAX_LINE_BYTES, MAX_EVENTS = 2 * 1024 ** 3, 256 * 1024, 2_000_000
 MAX_WINDOWS, MAX_FIELDS, MAX_ERRORS = 64, 512, 32
 MAX_EXCLUDED_BYTES = 32 * 1024 ** 2
@@ -307,7 +307,7 @@ class Diagnostics:
             if expected is not None and requests != expected:
                 self.error(f"{window['name']}: request events {requests} differ from expected {expected}")
             if expected and window["name"].startswith("load"):
-                for name in ("request", "scope", "commit"):
+                for name in ("request", "scope", "commit", "completion", "search_outbox"):
                     if not families.get(name, {}).get("events"):
                         self.error(f"{window['name']}: missing nonzero {name} event coverage")
             windows.append({**window, "families": families, "observed_requests": requests})

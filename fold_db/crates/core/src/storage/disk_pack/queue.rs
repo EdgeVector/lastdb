@@ -164,14 +164,19 @@ impl PackRuntime {
         .await;
         match result {
             Ok((sequence, requests)) => {
+                let mut completion = super::timing::start();
                 for request in &requests {
                     if let Err(error) = request.deliver().await {
+                        super::timing::mark(&mut completion, "post_commit_delivery_us");
                         self.failed.store(true, Ordering::Release);
                         self.completed.send_modify(|_| {});
+                        super::timing::mark(&mut completion, "completion_notify_us");
                         tracing::error!(%error, "native durable request post-commit delivery requires recovery");
+                        super::timing::completion(completion, sequence, requests.len(), false);
                         return;
                     }
                 }
+                super::timing::mark(&mut completion, "post_commit_delivery_us");
                 {
                     let mut queue = self.queue.lock().expect("native accepted queue");
                     let blocked = gate_from.elapsed();
@@ -182,8 +187,11 @@ impl PackRuntime {
                     queue.requests.clear();
                     queue.sealed = false;
                 }
+                super::timing::mark(&mut completion, "completion_cleanup_us");
                 self.completed
                     .send_modify(|completed| *completed = (*completed).max(sequence));
+                super::timing::mark(&mut completion, "completion_notify_us");
+                super::timing::completion(completion, sequence, requests.len(), true);
             }
             Err(error) => {
                 self.failed.store(true, Ordering::Release);

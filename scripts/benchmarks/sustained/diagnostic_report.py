@@ -1,7 +1,7 @@
 """Human-readable isolated write stages and native storage checkpoint changes."""
 
 MIB = 1024 ** 2
-FAMILIES = ("request", "scope", "commit", "merge_main", "merge_cas")
+FAMILIES = ("request", "scope", "commit", "completion", "search_outbox", "merge_main", "merge_cas")
 COLLECTION_FIELDS = ("live_keys", "live_key_bytes", "live_stored_value_bytes", "deleted_keys", "deleted_key_bytes")
 
 
@@ -15,8 +15,12 @@ def metric(family, field):
 
 def timing_lines(report):
     lines = ["", "### Numeric timing captures", "",
-             "Request, native scope, physical commit, and background merge captures are separate layers.",
+             "Request, native scope, physical commit, group completion, search outbox, and background merge captures remain separate.",
              "Concurrent durations overlap. Nested stages overlap their parents. Do not add stage or layer totals.",
+             "Completion and physical commit describe separate intervals at the commit-group level.",
+             "Search outbox work is inside completion post-commit delivery. It also overlaps scope durable wait and the request span.",
+             "Completion counts describe commit groups; search outbox counts describe SchemaBatch deliveries. Neither must equal the HTTP write count.",
+             "This workload always delivers search changes. Each nonempty load window requires nonzero completion and search outbox event coverage.",
              "Background merge events are observed in a phase window; they are not assigned to particular writes.",
              "Request total excludes socket queue wait. Scope durable wait overlaps physical commits.",
              "Request JSON omits zero phase fields. Request stage means and percentiles use only events with the field present.",
