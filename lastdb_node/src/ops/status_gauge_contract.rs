@@ -12,15 +12,11 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use std::collections::HashMap;
-
 use super::gauge::Gauge;
 use super::self_metrics::{
-    BuildHealth, CodecPolicyHealth, DurabilityHealth, IntegrityHealth, LimitsHealth,
-    LogStreamHealth, MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ResidentHealth,
-    SamplerStatus, StatusSnapshot, UdsPoolHealth, WatchersHealth,
+    CodecPolicyHealth, IntegrityHealth, LimitsHealth, QosHealth, ResidentHealth, SamplerStatus,
+    StatusSnapshot, UdsPoolHealth, WatchersHealth,
 };
-use crate::request_telemetry::RequestTelemetrySnapshot;
 
 /// One gauge declaration in the additive contract block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -304,108 +300,4 @@ pub fn contract_lines(contract: &StatusGaugeContract) -> Vec<String> {
         ));
     }
     lines
-}
-
-/// Compare two status JSON objects for wire-freeze: every non-`contract` key
-/// present on `before` must exist on `after` with the same JSON type tag.
-pub fn wire_freeze_types_compatible(before: &Value, after: &Value) -> Result<(), Vec<String>> {
-    let (Some(b), Some(a)) = (before.as_object(), after.as_object()) else {
-        return Err(vec!["both sides must be objects".into()]);
-    };
-    let mut errs = Vec::new();
-    for (k, bv) in b {
-        if k == "contract" {
-            continue;
-        }
-        match a.get(k) {
-            None => errs.push(format!("missing key after change: {k}")),
-            Some(av) if json_type_tag(bv) != json_type_tag(av) => {
-                errs.push(format!(
-                    "type change at {k}: {} -> {}",
-                    json_type_tag(bv),
-                    json_type_tag(av)
-                ));
-            }
-            Some(_) => {}
-        }
-    }
-    if errs.is_empty() {
-        Ok(())
-    } else {
-        Err(errs)
-    }
-}
-
-fn json_type_tag(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "bool",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
-}
-
-/// Minimal typed snapshot for offline fixtures / wire-freeze tests (no daemon).
-fn default_status_snapshot(
-    sampled_at: u64,
-    rss_bytes: Option<u64>,
-    cpu_percent: Option<f64>,
-) -> StatusSnapshot {
-    StatusSnapshot {
-        logs: LogStreamHealth::default(),
-        sampled_at,
-        process_start_ts: sampled_at,
-        uptime_secs: 0,
-        rss_bytes,
-        phys_footprint_bytes: None,
-        phys_footprint_peak_bytes: None,
-        memory_limit_bytes: None,
-        memory_guard_metric: MemoryGuardMetric::default(),
-        memory_budget: MemoryBudgetHealth::default(),
-        cpu_percent,
-        home_bytes: Some(0),
-        home_size_walks: 1,
-        home: None,
-        home_path_disclosed: false,
-        data_dir_bytes: Some(0),
-        data_dir_size_walks: 1,
-        data_dir: None,
-        data_dir_path_disclosed: false,
-        durability: DurabilityHealth::default(),
-        sampler: SamplerStatus::default(),
-        qos: QosHealth::default(),
-        uds: UdsPoolHealth::default(),
-        watchers: WatchersHealth::default(),
-        request_ops: RequestTelemetrySnapshot::default(),
-        limits: LimitsHealth::default(),
-        resident: ResidentHealth::default(),
-        build: BuildHealth::default(),
-        integrity: IntegrityHealth::default(),
-        purge_stats: HashMap::new(),
-        local_retention: crate::self_metrics::LocalRetentionHealth::default(),
-        atom_counters: None,
-        blob_counters: None,
-        conflict_retention: None,
-        at_rest_compression: None,
-        codec_policy: None,
-    }
-}
-
-/// Minimal offline fixture for North Star proof harnesses (no daemon).
-///
-/// Shape matches `/api/status` envelope body under `status` when a live node
-/// serves PR-5+: gauges stay bare numbers; `contract` lists unit/window.
-pub fn offline_proof_fixture() -> Value {
-    let snapshot = default_status_snapshot(1_700_000_000, Some(1), None);
-    let status = status_value_with_contract(&snapshot).expect("fixture status");
-    json!({
-        "status": status,
-        "notes": [
-            "offline fixture for north-star-lastdb-status-gauge-contract proof",
-            "never point proof harnesses at the primary lastdbd",
-            "live mode: CoW ephemeral node + GET /api/status; assert contract.count == typed gauges",
-        ],
-    })
 }

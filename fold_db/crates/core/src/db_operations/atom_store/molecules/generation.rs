@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::super::counter::{TipChange, TipChangeSet};
 use super::super::{
     AtomStore, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
-    PerKeyRecord, SealedAtom,
+    PerKeyRecord,
 };
 
 mod activate;

@@ -11,7 +11,7 @@ pub(super) fn search_rebuild_command(
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     if lastdb_node::health_alert::probe_health(&socket).is_ok() {
         return Err(format!(
-            "lastdbd is running at {} — stop the daemon before offline search-rebuild (exclusive LastStore open)",
+            "lastdbd is running at {} — stop the daemon before offline search-rebuild (exclusive home open)",
             socket.display()
         ));
     }

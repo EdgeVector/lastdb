@@ -3,12 +3,11 @@
 //! seam.
 //!
 //! Some values are sealed inside a record or a field rather than by the
-//! namespaced encryption seam: atom content (`crate::atom::content_at_rest`),
-//! molecule key bundles, and sharing delivery blobs. Each must encrypt its
-//! value at rest with the same framing, so every one of them seals and opens
-//! through this module rather than its own wrapper (see
-//! `docs/security/at-rest-threat-model.md`). The schema store only opens old
-//! `ENC:` catalog values through it.
+//! namespaced encryption seam: molecule key bundles and sharing delivery
+//! blobs. Each must encrypt its value at rest with the same framing, so every
+//! one of them seals and opens through this module rather than its own wrapper
+//! (see `docs/security/at-rest-threat-model.md`). The schema store only opens
+//! old `ENC:` catalog values through it.
 //!
 //! This is that single audit point. It is deliberately **synchronous** —
 //! keyed directly on the 32-byte E2E content key rather than the async

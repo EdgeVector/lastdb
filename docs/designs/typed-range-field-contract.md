@@ -311,7 +311,7 @@ The manifest retention alias, original source hashes, and an 8 MiB file also pas
 
 Relevant code:
 
-- `AtomStore::with_namespaced_store` selects the V2 plain atom path.
+- `AtomStore` has only the V2 plain atom path. No atom row has a content seal.
 - `encode_plain_atom` and `decode_plain_atom` define that atom representation.
 - `RunRead::accept` and `RunHashRange::page` decode the stored value tag.
 - `RunRead::open_existing` uses the shared descriptor and manifest readers.

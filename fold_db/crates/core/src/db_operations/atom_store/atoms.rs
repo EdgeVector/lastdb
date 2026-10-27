@@ -15,4 +15,3 @@ mod read;
 mod scan;
 mod scope;
 mod write;
-pub(crate) use write::SealedAtom;

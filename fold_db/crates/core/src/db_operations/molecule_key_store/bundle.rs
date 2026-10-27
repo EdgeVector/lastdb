@@ -7,6 +7,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Clone, Deserialize, Serialize, Zeroize, ZeroizeOnDrop)]
 pub struct MoleculeKeyBundle {
+    /// Kept only for the three-key wire form. No atom row is sealed with it:
+    /// a disk format v2 atom row is plain JSON.
     content_dek: [u8; 32],
     blind_key: [u8; 32],
     ope_key: [u8; 32],
@@ -29,10 +31,6 @@ impl MoleculeKeyBundle {
         OsRng.fill_bytes(&mut bundle.blind_key);
         OsRng.fill_bytes(&mut bundle.ope_key);
         bundle
-    }
-
-    pub(crate) fn content_dek(&self) -> [u8; 32] {
-        self.content_dek
     }
 
     pub(crate) fn key_codec(&self, configured: &MoleculeKeyCodec) -> MoleculeKeyCodec {

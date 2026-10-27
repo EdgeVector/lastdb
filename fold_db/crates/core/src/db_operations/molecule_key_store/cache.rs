@@ -62,10 +62,6 @@ impl MoleculeKeyStore {
         }
     }
 
-    pub(super) fn remember(&self, molecule: &str, bundle: MoleculeKeyBundle) -> StorageResult<()> {
-        self.remember_contract(molecule, None, None, Some(bundle))
-    }
-
     pub(super) fn remember_contract(
         &self,
         molecule: &str,

@@ -1,10 +1,6 @@
 use super::*;
 use crate::db_operations::atom_store::counter::TipCommit;
 
-/// An atom to store, with the molecule whose key bundle seals its body in an
-/// org scope. A personal scope seals every body with the home content key.
-pub(crate) type SealedAtom = (Atom, Option<String>);
-
 impl AtomStore {
     /// Creates an atom in memory without storing it.
     /// Used for batch operations where atoms are collected first then stored together.
@@ -36,11 +32,11 @@ impl AtomStore {
     /// Account the bodies that one planner commit wrote or reused in the
     /// keep-small meters, so the tip accounting that follows can bind each tip
     /// to its atom size and schema.
-    pub(crate) fn account_stored_bodies(&self, bodies: &[SealedAtom], commit: &TipCommit) {
+    pub(crate) fn account_stored_bodies(&self, bodies: &[Atom], commit: &TipCommit) {
         let created: std::collections::HashSet<&str> =
             commit.created.iter().map(Atom::uuid).collect();
         let mut seen = std::collections::HashSet::new();
-        for (atom, _) in bodies {
+        for atom in bodies {
             if !seen.insert(atom.uuid()) {
                 continue;
             }

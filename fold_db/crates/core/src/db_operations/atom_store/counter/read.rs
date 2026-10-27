@@ -7,8 +7,7 @@
 use super::commit::{BodySources, RecordRefs};
 use super::plan::AtomBefore;
 use super::AtomCounter;
-use crate::atom::{atom_key_codec, molecule_key_codec, Atom};
-use crate::db_operations::atom_store::SealedAtom;
+use crate::atom::{atom_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -35,8 +34,6 @@ pub(super) struct Offer {
     pub blobs: Vec<String>,
     /// Meter size of the body, stored on the new counter.
     pub size: Option<super::AtomSize>,
-    /// The molecule whose key bundle seals the body in an org scope.
-    pub bundle_molecule: Option<String>,
 }
 
 impl AtomStore {
@@ -228,14 +225,12 @@ impl AtomStore {
         &self,
         deltas: &BTreeMap<String, i64>,
         before: &HashMap<String, AtomBefore>,
-        tips: &BTreeMap<String, Option<PerKeyRecord>>,
         sources: &BodySources<'_>,
-        scope: Option<&str>,
     ) -> Result<HashMap<String, Offer>, SchemaError> {
-        let brought: HashMap<&str, &SealedAtom> = sources
+        let brought: HashMap<&str, &Atom> = sources
             .bodies
             .iter()
-            .map(|sealed| (sealed.0.uuid(), sealed))
+            .map(|atom| (atom.uuid(), atom))
             .collect();
         let mut offers = HashMap::new();
         let mut missing: Vec<&String> = Vec::new();
@@ -248,14 +243,14 @@ impl AtomStore {
                 continue;
             }
             match brought.get(atom.as_str()) {
-                Some((body, seal)) => {
-                    offers.insert(atom.clone(), offer_of(body, seal.as_deref(), tips, scope));
+                Some(body) => {
+                    offers.insert(atom.clone(), offer_of(body));
                 }
                 None => missing.push(atom),
             }
         }
         if let Some(source) = sources.source {
-            self.offer_from_source(&missing, source, tips, scope, &mut offers)
+            self.offer_from_source(&missing, source, &mut offers)
                 .await?;
         }
         Ok(offers)
@@ -265,8 +260,6 @@ impl AtomStore {
         &self,
         missing: &[&String],
         source: Option<&str>,
-        tips: &BTreeMap<String, Option<PerKeyRecord>>,
-        scope: Option<&str>,
         offers: &mut HashMap<String, Offer>,
     ) -> Result<(), SchemaError> {
         let keys: Vec<String> = missing
@@ -278,39 +271,17 @@ impl AtomStore {
             .zip(self.get_atoms_by_storage_keys(&keys).await?)
         {
             if let Some(body) = body {
-                offers.insert((*atom).clone(), offer_of(&body, None, tips, scope));
+                offers.insert((*atom).clone(), offer_of(&body));
             }
         }
         Ok(())
     }
 }
 
-fn offer_of(
-    atom: &Atom,
-    seal: Option<&str>,
-    tips: &BTreeMap<String, Option<PerKeyRecord>>,
-    scope: Option<&str>,
-) -> Offer {
+fn offer_of(atom: &Atom) -> Offer {
     Offer {
         blobs: crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata()),
         size: super::AtomSize::of(atom),
-        bundle_molecule: scope.and_then(|_| {
-            seal.map(str::to_string)
-                .or_else(|| first_molecule_naming(atom.uuid(), tips))
-        }),
         atom: atom.clone(),
     }
-}
-
-/// The molecule of the first new tip that names the atom.
-fn first_molecule_naming(
-    atom: &str,
-    tips: &BTreeMap<String, Option<PerKeyRecord>>,
-) -> Option<String> {
-    tips.iter()
-        .filter(|(_, new)| new.as_ref().is_some_and(|new| new.entry.atom_uuid == atom))
-        .find_map(|(key, _)| {
-            let base = key.find("mk:").map_or(key.as_str(), |at| &key[at..]);
-            molecule_key_codec::molecule_uuid_from_storage_key(base).map(str::to_string)
-        })
 }

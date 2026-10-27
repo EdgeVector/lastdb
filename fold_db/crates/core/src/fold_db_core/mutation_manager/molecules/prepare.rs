@@ -12,11 +12,7 @@ use tracing::warn;
 
 mod key_fields;
 
-type PreparedAtomsAndKeys = (
-    Vec<KeyValue>,
-    Vec<(usize, String, Atom)>,
-    Option<Vec<(Atom, Option<String>)>>,
-);
+type PreparedAtomsAndKeys = (Vec<KeyValue>, Vec<(usize, String, Atom)>, Option<Vec<Atom>>);
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn resolve_mutation_key_value(
@@ -115,22 +111,9 @@ impl MutationManager {
             }
         }
 
-        // Batch store all atoms at once. Each atom names the molecule of the
-        // field that it came from. An org scope seals the body with the key
-        // bundle of that molecule.
-        let sealed: Vec<(Atom, Option<String>)> = atom_results
-            .iter()
-            .zip(atoms_to_store)
-            .map(|((_, field_name, _), atom)| {
-                (
-                    atom,
-                    Some(seal_molecule_for_atom(schema_name, field_name, schema)),
-                )
-            })
-            .collect();
-
+        // The schema lane stores every atom body of the group in one batch.
         let _ = storage_prefix;
-        Ok((mutation_key_values, atom_results, Some(sealed)))
+        Ok((mutation_key_values, atom_results, Some(atoms_to_store)))
     }
 
     /// Build, per field this batch writes, the set of keys it will touch — the
@@ -165,17 +148,4 @@ impl MutationManager {
         }
         by_field
     }
-}
-
-/// The molecule of the field that an atom came from. It names the key bundle
-/// that seals the body in an org scope.
-///
-/// Uses `deterministic_molecule_uuid(schema, field)` so a first write (no
-/// molecule uuid on the field yet) still names the right molecule.
-fn seal_molecule_for_atom(schema_name: &str, field_name: &str, schema: &Schema) -> String {
-    schema
-        .runtime_fields
-        .get(field_name)
-        .and_then(|field| field.common().molecule_uuid().cloned())
-        .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(schema_name, field_name))
 }
