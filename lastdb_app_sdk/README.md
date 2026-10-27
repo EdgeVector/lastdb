@@ -365,8 +365,7 @@ to more than one node (or whose node URL changes) therefore never replays
 node A's capability against node B: the entry for B is a different key, and as
 defense-in-depth the stored value records the `boundNode` it was minted for —
 a loaded capability whose bound node ≠ the current connection is treated as
-**absent** (`load` returns `null`), never blindly sent. The single-node case
-is unchanged: one node, one key, auto-loaded on `connect`.
+**absent** (`load` returns `null`), never blindly sent.
 
 `connect` auto-loads any stored capability for `(appId, node)`. You can also
 drive storage explicitly with `storeCapability` / `loadCapability`, or inject
@@ -446,9 +445,7 @@ exposes the node's pagination params and metadata:
 - `queryAll(schema, filter?, { pageSize?, maxRows? })` — auto-paginates until
   the node reports no more rows and returns everything as one result.
   `maxRows` (default 100k) is the safety ceiling; when hit, the returned
-  `page.hasMore` stays `true` so the truncation is visible. Works against
-  both node kinds — the dev node paginates `/api/query` with production-parity
-  semantics, so the drain follows `page.hasMore` identically.
+  `page.hasMore` stays `true` so the truncation is visible.
 
 ```ts
 const all = await fold.queryAll('fbrain/Concept', { fields: ['id', 'title'] });
@@ -747,50 +744,12 @@ tokenIntegrityValid(token: CapabilityToken): boolean  // payload_hash == sha256(
 verifyCapabilityBlob(blob: string, expectedAppId: string): CapabilityBlobVerification
 ```
 
-## What the dev node supports vs. production
+## Node surface
 
-The consent + capability-enforcement endpoints
-(`/api/apps/request-consent`, `/api/apps/consent-status/{id}`, and the
-`X-App-Capability` write gate) are served by a **production Mini `lastdbd`**.
-Local `folddb`/dev tooling serves the same data dialect (`/api/query`,
-`/api/mutation`, `/api/schemas`) but gates app isolation via pid-based dev-trust
-(`folddb app trust`) rather than the capability header, and does **not**
-serve the consent endpoints. **The app data surface is UDS-first on Mini and
-on local dev tooling:** prefer `socketPath` (typically
-`~/.lastdb/data/folddb.sock`). Where TCP app routes are closed, a TCP
-`/api/*` caller is refused with `403 tcp_app_surface_closed` — the TCP surface
-runs as the node owner, so serving the app routes there would bypass isolation.
-Connect with `socketPath`, not `baseUrl`, for local work. So:
-
-- Against Mini / local `folddb`: `connect` (via `socketPath`) + `query` +
-  `mutate` work end to end once you've `folddb app trust`ed your binary when
-  required (the capability header may be accepted-but-ignored; the connecting
-  pid's app identity is what's enforced). This is what `e2e/roundtrip.mjs`
-  exercises — over the control socket, including the full query-row envelope
-  (`key` + `fields` + `metadata` + `authorPubKey`): local `/api/query` emits
-  the same envelope production Mini does, so an app's query parsing is identical
-  against either node. The e2e also drives the paginated read path
-  (`limit`/`offset` + `page` metadata) and a `queryAll` drain.
-- The consent flow (`requestConsent` / `awaitConsent`) targets a production
-  Mini node. It is covered by the SDK's unit tests (mock transport asserting the
-  exact request/poll JSON + the full error taxonomy).
-
-> **CLI vs SDK mutation shape.** This SDK's `mutate(schema, op)` and the
-> dev-loop CLI's `folddb mutate --file` take **different** mutation JSON.
-> The SDK submits one row at the `/api/*` boundary —
-> `{ mutationType, fields, key: { hash, range } }` (camelCase, schema as the
-> 1st arg). The CLI's `POST /dev/mutations` wraps a *batch* with snake_case
-> keys — `{ "mutations": [ { schema, mutation_type, key: { range }, fields } ] }`.
-> Both paths name the schema `fbrain/Note`: the SDK uses the **canonical
-> published** name, and the CLI uses the **namespaced registered** name
-> `folddb dev post dev/schemas --app fbrain` produces (it prefixes `<app>/`
-> to the file's bare `name`). They agree by construction. 
-- `search()` targets the node-authoritative `POST /api/app/search` (fold #693).
-  Mini / local dev `/api/*` **routes it** (#130): the node serves
-  `POST /api/app/search` with node-authoritative scope (it resolves `S(A)` from
-  the caller's verified posture against the active namespace ACL — the app never
-  names its own scope). `e2e/search.mjs` drives the SDK against an ephemeral
-  node end-to-end.
+The node serves the app routes only on its Unix sockets. Connect with
+`socketPath` (typically `~/.lastdb/data/folddb.sock`). `search()` calls
+`POST /api/app/search`; the node resolves the search scope from the caller's
+verified posture, so the app never names its own scope.
 
 ## Owner / Host Helpers
 
@@ -866,8 +825,6 @@ point; this just keeps the client's cache clean and fails fast.
 ```bash
 npm install
 npm run build        # tsc → dist/
-npm test             # vitest (mock-transport error mapping + capability store)
+npm run typecheck
 npm run lint
-node e2e/roundtrip.mjs   # connect → mutate → query, against an ephemeral folddb dev node
-node e2e/search.mjs      # scoped search() contract + node-authoritative scope (see e2e/)
 ```

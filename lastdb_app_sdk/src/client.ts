@@ -556,14 +556,12 @@ export class LastDbClient {
    * `POST /api/query`. Reads fields from `schemaName` (a schema or a view).
    * Auto-attaches the capability headers when one is loaded.
    *
-   * Pagination: production `fold_db_node` ALWAYS pages — with no `limit` it
-   * still caps the response at its default page size (100,
-   * `DEFAULT_QUERY_LIMIT`), so a >100-row schema is silently truncated;
-   * check `result.page?.hasMore` or use {@link queryAll} to drain it.
-   * `filter.limit`/`filter.offset` are forwarded verbatim as the request's
-   * top-level pagination fields, and only when set. Both the production node
-   * and the dev node (`fold_db_node::dev_mode`) honor them with production-parity
-   * semantics (default 100, clamp 1000, `total_count`/`has_more` metadata).
+   * Pagination: the node ALWAYS pages — with no `limit` it still caps the
+   * response at its default page size (100, `DEFAULT_QUERY_LIMIT`), so a
+   * >100-row schema is silently truncated; check `result.page?.hasMore` or
+   * use {@link queryAll} to drain it. `filter.limit`/`filter.offset` are
+   * forwarded verbatim as the request's top-level pagination fields, and only
+   * when set (default 100, clamp 1000, `total_count`/`has_more` metadata).
    */
   async query(
     schemaName: string,

@@ -82,12 +82,12 @@ export function parseQueryResponse(body: unknown): QueryResult {
 }
 
 /**
- * Read production's pagination metadata (`total_count` / `returned_count` /
- * `limit` / `offset` / `has_more`, per `fold_db_node`'s `QueryResponse`) off
- * a 200 `/api/query` body. Returns `null` when the node reported none (the
- * dev-node mirror, pre-pagination nodes) — the SDK never invents pagination
- * the node didn't do. A paginated response may set `total_count: null` when
- * the node intentionally skipped an exact count; keep the page metadata so
+ * Read the pagination metadata (`total_count` / `returned_count` / `limit` /
+ * `offset` / `has_more`, per `lastdb_host` `handlers::query::paging::page_payload`)
+ * off a 200 `/api/query` body. Returns `null` when the body carries none — the
+ * SDK never invents pagination the node didn't do. A paginated response may
+ * set `total_count: null` when the node intentionally skipped an exact count;
+ * keep the page metadata so
  * `queryAll` can fail closed instead of treating the drain as clean.
  */
 export function parseQueryPage(body: unknown, returnedRows: number): QueryPage | null {

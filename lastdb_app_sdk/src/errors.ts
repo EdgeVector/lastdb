@@ -5,7 +5,7 @@
  * returns — there is no catch-all "request failed". The mapping is verified
  * against the on-`main` handlers:
  *
- * - Consent flow (`fold_db_node/src/server/routes/apps.rs`):
+ * - Consent flow (no current node serves these routes):
  *   - `request-consent`  → `404 {error, app_id}` (unknown app),
  *                          `403 {reason: "app_in_sandbox", app_id, error}`,
  *                          `400 {error}` (invalid scope).
@@ -14,8 +14,8 @@
  *                          `403 {status: "denied"}` / `403 {status: "revoked"}`,
  *                          `408 {status: "expired"}`,
  *                          `404 {status: "unknown"}`.
- * - Data path (`fold_db_node::dev_mode` `app_endpoints.rs`, production
- *   `fold_db_node` operation layer): `403 {kind: "permission_denied",
+ * - Data path (`lastdb_uds` routing, `lastdb_host` handlers):
+ *   `403 {kind: "permission_denied",
  *   error: "<discriminated reason>"}` where the reason text distinguishes
  *   namespace-denied / unverified-identity / write-denied / revoked, and
  *   `400 {kind, error}` for a request-shape / schema-state rejection.

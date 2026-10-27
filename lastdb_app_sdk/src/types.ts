@@ -149,13 +149,7 @@ export interface ConnectOptions {
   discoverSocket?: boolean;
   /**
    * Headers attached to EVERY request this client sends (consent flow + data
-   * path), under a per-call header of the same name (which wins). The
-   * production `fold_db_node` HTTP server is stateless — it resolves the
-   * calling user from an `X-User-Hash` header on every request, returning
-   * `401 MISSING_USER_CONTEXT` when it is absent — so an app talking to a
-   * production node passes `{ 'X-User-Hash': '<hash>' }` here. A dev node
-   * (`fold_db_node::dev_mode`) ignores it (TCP callers run as the node owner), so it is
-   * safe to set unconditionally.
+   * path), under a per-call header of the same name (which wins).
    */
   defaultHeaders?: Record<string, string>;
   /**
@@ -315,9 +309,9 @@ export interface QueryFilter {
    */
   filter?: JsonValue;
   /**
-   * Page size. Forwarded verbatim as the request's top-level `limit`; both
-   * the production and dev nodes clamp it to `MAX_QUERY_LIMIT` (1000) and
-   * default it to `DEFAULT_QUERY_LIMIT` (100) when omitted.
+   * Page size. Forwarded verbatim as the request's top-level `limit`; the
+   * node clamps it to `MAX_QUERY_LIMIT` (1000) and defaults it to
+   * `DEFAULT_QUERY_LIMIT` (100) when omitted.
    */
   limit?: number;
   /**

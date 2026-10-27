@@ -94,8 +94,8 @@ await app.search(query, { k, target });                    // node-scoped associ
   `POST /api/queries/batch` and returns one `{ok, result | error}` outcome per
   item in request order. A failing item carries the typed error `query` would
   throw; the call throws only for a whole-request refusal. Items are not joined and
-  share no work. More than 64 items are chunked. A node without the route (404/405)
-  is served by plain `query` calls, with the answer remembered per client.
+  share no work. More than 64 items are chunked. A non-200 answer to the whole
+  request throws the typed error for its status.
 - **`list`** returns only live record keys plus an opaque cursor. Drain while
   `has_more` is true, then point-read the members whose fields you need. It is
   not implemented as unfiltered `queryAll({allowFullScan:true})`.
