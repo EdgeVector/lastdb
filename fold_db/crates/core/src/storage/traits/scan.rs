@@ -73,18 +73,20 @@ impl KvMutation {
     }
 }
 
-/// Durable position for a scan that advances by physical storage handle.
+/// Durable position for a resumable maintenance scan.
 ///
-/// `collection` is set by logical stores that span several physical
-/// collections. `after_key` is exclusive inside the named shard/group.
+/// `after_key` is exclusive. Disk format v2 has no physical shards or hash
+/// groups and no store overrides [`keyset_physical_page`], so `collection`,
+/// `shard` and `group_id` keep their defaults. They stay in the wire shape
+/// because reseal and reap reports return this cursor to their callers.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct PhysicalScanCursor {
     /// Physical collection, when a logical namespace spans more than one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
-    /// Physical shard that the next page starts in.
+    /// Physical shard that the next page starts in. Always 0 in disk format v2.
     pub shard: u16,
-    /// Hash group that the next page starts in. `None` is a segment-log shard.
+    /// Hash group that the next page starts in. Always `None` in disk format v2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<u32>,
     /// Last raw key consumed in this handle. The next page starts after it.

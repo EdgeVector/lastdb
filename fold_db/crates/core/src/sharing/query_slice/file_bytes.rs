@@ -14,17 +14,7 @@ pub async fn resolve_file_bytes(
     };
     if let Some(access) = file_blob_access_from_atom_value(field_value)? {
         if !access.dek.is_empty() {
-            let local = resolve_local_blob_bytes(db, &access).await?;
-            if local.is_some() {
-                return Ok(local);
-            }
-            return resolve_recovered_pointer(
-                db,
-                field_value,
-                cloud_backup_protocol::FileDependencyKind::Main,
-                &access,
-            )
-            .await;
+            return resolve_local_blob_bytes(db, &access).await;
         }
     }
     blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
@@ -57,33 +47,4 @@ pub(super) async fn resolve_local_blob_bytes(
         ));
     }
     Ok(Some(bytes))
-}
-
-async fn resolve_recovered_pointer(
-    db: &FoldDB,
-    pointer: &Value,
-    kind: cloud_backup_protocol::FileDependencyKind,
-    access: &FileBlobAccess,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    let Some(runtime) = db.db_ops().namespaced_store().disk_pack_runtime() else {
-        return Ok(None);
-    };
-    let pointer = cloud_backup_protocol::logical_pointer_sha256(pointer)
-        .map_err(|_| FoldDbError::SecurityError("file recovery pointer format".into()))?;
-    let access = RecoveryAccess(access.clone());
-    tokio::task::spawn_blocking(move || {
-        runtime
-            .resolve_recovered_file(&pointer, kind, &access.0)
-            .map_err(FoldDbError::from)
-    })
-    .await
-    .map_err(|_| FoldDbError::Other("file recovery read task failed".into()))?
-}
-
-struct RecoveryAccess(FileBlobAccess);
-impl Drop for RecoveryAccess {
-    fn drop(&mut self) {
-        use zeroize::Zeroize;
-        self.0.dek.zeroize();
-    }
 }

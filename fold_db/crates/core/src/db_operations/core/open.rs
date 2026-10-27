@@ -67,9 +67,9 @@ impl CoreNamespaces {
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). It is one
         // whole-map value rewritten every debounce tick, so every put is dead
-        // bytes the moment the next one lands. In `metadata` under the LastStore
-        // segment engine (no automatic compaction; shared hash groups with
-        // correctness records) that grew one group to 39 GB and looped the
+        // bytes the moment the next one lands. Under the LastStore segment
+        // engine (removed with disk format v1, decision D1) that value in
+        // `metadata` grew one shared hash group to 39 GB and looped the
         // primary. In disk format v2 the plane is part of the main run home,
         // so the V2 byte backup, when on, copies it with the other run files.
         let keep_small_kv = store

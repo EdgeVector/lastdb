@@ -44,7 +44,7 @@ never returned as API keys.
 - File KDK seal: `fold_db/crates/core/src/sharing/file_blob_seal.rs`
   (`seal_file_blob`, `seal_file_blob_for_access`)
 - Local CAS: `fold_db/crates/core/src/sharing/blob_cas.rs`
-- Resolve with DEK: `fold_db/crates/core/src/sharing/query_slice/file_recovery.rs` (`resolve_file_bytes`)
+- Resolve with DEK: `fold_db/crates/core/src/sharing/query_slice/file_bytes.rs` (`resolve_file_bytes`)
 - Factory: `fold_db/crates/core/src/fold_db_core/factory/local.rs`
 
 ## Accepted residuals (v1)

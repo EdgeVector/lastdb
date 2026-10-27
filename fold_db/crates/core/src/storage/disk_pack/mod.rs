@@ -18,7 +18,6 @@ pub use cleanup::{
     NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
 };
 pub mod file_dependencies;
-pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
