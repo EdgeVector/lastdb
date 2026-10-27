@@ -90,14 +90,16 @@ async fn plan_from_loaded_schemas(
     } = &resolution
     {
         if let Some(schema) = loaded_schemas.get(catalog_hash) {
-            persist_repaired_mapper_source_aliases(
-                host,
-                schema,
-                loaded_schemas,
-                field_mappers,
-                false,
-            )
-            .await?;
+            for alias in repaired_mapper_source_aliases(schema, loaded_schemas, field_mappers) {
+                let alias = alias?;
+                check_proposal_catalog_alias(
+                    host,
+                    alias.owner_app_id,
+                    alias.proposal,
+                    alias.repaired.source_schema(),
+                )
+                .await?;
+            }
         }
         let catalog_fields = loaded_schemas
             .get(catalog_hash)
@@ -145,14 +147,16 @@ async fn plan_from_exact_catalog(
         ..
     } = &resolution
     {
-        persist_repaired_mapper_source_aliases(
-            host,
-            &fold_schema,
-            loaded_schemas,
-            field_mappers,
-            false,
-        )
-        .await?;
+        for alias in repaired_mapper_source_aliases(&fold_schema, loaded_schemas, field_mappers) {
+            let alias = alias?;
+            check_proposal_catalog_alias(
+                host,
+                alias.owner_app_id,
+                alias.proposal,
+                alias.repaired.source_schema(),
+            )
+            .await?;
+        }
         check_reuse_bind(
             host,
             declare,

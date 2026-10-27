@@ -65,8 +65,16 @@ async fn reuse_loaded_binding(
     } = &resolution
     {
         if let Some(schema) = schemas.get(catalog_hash) {
-            persist_repaired_mapper_source_aliases(host, schema, &schemas, field_mappers, true)
+            for alias in repaired_mapper_source_aliases(schema, &schemas, field_mappers) {
+                let alias = alias?;
+                persist_proposal_catalog_alias(
+                    host,
+                    alias.owner_app_id,
+                    alias.proposal,
+                    alias.repaired.source_schema(),
+                )
                 .await?;
+            }
         }
         persist_proposal_catalog_alias(host, &declare.namespace, proposed_hash, catalog_hash)
             .await?;
@@ -108,14 +116,16 @@ async fn reuse_exact_catalog(
     let resolution =
         read_exact_catalog_reuse(host, proposed_hash, &fold_schema, &loaded_schemas).await?;
     if let DirectDeclareResolution::Reuse { field_mappers, .. } = &resolution {
-        persist_repaired_mapper_source_aliases(
-            host,
-            &fold_schema,
-            &loaded_schemas,
-            field_mappers,
-            true,
-        )
-        .await?;
+        for alias in repaired_mapper_source_aliases(&fold_schema, &loaded_schemas, field_mappers) {
+            let alias = alias?;
+            persist_proposal_catalog_alias(
+                host,
+                alias.owner_app_id,
+                alias.proposal,
+                alias.repaired.source_schema(),
+            )
+            .await?;
+        }
     }
     host.db
         .schema_manager()
