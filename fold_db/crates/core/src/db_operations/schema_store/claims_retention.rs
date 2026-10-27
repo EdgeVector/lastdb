@@ -294,43 +294,6 @@ impl SchemaStore {
         Ok(hashes)
     }
 
-    /// Select keys with `written_at < cutoff` from one schema's age partition.
-    /// This is a bounded range read, never an enumeration of product rows.
-    pub async fn expired_schema_retention_keys(
-        &self,
-        schema_name: &str,
-        cutoff: u64,
-    ) -> Result<Vec<KeyValue>, SchemaError> {
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
-        let prefix = retention_age_prefix(schema_name);
-        let rows = self
-            .schema_states_store
-            .scan_items_in_range::<SchemaRetentionAgeEntry>(
-                &format!("{prefix}{:020}", 0),
-                &format!("{prefix}{cutoff:020}"),
-            )
-            .await?;
-        let latest_keys: Vec<_> = rows
-            .iter()
-            .map(|(_, entry)| retention_age_latest_key(schema_name, &entry.key))
-            .collect();
-        let latest = self
-            .schema_states_store
-            .get_items::<SchemaRetentionAgeEntry>(&latest_keys)
-            .await?;
-        let mut keys: Vec<_> = rows
-            .into_iter()
-            .zip(latest)
-            .filter_map(|((_, entry), current)| {
-                (current == Some(entry.clone())).then_some(entry.key)
-            })
-            .collect();
-        keys.sort_by(KeyValue::cmp_storage_order);
-        keys.dedup();
-        Ok(keys)
-    }
-
     /// Enumerate node-local retention policies for schemas that still exist.
     ///
     /// Reads only the reserved `\0retention_policy\0` prefix in `schema_states`.
