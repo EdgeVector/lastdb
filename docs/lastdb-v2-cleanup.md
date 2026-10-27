@@ -54,3 +54,11 @@ does not release a backup or promise erasure from those copies. The status
 states these exclusions. It certifies the two active stores, not all copies
 of the bytes. It is an explicit node operation, not a new chat automation or
 a change to the automatic merge size thresholds.
+
+## Nightly CI
+
+The Disk v2 node proof workflow runs each day at 09:27 UTC on Linux and macOS,
+with the nightly CI schedule. It creates temporary homes with generated records
+and requests cleanup through the owner API. It checks completion, repeated
+requests, and the saved record after restart. The runner removes each temporary
+home after the operation. Nightly and manual runs do not cancel one another.
