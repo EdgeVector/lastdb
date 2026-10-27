@@ -211,33 +211,13 @@ This check does not make OPE-v1 authenticated or stop its known plaintext disclo
 
 ## Explicit key conversion
 
-`RangeKeyConversion` converts a caller-supplied set of current `mk:` range keys for one molecule.
-The caller selects both source and target profiles and an explicit target range encoding.
-The source codec supplies its existing range encoding and keys.
-The target retains those keys and the hash encoding; only its range encoding can differ.
-The converter retains the exact hash bytes, including a blinded hash.
-It changes only the range portion and returns the complete mapping in target byte order.
-It never calls storage or writes an atom, tip, profile record, or format marker.
-
-The converter refuses duplicate inputs and canonical collisions under the same hash.
-The same range under different hashes remains distinct.
-It also refuses malformed framing, another molecule, invalid values, and exceeded key-count or byte limits.
-The byte limits account for the current range encoding's expansion before the target allocation.
-The plan retains source and target key strings in bounded temporary memory.
-Atom values do not enter the plan.
-No partial mapping reaches a publication callback because the API has no such callback.
+The in-process range-key planner is removed. No caller supplied a key set to it.
+The stopped-home inventory command remains the conversion check.
 
 Decode uses the selected format. It never guesses encryption from a hex-shaped string.
 OPE-v1 decode also checks a full re-encoding with the supplied molecule and key.
 This check detects format or key mismatch. It does not authenticate the legacy encoding.
 Codec diagnostic text excludes encryption keys.
-
-CAUTION: A key conversion plan does not prove that the supplied set contains every key in a home.
-
-The caller must supply real range values from one fixed logical snapshot.
-Absent range slots for hash-only and Single fields need separate layout treatment.
-The current API does not enumerate disk generations, delete markers, conflicts, or captured mutation keys.
-It does not publish a typed profile, lift the date-key fence, or enable a typed node reader.
 
 ## Stopped-home inventory
 
