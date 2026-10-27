@@ -10,7 +10,7 @@ struct Head {
 }
 
 pub(super) enum Selection {
-    Key(Vec<u8>),
+    Key(Vec<u8>, usize),
     Exhausted,
     Fallback,
 }
@@ -107,7 +107,14 @@ impl HeadMemo {
             head.key = key;
             head.pending = false;
         }
-        let Some(key) = self.heads.iter().filter_map(|head| head.key.as_ref()).min() else {
+        // Original slots are newest first. The tuple's slot breaks an equal-key
+        // tie explicitly, so the value read can use this exact winning run.
+        let Some((key, slot)) = self
+            .heads
+            .iter()
+            .filter_map(|head| head.key.as_ref().map(|key| (key, head.slot)))
+            .min()
+        else {
             return Ok(Selection::Exhausted);
         };
         let mut selected = Vec::new();
@@ -116,7 +123,7 @@ impl HeadMemo {
             return Ok(Selection::Fallback);
         }
         selected.extend_from_slice(key);
-        Ok(Selection::Key(selected))
+        Ok(Selection::Key(selected, slot))
     }
 
     pub(super) fn consume(&mut self, key: &[u8]) {

@@ -259,6 +259,9 @@ impl RunReader {
             return Ok(None);
         };
         let index = self.stream_index(number, admission)?;
+        if !index.may_hold(super::key_hash(wanted))? {
+            return Ok(None);
+        }
         let Some(slot) = index
             .blocks
             .partition_point(|b| b.first_key.as_slice() <= wanted)
