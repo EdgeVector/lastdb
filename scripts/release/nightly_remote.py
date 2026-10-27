@@ -17,9 +17,35 @@ def release_for_tag(tag):
     try:
         return gh_json(f"repos/{REPOSITORY}/releases/tags/{tag}")
     except MetadataError as error:
+        if error.http_status != 404:
+            raise
+    # The tag endpoint returns published releases only. A writer can also see
+    # drafts in the authenticated list; keep retry discovery bounded.
+    matches = []
+    for page in range(1, 11):
+        rows = gh_json(f"repos/{REPOSITORY}/releases?per_page=100&page={page}")
+        if not isinstance(rows, list) or len(rows) > 100 or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("The nightly release lookup exceeds its page bound")
+        matches.extend(row for row in rows if row.get("tag_name") == tag)
+        if len(matches) > 1:
+            raise ValueError("The nightly tag has more than one release")
+        if len(rows) < 100:
+            return matches[0] if matches else None
+    raise ValueError("The nightly release lookup exceeds its history bound")
+
+
+def release_by_id(release_id):
+    if type(release_id) is not int or release_id <= 0:
+        raise ValueError("The nightly release has no valid numeric identity")
+    try:
+        release = gh_json(f"repos/{REPOSITORY}/releases/{release_id}")
+    except MetadataError as error:
         if error.http_status == 404:
-            return None
+            raise ValueError("The nightly release no longer exists") from error
         raise
+    if not isinstance(release, dict) or release.get("id") != release_id:
+        raise ValueError("The nightly release identity changed")
+    return release
 
 
 def tag_source(tag):
@@ -38,7 +64,10 @@ def marker(plan):
 
 
 def owned(release, plan, draft):
-    if (release.get("draft") is not draft or release.get("prerelease") is not True
+    if not isinstance(release, dict):
+        raise ValueError("The nightly release metadata is missing")
+    if (type(release.get("id")) is not int or release["id"] <= 0
+            or release.get("draft") is not draft or release.get("prerelease") is not True
             or release.get("tag_name") != plan["tag"]
             or release.get("author", {}).get("login") != "github-actions[bot]"
             or marker(plan) not in release.get("body", "") or tag_source(plan["tag"]) != plan["source"]):
@@ -77,6 +106,8 @@ def download(release, folder):
 
 
 def verify_release(release, plan, draft=False):
+    owned(release, plan, draft)
+    release = release_by_id(release["id"])
     owned(release, plan, draft)
     with tempfile.TemporaryDirectory(prefix="nightly-verify-", dir=os.environ["RUNNER_TEMP"]) as name:
         folder = Path(name)

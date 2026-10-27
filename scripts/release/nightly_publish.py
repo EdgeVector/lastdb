@@ -10,7 +10,7 @@ import subprocess
 from nightly_assets import names, prepare, validate
 from nightly_plan import MetadataError, REPOSITORY, _capture, gh_json, load_plan, wait_gates
 from nightly_remote import (attest, latest_nightly, marker, owned, prior_plan,
-                            release_for_tag, tag_source, verify_release)
+                            release_by_id, release_for_tag, tag_source, verify_release)
 
 
 def runtime(plan, publishing=False):
@@ -106,12 +106,12 @@ def refresh_draft(release, plan, folder):
                    or asset["id"] <= 0 for asset in assets)):
         raise ValueError("The workflow draft has assets outside its owned set")
     for asset in assets:
-        current = release_for_tag(plan["tag"])
+        current = release_by_id(release["id"])
         owned(current, plan, draft=True)
         if current["id"] != release["id"]:
             raise ValueError("The nightly draft identity changed")
         gh_json(f"repos/{REPOSITORY}/releases/assets/{asset['id']}", "DELETE")
-    owned(release_for_tag(plan["tag"]), plan, draft=True)
+    owned(release_by_id(release["id"]), plan, draft=True)
     _capture(["gh", "release", "upload", plan["tag"], "--repo", REPOSITORY,
               *[str(path) for path in sorted(folder.iterdir())]], timeout=600)
 
@@ -131,18 +131,18 @@ def publish(plan, folder):
     ensure_tag(plan)
     release = make_draft(plan)
     refresh_draft(release, plan, folder)
-    verify_release(release_for_tag(plan["tag"]), plan, draft=True)
+    verify_release(release_by_id(release["id"]), plan, draft=True)
     wait_gates(plan, 0)
     stale = previous(plan)
     if stale:
         return stale
-    current = release_for_tag(plan["tag"])
+    current = release_by_id(release["id"])
     owned(current, plan, draft=True)
     if current["id"] != release["id"]:
         raise ValueError("The nightly draft identity changed before publication")
     gh_json(f"repos/{REPOSITORY}/releases/{release['id']}", "PATCH",
             {"draft": False, "prerelease": True, "make_latest": "false"})
-    result = verify_release(release_for_tag(plan["tag"]), plan)
+    result = verify_release(release_by_id(release["id"]), plan)
     if result["hashes"] != hashes:
         raise ValueError("The published bytes differ from the attested candidate")
     return {"skip": False, **result}

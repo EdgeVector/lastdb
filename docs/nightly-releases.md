@@ -11,10 +11,13 @@ Use no paid larger runner or self-hosted runner. All builds and product checks r
 The targets are aarch64-apple-darwin and x86_64-unknown-linux-gnu. Each archive contains a matched lastdb CLI and lastdbd daemon.
 The tag is **nightly-YYYYMMDD-SHA9**. The binary version is **0.1.0-nightly.YYYYMMDD.gSHA9**.
 The 0.1.0 base comes from the workspace package version at this process's initial source review.
-The publication preflight skips an unchanged source commit after it verifies the existing release. A changed source receives a new candidate.
+The publication preflight skips an unchanged source commit after it verifies the existing release.
+An accepted source change receives a new candidate, unless a newer source already has a verified nightly.
 
 Each published tag and its asset bytes are immutable. A rerun must verify an existing published release or fail.
 It must not replace published assets. It can repair only a source-matched unpublished draft that this workflow owns.
+The workflow discovers a draft through a bounded authenticated release list, then checks its numeric release ID before each mutation.
+GitHub's tag lookup returns published releases only. A missing release fails with a clear error before a mutation.
 The release is a prerelease and sets GitHub's latest flag to false. It does not move next, stable, a Homebrew formula, or a tap.
 The old release.yml and nightly-canary.yml workflows stay disabled. The new workflow does not dispatch them or push their v-prefixed tags.
 
