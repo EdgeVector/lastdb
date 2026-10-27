@@ -225,4 +225,4 @@ async fn resolve_blob_bytes(
 }
 
 mod file_recovery;
-pub use file_recovery::{resolve_file_bytes, resolve_file_bytes_kind};
+pub use file_recovery::resolve_file_bytes;
