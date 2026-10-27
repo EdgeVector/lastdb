@@ -53,6 +53,8 @@ Read `inventory.molecules[].blockers` for shared-molecule conflicts, unsupported
 The tool does not infer a type from stored values.
 A declared String remains a String, even when its values resemble numbers or dates.
 Correct a declaration through the normal schema procedure before another clean shutdown and inspection.
+Legacy homes refuse Date and DateTime range declarations.
+Keep an existing valid String declaration. A change to a temporal domain needs a separate explicit conversion.
 Do not rewrite stored keys or profile metadata by hand.
 
 Read `readiness.ready_to_convert` and `readiness.blockers`.
