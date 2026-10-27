@@ -251,7 +251,7 @@ impl AtomStore {
     fn plan_molecule_removal(
         removal: &MoleculeKeyRemoval<'_>,
         current: &HashMap<String, PerKeyRecord>,
-        has_generation: bool,
+        needs_marker: bool,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let (molecule_uuid, data, removed_slots, storage_prefix) = removal;
@@ -266,7 +266,7 @@ impl AtomStore {
                 range,
                 *storage_prefix,
                 current,
-                has_generation,
+                needs_marker,
                 plan,
             )?;
         }
@@ -287,21 +287,21 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Delete one live slot, and hide its immutable base only when a generation
-    /// exists. The same stored winner still drives the atom counter release.
+    /// Delete one live slot, and keep its shadow when an active or prepared
+    /// generation needs it. The stored winner still drives the counter release.
     fn plan_slot_removal(
         molecule_uuid: &str,
         hash: &str,
         range: &str,
         storage_prefix: Option<&str>,
         current: &HashMap<String, PerKeyRecord>,
-        has_generation: bool,
+        needs_marker: bool,
         plan: &mut SlotRemovalPlan,
     ) -> Result<(), SchemaError> {
         let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
         if let Some(current) = current
             .get(&build_storage_key(storage_prefix, &base_key))
-            .filter(|_| has_generation)
+            .filter(|_| needs_marker)
         {
             let marker = super::super::MoleculeGenerationDelete {
                 shadow: current.entry.clone(),

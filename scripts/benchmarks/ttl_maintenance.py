@@ -66,7 +66,7 @@ def maintain(node, output, live, old, expected_live):
     cleanup = [markers(node, molecule) for molecule in sorted(set(molecules.values()))]
     # Deletes without an active or prepared generation need no shadow marker.
     # Zero is valid. Every page still requires a stable preview and an empty
-    # repeat, and the caller verifies the live values and expired-key absence.
+    # repeat, and the caller verifies the live values after maintenance.
     # A v2 home has no explicit compaction; its run merges are automatic.
     compact = {"format": 2, "automatic_merges": True}
     node.stop()
