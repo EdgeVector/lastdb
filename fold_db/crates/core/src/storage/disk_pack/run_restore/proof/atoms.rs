@@ -5,7 +5,8 @@ use crate::schema::types::field::build_storage_key;
 use crate::storage::laststore::native_routing;
 
 pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<u64> {
-    let mut rows = Rows::new(proof.main, "atoms");
+    let mut read = super::rows::read(proof.main, proof.key_heads)?;
+    let mut rows = Rows::new(proof.main, read.as_mut(), "atoms")?;
     let mut count = 0u64;
     while let Some((coordinate, body)) = rows.next()? {
         let decoded_coordinate = native_routing::decode(&coordinate)?;

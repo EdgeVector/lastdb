@@ -29,7 +29,8 @@ impl files::MetadataRead for Source<'_, '_> {
 
 pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<()> {
     let mut metadata = files::MetadataProof::new(Source(proof));
-    let mut rows = Rows::new(proof.main, "tips");
+    let mut read = super::rows::read(proof.main, proof.key_heads)?;
+    let mut rows = Rows::new(proof.main, read.as_mut(), "tips")?;
     while let Some((key, body)) = rows.next()? {
         metadata.row(&key, body)?;
     }

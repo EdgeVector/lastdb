@@ -101,6 +101,10 @@ impl RunRead {
             + (self.runs.capacity() * std::mem::size_of::<(Arc<RunFile>, Option<RunReader>)>())
                 as u64
     }
+    /// Paired metadata already charged to each bounded child read.
+    pub fn reserved_metadata_bytes(&self) -> u64 {
+        self.shared_metadata_bytes.max(self.retained_bytes())
+    }
     /// Admit the paired capture metadata shared by subsequent bounded calls.
     pub fn reserve_metadata(&mut self, bytes: u64) -> Result<()> {
         if bytes < self.retained_bytes()
