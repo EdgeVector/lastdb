@@ -15,15 +15,20 @@ on:
       - 'vendor/laststore/Cargo.toml'
       - 'fold_db/crates/core/src/storage/disk_pack/**'
       - 'fold_db/crates/core/examples/disk_v2_node_proof.rs'
+      - 'fold_db/crates/core/examples/disk_v2_node_proof/**'
       - '.github/workflows/disk-run-proof.yml'
   workflow_dispatch:
+  schedule:
+    # Match the nightly benchmark and node cleanup schedule (UTC).
+    - cron: "27 9 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: disk-run-proof-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer PR update supersedes its run; nightly/manual runs stay independent.
+  group: disk-run-proof-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   proof:
