@@ -54,18 +54,27 @@ atom content seal, no dual-read or strict atom content open, and no `ATB:`
 binary atom row. In the run files, the file KDK (the `dek` field of the
 `$lastdb_file` pointer) lives in the plain atom row.
 
-CAUTION: With Search on, field values and file keys are plain JSON on disk,
-outside the run files, with no encryption.
+CAUTION: With Search on, or after an offline `lastdb search-rebuild`, field
+values and file keys are plain JSON on disk, outside the run files, with no
+encryption.
 
-Open exposure (Search inbox). Search is on when the daemon starts with
-`lastdbd --enable-search` or with `LASTDB_SEARCH_ENABLED=1`
-(`search_index/queue_policy.rs`, `enabled`). Then each committed mutation
-writes one batch file to `apps/search/inbox/*.json` in the node home
-(`search_index/search_outbox.rs`, `serde_json::to_vec_pretty`). The batch
-copies every field value of the mutation (`fields_and_values`), not only the
-searchable fields (`mutation_manager/index.rs`, `build_index_change_batch`).
-A copied `$lastdb_file` pointer brings its `dek`. The file stays until
-LastSeek drains the inbox. This PR (the atom content seal removal) does not
+Open exposure (Search inbox). Two paths write plain JSON batch files to the
+Search inbox: `apps/search/inbox/*.json` in the node home, or the directory
+that `LASTDB_SEARCH_INBOX` names (`search_index/search_outbox.rs`).
+
+- Search on: the daemon starts with `lastdbd --enable-search` or with
+  `LASTDB_SEARCH_ENABLED=1` (`search_index/queue_policy.rs`, `enabled`). Each
+  committed write then writes one batch file for each changed schema
+  (`mutation_manager/write/native.rs`, `serde_json::to_vec_pretty`). The batch
+  copies every field value of the mutation (`fields_and_values`), not only the
+  searchable fields (`mutation_manager/index.rs`, `build_index_change_batch`).
+- Offline rebuild: `lastdb search-rebuild` pages the records of a stopped home
+  into the same inbox with no Search gate (`search_index/search_rebuild.rs`,
+  `run_search_rebuild_for_home`). For a schema with no field classifications,
+  it copies every field.
+
+A copied `$lastdb_file` pointer brings its `dek`. A batch file stays until
+LastSeek drains the inbox. PR 511 (the atom content seal removal) does not
 change this exposure. A separate fix is necessary.
 
 Target posture for Mini personal data (no plaintext fallbacks):
@@ -88,7 +97,7 @@ Target posture for Mini personal data (no plaintext fallbacks):
 | Asset | Where it lives | Sensitivity |
 |---|---|---|
 | File blob bytes (photos, packs, imports) | Local `cas_blobs` (LastStore) + cloud CAS | Highest — raw user files |
-| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block. With Search on, also plain in the Search inbox (see the CAUTION above) | Critical — unlocks blob bytes |
+| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block. With Search on or after `lastdb search-rebuild`, also plain in the Search inbox (see the CAUTION above) | Critical — unlocks blob bytes |
 
 Mini file-blob plane is **live** (`/api/db/file-blob`, fetch, fork). Durable local
 cache must not store plaintext blob bytes when a DEK is available. Inside the
@@ -131,7 +140,7 @@ Out of scope (separate workstreams):
 | Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
 | Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
 | Embedding vectors | Last Store `native_index` collection (`emb:` / `graveyard:emb:` keys) | High — embeddings of private content leak that content |
-| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain atom row, inside an AES-256-GCM run-file block; with Search on, also plain in the Search inbox); desktop `UploadStorage` removed | Highest |
+| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain atom row, inside an AES-256-GCM run-file block; with Search on or after `lastdb search-rebuild`, also plain in the Search inbox); desktop `UploadStorage` removed | Highest |
 | Schemas, schema states, views, transforms, lineage | Last Store schema/catalog and lineage collections | Medium — reveals what kinds of data the user keeps and how records relate |
 | Permissions & trust data | Last Store permission/public-key collections | Medium |
 | Consent ledger (app grants) | Last Store app-identity consent collection (`fold_db_node/src/fold_node/consent.rs`) | Medium-high — which apps may read what |
@@ -399,7 +408,7 @@ invented or expanded by agents:
 | Hash key | molecule HashKey in storage | blind (`blind_v1`) |
 | Range key | molecule RangeKey in storage | OPE (`ope_v1`) |
 | Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
-| File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block (with Search on, also plain in the Search inbox) |
+| File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block (with Search on or after `lastdb search-rebuild`, also plain in the Search inbox) |
 
 Consequences for this section:
 
