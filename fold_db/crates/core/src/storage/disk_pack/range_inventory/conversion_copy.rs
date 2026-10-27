@@ -154,13 +154,24 @@ pub(super) fn count(target: &RunHome) -> StorageResult<u64> {
 
 pub(super) fn commit(target: &RunHome, batch: Vec<HomeMutation>) -> StorageResult<()> {
     RunHome::check_mutations(&batch).map_err(map)?;
+    let bytes = super::capacity::batch_allowance(&batch)?;
+    let policy = super::capacity::policy()?;
+    let space = laststore::space::reserve_space(target.path(), &policy, bytes).map_err(map)?;
     target.commit(batch).map_err(map)?;
-    while target.merge_step().map_err(map)?.is_some() {}
+    drop(space);
+    while target.needs_merge() {
+        let _space =
+            laststore::space::reserve_space(target.path(), &policy, target.status().file_bytes())
+                .map_err(map)?;
+        if target.merge_step().map_err(map)?.is_none() {
+            break;
+        }
+    }
     Ok(())
 }
 
 impl ConversionPlan {
-    fn record(&self, row: HomeMutation, slot: usize) -> StorageResult<HomeMutation> {
+    pub(super) fn record(&self, row: HomeMutation, slot: usize) -> StorageResult<HomeMutation> {
         if row.collection == CHECKPOINT_COLLECTION && row.key == CHECKPOINT_KEY {
             return Err(invalid("the source contains reserved conversion progress"));
         }

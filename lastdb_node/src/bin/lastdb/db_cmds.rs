@@ -115,6 +115,8 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             },
         ),
         DbOfflineCommand::InspectRangeConversion {
+            target_home,
+            source_hash_encoding,
             source_range_encoding,
             target_range_encoding,
             max_records,
@@ -123,6 +125,8 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
         } => lastdb_node::offline_range_inventory::inspect(
             &lastdb_node::offline_range_inventory::RangeInventoryArgs {
                 home,
+                target_home: target_home.as_deref(),
+                source_hash_encoding: source_hash_encoding.as_deref(),
                 source_range_encoding: &source_range_encoding,
                 target_range_encoding: &target_range_encoding,
                 max_records,

@@ -35,6 +35,7 @@ pub struct RangeConversionReport {
     pub source_unchanged: bool,
     pub database_converted: bool,
     pub activation_ready: bool,
+    pub capacity: super::ConversionCapacity,
 }
 
 /// A complete source plan keeps both read-only publications held before any
@@ -47,6 +48,7 @@ pub struct PreparedRangeConversion {
     job: String,
     resume: bool,
     fenced: bool,
+    estimate: super::ConversionSpaceEstimate,
 }
 
 impl PreparedRangeConversion {
@@ -69,6 +71,7 @@ impl PreparedRangeConversion {
         }
         let mut source = FrozenSource::open(&source_root, &keys.encryption_key())?;
         let (plan, metadata_digest) = prepare(&mut source, keys, options)?;
+        let estimate = super::capacity::estimate(&source_root, &source, &plan)?;
         let job = job_identity(
             &source,
             &source_root,
@@ -85,11 +88,13 @@ impl PreparedRangeConversion {
             job,
             resume: options.resume,
             fenced: false,
+            estimate,
         })
     }
 
     /// The caller atomically installs this fenced staging home at its target path.
     pub fn write_staged_fence(&mut self, data: &Path) -> StorageResult<()> {
+        self.require_capacity()?;
         self.source.check_binding()?;
         super::conversion_target::stage_fence(data, &self.job)?;
         self.fenced = true;
@@ -97,6 +102,7 @@ impl PreparedRangeConversion {
     }
 
     pub async fn execute(self) -> StorageResult<RangeConversionReport> {
+        let capacity = self.require_capacity()?;
         let Self {
             source,
             plan,
@@ -105,6 +111,7 @@ impl PreparedRangeConversion {
             job,
             resume,
             fenced,
+            estimate: _,
         } = self;
         if target_root.canonicalize()? != target_root {
             return Err(invalid("target path changed after source admission"));
@@ -123,14 +130,32 @@ impl PreparedRangeConversion {
         target.publish(&target_root)?;
         source.check_binding()?;
         Ok(RangeConversionReport {
-            version: 1,
+            version: 2,
             job,
             records: target.checkpoint.records,
             logical_bytes: target.checkpoint.logical_bytes,
             source_unchanged: true,
             database_converted: true,
             activation_ready: true,
+            capacity,
         })
+    }
+
+    /// Recheck the selected target filesystem without a writer or directory creation.
+    pub fn capacity(&self) -> StorageResult<super::ConversionCapacity> {
+        self.estimate.capacity(&self.target_root)
+    }
+
+    pub fn require_capacity(&self) -> StorageResult<super::ConversionCapacity> {
+        self.estimate.require(&self.target_root)
+    }
+
+    pub fn source_publications_sha256(&self) -> String {
+        let mut digest = Sha256::new();
+        for binding in &self.source.bindings {
+            digest.update(binding.digest.as_bytes());
+        }
+        format!("{:x}", digest.finalize())
     }
 }
 

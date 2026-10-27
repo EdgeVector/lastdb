@@ -27,6 +27,12 @@ pub(crate) enum DbOfflineCommand {
     /// Inventory typed range conversion from one stopped development home.
     /// Reads existing files only. The primary and its archives are refused.
     InspectRangeConversion {
+        /// Also check a new target's conversion eligibility and temporary space.
+        #[arg(long, requires = "source_hash_encoding")]
+        target_home: Option<PathBuf>,
+        /// Assert the old hash configuration; it cannot be inferred from stored bytes.
+        #[arg(long, value_parser = ["blind_v1"], requires = "target_home")]
+        source_hash_encoding: Option<String>,
         /// The source node's explicit range encoding. No format is inferred.
         #[arg(long, value_parser = ["plain", "ope_v1"])]
         source_range_encoding: String,

@@ -253,7 +253,7 @@ lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-co
 The source range encoding is an explicit assertion about the old node configuration.
 The command accepts `plain` or `ope_v1`. It never guesses a format from key appearance.
 The target range encoding is also explicit and required.
-The version-2 report includes both choices and its count and byte limits.
+The version-3 report includes both choices, each schema's declared range field and type, and its count and byte limits.
 It also reports the checked logical key marker, replay floor, and held home generations and frontiers.
 The command refuses the primary, legacy primary, and archived primary paths, including aliases.
 It has no primary override. It does not create a database, start a node, or copy a home.
@@ -307,6 +307,14 @@ The command refuses an incomplete inventory when a limit is exceeded.
 These limits bound captured data and key plans, not total process memory or temporary reader buffers.
 The report always keeps `database_converted` and `activation_ready` false.
 It does not certify counter integrity, classify every opaque control value, or authorize a file rewrite.
+
+Optional `--target-home` and `--source-hash-encoding blind_v1` add conversion readiness and temporary-space estimates.
+This mode validates complete physical record translation with the same plan as the converter.
+It binds that plan to the inventory's source publications before it reports readiness.
+The target remains absent. Its existing parent supplies the filesystem capacity check.
+The converter repeats the capacity check before target creation and before target writers open.
+Copy commits and merges use the native free-space reservation policy.
+The [existing-home procedure](../operations/typed-range-conversion.md) defines inspection, capacity, conversion, resume, and an explicit development-app switch.
 
 ## V2 alignment review (2026-10-26)
 
@@ -400,7 +408,7 @@ The [V2 size measurement PR #432](https://github.com/EdgeVector/lastdb/pull/432)
 
 ## Conversion and recovery boundary
 
-The implementation in review adds `lastdb db convert-typed-ranges` for a stopped compact V2 development home.
+The product command `lastdb db convert-typed-ranges` converts a stopped compact V2 development home.
 It requires a separate target and explicit source hash and range encodings.
 The first converter preserves an explicitly blinded hash domain.
 The old logical format does not record that setting. The source choice therefore remains a caller assertion.
