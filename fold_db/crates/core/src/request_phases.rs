@@ -213,7 +213,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::ChangeRecordLockWait => &mut totals.change_record_lock_wait_us,
             RequestPhase::ChangeRecordWrite => &mut totals.change_record_write_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,
-            RequestPhase::StatusSync => &mut totals.status_sync_us,
             RequestPhase::StatusBackup => &mut totals.status_backup_us,
             RequestPhase::StatusDurability => &mut totals.status_durability_us,
             RequestPhase::StatusDataDir => &mut totals.status_data_dir_us,

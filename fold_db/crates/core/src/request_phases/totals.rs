@@ -50,7 +50,6 @@ pub struct RequestPhaseTotals {
     pub change_record_lock_wait_us: u64,
     pub change_record_write_us: u64,
     pub response_envelope_us: u64,
-    pub status_sync_us: u64,
     pub status_backup_us: u64,
     pub status_durability_us: u64,
     pub status_data_dir_us: u64,

@@ -227,7 +227,6 @@ fn phase_sums_from_fields(fields: &serde_json::Value) -> PhaseTimings {
             .unwrap_or(0),
         change_record_write_us: field_u64(fields, "sum_change_record_write_us").unwrap_or(0),
         response_envelope_us: field_u64(fields, "sum_response_envelope_us").unwrap_or(0),
-        status_sync_us: field_u64(fields, "sum_status_sync_us").unwrap_or(0),
         status_backup_us: field_u64(fields, "sum_status_backup_us").unwrap_or(0),
         status_durability_us: field_u64(fields, "sum_status_durability_us").unwrap_or(0),
         status_data_dir_us: field_u64(fields, "sum_status_data_dir_us").unwrap_or(0),

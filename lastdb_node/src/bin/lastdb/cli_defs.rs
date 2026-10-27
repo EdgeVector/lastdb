@@ -107,8 +107,6 @@ pub(super) enum Command {
         contract: bool,
         /// Seconds to wait for the daemon's status read (default: 30, or
         /// `LASTDB_UDS_ADMIN_TIMEOUT_SECS` when that is exported).
-        /// Raise when the node is cold — `status_sync` costs tens of seconds
-        /// shortly after a restart.
         #[arg(long)]
         timeout: Option<u64>,
     },

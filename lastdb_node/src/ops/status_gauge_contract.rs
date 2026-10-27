@@ -18,7 +18,7 @@ use super::gauge::Gauge;
 use super::self_metrics::{
     BuildHealth, CodecPolicyHealth, DurabilityHealth, IntegrityHealth, LimitsHealth,
     LogStreamHealth, MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ResidentHealth,
-    SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth, WatchersHealth,
+    SamplerStatus, StatusSnapshot, UdsPoolHealth, WatchersHealth,
 };
 use crate::request_telemetry::RequestTelemetrySnapshot;
 
@@ -77,59 +77,6 @@ fn push_gauge(out: &mut Vec<GaugeContractEntry>, path: impl Into<String>, g: &Ga
         availability: g.availability_token().to_string(),
         unavailable_reason: g.unavailable_reason_token().map(str::to_string),
     });
-}
-
-fn collect_sync(out: &mut Vec<GaugeContractEntry>, s: &SyncHealth) {
-    push_gauge(out, "sync.last_success_ts", &s.last_success_ts);
-    push_gauge(out, "sync.pending_count", &s.pending_count);
-    push_gauge(out, "sync.durable_outbox_count", &s.durable_outbox_count);
-    push_gauge(out, "sync.upload_queue_count", &s.upload_queue_count);
-    push_gauge(out, "sync.upload_queue_max", &s.upload_queue_max);
-    push_gauge(out, "sync.durable_outbox_max", &s.durable_outbox_max);
-    push_gauge(out, "sync.last_error_at", &s.last_error_at);
-    push_gauge(
-        out,
-        "sync.consecutive_sync_failures",
-        &s.consecutive_sync_failures,
-    );
-    push_gauge(out, "sync.failing_since", &s.failing_since);
-    push_gauge(
-        out,
-        "sync.cloud_sync_disabled_at",
-        &s.cloud_sync_disabled_at,
-    );
-    push_gauge(out, "sync.sync_off_grace_secs", &s.sync_off_grace_secs);
-    push_gauge(
-        out,
-        "sync.mutation_log_frontier_f",
-        &s.mutation_log_frontier_f,
-    );
-    push_gauge(
-        out,
-        "sync.mutation_log_published_through",
-        &s.mutation_log_published_through,
-    );
-    push_gauge(
-        out,
-        "sync.mutation_log_last_durable_frontier",
-        &s.mutation_log_last_durable_frontier,
-    );
-    push_gauge(
-        out,
-        "sync.mutation_log_recovery_point_age_secs",
-        &s.mutation_log_recovery_point_age_secs,
-    );
-    push_gauge(out, "sync.mutation_log_lag", &s.mutation_log_lag);
-    push_gauge(
-        out,
-        "sync.mutation_log_segments_uploaded",
-        &s.mutation_log_segments_uploaded,
-    );
-    push_gauge(
-        out,
-        "sync.capture_reexport_pending_count_estimate",
-        &s.capture_reexport_pending_count_estimate,
-    );
 }
 
 fn collect_qos(out: &mut Vec<GaugeContractEntry>, q: &QosHealth) {
@@ -286,7 +233,6 @@ fn collect_at_rest_compression(out: &mut Vec<GaugeContractEntry>, since_boot_uni
 /// Build the additive contract from every typed gauge on the snapshot.
 pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     let mut gauges = Vec::with_capacity(128);
-    collect_sync(&mut gauges, &snapshot.sync);
     collect_sampler(&mut gauges, &snapshot.sampler);
     collect_qos(&mut gauges, &snapshot.qos);
     collect_uds(&mut gauges, &snapshot.uds);
@@ -427,7 +373,6 @@ fn default_status_snapshot(
         data_dir_size_walks: 1,
         data_dir: None,
         data_dir_path_disclosed: false,
-        sync: SyncHealth::default(),
         durability: DurabilityHealth::default(),
         sampler: SamplerStatus::default(),
         qos: QosHealth::default(),
