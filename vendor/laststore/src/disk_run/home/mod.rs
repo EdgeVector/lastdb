@@ -35,6 +35,7 @@ mod cleanup;
 mod commit;
 mod create;
 mod diagnostic;
+mod diagnostic_cursor;
 mod diagnostic_files;
 mod diagnostic_inventory;
 mod inventory;

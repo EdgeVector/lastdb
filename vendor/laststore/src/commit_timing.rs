@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -38,6 +39,28 @@ pub fn enabled() -> bool {
         std::env::var("LASTDB_SNAPSHOT_TIMING").as_deref() == Ok("1")
             && std::env::var("LASTDB_ISOLATED_COPY").as_deref() == Ok("1")
     })
+}
+
+/// Emit one complete numeric event under a fixed snapshot or request marker.
+/// Callers construct the event only inside their enabled capture or clock guard.
+/// Serialization precedes one locked stderr write; output errors remain best effort.
+pub fn emit(prefix: &'static str, event: &serde_json::Value) {
+    if !enabled()
+        || !matches!(
+            prefix,
+            "LASTDB_SNAPSHOT_TIMING" | "LASTDB_WRITE_REQUEST_TIMING"
+        )
+    {
+        return;
+    }
+    let mut line = Vec::new();
+    line.extend_from_slice(prefix.as_bytes());
+    line.push(b' ');
+    if serde_json::to_writer(&mut line, event).is_err() {
+        return;
+    }
+    line.push(b'\n');
+    let _ = std::io::stderr().lock().write_all(&line);
 }
 
 /// Local UTC clock for correlation with a client request interval.

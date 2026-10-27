@@ -1,4 +1,5 @@
 //! Checkpoint-only newest-wins inventory; no key or body leaves this module.
+use super::diagnostic_cursor::InventoryCursor;
 use super::manifest::Manifest;
 use super::RunHome;
 use crate::disk_run::reader::stream::SummaryCursor;
@@ -48,6 +49,8 @@ pub struct LogicalInventory {
     pub stopped_stage: Option<String>,
     /// Retained metadata and block allowance for each input cursor.
     pub cursor_allowance_bytes: u64,
+    /// Simultaneous merge inputs; nonoverlapping base files share one cursor.
+    pub input_cursors: usize,
     /// Shared working allowance for the one active decoder and its output.
     pub frame_workspace_bytes: u64,
     /// Elapsed inventory time in milliseconds from a monotonic clock.
@@ -75,6 +78,7 @@ impl LogicalInventory {
             stopped_reason: None,
             stopped_stage: None,
             cursor_allowance_bytes: 0,
+            input_cursors: 0,
             frame_workspace_bytes: SummaryCursor::frame_workspace_bytes(),
             elapsed_ms: 0,
             examined_run_records: 0,
@@ -120,14 +124,18 @@ fn collect(
     report: &mut LogicalInventory,
     deadline: Instant,
 ) -> Result<()> {
-    let count = root.newest_first().count();
+    let count = root.tiered().count() + root.merging.len() + usize::from(!root.base.is_empty());
+    report.input_cursors = count;
     if count == 0 {
         return Ok(());
     }
     if count > MAX_INPUTS {
         return Err(Error::ReadBudgetExceeded);
     }
-    let metadata = root.retained_bytes().saturating_add((count * 512) as u64);
+    let descriptor_bytes = std::mem::size_of::<InventoryCursor<'_>>() + std::mem::size_of::<Head>();
+    let metadata = root
+        .retained_bytes()
+        .saturating_add((count * descriptor_bytes) as u64);
     let allowance = MEMORY_BYTES
         .checked_sub(report.frame_workspace_bytes)
         .ok_or(Error::ReadBudgetExceeded)?
@@ -140,9 +148,14 @@ fn collect(
     }
     let mut cursors = Vec::with_capacity(count);
     let mut heads = BinaryHeap::with_capacity(count);
-    for run in root.newest_first() {
+    for run in root.tiered().chain(&root.merging) {
         check_work(report, deadline)?;
-        let mut cursor = SummaryCursor::open(&run.path, &home.key, allowance)?;
+        let mut cursor = InventoryCursor::run(home, run, allowance)?;
+        push_next(&mut cursor, cursors.len(), &mut heads, report, deadline)?;
+        cursors.push(cursor);
+    }
+    if !root.base.is_empty() {
+        let mut cursor = InventoryCursor::base(home, &root.base, allowance);
         push_next(&mut cursor, cursors.len(), &mut heads, report, deadline)?;
         cursors.push(cursor);
     }
@@ -164,14 +177,14 @@ fn collect(
 }
 
 fn push_next(
-    cursor: &mut SummaryCursor,
+    cursor: &mut InventoryCursor<'_>,
     slot: usize,
     heads: &mut BinaryHeap<Head>,
     report: &mut LogicalInventory,
     deadline: Instant,
 ) -> Result<()> {
     check_work(report, deadline)?;
-    if let Some((key, bytes)) = cursor.next_record()? {
+    if let Some((key, bytes)) = cursor.next_record(deadline)? {
         report.examined_run_records += 1;
         heads.push(Reverse((key, slot, bytes)));
     }

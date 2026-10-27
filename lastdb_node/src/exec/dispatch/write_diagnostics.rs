@@ -35,9 +35,9 @@ pub(super) fn start(route: DataRoute) -> Option<Clock> {
 
 pub(super) fn finish(clock: Option<Clock>, sample: &OpSample) {
     let Some(clock) = clock else { return };
-    eprintln!(
-        "LASTDB_WRITE_REQUEST_TIMING {}",
-        serde_json::json!({
+    laststore::commit_timing::emit(
+        "LASTDB_WRITE_REQUEST_TIMING",
+        &serde_json::json!({
             "kind": "request", "started_us": clock.started_us, "ended_us": unix_us(),
             "total_us": clock.started.elapsed().as_micros().min(u64::MAX as u128) as u64,
             "queue_wait_us": sample.phases.queue_wait_us, "status": sample.status,
@@ -51,6 +51,6 @@ pub(super) fn finish(clock: Option<Clock>, sample: &OpSample) {
                 "partition_read_rejections": sample.partition_read_rejections,
                 "all_group_walks": sample.all_group_walks,
             },
-        })
+        }),
     );
 }

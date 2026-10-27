@@ -81,7 +81,8 @@ Resource samples separate the search inbox from native files. The benchmark
 does not start a consumer for that inbox. File entries and unique file inodes
 have separate byte totals, so hardlinks remain visible without a duplicate count.
 The inventory shares a 60-second deadline across both homes. It has a 64 MiB
-memory limit, a 512-file input limit, and a 50-million-record work limit.
+memory limit, a 512-cursor input limit, and a 50-million-record work limit.
+The ordered base files share one cursor, with one base file open at a time.
 A partial result remains explicit and makes the investigation incomplete.
 
 The numeric logs separate requests, native write scopes, physical commits, and
