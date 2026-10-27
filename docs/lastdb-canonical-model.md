@@ -357,7 +357,7 @@ database catalog with per-molecule key bundles (it replaces the earlier
 |---|---|
 | **This doc (canonical)** | `docs/lastdb-canonical-model.md` |
 | Core logical memory and native disk | `docs/lastdb-rehydrate.md` |
-| Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://thelastdb.com/docs/agent-access-model |
+| Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md |
 | Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
 | Atom counter, delete and purge, crash states | `docs/lastdb-atom-counter.md` |
 | Molecule counters and the drain | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |

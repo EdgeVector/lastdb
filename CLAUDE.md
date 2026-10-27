@@ -59,7 +59,7 @@ This rule supersedes the local build commands and coordination rules below.
 > `brain get concepts-lastdb-canonical-model` ·
 > `brain get concepts-lastdb-agent-access-model` ·
 > `brain get requirement-lastdb-access-complexity` ·
-> https://thelastdb.com/docs/agent-access-model
+> https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md
 
 One cargo workspace: `fold_db` (core), `schema_service` (cloud schema
 registry), `lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped
