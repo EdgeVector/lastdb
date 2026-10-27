@@ -162,7 +162,10 @@ Cache expiry or upload failure affects speed only; the source build remains avai
 Builds finish before measurements start. Each suite runs one daemon at a time.
 The build job uploads a bundle with both matching daemons and CLIs.
 Each measurement job checks the bundle SHA-256 from that producer job before extraction.
-It verifies the native environment, build recipe, program hashes, source revisions, and program versions.
+It verifies the OS, architecture, build recipe, program hashes, source revisions, and program versions.
+Hosted image updates can overlap. Each consumer checks all daemon and CLI runtime dependencies with `ldd -r`.
+A missing library, symbol, or required version fails the job. Compiler differences do not require another build.
+The transfer receipt records the producer image, consumer image, native packages, and resolved runtime dependencies.
 The transfer adds no build and does not restore another cached candidate.
 Each pair reverses the prior pair's base/candidate order.
 Every run starts with independent generated data. No primary data or archive data enters a run.

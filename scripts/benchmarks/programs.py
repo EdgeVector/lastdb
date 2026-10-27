@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import subprocess
 import tarfile
 
 from build import native_context, verify
@@ -50,18 +51,34 @@ def verify_context(archive, fingerprint):
     if context["fingerprint"] != fingerprint or actual != fingerprint:
         raise ValueError("The downloaded build context differs from the producer output")
     inputs = context["inputs"]
-    if inputs["native"] != native_context() or inputs["architecture"] != platform.machine():
-        raise ValueError("The measurement runner is incompatible with the build runner")
+    consumer = native_context()
+    if inputs["native"]["os"] != consumer["os"] or inputs["architecture"] != platform.machine():
+        raise ValueError("The measurement runner has another OS or architecture")
     driver = Path(__file__).resolve().parents[2]
     if any(file_hash(driver / name) != digest for name, digest in inputs["recipe_files"].items()):
         raise ValueError("The measurement driver differs from the verified build recipe")
+    return consumer
+
+
+def runtime_dependencies(programs):
+    # Hosted images roll out gradually. Build tools can differ between jobs;
+    # the shared ELF programs require compatible runtime symbols, not the same compiler.
+    dependencies = {}
+    for program in programs:
+        result = subprocess.run(["ldd", "-r", str(program)], text=True, capture_output=True,
+                                check=True, timeout=30)
+        output = result.stdout + result.stderr
+        if "not found" in output or "undefined symbol" in output:
+            raise ValueError(f"The measurement runner cannot load {program.name}: {output}")
+        dependencies[str(program)] = output
+    return dependencies
 
 
 def unpack(args, revisions, fingerprint):
     digest = os.environ["BUNDLE_SHA256"]
     if not re.fullmatch(r"[0-9a-f]{64}", digest) or file_hash(args.archive) != digest:
         raise ValueError("The downloaded program archive differs from this run's producer")
-    verify_context(args.archive, fingerprint)
+    consumer = verify_context(args.archive, fingerprint)
     if args.root.exists():
         raise ValueError("Program transfer requires a fresh destination")
     expected = {f"{revision}/{name}" for revision in revisions.values() for name in FILES}
@@ -80,17 +97,21 @@ def unpack(args, revisions, fingerprint):
                 while chunk := source.read(2**20):
                     destination.write(chunk)
             target.chmod(0o600 if target.name == "build.json" else 0o700)
+    dependencies = runtime_dependencies([args.root / revision / name
+                                         for revision in sorted(set(revisions.values()))
+                                         for name in ("lastdbd", "lastdb")])
     programs = {label: verify(args.root / revision, revision, fingerprint)
                 for label, revision in revisions.items()}
     receipt = {"bundle_sha256": digest, "context": fingerprint, "programs": programs,
                "consumer_run": os.environ["GITHUB_RUN_ID"],
-               "consumer_image": os.environ["ImageVersion"]}
+               "consumer_image": os.environ["ImageVersion"], "consumer_native": consumer,
+               "runtime_dependencies": dependencies}
     save(Path(os.environ["BENCH_OUTPUT"]) / "program-transfer.json", receipt)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
         summary.write(f"\nVerified shared CI programs: `{digest}`  \n")
         for label, program in programs.items():
             summary.write(f"{label}: `{program['revision']}` / `{program['sha256']}`  \n")
-    print("Verified both daemon and CLI identities, hashes, versions, recipe, and native compatibility.", flush=True)
+    print("Verified both daemon and CLI identities, hashes, versions, recipe, and runtime dependencies.", flush=True)
 
 
 def main():
