@@ -261,8 +261,9 @@ pub trait KvStore: Send + Sync {
     /// Scan one bounded page of a range for resumable maintenance.
     ///
     /// Product queries must use the globally ordered range methods above.
-    /// Disk format v2 has no sharded backend, so every store keeps this
-    /// default: one logical keyset page with an `after_key` cursor.
+    /// Disk format v2 has no sharded backend. The pack store keeps this
+    /// default (one logical keyset page with an `after_key` cursor), and the
+    /// encrypting store forwards to its inner store.
     async fn scan_range_physical_paged(
         &self,
         start: &[u8],
