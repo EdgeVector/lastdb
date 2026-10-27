@@ -210,19 +210,8 @@ impl PackNamespacedStore {
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let v2 = physical::V2Home::new(home, cas, range_order);
         let root = v2.current_root();
-        let native_backup_boundary = tokio::sync::watch::channel(CoreNativeBackupBoundary {
-            source_home: v2.home.identity(),
-            frontier: root.frontier(),
-        })
-        .0;
         let initializing = path.join(INTENT).try_exists()?;
-        let store = Self::assemble(
-            v2,
-            root,
-            native_backup_boundary,
-            initializing,
-            space::policy_from_env()?,
-        );
+        let store = Self::assemble(v2, root, initializing, space::policy_from_env()?);
         store.runtime.resume_merges();
         Ok(store)
     }

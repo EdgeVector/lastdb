@@ -162,7 +162,6 @@ impl PackRuntime {
                 protection.publish_clean()?;
             }
         }
-        let frontier = current.frontier();
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);
         // The last drop of a root deletes its retired run files, so it
@@ -171,7 +170,6 @@ impl PackRuntime {
         // A merge can publish between the caller's read of `current` and
         // this install; take its root now, not at the next read.
         self.adopt_merged_root();
-        self.publish_native_backup_boundary(frontier);
         Ok(())
     }
 
