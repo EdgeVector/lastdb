@@ -2,17 +2,17 @@
 
 Version: `lastdb.slice.v1`
 
-Delivery artifacts are consent-gated database slices. A producer may stage a
-slice, but no network send occurs until the owner approves the pending delivery
-outbox item.
+Delivery artifacts are database slices that the owner exports. The owner
+socket route `POST /api/sharing/snapshot` materializes one slice, seals it to
+the recipient's messaging key, and returns it. LastDB keeps no staged delivery
+and sends no message.
 
 ## Layers
 
-0. Transport: the bulletin-board message is sealed to the recipient's messaging
-   key and signed by the sender's node identity using the existing
-   `signed_envelope` channel. Its inner payload has
-   `message_type: "delivery_slice"`, a base64 `content_key`, the JWE
-   `envelope`, and the descriptor metadata returned during staging.
+0. Transport: the snapshot blob is sealed to the recipient's messaging key
+   and signed by the sender's node identity with the `signed_envelope`
+   format. Its inner payload has `message_type: "delivery_slice"`, a base64
+   `content_key`, the JWE `envelope`, and the descriptor metadata.
 1. Envelope: JWE JSON serialization with `alg=dir` and `enc=A256GCM`.
    The protected header uses `typ=application/vnd.lastdb.slice+json;v=1`.
    Any JOSE implementation that supports direct A256GCM can decrypt the
@@ -27,8 +27,7 @@ outbox item.
 
 `payload.provenance` identifies:
 
-- `source`: the saved query, ad hoc query, transform-output view, or legacy
-  scope that produced the slice.
+- `source`: the query that produced the slice.
 - `mode`: `snapshot` or `live`.
 - `created_at`: Unix seconds.
 - `sender_public_key`: the LastDB node identity that signed the payload.
@@ -75,10 +74,8 @@ a blob:
 }
 ```
 
-Every `$lastdb_file.blob_ref` (or `$blob_ref`) in `atoms[]` MUST have a matching
-entry in `blobs[]`. Legacy atoms that embedded `{"$file":{"content_b64":…}}`
-are rejected by the modern packager; materialization rewrites them into
-pointer + `blobs[]` before signing.
+Every `$lastdb_file.blob_ref` in `atoms[]` MUST have a matching entry in
+`blobs[]`. LastDB reads no other file-value form.
 
 ## Consumer Contract
 

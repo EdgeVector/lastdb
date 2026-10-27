@@ -306,14 +306,6 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
 /// the "write everything, resolve in history" read surface: concurrent-write
 /// branches, conflict winners AND losers, become readable instead of orphaned.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
-    if let Some(rest) = path.strip_prefix("/api/sharing/deliveries/") {
-        let mut parts = rest.split('/');
-        let route = match (parts.next(), parts.next(), parts.next()) {
-            (Some(id), Some("reject"), None) if !id.is_empty() => DataRoute::DeliverReject,
-            _ => return None,
-        };
-        return Some(single_method(method, "POST", ControlRoute::Data(route)));
-    }
     if one_segment(path, "/api/history/").is_some() {
         return Some(single_method(
             method,

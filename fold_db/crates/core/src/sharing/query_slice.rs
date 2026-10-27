@@ -3,21 +3,19 @@
 //! Run one or more owner queries and package schemas, molecules, atoms, and
 //! first-class binary blobs into [`LastDbSlicePayload`].
 //!
-//! File-bearing fields are normalized to `$lastdb_file` pointers. The encrypted
-//! delivery payload carries raw file bytes and preserves each original CAS address.
+//! File-bearing fields are `$lastdb_file` pointers. The encrypted delivery
+//! payload carries raw file bytes and preserves each original CAS address.
 
 use crate::access::AccessContext;
 use crate::error::FoldDbError;
 use crate::fold_db_core::FoldDB;
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::operations::{FieldPredicate, Query, QueryOrderBy};
-use crate::sharing::blob_cas;
 use crate::sharing::delivery_wire::{
-    blob_ref_from_atom_value, content_addressed_atom, content_addressed_blob,
-    content_addressed_blob_with_access, extract_embedded_file, file_blob_access_from_atom_value,
-    lastdb_file_pointer, validate_blob_refs, ContentAddressedAtom, ContentAddressedBlob,
-    FileBlobAccess, LastDbSlicePayload, SignedMolecule, SliceProvenance, SliceSchema,
-    LASTDB_SLICE_PAYLOAD_VERSION,
+    blob_ref_from_atom_value, content_addressed_atom, content_addressed_blob_with_access,
+    file_blob_access_from_atom_value, validate_blob_refs, ContentAddressedAtom,
+    ContentAddressedBlob, FileBlobAccess, LastDbSlicePayload, SignedMolecule, SliceProvenance,
+    SliceSchema, LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -56,11 +54,8 @@ pub type BlobBytesResolver = dyn Fn(&str) -> Result<Option<Vec<u8>>, FoldDbError
 /// queries are per-schema today). Molecules use `KeyValue::to_storage_key()` as
 /// `record_key` so hash/range keys round-trip losslessly.
 ///
-/// File fields:
-/// - legacy `$file` with `content_b64` → extracted into `blobs[]`, atom rewritten
-///   to `$lastdb_file` pointer
-/// - `$lastdb_file` pointer → blob bytes loaded via `blob_resolver` (or local CAS
-///   when `None` and a pool is available)
+/// File fields: a `$lastdb_file` pointer has its blob bytes loaded via
+/// `blob_resolver`, or from the local CAS with the pointer's access metadata.
 pub async fn materialize_query_slice(
     db: &FoldDB,
     legs: &[QuerySliceLeg],
@@ -134,23 +129,7 @@ async fn normalize_file_field_value(
     blob_resolver: Option<&BlobBytesResolver>,
     blobs_by_ref: &mut BTreeMap<String, ContentAddressedBlob>,
 ) -> Result<Value, FoldDbError> {
-    // Legacy embedded file → first-class blob + pointer atom.
-    if let Some(extracted) = extract_embedded_file(value)? {
-        let blob = content_addressed_blob(
-            &extracted.bytes,
-            extracted.media_type.clone(),
-            extracted.name.clone(),
-        );
-        let pointer = lastdb_file_pointer(
-            &blob.blob_ref,
-            extracted.name.as_deref(),
-            extracted.media_type.as_deref(),
-        );
-        blobs_by_ref.entry(blob.blob_ref.clone()).or_insert(blob);
-        return Ok(pointer);
-    }
-
-    // Already a pointer — ensure the blob body is packed when we can resolve it.
+    // A pointer — ensure the blob body is packed when we can resolve it.
     if let Some(blob_ref) = blob_ref_from_atom_value(value) {
         let access = file_blob_access_from_atom_value(value)?;
         if !blobs_by_ref.contains_key(blob_ref) {
@@ -192,12 +171,9 @@ async fn normalize_file_field_value(
 
 /// Resolve the bytes to PACK for a pointer field.
 ///
-/// Operation Trinity: a local CAS row sealed under the file KDK only opens with
-/// the DEK from the pointer's own access metadata, so packaging must be handed
-/// that metadata. Without it this fell to the plain read, which fails closed on
-/// a sealed row — and every Trinity-sealed blob is exactly that. The caller has
-/// the `access` in scope already (it stamps it onto the packed blob), so the
-/// only thing missing was passing it through. Mirrors [`resolve_file_bytes`].
+/// Every local CAS row is sealed under the file KDK and opens only with the
+/// DEK from the pointer's own access metadata. A pointer without that
+/// metadata resolves to `None`. Mirrors [`resolve_file_bytes`].
 async fn resolve_blob_bytes(
     db: &FoldDB,
     blob_ref: &str,
@@ -216,12 +192,10 @@ async fn resolve_blob_bytes(
             return Ok(Some(bytes));
         }
     }
-    if let Some(access) = access {
-        if !access.dek.is_empty() {
-            return file_bytes::resolve_local_blob_bytes(db, access).await;
-        }
+    match access {
+        Some(access) => file_bytes::resolve_local_blob_bytes(db, access).await,
+        None => Ok(None),
     }
-    blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
 }
 
 mod file_bytes;

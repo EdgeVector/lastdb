@@ -47,15 +47,10 @@ fn make(
     kind: FileDependencyKind,
     access: SecretAccess,
 ) -> StorageResult<FileDependency> {
-    // This record also enters a plaintext local capture spool. New files expose
+    // This record also enters a plaintext local capture spool. Files expose
     // only their ciphertext digest there; the plaintext digest stays in access.
-    let public_hash =
-        if access.0.cipher_suite == crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE {
-            crate::sharing::file_blob_seal::file_blob_storage_hash(&access.0.blob_ref)
-                .map_err(|_| invalid("file dependency storage digest"))?
-        } else {
-            &access.0.file_hash
-        };
+    let public_hash = crate::sharing::file_blob_seal::file_blob_storage_hash(&access.0.blob_ref)
+        .map_err(|_| invalid("file dependency storage digest"))?;
     let file_hash = Digest::try_from(public_hash.to_owned())
         .map_err(|_| invalid("file dependency requires canonical digest"))?;
     let stored = access

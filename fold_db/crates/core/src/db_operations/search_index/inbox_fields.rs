@@ -11,14 +11,9 @@ use serde_json::Value;
 
 use crate::atom::file_pointer::LASTDB_FILE_KEY;
 use crate::schema::types::Schema;
-use crate::sharing::delivery_wire::LEGACY_FILE_KEY;
 
 /// The file value fields that a Search inbox batch keeps.
 const SEARCH_FILE_FIELDS: [&str; 2] = ["name", "media_type"];
-
-/// Legacy bare blob reference (`{"$blob_ref": "sha256:…"}`) that
-/// [`crate::atom::file_pointer::blob_ref_from_atom_value`] still reads.
-const LEGACY_BLOB_REF_KEY: &str = "$blob_ref";
 
 /// Fields eligible for Search inbox delivery for this schema.
 ///
@@ -69,13 +64,11 @@ pub(crate) fn inbox_fields(
 }
 
 /// Copy of one field value without file access data: at any depth, a
-/// `$lastdb_file` pointer or a legacy `$file` value keeps only its `name` and
-/// `media_type`, and a legacy `$blob_ref` is removed.
+/// `$lastdb_file` pointer keeps only its `name` and `media_type`.
 ///
-/// Removing only the `dek` is not enough. A convergent-v1 key derives from
-/// the plaintext digest, which `blob_ref`, `file_hash`, and `$blob_ref` carry,
-/// and a legacy `$file` carries the file bytes in `content_b64`. The
-/// thumbnail goes too.
+/// Removing only the `dek` is not enough. `file_hash` is the plaintext
+/// digest, which confirms the file content, and `blob_ref` names the stored
+/// object. The thumbnail goes too.
 pub(crate) fn inbox_value(value: &Value) -> Value {
     let mut value = value.clone();
     strip_file_access(&mut value);
@@ -85,10 +78,9 @@ pub(crate) fn inbox_value(value: &Value) -> Value {
 fn strip_file_access(value: &mut Value) {
     match value {
         Value::Object(map) => {
-            map.remove(LEGACY_BLOB_REF_KEY);
             for (key, child) in map.iter_mut() {
                 match child {
-                    Value::Object(file) if key == LASTDB_FILE_KEY || key == LEGACY_FILE_KEY => {
+                    Value::Object(file) if key == LASTDB_FILE_KEY => {
                         file.retain(|field, _| SEARCH_FILE_FIELDS.contains(&field.as_str()));
                     }
                     _ => strip_file_access(child),

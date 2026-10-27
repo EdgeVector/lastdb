@@ -248,9 +248,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         }
         DataRoute::MoleculeHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::AtomContent => OpKind::Atom,
-        DataRoute::DeliverSnapshot | DataRoute::DeliverList | DataRoute::DeliverReject => {
-            OpKind::Deliver
-        }
+        DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.
         DataRoute::LocalWatch => OpKind::LocalWatch,

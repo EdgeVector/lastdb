@@ -76,10 +76,9 @@ Both paths use `search_index/inbox_fields.rs`. A batch carries only the
 searchable fields: a field with the `word` classification and no `secret`,
 `no_index`, or `no-index` classification. A schema with no field
 classifications has no allowlist, so its batches carry every field. A batch
-carries no file key: a `$lastdb_file` pointer or a legacy `$file` value keeps
-only `name` and `media_type`, and a legacy `$blob_ref` goes. The `dek`,
-`blob_ref`, `file_hash`, the thumbnail, and `content_b64` go, because a
-convergent-v1 key derives from the plaintext hash. A batch file stays on disk
+carries no file key: a `$lastdb_file` pointer keeps only `name` and
+`media_type`. The `dek`, `blob_ref`, `file_hash`, and the thumbnail go,
+because the plaintext hash confirms the file content. A batch file stays on disk
 until a reader deletes it (for example `lastseek drain --consume`). Inbox files
 from before PR 515, and the text that the Search app indexed from them, keep
 their old contents.

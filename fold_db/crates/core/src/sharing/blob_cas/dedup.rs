@@ -15,10 +15,7 @@
 //!   prepared envelope. A damaged row is repaired by the next put of its bytes.
 //! - **An intact row:** write no second copy.
 //!
-//! "Intact" covers both row formats. A sealed row must open under the DEK. A
-//! legacy plain row (written by the photo migration, which has DEK-less
-//! readers) must hash to its key. A plain row stays plain: sealing it here would
-//! make `get_blob_bytes_in_ops` refuse it.
+//! "Intact" means the sealed row opens under the DEK and matches its key.
 //!
 //! In every case the put also registers the upload with the blob counter, in the
 //! same native write request as the row. A blob that no atom names yet starts
@@ -38,9 +35,7 @@ use super::{decode_blob_bytes_with_dek, is_local_cas_sealed, namespace, ContentA
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
 use crate::schema::SchemaError;
-use crate::sharing::delivery_wire::{
-    content_addressed_blob_from_envelope, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
-};
+use crate::sharing::delivery_wire::{content_addressed_blob_from_envelope, FileBlobAccess};
 use crate::sharing::file_blob_seal::file_blob_storage_hash;
 use crate::storage::{KvStore, StorageError};
 use chrono::Utc;
@@ -68,7 +63,7 @@ enum Existing {
     Absent,
     /// A row is there but it does not open, or it does not match its key.
     Unusable,
-    /// A row that opens (sealed) or hashes (plain) to its key.
+    /// A sealed row that opens and matches its key.
     Intact,
 }
 
@@ -86,11 +81,7 @@ pub async fn put_blob_sealed_with_access_dedup_in_ops(
     // earlier accepted rows, so a pending put cannot look absent or stale.
     crate::storage::disk_pack::transaction::background_scope(runtime, async {
         let blob_ref = &access.blob_ref;
-        let stored_hash = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
-            file_blob_storage_hash(blob_ref)?
-        } else {
-            &access.file_hash
-        };
+        let stored_hash = file_blob_storage_hash(blob_ref)?;
         let _target_gate = ops
             .atoms()
             .lock_liveness_blobs(std::slice::from_ref(blob_ref))
@@ -192,15 +183,13 @@ async fn inspect_existing(store: &Arc<dyn KvStore>, wanted: &Wanted<'_>) -> Exis
         return Existing::Unusable;
     };
     drop(bytes);
-    // A plain row has no cipher suite. A row with a suite this binary does not
-    // know cannot be opened, so it does not count.
-    let format_known = row.local_cipher_suite.is_none() || is_local_cas_sealed(&row);
-    let same_blob = format_known
+    // A row without the sealed suite cannot be opened, so it does not count.
+    let same_blob = is_local_cas_sealed(&row)
         && row.blob_ref == wanted.blob_ref
         && row.content_sha256 == wanted.content_sha256
         && row.size == wanted.plain_len;
-    // Opening checks the AEAD tag (sealed rows) and the plaintext hash against
-    // the row, so a row that passes holds exactly these bytes.
+    // Opening checks the AEAD tag and the ciphertext identity against the
+    // row, so a row that passes holds exactly these bytes.
     let opens = same_blob
         && decode_blob_bytes_with_dek(&row, wanted.dek_hex)
             .is_ok_and(|raw| raw.len() as u64 == wanted.plain_len);

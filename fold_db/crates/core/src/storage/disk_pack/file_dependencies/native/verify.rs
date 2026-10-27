@@ -30,8 +30,6 @@ pub(super) fn verify(
         raw.read_exact(&mut prefix)?;
         raw.rewind()?;
         let wrapped = crate::crypto::at_rest::is_sealed_at_rest(&prefix);
-        let account_v2 =
-            dependency.encryption_suite() == crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE;
         let json = if wrapped {
             let mut json = scratch::Scratch::create(&json_path, policy)?;
             let opened = open_at_rest_stream(account_key, &mut raw, &mut json)
@@ -41,9 +39,6 @@ pub(super) fn verify(
             }
             json.finish()?
         } else {
-            if !account_v2 {
-                return Err(invalid("legacy native CAS requires account encryption"));
-            }
             verify_plain_row(&mut raw, &proof)?;
             raw
         };
@@ -60,12 +55,10 @@ pub(super) fn verify(
             .into_inner()
             .map_err(|_| invalid("native CAS inner output"))?
             .finish()?;
-        if account_v2 {
-            inner.read_exact(&mut prefix)?;
-            inner.rewind()?;
-            if &prefix != b"ENC:" {
-                return Err(invalid("account-v2 native CAS requires ENC text"));
-            }
+        inner.read_exact(&mut prefix)?;
+        inner.rewind()?;
+        if &prefix != b"ENC:" {
+            return Err(invalid("account-v2 native CAS requires ENC text"));
         }
         let key = zeroize::Zeroizing::new(
             crate::hex::hex_decode_array::<32>(&dependency.access().dek)

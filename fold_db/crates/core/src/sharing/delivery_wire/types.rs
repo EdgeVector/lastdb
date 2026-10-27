@@ -12,9 +12,9 @@ pub struct LastDbSlicePayload {
     pub atoms: Vec<ContentAddressedAtom>,
     /// First-class binary content-addressed files (photos, PDFs, …).
     ///
-    /// Optional for back-compat with payloads that only carried JSON atoms.
-    /// When present, file-bearing fields in `atoms[]` should reference these
-    /// via `$lastdb_file.blob_ref` (see [`lastdb_file_pointer`]).
+    /// Empty when the slice has no file field. File-bearing fields in
+    /// `atoms[]` reference these via `$lastdb_file.blob_ref` (see
+    /// [`super::lastdb_file_pointer_with_access_and_thumbnail`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blobs: Vec<ContentAddressedBlob>,
 }
@@ -72,10 +72,11 @@ pub struct ContentAddressedAtom {
 /// before that rule can still hold a copy of the pointer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAddressedBlob {
-    /// `sha256:<hex>` of the ciphertext (v2) or plaintext (older suites).
+    /// `sha256:<hex>` of the ciphertext. A delivery blob without `access`
+    /// names the plaintext instead.
     pub blob_ref: String,
-    /// Local v2 CAS rows store the ciphertext digest here, never plaintext SHA.
-    /// Plain delivery blobs and older local rows retain their plaintext digest.
+    /// Local CAS rows store the ciphertext digest here, never plaintext SHA.
+    /// A delivery blob stores its plaintext digest.
     pub content_sha256: String,
     /// Standard base64 of the raw file bytes, **or** (when
     /// `local_cipher_suite` is set) the UTF-8 `ENC:…` ciphertext under the
@@ -106,8 +107,8 @@ pub struct ContentAddressedBlob {
 
 /// Shareable metadata for opening one content-addressed encrypted file blob.
 ///
-/// `file_hash` is the sha256 hex of the plaintext bytes. New `blob_ref`s name
-/// ciphertext instead. `dek` is the 32-byte per-blob key, hex
+/// `file_hash` is the sha256 hex of the plaintext bytes. `blob_ref` names the
+/// ciphertext. `dek` is the 32-byte per-blob key, hex
 /// encoded. Slices carry this alongside file pointers so recipients can open
 /// the same remote CAS object without re-encrypting or re-uploading it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -134,7 +135,7 @@ pub struct FileThumbnailAccess {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileThumbnailRef {
     pub blob_ref: String,
-    /// Plaintext digest, required for ciphertext-addressed derivatives.
+    /// Plaintext digest. A thumbnail reference without it fails validation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
     pub tier: String,
@@ -147,19 +148,13 @@ pub struct FileThumbnailRef {
 }
 
 impl FileThumbnailRef {
-    /// Normalize old and new thumbnail pointers without exposing their key.
+    /// The thumbnail's file access record, without exposing its key.
     pub fn file_access(&self) -> Result<FileBlobAccess, crate::error::FoldDbError> {
-        let file_hash = match &self.file_hash {
-            Some(hash) => hash.clone(),
-            None if self.access.cipher_suite != super::FILE_BLOB_CIPHER_SUITE => {
-                crate::sharing::file_blob_seal::file_blob_storage_hash(&self.blob_ref)?.to_owned()
-            }
-            None => {
-                return Err(crate::error::FoldDbError::SecurityError(
-                    "ciphertext-addressed thumbnail requires its plaintext digest".into(),
-                ));
-            }
-        };
+        let file_hash = self.file_hash.clone().ok_or_else(|| {
+            crate::error::FoldDbError::SecurityError(
+                "ciphertext-addressed thumbnail requires its plaintext digest".into(),
+            )
+        })?;
         let access = FileBlobAccess {
             blob_ref: self.blob_ref.clone(),
             file_hash,
@@ -189,11 +184,4 @@ pub struct JweEnvelope {
     pub iv: String,
     pub ciphertext: String,
     pub tag: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExtractedFile {
-    pub bytes: Vec<u8>,
-    pub name: Option<String>,
-    pub media_type: Option<String>,
 }
