@@ -85,14 +85,14 @@ pub(super) enum Command {
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does
     /// not; the first human line is then `lastdbd: not reachable — <reason>`.
     /// `--json` adds `"reachable": false` and the reason, and also exits 1.
-    /// A reachable-but-degraded node (QoS, sync_failing) still exits 0.
+    /// A reachable-but-degraded node (QoS, backup) still exits 0.
     ///
     /// Human lines by default. Pass `--json` for a machine-readable plane map
     /// (ideal storage roles + bytes) plus live dual-read counters when the
     /// daemon is up. Key counts are intentionally omitted — use
     /// `lastdb db inventory` for scanned key totals.
     ///
-    /// Live `/api/status` is the **cheap health** path: process vitals, sync,
+    /// Live `/api/status` is the **cheap health** path: process vitals,
     /// backup, QoS, and request-ops *scalars* only. The forensic request-ops
     /// ring (256 recent samples + rankings) is opt-in via `lastdb ops` or
     /// `GET /api/status?recent=1`.

@@ -9,7 +9,7 @@
 //! For a query it is admission wait, parse, schema resolve, the index
 //! `count`, row `hydrate`, and conflict `annotate`. For status it is the
 //! snapshot components that can otherwise hide synchronous ops-surface work:
-//! sync health, backup progress, durability marker evaluation, data-dir sizing,
+//! backup progress, durability marker evaluation, data-dir sizing,
 //! and request-ops snapshot copying.
 //! Those phases are measured in three different
 //! crates (`lastdb_node` parses, `lastdb_host` resolves/validates/admits,

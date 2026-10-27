@@ -96,7 +96,7 @@ pub(super) fn self_metric_schema() -> Result<DeclarativeSchemaDefinition, String
     );
     schema.descriptive_name = Some("LastDBD Self Metric Sample".to_string());
     schema.purpose_statement =
-        Some("Bounded lastdbd process, disk, uptime, sampler, and cloud-sync vitals.".to_string());
+        Some("Bounded lastdbd process, disk, uptime, sampler, and backup vitals.".to_string());
     schema.owner_app_id = Some(TELEMETRY_NAMESPACE.to_string());
     schema.compute_identity_hash();
     schema

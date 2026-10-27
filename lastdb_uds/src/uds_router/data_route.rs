@@ -91,7 +91,7 @@ pub enum DataRoute {
     /// **OWNER socket only**.
     DropSchema,
     /// `GET /api/status` — stateful daemon status: uptime, sampler, process
-    /// vitals, disk usage, and cloud-sync health.
+    /// vitals, disk usage, and backup health.
     ///
     /// Default response is the **cheap health** picture (request-ops scalars
     /// only). Pass `?recent=1` or `?forensics=1` for the full forensic
