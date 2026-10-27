@@ -11,7 +11,7 @@ Use no paid larger runner or self-hosted runner. All builds and product checks r
 The targets are aarch64-apple-darwin and x86_64-unknown-linux-gnu. Each archive contains a matched lastdb CLI and lastdbd daemon.
 The tag is **nightly-YYYYMMDD-SHA9**. The binary version is **0.1.0-nightly.YYYYMMDD.gSHA9**.
 The 0.1.0 base comes from the workspace package version at this process's initial source review.
-The planner can skip an unchanged source commit. A force option can request another candidate where the immutable tag permits it.
+The publication preflight skips an unchanged source commit after it verifies the existing release. A changed source receives a new candidate.
 
 Each published tag and its asset bytes are immutable. A rerun must verify an existing release or fail; it must not replace its assets.
 The release is a prerelease and sets GitHub's latest flag to false. It does not move next, stable, a Homebrew formula, or a tap.
@@ -49,7 +49,7 @@ The implementation files have separate roles:
 | File | Role |
 | --- | --- |
 | [.github/workflows/nightly-release.yml](../.github/workflows/nightly-release.yml) | Schedule, target jobs, gates, and publication order. |
-| [scripts/release/nightly_plan.py](../scripts/release/nightly_plan.py) | Exact source, date, version, tag, and duplicate decision. |
+| [scripts/release/nightly_plan.py](../scripts/release/nightly_plan.py) | Exact source, date, version, tag, and source gates. |
 | [scripts/release/nightly_package.py](../scripts/release/nightly_package.py) | Paired archives, hashes, and source manifests. |
 | [scripts/release/nightly_probe.py](../scripts/release/nightly_probe.py) | Fresh-home product checks on the candidate. |
 | [scripts/release/nightly_publish.py](../scripts/release/nightly_publish.py) | Immutable GitHub publication and uploaded-asset checks. |
