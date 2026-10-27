@@ -51,8 +51,11 @@ A private write queue retains prepared bytes and resource owners until completio
 Ordinary reads cannot inspect that queue. Private write preparation can inspect its ordered pending changes.
 The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and merge handoff.
 `POST /api/db/flush` on the owner socket waits until every earlier accepted local write is durable on disk. It takes an empty body or `{}` and does no cloud work.
-`LASTDB_DISK_CAP_BYTES` caps the file bytes of the main run home (`disk-run`). It has no default: unset means no cap, and each commit then checks only the filesystem free space.
-A value that is not a positive byte count stops the node open. A commit that would pass the cap fails with a no-space error.
+`LASTDB_DISK_CAP_BYTES` caps the file bytes of the main run home (`disk-run`). It has no default, and an unset value means no cap.
+A value that is not a positive byte count stops the node open.
+The node checks space when it admits a write. The filesystem must keep 128 MiB of reserve after the batch.
+With a cap, the home bytes, the batch, and 64 MiB of replacement reserve must also stay within the cap.
+A refused write gets a no-space error alone. It does not fail a commit.
 
 ## Home fence
 

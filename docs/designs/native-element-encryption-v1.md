@@ -76,20 +76,21 @@ The key derivation uses the original file hash.
 
 ## Old-reader boundary
 
-The logical marker `layout:v3:keys` uses direct ASCII value `6`.
+The logical marker `layout:v3:keys` uses direct ASCII value `6`, or `6;delete-replay-cutoff=v1` after a delete-replay cutoff.
+A home with typed ranges uses `7;typed-ranges=v1`.
 The node format marker uses `format=3`, or `format=4` for a home with typed ranges.
 The creation-intent marker names the third current-key initialization protocol.
 Normal startup rejects earlier node markers before it opens the physical store.
-A direct physical logical constructor also requires marker `6`.
+A direct physical logical constructor also requires one of these markers.
 Startup does not rewrite an older home.
 The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
 This change does not open or change a primary home.
 
-Native restore requires marker `6` and the explicit encrypted account-key proof.
+Native restore requires the marker for its node profile and the explicit encrypted account-key proof.
 It checks both before destination publication.
 Inactive restored-home validation uses the same two-key check.
 An existing home with a missing proof refuses startup. Fresh creation writes the proof and marker in one native transaction.
-The atom and file readers still authenticate their existing encrypted content.
+The file readers still authenticate their existing encrypted content. A disk format v2 atom row has no content seal.
 The metadata and file-dependency decoders read the direct control records.
 
 The run-file format and cloud transport do not change.

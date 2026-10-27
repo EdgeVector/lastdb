@@ -55,7 +55,7 @@ pub struct DiskReadReceipt {
     pub decode_nanos: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
-    /// Sum of status and directory enumeration durations.
+    /// Sum of explicit file status durations.
     pub metadata_nanos: u64,
 }
 
