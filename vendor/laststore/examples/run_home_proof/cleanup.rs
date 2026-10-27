@@ -73,7 +73,9 @@ fn drain(home: &RunHome) -> Result<usize> {
 
 fn small_delete(scratch: &Path, key: &[u8; 32]) -> Result<String> {
     let dir = scratch.join("cleanup-small");
-    let (home, mut model) = seed(&dir, key, 512, 256)?;
+    // Keep this existing explicit-cleanup operation below the 64 KiB stale
+    // floor. Larger deleted bodies now compact through the automatic path.
+    let (home, mut model) = seed(&dir, key, 512, 32)?;
     let before = model.clone();
     let mut held = home.read(budget());
     delete(&home, &mut model, 256)?;
