@@ -1,7 +1,7 @@
 //! A node home in disk format v2: the node marker and two run homes.
 //!
 //! ```text
-//! <node>/laststore-pack-node-v1   "format=3\nhome=disk-run\ncas=disk-cas\n"
+//! <node>/laststore-pack-node-v1   typed format 4, or explicit legacy format 3
 //! <node>/disk-run/                the run home for every collection except CAS
 //! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
 //! ```
@@ -14,15 +14,15 @@
 //! one on request. Both need the node encryption key. A home in any other
 //! format is refused (see `not_v2`). The run homes are complete before the
 //! marker appears, so a crash during creation leaves the creation intent
-//! without a marker. The
-//! runtime opens only after the marker, so that home holds no data: the next
-//! open removes the partial run homes and creates the home again. A lock on
+//! without a marker. The runtime opens only after the marker, so that home
+//! holds no application records: the next open removes the partial run homes
+//! and creates the home again. A lock on
 //! the node folder serializes creators, and a creator holds it until its
 //! runtime is open, so the partial state of a live creator is never removed.
 //!
-//! A new home holds an intent file until the node writes its key-format
-//! proofs. Until then the runtime admits only that first batch;
-//! a crash before it leaves the intent, and the next open retries it.
+//! A new typed home commits its key-format and account proofs before the
+//! node marker appears. Its intent remains until logical construction checks
+//! them. Explicit legacy creation retains its original first-batch fence.
 //!
 //! Each run home key derives from the node encryption key with its own label
 //! and is never written to a file.
@@ -30,6 +30,8 @@
 use super::*;
 use laststore::disk_run::home::RunHome;
 use std::io::Write;
+
+mod creation;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\ncas=disk-cas\n";
 /// The marker of a v2 home from before the CAS run home. No such home has
@@ -84,7 +86,7 @@ pub(super) fn creation_stopped(path: &Path) -> StorageResult<bool> {
 
 /// Remove what a creation that stopped before its node marker left: the run
 /// homes, their staging folders, and the staged marker. None of them holds
-/// data. The caller holds the creation lock. Another entry stops the removal
+/// application records. The caller holds the creation lock. Another entry stops the removal
 /// before it starts, and nothing is removed.
 fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
     let staging = |name: &str, home: &str| {
@@ -185,14 +187,16 @@ impl PackNamespacedStore {
             }
             drop(std::fs::File::create(path.join(INTENT))?);
             folder.sync_all()?;
-            drop(RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
+            let main = RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?;
             drop(RunHome::create(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
+            let marker = creation::initialize(&main, node_key)?;
+            drop(main);
             let staged = path.join(STAGED_MARKER);
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
-            file.write_all(RUN_NODE_BYTES)?;
+            file.write_all(marker)?;
             file.sync_all()?;
             std::fs::rename(&staged, path.join(NODE_MARKER))?;
             folder.sync_all()?;

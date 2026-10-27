@@ -1,8 +1,31 @@
 # Typed range field contract
 
-Status: the runtime, separate-target converter, paired cloud adapter, and explicit CI comparison are in review.
-Task-owned development homes use the typed format through product commands.
-The primary and fresh-home default retain the legacy format. Primary promotion remains separate.
+Status: the runtime, converter, cloud adapter, and mixed-read fix are merged.
+New homes select the typed format by default. Existing homes keep their recorded format.
+Primary activation remains a separate action.
+
+## New home creation
+
+A new home uses blinded hashes and typed ordered ranges inside the existing encrypted V2 blocks.
+Each range field needs a declared supported scalar type. An unknown type receives a refusal.
+Explicit `LASTDB_HASH_KEY_ENCODING=plain` or `LASTDB_RANGE_KEY_ENCODING=ope_v1` selects legacy creation for compatibility.
+Those settings never convert an existing home. Existing typed homes refuse incompatible settings.
+
+The creator holds the node directory lock and creates both native homes.
+It commits logical format 7 and the account-key proof together before it publishes node format 4.
+The existing block encryption protects both records.
+The creation intent stays until logical construction checks the proofs.
+Only namespace registration can enter a typed home while that fence remains.
+
+A crash before the node marker leaves creation state without application records.
+The next creator can remove that state under the directory lock and retry.
+A crash after the marker retains the complete authenticated proof batch.
+Reopen verifies that batch before any writer cleanup, then completes the creation fence.
+Missing, partial, mismatched, and wrong-key proofs receive a refusal.
+The converter intent still requires its explicit offline resume.
+
+Existing homes keep their original marker and key bytes, including a legacy creation that still needs its first proof batch.
+This change does not select or upgrade the primary.
 
 ## Current state
 

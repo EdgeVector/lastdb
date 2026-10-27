@@ -3,12 +3,14 @@
 //! The atom counter makes atom bodies the only authority for atom references,
 //! and the molecule counters and the blob counters do the same for molecules and
 //! for local file blobs. A new home holds no reference of any kind, so no
-//! completeness proof is stored and the format marker is the only key written.
+//! reference-completeness proof is needed. The format and account-key proofs
+//! authorize the new home.
 //! The storage layer refuses earlier physical layouts. A native home also needs
 //! the current logical identity marker before it can serve. A home from a build
 //! that kept blob reference edges has the key format `3`: it has no blob
 //! counters, so this build refuses it and asks for a new empty home.
-//! Format `6` wraps only local CAS records. An atom row is plain JSON, and the
+//! Format `7;typed-ranges=v1` selects typed ranges for new native homes.
+//! Legacy format `6` wraps only local CAS records. An atom row is plain JSON, and the
 //! block encryption of each run file protects it at rest. Tips and control
 //! values have no outer envelope. Startup never rewrites an earlier home.
 
@@ -23,8 +25,9 @@ pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
     value == KEY_FORMAT || value == super::delete_replay::FENCED_KEY_FORMAT
 }
 
-/// The backend permits these exact keys together while current creation is
-/// pending. No ordinary source record can enter that home before this boundary.
+/// Legacy creation permits these exact keys together in its first proof batch.
+/// Typed creation commits its format and account proof before its node marker.
+/// Neither path permits ordinary source records before logical admission.
 pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[AtomStore::CURRENT_KEY_FORMAT_KEY];
 
 impl AtomStore {
