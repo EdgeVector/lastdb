@@ -191,7 +191,7 @@ A zero historical graph budget does not mean native memory is unbounded.
 The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
 The warm set byte limit (`LASTDB_CORE_WARM_BYTES`) is the one conservative process-reserve input.
-They do not size a native serving graph or a second logical cache.
+It does not size a native serving graph or a second logical cache.
 `LASTDB_RESIDENT_MAX_DEFERRED_BYTES` controls the deferred write-body allowance.
 The native metadata, complete-key, and logical path limits remain separate.
 None of these counters defines a whole-process memory maximum.
