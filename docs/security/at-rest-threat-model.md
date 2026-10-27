@@ -143,13 +143,16 @@ Out of scope (separate workstreams):
 
 ## 2. Assets
 
-**V2 note (2026-10-27):** This table is the 2026-06 inventory. The Last Store
-collections and the `fold_db_node/` paths in it do not exist now. In disk
-format v2, the `cas_blobs` collection is in the CAS run home (`disk-cas`),
-and each other collection is in the main run home (`disk-run`). Each block
-of a run file uses AES-256-GCM.
+**V2 note (2026-10-27):** Most locations in this table come from the
+LastStore segment engine (2026-07). In disk format v2, the `cas_blobs`
+collection is in the CAS run home (`disk-cas`), and each other collection,
+for example `atoms`, `metadata`, `schemas` or `lineage_forward`, is in the
+main run home (`disk-run`). No collection has its own directory, and each
+block of a run file uses AES-256-GCM. The `native_index`, `node_identity`,
+`node_config` and consent collections and the `fold_db_node/` paths do not
+exist now.
 
-| Asset | Where it lived (2026-06) | Sensitivity |
+| Asset | Where it lives (see the V2 note) | Sensitivity |
 |---|---|---|
 | Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
 | Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
@@ -307,11 +310,14 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
 
 ### 4.5 LastStore catalog plaintext — measured, and why the recorded reason was wrong (2026-07-25)
 
-**V2 note (2026-10-27):** This section is a record of the LastStore engine,
-which disk format v1 used and which went on 2026-10-26. Disk format v2 has
-no `LASTSTORE_PLAINTEXT_NAMESPACES` and no plain catalog collection: each
-block of a run file, catalogs included, uses AES-256-GCM. The chunk backup
-plane is also gone; the native cloud backup copies the encrypted run files.
+**V2 note (2026-10-27):** This section is a record of the LastStore segment
+engine (`laststore-layout-v1`, `.seg` files). Decision D1 (2026-10-26)
+deleted it together with the disk format v1 module. Disk format v2 has no
+`LASTSTORE_PLAINTEXT_NAMESPACES`. Catalog values still carry no value
+envelope, but they are in the run files, and each block of a run file uses
+AES-256-GCM. The chunk backup plane is also gone. When the V2 byte backup is
+on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, default off), it copies the encrypted
+run files.
 
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
 current Mini storage map. The shipped backend is
@@ -763,9 +769,11 @@ long-lived node safe (no data loss, no full re-index):
 ## 8. Non-goals
 
 - Encrypting local-store key names (accepted leak for now; blind-token
-  hardening noted in 5.3).
-- Replacing Last Store with an encrypted storage engine (option d). Disk
-  format v2 later did this: its run files encrypt each block.
+  hardening noted in 5.3). Disk format v2 keeps the keys inside its
+  encrypted run file blocks.
+- Replacing the LastStore segment engine with an encrypted storage engine
+  (option d). Disk format v2 (`laststore::disk_run`) later did this: its
+  run files encrypt each block.
 - Defending against root/kernel compromise or live-memory attackers.
 - Runtime read-access control between apps (app-isolation workstream).
 - Any prod deploy or migration of the port-9001 brain as part of these
