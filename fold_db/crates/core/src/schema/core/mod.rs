@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::schema::field_mapper::FieldMapperService;
 use crate::schema::types::Schema;
 use crate::schema::SchemaState;
 
 mod cache;
 mod declare;
+mod field_mapping;
 mod load;
 mod locks;
 mod read_snapshot;
@@ -44,8 +44,6 @@ pub struct SchemaCore {
     retired_name_claims: Arc<Mutex<HashSet<String>>>,
     /// Unified database operations with storage abstraction
     db_ops: std::sync::Arc<crate::db_operations::DbOperations>,
-    /// Domain service that applies FieldMapper entries during schema expansion.
-    field_mapper: FieldMapperService,
     /// Set once the initial store → memory catalog load finishes.
     ///
     /// `GET /api/schemas` must not answer `{count:0, ok:true}` while this is

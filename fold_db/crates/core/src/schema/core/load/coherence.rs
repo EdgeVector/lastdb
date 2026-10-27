@@ -37,7 +37,15 @@ impl SchemaCore {
             return Ok(());
         }
 
-        let bindings = self.collect_coherence_bindings(schema_name, &loaded)?;
+        let bindings = {
+            let schemas = read_map(&self.schemas, "schemas")?;
+            let staged = self.staged_schemas()?;
+            let committed = schemas
+                .iter()
+                .filter(|(name, _)| !staged.iter().any(|(staged_name, _)| staged_name == *name));
+            let staged = staged.iter().map(|(name, cached)| (name, &cached.schema));
+            coherence_bindings(schema_name, &loaded, committed.chain(staged))
+        };
         if bindings.is_empty() {
             return Ok(());
         }
@@ -51,7 +59,7 @@ impl SchemaCore {
             return Ok(());
         }
 
-        let failed = self
+        let outcome = self
             .bind_coherence_proteins(schema_name, &loaded, &target_layout, &bindings)
             .await;
 
@@ -59,81 +67,31 @@ impl SchemaCore {
         // and recording it would turn one transient store failure into a
         // permanently unbound field for the life of the process — the pass would
         // never look at it again.
-        if failed == 0 {
+        if outcome.bound > 0 {
+            tracing::info!(
+                target: "field_hash_coherence",
+                schema = %schema_name,
+                fields = outcome.bound,
+                "bound multi-key sibling fields into proteins"
+            );
+        }
+        if outcome.failed == 0 {
             self.publish_coherence_memo(schema_name, bindings)?;
         }
 
         Ok(())
     }
 
-    // (own field, field_hash, peer molecule, peer layout) for every sibling
-    // match. The peer's local field name may differ from ours — matching is
-    // on identity, not on the name — so each side's molecule is looked up
-    // under its OWN name. Using one name for both is what would break the
-    // rename case.
-    //
-    // This scan is in-memory and cheap even at a thousand-plus schemas
-    // (measured: 3.8ms for a no-sibling schema against a 1166-schema
-    // catalog on the primary, 2026-08-17). It is the DURABLE step below
-    // that must not repeat, so the scan stays unconditional and its result
-    // is what the memo compares.
-    fn collect_coherence_bindings(
-        &self,
-        schema_name: &str,
-        loaded: &Schema,
-    ) -> Result<Vec<CoherenceBinding>, SchemaError> {
-        let schemas = read_map(&self.schemas, "schemas")?;
-        let staged = self.staged_schemas()?;
-        let mut out = Vec::new();
-        let committed = schemas
-            .iter()
-            .filter(|(name, _)| !staged.iter().any(|(staged_name, _)| staged_name == *name));
-        let staged = staged.iter().map(|(name, cached)| (name, &cached.schema));
-        for (peer_name, peer) in committed.chain(staged) {
-            if peer_name == schema_name || !are_multi_key_siblings(peer, loaded) {
-                continue;
-            }
-            let peer_layout = KeyLayoutFingerprint::from_schema(peer);
-            // `peer` is the `a` side, `loaded` the `b` side.
-            for shared in shared_field_identities(peer, loaded) {
-                let peer_mol = peer
-                    .field_molecule_uuids
-                    .as_ref()
-                    .and_then(|m| m.get(&shared.a_field))
-                    .cloned()
-                    .unwrap_or_else(|| deterministic_molecule_uuid(peer_name, &shared.a_field));
-                out.push(CoherenceBinding {
-                    field: shared.b_field,
-                    field_hash: shared.field_hash,
-                    peer_molecule: peer_mol,
-                    peer_layout: peer_layout.clone(),
-                });
-            }
-        }
-        // Peer iteration is over a HashMap, so the order varies per call.
-        // Sort before comparing, or an unchanged binding set would compare
-        // unequal at random and the memo would never hit.
-        out.sort_by(|x, y| {
-            (&x.field_hash, &x.peer_molecule, &x.field).cmp(&(
-                &y.field_hash,
-                &y.peer_molecule,
-                &y.field,
-            ))
-        });
-        Ok(out)
-    }
-
-    /// Bind each sibling field into its protein; returns the failure count.
+    /// Execute bindings in order. Failures remain nonfatal and prevent memoization.
     async fn bind_coherence_proteins(
         &self,
         schema_name: &str,
         loaded: &Schema,
         target_layout: &KeyLayoutFingerprint,
         bindings: &[CoherenceBinding],
-    ) -> usize {
+    ) -> BindingOutcome {
         let store = self.db_ops.atoms();
-        let mut bound = 0usize;
-        let mut failed = 0usize;
+        let mut outcome = BindingOutcome::default();
         for binding in bindings {
             let own_mol = loaded
                 .field_molecule_uuids
@@ -152,10 +110,10 @@ impl SchemaCore {
             )
             .await
             {
-                Ok(Some(_)) => bound += 1,
+                Ok(Some(_)) => outcome.bound += 1,
                 Ok(None) => {}
                 Err(e) => {
-                    failed += 1;
+                    outcome.failed += 1;
                     tracing::warn!(
                         target: "field_hash_coherence",
                         schema = %schema_name,
@@ -166,14 +124,51 @@ impl SchemaCore {
                 }
             }
         }
-        if bound > 0 {
-            tracing::info!(
-                target: "field_hash_coherence",
-                schema = %schema_name,
-                fields = bound,
-                "bound multi-key sibling fields into proteins"
-            );
-        }
-        failed
+        outcome
     }
+}
+
+#[derive(Default)]
+struct BindingOutcome {
+    bound: usize,
+    failed: usize,
+}
+
+/// Compare borrowed peer definitions. No storage calls, locks, or whole-catalog
+/// clones. Each side uses its own field name; field identity joins renamed fields.
+fn coherence_bindings<'a>(
+    schema_name: &str,
+    loaded: &Schema,
+    peers: impl Iterator<Item = (&'a String, &'a Schema)>,
+) -> Vec<CoherenceBinding> {
+    let mut out = Vec::new();
+    for (peer_name, peer) in peers {
+        if peer_name == schema_name || !are_multi_key_siblings(peer, loaded) {
+            continue;
+        }
+        let peer_layout = KeyLayoutFingerprint::from_schema(peer);
+        for shared in shared_field_identities(peer, loaded) {
+            let peer_molecule = peer
+                .field_molecule_uuids
+                .as_ref()
+                .and_then(|m| m.get(&shared.a_field))
+                .cloned()
+                .unwrap_or_else(|| deterministic_molecule_uuid(peer_name, &shared.a_field));
+            out.push(CoherenceBinding {
+                field: shared.b_field,
+                field_hash: shared.field_hash,
+                peer_molecule,
+                peer_layout: peer_layout.clone(),
+            });
+        }
+    }
+    // Preserve the comparison and binding order, independent of cache iteration.
+    out.sort_by(|x, y| {
+        (&x.field_hash, &x.peer_molecule, &x.field).cmp(&(
+            &y.field_hash,
+            &y.peer_molecule,
+            &y.field,
+        ))
+    });
+    out
 }

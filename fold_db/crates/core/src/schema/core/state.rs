@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use super::locks::{lock_map, lock_set, read_map, write_map};
 use super::SchemaCore;
-use crate::schema::field_mapper::FieldMapperService;
 use crate::schema::types::SchemaError;
 use crate::schema::SchemaState;
 
@@ -15,14 +14,12 @@ impl SchemaCore {
         // Start not-ready so any concurrent reader during the store scan sees
         // 503 rather than empty-ok (the post-rekey hang window).
         let schemas = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let field_mapper = FieldMapperService::new(db_ops.clone(), schemas.clone());
         let schema_core = Self {
             schemas,
             schema_states: Arc::new(Mutex::new(std::collections::HashMap::new())),
             superseded_by: Arc::new(Mutex::new(std::collections::HashMap::new())),
             retired_name_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             db_ops: db_ops.clone(),
-            field_mapper,
             catalog_ready: AtomicBool::new(false),
             coherence_bound: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
