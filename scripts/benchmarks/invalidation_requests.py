@@ -38,14 +38,15 @@ def check_refusals(node, group, size, values, token):
                 "durability": "durable", "key_value": key, "fields_and_values": {}}
         result = rpc(node, "/api/mutation", body, (400,))[0]
         if "enrolled aggregate sources reject Delete and Purge" not in result["error"]:
-            raise RuntimeError("An enrolled erase failed for an unrelated reason")
+            raise RuntimeError("An enrolled erase failed for an unrelated reason: " + result["error"])
         summary(node, group, values, 1, token)
         records(node, group, values)
     body = ordinary(group, 0, values[0])
     body["fields_and_values"] = {"state": {"_fold_tombstone": {"reason": "generated refusal"}}}
     result = rpc(node, "/api/mutation", body, (400,))[0]
-    if "enrolled aggregate sources reject field tombstones" not in result["error"]:
-        raise RuntimeError("An enrolled tombstone failed for an unrelated reason")
+    # The public request gate rejects this shape before aggregate enrollment is read.
+    if "rejects the reserved tombstone value on create or update" not in result["error"]:
+        raise RuntimeError("A tombstone failed for an unrelated reason: " + result["error"])
     summary(node, group, values, 1, token)
     records(node, group, values)
     if size > 1:
@@ -55,7 +56,7 @@ def check_refusals(node, group, size, values, token):
         body = {"mutations": [ordinary(group, 0, values[0] + 1), erasure]}
         result = rpc(node, "/api/mutations/batch", body, (400,))[0]
         if "enrolled aggregate sources reject Delete and Purge" not in result["error"]:
-            raise RuntimeError("The mixed batch failed for an unrelated reason")
+            raise RuntimeError("The mixed batch failed for an unrelated reason: " + result["error"])
         summary(node, group, values, 1, token)
         records(node, group, values)
 
@@ -81,11 +82,11 @@ def cycle(node, group, size, values, old_token, timed):
     records(node, group, values, previous)
     result = timed(f"stale-finalize/{size}", "/api/aggregate/finalize", request(group, old_token), (400,))
     if "requires a durable repair grant" not in result["error"]:
-        raise RuntimeError("The invalidated target still has a different finalize authority")
+        raise RuntimeError("The invalidated target still has a different finalize authority: " + result["error"])
     summary(node, group, previous, 0, token)
     result = timed(f"stale-member-repair/{size}", "/api/aggregate/repair", request(group, token), (400,))
     if "does not match the latest source winner" not in result["error"]:
-        raise RuntimeError("Repair did not refuse the stale member winner")
+        raise RuntimeError("Repair did not refuse the stale member winner: " + result["error"])
     token = summary(node, group, previous, 0)[TOKEN]
     if not token.startswith("repair-in-progress:"):
         raise RuntimeError("The failed repair lacks its durable invalidation marker")
