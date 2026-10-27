@@ -30,9 +30,9 @@ class ObservedWorkload(Workload):
         counters = read_counters(self.node.process.pid) if before else None
         super().measure(name, *args, **kwargs)
         if before:
-            after = snapshot(self.node)
             rows = [row for client in sorted(self.captured) for row in self.captured[client]]
             coverage = capture_phases(self.node, self.output, name, len(self.metrics), rows)
+            after = snapshot(self.node)
             with gzip.open(self.output / f"{name.replace('/', '-')}-phases.jsonl.gz", "wt") as stream:
                 for row in rows:
                     stream.write(json.dumps(row) + "\n")
