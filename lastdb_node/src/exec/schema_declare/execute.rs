@@ -493,6 +493,7 @@ pub(crate) async fn retire_superseded_name_claims(
 
 pub(crate) fn reject_schema_sync_request(
     req: &UdsRequest,
+    facts: &DeclareRequestFacts,
     ctx: &AccessContext,
     host: &Host,
     route: &str,
@@ -500,32 +501,17 @@ pub(crate) fn reject_schema_sync_request(
     error: &str,
 ) -> UdsResponse {
     // A refused read-only check writes nothing, not even an audit event.
-    if raw_body_is_check_intent(&req.body) {
+    if facts.check {
         return error_response(status, error, ctx);
     }
-    let raw = serde_json::from_slice::<Value>(&req.body).unwrap_or_default();
-    let app_id = raw
-        .get("app_id")
-        .or_else(|| raw.get("namespace"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let schema = raw
-        .get("schema")
-        .and_then(|schema| schema.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
     let mut audit = SchemaSyncAuditEvent::new(
         route,
         &crate::request_telemetry::client_from_request(req),
         ctx.user_id.as_str(),
-        app_id,
-        schema,
+        &facts.app_id,
+        &facts.schema,
     );
-    audit.proposal_identity_hash = raw
-        .get("schema")
-        .and_then(|schema| schema.get("identity_hash"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    audit.proposal_identity_hash = facts.proposal_identity_hash.clone();
     audit.error = Some(error.to_string());
     if let Err(audit_error) = schema_sync_audit::append(&host.home, &audit) {
         return error_response(

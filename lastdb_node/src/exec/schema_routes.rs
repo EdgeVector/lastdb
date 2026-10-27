@@ -194,39 +194,6 @@ pub(super) fn execute_get_schema_route(
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
 }
 
-pub(super) async fn execute_declare_schema_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let body = match serde_json::from_slice::<SchemaDeclareRequest>(&req.body) {
-        Ok(body) => body,
-        Err(e) => {
-            return reject_schema_sync_request(
-                req,
-                ctx,
-                host,
-                "schemas_declare_compat",
-                400,
-                &format!("invalid /api/schemas/declare body: {e}"),
-            )
-        }
-    };
-    let declare = match normalize_direct_declare_proposal("namespace", &body.namespace, body.schema)
-    {
-        Ok(declare) => declare,
-        Err(e) => {
-            return reject_schema_sync_request(req, ctx, host, "schemas_declare_compat", 400, &e)
-        }
-    };
-    match body.intent {
-        SchemaSyncIntent::CatalogSync => {
-            execute_catalog_schema_sync(req, ctx, host, "schemas_declare_compat", declare).await
-        }
-        SchemaSyncIntent::Check => execute_catalog_schema_check(ctx, host, declare).await,
-    }
-}
-
 /// `POST /api/schemas/seed-system` — install a system-owned schema only for
 /// an explicitly isolated node.
 ///
