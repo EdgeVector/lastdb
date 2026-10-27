@@ -8,8 +8,10 @@ from workload import HASH, SCHEMA, Workload, key, read_request
 def prepare_delete(workload, logical_storage):
     target = workload.recipe["delete_target_bytes"]
     deadline = time.monotonic() + 300
-    for _ in range(512):
+    for batch in range(512):
         report = logical_storage(workload.node)
+        if batch == 0 and report["total_logical_bytes"] >= target:
+            raise ValueError("The fresh delete seed already meets or exceeds its fixed size target")
         if report["total_logical_bytes"] >= target:
             workload.delete_start_records = workload.live_records
             workload.delete_keep_records = (workload.live_records + 3) // 4

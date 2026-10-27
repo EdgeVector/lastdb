@@ -258,19 +258,23 @@ The report separates allocated space before and after compaction. These checkpoi
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the format-3 node marker of both generated homes. Since phase V3, every new home is v2, and disk format v1 is gone.
+It verifies the v2 node marker of both generated homes, including the default format-4 typed ranges.
+Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
 It uses one baseline/candidate pair on PRs and at night, with no automatic disk-size repeat.
 Reads, updates, inserts, and deletes use the same four generated fields.
-Before deletes, the driver extends the known corpus to at least **10 MiB of logical atom data on PRs** or **40 MiB nightly**.
+The delete case uses a separate fresh generated home in both profiles.
+The driver extends its seed to at least **10 MiB of logical atom data on PRs and nightly runs**.
+The seed must start below that target. The larger nightly insert corpus does not enter this case.
 It adds at most 128 records per batch and records the actual byte count. The seed has a five-minute and 512-batch bound.
 The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
 Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
 Logical atom bytes and the atom count must decrease after each delete round.
 Each delete checkpoint also records a bounded, complete inventory of current storage collections.
 The inventory follows the size sample and does not alter the measured bytes.
+The artifact retains delete-case memory samples, Search state, ownership, and cleanup records under `delete/` in each program's result directory.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
