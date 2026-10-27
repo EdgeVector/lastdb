@@ -136,8 +136,9 @@ pub const FOOTPRINT_EVICT_INEFFECTIVE_STREAK_LIMIT: u32 = 3;
 /// Minimum raw-footprint drop per warm byte freed to count as real progress.
 pub const FOOTPRINT_EVICT_MIN_RESPONSE_RATIO: f64 = 0.25;
 
-/// Measured charge → RSS ratio on the live primary (4.00 GiB charged warm set,
-/// 6.40 GiB settled RSS, 2026-07-29).
+/// Charge → RSS ratio. Measured on the live primary on 2026-07-29 under disk
+/// format v1 (4.00 GiB charged hash group warm set, 6.40 GiB settled RSS); not
+/// measured again for the warm set byte limit.
 pub const DEFAULT_RSS_MULTIPLIER: f64 = 1.6;
 
 /// A multiplier below 1.0 would claim the process uses less than it budgeted.

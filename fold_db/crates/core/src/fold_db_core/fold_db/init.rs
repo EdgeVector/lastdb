@@ -78,7 +78,7 @@ impl FoldDB {
 
         let background_flush = Self::start_background_flush(&db_ops, offline_maintenance);
 
-        Self::log_resident_policy();
+        Self::log_memory_budget();
 
         let background_protein_reaper = Self::start_protein_reaper(&db_ops, offline_maintenance);
 
