@@ -66,10 +66,14 @@ impl PackRuntime {
         (hidden_changes, key_changes): Changes<'_>,
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        if let Err(error) = commit_split(v2, operations) {
+        let mut journal = self.mutation_log.begin(v2);
+        if let Err(error) = commit_split(v2, operations, journal.as_mut()) {
             self.failed.store(true, Ordering::Release);
             *self.failed_write.lock().expect("native failed write owner") = Some(space);
             return Err(map(error));
+        }
+        if let Some(journal) = journal {
+            journal.finish(v2);
         }
         // The current roots hold this commit; a merge root holds the same data.
         let root = v2.current_root();
@@ -123,9 +127,17 @@ fn adopt(
 /// Commit one batch across the main and CAS homes in the safe order. For a
 /// CAS key named twice in the batch, the later operation wins, as in one
 /// run home commit.
-fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result<()> {
+fn commit_split(
+    v2: &V2Home,
+    operations: Vec<HomeMutation>,
+    mut journal: Option<&mut mutation_log::Recording<'_>>,
+) -> laststore::Result<()> {
     if !operations.iter().any(|op| op.collection == CAS_COLLECTION) {
-        return v2.home.commit(operations).map(drop);
+        let committed = v2.home.commit(operations)?;
+        if let Some(log) = journal.as_mut() {
+            log.retain(mutation_log::CommitRole::Main, &committed);
+        }
+        return Ok(());
     }
     let (cas, main): (Vec<_>, Vec<_>) = operations
         .into_iter()
@@ -135,16 +147,26 @@ fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result
         last.insert(op.key.clone(), op);
     }
     let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
-    for (home, batch) in [(&v2.cas, puts), (&v2.home, main)] {
+    for (home, batch, role) in [
+        (&v2.cas, puts, mutation_log::CommitRole::CasAdd),
+        (&v2.home, main, mutation_log::CommitRole::Main),
+    ] {
         if !batch.is_empty() {
-            home.commit(batch)?;
+            let committed = home.commit(batch)?;
+            if let Some(log) = journal.as_mut() {
+                log.retain(role, &committed);
+            }
         }
     }
     // The other records are durable now, so the commit has succeeded. A
     // failed CAS delete leaves files that nothing references; a poisoned
     // CAS home refuses the next CAS commit.
     if !deletes.is_empty() {
-        if let Err(error) = v2.cas.commit(deletes) {
+        if let Err(error) = v2.cas.commit(deletes).map(|committed| {
+            if let Some(log) = journal.as_mut() {
+                log.retain(mutation_log::CommitRole::CasDelete, &committed);
+            }
+        }) {
             tracing::warn!(%error, "disk run CAS delete failed after its commit; unreferenced CAS files remain");
         }
     }

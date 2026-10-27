@@ -16,6 +16,8 @@ struct Intent {
     begin: Begin,
     key_sha256: Digest,
     reference_id: uuid::Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
 pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
     runtime
@@ -91,12 +93,23 @@ pub(super) async fn prepare(
                 begin: begin.clone(),
                 key_sha256: bytes_sha256(key.as_ref()),
                 reference_id: uuid::Uuid::new_v4(),
+                journal_anchor: runtime.mutation_log.snapshot_anchor(&runtime.physical)?,
             };
             store.write("run-intent.json", &intent)?;
             intent
         };
         let root = held_root(&runtime, intent.reference_id);
         if !root.try_exists()? {
+            if let Some(anchor) = &intent.journal_anchor {
+                let actual = runtime.physical.current_root();
+                if actual.main.frontier() != anchor.frontiers.main
+                    || actual.cas.frontier() != anchor.frontiers.cas
+                {
+                    return Err(invalid(
+                        "snapshot mutation log anchor changed before capture",
+                    ));
+                }
+            }
             capture_pair(&runtime, &root)?;
         }
         drop(gate);
@@ -299,5 +312,6 @@ fn new_state(
         released: false,
         recovery: Some(recovery),
         run: Some(profile),
+        journal_anchor: intent.journal_anchor,
     })
 }

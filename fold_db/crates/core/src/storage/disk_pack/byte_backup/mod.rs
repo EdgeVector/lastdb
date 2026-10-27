@@ -56,6 +56,9 @@ struct Inner {
     _admission: super::NativeCloudWorkGuard,
 }
 impl ByteBackupCapture {
+    pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
+        Ok(self.lock()?.journal_anchor.clone())
+    }
     /// A run file read holds no lookup buffer, so every stream of the central
     /// backup allowance is available.
     pub fn recommended_parallelism(&self) -> StorageResult<usize> {

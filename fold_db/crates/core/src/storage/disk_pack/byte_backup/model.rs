@@ -34,6 +34,8 @@ pub(super) struct State {
     pub recovery: Option<RecoveryDescriptor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<super::RunBackupProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
 impl State {
     pub fn validate(&self) -> StorageResult<()> {
@@ -43,6 +45,16 @@ impl State {
             return Err(invalid("byte source stored profile phase"));
         };
         run.validate_root(&self.native_root)?;
+        if let Some(anchor) = &self.journal_anchor {
+            anchor.position()?;
+            if anchor.main_home != run.main.home_id
+                || anchor.cas_home != run.cas.home_id
+                || anchor.frontiers.main != run.main.frontier.get()
+                || anchor.frontiers.cas != run.cas.frontier.get()
+            {
+                return Err(invalid("snapshot mutation log anchor differs"));
+            }
+        }
         if self.format != 2
             || self.reference_id.is_nil()
             || !self.current_bytes.is_empty()
