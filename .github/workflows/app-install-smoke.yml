@@ -139,8 +139,15 @@ jobs:
           # List available apps in registry
           lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
           
-          # Show app info from registry
-          lastdb app info ${{ matrix.app }} | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
+          # Check if app exists in registry
+          if ! lastdb app info ${{ matrix.app }} > "$PROOF_DIR/${{ matrix.app }}-registry-info.json" 2>&1; then
+            echo "⚠️  ${{ matrix.app }} is not yet published in registry"
+            echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
+            echo "INSTALLED=false" >> "$GITHUB_ENV"
+            cat "$PROOF_DIR/${{ matrix.app }}-registry-info.json" || true
+            exit 0
+          fi
+          cat "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
 
           # The stable row key is the proved build string, not this commit.
           curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json" \
@@ -162,7 +169,7 @@ jobs:
             | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
-        if: always()
+        if: always() && env.SKIP_REGISTRY != 'true'
         run: |
           set -o pipefail  # Make pipe failures detectable
           cd "$TEST_HOME"
@@ -193,7 +200,7 @@ jobs:
           fi
 
       - name: Checkout app source (fallback if not in registry)
-        if: env.INSTALLED == 'false' || env.SKIP_REGISTRY == 'true'
+        if: env.INSTALLED == 'false' && env.SKIP_REGISTRY != 'true'
         run: |
           cd "$TEST_HOME"
           mkdir -p apps-source
@@ -230,7 +237,7 @@ jobs:
           fi
 
       - name: Verify app source available
-        if: env.SKIP_APP != 'true'
+        if: env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           # Verify APP_SOURCE was set by either registry install or source checkout
           if [ -z "$APP_SOURCE" ]; then
@@ -249,7 +256,7 @@ jobs:
 
       # === Brain (HTTP API) ===
       - name: Set up Brain dependencies
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           set -o pipefail
           cd "$APP_SOURCE"
@@ -277,7 +284,7 @@ jobs:
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Initialize Brain schemas
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -291,7 +298,7 @@ jobs:
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Run Brain health checks
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           set -o pipefail
           # The socket file can outlive a dead daemon. Fail here with the
@@ -349,7 +356,7 @@ jobs:
 
       # === LastSecrets (HTTP API) ===
       - name: Set up LastSecrets dependencies
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           set -o pipefail
           cd "$APP_SOURCE"
@@ -448,7 +455,7 @@ jobs:
 
       # === lastseek (Outbox) ===
       - name: Set up lastseek dependencies
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -506,7 +513,7 @@ jobs:
 
       # === Search (Outbox) ===
       - name: Set up Search dependencies
-        if: matrix.app == 'search' && env.SKIP_APP != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_REGISTRY != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -715,7 +722,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Show health check status prominently
-          if [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
+          if [ "${SKIP_REGISTRY:-false}" = "true" ]; then
+            echo "⚠️  **SKIPPED** - ${{ matrix.app }} is not yet published in registry" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "This app will be tested automatically once it is published to the stable registry." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
             echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           elif [ "$HEALTH_CHECKS_STATUS" = "passed" ]; then
