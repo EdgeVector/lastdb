@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""CI-only cold reads from byte-identical copies of one stopped generated seed."""
-
+"""CI-only declaration comparison with the real development Schema Service."""
 import argparse
 import gzip
 import hashlib
@@ -8,172 +7,226 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import stat
 import time
 
-from cold_layout import snapshot, stable_boundary
-from node import Node, file_hash, save
+from declaration_service import Service, build_service
+from node import Node, UnixConnection, file_hash, save
 from report import compare
-from workload import PROFILES, Workload
+from workload import describe, encoded
 
-PAIRS = 4
-CASES = {"cold-read/1", "cold-read/32"}
-COSTS = ("requested_keys", "read_operations", "file_opens", "footer_bytes", "payload_bytes",
-         "decoded_bytes", "logical_warm_hits")
-
-
-def inventory(home, physical_only=False):
-    """Hash only an owned, stopped template or a clone; never follow links."""
-    files, entries = {}, 0
-    started = time.monotonic()
-    for parent, directories, names in os.walk(home, followlinks=False):
-        for name in directories + names:
-            path = Path(parent) / name
-            entries += 1
-            if entries > 100_000 or time.monotonic() - started > 30:
-                raise RuntimeError("Generated-home inventory exceeded its bound")
-            mode = path.lstat().st_mode
-            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
-                raise RuntimeError("Generated snapshot contains a link or nonregular entry")
-            if stat.S_ISREG(mode) and (not physical_only or name == "CURRENT" or name.endswith(".ldrun")):
-                files[str(path.relative_to(home))] = {"bytes": path.stat().st_size,
-                                                       "sha256": file_hash(path)}
-    if not files or physical_only and not any(Path(p).name == "CURRENT" for p in files):
-        raise RuntimeError("The generated snapshot lacks its physical manifests")
-    return files
+PAIRS, SAMPLES = 4, 256
+APPS, COMPAT = "/api/apps/declare-schema", "/api/schemas/declare"
+DESCRIPTIONS = {"id": "a generic opaque primary identifier",
+                "category": "a category label classifying a piece of content",
+                "title": "a title or headline for a piece of content",
+                "description": "a longer textual description of an entity or piece of content"}
 
 
-def physical_state(node, expected_layout, expected_root=None):
-    state = snapshot(node)
-    root = {name: state[name] for name in ("generation", "frontier")}
-    observed = inventory(node.home, physical_only=True)
-    save(node.output / "last-physical-observation.json", {"root": root, "files": observed})
-    if observed != expected_layout:
-        raise RuntimeError("The clone's run files or CURRENT changed during the controlled boundary")
-    if expected_root is not None and root != expected_root:
-        raise RuntimeError("The clone changed its generation or write frontier")
-    return root
+def proposal(expanded=False, check=False, compat=False, ttl=None, confirmed=False):
+    fields = ["category", "id", "title"] + (["description"] if expanded else [])
+    result = {"namespace" if compat else "app_id": "declaration-benchmark",
+              "schema": {"name": "Books", "descriptive_name": "Library Book",
+                         "purpose_statement": "Records of books in a library catalog",
+                         "schema_type": "HashRange",
+                         "key": {"hash_field": "category", "range_field": "id"},
+                         "fields": fields, "field_descriptions": {f: DESCRIPTIONS[f] for f in fields}},
+              "intent": "check" if check else "catalog_sync"}
+    if ttl is not None:
+        result["retention"] = {"ttl_seconds": ttl, "confirm_expire_existing": confirmed}
+    return result
 
 
-def boot_boundary(node, seed_layout):
-    """Allow only the startup stamp append; freeze the resulting layout for timing."""
-    state = snapshot(node)
-    observed = inventory(node.home, physical_only=True)
-    removed = sorted(seed_layout.keys() - observed.keys())
-    added = {k: observed[k] for k in observed.keys() - seed_layout.keys()}
-    changed = sorted(k for k in seed_layout.keys() & observed.keys() if seed_layout[k] != observed[k])
-    root = {name: state[name] for name in ("generation", "frontier")}
-    save(node.output / "boot-delta.json", {"removed": removed, "added": added,
-                                          "changed": changed, "root": root, "files": observed})
-    # hydrate_from_snapshot writes one keep-small header to re-arm clean_stop.
-    # A small append alone does not authenticate its contents; retain this explicit
-    # residual startup difference and audit exact query work across the versions.
-    if (removed or changed != ["data/disk-run/CURRENT"] or len(added) != 1
-            or any(not re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
-                   or not 0 < v["bytes"] <= 4096 for k, v in added.items())):
-        raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
-    return root, observed
+def stable(value):
+    if isinstance(value, dict):
+        return {k: stable(v) for k, v in sorted(value.items())
+                if k not in {"user_hash", "event_id", "occurred_at", "owner_user_id"}}
+    if isinstance(value, list):
+        return [stable(v) for v in value]
+    return value
 
 
-def prepare_seed(node, output):
-    work = None
+def rpc(node, path, body, expected=200):
+    body = body if isinstance(body, bytes) else encoded(body)
+    conn = UnixConnection(node.socket)
+    started = time.perf_counter_ns()
     try:
-        node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("The shared seed must use disk format v2")
-        work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
-        work.seed()
-        save(output / "observed-stable.json", stable_boundary(node))
+        conn.request("POST", path, body, {"Content-Type": "application/json",
+                     "X-LastDB-Client": "github-declaration-benchmark"})
+        reply = conn.getresponse()
+        raw = reply.read()
+        elapsed = (time.perf_counter_ns() - started) / 1e6
+        if reply.status != expected:
+            raise RuntimeError(f"{path}: expected {expected}, got {reply.status}: {raw[:1500]!r}")
+        result = json.loads(raw)
+        if expected == 200 and result.get("ok") is not True:
+            raise RuntimeError(f"The operation lacks its ack: {raw[:1500]!r}")
+        return stable(result), elapsed, len(raw)
     finally:
-        if work:
-            work.raw.close()
-        node.stop()  # Requires the normal successful durable shutdown receipt.
-    whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
-    save(output / "inventory.json", whole)
-    save(output / "physical-inventory.json", physical)
-    return whole, physical
+        conn.close()
 
 
-def audit_samples(output):
-    samples = [json.loads(line) for line in gzip.decompress((output / "samples.jsonl.gz").read_bytes()).splitlines()]
-    if len(samples) != 512 or {r["case"] for r in samples} != CASES:
-        raise RuntimeError("The controlled cold cases have incomplete samples")
-    for case in CASES:
-        if sum(r["case"] == case for r in samples) != 256:
-            raise RuntimeError("A controlled cold case lacks its 256 calls")
-    for row in samples:
-        cost = row.get("read_receipt")
-        if ("error" in row or not cost or cost["read_operations"] <= 0
-                or cost["payload_bytes"] <= 0 or cost["logical_warm_hits"] != 0):
-            raise RuntimeError("A controlled cold read lacks a cold, successful disk payload receipt")
-    return [{"case": r["case"], "request": r["client_request"], "sha256": r["request_sha256"],
-             "costs": {name: r["read_receipt"].get(name) for name in COSTS}} for r in samples]
+def audit(node):
+    return {name: (node.home / "logs" / name).read_bytes() if (node.home / "logs" / name).exists() else b""
+            for name in ("schema-sync-audit.jsonl", "retention-audit.jsonl")}
 
 
-def measure(binary, revision, output, template, whole, physical):
+def observe(node, service):
+    return {"service_writes": service.health()["schema_writes"], "audit": audit(node),
+            "schemas": node.call("/api/schemas?include_system=true&include_full=true")[0]}
+
+
+def read_only(node, service, action):
+    before = observe(node, service)
+    result = action()
+    if observe(node, service) != before:
+        raise RuntimeError("A check changed installed schemas, service schema writes, or an audit")
+    return result
+
+
+def resolution(result, expected, check=False):
+    if result.get("resolution") != expected:
+        raise RuntimeError(f"Expected {expected}, got {result}")
+    if check and (result.get("dry_run") is not True or result.get("bind_eligible") is not False):
+        raise RuntimeError("The check lacks its read-only reply flags")
+
+
+def data(node, write=False):
+    schema = "declaration-benchmark/Books"
+    if write:
+        mutations = [{"type": "mutation", "schema": schema, "mutation_type": "create",
+                      "durability": "durable", "key_value": {"hash": "library", "range": f"book-{i:04d}"},
+                      "fields_and_values": {"category": "library", "id": f"book-{i:04d}", "title": f"Book {i}"}}
+                     for i in range(32)]
+        result = node.call("/api/mutations/batch", {"mutations": mutations})[0]
+        if result.get("count") != 32 or result.get("durability") != "durable":
+            raise RuntimeError(f"The declared schema did not accept the batch: {result}")
+    result = node.call("/api/query", {"schema_name": schema, "fields": ["category", "id", "title"],
+                      "filter": {"HashRangeKeys": [["library", f"book-{i:04d}"] for i in range(32)]}, "limit": 32})[0]
+    rows = result.get("results", [])
+    found = {r["fields"]["id"]: r["fields"]["title"] for r in rows}
+    if len(rows) != 32 or found != {f"book-{i:04d}": f"Book {i}" for i in range(32)}:
+        raise RuntimeError(f"The known-key batch read lost data: {result}")
+    return {"records": 32, "values_sha256": hashlib.sha256(encoded(found)).hexdigest()}
+
+
+def measure(binary, revision, service_binary, output):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_DISK_FORMAT": "2"})
-    work, error, samples, root = None, None, None, None
+    service, nodes = Service(service_binary, output), []
+    proof, metrics, sequence, error = {}, {}, [], None
+    raw = gzip.open(output / "samples.jsonl.gz", "wt")
+
+    def call(node, name, body, expected=200, path=APPS):
+        result, _, _ = rpc(node, path, body, expected)
+        proof[name] = result
+        save(output / "operational.json", proof)
+        return result
+
+    def timed(node, name, body, outcome=None, path=APPS, expected=200, check=True):
+        body = encoded(body)
+        request_hash, response_hash, samples = hashlib.sha256(body).hexdigest(), None, []
+        started = time.monotonic()
+        for number in range(SAMPLES):
+            result, elapsed, size = rpc(node, path, body, expected)
+            if outcome:
+                resolution(result, outcome, check)
+            digest = hashlib.sha256(encoded(result)).hexdigest()
+            if response_hash is not None and response_hash != digest:
+                raise RuntimeError(f"{name} changed replies across identical calls")
+            response_hash = digest
+            row = {"case": name, "client_request": number, "elapsed_ms": elapsed, "records": 1,
+                   "request_sha256": request_hash, "response_sha256": digest, "response_bytes": size}
+            samples.append(row)
+            raw.write(json.dumps(row) + "\n")
+        metrics[name] = describe(samples, time.monotonic() - started)
+        sequence.append({"case": name, "requests": SAMPLES, "request_sha256": request_hash,
+                         "response_sha256": response_hash})
+        save(output / "metrics.json", metrics)
+
     try:
-        # The template's daemon is stopped; node owns its separate destination root.
-        if template.process is not None or any(node.home.iterdir()):
-            raise RuntimeError("Clone requires a stopped template and an empty owned destination")
-        shutil.copytree(template.home, node.home, dirs_exist_ok=True)
-        if inventory(node.home) != whole:
-            raise RuntimeError("The complete copied home is not byte-identical to the seed")
-        save(output / "clone.json", {"byte_identical": True, "files": len(whole)})
+        service.start()
+        for label in ("installed", "fresh"):
+            folder = output / label
+            folder.mkdir()
+            nodes.append(Node(binary, revision, folder, environment={"FOLD_SCHEMA_SERVICE_URL": service.url}))
+        node, fresh = nodes
         node.start()
-        if node.disk_format() != 2:
-            raise RuntimeError("A product cannot open the shared disk format")
-        root, timing_layout = boot_boundary(node, physical)
-        save(output / "root.json", root)
-        work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
-        work.cold_next = 0
-        for case, batch in (("cold-read/1", 1), ("cold-read/32", 32)):
-            boundary = node.call("/api/admin/shed", {})[0]["shed"]
-            save(output / f"boundary-{batch}.json", boundary)
-            if (boundary.get("error") or boundary.get("target_met") is not True
-                    or boundary["native_memory"]["logical_records"] != 0):
-                raise RuntimeError("The clone did not establish an empty logical warm set")
-            physical_state(node, timing_layout, root)
-            work.measure(case, "cold", batch=batch)
-            physical_state(node, timing_layout, root)
-        work.raw.close()
-        samples = audit_samples(output)
+        read_only(node, service, lambda: timed(node, "novel-check", proposal(check=True), "register"))
+        registered = call(node, "register", proposal())
+        resolution(registered, "register")
+        fresh.start()
+        read_only(fresh, service, lambda: timed(fresh, "exact-catalog-check", proposal(check=True), "reuse"))
+        resolution(call(fresh, "exact-catalog-sync", proposal()), "reuse")
+        fresh.stop()
+        proof["initial-data"] = data(node, write=True)
+        read_only(node, service, lambda: timed(node, "loaded-check", proposal(check=True), "reuse"))
+        read_only(node, service, lambda: timed(node, "compat-check", proposal(check=True, compat=True), "reuse", path=COMPAT))
+        timed(node, "loaded-sync", proposal(), "reuse", check=False)
+        preview = read_only(node, service, lambda: call(node, "expand-check", proposal(True, True)))
+        resolution(preview, "expand", True)
+        if preview.get("register_reason") != "insufficient_field_coverage":
+            raise RuntimeError("The real under-covered candidate lacks its fallback reason")
+        expanded = call(node, "expand-sync", proposal(True))
+        resolution(expanded, "expand")
+        if expanded.get("replaced_schema") != registered["canonical"]:
+            raise RuntimeError("Expansion lost its predecessor")
+        proof["expanded-data"] = data(node)
+        read_only(node, service, lambda: timed(node, "retention-preview", proposal(True, True, ttl=7200), "reuse"))
+        retained = call(node, "retention-sync", proposal(True, ttl=7200, confirmed=True))
+        if retained["retention"].get("status") != "applied":
+            raise RuntimeError("The real retention policy did not apply")
+        shorter = read_only(node, service, lambda: call(node, "shorter-check", proposal(True, True, ttl=3600)))
+        if not shorter["retention"]["requires_confirmation"] or shorter["retention"]["would_apply"]:
+            raise RuntimeError("The shorter policy lacks its confirmation refusal")
+        call(node, "shorter-refusal", proposal(True, ttl=3600), 409)
+        updated = call(node, "shorter-confirmed", proposal(True, ttl=3600, confirmed=True))
+        if updated["retention"].get("status") != "updated":
+            raise RuntimeError("The confirmed shorter policy did not update")
+        bad = {**proposal(True, True), "unknown_request_key": True}
+        read_only(node, service, lambda: timed(node, "rejected-check", bad, expected=400))
+        embedded = proposal(True, True)
+        embedded["schema"]["retention"] = {"ttl_seconds": 7200}
+        for name, body, path in (
+                ("embedded-retention", embedded, APPS), ("invalid-ttl", proposal(True, True, ttl=0), APPS),
+                ("invalid-app", {**proposal(True, True), "app_id": "wrong/namespace"}, APPS),
+                ("invalid-compat", {**proposal(True, True, True), "namespace": "wrong/namespace"}, COMPAT)):
+            read_only(node, service, lambda n=name, b=body, p=path: call(node, n, b, 400, p))
+        before = audit(node)["schema-sync-audit.jsonl"].count(b"\n")
+        call(node, "sync-refusal", {**proposal(True), "app_id": "wrong/namespace"}, 400)
+        if audit(node)["schema-sync-audit.jsonl"].count(b"\n") != before + 1:
+            raise RuntimeError("The sync refusal lacks its one audit event")
+        events = [json.loads(line) for line in audit(node)["schema-sync-audit.jsonl"].splitlines()]
+        proof["audit-outcomes"] = {k: sum(e["outcome"] == k for e in events) for k in ("register", "reuse", "expand", "rejected")}
+        if any(n == 0 for n in proof["audit-outcomes"].values()):
+            raise RuntimeError("A real sync branch lacks an audit")
+        proof["service-schema-writes"] = service.health()["schema_writes"]
+        proof["retention-audit-events"] = audit(node)["retention-audit.jsonl"].count(b"\n")
+        node.stop()
+        node.start()
+        proof["restart-data"] = data(node)
+        repeat = call(node, "restart-reuse", proposal(True, ttl=3600))
+        resolution(repeat, "reuse")
+        if repeat["canonical"] != expanded["canonical"] or repeat["retention"]["status"] != "unchanged":
+            raise RuntimeError("Restart lost the canonical bind or retention")
+        proof["read-only-state-unchanged"] = True
     except BaseException as failure:
         error = f"{type(failure).__name__}: {failure}"
     finally:
-        if work:
-            work.raw.close()
+        raw.close()
+        for node in reversed(nodes):
+            try:
+                node.close()
+            except BaseException as failure:
+                error = f"{error or ''}; node cleanup: {failure}"
         try:
-            node.close()
+            service.close()
         except BaseException as failure:
-            error = f"{error or ''}; cleanup: {type(failure).__name__}: {failure}"
-    result = {"complete": error is None, "error": error, "root": root}
-    save(output / "result.json", result)
+            error = f"{error or ''}; service cleanup: {failure}"
+        save(output / "operational.json", proof)
+        save(output / "sequence.json", sequence)
+        save(output / "result.json", {"complete": error is None, "error": error})
     if error:
         raise RuntimeError(error)
-    return result, samples
-
-
-def retain_comparison(output, manifest, samples):
-    requests = [[r["case"], r["request"], r["sha256"]] for r in samples["0-baseline"]]
-    mismatches = []
-    for run in manifest["runs"]:
-        rows = samples[run["directory"]]
-        if [[r["case"], r["request"], r["sha256"]] for r in rows] != requests:
-            raise RuntimeError("The clones did not receive identical request sequences")
-        if run["label"] == "candidate":
-            base = samples[f"{run['pair']}-baseline"]
-            differences = [{"case": a["case"], "request": a["request"],
-                            "baseline": a["costs"], "candidate": b["costs"]}
-                           for a, b in zip(base, rows) if a["costs"] != b["costs"]]
-            mismatches.append({"pair": run["pair"], "count": len(differences), "requests": differences})
-    save(output / "work-differences.json", mismatches)
-    comparison = compare(output, manifest)
-    save(output / "comparison.json", comparison)
-    return comparison
+    return proof, sequence
 
 
 def main():
@@ -183,67 +236,54 @@ def main():
         parser.add_argument(f"--{label}-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    revisions = {label: getattr(args, f"{label}_revision") for label in ("baseline", "candidate")}
-    if os.environ.get("GITHUB_ACTIONS") != "true" or any(
-            not re.fullmatch(r"[0-9a-f]{40}", value) for value in revisions.values()):
-        raise RuntimeError("Run only in GitHub Actions with full product revision SHAs")
-    binaries = {label: getattr(args, f"{label}_binary").resolve() for label in revisions}
-    args.output.mkdir(parents=True, exist_ok=True)
-    manifest = {"complete": False, "recipe": {"pairs": PAIRS}, "runs": [],
-                "driver_revision": os.environ["DRIVER_SHA"],
-                "binaries": {label: {"revision": revisions[label], "sha256": file_hash(binary)}
-                             for label, binary in binaries.items()},
-                "scope": "One stopped generated seed; four alternating pairs of independent byte-identical "
-                         "clones. Both formats must be v2. One bounded boot metadata append is recorded; "
-                         "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
-                         "All opening samples retained. "
-                         "Content verification reads files before timing: filesystem pages are not cold. "
-                         "This isolates logical-record-cold reads on a fixed physical layout, not device latency."}
+    revisions = {k: getattr(args, f"{k}_revision") for k in ("baseline", "candidate")}
+    if os.environ.get("GITHUB_ACTIONS") != "true" or any(not re.fullmatch(r"[0-9a-f]{40}", v) for v in revisions.values()):
+        raise RuntimeError("Run only in GitHub Actions with full revisions")
+    args.output.mkdir(parents=True, exist_ok=False)
+    binaries = {k: getattr(args, f"{k}_binary").resolve() for k in revisions}
+    manifest = {"complete": False, "driver_revision": os.environ["DRIVER_SHA"], "runs": [],
+                "recipe": {"pairs": PAIRS, "samples": SAMPLES},
+                "binaries": {k: {"revision": revisions[k], "sha256": file_hash(b)} for k, b in binaries.items()}}
     save(args.output / "benchmark.json", manifest)
-    seed_output = args.output / "seed"
-    seed_output.mkdir()
-    template = Node(binaries["baseline"], revisions["baseline"], seed_output,
-                    environment={"LASTDB_DISK_FORMAT": "2"})
-    samples, comparison = {}, None
-    try:
-        whole, physical = prepare_seed(template, seed_output)
-        manifest["seed_inventory_sha256"] = file_hash(seed_output / "inventory.json")
-        manifest["physical_inventory_sha256"] = file_hash(seed_output / "physical-inventory.json")
-        for pair in range(PAIRS):
-            for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
-                directory = f"{pair}-{label}"
-                result, samples[directory] = measure(binaries[label], revisions[label], args.output / directory,
-                                                      template, whole, physical)
-                manifest["runs"].append({"pair": pair, "label": label, "directory": directory, **result})
-                save(args.output / "benchmark.json", manifest)
-        roots = [r["root"] for r in manifest["runs"]]
-        if any(root != roots[0] for root in roots) or inventory(template.home) != whole:
-            raise RuntimeError("Runs did not hold one shared root, or the stopped seed was modified")
-        seed_live = json.loads((seed_output / "observed-stable.json").read_text())[-1]
-        # One clean header commit on shutdown, one re-arm header commit on boot.
-        expected_root = {name: seed_live[name] + 2 for name in ("generation", "frontier")}
-        if roots[0] != expected_root:
-            raise RuntimeError("The shared root includes unexpected shutdown/startup publications")
-        manifest["expected_boot_root"] = expected_root
-        boot_sizes = [list(json.loads((args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())[0]["bytes"]
-                      for r in manifest["runs"]]
-        if len(set(boot_sizes)) != 1:
-            raise RuntimeError("The versions appended different sizes of boot metadata")
-        manifest["boot_append_bytes"] = boot_sizes[0]
-        comparison = retain_comparison(args.output, manifest, samples)
-    finally:
-        template.close()
+    service_binary = build_service(args.output)
+    first = None
+    for pair in range(PAIRS):
+        for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
+            directory = f"{pair}-{label}"
+            observed = measure(binaries[label], revisions[label], service_binary, args.output / directory)
+            if first is not None and observed != first:
+                raise RuntimeError("Operational replies or request sequences differ across programs or pairs")
+            first = observed
+            manifest["runs"].append({"pair": pair, "label": label, "directory": directory, "complete": True})
+            save(args.output / "benchmark.json", manifest)
+    comparison = compare(args.output, manifest)
+    save(args.output / "comparison.json", comparison)
     manifest["complete"] = True
     save(args.output / "benchmark.json", manifest)
-    lines = ["## Shared-seed cold reads", "", manifest["scope"], "",
-             f"Baseline: `{revisions['baseline']}`  ", f"Candidate: `{revisions['candidate']}`", "",
-             "| Case | Base P95 ms | Candidate P95 ms | Change | Pair changes |", "|---|---:|---:|---:|---|"]
+    lines = ["## Real-service schema declaration comparison", "",
+             f"Base: `{revisions['baseline']}`  ", f"Candidate: `{revisions['candidate']}`  ",
+             f"Driver: `{manifest['driver_revision']}`", "",
+             "Four alternating pairs; 256 closed-loop calls per case per program per pair; all opening samples retained.",
+             "Each run uses new generated homes and a new real development Schema Service with the same fixed service build.",
+             "Registration, exact and loaded reuse, expansion, batch data continuity, retention, refusals, audits, and restart passed.",
+             "Checks left installed schemas, both audits, and service schema-write counts unchanged.",
+             "Operational replies and measured request/reply hashes match across both programs and all pairs.",
+             "The real service uses its default disabled embedder. No primary data, production catalog, model, or fake resolver response.",
+             "Scope excludes semantic composition, unavailable-service recovery, and artificial failure injection.", "",
+             "| Case | Base P50 / P95 ms | Candidate P50 / P95 ms | P95 change | Pair changes |",
+             "|---|---:|---:|---:|---:|---|"]
     for case, item in comparison.items():
-        pairs = ", ".join(f"{value:+.1f}%" for value in item["paired_p95_changes_percent"])
-        lines.append(f"| {case} | {item['baseline']['p95_ms']:.3f} | {item['candidate']['p95_ms']:.3f} | "
+        a, b = item["baseline"], item["candidate"]
+        pairs = ", ".join(f"{v:+.1f}%" for v in item["paired_p95_changes_percent"])
+        lines.append(f"| {case} | {a['p50_ms']:.3f} / {a['p95_ms']:.3f} | {b['p50_ms']:.3f} / {b['p95_ms']:.3f} | "
                      f"{item['changes_percent']['p95_ms']:+.1f}% | {pairs} |")
+    lines += ["", "Registration and expansion are operational checks, not tail-latency estimates.",
+              "Shared-runner and localhost-service results establish no fixed production latency guarantee.",
+              "Generated homes and identities are removed after normal durable shutdown."]
+    summary = "\n".join(lines) + "\n"
+    (args.output / "summary.md").write_text(summary)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-        stream.write("\n".join(lines) + "\n")
+        stream.write(summary)
 
 
 if __name__ == "__main__":
