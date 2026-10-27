@@ -159,7 +159,7 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
    The blob changes are summed for the whole run first. `blob_counter::BlobDeltas`
    does that, and `AtomStore::blob_counter_mutations` reads the counters by key and
    builds the writes.
-2. **An upload** of a blob row (`blob_cas::put_raw_record` and the dedup put)
+2. **An upload** of a blob row (`blob_cas::put_blob_sealed_with_access_dedup_in_ops`)
    calls `AtomStore::register_blob_upload` in the same native write request as the
    row. A blob at zero starts its dwell again. A blob with references is left alone.
 3. **The drop of a storage scope** (`delete_catalog_membership`) lowers the blobs

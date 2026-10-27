@@ -2,16 +2,12 @@
 
 use super::types::{ContentAddressedAtom, ContentAddressedBlob, ExtractedFile, FileBlobAccess};
 use super::validate::validate_file_blob_access_for_ref;
-use super::{
-    file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_LEGACY,
-    LEGACY_FILE_KEY,
-};
+use super::{file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE, LEGACY_FILE_KEY};
 use crate::error::FoldDbError;
 use crate::hex::hex_lower;
 use base64::{engine::general_purpose::STANDARD as B64_STD, Engine as _};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::io::Read;
 
 pub fn content_addressed_atom(value: Value) -> Result<ContentAddressedAtom, FoldDbError> {
     let bytes = serde_json::to_vec(&value).map_err(FoldDbError::from)?;
@@ -60,54 +56,6 @@ pub fn content_addressed_blob_with_access(
     }
 }
 
-/// Build a **local CAS** blob sealed under the file KDK (Operation Trinity).
-///
-/// `bytes_b64` stores the UTF-8 `ENC:…` envelope (not raw-file base64). The DEK
-/// is **not** persisted on the blob record — callers must open with the DEK from
-/// sealed atom content.
-pub fn content_addressed_blob_sealed_under_dek(
-    raw_bytes: &[u8],
-    media_type: Option<String>,
-    name: Option<String>,
-    dek_hex: &str,
-) -> Result<ContentAddressedBlob, FoldDbError> {
-    let dek = decode_hex_32_key(dek_hex)?;
-    let sealed = crate::crypto::seal_at_rest_utf8(&dek, raw_bytes)
-        .map_err(|e| FoldDbError::SecurityError(format!("seal local CAS under file KDK: {e}")))?;
-    let sealed_utf8 = String::from_utf8(sealed)
-        .map_err(|e| FoldDbError::SecurityError(format!("sealed local CAS not utf8: {e}")))?;
-    let content_sha256 = hex_lower(Sha256::digest(raw_bytes));
-    Ok(ContentAddressedBlob {
-        blob_ref: format!("sha256:{content_sha256}"),
-        content_sha256,
-        bytes_b64: sealed_utf8,
-        media_type,
-        name,
-        size: raw_bytes.len() as u64,
-        access: None,
-        local_cipher_suite: Some(FILE_BLOB_CIPHER_SUITE_LEGACY.to_string()),
-        stored_at: None,
-    })
-}
-
-/// Preserve the original access identity when plaintext enters the local CAS.
-pub fn content_addressed_blob_sealed_for_access(
-    raw_bytes: &[u8],
-    media_type: Option<String>,
-    name: Option<String>,
-    access: &FileBlobAccess,
-) -> Result<ContentAddressedBlob, FoldDbError> {
-    validate_file_blob_access_for_ref(access, &access.blob_ref)?;
-    let encrypted = crate::sharing::file_blob_seal::seal_file_blob_for_access(raw_bytes, access)?;
-    content_addressed_blob_from_envelope(
-        raw_bytes.len() as u64,
-        media_type,
-        name,
-        access,
-        &encrypted,
-    )
-}
-
 /// Store an already authenticated original binary envelope without a second seal.
 /// The caller verifies its plaintext digest. This function verifies size and address.
 pub fn content_addressed_blob_from_envelope(
@@ -150,49 +98,6 @@ pub fn content_addressed_blob_from_envelope(
         local_cipher_suite: Some(access.cipher_suite.clone()),
         stored_at: None,
     })
-}
-
-/// Verify the public v2 ciphertext identity before a raw CAS write.
-/// This needs no file key and never allocates a second file-sized buffer.
-pub fn validate_local_ciphertext_blob(blob: &ContentAddressedBlob) -> Result<(), FoldDbError> {
-    if blob.local_cipher_suite.as_deref() != Some(FILE_BLOB_CIPHER_SUITE) {
-        return Ok(());
-    }
-    let invalid = || FoldDbError::SecurityError("local CAS ciphertext identity differs".into());
-    let stored_hash = crate::sharing::file_blob_seal::file_blob_storage_hash(&blob.blob_ref)?;
-    if blob.access.is_some() || blob.content_sha256 != stored_hash {
-        return Err(invalid());
-    }
-    let expected = blob
-        .size
-        .checked_add(crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD)
-        .ok_or_else(invalid)?;
-    let encoded = blob.bytes_b64.strip_prefix("ENC:").ok_or_else(invalid)?;
-    let mut decoded = base64::read::DecoderReader::new(encoded.as_bytes(), &B64_STD);
-    let mut version = [0; 1];
-    decoded.read_exact(&mut version).map_err(|_| invalid())?;
-    if version != [1] {
-        return Err(invalid());
-    }
-    let mut digest = Sha256::new();
-    digest.update(version);
-    let mut bytes = 1u64;
-    let mut buffer = [0; 8192];
-    loop {
-        let count = decoded.read(&mut buffer).map_err(|_| invalid())?;
-        if count == 0 {
-            break;
-        }
-        bytes = bytes
-            .checked_add(count as u64)
-            .filter(|bytes| *bytes <= expected)
-            .ok_or_else(invalid)?;
-        digest.update(&buffer[..count]);
-    }
-    if bytes != expected || hex_lower(digest.finalize()) != stored_hash {
-        return Err(invalid());
-    }
-    Ok(())
 }
 
 fn decode_hex_32_key(input: &str) -> Result<[u8; 32], FoldDbError> {
