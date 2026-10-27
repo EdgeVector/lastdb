@@ -50,6 +50,9 @@ Build a fresh LastSeek store from the complete export, with the normal schema an
 Drain all export batches in bounded passes and require no incomplete or unreadable batch.
 Do not reuse the old LastSeek store: it can contain records deleted during the gap.
 After the full rebuild, the owner clears the old queue batches and removes `.rebuild-required` last.
+Bind the rebuilt store to the empty live inbox before database writes resume:
+`lastseek drain --home <rebuilt-store> --inbox <home>/apps/search/inbox --consume`.
+This saves the live source path after the separate export source.
 Then select the rebuilt LastSeek store and start LastDB with Search enabled.
 No automatic task performs these recovery steps or changes the primary.
 

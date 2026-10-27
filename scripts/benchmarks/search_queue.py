@@ -70,7 +70,7 @@ def measure(args, mode, folder):
             raise ValueError("The Search queue measurement lacks the selected policy or a healthy writer")
         before, after = (result[name]["search_batches"] for name in ("after_updates", "after_reopen_write"))
         result["advisories"] = []
-        if mode == "default-off" and after["batch_bytes"]:
+        if mode == "default-off" and result["after_reopen_write"]["disk_breakdown"]["search_queue_files"]:
             result["advisories"].append("queue-created-while-disabled")
         if mode == "enabled":
             for name, crossed in (("queue-byte-cap", after["batch_bytes"] > cap),
