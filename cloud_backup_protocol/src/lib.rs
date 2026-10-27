@@ -15,7 +15,6 @@ mod primitives;
 pub mod publication;
 pub mod recovery;
 pub mod references;
-pub mod source;
 pub mod transfer;
 pub mod usage;
 pub mod v2;

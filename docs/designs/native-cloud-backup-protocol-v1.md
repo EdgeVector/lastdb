@@ -486,10 +486,10 @@ An authenticated request body never grants authority by itself.
 | heads/read | HeadReadRequest | HeadReadResult |
 | streams/list | StreamsListRequest | StreamsListResponse |
 | objects/read | ReadGrantRequest | ReadGrantResponse |
-| source/read | SourceReadRequest | SourceReadResponse |
 | usage/read | UsageReadRequest | UsageReadResponse |
 
 The crate does not include the v1 references/put messages. No caller remains.
+The crate does not include the v1 source/read messages. No caller remains.
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
@@ -500,15 +500,6 @@ Valid batch envelopes return 200 with each item's state or error; top-level requ
 No response code permits a new identity merely because an earlier outcome is unknown.
 
 Private service state includes stream subject bindings, revisions, provider targets, verification evidence, quota reservations, submission certificates, and usage obligations.
-
-source/read authorizes only an existing personal consumer copy, under the current account generation.
-One bounded transactional read binds current control to at most four exact reference records.
-Each selector names its original owner scope, optional app, file identity, kind, and expected ciphertext length.
-The service derives the consumer from authentication and verifies the exact saved copy identity, path, provider, length, and proof.
-The first source profile supports Main only. Other kinds and missing copies receive explicit refusal.
-The grant uses the configured B2 target and one saved strong ETag through signed If-Match.
-No source request creates, registers, releases, adopts, or copies an object.
-The capture still checks the complete original encryption, plaintext identity, exact length, and EOF.
 
 usage/read binds an account-wide observation to the authenticated personal account.
 It reads the same reserved and retained counters that native quota admission changes.
