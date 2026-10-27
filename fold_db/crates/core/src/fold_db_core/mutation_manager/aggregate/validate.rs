@@ -299,15 +299,12 @@ impl MutationManager {
     pub(super) async fn resolve_aggregate_storage_prefix(
         &self,
         source_schema_name: &str,
-        aggregate: &AggregateSet,
+        target_schema_name: &str,
+        member_schema_name: &str,
         access_context: &crate::access::AccessContext,
     ) -> Result<Option<String>, SchemaError> {
         let mut resolved = None;
-        for schema_name in [
-            source_schema_name,
-            aggregate.target_schema_name.as_str(),
-            aggregate.member_schema_name.as_str(),
-        ] {
+        for schema_name in [source_schema_name, target_schema_name, member_schema_name] {
             let prefix = self
                 .db_ops
                 .db_catalog()
