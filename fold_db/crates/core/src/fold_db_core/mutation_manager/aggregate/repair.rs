@@ -207,6 +207,7 @@ impl MutationManager {
             fields,
             false,
             repair_token.clone(),
+            String::new(),
         );
         let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
         let revision = summary.logical_counter;
