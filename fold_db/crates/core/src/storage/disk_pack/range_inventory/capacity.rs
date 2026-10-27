@@ -119,8 +119,7 @@ impl ConversionSpaceEstimate {
                 .parent()
                 .ok_or_else(|| invalid("target has no existing ancestor"))?;
         }
-        let stats = rustix::fs::statvfs(existing).map_err(std::io::Error::from)?;
-        let available = checked((stats.f_bavail as u64).checked_mul(stats.f_frsize as u64))?;
+        let available = laststore::space::available_space(existing).map_err(map)?;
         let sufficient_free_space = available >= self.additional_required_bytes;
         let within_disk_cap =
             self.disk_cap_bytes == 0 || self.target_cap_required_bytes <= self.disk_cap_bytes;
