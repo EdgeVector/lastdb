@@ -34,9 +34,22 @@ impl GcmReader {
         cipher
             .set_tag(&source.tag)
             .map_err(|_| Error::AeadAuthFail)?;
-        let input = buffer(buffer_size())?;
-        let plain = buffer(buffer_size() + Cipher::aes_256_gcm().block_size())?;
-        let charge = TemporaryBytes::new(input.capacity() + plain.capacity());
+        // Tiny metadata frames must not allocate and zeroize the bulk-stream
+        // allowance on every open. Empty frames still need finalization space.
+        let input_bytes = usize::try_from(source.stored_bytes)
+            .unwrap_or(usize::MAX)
+            .min(buffer_size())
+            .max(1);
+        let plain_bytes = input_bytes
+            .checked_add(Cipher::aes_256_gcm().block_size())
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let input = buffer(input_bytes)?;
+        let plain = buffer(plain_bytes)?;
+        let retained = input
+            .capacity()
+            .checked_add(plain.capacity())
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let charge = TemporaryBytes::new(retained);
         Ok(Self {
             source,
             cipher,

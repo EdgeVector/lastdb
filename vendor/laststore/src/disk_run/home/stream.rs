@@ -138,34 +138,68 @@ impl RunRead {
             if !self.runs[slot].0.meta.covers(&wanted) {
                 continue;
             }
-            let reserved = self.shared_metadata_bytes.max(self.retained_bytes())
-                + self.costs.budget_bytes
-                + wanted.len() as u64;
-            let reader = RunReader::open_bounded_with_reserve(
-                &self.runs[slot].0.path,
-                &self.key,
-                admission,
-                reserved,
-            )?;
-            self.costs.runs_opened += 1;
-            match reader.stream_body(
-                &wanted,
-                admission,
-                self.shared_metadata_bytes.max(self.retained_bytes())
-                    + self.costs.budget_bytes
-                    + wanted.len() as u64,
-            )? {
-                Some(SelectedBody::Deleted) => return Ok(None),
-                Some(SelectedBody::Value(body)) => {
-                    let maximum = maximum.min(admission).min(body.allocation_limit());
-                    let value = body.into_vec(maximum)?;
-                    self.charge(value.len() as u64)?;
-                    return Ok(Some(value));
-                }
-                None => {}
+            if let Some(body) = self.streamed_body_at(slot, &wanted, admission)? {
+                return self.accept_streamed(body, admission, maximum);
             }
         }
         Ok(None)
+    }
+
+    /// Read the newest run already selected by authenticated key heads.
+    pub(in crate::disk_run::home) fn streamed_value_at(
+        &mut self,
+        slot: usize,
+        collection: &str,
+        key: &str,
+        maximum: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        self.examine(1)?;
+        self.charge((collection.len() + key.len()) as u64)?;
+        let wanted = self.compound_key(collection, key.as_bytes())?;
+        if !self.runs[slot].0.meta.covers(&wanted) {
+            return Err(crate::disk_run::codec::corrupt("cached run key extent"));
+        }
+        let admission = self.stream_admission(wanted.len())?;
+        let body = self
+            .streamed_body_at(slot, &wanted, admission)?
+            .ok_or_else(|| crate::disk_run::codec::corrupt("cached run key missing"))?;
+        self.accept_streamed(body, admission, maximum)
+    }
+
+    fn streamed_body_at(
+        &mut self,
+        slot: usize,
+        wanted: &[u8],
+        admission: u64,
+    ) -> Result<Option<SelectedBody>> {
+        let reserved = self.shared_metadata_bytes.max(self.retained_bytes())
+            + self.costs.budget_bytes
+            + wanted.len() as u64;
+        let reader = RunReader::open_bounded_with_reserve(
+            &self.runs[slot].0.path,
+            &self.key,
+            admission,
+            reserved,
+        )?;
+        self.costs.runs_opened += 1;
+        reader.stream_body(wanted, admission, reserved)
+    }
+
+    fn accept_streamed(
+        &mut self,
+        body: SelectedBody,
+        admission: u64,
+        maximum: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        match body {
+            SelectedBody::Deleted => Ok(None),
+            SelectedBody::Value(body) => {
+                let maximum = maximum.min(admission).min(body.allocation_limit());
+                let value = body.into_vec(maximum)?;
+                self.charge(value.len() as u64)?;
+                Ok(Some(value))
+            }
+        }
     }
     pub(in crate::disk_run::home) fn streamed_next_key(
         &mut self,
@@ -174,46 +208,59 @@ impl RunRead {
         upper: Option<&[u8]>,
         exclusive: bool,
     ) -> Result<Option<String>> {
-        let admission = self.stream_admission(lower.len() + upper.map_or(0, <[u8]>::len))?;
         let mut selected: Option<Vec<u8>> = None;
         for slot in 0..self.runs.len() {
-            if !self.runs[slot].0.meta.overlaps(lower, upper) {
-                continue;
-            }
-            let extra = selected.as_ref().map_or(0, Vec::len) as u64;
-            let available = admission
-                .checked_sub(extra)
-                .ok_or(Error::ReadBudgetExceeded)?;
-            let reserved = self.shared_metadata_bytes.max(self.retained_bytes())
-                + self.costs.budget_bytes
-                + extra
-                + lower.len() as u64
-                + upper.map_or(0, |u| u.len()) as u64;
-            let reader = RunReader::open_bounded_with_reserve(
-                &self.runs[slot].0.path,
-                &self.key,
-                available,
-                reserved,
-            )?;
-            self.costs.runs_opened += 1;
-            if let Some(next) = reader.stream_key(
+            let end = selected.as_deref().or(upper);
+            if let Some(next) = self.streamed_next_key_at(
+                slot,
                 lower,
-                upper,
+                end,
                 exclusive,
-                available,
-                self.shared_metadata_bytes.max(self.retained_bytes())
-                    + self.costs.budget_bytes
-                    + extra
-                    + lower.len() as u64
-                    + upper.map_or(0, |u| u.len()) as u64,
+                selected.as_ref().map_or(0, |key| key.capacity() as u64),
             )? {
-                if selected.as_ref().map_or(true, |before| next < *before) {
-                    selected = Some(next);
-                }
+                selected = Some(next);
             }
         }
         selected
             .map(|key| storage_key(collection, &key))
             .transpose()
+    }
+
+    /// Select one authenticated key without reopening unrelated input runs.
+    /// `extra_retained` includes the caller's complete retained key-head cache.
+    pub(in crate::disk_run::home) fn streamed_next_key_at(
+        &mut self,
+        slot: usize,
+        lower: &[u8],
+        upper: Option<&[u8]>,
+        exclusive: bool,
+        extra_retained: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        if !self.runs[slot].0.meta.overlaps(lower, upper) {
+            return Ok(None);
+        }
+        let coordinates = lower
+            .len()
+            .checked_add(upper.map_or(0, <[u8]>::len))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let extra = usize::try_from(extra_retained)
+            .ok()
+            .and_then(|n| n.checked_add(coordinates))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let admission = self.stream_admission(extra)?;
+        let reserved = self
+            .shared_metadata_bytes
+            .max(self.retained_bytes())
+            .checked_add(self.costs.budget_bytes)
+            .and_then(|n| n.checked_add(extra as u64))
+            .ok_or(Error::ReadBudgetExceeded)?;
+        let reader = RunReader::open_bounded_with_reserve(
+            &self.runs[slot].0.path,
+            &self.key,
+            admission,
+            reserved,
+        )?;
+        self.costs.runs_opened += 1;
+        reader.stream_key(lower, upper, exclusive, admission, reserved)
     }
 }
