@@ -1,14 +1,16 @@
 name: app-install-smoke
 
-# End-to-end install smoke: build LastDB, then install and test priority apps
-# (Brain, LastSecrets, lastseek, Search) from the static registry. Proves the
-# app registry install path works, apps are compatible with this LastDB build,
-# and both contract surfaces (HTTP API + outbox) function correctly.
+# End-to-end install smoke: build LastDB, install the newest proved stable
+# row for each app, then run that app on this build. Tests all four priority
+# apps (Brain, LastSecrets, lastseek, Search) across both contract surfaces
+# (HTTP API + outbox).
 #
-# No unit tests (deleted 2026-10-09). This is an e2e smoke test using real installs.
+# A main build has no exact compat row. The public stable index still names
+# the last proved build. Install uses that row. Health checks still fail the
+# job. The daemon keeps a 64 MiB worker stack so a debug build can finish
+# a brain write.
 #
-# PR 5 of app-install contract rollout (docs/design/app-install-sources.md § 7.2, § 5.2):
-# Tests all four priority apps across both contract surfaces with evidence collection.
+# No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
 on:
   pull_request:
@@ -20,9 +22,6 @@ on:
         description: 'Apps to test (comma-separated: brain,lastsecrets,lastseek,search or "all")'
         required: false
         default: 'all'
-  pull_request:
-    paths:
-      - '.github/workflows/app-install-smoke.yml'
   schedule:
     # Daily at 09:00 UTC - catch app/lastdb compatibility breakage
     - cron: '0 9 * * *'
@@ -35,9 +34,9 @@ env:
 
 jobs:
   app-install-smoke:
-    name: install-${{ matrix.app }}-${{ matrix.version }}
+    name: install-${{ matrix.app }}
     runs-on: macos-14  # Apple Silicon like production
-    timeout-minutes: 60
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -46,50 +45,21 @@ jobs:
           - lastsecrets
           - lastseek
           - search
-        version:
-          - current
-          - baseline
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0  # Need tags for baseline resolution
-
-      - name: Resolve and checkout version
-        run: |
-          if [ "${{ matrix.version }}" = "baseline" ]; then
-            # Find the most recent tag that looks like a version
-            BASELINE_TAG=$(git tag --list 'v0.*' | grep -v '\-rc\.' | sort -V | tail -1)
-            
-            if [ -z "$BASELINE_TAG" ]; then
-              echo "⚠️  No baseline version tag found to test against"
-              echo "SKIP_BASELINE=true" >> "$GITHUB_ENV"
-              echo "LASTDB_VERSION=none" >> "$GITHUB_ENV"
-            else
-              echo "Testing against baseline: $BASELINE_TAG"
-              git checkout "$BASELINE_TAG"
-              echo "LASTDB_VERSION=$BASELINE_TAG" >> "$GITHUB_ENV"
-            fi
-          else
-            echo "Testing against current build: ${{ github.sha }}"
-            echo "LASTDB_VERSION=current-${{ github.sha }}" >> "$GITHUB_ENV"
-          fi
 
       - name: Configure git for private dependencies
-        if: env.SKIP_BASELINE != 'true'
         run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
-        if: env.SKIP_BASELINE != 'true'
         run: rustup show active-toolchain
 
       - name: Cache Rust artifacts
-        if: env.SKIP_BASELINE != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          key: app-smoke-macos-aarch64-${{ matrix.version }}
+          key: app-smoke-macos-aarch64
 
       - name: Build LastDB Mini binaries
-        if: env.SKIP_BASELINE != 'true'
         run: |
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
           
@@ -98,7 +68,6 @@ jobs:
           target/debug/lastdbd --version
 
       - name: Set up test environment
-        if: env.SKIP_BASELINE != 'true'
         run: |
           # Fresh isolated home for this test
           export TEST_HOME="${HOME}/app-smoke-test-$$"
@@ -114,7 +83,7 @@ jobs:
           echo "PROOF_DIR=$TEST_HOME/proof" >> "$GITHUB_ENV"
 
       - name: Start LastDB daemon
-        if: env.SKIP_BASELINE != 'true'
+        if: always()
         run: |
           cd "$TEST_HOME"
           
@@ -162,32 +131,8 @@ jobs:
           # Log LastDB version being tested
           lastdb --version | tee "$PROOF_DIR/lastdb-version.txt"
 
-      - name: Record node contract versions
-        if: env.SKIP_BASELINE != 'true'
-        run: |
-          cd "$PROOF_DIR"
-          
-          # Query /api/version for contract surface versions
-          curl -s --unix-socket "$LASTDB_HOME/data/folddb.sock" \
-            http://localhost/api/version | tee node-api-version.json
-          
-          # Extract and display contract versions
-          API_VERSION=$(jq -r '.api_version // "unknown"' node-api-version.json)
-          MIN_API=$(jq -r '.min_supported_api_version // "unknown"' node-api-version.json)
-          OUTBOX_VERSION=$(jq -r '.current_outbox_format_version // "unknown"' node-api-version.json)
-          MIN_OUTBOX=$(jq -r '.min_supported_outbox_format_version // "unknown"' node-api-version.json)
-          
-          cat > node-contract-versions.txt <<EOF
-          Node Contract Versions
-          ======================
-          HTTP API: version $API_VERSION (supports $MIN_API-$API_VERSION)
-          Outbox format: version $OUTBOX_VERSION (supports $MIN_OUTBOX-$OUTBOX_VERSION)
-          EOF
-          
-          cat node-contract-versions.txt
-
       - name: Query static registry
-        if: env.SKIP_BASELINE != 'true'
+        if: always()
         run: |
           cd "$TEST_HOME"
           
@@ -195,13 +140,29 @@ jobs:
           lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
           
           # Show app info from registry
-          lastdb app info ${{ matrix.app }} 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json" || echo "App not in registry yet"
-          
-          # Try to resolve app for this LastDB version
-          lastdb app resolve ${{ matrix.app }} --json 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json" || echo "Resolution failed (may not be in registry)"
+          lastdb app info ${{ matrix.app }} | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
+
+          # The stable row key is the proved build string, not this commit.
+          curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json" \
+            -o "$PROOF_DIR/stable-index.json"
+          PROVED_BUILD="$(jq -r --arg app "${{ matrix.app }}" '
+            [.apps[] | select(.app_id == $app) | .compat[]]
+            | max_by(.proved_at)
+            | .lastdb_version // empty
+          ' "$PROOF_DIR/stable-index.json")"
+          if [ -z "$PROVED_BUILD" ]; then
+            echo "No stable compat row for ${{ matrix.app }}"
+            exit 1
+          fi
+          echo "Newest proved lastdb build: $PROVED_BUILD"
+          echo "PROVED_BUILD=$PROVED_BUILD" >> "$GITHUB_ENV"
+          printf '%s\n' "$PROVED_BUILD" > "$PROOF_DIR/proved-lastdb-version.txt"
+
+          lastdb app resolve ${{ matrix.app }} --json --lastdb-version "$PROVED_BUILD" \
+            | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
-        if: env.SKIP_BASELINE != 'true'
+        if: always()
         run: |
           set -o pipefail  # Make pipe failures detectable
           cd "$TEST_HOME"
@@ -211,8 +172,8 @@ jobs:
             exit 1
           fi
           
-          # Attempt install
-          if lastdb app install ${{ matrix.app }} --channel stable 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
+          # Install the newest proved row. The daemon under test is still this build.
+          if lastdb app install ${{ matrix.app }} --channel stable --lastdb-version "$PROVED_BUILD" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
             echo "INSTALLED=true" >> "$GITHUB_ENV"
             
             # Verify install receipt
@@ -232,7 +193,7 @@ jobs:
           fi
 
       - name: Checkout app source (fallback if not in registry)
-        if: env.INSTALLED == 'false' && env.SKIP_BASELINE != 'true'
+        if: env.INSTALLED == 'false'
         run: |
           cd "$TEST_HOME"
           mkdir -p apps-source
@@ -269,7 +230,7 @@ jobs:
           fi
 
       - name: Verify app source available
-        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: env.SKIP_APP != 'true'
         run: |
           # Verify APP_SOURCE was set by either registry install or source checkout
           if [ -z "$APP_SOURCE" ]; then
@@ -286,73 +247,37 @@ jobs:
           
           echo "✓ App source available at: $APP_SOURCE"
 
-      - name: Record app contract surface
-        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
-        run: |
-          cd "$PROOF_DIR"
-          
-          # Find manifest
-          MANIFEST=""
-          for candidate in \
-            "$APP_SOURCE/${{ matrix.app }}/lastdb-app.json" \
-            "$APP_SOURCE/lastdb-app.json" \
-            "$APP_SOURCE/${{ matrix.app }}.app.json" \
-            "$APP_SOURCE/lastsecrets.app.json"; do
-            if [ -f "$candidate" ]; then
-              MANIFEST="$candidate"
-              break
-            fi
-          done
-          
-          if [ -n "$MANIFEST" ]; then
-            cat "$MANIFEST" | tee app-manifest.json
-            
-            # Try to extract contract surface info (may not be in manifest yet)
-            CONTRACT_SURFACES=$(jq -r '.contract_surfaces // ["unknown"]' "$MANIFEST" 2>/dev/null | jq -r 'join(", ")' || echo "not declared")
-            
-            cat > app-contract-surface.txt <<EOF
-          App: ${{ matrix.app }}
-          Declared contract surfaces: $CONTRACT_SURFACES
-          EOF
-            
-            # Expected surfaces based on design doc
-            case "${{ matrix.app }}" in
-              brain|lastsecrets)
-                echo "Expected surface: http (HTTP API)" >> app-contract-surface.txt
-                ;;
-              lastseek|search)
-                echo "Expected surface: outbox (IndexChangeBatch)" >> app-contract-surface.txt
-                ;;
-            esac
-            
-            cat app-contract-surface.txt
-          else
-            echo "No manifest found for ${{ matrix.app }}"
-          fi
-
       # === Brain (HTTP API) ===
       - name: Set up Brain dependencies
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
+          set -o pipefail
           cd "$APP_SOURCE"
           
           # Install Bun
           brew install bun
           
-          # Add Bun's global bin directory to PATH
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-          
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/brain-deps-install.log"
           
-          # Link command globally
-          bun link 2>&1 | tee "$PROOF_DIR/brain-link.log"
+          # bun link only registers the package name. It does not install the
+          # command. Later steps call `brain`, so put bin/brain on PATH.
+          chmod +x "$PWD/bin/brain"
+          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
+          mkdir -p "$BUN_BIN"
+          ln -sfn "$PWD/bin/brain" "$BUN_BIN/brain"
+          if [ ! -x "$BUN_BIN/brain" ]; then
+            echo "brain command is not executable at $BUN_BIN/brain"
+            exit 1
+          fi
+          echo "$BUN_BIN" >> "$GITHUB_PATH"
+          "$BUN_BIN/brain" --version 2>&1 | tee "$PROOF_DIR/brain-link.log"
         env:
           # Brain reads socket path from this env var
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Initialize Brain schemas
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -366,110 +291,93 @@ jobs:
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Run Brain health checks
-        if: matrix.app == 'brain' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'brain' && env.SKIP_APP != 'true'
         run: |
-          # Diagnostic output before attempting connection
-          echo "=== PRE-CONNECTION DIAGNOSTICS ==="
-          echo "1. Daemon process check:"
-          pgrep -a lastdb || echo "No lastdb processes found"
-          echo "Expected daemon PID: $LASTDBD_PID"
-          if [ -n "$LASTDBD_PID" ]; then
-            if ps -p "$LASTDBD_PID" > /dev/null 2>&1; then
-              echo "✓ Daemon PID $LASTDBD_PID is still running"
-            else
-              echo "✗ Daemon PID $LASTDBD_PID is NOT running"
-            fi
+          set -o pipefail
+          # The socket file can outlive a dead daemon. Fail here with the
+          # daemon log instead of a later "socket did not accept" line.
+          if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+            echo "lastdbd pid $LASTDBD_PID is not running"
+            tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            exit 1
           fi
-          
-          echo ""
-          echo "2. Socket file check:"
-          ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
-          
-          echo ""
-          echo "3. Environment variables:"
-          env | grep -i -E 'sock|fbrain|lastsecrets|lastdb|test_home' | sort
-          
-          echo ""
-          echo "4. Brain config resolution:"
-          BRAIN_CONFIG="${BRAIN_CONFIG:-${FBRAIN_CONFIG:-$HOME/.brain/config.json}}"
-          echo "Brain would use config at: $BRAIN_CONFIG"
-          if [ -f "$BRAIN_CONFIG" ]; then
-            echo "Config exists. Full contents:"
-            cat "$BRAIN_CONFIG"
-            echo ""
-            echo "Extracted nodeSocketPath value:"
-            cat "$BRAIN_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
-          else
-            echo "Config does not exist yet"
-          fi
-          echo "FBRAIN_FOLDDB_SOCKET env var: ${FBRAIN_FOLDDB_SOCKET:-not set}"
-          
-          echo ""
-          echo "5. LastDB status check:"
-          lastdb --data-dir "$LASTDB_HOME" status 2>&1 || echo "lastdb status failed"
-          
-          echo ""
-          echo "=== END DIAGNOSTICS ==="
-          echo ""
-          
+
           # Test basic Brain commands
           brain --version 2>&1 | tee "$PROOF_DIR/brain-version.txt"
           
-          # List empty brain
-          brain list 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt" || echo "List command not available"
+          # List empty brain (should succeed)
+          brain list 2>&1 | tee "$PROOF_DIR/brain-list-empty.txt"
           
-          # Write and read test
-          # Slug must be positional first, then --type
-          TEST_ID="test-ci-$$"
-          echo "Smoke test from CI run ${{ github.run_number }}" | \
-            brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
+          # Try creating a test concept. put reads the body from stdin.
+          # --content is rejected. The slug is the only positional.
+          # The type is --type.
+          TEST_ID="test-concept-ci-$$"
+          echo "Testing brain write and read operations with ID: $TEST_ID"
+          
+          printf '%s\n' "Test concept from app-install-smoke CI run ${{ github.run_number }}" | brain put "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-put-test.txt" || {
             echo "Brain put failed"
-            echo ""
-            echo "=== POST-FAILURE DIAGNOSTICS ==="
-            pgrep -a lastdb || echo "No lastdb processes found"
-            ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
+            cat "$PROOF_DIR/brain-put-test.txt"
+            # The start-of-step pid check misses a worker that dies during put.
+            # The socket error then hides the stack overflow in the daemon log.
+            if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+              echo "lastdbd pid $LASTDBD_PID died during brain put"
+              tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            fi
             exit 1
           }
           
+          # Try reading it back. get takes the slug, then --type.
           brain get "$TEST_ID" --type concept 2>&1 | tee "$PROOF_DIR/brain-get-test.txt" || {
             echo "Brain get failed"
+            cat "$PROOF_DIR/brain-get-test.txt"
             exit 1
           }
           
-          # Verify content
-          if grep -q "Smoke test from CI" "$PROOF_DIR/brain-get-test.txt"; then
-            echo "✓ Brain HTTP API test passed"
+          # Verify content contains our test string
+          if grep -q "Test concept from app-install-smoke" "$PROOF_DIR/brain-get-test.txt"; then
+            echo "✓ Brain read/write test passed"
           else
-            echo "✗ Brain HTTP API test failed - content mismatch"
+            echo "✗ Brain read/write test failed - content mismatch"
             exit 1
           fi
+          
+          # Check LastDB status after operations
+          lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-brain.txt"
         env:
           # Brain reads socket path from this env var
           FBRAIN_FOLDDB_SOCKET: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       # === LastSecrets (HTTP API) ===
       - name: Set up LastSecrets dependencies
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
         run: |
+          set -o pipefail
           cd "$APP_SOURCE"
           
           # Install Bun
           brew install bun
           
-          # Add Bun's global bin directory to PATH
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-          
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/lastsecrets-deps-install.log"
           
-          # Link command globally
-          bun link 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log"
+          # bun link only registers the package name. It does not install the
+          # command. Later steps call `lastsecrets`, so put bin/lastsecrets on PATH.
+          chmod +x "$PWD/bin/lastsecrets"
+          BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
+          mkdir -p "$BUN_BIN"
+          ln -sfn "$PWD/bin/lastsecrets" "$BUN_BIN/lastsecrets"
+          if [ ! -x "$BUN_BIN/lastsecrets" ]; then
+            echo "lastsecrets command is not executable at $BUN_BIN/lastsecrets"
+            exit 1
+          fi
+          echo "$BUN_BIN" >> "$GITHUB_PATH"
+          "$BUN_BIN/lastsecrets" --version 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log" || echo "No version flag"
         env:
           # LastSecrets reads socket path from this env var
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Initialize LastSecrets
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -483,52 +391,17 @@ jobs:
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       - name: Run LastSecrets health checks
-        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastsecrets' && env.SKIP_APP != 'true'
         run: |
-          # Diagnostic output before attempting connection
-          echo "=== PRE-CONNECTION DIAGNOSTICS ==="
-          echo "1. Daemon process check:"
-          pgrep -a lastdb || echo "No lastdb processes found"
-          echo "Expected daemon PID: $LASTDBD_PID"
-          if [ -n "$LASTDBD_PID" ]; then
-            if ps -p "$LASTDBD_PID" > /dev/null 2>&1; then
-              echo "✓ Daemon PID $LASTDBD_PID is still running"
-            else
-              echo "✗ Daemon PID $LASTDBD_PID is NOT running"
-            fi
+          set -o pipefail
+          # The socket file can outlive a dead daemon. Fail here with the
+          # daemon log instead of a later "socket did not accept" line.
+          if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+            echo "lastdbd pid $LASTDBD_PID is not running"
+            tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            exit 1
           fi
-          
-          echo ""
-          echo "2. Socket file check:"
-          ls -la "$LASTDB_HOME/data/folddb.sock" || echo "Socket file not found"
-          
-          echo ""
-          echo "3. Environment variables:"
-          env | grep -i -E 'sock|fbrain|lastsecrets|lastdb|test_home' | sort
-          
-          echo ""
-          echo "4. LastSecrets config resolution:"
-          LASTSECRETS_CONFIG="${LASTSECRETS_CONFIG:-$HOME/.lastsecrets/config.json}"
-          echo "LastSecrets would use config at: $LASTSECRETS_CONFIG"
-          if [ -f "$LASTSECRETS_CONFIG" ]; then
-            echo "Config exists. Full contents:"
-            cat "$LASTSECRETS_CONFIG"
-            echo ""
-            echo "Extracted nodeSocketPath value:"
-            cat "$LASTSECRETS_CONFIG" | grep -o '"nodeSocketPath":"[^"]*"' || echo "No nodeSocketPath in config"
-          else
-            echo "Config does not exist yet"
-          fi
-          echo "LASTSECRETS_SOCKET_PATH env var: ${LASTSECRETS_SOCKET_PATH:-not set}"
-          
-          echo ""
-          echo "5. LastDB status check:"
-          lastdb --data-dir "$LASTDB_HOME" status 2>&1 || echo "lastdb status failed"
-          
-          echo ""
-          echo "=== END DIAGNOSTICS ==="
-          echo ""
-          
+
           lastsecrets --version 2>&1 | tee "$PROOF_DIR/lastsecrets-version.txt" || echo "No version flag"
           
           # List empty secrets
@@ -536,31 +409,48 @@ jobs:
           
           # Store and retrieve a test secret
           TEST_SLUG="test-secret-ci-$$"
+          echo "Testing lastsecrets write and read operations with slug: $TEST_SLUG"
+          
           printf '%s' "test-value-${{ github.run_number }}" | \
             lastsecrets put "$TEST_SLUG" \
               --label "CI smoke test secret" \
               --provider test \
               --purpose ci-smoke \
               --env test \
-              --value-stdin 2>&1 | tee "$PROOF_DIR/lastsecrets-put-test.txt"
+              --value-stdin 2>&1 | tee "$PROOF_DIR/lastsecrets-put-test.txt" || {
+            echo "LastSecrets put failed"
+            cat "$PROOF_DIR/lastsecrets-put-test.txt"
+            if ! kill -0 "$LASTDBD_PID" 2>/dev/null; then
+              echo "lastdbd pid $LASTDBD_PID died during lastsecrets put"
+              tail -n 50 "$PROOF_DIR/lastdbd-startup.log"
+            fi
+            exit 1
+          }
           
           # Retrieve it
-          lastsecrets get "$TEST_SLUG" 2>&1 | tee "$PROOF_DIR/lastsecrets-get-test.txt"
+          lastsecrets get "$TEST_SLUG" 2>&1 | tee "$PROOF_DIR/lastsecrets-get-test.txt" || {
+            echo "LastSecrets get failed"
+            cat "$PROOF_DIR/lastsecrets-get-test.txt"
+            exit 1
+          }
           
           # Verify
           if grep -q "test-value-${{ github.run_number }}" "$PROOF_DIR/lastsecrets-get-test.txt"; then
-            echo "✓ LastSecrets HTTP API test passed"
+            echo "✓ LastSecrets read/write test passed"
           else
-            echo "✗ LastSecrets HTTP API test failed - value mismatch"
+            echo "✗ LastSecrets read/write test failed - value mismatch"
             exit 1
           fi
+          
+          # Check LastDB status after operations
+          lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-lastsecrets.txt"
         env:
           # LastSecrets reads socket path from this env var
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
 
       # === lastseek (Outbox) ===
       - name: Set up lastseek dependencies
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -571,7 +461,7 @@ jobs:
           cp target/release/lastseek "$HOME/.cargo/bin/" || cp target/release/lastseek /usr/local/bin/
 
       - name: Initialize lastseek and seed outbox
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           # Create inbox directory
           mkdir -p "$LASTDB_HOME/apps/search/inbox"
@@ -604,7 +494,7 @@ jobs:
           lastseek --version 2>&1 | tee "$PROOF_DIR/lastseek-version.txt"
 
       - name: Run lastseek health checks
-        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           # Test consuming the inbox (without --consume to preserve the file)
           lastseek ingest --inbox "$LASTDB_HOME/apps/search/inbox" 2>&1 | tee "$PROOF_DIR/lastseek-ingest-test.txt"
@@ -618,7 +508,7 @@ jobs:
 
       # === Search (Outbox) ===
       - name: Set up Search dependencies
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -635,7 +525,7 @@ jobs:
           bun link 2>&1 | tee "$PROOF_DIR/search-link.log"
 
       - name: Initialize Search and seed outbox
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -674,7 +564,7 @@ jobs:
           search --version 2>&1 | tee "$PROOF_DIR/search-version.txt" || echo "No version flag"
 
       - name: Run Search health checks
-        if: matrix.app == 'search' && env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: matrix.app == 'search' && env.SKIP_APP != 'true'
         run: |
           cd "$APP_SOURCE"
           
@@ -692,13 +582,13 @@ jobs:
           fi
 
       - name: Final health check
-        if: env.SKIP_APP != 'true' && env.SKIP_BASELINE != 'true'
+        if: env.SKIP_APP != 'true'
         run: |
           # Check LastDB status after all operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-final.txt"
 
       - name: Validate health checks ran
-        if: env.SKIP_BASELINE != 'true'
+        if: always()
         run: |
           # Verify that health checks actually executed for this app (unless intentionally skipped)
           if [ "$SKIP_APP" = "true" ]; then
@@ -745,44 +635,14 @@ jobs:
       - name: Collect proof summary
         if: always()
         run: |
-          # Handle skipped baseline
-          if [ "$SKIP_BASELINE" = "true" ]; then
-            mkdir -p "$HOME/proof-skip"
-            cat > "$HOME/proof-skip/baseline-skip-notice.txt" <<EOF
-          Baseline version test skipped
-          =============================
-          Reason: No buildable baseline version tag found in repository
-          Current tags: $(git tag --list 'v0.*' | tr '\n' ', ' | sed 's/, $//')
-          
-          This is expected for early development before the first release.
-          EOF
-            cat "$HOME/proof-skip/baseline-skip-notice.txt"
-            echo "PROOF_DIR=$HOME/proof-skip" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          
           cd "$PROOF_DIR"
           
           # Get LastDB build info
           LASTDB_VERSION=$(cat lastdb-version.txt 2>/dev/null || echo "unknown")
           
-          # Get app info
-          if [ -f "${{ matrix.app }}-resolve.json" ]; then
-            APP_SHA=$(jq -r '.sha // "unknown"' "${{ matrix.app }}-resolve.json" 2>/dev/null || echo "unknown")
-            APP_VERSION=$(jq -r '.app_version // .version // "unknown"' "${{ matrix.app }}-resolve.json" 2>/dev/null || echo "unknown")
-          else
-            APP_SHA="source"
-            APP_VERSION="dev"
-          fi
-          
-          # Contract versions
-          if [ -f "node-api-version.json" ]; then
-            NODE_API=$(jq -r '.api_version // "unknown"' node-api-version.json)
-            NODE_OUTBOX=$(jq -r '.current_outbox_format_version // "unknown"' node-api-version.json)
-          else
-            NODE_API="unknown"
-            NODE_OUTBOX="unknown"
-          fi
+          # Get app resolution
+          APP_SHA=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
+          APP_VERSION=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"app_version":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
           
           # Create summary
           cat > smoke-summary.txt <<EOF
@@ -790,75 +650,53 @@ jobs:
           ==============================
           Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           App: ${{ matrix.app }}
-          Version: ${{ matrix.version }}
           Runner: macos-14 (Apple Silicon)
           CI Run: ${{ github.run_number }}
           
           LastDB Build:
           $LASTDB_VERSION
-          Tested version: $LASTDB_VERSION
-          
-          Node Contract Versions:
-          - HTTP API version: $NODE_API
-          - Outbox format version: $NODE_OUTBOX
+
+          Proved row:
+          ${PROVED_BUILD:-unknown}
           
           App Resolution:
           - Version: $APP_VERSION
           - SHA: $APP_SHA
-          - Installed from: $([ -f "${{ matrix.app }}-install-receipt.json" ] && echo "registry" || echo "source")
           
-          Contract Surface Evidence:
+          Install Receipt:
+          $(cat ${{ matrix.app }}-install-receipt.json 2>/dev/null | head -20 || echo "N/A")
+          
+          Health Check Results:
           EOF
           
-          if [ -f "app-contract-surface.txt" ]; then
-            cat app-contract-surface.txt >> smoke-summary.txt
-          fi
-          
-          echo "" >> smoke-summary.txt
           
           if [ "$SKIP_APP" = "true" ]; then
             cat >> smoke-summary.txt <<EOF
-          Health Check Results: INTENTIONALLY SKIPPED
-          - Reason: Repository not accessible (requires APP_REPOS_TOKEN)
-          - This is expected for private repositories without access token
+          - Intentionally skipped (repository not accessible, requires APP_REPOS_TOKEN)
           EOF
-          else
-            echo "Health Check Results:" >> smoke-summary.txt
-            
-            case "${{ matrix.app }}" in
-              brain)
-                cat >> smoke-summary.txt <<EOF
+          elif [ "${{ matrix.app }}" = "brain" ]; then
+            cat >> smoke-summary.txt <<EOF
           - Brain version: $(cat brain-version.txt 2>/dev/null || echo "FAILED")
-          - Brain schemas: $(grep -c "brain" brain-schemas.txt 2>/dev/null || echo "0") registered
-          - Write test: $(grep -q "test-ci" brain-put-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          - Read test: $(grep -q "Smoke test from CI" brain-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          - Contract surface: HTTP API
+          - Brain list: $(test -f brain-list-empty.txt && echo "OK" || echo "FAILED")
+          - Write test: $(grep -q "test-concept" brain-put-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
+          - Read test: $(grep -q "Test concept from app-install-smoke" brain-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
           EOF
-                ;;
-              lastsecrets)
-                cat >> smoke-summary.txt <<EOF
+          elif [ "${{ matrix.app }}" = "lastsecrets" ]; then
+            cat >> smoke-summary.txt <<EOF
           - LastSecrets init: $(test -f lastsecrets-init.log && echo "OK" || echo "FAILED")
-          - LastSecrets schemas: $(grep -c "lastsecrets" lastsecrets-schemas.txt 2>/dev/null || echo "0") registered
           - Write test: $(test -f lastsecrets-put-test.txt && echo "OK" || echo "FAILED")
           - Read test: $(grep -q "test-value-${{ github.run_number }}" lastsecrets-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
-          - Contract surface: HTTP API
           EOF
-                ;;
-              lastseek)
-                cat >> smoke-summary.txt <<EOF
+          elif [ "${{ matrix.app }}" = "lastseek" ]; then
+            cat >> smoke-summary.txt <<EOF
           - lastseek build: $(test -f lastseek-build.log && echo "OK" || echo "FAILED")
           - Ingest test: $(grep -qE "(processed|consumed)" lastseek-ingest-test.txt 2>/dev/null && echo "OK" || echo "UNKNOWN")
-          - Contract surface: Outbox (IndexChangeBatch)
           EOF
-                ;;
-              search)
-                cat >> smoke-summary.txt <<EOF
+          elif [ "${{ matrix.app }}" = "search" ]; then
+            cat >> smoke-summary.txt <<EOF
           - Search init: $(test -f search-init.log && echo "OK" || echo "FAILED")
           - Drain test: $(test -f search-drain-test.txt && echo "OK" || echo "FAILED")
-          - Contract surface: Outbox (IndexChangeBatch)
           EOF
-                ;;
-            esac
           fi
           
           echo "" >> smoke-summary.txt
@@ -868,14 +706,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-install-smoke-${{ matrix.app }}-${{ matrix.version }}-${{ github.run_number }}
+          name: app-install-smoke-${{ matrix.app }}-${{ github.run_number }}
           path: ${{ env.PROOF_DIR }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Add summary to job output
         if: always()
         run: |
-          echo "## App Install Smoke: ${{ matrix.app }} (${{ matrix.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "## App Install Smoke: ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Show health check status prominently
@@ -890,13 +728,6 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat "$PROOF_DIR/smoke-summary.txt" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Summary not available" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f "$PROOF_DIR/node-contract-versions.txt" ]; then
-            echo "### Contract Versions" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat "$PROOF_DIR/node-contract-versions.txt" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
 
       - name: Cleanup
         if: always()
