@@ -22,7 +22,7 @@ pub struct DiskReadReceipt {
     pub file_open_attempts: u64,
     /// Successful read-only file opens; repeated opens count separately.
     pub file_opens: u64,
-    /// File status, existence, and directory-entry status operations.
+    /// Explicit file status operations.
     pub metadata_operations: u64,
     /// File read calls, including EOF and failed reads.
     pub read_operations: u64,

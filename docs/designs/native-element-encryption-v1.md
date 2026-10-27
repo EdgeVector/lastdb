@@ -81,7 +81,7 @@ A home with typed ranges uses `7;typed-ranges=v1`.
 The node format marker uses `format=3`, or `format=4` for a home with typed ranges.
 The creation-intent marker names the third current-key initialization protocol.
 Normal startup rejects earlier node markers before it opens the physical store.
-A direct physical logical constructor also requires one of these markers.
+A direct physical logical constructor also requires the marker for its key order: `6` or `6;delete-replay-cutoff=v1` for the UTF-8 order, `7;typed-ranges=v1` for the typed order.
 Startup does not rewrite an older home.
 The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
 This change does not open or change a primary home.

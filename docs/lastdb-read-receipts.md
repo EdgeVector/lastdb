@@ -1,10 +1,10 @@
 # LastDB read receipts
 
 The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
-The legacy loader and replay counters stay in the response for compatibility. The v2 reader does not use them.
+The `group_opens` and `legacy_replay_bytes` counters stay in the response for compatibility. They have no writer in disk format v2 and stay `0`.
 
 A read receipt measures the storage work for one query. It identifies extra
-file reads, bytes, and time before the pack file and disk directory changes.
+file reads, bytes, and time.
 The receipt does not change the file format or the warm-set byte budget.
 
 ## Request and response
@@ -12,7 +12,7 @@ The receipt does not change the file format or the warm-set byte budget.
 Send `x-lastdb-read-receipt: true` with `POST /api/query` on the owner socket.
 The response header `x-lastdb-read-receipt` contains a compact JSON object.
 Ordinary queries omit the receipt header. Request telemetry uses its own
-per-request scope for actual group-open counts.
+per-request scope. Its `cold_shard_loads` value comes from `group_opens`, so it stays `0`.
 
 The `query_storage` scope covers one query after request parse and before the
 response envelope. It includes schema resolution and the final record result.
@@ -62,7 +62,7 @@ scope can carry the partial receipt.
 The addressed-read byte classes are legacy replay, footer, payload, and format-probe bytes.
 They measure userspace reads from the operating system. They do not measure
 the bytes that a disk device transfers. A warm miss does not prove a cold
-filesystem page. A group open does not prove a new file open.
+filesystem page.
 
 Time fields use nanoseconds. Parallel workers can overlap, so their summed
 time can exceed `query_storage_elapsed_nanos`. HTTP elapsed time also includes
