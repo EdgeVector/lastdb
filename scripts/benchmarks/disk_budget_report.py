@@ -21,16 +21,22 @@ def compare(output, manifest):
         if not run["complete"]:
             raise ValueError("A disk budget measurement did not complete")
         directory = output / run["directory"]
-        for phase in ("before", "after"):
-            search = json.loads((directory / f"disk-search-{phase}.json").read_text())
-            if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
-                raise ValueError("The disk budget does not establish Search off")
-        marker = json.loads((directory / "disk-format.json").read_text())
-        if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
-            raise ValueError("The disk budget did not measure a v2 run home")
+        for corpus in (directory, directory / "delete"):
+            for phase in ("before", "after"):
+                search = json.loads((corpus / f"disk-search-{phase}.json").read_text())
+                if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
+                    raise ValueError("The disk budget does not establish Search off in both homes")
+            marker = json.loads((corpus / "disk-format.json").read_text())
+            if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
+                raise ValueError("The disk budget did not measure two v2 run homes")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(disk_budget.CASES):
             raise ValueError("The disk budget cases differ from the recipe")
+        deleted = json.loads((directory / "delete/growth.json").read_text())
+        cleanup = json.loads((directory / "delete/cleanup.json").read_text())
+        if (deleted != {"delete": cases["delete"]}
+                or cleanup.get("daemon_stopped") is not True or not cleanup.get("removed")):
+            raise ValueError("The separate delete case lacks matching results and complete cleanup")
         for case in disk_budget.CASES:
             disk_budget.validate(case, cases[case], recipe["growth"])
         if run["pair"] in values[run["label"]]:

@@ -99,7 +99,7 @@ def recipe_for(args):
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
             recipe["growth"] = {**recipe["growth"],
-                                "delete_target_bytes": (40 if args.profile == "nightly" else 10) * 2**20}
+                                "delete_target_bytes": 10 * 2**20}
             recipe.update(disk_budget=True, disk_format=2, search_enabled=False, pairs=1,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",

@@ -5,7 +5,7 @@ import statistics
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
 from disk_deletes import delete_records, prepare_delete, verify_deleted
-from node import save
+from node import Node, RUN_NODE_MARKER, save
 from disk_usage import validate as validate_breakdown
 
 LIMIT = 1.5
@@ -68,7 +68,32 @@ def metrics(points):
 
 
 class DiskBudgetWorkload(GrowthWorkload):
-    case_names = CASES
+    case_names = GROWTH_CASES
+
+    def run(self):
+        # Nightly inserts can already exceed the fixed delete target. Give
+        # deletes a fresh owned home instead of inheriting that larger corpus.
+        output = self.output / "delete"
+        output.mkdir()
+        node = Node(self.node.binary, self.node.revision, output,
+                    native_timing=self.node.native_timing, workers=self.node.workers,
+                    environment=self.node.environment, start_seconds=self.node.start_seconds,
+                    arguments=self.node.arguments)
+        try:
+            node.start()
+            require_search_off(node, output, "before")
+            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+            save(output / "disk-format.json", {"marker": marker})
+            if marker != RUN_NODE_MARKER:
+                raise ValueError("The delete case requires a fresh v2 run home")
+            workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)
+            workload.case_names = ("delete",)
+            GrowthWorkload.run(workload)
+            require_search_off(node, output, "after")
+            self.cases.update(workload.cases)
+        finally:
+            node.close()
+        super().run()
 
     def checkpoint(self, number):
         result, _, _ = self.node.call("/api/db/flush", {})
@@ -211,7 +236,7 @@ def render(comparison):
                   "This is one baseline/candidate pair with no repeat. The maximum includes every settled candidate checkpoint.",
                   "Any candidate checkpoint above 1.5× fails benchmark-complete and blocks merge after this single pass.",
                   "The cap is total database size, not an additional allowance. Deletes use the remaining logical atom bytes.",
-                  "The delete corpus reaches at least 10 MiB logical on PRs and 40 MiB nightly, then deletes 75% of its keys.",
+                  "The delete case starts in a fresh home, reaches at least 10 MiB logical on PRs and nightly, then deletes 75% of its keys.",
                   "A database or Search queue increase of at least 10% and 64 KiB produces an advisory from this pass.",
                   "Equality passes. Relative database and Search queue growth remains advisory.",
                   "The absolute limit fails even if the baseline also exceeds it; this does not prove PR causation.",
