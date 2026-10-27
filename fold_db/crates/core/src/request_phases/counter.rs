@@ -13,8 +13,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestCounter {
     /// Unanchored product reads rejected by this request before group access.
+    /// Only the deleted LastStore engine produced this count, so it stays zero.
     PartitionReadRejections,
     /// Explicit startup/admin physical passes issued by this request.
+    /// Only the deleted LastStore engine produced this count, so it stays zero.
     AllGroupWalks,
     /// Field molecules this request handed to the durable store.
     ///

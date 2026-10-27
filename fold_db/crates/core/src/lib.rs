@@ -63,8 +63,6 @@ pub mod storage;
 pub mod sync;
 pub mod sync_conflict;
 pub mod user_context;
-/// Schema-owner class carried into the warm set across the blocking boundary.
-pub mod warm_admit;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};

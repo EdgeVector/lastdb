@@ -10,7 +10,6 @@ pub mod native_v1 {
     pub const BLOCK_BYTES: usize = 4_096;
     pub const PAGES_PER_PART: u64 = 512;
     pub const PART_BYTES: u64 = PAGE_BYTES as u64 * PAGES_PER_PART;
-    pub const MAP_ENTRIES: u64 = 677;
     pub const MAX_DEPENDENCY_PARTS: usize = 65_536;
     pub const MAX_BACKUP_FILES: usize = MAX_DEPENDENCY_PARTS + 16;
     pub const RECORD_BODY_MAX_BYTES: u64 = u32::MAX as u64;
@@ -48,8 +47,6 @@ pub mod backup_transport {
 
 /// Native read resources. Streams use a separate exact-record work allowance.
 pub mod native_read {
-    pub const STREAM_RUN_BLOCKS: u32 = 16;
-    pub const MAX_READ_HANDLES: usize = 32;
     /// Eager work includes stored frames, decoded blocks, returned records and
     /// their plans. Cumulative work is distinct from retained memory admission.
     pub const EAGER_WORK_BYTES: u64 = 4 * super::native_write::PENDING_MEMORY_BYTES;
@@ -80,7 +77,6 @@ pub mod backup_decode {
     pub const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
     pub const ATOM_INVENTORY_READ_BYTES: u64 = 64 * 1024 * 1024;
     pub const ATOM_INVENTORY_PAGES: u64 = 4096;
-    pub const NATIVE_STREAM_PAGES: u64 = 512;
     pub const NATIVE_STREAM_LOOKUP_READ_BYTES: u64 = 128 * 1024 * 1024;
     pub const NATIVE_STREAM_BLOCKS: u64 = 16_384;
     pub const FILE_COVERAGE_MEMORY_BYTES: usize = 8 * 1024 * 1024;
@@ -115,7 +111,6 @@ const _: () = assert!(
         && BACKUP_RESOURCES.stream_buffer_bytes <= (usize::MAX - 16) as u64
 );
 const _: () = assert!(BACKUP_RESOURCES.concurrent_streams > 0);
-const _: () = assert!(native_read::STREAM_RUN_BLOCKS > 0 && native_read::MAX_READ_HANDLES > 0);
 
 const _: () = assert!(
     BACKUP_RESOURCES.working_memory_bytes >= backup_memory::PROOF_PEAK_BYTES

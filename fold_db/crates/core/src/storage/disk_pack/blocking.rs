@@ -15,7 +15,6 @@ where
             tokio::runtime::RuntimeFlavor::MultiThread
         )
     });
-    let admit = crate::warm_admit::current_code();
     let disk_reads = crate::read_receipts::current();
     let queued = disk_reads.as_ref().map(|_| std::time::Instant::now());
     let observed_work = move || {
@@ -23,23 +22,12 @@ where
             if let Some(queued) = queued {
                 laststore::record_queue_wait(queued.elapsed());
             }
-            laststore::with_admit_code(admit, || laststore::observe_read_activity(work))
+            work()
         })
     };
-    let (result, activity) = if can_block {
+    if can_block {
         tokio::task::block_in_place(observed_work)
     } else {
         tokio::task::spawn_blocking(observed_work).await?
-    };
-    // Restore attribution in the caller's task-local scope after the
-    // synchronous storage call. A store-wide delta would charge peers.
-    crate::request_phases::add_counter(
-        crate::request_phases::RequestCounter::PartitionReadRejections,
-        activity.partition_read_rejections,
-    );
-    crate::request_phases::add_counter(
-        crate::request_phases::RequestCounter::AllGroupWalks,
-        activity.all_group_walks,
-    );
-    result
+    }
 }
