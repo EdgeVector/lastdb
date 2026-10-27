@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: nightly-lastdb-${{ github.event.pull_request.number || 'publication' }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   plan:
