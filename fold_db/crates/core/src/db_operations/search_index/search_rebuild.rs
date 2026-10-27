@@ -1,5 +1,5 @@
 //! Off-hot-path Search rebuild: page product records into IndexChangeBatch
-//! files for the Search app (LastStore-backed index).
+//! files for the Search readers (LastSeek or the Search app).
 //!
 //! **Never call from the mutation critical section.** Live writes use
 //! [`crate::db_operations::search_index::deliver_search_outbox_best_effort`] only (single
@@ -252,8 +252,8 @@ pub async fn rebuild_search_outbox_into_inbox(
     Ok(report)
 }
 
-/// Operable entry: open a LastDB **home** (Mini layout: LastStore under
-/// `home/data`, Search inbox under `home/apps/search/inbox`), walk product
+/// Operable entry: open a LastDB **home** (Mini layout: the disk format v2 run
+/// homes under `home/data`, Search inbox under `home/apps/search/inbox`), walk product
 /// records, emit IndexChangeBatch files for the Search app.
 ///
 /// The inbox is derived from `home` directly (see

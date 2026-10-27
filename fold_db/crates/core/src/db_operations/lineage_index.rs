@@ -13,9 +13,8 @@
 //!   Vec<String>` of derived UUIDs. "List all derivatives of X." This is the
 //!   redaction-case index.
 //!
-//! Both namespaces are cloud-**backed up** (encrypted since #1153; not on
-//! the at-rest-exemption list, so `BACKUP_EXCLUDED_EXACT` doesn't touch them
-//! either). Rebuilding either
+//! Both namespaces are in the main run home, so the native cloud backup
+//! carries them inside its encrypted run files. Rebuilding either
 //! index is possible by replaying local molecule state — see
 //! [`LineageIndex::verify_merkle_consistency`] for the consistency check used
 //! during replay to confirm stored sources match the derived molecule's

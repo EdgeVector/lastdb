@@ -8,6 +8,10 @@
 > locators (`atom_locators`, `aloc:`), the atom reverse edges (`atom_ref_edges_v2`,
 > `aref:`), the `gc-atoms` verb and `rekey-atom-partition-prefix`. The atom counter
 > is the only authority for an atom body (`docs/lastdb-atom-counter.md`).
+>
+> Removed on 2026-10-26 with disk format v1: the LastStore engine, its HashGroup
+> segment files, and its collection directories. Disk format v2 keeps the
+> records in run files (`docs/lastdb-disk-native-node.md`).
 
 Historical July 29 layout proposal. The [current memory and disk design](lastdb-rehydrate.md)
 and [native cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.

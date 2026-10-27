@@ -162,10 +162,10 @@ pub fn ensure_node_home(home: &Path) -> io::Result<()> {
 ///
 /// Two reasons this is a default rather than a tuning knob:
 ///
-/// * **At-rest hygiene.** LastStore catalogs are plaintext by design, on the
-///   assumption that they stay inside the data dir. Spotlight copies indexed
-///   content into a system-wide index that sits *outside* the AES-256-GCM
-///   at-rest envelope and outside any LastDB access control.
+/// * **At-rest hygiene.** The run files are encrypted, but some files in the
+///   home are plain text, for example the Search inbox batches. Spotlight
+///   copies indexed content into a system-wide index that sits *outside* the
+///   home and outside any LastDB access control.
 /// * **Read-path cost.** Each commit writes a new run file and background
 ///   merges rewrite them, and every new file is fresh re-index work against the
 ///   same disk the read path uses.
@@ -194,7 +194,7 @@ pub fn mark_never_indexed(home: &Path) {
             path = %marker.display(),
             error = %e,
             "could not exclude node home from Spotlight indexing; \
-             plaintext catalogs may be copied into the system index"
+             plain text files in the home may be copied into the system index"
         ),
     }
 }
