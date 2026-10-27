@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI-only cold reads from byte-identical copies of one stopped generated seed."""
+"""Temporary CI driver: measure the single-mutation endpoint, not the batch route."""
 
 import argparse
 import gzip
@@ -12,21 +12,21 @@ import shutil
 import stat
 import time
 
-from cold_layout import snapshot, stable_boundary
 from node import Node, file_hash, save
 from report import compare
-from workload import PROFILES, Workload
+from workload import HASH, PROFILES, SCHEMA, Workload, describe, encoded, fields, key, read_request
 
-PAIRS = 4
-CASES = {"cold-read/1", "cold-read/32"}
-COSTS = ("requested_keys", "read_operations", "file_opens", "footer_bytes", "payload_bytes",
-         "decoded_bytes", "logical_warm_hits")
+PAIRS, SAMPLES, SEED_RECORDS = 4, 256, 256
+CASES = (("create/1024", "create", 1024, 256),
+         ("update/1024", "update", 1024, 0),
+         ("create/32768", "create", 32768, 512),
+         ("update/32768", "update", 32768, 0),
+         ("delete-prefix/one-key", "delete", 0, 0))
 
 
-def inventory(home, physical_only=False):
-    """Hash only an owned, stopped template or a clone; never follow links."""
-    files, entries = {}, 0
-    started = time.monotonic()
+def inventory(home):
+    """Hash this owned, stopped generated seed or clone within a fixed bound."""
+    files, entries, started = {}, 0, time.monotonic()
     for parent, directories, names in os.walk(home, followlinks=False):
         for name in directories + names:
             path = Path(parent) / name
@@ -35,45 +35,82 @@ def inventory(home, physical_only=False):
                 raise RuntimeError("Generated-home inventory exceeded its bound")
             mode = path.lstat().st_mode
             if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
-                raise RuntimeError("Generated snapshot contains a link or nonregular entry")
-            if stat.S_ISREG(mode) and (not physical_only or name == "CURRENT" or name.endswith(".ldrun")):
+                raise RuntimeError("The generated home contains a nonregular entry")
+            if stat.S_ISREG(mode):
                 files[str(path.relative_to(home))] = {"bytes": path.stat().st_size,
                                                        "sha256": file_hash(path)}
-    if not files or physical_only and not any(Path(p).name == "CURRENT" for p in files):
-        raise RuntimeError("The generated snapshot lacks its physical manifests")
+    if not files:
+        raise RuntimeError("The generated seed is empty")
     return files
 
 
-def physical_state(node, expected_layout, expected_root=None):
-    state = snapshot(node)
-    root = {name: state[name] for name in ("generation", "frontier")}
-    observed = inventory(node.home, physical_only=True)
-    save(node.output / "last-physical-observation.json", {"root": root, "files": observed})
-    if observed != expected_layout:
-        raise RuntimeError("The clone's run files or CURRENT changed during the controlled boundary")
-    if expected_root is not None and root != expected_root:
-        raise RuntimeError("The clone changed its generation or write frontier")
-    return root
+def request(number, case, mode, size):
+    value = fields(number, case)
+    value["body"] = hashlib.shake_256(value["title"].encode()).hexdigest(size // 2)
+    selected = value if mode == "create" else {name: value[name] for name in ("title", "body")}
+    body = {"type": "mutation", "schema": SCHEMA, "mutation_type": mode,
+            "durability": "durable", "fields_and_values": selected,
+            "key_value": {"hash": HASH, "range": key(number)}}
+    if mode == "delete":
+        body.update(fields_and_values={}, key_value={"hash": HASH}, key_range_prefix=key(number))
+    return encoded(body), value
 
 
-def boot_boundary(node, seed_layout):
-    """Allow only the startup stamp append; freeze the resulting layout for timing."""
-    state = snapshot(node)
-    observed = inventory(node.home, physical_only=True)
-    removed = sorted(seed_layout.keys() - observed.keys())
-    added = {k: observed[k] for k in observed.keys() - seed_layout.keys()}
-    changed = sorted(k for k in seed_layout.keys() & observed.keys() if seed_layout[k] != observed[k])
-    root = {name: state[name] for name in ("generation", "frontier")}
-    save(node.output / "boot-delta.json", {"removed": removed, "added": added,
-                                          "changed": changed, "root": root, "files": observed})
-    # hydrate_from_snapshot writes one keep-small header to re-arm clean_stop.
-    # A small append alone does not authenticate its contents; retain this explicit
-    # residual startup difference and audit exact query work across the versions.
-    if (removed or changed != ["data/disk-run/CURRENT"] or len(added) != 1
-            or any(not re.fullmatch(r"data/disk-run/runs/[0-9a-f-]+\.ldrun", k)
-                   or not 0 < v["bytes"] <= 4096 for k, v in added.items())):
-        raise RuntimeError("Startup changed more than one bounded metadata append; shared layout refused")
-    return root, observed
+def verify_values(node, numbers, expected, deleted):
+    """Read known keys in bounded batches after the timed writes."""
+    for start in range(0, len(numbers), 64):
+        selected = numbers[start:start + 64]
+        result, _, _ = node.call("/api/query", read_request(selected))
+        rows = result.get("results", [])
+        if deleted:
+            if rows or result.get("returned_count") != 0:
+                raise RuntimeError("A committed prefix delete still returns a record")
+            continue
+        if len(rows) != len(selected) or result.get("returned_count") != len(selected):
+            raise RuntimeError("The read-back lacks committed records")
+        wanted, found = {key(n) for n in selected}, set()
+        for row in rows:
+            coordinate = row.get("key", {})
+            name = coordinate.get("range")
+            if (coordinate.get("hash") != HASH or name not in wanted
+                    or name in found or row.get("fields") != expected[name]):
+                raise RuntimeError("The read-back differs from the committed generated values")
+            found.add(name)
+
+
+def measure_cases(node, output):
+    metrics, identities, mutation_ids = {}, [], set()
+    with gzip.open(output / "samples.jsonl.gz", "wt") as raw:
+        for case, mode, size, first in CASES:
+            samples, expected = [], {}
+            numbers = list(range(first, first + SAMPLES))
+            started = time.perf_counter()
+            for index, number in enumerate(numbers):
+                body, value = request(number, case, mode, size)
+                request_id = f"single-{len(metrics)}-{index:06d}"
+                result, elapsed, _ = node.call("/api/mutation", body, request_id=request_id)
+                mutation_id = result.get("mutation_id")
+                if (result.get("success") is not True or result.get("durability") != "durable"
+                        or not isinstance(mutation_id, str) or not mutation_id
+                        or mutation_id in mutation_ids or result.get("revision") is None
+                        or not isinstance(result.get("resident_stages_us"), dict)):
+                    raise RuntimeError("A single mutation lacks its unique durable commit receipt")
+                mutation_ids.add(mutation_id)
+                expected[key(number)] = value
+                digest = hashlib.sha256(body).hexdigest()
+                sample = {"case": case, "kind": "write", "records": 1, "client": 0,
+                          "client_request": index, "request_id": request_id,
+                          "request_sha256": digest, "elapsed_ms": elapsed,
+                          "resident_stages_us": result["resident_stages_us"]}
+                samples.append(sample)
+                identities.append([case, index, digest])
+                raw.write(json.dumps(sample) + "\n")
+            elapsed = time.perf_counter() - started
+            verify_values(node, numbers, expected, mode == "delete")
+            metrics[case] = {**describe(samples, elapsed), "verified_records": len(numbers)}
+            save(output / "metrics.json", metrics)
+            print(json.dumps({"case": case, **metrics[case]}), flush=True)
+    return identities
 
 
 def prepare_seed(node, output):
@@ -81,99 +118,46 @@ def prepare_seed(node, output):
     try:
         node.start()
         if node.disk_format() != 2:
-            raise RuntimeError("The shared seed must use disk format v2")
-        work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
+            raise RuntimeError("The generated seed must use disk format v2")
+        work = Workload(node, {**PROFILES["standard"], "records": SEED_RECORDS,
+                               "native_timing": False}, output)
         work.seed()
-        save(output / "observed-stable.json", stable_boundary(node))
     finally:
         if work:
             work.raw.close()
-        node.stop()  # Requires the normal successful durable shutdown receipt.
-    whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
-    save(output / "inventory.json", whole)
-    save(output / "physical-inventory.json", physical)
-    return whole, physical
+        node.stop()
+    files = inventory(node.home)
+    save(output / "inventory.json", files)
+    return files
 
 
-def audit_samples(output):
-    samples = [json.loads(line) for line in gzip.decompress((output / "samples.jsonl.gz").read_bytes()).splitlines()]
-    if len(samples) != 512 or {r["case"] for r in samples} != CASES:
-        raise RuntimeError("The controlled cold cases have incomplete samples")
-    for case in CASES:
-        if sum(r["case"] == case for r in samples) != 256:
-            raise RuntimeError("A controlled cold case lacks its 256 calls")
-    for row in samples:
-        cost = row.get("read_receipt")
-        if ("error" in row or not cost or cost["read_operations"] <= 0
-                or cost["payload_bytes"] <= 0 or cost["logical_warm_hits"] != 0):
-            raise RuntimeError("A controlled cold read lacks a cold, successful disk payload receipt")
-    return [{"case": r["case"], "request": r["client_request"], "sha256": r["request_sha256"],
-             "costs": {name: r["read_receipt"].get(name) for name in COSTS}} for r in samples]
-
-
-def measure(binary, revision, output, template, whole, physical):
+def measure(binary, revision, output, template, files):
     output.mkdir()
     node = Node(binary, revision, output, environment={"LASTDB_DISK_FORMAT": "2"})
-    work, error, samples, root = None, None, None, None
+    result, identities = {"complete": False, "error": None}, None
     try:
-        # The template's daemon is stopped; node owns its separate destination root.
         if template.process is not None or any(node.home.iterdir()):
-            raise RuntimeError("Clone requires a stopped template and an empty owned destination")
+            raise RuntimeError("Cloning requires a stopped seed and an empty owned destination")
         shutil.copytree(template.home, node.home, dirs_exist_ok=True)
-        if inventory(node.home) != whole:
-            raise RuntimeError("The complete copied home is not byte-identical to the seed")
-        save(output / "clone.json", {"byte_identical": True, "files": len(whole)})
+        if inventory(node.home) != files:
+            raise RuntimeError("The copied generated home differs from the stopped seed")
+        save(output / "clone.json", {"byte_identical": True, "files": len(files)})
         node.start()
         if node.disk_format() != 2:
-            raise RuntimeError("A product cannot open the shared disk format")
-        root, timing_layout = boot_boundary(node, physical)
-        save(output / "root.json", root)
-        work = Workload(node, {**PROFILES["standard"], "native_timing": False}, output)
-        work.cold_next = 0
-        for case, batch in (("cold-read/1", 1), ("cold-read/32", 32)):
-            boundary = node.call("/api/admin/shed", {})[0]["shed"]
-            save(output / f"boundary-{batch}.json", boundary)
-            if (boundary.get("error") or boundary.get("target_met") is not True
-                    or boundary["native_memory"]["logical_records"] != 0):
-                raise RuntimeError("The clone did not establish an empty logical warm set")
-            physical_state(node, timing_layout, root)
-            work.measure(case, "cold", batch=batch)
-            physical_state(node, timing_layout, root)
-        work.raw.close()
-        samples = audit_samples(output)
+            raise RuntimeError("A measured program did not open disk format v2")
+        identities = measure_cases(node, output)
+        result["complete"] = True
     except BaseException as failure:
-        error = f"{type(failure).__name__}: {failure}"
+        result.update(complete=False, error=f"{type(failure).__name__}: {failure}")
     finally:
-        if work:
-            work.raw.close()
         try:
             node.close()
         except BaseException as failure:
-            error = f"{error or ''}; cleanup: {type(failure).__name__}: {failure}"
-    result = {"complete": error is None, "error": error, "root": root}
-    save(output / "result.json", result)
-    if error:
-        raise RuntimeError(error)
-    return result, samples
-
-
-def retain_comparison(output, manifest, samples):
-    requests = [[r["case"], r["request"], r["sha256"]] for r in samples["0-baseline"]]
-    mismatches = []
-    for run in manifest["runs"]:
-        rows = samples[run["directory"]]
-        if [[r["case"], r["request"], r["sha256"]] for r in rows] != requests:
-            raise RuntimeError("The clones did not receive identical request sequences")
-        if run["label"] == "candidate":
-            base = samples[f"{run['pair']}-baseline"]
-            differences = [{"case": a["case"], "request": a["request"],
-                            "baseline": a["costs"], "candidate": b["costs"]}
-                           for a, b in zip(base, rows) if a["costs"] != b["costs"]]
-            mismatches.append({"pair": run["pair"], "count": len(differences), "requests": differences})
-    save(output / "work-differences.json", mismatches)
-    comparison = compare(output, manifest)
-    save(output / "comparison.json", comparison)
-    return comparison
+            result.update(complete=False, error=f"{result['error'] or ''}; cleanup: {failure}")
+        save(output / "result.json", result)
+    if not result["complete"]:
+        raise RuntimeError(result["error"])
+    return result, identities
 
 
 def main():
@@ -186,64 +170,67 @@ def main():
     revisions = {label: getattr(args, f"{label}_revision") for label in ("baseline", "candidate")}
     if os.environ.get("GITHUB_ACTIONS") != "true" or any(
             not re.fullmatch(r"[0-9a-f]{40}", value) for value in revisions.values()):
-        raise RuntimeError("Run only in GitHub Actions with full product revision SHAs")
+        raise RuntimeError("Run only in GitHub Actions with exact program revisions")
     binaries = {label: getattr(args, f"{label}_binary").resolve() for label in revisions}
     args.output.mkdir(parents=True, exist_ok=True)
-    manifest = {"complete": False, "recipe": {"pairs": PAIRS}, "runs": [],
-                "driver_revision": os.environ["DRIVER_SHA"],
+    manifest = {"complete": False, "runs": [], "driver_revision": os.environ["DRIVER_SHA"],
                 "binaries": {label: {"revision": revisions[label], "sha256": file_hash(binary)}
                              for label, binary in binaries.items()},
-                "scope": "One stopped generated seed; four alternating pairs of independent byte-identical "
-                         "clones. Both formats must be v2. One bounded boot metadata append is recorded; "
-                         "all inherited run bytes stay identical and post-boot layout is fixed during timing. "
-                         "All opening samples retained. "
-                         "Content verification reads files before timing: filesystem pages are not cold. "
-                         "This isolates logical-record-cold reads on a fixed physical layout, not device latency."}
+                "recipe": {"pairs": PAIRS, "samples": SAMPLES, "seed_records": SEED_RECORDS,
+                           "endpoint": "/api/mutation", "cases": [list(c) for c in CASES]},
+                "scope": "Direct single-mutation RPC through response bytes. Payload construction, "
+                         "decode, receipt validation and read-back are outside each RPC timer. "
+                         "Rate includes client preparation, receipt checks and sample recording. Each run starts from "
+                         "an independent byte-identical copy of one stopped generated seed. Writes "
+                         "change physical layout; maintenance, OS cache and scheduling are uncontrolled. "
+                         "No primary data, aggregate/CAS or multi-key-prefix coverage, total-memory or power-loss claim."}
     save(args.output / "benchmark.json", manifest)
     seed_output = args.output / "seed"
     seed_output.mkdir()
     template = Node(binaries["baseline"], revisions["baseline"], seed_output,
                     environment={"LASTDB_DISK_FORMAT": "2"})
-    samples, comparison = {}, None
+    expected, comparison = None, None
     try:
-        whole, physical = prepare_seed(template, seed_output)
+        files = prepare_seed(template, seed_output)
         manifest["seed_inventory_sha256"] = file_hash(seed_output / "inventory.json")
-        manifest["physical_inventory_sha256"] = file_hash(seed_output / "physical-inventory.json")
         for pair in range(PAIRS):
             for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
                 directory = f"{pair}-{label}"
-                result, samples[directory] = measure(binaries[label], revisions[label], args.output / directory,
-                                                      template, whole, physical)
+                result, inputs = measure(binaries[label], revisions[label], args.output / directory,
+                                         template, files)
+                if expected is None:
+                    expected = inputs
+                if inputs != expected:
+                    raise RuntimeError("The measured programs received different request sequences")
                 manifest["runs"].append({"pair": pair, "label": label, "directory": directory, **result})
                 save(args.output / "benchmark.json", manifest)
-        roots = [r["root"] for r in manifest["runs"]]
-        if any(root != roots[0] for root in roots) or inventory(template.home) != whole:
-            raise RuntimeError("Runs did not hold one shared root, or the stopped seed was modified")
-        seed_live = json.loads((seed_output / "observed-stable.json").read_text())[-1]
-        # One clean header commit on shutdown, one re-arm header commit on boot.
-        expected_root = {name: seed_live[name] + 2 for name in ("generation", "frontier")}
-        if roots[0] != expected_root:
-            raise RuntimeError("The shared root includes unexpected shutdown/startup publications")
-        manifest["expected_boot_root"] = expected_root
-        boot_sizes = [list(json.loads((args.output / r["directory"] / "boot-delta.json").read_text())["added"].values())[0]["bytes"]
-                      for r in manifest["runs"]]
-        if len(set(boot_sizes)) != 1:
-            raise RuntimeError("The versions appended different sizes of boot metadata")
-        manifest["boot_append_bytes"] = boot_sizes[0]
-        comparison = retain_comparison(args.output, manifest, samples)
+        if inventory(template.home) != files:
+            raise RuntimeError("The stopped generated seed changed")
+        comparison = compare(args.output, manifest)
+        save(args.output / "comparison.json", comparison)
+        manifest.update(complete=True, identical_input_requests=len(expected))
     finally:
-        template.close()
-    manifest["complete"] = True
-    save(args.output / "benchmark.json", manifest)
-    lines = ["## Shared-seed cold reads", "", manifest["scope"], "",
-             f"Baseline: `{revisions['baseline']}`  ", f"Candidate: `{revisions['candidate']}`", "",
-             "| Case | Base P95 ms | Candidate P95 ms | Change | Pair changes |", "|---|---:|---:|---:|---|"]
-    for case, item in comparison.items():
-        pairs = ", ".join(f"{value:+.1f}%" for value in item["paired_p95_changes_percent"])
-        lines.append(f"| {case} | {item['baseline']['p95_ms']:.3f} | {item['candidate']['p95_ms']:.3f} | "
-                     f"{item['changes_percent']['p95_ms']:+.1f}% | {pairs} |")
+        try:
+            template.close()
+        except BaseException:
+            manifest["complete"] = False
+            raise
+        finally:
+            save(args.output / "benchmark.json", manifest)
+    lines = ["## Temporary direct single-mutation comparison", "",
+             f"Baseline: `{revisions['baseline']}`. Candidate: `{revisions['candidate']}`.", "",
+             "| Case | Base P50/P95/P99 ms | Candidate P50/P95/P99 ms | P95 change |",
+             "|---|---:|---:|---:|"]
+    for case, values in comparison.items():
+        text = lambda label: " / ".join(f"{values[label][name]:.3f}"
+                                        for name in ("p50_ms", "p95_ms", "p99_ms"))
+        lines.append(f"| {case} | {text('baseline')} | {text('candidate')} | "
+                     f"{values['changes_percent']['p95_ms']:+.2f}% |")
+    lines.extend(["", "Medians of four per-run statistics, not pooled percentiles.", manifest["scope"]])
+    summary = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-        stream.write("\n".join(lines) + "\n")
+        stream.write(summary)
+    print(summary, end="")
 
 
 if __name__ == "__main__":
