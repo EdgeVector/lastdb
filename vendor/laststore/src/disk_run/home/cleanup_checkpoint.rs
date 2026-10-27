@@ -54,7 +54,7 @@ impl RunHome {
         let _publish = self
             .publish
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.refuse_if_poisoned()?;
         let header = FrameHeader {
             chunk_uuid: Uuid::new_v4(),

@@ -42,7 +42,7 @@ impl CleanupJob {
     pub(super) fn get(&self) -> NativeCleanupStatus {
         self.status
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -50,7 +50,7 @@ impl CleanupJob {
         *self
             .status
             .lock()
-            .unwrap_or_else(|error| error.into_inner()) = status;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = status;
     }
 }
 
@@ -104,10 +104,7 @@ impl PackRuntime {
     }
 
     fn cleanup_boundary(&self) -> NativeCleanupBoundary {
-        NativeCleanupBoundary {
-            main_frontier: self.physical.home.status().frontier,
-            cas_frontier: self.physical.cas.status().frontier,
-        }
+        NativeCleanupBoundary::capture(&self.physical)
     }
 
     fn require_cleanup_safe(&self) -> StorageResult<()> {

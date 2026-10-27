@@ -15,9 +15,10 @@ def validate(receipt):
         state = receipt[name]
         if state["tiered_runs"] or state["merging_runs"] or state["held_retired_bytes"]:
             raise RuntimeError(f"cleanup completed with unfinished {name} work")
-        key = name + "_frontier"
-        if receipt["completed_through"][key] < receipt["target"][key]:
-            raise RuntimeError(f"cleanup did not cover its {name} target")
+        for measure in ("frontier", "generation"):
+            key = name + "_" + measure
+            if receipt["completed_through"][key] < receipt["target"][key]:
+                raise RuntimeError(f"cleanup did not cover its {name} target")
     if not receipt.get("request_id") or receipt.get("completed_at") is None:
         raise RuntimeError("cleanup lacks a durable request identity or completion time")
 

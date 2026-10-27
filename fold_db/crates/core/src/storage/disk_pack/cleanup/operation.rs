@@ -94,9 +94,7 @@ impl PackRuntime {
             let target = status
                 .target
                 .ok_or_else(|| invalid("cleanup request has no durable target"))?;
-            if boundary.main_frontier < target.main_frontier
-                || boundary.cas_frontier < target.cas_frontier
-            {
+            if !boundary.covers(target) {
                 return Err(invalid("cleanup frontier went backwards"));
             }
             status.phase = NativeCleanupPhase::Complete;

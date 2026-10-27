@@ -21,6 +21,28 @@ pub enum NativeCleanupPhase {
 pub struct NativeCleanupBoundary {
     pub main_frontier: u64,
     pub cas_frontier: u64,
+    pub main_generation: u64,
+    pub cas_generation: u64,
+}
+
+impl NativeCleanupBoundary {
+    pub(super) fn capture(v2: &super::super::physical::V2Home) -> Self {
+        let main = v2.home.status();
+        let cas = v2.cas.status();
+        Self {
+            main_frontier: main.frontier,
+            cas_frontier: cas.frontier,
+            main_generation: main.generation,
+            cas_generation: cas.generation,
+        }
+    }
+
+    pub(super) fn covers(self, earlier: Self) -> bool {
+        self.main_frontier >= earlier.main_frontier
+            && self.cas_frontier >= earlier.cas_frontier
+            && self.main_generation >= earlier.main_generation
+            && self.cas_generation >= earlier.cas_generation
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

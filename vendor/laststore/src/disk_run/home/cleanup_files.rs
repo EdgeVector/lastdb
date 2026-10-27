@@ -27,22 +27,25 @@ impl RunHome {
     /// Held old roots protect their files. Every unlink error is returned,
     /// including errors that an earlier last-holder drop could not report.
     pub fn cleanup_files(&self) -> Result<RunCleanupFiles> {
-        let _merge = self.merge.lock().unwrap_or_else(|error| error.into_inner());
+        let _merge = self
+            .merge
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let _commit = self
             .commit
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let _publish = self
             .publish
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.refuse_if_poisoned()?;
         let current = self.held();
         let held: Vec<_> = {
             let mut retired = self
                 .retired
                 .lock()
-                .unwrap_or_else(|error| error.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             retired.retain(|run| run.strong_count() > 0);
             if retired.len() > MAX_ENTRIES {
                 return Err(Error::WriteCapacity(

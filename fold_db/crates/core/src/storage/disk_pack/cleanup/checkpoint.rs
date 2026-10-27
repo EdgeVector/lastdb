@@ -8,19 +8,10 @@ pub(super) fn load(v2: &physical::V2Home) -> StorageResult<NativeCleanupStatus> 
     };
     let status: NativeCleanupStatus = serde_json::from_slice(&bytes)
         .map_err(|_| invalid("native cleanup checkpoint encoding is invalid"))?;
-    let current = NativeCleanupBoundary {
-        main_frontier: v2.home.status().frontier,
-        cas_frontier: v2.cas.status().frontier,
-    };
-    let target_ok = status.target.is_some_and(|target| {
-        target.main_frontier <= current.main_frontier && target.cas_frontier <= current.cas_frontier
-    });
+    let current = NativeCleanupBoundary::capture(v2);
+    let target_ok = status.target.is_some_and(|target| current.covers(target));
     let finish_ok = status.completed_through.is_some_and(|finish| {
-        status.target.is_some_and(|target| {
-            finish.main_frontier >= target.main_frontier
-                && finish.cas_frontier >= target.cas_frontier
-        }) && finish.main_frontier <= current.main_frontier
-            && finish.cas_frontier <= current.cas_frontier
+        status.target.is_some_and(|target| finish.covers(target)) && current.covers(finish)
     });
     if status.version != 1
         || status.scope != model::SCOPE

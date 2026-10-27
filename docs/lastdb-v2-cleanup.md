@@ -33,7 +33,9 @@ The node records `complete: true` only when all of these facts hold together:
 - The completed frontiers cover both saved target frontiers.
 - The completion receipt reaches disk with its own file and directory barriers.
 
-The receipt names `completed_through`. Later writes do not invalidate that
+The receipt names `completed_through`, with both frontiers and file generations.
+An older restored generation cannot reuse a newer completion receipt.
+Later writes do not invalidate that
 past receipt. A new cleanup request covers later work. A read hold reports
 `waiting_for_reads`. An IO failure reports `retrying` and retries after 30
 seconds. An uncertain native publication reports `recovery_required`; it
