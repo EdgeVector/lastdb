@@ -3,23 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    #[must_use]
-    pub fn schema_meters(&self) -> Vec<SchemaMeter> {
-        let mut rows: Vec<SchemaMeter> = self
-            .schemas
-            .lock()
-            .map(|m| m.values().cloned().collect())
-            .unwrap_or_default();
-        rows.sort_by(|a, b| {
-            b.churn_ratio()
-                .partial_cmp(&a.churn_ratio())
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.live_bytes.cmp(&a.live_bytes))
-                .then_with(|| a.schema_name.cmp(&b.schema_name))
-        });
-        rows
-    }
-
     pub(super) fn add_appended(meter: &mut SchemaMeter, bytes: u64) {
         let today = utc_day(Utc::now());
         if meter.appended_day != today {
