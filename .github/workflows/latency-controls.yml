@@ -1,0 +1,134 @@
+name: LastDB latency controls
+
+# This diagnostic does not provide benchmark-complete or replace normal gates.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/latency-controls.yml'
+      - 'scripts/benchmarks/controls/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: lastdb-latency-controls-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  controls:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PRODUCT_SHA: '688222b04d18d717da913007cb41e7174e48f395'
+      CARGO_BUILD_JOBS: '4'
+      CARGO_TERM_COLOR: always
+      RUSTC_WRAPPER: ''
+      RUSTC_WORKSPACE_WRAPPER: ''
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PRODUCT_SHA }}
+          path: product
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Require the public repository and hosted runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = x86_64
+          gh api "repos/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/control-repository.json"
+          python3 -m py_compile controller/scripts/benchmarks/controls/*.py
+          python3 -m py_compile product/scripts/benchmarks/*.py
+          public="$(jq -r '[.full_name == "EdgeVector/lastdb", .private == false, .visibility == "public"] | all' "$RUNNER_TEMP/control-repository.json")"
+          test "$public" = true
+          echo "CONTROL_OUTPUT=$RUNNER_TEMP/lastdb-latency-controls-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+      - name: Check the one-target build space budget
+        id: space
+        run: python3 controller/scripts/benchmarks/controls/run.py --disk-phase build
+      - name: Reclaim installed tools only when space requires it
+        if: steps.space.outputs.cleanup-required == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+      - name: Require space after any tool cleanup
+        run: python3 controller/scripts/benchmarks/controls/run.py --disk-phase build --require-space
+      - name: Select the pinned product Rust toolchain
+        working-directory: product
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+      - name: Cache dependency downloads without compiled programs or targets
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: latency-control-downloads-${{ runner.os }}-${{ hashFiles('product/Cargo.lock') }}
+          restore-keys: benchmark-downloads-${{ runner.os }}-
+      - name: Compare the same binary, then two fresh builds
+        id: measurement
+        run: |
+          python3 controller/scripts/benchmarks/controls/run.py \
+            --product "$GITHUB_WORKSPACE/product" --output "$CONTROL_OUTPUT"
+      - name: Publish the control summary and preserve incomplete results
+        if: always() && steps.measurement.outcome != 'skipped'
+        run: |
+          python3 controller/scripts/benchmarks/controls/report.py \
+            --product "$GITHUB_WORKSPACE/product" --output "$CONTROL_OUTPUT"
+      - name: Upload source identities, build records, and measurements
+        if: always() && steps.measurement.outcome != 'skipped'
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-latency-controls-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CONTROL_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify the upload and record its download and expiration
+        if: always() && steps.upload.outcome == 'success'
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.CONTROLLER_SHA }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/control-artifact-metadata.json"
+          python3 controller/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/control-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/control-download-receipt"
+      - name: Retain the verified download receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-latency-control-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/control-download-receipt/artifact.json
+          retention-days: 14
+          if-no-files-found: error
