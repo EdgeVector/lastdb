@@ -71,7 +71,7 @@ impl CoreNamespaces {
         // segment engine (no automatic compaction; shared hash groups with
         // correctness records) that grew one group to 39 GB and looped the
         // primary. In disk format v2 the plane is part of the main run home,
-        // so the V2 byte backup copies it with the other run files.
+        // so the V2 byte backup, when on, copies it with the other run files.
         let keep_small_kv = store
             .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
             .await?;

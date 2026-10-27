@@ -14,8 +14,8 @@
 //!   redaction-case index.
 //!
 //! Both namespaces are in the main run home. When the V2 byte backup is on
-//! (`LASTDB_BYTE_BACKUP_V2_ENABLED`), it copies them inside the encrypted
-//! run files. Rebuilding either
+//! (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
+//! connection), it copies them inside the encrypted run files. Rebuilding either
 //! index is possible by replaying local molecule state — see
 //! [`LineageIndex::verify_merkle_consistency`] for the consistency check used
 //! during replay to confirm stored sources match the derived molecule's

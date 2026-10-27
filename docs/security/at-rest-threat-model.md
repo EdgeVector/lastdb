@@ -316,8 +316,8 @@ deleted it together with the disk format v1 module. Disk format v2 has no
 `LASTSTORE_PLAINTEXT_NAMESPACES`. Catalog values still carry no value
 envelope, but they are in the run files, and each block of a run file uses
 AES-256-GCM. The chunk backup plane is also gone. When the V2 byte backup is
-on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, default off), it copies the encrypted
-run files.
+on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
+connection; default off), it copies the encrypted run files.
 
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
 current Mini storage map. The shipped backend is
