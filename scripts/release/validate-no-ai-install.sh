@@ -168,6 +168,7 @@ cat > "$REPORT_DIR/declare-request.json" <<'JSON'
       "range_field": "id"
     },
     "fields": ["bucket", "id", "title", "body"],
+    "field_types": {"bucket": "String", "id": "String"},
     "field_descriptions": {
       "bucket": "hash partition for the validation record",
       "id": "range key id",

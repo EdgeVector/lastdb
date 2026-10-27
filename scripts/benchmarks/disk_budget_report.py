@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import save
+from node import RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER, save
 from typed_ranges import conversion_lines
 
 
@@ -26,7 +26,7 @@ def compare(output, manifest):
             if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
                 raise ValueError("The disk budget does not establish Search off")
         marker = json.loads((directory / "disk-format.json").read_text())
-        if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
+        if set(marker) != {"marker"} or marker["marker"] not in (RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER):
             raise ValueError("The disk budget did not measure a v2 run home")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(disk_budget.CASES):

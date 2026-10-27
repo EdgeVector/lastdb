@@ -42,6 +42,7 @@ def seed(node, state):
                                 (OLD, "HashRange", {"hash_field": "bucket", "range_field": "id"})):
         definition = {"source": "system_seed", "name": schema, "descriptive_name": schema,
                       "schema_type": kind, "key": keys, "fields": FIELDS,
+                      "field_types": {"bucket": "String", "id": "String"},
                       "field_descriptions": {f: f"{schema} TTL latency {f}" for f in FIELDS}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
     definitions = {schema: node.call(f"/api/schema/{schema}")[0]["schema"] for schema in (LIVE, OLD)}
