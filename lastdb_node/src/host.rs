@@ -355,9 +355,11 @@ impl Host {
             existing_store,
             &keypair,
             &e2e_keys,
-            search_outbox_inbox,
+            search_outbox_inbox.clone(),
         )
         .await?;
+        fold_db::db_operations::search_index::queue_policy::prepare(&search_outbox_inbox)
+            .map_err(|error| format!("Search queue preparation failed: {error}"))?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         clear_last_boot_error(home);
         write_codec_format_requirement(home);

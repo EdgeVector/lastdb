@@ -291,6 +291,9 @@ fn main() -> Result<(), String> {
     log_allocator_tuning(&allocator_tuning);
 
     let cli = Cli::parse();
+    if cli.enable_search {
+        fold_db::db_operations::search_index::queue_policy::enable_for_process();
+    }
 
     let socket_path = cli.socket_path;
     let full_socket_path = cli.full_socket_path;

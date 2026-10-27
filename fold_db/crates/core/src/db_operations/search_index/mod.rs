@@ -5,6 +5,7 @@
 //! offline rebuild pages product records into the same inbox. Semantic
 //! recall itself lives outside Mini.
 
+pub mod queue_policy;
 pub(crate) mod search_outbox;
 pub(crate) mod search_rebuild;
 pub(crate) mod sink;
