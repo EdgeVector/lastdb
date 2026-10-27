@@ -6,8 +6,9 @@ The [design](encrypted-range-keys-local-preload.md) defines the target behavior.
 The [reader and writer inventory](encrypted-range-keys-reader-writer-inventory.md) maps the current source dependencies and preload exceptions.
 
 The first release replaces the reversible range codec with encrypted key directories and complete local key trees.
-It keeps hash blinding, atom-content encryption, and file encryption.
+It keeps hash blinding, run-file block encryption, and file encryption.
 A later release adds direct cloud reads and a browser client.
+That release must add per-atom encryption first: disk format v2 atom rows are plain JSON inside encrypted run-file blocks (see the gap section of the [design](encrypted-range-keys-local-preload.md)).
 The local release does not depend on a cloud deployment.
 
 ## Current state and scope
@@ -248,7 +249,7 @@ Keep account generations, share permissions, object grants, quotas, and resource
 Add authorized directory discovery and chunk reads by opaque domain and revision.
 Add batched exact tip and atom reads by opaque key identifiers.
 Choose individual objects, authenticated pack byte ranges, or both through the package 7 contract.
-The service receives no private identity key, directory key, or atom-content key.
+The service receives no private identity key, directory key, or atom content key (the per-atom encryption that the design gap section requires).
 
 Bind every returned location and byte range to the requested revision and its authenticated content.
 Reject requests across accounts, expired revisions, and grants outside their shared scope.

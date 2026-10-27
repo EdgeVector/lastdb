@@ -5,7 +5,7 @@ use super::*;
 struct PreparedAtomPhase {
     mutation_key_values: Vec<crate::schema::types::KeyValue>,
     atom_results: Vec<(usize, String, crate::atom::Atom)>,
-    deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
+    deferred_atoms: Option<Vec<crate::atom::Atom>>,
     changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
 }
 

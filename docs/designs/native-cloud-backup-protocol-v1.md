@@ -141,14 +141,15 @@ home identity and digest, full CURRENT digest, native generation, frontier, and 
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
 The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
-The logical marker `layout:v3:keys` requires direct ASCII value `6`.
+The logical marker `layout:v3:keys` requires direct ASCII value `6` or `6;delete-replay-cutoff=v1` for the UTF-8 key order, and `7;typed-ranges=v1` for a home with typed ranges.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
-Atom content and file bytes retain their existing encryption.
+File bytes retain their existing encryption.
+An atom row has no content seal. It is plain JSON inside an encrypted run-file block.
 Tip values and other control values remain readable in the stored backup bytes.
-Earlier logical formats require an explicit offline conversion; restore does not rewrite them.
-The native record transfer converts formats `4` and `5` in a separate inactive target.
-The original native reader restores an older physical backup before that transfer.
+Restore does not rewrite an earlier logical format.
+The native record transfer that converted formats `4` and `5` is removed with disk format v1.
+This program has no reader and no converter for another format, so restore refuses an older physical backup.
 Unsupported features cause refusal before destination publication.
 The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
 Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.

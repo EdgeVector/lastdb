@@ -18,7 +18,7 @@ The profile is `lastdb:clww-binary128-nonwrapping:hmac-sha256:v1`.
 Derive its root directly from the private identity seed with a separate purpose.
 Derive one molecule secret from the root, exact molecule identity, format, and epoch.
 Derive an OPE key for each stored blinded hash.
-Keep existing hash blinding, atom content encryption, and file blob encryption.
+Keep existing hash blinding, run-file block encryption, and file blob encryption.
 
 The current portable source includes deterministic full-byte terms, prefix bounds, protected originals, and scoped grant codecs.
 The native serving selector, molecule bundles, and home marker still select the accepted old format.

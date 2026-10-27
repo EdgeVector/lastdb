@@ -15,6 +15,7 @@ use super::DeletedAtom;
 use super::{AtomCounter, TipCommit};
 use crate::atom::atom_key_codec;
 use crate::db_operations::atom_store::blob_counter::BlobDeltas;
+use crate::db_operations::atom_store::codec::encode_plain_atom;
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -47,7 +48,7 @@ pub(super) async fn build_mutations(
                 let offer = offers
                     .remove(&atom)
                     .expect("a created atom has an offered body");
-                puts.extend(create_puts(store, scope, &atom, &counter, &offer).await?);
+                puts.extend(create_puts(scope, &atom, &counter, &offer)?);
                 blob_deltas.atom_counter_created(&counter.blobs);
                 commit.created.push(offer.atom);
                 Some(CounterEvent::Created)
@@ -126,17 +127,14 @@ fn counter_put(
 }
 
 /// Body and counter of an atom that is new in the scope.
-async fn create_puts(
-    store: &AtomStore,
+fn create_puts(
     scope: Option<&str>,
     atom: &str,
     counter: &AtomCounter,
     offer: &Offer,
 ) -> Result<Vec<KvMutation>, SchemaError> {
     crate::atom::enforce_atom_content_limit(offer.atom.source_schema_name(), offer.atom.content())?;
-    let body = store
-        .encode_atom_bytes(&offer.atom, offer.bundle_molecule.as_deref())
-        .await?;
+    let body = encode_plain_atom(&offer.atom)?;
     let mut puts = vec![KvMutation::put(
         build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes(),
         body,

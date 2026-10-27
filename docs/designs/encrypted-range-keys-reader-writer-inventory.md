@@ -14,7 +14,8 @@ The [work plan](encrypted-range-keys-local-preload-plan.md) defines the delivery
 
 This is a logical key-format change across reads, writes, membership controls, and recovery.
 The principal risk is a mismatch between a new opaque tip identifier and another record that still names the old range key.
-The change does not inherently require a new atom-content cipher or a new pack engine.
+The local key-format change does not require a new pack engine.
+The cloud and browser read path needs new per-atom encryption first (see the [design gap](encrypted-range-keys-local-preload.md#gap-per-atom-content-encryption)).
 
 The static search finds 80 files with explicit range-codec, key-layout, generation, delete-barrier, or preload references.
 That set contains 78 core Rust files and two source scripts.
@@ -173,7 +174,7 @@ This inventory does not establish that every sync configuration selects that pat
 | Backup dependency capture | Include directory roots, chunks, and their complete source revision | Existing immutable native snapshot capture |
 | Restore publication | Verify complete directories and compatible keys before destination publication | Existing inactive-home and key-proof guards |
 | Compaction | Retain current directory roots, live chunks, and required references | Existing native pack compaction |
-| Atom bodies | Preserve atom identifiers and content encryption | [Body address](https://github.com/EdgeVector/lastdb/blob/1e45b9a458dce2c80166a3b322f81293608c265b/fold_db/crates/core/src/atom/atom_key_codec.rs#L30) depends on the atom UUID, separately from range keys |
+| Atom bodies | Preserve atom identifiers. A local atom row stays plain JSON inside an encrypted run-file block. The cloud read path must add per-atom encryption (see the [design gap](encrypted-range-keys-local-preload.md#gap-per-atom-content-encryption)) | [Body address](https://github.com/EdgeVector/lastdb/blob/1e45b9a458dce2c80166a3b322f81293608c265b/fold_db/crates/core/src/atom/atom_key_codec.rs#L30) depends on the atom UUID, separately from range keys |
 | File blobs | Preserve encrypted file bytes and authenticated atom access | Existing file keys and encrypted-byte addresses |
 | Native byte lookup | Store exact opaque identifiers and ordinary records | [Native key contract](https://github.com/EdgeVector/lastdb/blob/1e45b9a458dce2c80166a3b322f81293608c265b/vendor/laststore/src/disk_pack/home.rs#L34) already treats higher-level codecs separately |
 

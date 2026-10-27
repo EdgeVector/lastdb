@@ -14,7 +14,7 @@ use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
 use super::{AtomSize, DeletedAtom};
 use crate::atom::{molecule_key_codec, Atom};
-use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
+use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -68,7 +68,7 @@ pub(crate) struct TipChangeSet<'a> {
     pub tips: Vec<TipChange>,
     /// Bodies that this request created. The planner writes a body only for an
     /// atom that gains its first reference in this scope.
-    pub bodies: &'a [SealedAtom],
+    pub bodies: &'a [Atom],
     /// A scope to read a missing body from, for a scope that copies tips from
     /// another scope. `Some(None)` names the personal scope.
     pub body_source: Option<Option<&'a str>>,
@@ -89,7 +89,7 @@ pub(crate) struct TipChangeSet<'a> {
 
 /// Where the planner finds a body for an atom that is new in the scope.
 pub(super) struct BodySources<'a> {
-    pub bodies: &'a [SealedAtom],
+    pub bodies: &'a [Atom],
     pub source: Option<Option<&'a str>>,
 }
 
@@ -193,9 +193,7 @@ impl AtomStore {
             bodies,
             source: body_source,
         };
-        let offers = self
-            .offer_bodies(&deltas, &before, &tips, &sources, scope)
-            .await?;
+        let offers = self.offer_bodies(&deltas, &before, &sources).await?;
         let plans = plan_all(&deltas, &before, &offers)?;
         let (rows, molecule_run) = self.apply_molecule_counters(scope, &changes, rows).await?;
         let previous = previous_tips(&old);

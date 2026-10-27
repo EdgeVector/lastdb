@@ -70,7 +70,7 @@ impl AtomStore {
     pub(crate) async fn activate_prepared_molecule_generations(
         &self,
         activations: Vec<PreparedMoleculeGenerationActivation>,
-        bodies: &[SealedAtom],
+        bodies: &[crate::atom::Atom],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<String>, SchemaError> {
         if activations.is_empty() {
@@ -120,7 +120,7 @@ impl AtomStore {
         self.account_stored_bodies(bodies, &commit);
         self.account_keep_small_items(&accounted, &commit);
         self.keep_small
-            .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
+            .settle_pending_atoms(bodies.iter().map(crate::atom::Atom::uuid));
         // Debounced persist only — never `flush_keep_small` on a write path.
         // The 2026-09-21 primary restart loop came from a per-write flush on
         // activation: every one re-appended the whole per-molecule counter map

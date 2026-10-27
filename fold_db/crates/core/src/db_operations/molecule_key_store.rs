@@ -124,55 +124,6 @@ impl MoleculeKeyStore {
         self.cached_bundle(molecule_uuid)
     }
 
-    /// Load an existing bundle or mint one. Callers use this on new instances.
-    pub async fn ensure(&self, molecule_uuid: &str) -> StorageResult<MoleculeKeyBundle> {
-        if let Some(bundle) = self.load(molecule_uuid).await? {
-            return Ok(bundle);
-        }
-        if self.is_typed() {
-            return Err(StorageError::InvalidOperation(
-                "a new typed molecule requires its schema range profile".into(),
-            ));
-        }
-        // Every mint takes the native write gate before the shared mint lock.
-        // An enclosing schema publication already owns that same gate.
-        crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
-            self.ensure_in_scope(molecule_uuid),
-        )
-        .await
-    }
-
-    async fn ensure_in_scope(&self, molecule_uuid: &str) -> StorageResult<MoleculeKeyBundle> {
-        let _guard = self.mint_lock.lock().await;
-        if let Some(bundle) = self.load(molecule_uuid).await? {
-            return Ok(bundle);
-        }
-        let wrap_key = self.node_wrap_key.as_ref().ok_or_else(|| {
-            StorageError::InvalidOperation(
-                "per-molecule key bundles require a node wrapping key".to_string(),
-            )
-        })?;
-        let bundle = MoleculeKeyBundle::generate();
-        self.put_wrap(molecule_uuid, NODE_DOMAIN, &bundle, wrap_key)
-            .await?;
-        self.entries
-            .put_item(
-                &metadata_key(molecule_uuid),
-                &BundleMetadata {
-                    version: BUNDLE_VERSION,
-                    molecule_uuid: molecule_uuid.to_string(),
-                    range_profile: None,
-                    key_authority: None,
-                    conflict_identity: None,
-                },
-            )
-            .await?;
-        self.entries.inner().flush().await?;
-        self.remember(molecule_uuid, bundle.clone())?;
-        Ok(bundle)
-    }
-
     pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.entries.inner().flush().await
     }
@@ -204,19 +155,6 @@ impl MoleculeKeyStore {
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
         self.load_existing(&schema_molecule_uuids(schema)).await?;
         self.require_schema_profiles(schema)
-    }
-
-    async fn put_wrap(
-        &self,
-        molecule_uuid: &str,
-        domain: &str,
-        bundle: &MoleculeKeyBundle,
-        wrapping_key: &[u8; 32],
-    ) -> StorageResult<()> {
-        let wrap = make_wrap(molecule_uuid, domain, bundle, wrapping_key)?;
-        self.entries
-            .put_item(&wrap_key_for(molecule_uuid, domain), &wrap)
-            .await
     }
 }
 

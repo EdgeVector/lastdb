@@ -185,8 +185,8 @@ pub fn seal_at_rest_deflate_raw(key: &[u8; 32], plaintext: &[u8]) -> CryptoResul
 
 /// Seal with compression when useful, but keep the result UTF-8.
 ///
-/// Atom content and other nested JSON/string fields use this explicit legacy
-/// form. Their container cannot carry raw ciphertext bytes.
+/// A nested JSON or string field uses this explicit legacy form when its
+/// container cannot carry raw ciphertext bytes.
 pub fn seal_at_rest_deflate_utf8(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
     seal_at_rest_deflate_with(
         key,

@@ -62,7 +62,8 @@ pub struct SchemaStore {
     /// Mini E2E content key. Catalog rows are plaintext-by-policy, but a
     /// mis-wired sealer wrote `ENC:` tips (2026-08-16). Query falls back to
     /// [`Self::get_schema`] on a cache miss; without this key that get would
-    /// serde-fail and become HTTP 400. Same key as atom content seal.
+    /// serde-fail and become HTTP 400. Same account key as the local CAS file
+    /// blob encryption in `AtomStore`.
     catalog_unwrap_key: Option<[u8; 32]>,
     runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
 }

@@ -64,8 +64,11 @@ pub struct ContentAddressedAtom {
 /// ## Operation Trinity (Holy Ghost) — local CAS
 /// When [`Self::local_cipher_suite`] is set, `bytes_b64` holds the UTF-8
 /// `ENC:…` envelope of the file bytes sealed under the **file KDK** (per-blob
-/// DEK). The DEK itself is **not** stored in `cas_blobs` — it lives only in
-/// sealed atom content (`FileBlobAccess.dek`).
+/// DEK). The DEK itself is **not** stored in `cas_blobs`. At rest in the
+/// local store it lives in the `$lastdb_file` pointer of the atom row
+/// (`FileBlobAccess.dek`), which the run-file block encryption protects. A
+/// delivery slice also carries it (`Self::access`), and the
+/// Search inbox can hold a copy of the pointer when Search is on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAddressedBlob {
     /// `sha256:<hex>` of the ciphertext (v2) or plaintext (older suites).
