@@ -138,10 +138,6 @@ pub fn add_counter(counter: RequestCounter, n: u64) {
     let _ = REQUEST_METRICS.try_with(|cell| {
         let mut metrics = cell.borrow_mut();
         let slot = match counter {
-            RequestCounter::PartitionReadRejections => {
-                &mut metrics.counts.partition_read_rejections
-            }
-            RequestCounter::AllGroupWalks => &mut metrics.counts.all_group_walks,
             RequestCounter::MoleculesPersisted => &mut metrics.counts.molecules_persisted,
             RequestCounter::MoleculeStoreCommits => &mut metrics.counts.molecule_store_commits,
             RequestCounter::ResidentCommits => &mut metrics.counts.resident_commits,
