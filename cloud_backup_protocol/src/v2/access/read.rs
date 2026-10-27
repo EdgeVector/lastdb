@@ -1,4 +1,3 @@
-use super::super::inventory::InventoryProof;
 use super::super::transfer::ObjectReceipt;
 use super::super::{limits, AcceptedBackup, Destination, Job, Object, Version};
 use crate::{DecimalU64, Digest, ProtocolError, Text};
@@ -151,38 +150,5 @@ impl ReadGrantResponse {
             }
         }
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
-    }
-
-    /// First root read is possible before the inventory pages arrive. The client
-    /// still verifies the complete inventory and exact used set before install.
-    pub fn root_grant_for(
-        &self,
-        request: &ReadGrantRequest,
-        accepted: &AcceptedBackup,
-    ) -> Result<&ReadGrant, ProtocolError> {
-        self.validate_for(request, accepted)?;
-        let selector = ReadSelector::Receipt {
-            receipt_id: accepted.root_receipt_id.clone(),
-        };
-        let offset = request
-            .objects
-            .iter()
-            .position(|item| item == &selector)
-            .ok_or_else(|| ProtocolError::invalid("v2.read_grant.root_selector"))?;
-        match &self.items[offset] {
-            ReadGrantItemResult::Ok { grant, .. } => Ok(grant),
-            ReadGrantItemResult::Error { error, .. } => Err(error.clone()),
-        }
-    }
-
-    pub fn validate_root_inventory(
-        &self,
-        request: &ReadGrantRequest,
-        accepted: &AcceptedBackup,
-        proof: &InventoryProof,
-    ) -> Result<(), ProtocolError> {
-        accepted.validate_inventory(proof)?;
-        self.root_grant_for(request, accepted)?
-            .validate_for_receipt(proof.root_receipt())
     }
 }
