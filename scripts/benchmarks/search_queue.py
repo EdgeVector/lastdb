@@ -140,7 +140,7 @@ def main():
                 "candidate_sha256": file_hash(args.candidate), "driver_revision": args.driver_revision,
                 "profile": args.profile, "host": host_details(), "runs": [],
                 "drivers": {name: file_hash(Path(__file__).with_name(name)) for name in
-                            ("search_queue.py", "node.py", "disk_usage.py", "disk_budget.py", "growth.py", "workload.py")}}
+                            ("search_queue.py", "node.py", "disk_usage.py", "disk_budget.py", "disk_deletes.py", "growth.py", "workload.py")}}
     try:
         for pair in range(3 if args.profile == "nightly" else 2):
             modes = ("default-off", "enabled") if pair % 2 == 0 else ("enabled", "default-off")

@@ -155,7 +155,7 @@ def main():
                 "recipe": {"counts": COUNTS, "rounds": ROUNDS, "pairs": PAIRS, "idle_seconds": IDLE_SECONDS},
                 "host": {"platform": platform.platform(), "cpus": os.cpu_count()}, "runs": [],
                 "drivers": {name: file_hash(Path(__file__).with_name(name)) for name in
-                            ("disk_excess.py", "disk_budget.py", "disk_usage.py", "growth.py", "node.py", "workload.py")}}
+                            ("disk_excess.py", "disk_budget.py", "disk_deletes.py", "disk_usage.py", "growth.py", "node.py", "workload.py")}}
     try:
         for count in COUNTS:
             recipe = {"records": count, "rounds": ROUNDS, "idle_seconds": 1}

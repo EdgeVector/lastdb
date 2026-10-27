@@ -154,9 +154,8 @@ async fn plan_delete(
         .await?;
     let mut barrier_rows = Vec::with_capacity(converge.len());
     let mut blocked: HashSet<String> = HashSet::new();
-    for (mut barrier, tip) in converge {
+    for (barrier, tip) in converge {
         if let Some(tip) = &tip {
-            barrier.displaced_atom_uuid = Some(tip.entry.atom_uuid.clone());
             if barrier.blocks_tip(&tip.entry) {
                 blocked.insert(barrier.mk_key.clone());
             }

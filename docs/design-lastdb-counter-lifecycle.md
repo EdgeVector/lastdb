@@ -172,7 +172,7 @@ Measured (appendix A.1 to A.3):
 | Pending hold (catalog add) | No (hold only) | none | **Gone** |
 | Atom to blob | blob edge `bref:v1` | atom to blob | Blob counter counts atoms |
 | Database catalog | weight | `mref` | **Molecule `bindings`**, not atom weight |
-| Delete barrier (`displaced_atom_uuid`) | No | none | No. It holds a stamp, not a body. |
+| Delete barrier | No | none | No. It holds a stamp, not a body. |
 | Retired intent | No | none | Retired with Cloud Sync. No code reads or writes it. |
 | Generation base, `mgd` marker | No | mirrored | Out of scope. See 16. |
 | `keep_small` meters | No | none | No. A gauge, not a reference. |
