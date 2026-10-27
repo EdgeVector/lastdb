@@ -44,6 +44,12 @@ pub struct LogicalInventory {
     pub complete: bool,
     /// Fixed reason for a partial inventory, or none for a complete inventory.
     pub stopped_reason: Option<&'static str>,
+    /// Fixed audit stage that refused admission; never a file name or record key.
+    pub stopped_stage: Option<String>,
+    /// Retained metadata and block allowance for each input cursor.
+    pub cursor_allowance_bytes: u64,
+    /// Shared working allowance for the one active decoder and its output.
+    pub frame_workspace_bytes: u64,
     /// Elapsed inventory time in milliseconds from a monotonic clock.
     pub elapsed_ms: u64,
     /// Input run records examined, including hidden older versions.
@@ -67,6 +73,9 @@ impl LogicalInventory {
             generation: 0,
             frontier: 0,
             stopped_reason: None,
+            stopped_stage: None,
+            cursor_allowance_bytes: 0,
+            frame_workspace_bytes: SummaryCursor::frame_workspace_bytes(),
             elapsed_ms: 0,
             examined_run_records: 0,
             merged_keys: 0,
@@ -93,6 +102,12 @@ pub(super) fn inventory(home: &RunHome, root: &Manifest, deadline: Instant) -> L
                 "memory_or_work_cap"
             })
         }
+        Err(Error::Config(message)) if message.starts_with("checkpoint audit cap: ") => {
+            report.stopped_reason = Some("memory_or_work_cap");
+            report.stopped_stage = message
+                .strip_prefix("checkpoint audit cap: ")
+                .map(str::to_string);
+        }
         Err(_) => report.stopped_reason = Some("record_read_failed"),
     }
     report.elapsed_ms = started.elapsed().as_millis().try_into().unwrap_or(u64::MAX);
@@ -114,9 +129,12 @@ fn collect(
     }
     let metadata = root.retained_bytes().saturating_add((count * 512) as u64);
     let allowance = MEMORY_BYTES
+        .checked_sub(report.frame_workspace_bytes)
+        .ok_or(Error::ReadBudgetExceeded)?
         .checked_sub(metadata)
         .ok_or(Error::ReadBudgetExceeded)?
         / count as u64;
+    report.cursor_allowance_bytes = allowance;
     if allowance < 128 * 1024 {
         return Err(Error::ReadBudgetExceeded);
     }

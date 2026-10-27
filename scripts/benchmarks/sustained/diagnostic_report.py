@@ -92,6 +92,40 @@ def storage_lines(report):
     return lines
 
 
+def home_file_lines(report):
+    lines = ["", "### Whole generated home files", "",
+             "The native audit and whole-home directory walk run sequentially within each timed checkpoint.",
+             "These observations are not one atomic snapshot; background merges can change files between them.",
+             "Family totals count directory entries. Global unique-inode totals remove hardlink duplicates observed within this home.",
+             "Unique-inode allocation does not measure unique filesystem blocks, links outside the home, or device traffic.",
+             "File lengths remain separate from encrypted native files and precompression logical-record bytes. No logical/native subtraction is performed.", "",
+             "| Checkpoint | Span ms | File entries | Entry length MiB | Entry allocated MiB | Unique-inode length MiB | Unique-inode allocated MiB | Hardlink duplicate entries |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for checkpoint in report["checkpoints"]:
+        home = checkpoint.get("home_files")
+        if home is None:
+            lines.append(f"| {checkpoint['name']} | {value(checkpoint['ended_us'] - checkpoint['started_us'], 1000)} | unreported | unreported | unreported | unreported | unreported | unreported |")
+            continue
+        families = home.get("families", {})
+        count = sum(row.get("files", 0) for row in families.values())
+        cells = [str(count)] + [value(home.get(field), MIB) for field in
+                ("logical_bytes", "allocated_bytes", "unique_file_logical_bytes", "unique_file_allocated_bytes")]
+        cells.append(str(home.get("hardlink_duplicate_entries", "unreported")))
+        lines.append(f"| {checkpoint['name']} | {value(checkpoint['ended_us'] - checkpoint['started_us'], 1000)} | " + " | ".join(cells) + " |")
+    lines += ["", "| Checkpoint / file family | File entries | Entry length MiB | Entry allocated MiB |",
+              "|---|---:|---:|---:|"]
+    for checkpoint in report["checkpoints"]:
+        home = checkpoint.get("home_files")
+        if home is None:
+            lines.append(f"| {checkpoint['name']} / unreported | unreported | unreported | unreported |")
+            continue
+        for name, row in sorted(home.get("families", {}).items(), key=lambda item: item[1].get("logical_bytes", 0), reverse=True):
+            lines.append(f"| {checkpoint['name']} / {name} | {row.get('files', 'unreported')} | "
+                         f"{value(row.get('logical_bytes'), MIB)} | {value(row.get('allocated_bytes'), MIB)} |")
+    lines.append("A hardlinked file can appear in more than one family. Per-family unique-inode ownership is not inferred.")
+    return lines
+
+
 def collection_lines(report):
     lines = ["", "### Newest-key collection changes", "",
              "Ranked by change in tagged stored-value bytes, then key bytes. Labels are fixed internal names; other names share other.",
@@ -130,5 +164,5 @@ def render(report):
                   f"Excluded region bytes: {region['excluded_bytes']}; overlapping lines: {region['excluded_lines']}; complete line bytes skipped: {region['excluded_line_bytes']}.",
                   "Only this explicit crash region and its boundary lines leave numeric capture. The raw log remains in the artifact.",
                   "The recovery canary and reopened inventory remain separate evidence. Load request coverage stays strict."]
-    lines += timing_lines(report) + storage_lines(report) + collection_lines(report)
+    lines += timing_lines(report) + home_file_lines(report) + storage_lines(report) + collection_lines(report)
     return "\n".join(lines) + "\n"

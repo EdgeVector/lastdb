@@ -154,6 +154,31 @@ def validate_audit(audit):
             raise ValueError("Logical collection key counts do not reconcile")
 
 
+def validate_home_files(home_files):
+    if not isinstance(home_files, dict):
+        raise ValueError("The whole-home file observation is invalid")
+    names = ("logical_bytes", "allocated_bytes", "unique_file_logical_bytes",
+             "unique_file_allocated_bytes", "hardlink_duplicate_entries")
+    for name in names:
+        integer(home_files[name])
+    families = home_files["families"]
+    if not isinstance(families, dict) or len(families) > MAX_WINDOWS:
+        raise ValueError("Whole-home file families exceed their bound")
+    for name, row in families.items():
+        if not isinstance(name, str) or not NAME.fullmatch(name):
+            raise ValueError("A whole-home file family label is invalid")
+        numeric_map(row)
+        for field in ("files", "logical_bytes", "allocated_bytes"):
+            integer(row[field])
+    for field in ("logical_bytes", "allocated_bytes"):
+        if sum(row[field] for row in families.values()) != home_files[field]:
+            raise ValueError(f"Whole-home {field} families do not reconcile")
+        if home_files[f"unique_file_{field}"] > home_files[field]:
+            raise ValueError(f"Unique-inode {field} exceeds directory-entry bytes")
+    if home_files["hardlink_duplicate_entries"] > sum(row["files"] for row in families.values()):
+        raise ValueError("Duplicate hardlink entries exceed the observed file entries")
+
+
 class Diagnostics:
     def __init__(self, output, log_path):
         self.output, self.log_path = Path(output), Path(log_path)
@@ -166,16 +191,22 @@ class Diagnostics:
         if len(self.errors) < MAX_ERRORS:
             self.errors.append(str(message)[:500])
 
-    def checkpoint(self, name, audit_dict, start_us, end_us):
+    def checkpoint(self, name, audit_dict, start_us, end_us, home_files=None):
         self._bounds(name, start_us, end_us)
         if len(self.checkpoints) >= MAX_WINDOWS or any(c["name"] == name for c in self.checkpoints):
             raise ValueError("Checkpoint names repeat or exceed their bound")
         self.checkpoints.append({"name": name, "started_us": start_us,
-                                 "ended_us": end_us, "audit": audit_dict})
+                                 "ended_us": end_us, "audit": audit_dict,
+                                 "home_files": home_files})
         try:
             validate_audit(audit_dict)
         except (KeyError, TypeError, ValueError) as error:
             self.error(f"checkpoint {name}: {error}")
+        if home_files is not None:
+            try:
+                validate_home_files(home_files)
+            except (KeyError, TypeError, ValueError) as error:
+                self.error(f"checkpoint {name}/home_files: {error}")
 
     def interval(self, name, start_us, end_us, expected_requests=None):
         self._bounds(name, start_us, end_us)

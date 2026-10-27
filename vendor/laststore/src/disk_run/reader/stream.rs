@@ -9,6 +9,8 @@ use std::io::Read;
 mod body;
 #[path = "stream/diagnostic.rs"]
 mod diagnostic;
+#[path = "stream/diagnostic_io.rs"]
+mod diagnostic_io;
 use body::copy_exact;
 pub(crate) use body::StreamBody;
 pub(crate) use diagnostic::SummaryCursor;

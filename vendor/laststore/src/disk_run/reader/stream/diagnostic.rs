@@ -21,14 +21,12 @@ pub(crate) struct SummaryCursor {
 }
 
 impl SummaryCursor {
+    pub(crate) const fn frame_workspace_bytes() -> u64 {
+        super::diagnostic_io::FRAME_WORKSPACE
+    }
+
     pub(crate) fn open(path: &Path, key: &[u8; 32], allowance: u64) -> Result<Self> {
-        let reserved = lastdb_storage_policy::BACKUP_RESOURCES
-            .working_memory_bytes
-            .saturating_sub(allowance + 4 * 1024 * 1024);
-        let reader = RunReader::open_bounded_with_reserve(path, key, allowance / 8, reserved)?;
-        if u64::from(reader.footer.max_payload) > allowance / 8 {
-            return Err(Error::ReadBudgetExceeded);
-        }
+        let reader = super::diagnostic_io::open_reader(path, key, allowance)?;
         Ok(Self {
             reader,
             allowance,
@@ -95,7 +93,7 @@ impl SummaryCursor {
                 }
                 self.index = Some(
                     self.reader
-                        .stream_index(self.next_index, self.allowance / 4)?,
+                        .diagnostic_index(self.next_index, self.allowance / 4)?,
                 );
                 self.next_index += 1;
                 self.next_block = 0;
@@ -111,12 +109,12 @@ impl SummaryCursor {
                 return Err(Error::ReadBudgetExceeded);
             }
             self.next_block += 1;
-            self.payload = self.reader.read_metadata_frame(
+            self.payload = self.reader.diagnostic_frame(
                 reference.offset,
                 reference.len,
                 reference.number,
                 self.reader.block_limit(),
-                self.allowance / 8,
+                "data_frame",
             )?;
             self.at = 0;
             self.key.clear();

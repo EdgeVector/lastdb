@@ -135,7 +135,9 @@ def corpus(args, size):
                 "required_free_bytes": required, "available_free_bytes": free}
     settings = argparse.Namespace(**vars(args))
     settings.gib = size
-    node = SustainedNode(args.binary, args.revision, output, native_timing=args.diagnostics)
+    environment = {"LASTDBD_STDIO_LOG_ROTATION": "0"} if args.diagnostics else {}
+    node = SustainedNode(args.binary, args.revision, output, native_timing=args.diagnostics,
+                         environment=environment)
     checkpoints = Checkpoints(node, output, args.diagnostics)
     report = {"payload_gib": size, "phases": []}
     telemetry = None
@@ -147,7 +149,7 @@ def corpus(args, size):
         telemetry.start()
         seed_started = unix_us()
         report["seed"] = data.seed(node, settings, telemetry)
-        checkpoints.interval("seed", seed_started)
+        checkpoints.interval("seed", seed_started, report["seed"]["mutation_requests"])
         save(output / "seed.json", report["seed"])
         if report["seed"].get("measurement_failed") or report["seed"].get("errors"):
             raise RuntimeError(f"Seed requests failed: {report['seed'].get('errors')}")

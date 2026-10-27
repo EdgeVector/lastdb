@@ -56,6 +56,8 @@ class SustainedNode(Node):
 
     def disk_usage(self):
         stack, entries, logical, allocated = [(self.home, 0)], 0, 0, 0
+        seen, families = set(), {}
+        unique_logical, unique_allocated, duplicate_entries = 0, 0, 0
         deadline = time.monotonic() + 15
         while stack:
             parent, depth = stack.pop()
@@ -78,6 +80,44 @@ class SustainedNode(Node):
                         else:
                             logical += info.st_size
                             allocated += info.st_blocks * 512
+                            if self.native_timing:
+                                parts = Path(entry.path).relative_to(self.home).parts
+                                family = disk_family(parts)
+                                row = families.setdefault(family, {"files": 0, "logical_bytes": 0,
+                                                                   "allocated_bytes": 0})
+                                row["files"] += 1
+                                row["logical_bytes"] += info.st_size
+                                row["allocated_bytes"] += info.st_blocks * 512
+                                identity = (info.st_dev, info.st_ino)
+                                if identity not in seen:
+                                    seen.add(identity)
+                                    unique_logical += info.st_size
+                                    unique_allocated += info.st_blocks * 512
+                                else:
+                                    duplicate_entries += 1
             except FileNotFoundError:
                 continue
-        return {"logical_bytes": logical, "allocated_bytes": allocated}
+        result = {"logical_bytes": logical, "allocated_bytes": allocated}
+        if self.native_timing:
+            result.update(families=families, unique_file_logical_bytes=unique_logical,
+                          unique_file_allocated_bytes=unique_allocated,
+                          hardlink_duplicate_entries=duplicate_entries)
+        return result
+
+
+def disk_family(parts):
+    """Only fixed role labels leave the generated home; never file names."""
+    if parts[:3] == ("apps", "search", "inbox"):
+        return "search_inbox"
+    for home in ("disk-run", "disk-cas"):
+        if parts[:2] == ("data", home):
+            return f"data_{home}"
+        if parts[:1] == (home,):
+            return f"root_{home}"
+        if home in parts:
+            return f"nested_{home}"
+    if any(part in ("snapshot", "snapshots", "backup", "backups") for part in parts[:-1]):
+        return "snapshot_or_backup"
+    if any(part == "logs" for part in parts[:-1]):
+        return "node_logs"
+    return "other_data" if parts[:1] == ("data",) else "other_home"
