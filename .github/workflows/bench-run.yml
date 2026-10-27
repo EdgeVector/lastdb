@@ -51,19 +51,32 @@ permissions:
   actions: read
 
 jobs:
+  build:
+    uses: ./.github/workflows/bench-build.yml
+    with:
+      baseline: ${{ inputs.baseline }}
+      candidate: ${{ inputs.candidate }}
+      driver: ${{ inputs.driver }}
+      profile: ${{ inputs.profile }}
+
   measure:
-    name: Speed advisory and required disk size
+    name: ${{ matrix.lane }}
+    needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 350
+    timeout-minutes: ${{ matrix.lane == 'speed' && 350 || matrix.lane == 'growth' && 130 || 90 }}
+    strategy:
+      # A speed failure must not cancel the independent disk/delete cap.
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(inputs.resource_only && '["disk", "growth"]' || '["speed", "disk", "growth"]') }}
     env:
-      CARGO_BUILD_JOBS: "4"
-      CARGO_TERM_COLOR: always
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
       BENCH_TYPED_RANGES: ${{ inputs.typed_ranges }}
       BENCH_BASELINE_TYPED_RANGES: ${{ inputs.baseline_typed_ranges }}
+      SPEED_TIMEOUT: ${{ inputs.profile == 'nightly' && '90m' || '65m' }}
     steps:
       - name: Validate the explicit typed comparison configuration
         env:
@@ -92,133 +105,22 @@ jobs:
           path: driver
           persist-credentials: false
 
-      - name: Check benchmark script syntax
-        run: python3 -m py_compile driver/scripts/benchmarks/*.py
-
-      - name: Checkout exact candidate product source
-        uses: actions/checkout@v5
+      - name: Download programs from this run's successful build job
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ inputs.candidate }}
-          path: candidate
-          persist-credentials: false
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/benchmark-build
+          merge-multiple: true
 
-      - name: Checkout exact baseline product source
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.baseline }}
-          path: baseline
-          persist-credentials: false
-
-      - name: Check space for two fresh builds and the selected corpus
-        id: disk-build
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build
-
-      - name: Reclaim disk space only when the build budget needs it
-        if: steps.disk-build.outputs.cleanup-required == 'true'
-        uses: jlumbroso/free-disk-space@v1.3.1
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: false
-
-      - name: Require the build and corpus disk budget
-        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build --require
-
-      - name: Select one Rust toolchain for both builds
-        working-directory: candidate
-        run: |
-          set -euo pipefail
-          rustup show active-toolchain
-          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
-          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
-
-      - name: Identify compatible native toolchain and exact build recipe
-        id: build-context
-        run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
-
-      - name: Cache dependency downloads only
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/registry/src
-            ~/.cargo/git/db
-          key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
-          restore-keys: benchmark-downloads-${{ runner.os }}-
-
-      # Build the candidate first. Main publishes it before any baseline work;
-      # PR candidate compilation overlaps that trusted cache producer.
-      - name: Build the exact candidate from fresh source
+      - name: Verify and unpack the shared programs before measurements
         env:
+          BASELINE_SHA: ${{ inputs.baseline }}
           CANDIDATE_SHA: ${{ inputs.candidate }}
+          BUILD_CONTEXT: ${{ needs.build.outputs.context }}
+          BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
         run: |
-          set -euo pipefail
-          rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
-          python3 driver/scripts/benchmarks/build.py build \
-            --source candidate --revision "$CANDIDATE_SHA" --label candidate \
-            --context "$BENCH_OUTPUT/build-context.json" \
-            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
-
-      # Only trusted main caches programs; cache availability never replaces measurements or verified uploads.
-      - name: Save the accepted candidate for future baselines
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
-          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
-
-      - name: Restore the exact baseline program
-        id: baseline-build
-        continue-on-error: true
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
-          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
-
-      - name: Await an active trusted main cache producer
-        id: baseline-ready
-        if: steps.baseline-build.outputs.cache-hit != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          BASELINE_KEY: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
-        run: python3 driver/scripts/benchmarks/cache.py --revision "$BASELINE_SHA" --key "$BASELINE_KEY"
-
-      - name: Restore the baseline after the main cache upload
-        id: baseline-retry
-        if: steps.baseline-ready.outputs.ready == 'true'
-        continue-on-error: true
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
-          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
-
-      - name: Prepare the verified baseline
-        env:
-          BASELINE_SHA: ${{ inputs.baseline }}
-          BASELINE_CACHE_HIT: ${{ steps.baseline-build.outputs.cache-hit == 'true' || steps.baseline-retry.outputs.cache-hit == 'true' }}
-        run: |
-          set -euo pipefail
-          args=()
-          if [ "$BASELINE_CACHE_HIT" = true ]; then args+=(--reuse); fi
-          python3 driver/scripts/benchmarks/build.py build "${args[@]}" \
-            --source baseline --revision "$BASELINE_SHA" --label baseline \
-            --context "$BENCH_OUTPUT/build-context.json" \
-            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
-
-      - name: Save the exact baseline program on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
-          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+          python3 driver/scripts/benchmarks/programs.py unpack \
+            --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/benchmark-build/programs.tar.gz"
 
       - name: Check corpus space after both programs are ready
         id: disk-measure
@@ -239,23 +141,8 @@ jobs:
       - name: Require corpus space before measurements
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
 
-      - name: Attribute v2 disk excess in separate generated homes
-        if: inputs.disk_excess
-        env:
-          CANDIDATE_SHA: ${{ inputs.candidate }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          DRIVER_SHA: ${{ inputs.driver }}
-        run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/disk_excess.py \
-              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
-              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
-              --baseline-revision "$BASELINE_SHA" \
-              --candidate-revision "$CANDIDATE_SHA" \
-              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/disk-excess"
-
       - name: Measure alternating baseline and candidate pairs
-        if: ${{ !inputs.resource_only }}
+        if: matrix.lane == 'speed'
         id: measurement
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
@@ -266,7 +153,7 @@ jobs:
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
           if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
           if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
-          timeout --signal=TERM --kill-after=120s 65m \
+          timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
               --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
@@ -278,14 +165,14 @@ jobs:
               --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT" "${args[@]}"
 
       - name: Repeat speed measurements only when an advisory limit is crossed
-        if: ${{ !inputs.resource_only }}
+        if: matrix.lane == 'speed'
         id: speed-confirmation
         run: |
-          timeout --signal=TERM --kill-after=120s 65m \
+          timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT"
 
       - name: Measure an actual upgrade with old retry records
-        if: inputs.legacy_cache_upgrade && !inputs.resource_only
+        if: matrix.lane == 'speed' && inputs.legacy_cache_upgrade
         id: legacy-upgrade
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
@@ -303,13 +190,14 @@ jobs:
               --output "$BENCH_OUTPUT/legacy-cache-upgrade"
 
       - name: Repeat the upgrade comparison only when an advisory limit is crossed
-        if: inputs.legacy_cache_upgrade && !inputs.resource_only
+        if: matrix.lane == 'speed' && inputs.legacy_cache_upgrade
         id: legacy-confirmation
         run: |
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT/legacy-cache-upgrade"
 
       - name: Measure disk and memory growth in fresh generated homes
+        if: matrix.lane == 'growth'
         id: growth
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
@@ -331,12 +219,14 @@ jobs:
               --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth" "${args[@]}"
 
       - name: Repeat resource measurements only when an advisory limit is crossed
+        if: matrix.lane == 'growth'
         id: growth-confirmation
         run: |
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
 
       - name: Measure v2 disk size against logical atom bytes
+        if: matrix.lane == 'disk'
         id: disk-budget
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
@@ -357,8 +247,23 @@ jobs:
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
 
+      - name: Attribute v2 disk excess in separate generated homes
+        if: matrix.lane == 'disk' && inputs.disk_excess
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/disk_excess.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/disk-excess"
+
       - name: Measure default-off Search and a full queue without a consumer
-        if: inputs.search_queue
+        if: matrix.lane == 'growth' && inputs.search_queue
         run: |
           timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
             --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" --candidate-revision "${{ inputs.candidate }}" \
@@ -366,7 +271,7 @@ jobs:
             --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue"
 
       - name: Capture native phases in separate generated homes
-        if: inputs.investigation
+        if: matrix.lane == 'speed' && inputs.investigation
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
           BASELINE_SHA: ${{ inputs.baseline }}
@@ -387,7 +292,7 @@ jobs:
               --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics" "${args[@]}"
 
       - name: Measure writes with active TTL and full compaction
-        if: inputs.ttl_active && !inputs.resource_only
+        if: matrix.lane == 'speed' && inputs.ttl_active
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
           BASELINE_SHA: ${{ inputs.baseline }}
@@ -406,7 +311,7 @@ jobs:
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase finish
 
       - name: Publish benchmark summary
-        if: ${{ always() && !inputs.resource_only }}
+        if: always() && matrix.lane == 'speed'
         env:
           MEASUREMENT_OUTCOME: ${{ steps.measurement.outcome }}
           CONFIRMATION_OUTCOME: ${{ steps.speed-confirmation.outcome }}
@@ -415,7 +320,7 @@ jobs:
             --job-status "$MEASUREMENT_OUTCOME" --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Publish the old retry-record upgrade measurement
-        if: always() && inputs.legacy_cache_upgrade && !inputs.resource_only
+        if: always() && matrix.lane == 'speed' && inputs.legacy_cache_upgrade
         env:
           UPGRADE_OUTCOME: ${{ steps.legacy-upgrade.outcome }}
           CONFIRMATION_OUTCOME: ${{ steps.legacy-confirmation.outcome }}
@@ -425,11 +330,11 @@ jobs:
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Publish separate native diagnostic summary
-        if: always() && inputs.investigation
+        if: always() && matrix.lane == 'speed' && inputs.investigation
         run: python3 driver/scripts/benchmarks/native_report.py --output "$BENCH_OUTPUT/native-diagnostics"
 
       - name: Publish advisory disk and memory growth summary
-        if: always()
+        if: always() && matrix.lane == 'growth'
         env:
           GROWTH_OUTCOME: ${{ steps.growth.outcome }}
           CONFIRMATION_OUTCOME: ${{ steps.growth-confirmation.outcome }}
@@ -439,7 +344,7 @@ jobs:
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Require the single-pass v2 disk size limit and publish the summary
-        if: always()
+        if: always() && matrix.lane == 'disk'
         env:
           GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}
         run: |
@@ -451,7 +356,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lastdb-benchmarks-${{ github.run_id }}-${{ github.run_attempt }}
+          name: lastdb-benchmarks-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.BENCH_OUTPUT }}/
           retention-days: 14
           if-no-files-found: error
@@ -476,7 +381,7 @@ jobs:
         if: ${{ always() && steps.receipt.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: lastdb-benchmark-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          name: lastdb-benchmark-receipt-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json
           retention-days: 14
           if-no-files-found: error

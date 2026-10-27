@@ -47,7 +47,8 @@ def context(output):
         "profiles": {name: value for name, value in os.environ.items()
                      if name.startswith("CARGO_PROFILE_")},
         "recipe_files": {name: file_hash(driver / name)
-                         for name in ("scripts/benchmarks/build.py", ".github/workflows/bench-run.yml")},
+                         for name in ("scripts/benchmarks/build.py", ".github/workflows/bench-build.yml",
+                                      ".github/workflows/bench-run.yml")},
     }
     fingerprint = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     save(output, {"fingerprint": fingerprint, "inputs": inputs,

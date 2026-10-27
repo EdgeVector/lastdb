@@ -1,0 +1,229 @@
+name: LastDB benchmark programs
+
+on:
+  workflow_call:
+    inputs:
+      baseline:
+        type: string
+        required: true
+      candidate:
+        type: string
+        required: true
+      driver:
+        type: string
+        required: true
+      profile:
+        type: string
+        default: standard
+    outputs:
+      artifact_id:
+        value: ${{ jobs.build.outputs.artifact_id }}
+      bundle_sha256:
+        value: ${{ jobs.build.outputs.bundle_sha256 }}
+      context:
+        value: ${{ jobs.build.outputs.context }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build verified benchmark programs once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      bundle_sha256: ${{ steps.bundle.outputs.sha256 }}
+      context: ${{ steps.build-context.outputs.fingerprint }}
+    env:
+      CARGO_BUILD_JOBS: "4"
+      CARGO_TERM_COLOR: always
+      BENCH_PROFILE: ${{ inputs.profile }}
+    steps:
+      - name: Prepare external result directory
+        run: |
+          result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$result_dir"
+          echo "BENCH_OUTPUT=$result_dir" >> "$GITHUB_ENV"
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
+
+      - name: Checkout benchmark driver from the workflow revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.driver }}
+          path: driver
+          persist-credentials: false
+
+      - name: Check benchmark script syntax
+        run: python3 -m py_compile driver/scripts/benchmarks/*.py
+
+      - name: Checkout exact candidate product source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.candidate }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Checkout exact baseline product source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.baseline }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Check space for two fresh builds and the selected corpus
+        id: disk-build
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build
+
+      - name: Reclaim disk space only when the build budget needs it
+        if: steps.disk-build.outputs.cleanup-required == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Require the build and corpus disk budget
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build --require
+
+      - name: Select one Rust toolchain for both builds
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+
+      - name: Identify compatible native toolchain and exact build recipe
+        id: build-context
+        run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
+
+      - name: Cache dependency downloads only
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
+          restore-keys: benchmark-downloads-${{ runner.os }}-
+
+      # Build the candidate first. Main publishes it before any baseline work;
+      # PR candidate compilation overlaps that trusted cache producer.
+      - name: Build the exact candidate from fresh source
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+        run: |
+          set -euo pipefail
+          rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
+          python3 driver/scripts/benchmarks/build.py build \
+            --source candidate --revision "$CANDIDATE_SHA" --label candidate \
+            --context "$BENCH_OUTPUT/build-context.json" \
+            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
+
+      # Only trusted main caches programs; cache availability never replaces measurements or verified uploads.
+      - name: Save the accepted candidate for future baselines
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
+
+      - name: Restore the exact baseline program
+        id: baseline-build
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Await an active trusted main cache producer
+        id: baseline-ready
+        if: steps.baseline-build.outputs.cache-hit != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          BASELINE_KEY: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+        run: python3 driver/scripts/benchmarks/cache.py --revision "$BASELINE_SHA" --key "$BASELINE_KEY"
+
+      - name: Restore the baseline after the main cache upload
+        id: baseline-retry
+        if: steps.baseline-ready.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Prepare the verified baseline
+        env:
+          BASELINE_SHA: ${{ inputs.baseline }}
+          BASELINE_CACHE_HIT: ${{ steps.baseline-build.outputs.cache-hit == 'true' || steps.baseline-retry.outputs.cache-hit == 'true' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$BASELINE_CACHE_HIT" = true ]; then args+=(--reuse); fi
+          python3 driver/scripts/benchmarks/build.py build "${args[@]}" \
+            --source baseline --revision "$BASELINE_SHA" --label baseline \
+            --context "$BENCH_OUTPUT/build-context.json" \
+            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
+
+      - name: Save the exact baseline program on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Package the exact programs for independent measurement jobs
+        id: bundle
+        env:
+          BASELINE_SHA: ${{ inputs.baseline }}
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BUILD_CONTEXT: ${{ steps.build-context.outputs.fingerprint }}
+        run: |
+          python3 driver/scripts/benchmarks/programs.py pack \
+            --root "$BENCH_BINARY_ROOT" --archive "$BENCH_OUTPUT/programs.tar.gz"
+
+      - name: Upload programs and build receipts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-benchmark-build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Verify upload and record its download receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/benchmark-artifact-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/benchmark-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/benchmark-download-receipt"
+
+      - name: Retain the compact download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-benchmark-build-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json
+          retention-days: 14
+          if-no-files-found: error

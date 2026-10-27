@@ -9,6 +9,14 @@ Documentation-only PRs pass the path check without measurements. Unknown paths r
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
 PR edits to titles or descriptions do not repeat a benchmark.
 
+One build job prepares the exact candidate and baseline programs.
+Three independent hosted jobs then measure speed, resource growth, and the absolute disk/delete cap.
+They use the same verified programs. Each suite compares both versions on its own machine.
+A speed timeout or failure cannot cancel or skip the disk/delete job.
+All required jobs and their verified uploads must complete before `benchmark-complete` passes.
+Each nightly speed pass has a 90-minute limit; each standard speed pass keeps 65 minutes.
+This preserves the full workload and one confirmation pass when required.
+
 Use the CI summary and run link in the PR. Do not commit a duplicate report or receipt.
 The required `generated-evidence` check keeps raw output outside Git.
 
@@ -151,7 +159,14 @@ The CI summary records free space before builds, before measurements, and after 
 The summary states the build mode, preparation time, producer run, source, and executable hash.
 The first main run fills the new cache. Native toolchain, compiler, source, or recipe changes require another build.
 Cache expiry or upload failure affects speed only; the source build remains available.
-Builds finish before measurements start. The two daemons never run together.
+Builds finish before measurements start. Each suite runs one daemon at a time.
+The build job uploads a bundle with both matching daemons and CLIs.
+Each measurement job checks the bundle SHA-256 from that producer job before extraction.
+It verifies the OS, architecture, build recipe, program hashes, source revisions, and program versions.
+Hosted image updates can overlap. Each consumer checks all daemon and CLI runtime dependencies with `ldd -r`.
+A missing library, symbol, or required version fails the job. Compiler differences do not require another build.
+The transfer receipt records the producer image, consumer image, native packages, and resolved runtime dependencies.
+The transfer adds no build and does not restore another cached candidate.
 Each pair reverses the prior pair's base/candidate order.
 Every run starts with independent generated data. No primary data or archive data enters a run.
 Old benchmark numbers and generated database homes never supply a new measurement.
@@ -244,8 +259,8 @@ Every change appears in the summary, even below the notice threshold.
 CI repeats the resource suite once when a measure crosses both limits.
 Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
-Each resource pass has a 40-minute limit. The complete job has a 350-minute limit for larger nightly work and confirmation.
-Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
+Each resource pass has a 40-minute limit. Its independent job has a 130-minute limit, including the optional Search queue pass.
+Raw results stay under `resource-growth/` in the growth job artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
 
@@ -305,7 +320,7 @@ Relative database and Search queue growth stays advisory, with a notice from thi
 Invalid measurements, an unstable checkpoint, and failed uploads also block `benchmark-complete`.
 The absolute limit fails even when the base also exceeds 1.5×. This states current excess, not PR causation.
 
-The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
+The result stays under `disk-budget/` in the independent disk job’s verified artifact, including logical reports and every settled-size sample.
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
 Do not compare these ratios with a different workload.
 
@@ -402,7 +417,9 @@ The physical request count can include background work. It is not an exclusive c
 
 ## Results and limits
 
-Open the workflow summary from the PR checks. Download its `lastdb-benchmarks` artifact for detail.
+Open the workflow summary from the PR checks.
+Download `lastdb-benchmarks-speed-*`, `lastdb-benchmarks-growth-*`, or `lastdb-benchmarks-disk-*` for each suite.
+The separate `lastdb-benchmark-build-*` artifact retains the shared programs, build context, receipts, and build logs.
 The artifact retains raw samples, read receipts, p50/p95/p99 response times, and requests per second.
 It also retains records per second, sampled daemon memory size, disk growth, and build logs.
 Per-pair changes and each run's metrics remain available beside the combined result.
@@ -422,7 +439,7 @@ The repeat uses the same verified programs, source revisions, driver, worker cou
 An upgrade comparison also keeps its baseline seed program and minimum retired-record count.
 It adds no build or cache restore. Both versions use fresh generated homes on the same GitHub machine.
 Standard runs retain two alternating pairs in each pass. Nightly runs retain three pairs in each pass.
-Each speed pass has a 65-minute limit. A resource pass has a separate 40-minute limit.
+Each speed pass has a 65-minute standard limit or a 90-minute nightly limit. Each resource and disk pass has a separate 40-minute limit.
 A warning requires the same case and measure across its original limit in both complete comparisons.
 A p95 change cannot confirm a request-rate change. One resource measure cannot confirm another.
 Unconfirmed changes appear as `Did not repeat; no warning` in the summary, with both base and candidate values.

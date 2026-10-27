@@ -84,9 +84,10 @@ benchmarks and verified artifact uploads. Link the CI run in the PR; do not
 commit a duplicate report or receipt. Fix failures through source commits.
 Do not substitute a local build or benchmark while CI waits.
 
-The benchmark workflow compares the exact base and candidate commits on one
-GitHub machine. Read `scripts/benchmarks/README.md` for the standard and nightly
-recipes, artifact contents, and measurement limits. Slowdowns remain advisory.
+Each benchmark suite compares the exact base and candidate commits on one
+GitHub machine. Disk/delete checks run independently from speed benchmarks.
+Read `scripts/benchmarks/README.md` for the standard and nightly recipes,
+artifact contents, and measurement limits. Slowdowns remain advisory.
 
 Format checks can run locally with `cargo fmt --all -- --check`.
 Use `cargo fmt --all` to format source changes before a commit.
