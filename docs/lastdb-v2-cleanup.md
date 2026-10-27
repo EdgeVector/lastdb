@@ -62,3 +62,14 @@ with the nightly CI schedule. It creates temporary homes with generated records
 and requests cleanup through the owner API. It checks completion, repeated
 requests, and the saved record after restart. The runner removes each temporary
 home after the operation. Nightly and manual runs do not cancel one another.
+
+The Disk run proof workflow also runs each day at 09:27 UTC on Linux and
+macOS. Its existing node store operation fills both stores with 512 records
+each, deletes 256, and checks the remaining values and absent keys. It also
+checks old reads, later writes, cleanup resume, and the saved completion
+record after restart. Its existing run home operation checks physical file
+removal.
+
+These checks cover native CAS cleanup after logical deletion. Blob upload
+and dwell decisions remain separate. Nightly and manual runs use separate
+run IDs. PR updates cancel only older runs for the same PR.
