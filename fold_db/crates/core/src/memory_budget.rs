@@ -5,14 +5,16 @@
 //! reads still hold the values, including after flush. If admission refuses,
 //! the request stays private and completes on disk before success.
 //!
-//! The boot projection retains historical warm/key/graph configuration fields
-//! as conservative headroom inputs. They are not measurements of native pools.
+//! The boot projection charges the warm set byte limit
+//! ([`crate::resident::core_warm_bytes`], `LASTDB_CORE_WARM_BYTES`) and the
+//! historical graph budget as conservative headroom inputs. They are not
+//! measurements of native pools.
 //! In particular, clean native atom retention has a logical-record count cap,
 //! not a separate global body-byte cap. The cutover must not donate the removed
 //! graph's projected headroom to new write admission without sizing that pool.
 //!
 //! ```text
-//! charged        = warm_bytes + key_cache_bytes + resident_graph_bytes
+//! charged        = warm_bytes + resident_graph_bytes
 //! projected_rss  = charged * rss_multiplier
 //! headroom       = rss_limit - projected_rss          (saturating)
 //! deferred_cap   = clamp(headroom * DEFER_HEADROOM_FRACTION,
