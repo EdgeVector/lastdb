@@ -12,7 +12,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) memory_limit_bytes: Option<u64>,
     pub(super) warm_resident_bytes: u64,
     pub(super) warm_budget_bytes: u64,
-    pub(super) warm_resident_groups: u64,
     pub(super) resident_graph_bytes: u64,
     pub(super) resident_graph_budget_bytes: u64,
     pub(super) deferred_persist_bytes: u64,
@@ -55,15 +54,9 @@ pub(super) struct SelfMetricLogLine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) allocator_reserved_bytes: Option<u64>,
     #[serde(default)]
-    pub(super) in_flight_cold_load_bytes: u64,
-    #[serde(default)]
-    pub(super) in_flight_cold_load_count: u64,
-    #[serde(default)]
     pub(super) peak_request_bytes: u64,
     #[serde(default)]
     pub(super) slowest_request_ms: u64,
-    #[serde(default)]
-    pub(super) eviction_events: u64,
     #[serde(default)]
     pub(super) effective_warm_budget_bytes: u64,
     /// Warm set byte gauge, next to the footprint fields above.
@@ -97,7 +90,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             memory_limit_bytes: s.memory_limit_bytes,
             warm_resident_bytes: s.memory_budget.warm_resident_bytes,
             warm_budget_bytes: s.memory_budget.warm_budget_bytes,
-            warm_resident_groups: s.memory_budget.warm_resident_groups,
             resident_graph_bytes: s.memory_budget.resident_graph_bytes,
             resident_graph_budget_bytes: s.memory_budget.resident_graph_budget_bytes,
             deferred_persist_bytes: s.memory_budget.deferred_persist_bytes,
@@ -124,11 +116,8 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             allocator_name: s.memory_budget.allocator_name.clone(),
             allocator_committed_bytes: s.memory_budget.allocator_committed_bytes,
             allocator_reserved_bytes: s.memory_budget.allocator_reserved_bytes,
-            in_flight_cold_load_bytes: s.memory_budget.in_flight_cold_load_bytes,
-            in_flight_cold_load_count: s.memory_budget.in_flight_cold_load_count,
             peak_request_bytes: s.memory_budget.peak_request_bytes,
             slowest_request_ms: s.memory_budget.slowest_request_ms,
-            eviction_events: s.memory_budget.eviction_events,
             effective_warm_budget_bytes: s.memory_budget.effective_warm_budget_bytes,
             core_warm_used_bytes: s.memory_budget.core_warm.used_bytes,
             core_warm_limit_bytes: s.memory_budget.core_warm.limit_bytes,
