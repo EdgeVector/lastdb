@@ -43,10 +43,6 @@ pub trait NamespacedStore: Send + Sync {
     /// accessor the per-request telemetry path may call. Wrapper stores
     /// delegate to their inner store; backends without hash-group shards
     /// return `None`.
-    ///
-    /// Kept separate from [`Self::read_cost`] on purpose — that one takes the
-    /// warm-set mutex, which is fine for a periodic sampler and NOT fine on
-    /// every request.
     fn cold_shard_loads(&self) -> Option<u64> {
         None
     }
@@ -58,21 +54,6 @@ pub trait NamespacedStore: Send + Sync {
     /// scan sensor: a read path that claims to be scan-free must leave this
     /// counter unchanged. Wrapper stores delegate to their inner store.
     fn walk_ids_visited(&self) -> Option<u64> {
-        None
-    }
-
-    /// Full read-cost picture: cold loads plus warm-set residency vs budget.
-    ///
-    /// **Metadata-only by contract.** A backend may read counters and cached
-    /// charge totals, but it must not open a namespace, admit a group, hydrate
-    /// a body, or walk resident handles. Use [`Self::cold_shard_loads`] when a
-    /// hot path needs only the atomic counter.
-    fn read_cost(&self) -> Option<ReadCostStats> {
-        None
-    }
-
-    /// In-flight cold-load charge and LRU eviction counters. Metadata only.
-    fn warm_set_admission_stats(&self) -> Option<WarmSetAdmissionStats> {
         None
     }
 
@@ -108,18 +89,5 @@ pub trait NamespacedStore: Send + Sync {
         Err(StorageError::BackendError(
             "reap-unsealed is not supported by this storage backend".to_string(),
         ))
-    }
-
-    /// Bytes this collection currently occupies on disk, if the backend knows.
-    ///
-    /// A stat walk of the collection directory: no shard loads, no body
-    /// hydrate, no index rebuild.
-    ///
-    /// `None` means the backend has no per-collection placement to measure
-    /// (in-memory, tests). Callers must treat `None` as "cannot tell" and fall
-    /// back to whatever trigger they had, never as "zero bytes".
-    fn collection_disk_bytes(&self, collection: &str) -> Option<u64> {
-        let _ = collection;
-        None
     }
 }
