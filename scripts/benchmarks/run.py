@@ -26,7 +26,8 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
         environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
         if recipe.get("typed_range_comparison"):
             environment.update(LASTDB_HASH_KEY_ENCODING="blind_v1", LASTDB_RANGE_KEY_ENCODING="ope_v1")
-        node = Node(program[0], program[1], output, native_timing=recipe["native_timing"], workers=program[2],
+        node = Node(program[0], program[1], output,
+                    native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
                     environment=environment)
         node.start()
         if recipe.get("disk_budget"):
@@ -97,6 +98,8 @@ def recipe_for(args):
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
+            recipe["growth"] = {**recipe["growth"],
+                                "delete_target_bytes": (40 if args.profile == "nightly" else 10) * 2**20}
             recipe.update(disk_budget=True, disk_format=2, search_enabled=False, pairs=1,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",

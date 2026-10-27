@@ -264,12 +264,16 @@ An unsupported format or missing logical-size report fails completion. The pass 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
 It uses one baseline/candidate pair on PRs and at night, with no automatic disk-size repeat.
 Reads, updates, inserts, and deletes use the same four generated fields.
-After the insert rounds, each delete round removes one seed-sized block of keys and retains the original live record count at the end.
+Before deletes, the driver extends the known corpus to at least **10 MiB of logical atom data on PRs** or **40 MiB nightly**.
+It adds at most 128 records per batch and records the actual byte count. The seed has a five-minute and 512-batch bound.
+The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
 Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
 Logical atom bytes and the atom count must decrease after each delete round.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
+The isolated size pass enables native counters and records physical published, stale, held, and temporary file totals at each checkpoint.
+It does not request explicit cleanup. Read and write speed measurements keep their normal settings.
 This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search off before and after each run.
 Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
 Historical programs that lack the Search-off status cannot satisfy this required size pass.

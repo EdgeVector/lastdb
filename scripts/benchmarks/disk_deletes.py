@@ -1,12 +1,31 @@
 """Measure durable deletes and absence by the exact generated keys."""
 
+import time
+
 from workload import HASH, SCHEMA, Workload, key, read_request
+
+
+def prepare_delete(workload, logical_storage):
+    target = workload.recipe["delete_target_bytes"]
+    deadline = time.monotonic() + 300
+    for _ in range(512):
+        report = logical_storage(workload.node)
+        if report["total_logical_bytes"] >= target:
+            workload.delete_start_records = workload.live_records
+            workload.delete_keep_records = (workload.live_records + 3) // 4
+            return
+        if time.monotonic() >= deadline:
+            break
+        workload.phase = "prepare-delete-corpus"
+        workload.write(workload.live_records, 128, "delete-seed", True)
+        workload.live_records += 128
+    raise ValueError("The bounded delete seed did not reach its logical-size target")
 
 
 def delete_records(workload, count):
     first = workload.live_records - count
-    if first < workload.recipe["records"]:
-        raise ValueError("The delete workload must retain its original live record count")
+    if first < workload.delete_keep_records:
+        raise ValueError("The delete workload must retain one quarter of its starting records")
     for start in range(first, workload.live_records, 128):
         numbers = list(range(start, min(start + 128, workload.live_records)))
         request = {"mutations": [{"type": "mutation", "schema": SCHEMA, "mutation_type": "delete",

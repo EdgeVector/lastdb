@@ -81,4 +81,6 @@ PRs use short runs. Nightly runs use more records and update rounds.
 The disk-size pass uses one baseline/candidate pair with no repeat.
 Any settled candidate checkpoint above 1.5× total logical size fails the required check and blocks merge. Equality passes.
 The delete case uses the logical data that remains. The report states the room below the cap for each case.
+The PR delete case starts with at least 10 MiB of logical data, then removes 75% of the records.
+The nightly case starts with at least 40 MiB. Neither case calls explicit cleanup.
 Relative size changes and the separate Search queue capacity findings stay advisory.

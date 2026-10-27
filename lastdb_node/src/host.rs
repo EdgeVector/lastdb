@@ -449,18 +449,6 @@ impl lastdb_host::HostNode for Host {
     async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {
         self.db.wait_for_background_tasks(timeout).await
     }
-
-    fn atom_content_key(&self) -> Option<[u8; 32]> {
-        let bytes = std::fs::read(self.home.join(IDENTITY_KEY_FILE)).ok()?;
-        if bytes.len() != 32 {
-            return None;
-        }
-        let mut seed = [0u8; 32];
-        seed.copy_from_slice(&bytes);
-        fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
-            .ok()
-            .map(|keys| keys.encryption_key())
-    }
 }
 
 /// Resolve the node home for `lastdbd`: an explicit `--data-dir` wins, then

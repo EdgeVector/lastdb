@@ -4,7 +4,7 @@ import math
 import statistics
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
-from disk_deletes import delete_records, verify_deleted
+from disk_deletes import delete_records, prepare_delete, verify_deleted
 from node import save
 from disk_usage import validate as validate_breakdown
 
@@ -15,7 +15,8 @@ CASES = (*GROWTH_CASES, "delete")
 MEASURES = ("logical_atom_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
             "max_disk_to_logical_ratio", "search_queue_bytes", "search_queue_payload_bytes",
             "search_queue_files", "other_home_bytes", "whole_home_disk_bytes",
-            "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent")
+            "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent",
+            "starting_logical_atom_bytes", "starting_live_records", "deleted_records")
 
 
 def require_search_off(node, output, phase):
@@ -59,6 +60,8 @@ def metrics(points):
             "limit_logical_bytes": logical, "limit_database_bytes": retained,
             "limit_headroom_bytes": LIMIT * logical - retained,
             "limit_headroom_percent": 100 * (1 - retained / (LIMIT * logical)),
+            "starting_logical_atom_bytes": points[0]["logical_storage"]["total_logical_bytes"],
+            "starting_live_records": points[0]["live_records"], "deleted_records": last["deleted_records"],
             "disk_to_logical_ratio": max(breakdown["database"].values()) / last["logical_storage"]["total_logical_bytes"],
             "max_disk_to_logical_ratio": max(
                 max(p["disk_breakdown"]["database"].values()) / p["logical_storage"]["total_logical_bytes"] for p in points)}
@@ -78,14 +81,25 @@ class DiskBudgetWorkload(GrowthWorkload):
         self.phase = "settle-disk-budget"
         idle = []
         current, samples, settled = self.settle_disk(idle, self.node.disk_breakdown)
+        status, _, _ = self.node.call("/api/db/native-status")
+        diagnostics = status.get("storage_diagnostics")
+        if "delete_target_bytes" in self.recipe and (
+                not isinstance(diagnostics, dict)
+                or any(not isinstance(diagnostics.get(name), dict) for name in ("main", "cas"))):
+            raise ValueError("The disk budget lacks both physical storage diagnostics")
         return {"round": number, "live_records": self.live_records,
+                "delete_start_records": getattr(self, "delete_start_records", 0),
+                "delete_keep_records": getattr(self, "delete_keep_records", 0),
                 "deleted_records": getattr(self, "deleted_records", 0), "disk": current["whole_home"],
+                "storage_diagnostics": diagnostics,
                 "disk_breakdown": current,
                 "logical_storage": logical, "settled_seconds": settled,
                 "disk_samples": samples, "idle_memory_bytes": statistics.median(idle),
                 "idle_memory_samples": idle}
 
     def measure(self, case):
+        if case == "delete":
+            prepare_delete(self, logical_storage)
         points = [self.checkpoint(0)]
         for number in range(1, self.recipe["rounds"] + 1):
             self.phase = case
@@ -93,7 +107,8 @@ class DiskBudgetWorkload(GrowthWorkload):
             if case == "fixed-read":
                 self.read(0, count)
             elif case == "delete":
-                delete_records(self, count)
+                target = (self.delete_start_records - self.delete_keep_records) * number // self.recipe["rounds"]
+                delete_records(self, target - getattr(self, "deleted_records", 0))
             else:
                 insert = case == "insert"
                 self.write(self.live_records if insert else 0, count, f"disk-{case}-{number:03d}", insert)
@@ -111,13 +126,17 @@ def validate(case, result, recipe):
     if len(points) != recipe["rounds"] + 1:
         raise ValueError(f"{case}: missing disk checkpoints")
     for number, point in enumerate(points):
-        expected = recipe["records"] * (1 + number if case == "insert"
-                                        else 1 + recipe["rounds"] - number if case == "delete" else 1)
+        removed = (points[0]["live_records"] - points[0]["delete_keep_records"]) * number // recipe["rounds"]
+        expected = (points[0]["live_records"] - removed if case == "delete"
+                    else recipe["records"] * (1 + number if case == "insert" else 1))
         if point["round"] != number or point["live_records"] != expected:
             raise ValueError(f"{case}: invalid disk checkpoint count")
         validate_logical(point["logical_storage"])
         if case == "delete":
-            if point["deleted_records"] != recipe["records"] * number:
+            if (points[0]["logical_storage"]["total_logical_bytes"] < recipe["delete_target_bytes"]
+                    or point["delete_start_records"] != points[0]["live_records"]
+                    or point["delete_keep_records"] != (points[0]["live_records"] + 3) // 4
+                    or point["deleted_records"] != removed):
                 raise ValueError("The delete checkpoint has an invalid deletion count")
             if number and any(point["logical_storage"][name] >= points[number - 1]["logical_storage"][name]
                               for name in ("total_logical_bytes", "total_atoms")):
@@ -188,6 +207,7 @@ def render(comparison):
                   "This is one baseline/candidate pair with no repeat. The maximum includes every settled candidate checkpoint.",
                   "Any candidate checkpoint above 1.5× fails benchmark-complete and blocks merge after this single pass.",
                   "The cap is total database size, not an additional allowance. Deletes use the remaining logical atom bytes.",
+                  "The delete corpus reaches at least 10 MiB logical on PRs and 40 MiB nightly, then deletes 75% of its keys.",
                   "A database or Search queue increase of at least 10% and 64 KiB produces an advisory from this pass.",
                   "Equality passes. Relative database and Search queue growth remains advisory.",
                   "The absolute limit fails even if the baseline also exceeds it; this does not prove PR causation.",

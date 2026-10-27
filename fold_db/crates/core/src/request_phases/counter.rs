@@ -12,12 +12,6 @@
 /// for concurrent callers).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestCounter {
-    /// Unanchored product reads rejected by this request before group access.
-    /// Only the deleted LastStore engine produced this count, so it stays zero.
-    PartitionReadRejections,
-    /// Explicit startup/admin physical passes issued by this request.
-    /// Only the deleted LastStore engine produced this count, so it stays zero.
-    AllGroupWalks,
     /// Field molecules this request handed to the durable store.
     ///
     /// The denominator `persist_molecules_us` never had. One mutation touches
@@ -79,8 +73,6 @@ pub enum RequestCounter {
 /// telemetry ring clones whole samples repeatedly.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RequestCounts {
-    pub partition_read_rejections: u64,
-    pub all_group_walks: u64,
     pub molecules_persisted: u64,
     pub molecule_store_commits: u64,
     pub resident_commits: u64,
