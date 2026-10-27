@@ -122,39 +122,12 @@ impl LocalOutbox {
         guard.next_seq.saturating_sub(1)
     }
 
-    /// Events with `seq > after_seq`. If none and `timeout` is zero, returns empty.
-    /// If `after_seq` is behind the ring (gap), sets `gap=true`.
-    pub fn poll_after(&self, after_seq: u64, timeout: Duration) -> LocalWatchPoll {
-        self.poll_after_schemas(after_seq, timeout, None)
-    }
-
-    /// Events with `seq > after_seq` and, when provided, a schema in `schemas`.
-    /// `tip_seq` always reports the true node tip so filtered clients can advance
-    /// their cursor across unrelated writes.
-    pub fn poll_after_schemas(
-        &self,
-        after_seq: u64,
-        timeout: Duration,
-        schemas: Option<&HashSet<String>>,
-    ) -> LocalWatchPoll {
-        self.poll_after_schemas_and_hash(after_seq, timeout, schemas, None)
-    }
-
-    /// Events with `seq > after_seq`, filtered by schema and one HashRange
-    /// hash when provided. The hash filter lets a client watch one partition
-    /// without waking for writes to other partitions in the same schema.
-    pub fn poll_after_schemas_and_hash(
-        &self,
-        after_seq: u64,
-        timeout: Duration,
-        schemas: Option<&HashSet<String>>,
-        hash: Option<&str>,
-    ) -> LocalWatchPoll {
-        self.poll_after_schemas_hash_range(after_seq, timeout, schemas, hash, None, None)
-    }
-
     /// Events with `seq > after_seq`, filtered by schema, one HashRange hash,
     /// and an optional inclusive-start/exclusive-end range.
+    ///
+    /// A zero timeout returns the current events without a wait. A cursor behind
+    /// the retained ring sets `gap`. `tip_seq` stays the node tip, so a filtered
+    /// client can advance across unrelated writes.
     pub fn poll_after_schemas_hash_range(
         &self,
         after_seq: u64,

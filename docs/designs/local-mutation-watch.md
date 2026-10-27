@@ -68,7 +68,7 @@ client can advance its cursor across unrelated writes.
 ## Concurrency: watchers are capped, and the cap is visible
 
 A blocking poll parks the UDS worker OS thread it was dispatched onto
-(`LocalOutbox::poll_after` → `Condvar::wait_timeout`, inside `block_on`) and
+(`LocalOutbox::poll_after_schemas_hash_range` → `Condvar::wait_timeout`, inside `block_on`) and
 takes **no QoS permit** — `acquire_op_permit` is only called on the
 query/mutation/search paths. Measured against the live primary 2026-07-28, four
 concurrent watchers moved `UDS pool in_flight` by exactly +4 while `QoS: total`

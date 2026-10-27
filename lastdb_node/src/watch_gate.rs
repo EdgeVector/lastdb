@@ -3,7 +3,7 @@
 //! # Why this exists
 //!
 //! A blocked long-poll parks the UDS worker OS thread it was dispatched onto:
-//! [`crate::local_outbox::LocalOutbox::poll_after`] ends in
+//! [`crate::local_outbox::LocalOutbox::poll_after_schemas_hash_range`] ends in
 //! `Condvar::wait_timeout`, inside `block_on`, so the thread is genuinely
 //! asleep for the client's whole `timeout_ms` (up to
 //! [`crate::local_outbox::MAX_POLL_TIMEOUT`]). The handler wall-clock budget
