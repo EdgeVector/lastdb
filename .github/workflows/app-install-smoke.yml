@@ -200,7 +200,7 @@ jobs:
           fi
 
       - name: Checkout app source (fallback if not in registry)
-        if: env.INSTALLED == 'false'
+        if: env.INSTALLED == 'false' || env.SKIP_REGISTRY == 'true'
         run: |
           cd "$TEST_HOME"
           mkdir -p apps-source
