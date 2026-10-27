@@ -53,7 +53,7 @@ pub(super) fn check_source_advance(
 
 pub(super) fn interpret_member(
     recovering: bool,
-    member_fields: BTreeMap<String, serde_json::Value>,
+    member_fields: &BTreeMap<String, serde_json::Value>,
 ) -> Result<Option<AggregateMemberRecord>, SchemaError> {
     if recovering {
         // A failed first data generation can persist any prefix of the
@@ -70,7 +70,7 @@ pub(super) fn interpret_member(
             "aggregate member row is partial or collides with an existing row".into(),
         ));
     }
-    AggregateMemberRecord::from_fields(&member_fields)
+    AggregateMemberRecord::from_fields(member_fields)
         .map(Some)
         .map_err(SchemaError::InvalidData)
 }

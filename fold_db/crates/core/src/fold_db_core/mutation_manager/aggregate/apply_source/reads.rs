@@ -75,7 +75,7 @@ impl MutationManager {
                 }
             }
         };
-        match member_rules::interpret_member(recovering, member_fields) {
+        match member_rules::interpret_member(recovering, &member_fields) {
             Ok(member) => Ok(member),
             Err(error) => {
                 self.invalidate_expected(ctx).await?;
