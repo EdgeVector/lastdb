@@ -81,12 +81,16 @@ class DiskBudgetWorkload(GrowthWorkload):
         self.phase = "settle-disk-budget"
         idle = []
         current, samples, settled = self.settle_disk(idle, self.node.disk_breakdown)
-        status, _, _ = self.node.call("/api/db/native-status")
+        inventory = getattr(self, "delete_start_records", 0) > 0
+        status, _, _ = self.node.call("/api/db/native-status", {"inventory": True} if inventory else None)
         diagnostics = status.get("storage_diagnostics")
         if "delete_target_bytes" in self.recipe and (
                 not isinstance(diagnostics, dict)
                 or any(not isinstance(diagnostics.get(name), dict) for name in ("main", "cas"))):
             raise ValueError("The disk budget lacks both physical storage diagnostics")
+        if inventory and any(not diagnostics[name].get("inventory", {}).get("complete")
+                             for name in ("main", "cas")):
+            raise ValueError("The delete checkpoint lacks a complete storage inventory")
         return {"round": number, "live_records": self.live_records,
                 "delete_start_records": getattr(self, "delete_start_records", 0),
                 "delete_keep_records": getattr(self, "delete_keep_records", 0),

@@ -269,6 +269,8 @@ It adds at most 128 records per batch and records the actual byte count. The see
 The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
 Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
 Logical atom bytes and the atom count must decrease after each delete round.
+Each delete checkpoint also records a bounded, complete inventory of current storage collections.
+The inventory follows the size sample and does not alter the measured bytes.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
