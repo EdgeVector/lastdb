@@ -89,13 +89,9 @@ impl Validation {
             .check_binding()
             .map_err(|_| "restored native home changed during reconnect")?;
         self.seed(prepared)?;
-        if recovery_files::entry_present(&prepared.directory, "cloud_sync.json")? {
-            return Err("restored reconnect requires legacy Cloud Sync Off".into());
-        }
         if recovery_files::entry_present(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE)? {
             recovery_files::read_private_file(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE, 0)?;
         }
-        verify_automatic_off(&self.home)?;
         self.receipt.check(&prepared.directory)
     }
 
@@ -148,25 +144,6 @@ fn identity_seed(directory: &File) -> Result<zeroize::Zeroizing<[u8; 32]>, Strin
         .try_into()
         .map_err(|_| "restored identity must contain exactly 32 bytes")?;
     Ok(zeroize::Zeroizing::new(seed))
-}
-
-fn verify_automatic_off(home: &Path) -> Result<(), String> {
-    let data = recovery_files::open_directory(&home.join("data"))?;
-    if !recovery_files::entry_present(&data, "native-cloud-backup-v1")? {
-        return Ok(());
-    }
-    let manager = recovery_files::open_directory(&home.join("data/native-cloud-backup-v1"))?;
-    recovery_files::require_owned_directory(&manager)?;
-    if !recovery_files::entry_present(&manager, "automatic.json")? {
-        return Ok(());
-    }
-    let bytes = recovery_files::read_private_file(&manager, "automatic.json", 8192)?;
-    let consent: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid saved automatic backup consent")?;
-    if consent["format"].as_u64() != Some(1) || consent["enabled"].as_bool() != Some(false) {
-        return Err("automatic backup must already be off before restored reconnect".into());
-    }
-    Ok(())
 }
 
 fn refuse_protected_home(home: &Path) -> Result<(), String> {

@@ -11,22 +11,16 @@ struct Credentials {
     api_key: String,
 }
 
-/// Shared credential selection; the caller chooses its separately versioned protocol.
+/// Shared credential read; the caller chooses its separately versioned protocol.
 pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
-    let active = home.join("cloud_sync.json");
-    let paused = home.join("cloud_sync.json.paused");
-    let active_present = present(&active)?;
-    let paused_present = present(&paused)?;
-    let path = match (active_present, paused_present) {
-        (true, false) => active,
-        (false, true) => paused,
-        (false, false) => return Err("native backup needs existing account credentials".into()),
-        (true, true) => return Err("native backup credential selection is ambiguous".into()),
-    };
+    let path = crate::cloud::cloud_credentials_path(home);
+    if !present(&path)? {
+        return Err("native backup needs existing account credentials".into());
+    }
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
-        .open(path)
+        .open(&path)
         .map_err(|_| "cannot open native backup credentials".to_owned())?;
     let metadata = file
         .metadata()

@@ -1,10 +1,9 @@
 //! Account identity, protected credentials, and explicit backup enrollment.
-//! Legacy cloud activation remains unavailable.
 use std::path::{Path, PathBuf};
 
 use fold_db::security::Ed25519KeyPair;
 
-use crate::host::{self, CLOUD_SYNC_CONFIG_FILE};
+use crate::host;
 
 mod config;
 mod register;

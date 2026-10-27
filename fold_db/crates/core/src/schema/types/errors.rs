@@ -136,7 +136,7 @@ pub enum SchemaError {
     ///
     /// The HTTP layer renders this as a discriminated
     /// `507 { error: "storage_full", … }` body, and `render` keeps it out of the
-    /// ERROR log for the same reason it spares permanent `429` quota denials.
+    /// ERROR log.
     ///
     /// `detail` is the underlying storage error, for the log.
     StorageFull {

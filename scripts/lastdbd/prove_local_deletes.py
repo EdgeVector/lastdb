@@ -204,7 +204,7 @@ class Proof:
 
     def boot(self):
         require(self.child is None, 'child_active')
-        require(not (self.home / 'cloud_sync.json').exists(), 'cloud_config_present')
+        require(not (self.home / 'cloud_sync.json.paused').exists(), 'cloud_config_present')
         environment = child_environment(self.home)
         environment['FOLD_SCHEMA_SERVICE_URL'] = self.catalog_url
         self.child = subprocess.Popen([str(self.args.lastdbd), '--data-dir', str(self.home)],

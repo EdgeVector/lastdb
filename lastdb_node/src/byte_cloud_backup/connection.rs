@@ -100,12 +100,7 @@ fn preflight(host: &crate::host::Host) -> Result<()> {
             return Err(BackupError::Busy);
         }
     }
-    let directory = files::Directory::open(&host.home)?;
-    if !directory.absent(crate::host::CLOUD_SYNC_CONFIG_FILE)? {
-        return Err(BackupError::Busy);
-    }
-    let (account, source) = identity(host)?;
-    crate::native_cloud_backup::require_v1_complete(&host.home, &account, &source)
+    Ok(())
 }
 
 fn credential_bytes(
@@ -153,9 +148,6 @@ fn load(host: &crate::host::Host) -> Result<Option<(ManualConnectionRecord, Byte
     let record: ManualConnectionRecord =
         serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid)?;
     record.validate(host)?;
-    if !directory.absent(crate::host::CLOUD_SYNC_CONFIG_FILE)? {
-        return Err(BackupError::Identity);
-    }
     let bytes = directory
         .read(crate::cloud::CLOUD_SYNC_PAUSED_FILE)?
         .ok_or(BackupError::Identity)?;

@@ -40,8 +40,7 @@ pub struct FoldDbOptions {
 
 /// Creates a fully initialized FoldDB instance based on the database configuration.
 ///
-/// Always opens the native packed store. Cloud configuration fails before
-/// the store opens; native cloud activation remains disabled.
+/// Always opens the native packed store.
 ///
 /// `signer` is the Ed25519 keypair used to sign molecule mutations. Callers are
 /// responsible for loading and validating it from the node's persistent identity
@@ -59,16 +58,12 @@ pub async fn create_fold_db(
 }
 
 /// Open the native local engine with explicit local options.
-/// Cloud intent is refused before any store or background worker opens.
 pub async fn create_fold_db_with_options(
     config: &DatabaseConfig,
     e2e_keys: &E2eKeys,
     signer: Arc<Ed25519KeyPair>,
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
-    if config.cloud_sync.is_some() {
-        return Err(FoldDbError::Config(FoldDB::CLOUD_SYNC_DISABLED.into()));
-    }
     StorageEngine::from_env().map_err(FoldDbError::Config)?;
 
     create_local_fold_db(&config.path, e2e_keys, signer, options).await

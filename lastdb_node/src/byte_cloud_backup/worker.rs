@@ -73,11 +73,6 @@ async fn setup(
     if saved.begin.is_some() {
         return Ok(());
     }
-    crate::native_cloud_backup::require_v1_complete(
-        &source.home,
-        &source.account,
-        &source.source_home,
-    )?;
     let context_request = ContextReadRequest {
         version: Version::V2,
         account_id: source.account.clone(),

@@ -46,7 +46,7 @@ An existing saved result is idempotent. Its endpoint must match the compiled DEV
 An authenticated V2 context read must confirm that saved credentials authorize the held account.
 The command never replaces conflicting credentials.
 
-Legacy Cloud Sync stays off. Automatic backup consent must already be absent or disabled.
+The command reads no legacy Cloud Sync file and no V1 automatic backup consent.
 The command does not modify automatic consent, adopt a generation, activate Ready, change Hold, or enroll a recipient address.
 It changes no database record, pack file, file pointer, file key, or restore receipt.
 The V1 automatic backup command is retired. Explicit V2 Start and Resume retain their cloud admission checks.
@@ -55,6 +55,6 @@ The V1 automatic backup command is retired. Explicit V2 Start and Resume retain 
 
 Source and format checks support review. CI supplies type, lint, build, and benchmark validation.
 The DEV check must use an owned restored home with its daemon stopped.
-It must confirm the same account, unchanged database bytes, paused credentials, and automatic backup off.
+It must confirm the same account, unchanged database bytes, and paused credentials.
 It must also confirm one idempotent retry without another registration.
 No primary operation or cloud deployment belongs to this change.

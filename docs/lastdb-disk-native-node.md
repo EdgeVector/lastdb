@@ -9,7 +9,7 @@ Normal startup and direct FoldDB constructors use it without an activation flag.
 An empty home initializes directly. Startup refuses any other format before logical namespace access and performs no conversion.
 Since decision D1 (2026-10-26), the program does not open, convert, or restore a disk format v1 home.
 The disk format v1 removal deleted the separate owner command `lastdb-native-transfer` on 2026-10-26.
-Legacy Cloud Sync activation receives an explicit error.
+Legacy Cloud Sync is removed. No configuration can activate it.
 The V2 byte backup has a separate, disabled-by-default gate; its source availability does not establish production cloud readiness.
 
 The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.

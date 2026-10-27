@@ -8,7 +8,7 @@ It does not change the source home, register an account, or start a daemon.
 Use an explicit absolute source path and an absent absolute destination path.
 The destination parent must exist.
 The command refuses a path overlap, a symlink component, or an existing destination.
-The source identity and cloud config must be regular owner-only files.
+The source identity and `cloud_sync.json.paused` must be regular owner-only files.
 
 The selected environment must match the saved source URL exactly.
 `--env prod` uses the compiled PROD URL, regardless of runtime endpoint overrides.
@@ -32,7 +32,7 @@ It contains only three files, each with mode `0600`:
 - `cloud_sync.json.paused`: the same API key and the checked URL.
 - `.cloud_resume_required`: the durable Cloud Sync Off marker.
 
-The command creates no `data` directory or active cloud configuration.
+The command creates no `data` directory.
 Use this home as the `--data-dir` of `lastdb cloud backup-v2 restore`.
 Give restore a different fresh `--into` home and the exact `--stream`.
 The restore reads the recovery phrase from stdin and reads the backup from the cloud.
