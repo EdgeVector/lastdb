@@ -13,14 +13,15 @@ The tag is **nightly-YYYYMMDD-SHA9**. The binary version is **0.1.0-nightly.YYYY
 The 0.1.0 base comes from the workspace package version at this process's initial source review.
 The publication preflight skips an unchanged source commit after it verifies the existing release. A changed source receives a new candidate.
 
-Each published tag and its asset bytes are immutable. A rerun must verify an existing release or fail; it must not replace its assets.
+Each published tag and its asset bytes are immutable. A rerun must verify an existing published release or fail.
+It must not replace published assets. It can repair only a source-matched unpublished draft that this workflow owns.
 The release is a prerelease and sets GitHub's latest flag to false. It does not move next, stable, a Homebrew formula, or a tap.
 The old release.yml and nightly-canary.yml workflows stay disabled. The new workflow does not dispatch them or push their v-prefixed tags.
 
 The release must include:
 
-- One archive and one bundle manifest for each target.
-- SHA256 checksums for every release file that the checksum list covers.
+- One archive, one bundle manifest, and one compact product-check record for each target.
+- The combined nightly.json descriptor and SHA256SUMS.txt, which covers the other seven files.
 - The exact source commit, target, paired binary versions, and per-binary hashes.
 - The CI run link and GitHub provenance for the published artifacts.
 
@@ -35,9 +36,9 @@ The workflow must complete these steps before it publishes a release:
 1. Resolve one source commit and use it for both target builds.
 2. Build lastdb and lastdbd with the same candidate version.
 3. Package both executable files and record their versions and hashes.
-4. Download the CI artifacts and verify the target, source, checksums, and matched versions.
-5. Run the candidate's required product checks on a fresh CI home.
-6. Publish the immutable prerelease and verify its uploaded assets.
+4. Run the packaged candidate's required product checks on a fresh CI home.
+5. Upload and download the artifacts. Verify the target, source, checksums, versions, and product-check records.
+6. Verify provenance, stage the draft, verify its uploaded assets, and publish the prerelease.
 
 The product check uses generated data and a fresh home. It must not use the primary, its archive, or a copy of either.
 The check must confirm a keyed write, a keyed read, and the required restart result.
