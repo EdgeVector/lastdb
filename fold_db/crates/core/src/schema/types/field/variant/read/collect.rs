@@ -5,10 +5,6 @@ impl FieldVariant {
     /// Hydrate + filter into [`KeyedAtomMatch`] tuples **without** fetching
     /// atom bodies.
     ///
-    /// The partition hint is derived from the **storage-form** slot (before any
-    /// OPE range remapping), so body hydrate can co-locate under
-    /// [`crate::atom::AtomKeyEncoding::PartitionPrefix`] without a locator hop.
-    ///
     /// Used by the co-key multi-field list plan: the primary field establishes
     /// the page of keys, secondary fields contribute only UUID lookups for
     /// those keys, then a single cross-field atom batch materializes content.

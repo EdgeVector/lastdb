@@ -170,10 +170,8 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         &self,
         prefix: &str,
     ) -> StorageResult<PartitionedItems<T>> {
-        // Catalog boot walks the whole namespace with prefix "". Under
-        // LASTDB_READS_REQUIRE_PARTITION that is an UnanchoredRead on
-        // `scan_prefix`. `scan_prefix_partition_undecryptable` is the
-        // startup/admin walk (walk_all_groups when the prefix is empty).
+        // Catalog boot walks the whole namespace with prefix "".
+        // `scan_prefix_partition_undecryptable` is the startup/admin walk.
         let scan = self
             .inner
             .scan_prefix_partition_undecryptable(prefix.as_bytes())

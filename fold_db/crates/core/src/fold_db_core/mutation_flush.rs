@@ -2,11 +2,10 @@
 //!
 //! ## Why
 //!
-//! LastStore `put` already buffers into memory (group-commit when a shard hits
-//! `max_dirty_*`). The product mutation path used to call a full
-//! `db_ops.flush()` — F_FULLFSYNC across open shards on macOS — on every
-//! `finalize_batch`. That gave a durability barrier at commit, but a LastStore
-//! flush is multi-millisecond to multi-second under a warm HashGroup set.
+//! The product mutation path used to call a full `db_ops.flush()` —
+//! F_FULLFSYNC on macOS — on every `finalize_batch`. That gave a durability
+//! barrier at commit, but under the deleted LastStore engine one flush took
+//! milliseconds to seconds.
 //!
 //! Low product latency therefore needs this shape: **acknowledge after memory
 //! write, durable on a short background interval (and on shutdown)**.
@@ -18,7 +17,6 @@
 //! | Mutation `finalize_batch` | By default **skips** sync flush (read-your-writes still holds). |
 //! | Background flusher | Periodic `db_ops.flush()` (default **500 ms**). |
 //! | `FoldDB::shutdown` / explicit `flush` | Always full durability barrier. |
-//! | LastStore group-commit | Unchanged: a single shard still fsyncs when dirty caps hit. |
 //!
 //! ## Env
 //!
@@ -28,9 +26,8 @@
 //! | `LASTDB_BACKGROUND_FLUSH_MS` | Interval for the background flusher. Default `500`. `0` disables it. |
 //!
 //! Crash window with defaults: up to ~one background interval of acknowledged
-//! but not-yet-F_FULLFSYNC'd mutations (plus anything still only in the
-//! LastStore open buffer under the dirty caps). Graceful `lastdbd` exit
-//! always flushes.
+//! but not-yet-F_FULLFSYNC'd mutations. Graceful `lastdbd` exit always
+//! flushes.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -8,10 +8,6 @@ pub use recovery::{
     register_dev_native_device, register_dev_recovery_device, register_native_device,
 };
 
-/// Marker file recording that the initial cloud bootstrap-restore completed;
-/// its presence keeps subsequent boots from re-running the full restore.
-pub const BOOTSTRAP_DONE_FILE: &str = ".bootstrap_done";
-
 /// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519
 /// seed — the same derivation as the full node's `identity_from_phrase`.
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {
@@ -41,20 +37,8 @@ pub(super) struct SignedRegisterRequest {
     pub(super) expected_user_hash: String,
 }
 
-/// Sign `{public_key_hex}:{timestamp}` with the account key and mint a
-/// per-device session from the Exemem CLI register endpoint — the same wire
-/// contract as the full node's `signed_register`
-/// (`POST {api_url}/api/auth/cli/register`).
-pub async fn signed_register(
-    api_url: &str,
-    keypair: &Ed25519KeyPair,
-    invite_code: Option<&str>,
-    device_id: Option<&str>,
-) -> Result<Registered, String> {
-    let request = signed_register_request(api_url, keypair, invite_code, device_id)?;
-    send_signed_register(request).await
-}
-
+/// Sign `{public_key_hex}:{timestamp}` with the account key for the Exemem CLI
+/// register endpoint (`POST {api_url}/api/auth/cli/register`).
 pub(super) fn signed_register_request(
     api_url: &str,
     keypair: &Ed25519KeyPair,
@@ -91,33 +75,6 @@ pub(super) fn signed_register_request(
         body,
         expected_user_hash: host::user_hash_from_pubkey(&keypair.public_key_base64())?,
     })
-}
-
-pub(super) async fn send_signed_register(
-    request: SignedRegisterRequest,
-) -> Result<Registered, String> {
-    let client = fold_db::sync::build_shared_http_client()
-        .map_err(|_| "Failed to construct the register HTTP client".to_string())?;
-    let resp = client
-        .post(request.url.clone())
-        .json(&request.body)
-        .send()
-        .await
-        .map_err(|_| "Register request failed".to_string())?;
-    if resp.status().is_redirection() || resp.url() != &request.url {
-        return Err("Register response redirected; refusing credentials".to_string());
-    }
-    if !resp.status().is_success() {
-        return Err(format!(
-            "Register request failed with HTTP status {}",
-            resp.status().as_u16()
-        ));
-    }
-    let text = resp
-        .text()
-        .await
-        .map_err(|_| "Failed to read register response".to_string())?;
-    parse_registered_response(&text, &request.expected_user_hash)
 }
 
 fn parse_registered_response(text: &str, expected_user_hash: &str) -> Result<Registered, String> {
