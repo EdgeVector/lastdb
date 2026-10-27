@@ -451,8 +451,7 @@ The first encrypted manifest index read starts with AcceptedBackup's receipt ID,
 Reconstruct its ObjectReceipt from Version 1, the accepted scope, ManifestIndex kind, and the grant's hash and length.
 Verify that reconstructed receipt against the accepted receipt ID before download.
 This check also enforces the ManifestIndex envelope byte bound.
-Use ReadGrantResponse::manifest_index_grant_for for this first response.
-That helper binds the selected job and receipt selector, then verifies the reconstructed receipt before it returns the grant.
+Bind the selected job and the receipt selector, then verify the reconstructed receipt before use of the grant.
 An echoed receipt selector alone cannot establish the grant's byte identity.
 Other receipt reads use the full receipt from the verified reference tree.
 
@@ -482,7 +481,6 @@ An authenticated request body never grants authority by itself.
 | transfers/status | TransferStatusRequest | TransferBatchResponse |
 | transfers/resume | TransferResumeRequest | TransferResumeResult |
 | transfers/complete | TransferCompleteRequest | TransferItemResult |
-| references/put | ReferencePutRequest | ReferencePutResult |
 | commits/prepare | CommitRequest | CommitResponse |
 | commits/status | CommitStatusRequest | CommitResponse |
 | heads/read | HeadReadRequest | HeadReadResult |
@@ -490,6 +488,8 @@ An authenticated request body never grants authority by itself.
 | objects/read | ReadGrantRequest | ReadGrantResponse |
 | source/read | SourceReadRequest | SourceReadResponse |
 | usage/read | UsageReadRequest | UsageReadResponse |
+
+The crate does not include the v1 references/put messages. No caller remains.
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.

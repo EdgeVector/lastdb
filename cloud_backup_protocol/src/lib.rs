@@ -3,7 +3,6 @@
 //! Both the client and service consume this source. The service binding follows
 //! through its existing LastDB submodule after the canonical source lands.
 
-pub mod access;
 mod common;
 pub mod context;
 mod digest;
