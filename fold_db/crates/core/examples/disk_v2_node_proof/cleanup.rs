@@ -60,7 +60,7 @@ async fn held_read(node: &Path, node_key: &[u8; 32]) -> Result<()> {
         store
             .open_namespace(name)
             .await?
-            .put(b"later", &[99; 256])
+            .put(b"later", vec![99; 256])
             .await?;
     }
     held.run(async {

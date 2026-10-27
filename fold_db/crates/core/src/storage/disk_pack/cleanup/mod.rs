@@ -83,7 +83,7 @@ impl PackRuntime {
         }
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
-        let status = run_blocking(move || {
+        run_blocking(move || {
             let (_owner, _gate) = (owner, gate);
             runtime.require_cleanup_safe()?;
             let mut status = NativeCleanupStatus::idle(&runtime.physical);
@@ -100,8 +100,7 @@ impl PackRuntime {
             }
             Ok(status)
         })
-        .await?;
-        Ok(status)
+        .await
     }
 
     fn cleanup_boundary(&self) -> NativeCleanupBoundary {
