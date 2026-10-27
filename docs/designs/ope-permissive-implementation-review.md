@@ -89,7 +89,7 @@ The [cretrit README](https://github.com/enquo/cretrit) describes the Lewi-Wu con
 Its Rust ciphertext type supplies comparison through an `Ord` implementation.
 That does not mean that serialized ciphertext bytes preserve order.
 Disk format v2 (`laststore::disk_run`) orders stored keys by byte value.
-Ciphertext bytes without that order would need a deliberate format-aware change across all relevant read and write paths.
+A ciphertext without byte order would need a deliberate format-aware key comparator in all relevant read and write paths.
 Parameter choice, range-byte representation, deterministic exact identity, and ciphertext size also require design.
 Do not replace the OPE codec with this library alone and expect existing byte trees to remain correct.
 

@@ -485,7 +485,7 @@ else console.error(note.error); // the typed error `query` would have thrown
 - Items are **not** joined and do not share work: the node runs them as
   separate queries, four at a time. To read many keys of **one** schema, use one
   `query` with a `HashRangeKeys` filter. The batch removes request round trips and
-  overlaps the items; it does not merge their hash group loads.
+  overlaps the items; it does not merge their disk reads.
 - The full-scan opt-in is never sent, so an unkeyed item fails with the node's
   refusal, as `query` does without `allowFullScan`.
 - A node that predates the route answers 404/405. The client then runs the items

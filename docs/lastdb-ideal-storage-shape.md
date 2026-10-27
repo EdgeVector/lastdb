@@ -927,11 +927,11 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 | Storage v2 spike | `spike-lastdb-storage-v2-sharded-segments` |
 | Atom empty-via-GC lesson | brain `lastdb-atom-key-flip-would-have-emptied-the-atom-collection-via-gc` |
 | Key codec | `fold_db/crates/core/src/atom/molecule_key_codec.rs` |
-| Locator codec | `fold_db/crates/core/src/atom/atom_locator_codec.rs` (`aloc:`) |
+| Locator codec | [`fold_db/crates/core/src/atom/atom_locator_codec.rs`](https://github.com/EdgeVector/lastdb/blob/011b29f3a74eac3eb3a977678630c40345157ed4/fold_db/crates/core/src/atom/atom_locator_codec.rs) (`aloc:`, removed) |
 | Collection routing | `fold_db/crates/core/src/storage/disk_pack/native_routing/key_routing.rs` |
 | Main key classify | `fold_db/crates/core/src/mini_cutover/main_keys.rs` |
 | Backup manifest | [`fold_db/crates/core/src/storage/laststore/backup_manifest.rs`](https://github.com/EdgeVector/lastdb/blob/16c02a609f0d3dcad984463e60b81a031276ac08/fold_db/crates/core/src/storage/laststore/backup_manifest.rs) (removed) |
-| Page index rebuild | `fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs` |
+| Page index rebuild | [`fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs`](https://github.com/EdgeVector/lastdb/blob/011b29f3a74eac3eb3a977678630c40345157ed4/fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs) (removed) |
 | fkanban protein | host-track fkanban `src/protein.ts` |
 
 ---

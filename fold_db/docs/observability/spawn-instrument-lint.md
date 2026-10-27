@@ -96,8 +96,9 @@ in `docs/observability/tokio-spawn-instrument-notes.md`:
    binary's startup span or no span at all — tagging every event with it
    would be misleading on dashboards. Per-event spans are created by
    downstream code as work flows through. Examples:
-   - `BackgroundFlushTask::spawn` (`crates/core/src/fold_db_core/mutation_flush.rs`)
-     — the periodic flush loop.
+   - `BackgroundConflictJanitorTask::spawn`
+     (`crates/core/src/fold_db_core/conflict_janitor.rs`) — the periodic
+     conflict retention janitor.
 
 2. **`#[cfg(test)]` scaffolding.** Test driver tasks that advance a
    `MockClock` or block on a gate so the test can exercise concurrent
@@ -107,7 +108,7 @@ in `docs/observability/tokio-spawn-instrument-notes.md`:
 Always include a short reason after the marker:
 
 ```rust
-// lint:spawn-bare-ok boot-time idle reaper — perpetual worker, no per-request parent span.
+// lint:spawn-bare-ok process-lifetime janitor loop — perpetual worker, no per-request parent span.
 tokio::spawn(async move { /* ... */ });
 ```
 
