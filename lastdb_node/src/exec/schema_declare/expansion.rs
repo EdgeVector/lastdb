@@ -76,12 +76,11 @@ pub(crate) fn local_catalog_expansion_predecessor<'a>(
 }
 
 pub(crate) fn anchor_catalog_expansion_from_local(
-    host: &Host,
+    schemas: &HashMap<String, Schema>,
     schema: &mut DeclarativeSchemaDefinition,
     declare: &DirectDeclareProposal,
 ) -> Option<String> {
-    let schemas = host.db.schema_manager().get_schemas().ok()?;
-    let predecessor = local_catalog_expansion_predecessor(&schemas, declare)?;
+    let predecessor = local_catalog_expansion_predecessor(schemas, declare)?;
     Some(anchor_catalog_expansion_to(schema, predecessor))
 }
 
@@ -127,8 +126,8 @@ pub(crate) async fn resolve_direct_declare_result(
 }
 
 /// The schema catalog sync registers when no catalog schema covers the
-/// proposal, plus why. Pure with respect to the node: it reads the loaded
-/// schemas but writes nothing.
+/// proposal, plus why. The executor supplies local schemas only if this
+/// remote-result decision cannot select a predecessor.
 pub(crate) struct CatalogRegistrationFallback {
     pub(crate) schema: DeclarativeSchemaDefinition,
     /// The same-name predecessor the expansion is anchored to, when found.
@@ -137,15 +136,14 @@ pub(crate) struct CatalogRegistrationFallback {
 }
 
 pub(crate) fn catalog_registration_fallback(
-    host: &Host,
     declare: &DirectDeclareProposal,
     result: Option<&SchemaResolveResult>,
-    resolved: &Option<Result<DirectDeclareResolution, String>>,
+    resolved: &Option<Result<DirectDeclareResolution, BindRefusal>>,
 ) -> CatalogRegistrationFallback {
     let reason = resolved
         .as_ref()
         .and_then(|resolution| resolution.as_ref().err())
-        .map_or("schema resolver unavailable", String::as_str);
+        .map(BindRefusal::registration_reason);
     let mut schema = declare.catalog_schema.clone();
 
     // Anchor an expansion to the best same-name predecessor. Inherit
@@ -153,21 +151,13 @@ pub(crate) fn catalog_registration_fallback(
     // chains); otherwise map to the predecessor's own molecule. This
     // makes the old rows immediately visible through the new identity
     // without copying data.
-    let mut predecessor = result.and_then(|result| {
+    let predecessor = result.and_then(|result| {
         anchor_catalog_expansion(&mut schema, result, &declare.proposal.descriptive_name)
     });
-    if predecessor.is_none() {
-        predecessor = anchor_catalog_expansion_from_local(host, &mut schema, declare);
-    }
-
     let reason = if result.is_none() {
         "resolver_unavailable"
-    } else if reason.contains("cover every proposed field") {
-        "insufficient_field_coverage"
-    } else if reason.contains("key layout") {
-        "key_layout_mismatch"
     } else {
-        "no_candidate_schema"
+        reason.unwrap_or("no_candidate_schema")
     };
     CatalogRegistrationFallback {
         schema,

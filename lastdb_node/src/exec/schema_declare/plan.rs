@@ -249,7 +249,13 @@ async fn plan_from_resolver(
     // Catalog sync would register (or expand) here. Schema Service decides
     // the stored identity, so report the proposal identity and the anchored
     // predecessor, which is what the registration request would carry.
-    let fallback = catalog_registration_fallback(host, declare, result.as_ref(), &resolved);
+    let mut fallback = catalog_registration_fallback(declare, result.as_ref(), &resolved);
+    if fallback.predecessor.is_none() {
+        if let Ok(schemas) = host.db.schema_manager().get_schemas() {
+            fallback.predecessor =
+                anchor_catalog_expansion_from_local(&schemas, &mut fallback.schema, declare);
+        }
+    }
     Ok(DirectDeclarePlan {
         resolution: DirectDeclareResolution::Register {
             catalog_hash: proposed_hash.to_string(),

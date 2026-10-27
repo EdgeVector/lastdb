@@ -179,7 +179,13 @@ async fn resolve_or_register_catalog(
     if let Some(Ok(resolution)) = &resolved {
         return Ok((resolution.clone(), None));
     }
-    let fallback = catalog_registration_fallback(host, declare, result.as_ref(), &resolved);
+    let mut fallback = catalog_registration_fallback(declare, result.as_ref(), &resolved);
+    if fallback.predecessor.is_none() {
+        if let Ok(schemas) = host.db.schema_manager().get_schemas() {
+            fallback.predecessor =
+                anchor_catalog_expansion_from_local(&schemas, &mut fallback.schema, declare);
+        }
+    }
     let schema = fallback.schema;
     let fallback_reason = fallback.reason;
     let service_schema = schema_types::DeclarativeSchemaDefinition::from(&schema);
