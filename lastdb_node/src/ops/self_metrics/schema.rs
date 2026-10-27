@@ -1,4 +1,5 @@
 use super::*;
+use fold_db::schema::types::FieldValueType;
 
 /// Optional best-effort persist into LastDB (off by default).
 pub(super) async fn record_sample_to_db(
@@ -94,6 +95,9 @@ pub(super) fn self_metric_schema() -> Result<DeclarativeSchemaDefinition, String
         None,
         None,
     );
+    schema.field_types = ["series", "sample_id"]
+        .map(|field| (field.to_string(), FieldValueType::String))
+        .into();
     schema.descriptive_name = Some("LastDBD Self Metric Sample".to_string());
     schema.purpose_statement =
         Some("Bounded lastdbd process, disk, uptime, sampler, and backup vitals.".to_string());
@@ -122,6 +126,9 @@ pub(super) fn request_ops_rollup_schema() -> Result<DeclarativeSchemaDefinition,
         None,
         None,
     );
+    schema.field_types = ["series", "sample_id"]
+        .map(|field| (field.to_string(), FieldValueType::String))
+        .into();
     schema.descriptive_name = Some("LastDB Request Ops Rollup".to_string());
     schema.purpose_statement = Some(
         "Bounded sampler rollups of top request-op aggregate buckets across daemon restarts."
