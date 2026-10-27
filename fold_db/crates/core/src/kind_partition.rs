@@ -6,7 +6,7 @@
 /// Kinds whose flat keys use `kind\0rest`.
 pub const KIND_PARTITION_KINDS: &[&str] = &["schemaidx", "conflict", "history", "dellog", "atom"];
 
-/// The partition separator LastStore hashes on.
+/// The separator between the kind and the rest of a flat key.
 pub const KIND_PARTITION_SEP: char = '\0';
 
 /// `kind\0rest` — the write form for a listed flat kind.

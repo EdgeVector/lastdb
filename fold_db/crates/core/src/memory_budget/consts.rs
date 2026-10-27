@@ -158,12 +158,12 @@ pub const FOOTPRINT_EVICT_INEFFECTIVE_STREAK_LIMIT: u32 = 3;
 /// Minimum raw-footprint drop per warm byte freed to count as real progress.
 pub const FOOTPRINT_EVICT_MIN_RESPONSE_RATIO: f64 = 0.25;
 
-/// Warm-set preset default, mirroring `LastStoreOptions::hash_group()`.
-/// Pinned to the real preset by `presets_match_laststore_hash_group`.
+/// Warm-byte reservation in the process admission projection when
+/// [`WARM_BYTES_ENV`] is unset.
 pub const PRESET_WARM_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Key-cache preset default, mirroring `LastStoreOptions::hash_group()`.
-/// Pinned to the real preset by `presets_match_laststore_hash_group`.
+/// Key-cache reservation in the process admission projection when
+/// [`KEY_CACHE_BYTES_ENV`] is unset.
 pub const PRESET_KEY_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Measured charge → RSS ratio on the live primary (4.00 GiB charged warm set,

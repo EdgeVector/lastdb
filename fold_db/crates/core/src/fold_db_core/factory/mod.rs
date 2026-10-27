@@ -73,15 +73,3 @@ pub async fn create_fold_db_with_options(
 
     create_local_fold_db(&config.path, e2e_keys, signer, options).await
 }
-/// Refuse the old local replay engine until native transfer activation exists.
-pub fn create_fold_db_with_local_proof_engine(
-    _config: &DatabaseConfig,
-    _e2e_keys: &E2eKeys,
-    _signer: Arc<Ed25519KeyPair>,
-    _search_outbox_inbox: Option<PathBuf>,
-) -> FoldDbResult<Arc<FoldDB>> {
-    Err(FoldDbError::Config(
-        "native LastDB local replay is disabled until its backup and cloud-sync gate is complete"
-            .into(),
-    ))
-}

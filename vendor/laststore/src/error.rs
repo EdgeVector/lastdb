@@ -14,7 +14,7 @@ pub enum Error {
     Corrupt(String),
     /// AEAD authentication failed while decrypting a frame.
     AeadAuthFail,
-    /// Invalid configuration (e.g. `shard_bits` out of range).
+    /// Invalid configuration or caller input (e.g. an empty disk run commit).
     Config(String),
     /// A disk-run call exhausted its explicit work/byte budget or could not
     /// reserve its bounded buffer. This is never an absent-key result.

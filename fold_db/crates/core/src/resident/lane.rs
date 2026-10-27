@@ -1,8 +1,8 @@
 //! Per-schema FIFO persist lanes and immutable persist envelopes.
 //!
 //! One lane per `(storage_prefix, schema_name)`. Envelopes write in commit
-//! order. Adjacent envelopes on the same lane may share one LastStore group
-//! commit when that does not change write order. Different lanes run in
+//! order. Adjacent envelopes on the same lane may share one storage commit
+//! when that does not change write order. Different lanes run in
 //! parallel: a stalled lane delays only its schema.
 
 use std::collections::{HashMap, VecDeque};
