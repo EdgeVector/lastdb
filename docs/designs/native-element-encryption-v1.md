@@ -1,12 +1,12 @@
 # Native records use their existing element encryption
 
-The native pack container has no whole-file encryption.
-It keeps its existing compression, checksums, and file format.
+Disk format v2 compresses each run-file block, then encrypts the block with AES-256-GCM.
+The element rules below apply inside those blocks.
 
 The current policy wraps only local CAS blob records.
 Tom set this policy on 2026-10-23.
 
-- Atom bodies keep their existing content encryption and no outer storage envelope.
+- Atom rows are plain JSON inside those blocks, with no content seal and no outer storage envelope.
 - Tip values, counters, history, conflicts, metadata, and change-feed values use direct storage.
 - Local CAS records receive an account storage envelope around their existing file envelope.
 - Molecule key bundles and sensitive identity fields keep their explicit key encryption.
@@ -17,14 +17,14 @@ Tom set this policy on 2026-10-23.
 `EncryptingNamespacedStore` selects only the exact `cas_blobs` namespace.
 Its constructor has no caller-controlled plaintext list or broad encryption option.
 All other namespaces return the underlying storage handle directly.
-The wrapper never encrypts a complete packed file or a lookup key.
+The wrapper never encrypts a complete run file or a lookup key.
 
 The wrapper encrypts the complete local CAS record, including the blob metadata and encrypted file bytes.
 The CAS reader can still decode an account-v2 record with only its existing file envelope.
 Every new CAS write receives the outer account envelope.
 
-Atoms retain encryption of the content field.
-The atom header remains readable: atom identity, schema, source filename, creation time, and optional metadata.
+A disk format v2 atom row has no content seal. The block encryption protects it.
+Inside a decrypted block, the atom header is readable: atom identity, schema, source filename, creation time, and optional metadata.
 Tips retain their key encoding, while their atom pointer and per-key metadata remain readable.
 Other direct control records can also contain original API keys and private metadata.
 Native cloud backups copy these exact stored bytes and preserve that visibility.
@@ -32,7 +32,6 @@ This is an explicit policy change, not whole-file encryption.
 
 Reseal and reap accept only `cas_blobs`.
 They cannot add wrappers to atom or tip records or delete those direct records as unsealed residue.
-Replay writes direct non-CAS bytes and cannot restore the broad encryption policy.
 
 The keyed constructors retain a single explicit encrypted account-key proof.
 This small control value verifies the account key before the database can serve requests.
@@ -78,16 +77,12 @@ The key derivation uses the original file hash.
 ## Old-reader boundary
 
 The logical marker `layout:v3:keys` uses direct ASCII value `6`.
-The node format marker uses `format=2`.
+The node format marker uses `format=3`, or `format=4` for a home with typed ranges.
 The creation-intent marker names the third current-key initialization protocol.
 Normal startup rejects earlier node markers before it opens the physical store.
 A direct physical logical constructor also requires marker `6`.
 Startup does not rewrite an older home.
-The explicit native record transfer upgrades logical formats `4` and `5` in its inactive target.
-The old reader exports the source. The new reader authenticates its encrypted format marker before a target write.
-The conversion removes former outer envelopes except CAS and preserves the existing inner encryption.
-It publishes marker `6` and the new account-key proof last. An interrupted target can resume conversion.
-The source remains unchanged and can reopen with its original program.
+The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
 This change does not open or change a primary home.
 
 Native restore requires marker `6` and the explicit encrypted account-key proof.
@@ -97,7 +92,7 @@ An existing home with a missing proof refuses startup. Fresh creation writes the
 The atom and file readers still authenticate their existing encrypted content.
 The metadata and file-dependency decoders read the direct control records.
 
-The physical pack format and cloud transport do not change.
+The run-file format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
 New backups retain only the CAS storage wrapper, atom content encryption, and explicit key encryption.
 

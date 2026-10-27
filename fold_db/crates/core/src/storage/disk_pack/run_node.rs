@@ -29,7 +29,6 @@
 
 use super::*;
 use laststore::disk_run::home::RunHome;
-use rand::{rngs::OsRng, RngCore};
 use std::io::Write;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\ncas=disk-cas\n";
@@ -202,21 +201,6 @@ impl PackNamespacedStore {
         let store = Self::open_run(path, Some(node_key));
         drop(folder);
         store
-    }
-
-    /// Create a new format v2 node home in `path`, which must be absent or
-    /// empty, under a random node key that no one keeps: no later open can
-    /// read the home. For in-process callers without a node identity, such as
-    /// a benchmark on a temporary directory.
-    pub fn create_ephemeral(path: &Path) -> StorageResult<Self> {
-        if !is_new_home(path)? {
-            return Err(StorageError::InvalidOperation(
-                "an ephemeral node home needs an absent or empty folder".into(),
-            ));
-        }
-        let mut node_key = zeroize::Zeroizing::new([0u8; 32]);
-        OsRng.fill_bytes(node_key.as_mut());
-        Self::create_run(path, &node_key)
     }
 
     pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {

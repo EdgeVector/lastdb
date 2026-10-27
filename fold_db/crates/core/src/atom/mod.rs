@@ -13,7 +13,6 @@ pub(crate) use molecule_hash_range::keys::{
 pub mod molecule_key_codec;
 pub mod molecule_uuid;
 pub mod mutation_event;
-pub mod origin_device;
 pub mod provenance;
 pub mod size_limit;
 pub mod tombstone;
@@ -36,7 +35,6 @@ pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
     SuppressedByTip,
 };
-pub use origin_device::{bounded_origin_device, MAX_ORIGIN_DEVICE_BYTES};
 pub use provenance::{MoleculeRef, Provenance};
 pub use size_limit::{
     atom_content_byte_len, enforce_atom_content_limit, is_over_default_limit,

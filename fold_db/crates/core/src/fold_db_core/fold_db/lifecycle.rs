@@ -12,13 +12,6 @@ impl FoldDB {
             .await
     }
 
-    /// Local shutdown for offline maintenance callers. No cloud sync runs, so
-    /// this is the same drain and flush sequence as [`FoldDB::shutdown`].
-    pub async fn shutdown_local_only(&self) -> Result<(), StorageError> {
-        self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT)
-            .await
-    }
-
     /// Wait for accepted persist-lane work. Returns the failure message when a
     /// lane stays busy past `task_drain_timeout`; shutdown then goes on to the barrier.
     async fn drain_persist_lanes_at_shutdown(

@@ -145,7 +145,7 @@ The watch persists between passes. A long rest ends early after the quiet period
 
 Private janitor, dwell, and drain batches can share the bounded collection window.
 They still return after durability. Their ordinary measured cost includes the gate and shared flush holds.
-See `docs/lastdb-concurrent-compaction.md` and `docs/lastdb-time-queue.md`.
+See `docs/lastdb-eager-durable-queue.md` and `docs/lastdb-time-queue.md`.
 
 ## Historical measured cost
 

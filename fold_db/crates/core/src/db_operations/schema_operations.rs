@@ -201,14 +201,6 @@ impl DbOperations {
         self.schemas().get_all_schemas().await
     }
 
-    pub async fn store_superseded_by(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.schemas().store_superseded_by(old_name, new_name).await
-    }
-
     pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {
         self.schemas().get_all_superseded_by().await
     }

@@ -20,7 +20,7 @@ Tom selected complete range-key preload on the first query to selected schemas.
 The [preload design](lastdb-schema-range-preload-design.md) defines that lifecycle.
 The [logical design](lastdb-logical-warm-set-design.md) defines values, fields, and the common read boundary.
 The [study](lastdb-schema-range-preload-study.md) preserves synthetic memory and native disk-component measurements.
-The [fast range design](lastdb-fast-range-design.md) defines the disk-format target for first load and fallback.
+The [fast range design](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md) defined the disk format v1 target for first load and fallback. That format is removed.
 
 ## Target behavior
 
@@ -335,7 +335,8 @@ First batch the Locations already selected by the cursor with the existing adjac
 Do not repeat an exact tree lookup for a known selected Location.
 Measure that change against the correct current-format loader before a disk-format change.
 
-Then implement the packed-key locator pages in the [fast range design](lastdb-fast-range-design.md#disk-design).
+Then implement the packed-key locator pages in the [fast range design](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/lastdb-fast-range-design.md#disk-design).
+That design targets disk format v1, which is removed. A disk format v2 route needs a new design.
 Update accessors, byte-based splits, capacity quotes, validators, LastDB compaction, and dependency walks together.
 Include backup readers and required format-feature rejection.
 Keep encrypted tip bytes, shared atoms, file packing, and semantic cloud mutation order.
@@ -345,7 +346,7 @@ Use the existing compatible codec for compact OPE bytes in memory.
 Do not change the encryption algorithm with the page format.
 Cached tree-construction time is not complete first-query load time.
 
-Primary sources: [range reader](../vendor/laststore/src/disk_pack/hash_range.rs), [batch reader](../vendor/laststore/src/disk_pack/batch.rs), [page output](../vendor/laststore/src/disk_pack/tree_output.rs), [page editor](../vendor/laststore/src/disk_pack/tree_edit.rs).
+Primary sources (disk format v1, removed): [range reader](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/hash_range.rs), [batch reader](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/batch.rs), [page output](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/tree_output.rs), [page editor](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/vendor/laststore/src/disk_pack/tree_edit.rs).
 
 Completion: actual product calls quantify first-load and fallback time, key pages, payload reads, write ack, flush bytes, memory, and changed cloud parts.
 Ordinary packed keys avoid their old per-key tail pages.

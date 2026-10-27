@@ -3,7 +3,7 @@
 > **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal, read this file.
 > Then `docs/lastdb-canonical-model.md` (the canonical model), `docs/lastdb-access-complexity-requirements.md`
 > (the complexity law), and, for data that grows or is large, the Shape rules below.
-> Public: https://thelastdb.com/docs/agent-access-model · https://thelastdb.com/llms.txt
+> Public: https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md · https://thelastdb.com/llms.txt
 
 **Won't-undo:** LastDB is **Dynamo-style NoSQL with access-pattern design**, not SQL.
 
@@ -14,7 +14,7 @@
 | **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` |
 | **Atom lifecycle (counters, delete, purge, TTL)** | `docs/lastdb-atom-counter.md` · `docs/lastdb-ttl-sweep.md` |
 | This file | `docs/lastdb-agent-access-model.md` |
-| Public | https://thelastdb.com/docs/agent-access-model · https://thelastdb.com/llms.txt |
+| Public | https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md · https://thelastdb.com/llms.txt |
 
 **Audience:** every agent that reads or writes LastDB Mini (`lastdbd` on `~/.lastdb/data/folddb.sock`), fkanban/kanban, brain/fbrain, lastgit metadata, situations, etc.
 

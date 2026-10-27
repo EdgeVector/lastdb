@@ -281,16 +281,6 @@ pub const MOLECULE_GENERATION_DELETE_PREFIX: &str = "mgd:v1:";
 const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
 const ESC: char = '\u{1}'; // escape byte for the hash segment
 
-/// The separator, exported for keys built *outside* this module that must land
-/// in the same LastStore partition as a molecule's per-key records.
-///
-/// LastStore's `HashGroupKey::PartitionPrefix` placement treats everything up to
-/// and including the first occurrence of this byte as the partition. That is why
-/// the hash segment is byte-stuffed: it makes "the first separator" an
-/// unambiguous boundary rather than a guess. [`crate::atom::atom_key_codec`]
-/// relies on both properties to give an atom body the same partition as its tip.
-pub const PARTITION_SEP: char = SEP;
-
 /// Byte-stuff a hash so it contains no `\0` (and no bare `\u{1}`), making the
 /// `\0` separator and the escape unambiguous. `\0 -> \x01\x01`, `\x01 -> \x01\x02`.
 fn escape_segment(segment: &str) -> String {

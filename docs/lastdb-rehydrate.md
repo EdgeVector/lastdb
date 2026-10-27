@@ -144,7 +144,7 @@ An empty hash is valid for both initial key preload and later changes to the com
 1. Validate the batch and its current preconditions under the native write gate.
 2. Prepare the complete logical changes and their disk output.
 3. Reserve their memory and disk work before publication.
-4. Complete the disk snapshot through the one native disk queue.
+4. Complete the disk commit through the one native disk queue.
 5. Publish the clean core change, then send the durable ack.
 
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
@@ -183,10 +183,10 @@ The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
 The prepared disk commit owns its disk-space reservation directly.
 A failed commit retains that reservation; the sealed queue retains its pending request owners.
-Reopen verifies the [selected native snapshot](lastdb-snapshot-commits.md), without local mutation replay.
-Private requests retain newer writes until the snapshot commit and clean memory publication complete.
+Reopen reads the published `CURRENT` of each disk format v2 run home. Nothing replays.
+Private requests retain newer writes until the run commit and clean memory publication complete.
 Local mutations in one batch share one logical revision and receive consecutive author times in caller order.
-The native create/update batch includes its author-clock high-water state in the same durable snapshot.
+The native create/update batch includes its author-clock high-water state in the same durable commit.
 The state never moves below a prior durable reservation. Other write paths retain their explicit clock barrier.
 Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
 A new winning tip replaces the full author clock and optional key metadata, even when its atom identity stays the same.
@@ -241,7 +241,7 @@ Stored record keys require valid decoding. Aggregate guards and portable imports
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.
 Temporary memory or queue pressure retains its retry behavior.
 
-Native requests start disk work immediately and return a durable ack after the complete snapshot commit.
+Native requests start disk work immediately and return a durable ack after the complete disk commit.
 The old 500 ms collection delay does not control native requests.
 Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
 Their limits do not define one whole-process memory cap.
@@ -256,15 +256,15 @@ Host pressure uses the same native measurements and clean-record purge.
 The warm set enforces its byte limit when clean, unheld records permit removal.
 Held allocations can prevent a relief request from reaching its target.
 
-Each queued disk extension reserves only its additional snapshot output bytes.
+Each queued disk extension reserves only its additional output bytes.
 The earlier request keeps its reservations until the extension succeeds.
 Acceptance transfers those owners without a second charge. Refusal releases only the private extension.
 A failed disk commit retains the complete reservation for its required output.
 
-Packed-file cleanup uses the home's file-count allowance for its generation inventory.
-It has no separate 4,096-generation cutoff that can block cleanup inside a valid home.
-The finite file-count allowance, retained backup references, and grace period still limit cleanup.
-Cleanup validates all retained files before it removes an old generation.
+A disk format v2 home merges its run files in the background.
+A merged input file goes away after the last read of the older root ends.
+At open, the owner deletes temporary files and run files that `CURRENT` does not name.
+The [engine README](../vendor/laststore/README.md) describes the run files.
 
 ## Shared responsibilities
 
@@ -275,11 +275,11 @@ Cleanup validates all retained files before it removes an old generation.
 | Read scope | One captured core state, disk root, allowance, and held owners | Child reads keep the same scope and selected atom location. |
 | Write preparation | One complete logical change and its prepared disk bytes | A failed preparation does not publish part of that change. |
 | Native queue | Prepared disk output and completion work | Ordinary reads cannot use it as another value source. |
-| Physical maintenance | Packed-file rewrite, backup, and explicit repair | These tools do not select another logical engine. |
+| Physical maintenance | Run-file merge, backup, and explicit repair | These tools do not select another logical engine. |
 
 ## Engine boundary
 
-Normal FoldDB startup opens the native packed engine. No selection flag is required.
+Normal FoldDB startup opens the disk format v2 engine. No selection flag is required.
 Factory options name the local encryption keyring and Search inbox.
 The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
@@ -292,8 +292,8 @@ The configuration reader also refuses obsolete type tags and invalid path values
 It does not convert an older configuration or discard its cloud or engine settings.
 
 Legacy Cloud Sync stays disabled. Startup and runtime activation refuse it before side effects.
-Native backup uses a separate source gate that defaults off.
-Local capture saves an exact snapshot and durable file hold. The [native summary](lastdb-disk-native-node.md#backup-boundary) separates this source from cloud readiness.
+The V2 byte backup uses a separate gate, `LASTDB_BYTE_BACKUP_V2_ENABLED`, that defaults off.
+Capture saves an exact cut and a named file hold. The [native summary](lastdb-disk-native-node.md#backup-boundary) separates this source from cloud readiness.
 Raw physical format tools and vendor code do not provide an alternate logical engine.
 Logical writes do not generate tip history. Startup does not schedule a history drain.
 Explicit physical history maintenance remains separate from the normal logical routes.

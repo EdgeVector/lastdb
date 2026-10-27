@@ -35,8 +35,8 @@ cargo build -p fold_db
 cargo clippy -p fold_db --all-targets -- -D warnings
 ```
 
-- Storage: LastStore (vendored under monorepo `vendor/laststore`)
-- Optional cloud sync (feature-gated; Mini hosts opt in)
+- Storage: disk format v2 (`laststore::disk_run`, vendored under monorepo `vendor/laststore`)
+- Cloud backup: the explicit V2 byte backup, off by default
 - Observability helpers in `crates/observability`
 
 Compatibility note: package name, paths, and env vars may still say

@@ -187,30 +187,4 @@ impl SchemaStore {
             .get_item(&schema_drop_receipt_key(schema_name))
             .await?)
     }
-
-    /// Store a schema superseded-by mapping (old_name → new_name)
-    pub async fn store_superseded_by(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        crate::storage::disk_pack::transaction::scope(
-            self.runtime.clone(),
-            self.store_superseded_by_native(old_name, new_name).boxed(),
-        )
-        .await
-    }
-
-    async fn store_superseded_by_native(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.superseded_by_store
-            .put_item(old_name, &new_name.to_string())
-            .await?;
-        self.stage_native_snapshot(old_name).await?;
-        self.superseded_by_store.inner().flush().await?;
-        Ok(())
-    }
 }

@@ -166,18 +166,16 @@ pub fn ensure_node_home(home: &Path) -> io::Result<()> {
 ///   assumption that they stay inside the data dir. Spotlight copies indexed
 ///   content into a system-wide index that sits *outside* the AES-256-GCM
 ///   at-rest envelope and outside any LastDB access control.
-/// * **Read-path cost.** Hash-group segments are rewritten constantly by
-///   compaction and eviction, and every rewrite is fresh re-index work against
-///   the same disk the read path is already scanning hard.
+/// * **Read-path cost.** Each commit writes a new run file and background
+///   merges rewrite them, and every new file is fresh re-index work against the
+///   same disk the read path uses.
 ///
 /// Best-effort by construction: an unwritable home is reported by the
 /// `create_dir_all` in [`ensure_node_home`], and a missing marker must never
 /// fail a boot.
 ///
-/// Deliberately *not* called for `migrate-hash-group --into` /
-/// `restore --into` destinations: `refuse_non_fresh_restore_home` requires a
-/// completely empty destination, and those homes pick the marker up on their
-/// first real boot anyway.
+/// Deliberately *not* called for `restore --into` destinations: those homes
+/// pick the marker up on their first real boot.
 #[cfg(target_os = "macos")]
 pub fn mark_never_indexed(home: &Path) {
     let marker = home.join(SPOTLIGHT_EXCLUSION_FILE);
@@ -206,9 +204,9 @@ pub fn mark_never_indexed(home: &Path) {
 #[cfg(not(target_os = "macos"))]
 pub fn mark_never_indexed(_home: &Path) {}
 
-/// The layout descriptor LastStore writes into its root on first open.
-/// Present even for a restored-but-still-empty home, which is why it is checked
-/// before the collection walk.
+/// The layout descriptor that the deleted LastStore engine wrote into its root
+/// on first open. A home from that engine still has it, so the check below
+/// still refuses to start fresh over one.
 const LASTSTORE_LAYOUT_FILE: &str = "laststore-layout-v1";
 
 /// The node marker. Every native node home has it, in disk format v1 and v2.
@@ -217,8 +215,8 @@ const NODE_MARKER_FILE: &str = "laststore-pack-node-v1";
 /// Whether `<home>/data` already holds a store (a layout file, a node marker, or a collection).
 /// Used to refuse cloud-bootstrap-as-heal and to keep error messages precise.
 ///
-/// Recognises the layouts the node writes: the LastStore layout file, the
-/// node marker (disk format v1 and v2), or any collection directory under
+/// Recognises the layouts the node wrote or writes: the LastStore layout file,
+/// the node marker (disk format v1 and v2), or any collection directory under
 /// `<data>/data`. The refuse-to-start-fresh contract below rests on this
 /// structural answer, not on the storage layer's error text.
 pub fn data_dir_has_existing_store(data_path: &Path) -> bool {

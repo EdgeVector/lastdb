@@ -206,9 +206,8 @@ impl KvStore for EncryptingKvStore {
         prefix: &[u8],
     ) -> StorageResult<PartitionedScan> {
         // An empty prefix is a startup/admin walk of the whole namespace
-        // (boot decrypt proof, snapshot scrub). Product `scan_prefix("")`
-        // still goes through the LastStore partition guard and rejects.
-        // Page the explicit all-groups primitive instead.
+        // (boot decrypt proof, snapshot scrub). Page the physical range
+        // primitive over the whole namespace.
         let results = if prefix.is_empty() {
             let mut rows = Vec::new();
             let mut cursor = None;
