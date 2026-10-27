@@ -31,6 +31,7 @@ jobs:
       contents: read
       actions: read
       attestations: read
+      checks: read
     outputs:
       source: ${{ steps.source.outputs.source }}
       version: ${{ steps.source.outputs.version }}
@@ -39,6 +40,7 @@ jobs:
       base: ${{ steps.source.outputs.base }}
       publish: ${{ steps.source.outputs.publish }}
       skip: ${{ steps.existing.outputs.skip }}
+      plan_artifact_id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -61,6 +63,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/release/nightly_publish.py preflight --plan "$RUNNER_TEMP/nightly-plan.json"
       - uses: actions/upload-artifact@v7
+        id: upload
         with:
           name: nightly-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/nightly-plan.json
@@ -87,7 +90,10 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}
       # The normal evidence workflow does not run on main pushes. Run its
       # accepted policy here against this exact release source as well.
@@ -186,7 +192,10 @@ jobs:
       - uses: actions/upload-artifact@v7
         id: upload
         with:
-          name: nightly-bundles-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.target }}
+          # A failed matrix cell can retry after another cell already passed.
+          # Only this run's temporary artifact for this target may be replaced.
+          name: nightly-bundles-${{ github.run_id }}-${{ matrix.target }}
+          overwrite: true
           path: ${{ runner.temp }}/nightly-bundles/
           if-no-files-found: error
           retention-days: 3
@@ -218,6 +227,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      publication_artifact_id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -228,11 +239,16 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}
       - uses: actions/download-artifact@v8
         with:
-          pattern: nightly-bundles-${{ github.run_id }}-${{ github.run_attempt }}-*
+          pattern: nightly-bundles-${{ github.run_id }}-*
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
           merge-multiple: true
           path: ${{ runner.temp }}/nightly-release
       - name: Validate both native bundles and their operational records
@@ -272,7 +288,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.assemble.outputs.publication_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/nightly-release
       - uses: actions/attest@v4
         with:
@@ -302,11 +321,17 @@ jobs:
           python-version: '3.12'
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.plan.outputs.plan_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}
       - uses: actions/download-artifact@v8
         with:
-          name: nightly-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.assemble.outputs.publication_artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/nightly-release
       - name: Verify provenance, recheck source gates, and publish the immutable prerelease
         env:

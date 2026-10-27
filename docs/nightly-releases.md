@@ -133,6 +133,12 @@ The current release-publish command requires a nonempty schema set and a schema 
 The current release manifest has one artifact URL. It has no package kind, platform map, or node version contract.
 The adapter must address these gaps before a nightly workflow writes registry releases or channels.
 
+The current S3 channel writer already uses conditional writes through an ETag or a create-only condition.
+The core changes its local channel cache before the durable write completes. A failed write can leave a value that the service cannot confirm.
+The adapter must publish cache changes after durable success and refresh that cache after a conflict or storage failure.
+Channel reads must report the authoritative durable result before automatic node distribution starts.
+A channel create must require generation zero. A lost creation race must return HTTP 409 consistently across independent service instances.
+
 ## Phase 2 identity and deployment boundary
 
 GitHub's token and provenance do not authorize a registry write. The current registry publisher needs an enrolled developer API credential and an Ed25519 developer key.
@@ -154,7 +160,7 @@ Registry publication must remain separate from primary installation and restart.
 | Signed writes | [lastdb_node/src/app_publish/release.rs](../lastdb_node/src/app_publish/release.rs) | Build and sign the versioned node descriptor with the authorized CI identity. |
 | Service records | [schema_service/crates/core/src/app_release/records.rs](../schema_service/crates/core/src/app_release/records.rs) | Define immutable SYSTEM_NODE records and target metadata. |
 | Service validation | [schema_service/crates/core/src/app_release/validate.rs](../schema_service/crates/core/src/app_release/validate.rs) | Enforce kind, format, platform, publisher, and upgrade constraints. |
-| Service persistence | [schema_service/crates/core/src/app_release/persistence.rs](../schema_service/crates/core/src/app_release/persistence.rs) | Reuse immutable writes and generation checks without changing ordinary app records. |
+| Service persistence | [schema_service/crates/core/src/app_release/persistence.rs](../schema_service/crates/core/src/app_release/persistence.rs) | Preserve conditional S3 writes and make cache reads agree with durable channel state after failure. |
 | Registry client | [lastdb_node/src/app_release_host/registry.rs](../lastdb_node/src/app_release_host/registry.rs) | Read the explicit node route and refuse unsupported formats. |
 | Artifact check | [lastdb_node/src/app_release_host/artifact.rs](../lastdb_node/src/app_release_host/artifact.rs) | Verify the selected target, matched pair, signatures, and required probe. |
 | Activation | [lastdb_node/src/app_release_host/activation.rs](../lastdb_node/src/app_release_host/activation.rs) | Keep download checks separate from authorized LastDB upgrade steps. |
