@@ -82,7 +82,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     window: Option<KeyWindow>,
     ctx: &AccessContext,
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
-    let comparison = super::comparison::capture(host, &query.schema_name).await?;
+    let comparison = super::capture_key_comparison(host, &query.schema_name).await?;
     let future = execute_rows_captured(host, query, window, ctx);
     match comparison {
         Some(comparison) => comparison.run(future).await,

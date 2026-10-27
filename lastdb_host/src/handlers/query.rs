@@ -1,10 +1,8 @@
-//! Query execution: row formatting, conflict annotation, pagination push-down.
+//! Query request flow and shared reads. Pure request and page rules live below.
 
 use super::*;
-
-// ---------------------------------------------------------------------------
-// Query row formatting (shared)
-// ---------------------------------------------------------------------------
+use fold_db::schema::types::key_comparison::KeyComparisonContext;
+use std::sync::Arc;
 
 mod rows;
 pub use self::rows::*;
@@ -14,7 +12,6 @@ mod paging;
 pub(in crate::handlers) use self::paging::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
-mod comparison;
 mod execute;
 mod rules;
 
@@ -109,7 +106,50 @@ async fn execute_query_scoped<H: HostNode>(
         ));
     }
 
-    comparison::execute(host, query, limit, offset, cursor, ctx).await
+    rules::validate_query_options(&query, cursor.is_some())?;
+    let comparison = capture_key_comparison(host, &query.schema_name).await?;
+    let rules::PreparedQuery {
+        query,
+        cursor,
+        binding,
+    } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref())?;
+    let run = execute::QueryRun {
+        host,
+        ctx,
+        limit: clamp_request_limit(limit),
+        offset: offset.unwrap_or(0),
+        cursor,
+        comparison: binding,
+    };
+    let future = run.execute(query);
+    match comparison {
+        Some(comparison) => comparison.run(future).await,
+        None => future.await,
+    }
+}
+
+/// Fetch one schema's comparison contract at the request's captured read view.
+/// Row materialization uses this same boundary for nested reads.
+pub(super) async fn capture_key_comparison<H: HostNode>(
+    host: &H,
+    name: &str,
+) -> Result<Option<Arc<KeyComparisonContext>>, HostError> {
+    let Some(schema) = host
+        .fold_db()
+        .schema_manager()
+        .get_schema_following_supersession_for_read(name)
+        .await
+        .map_err(HostError::from)?
+    else {
+        return Ok(None);
+    };
+    host.fold_db()
+        .db_ops()
+        .atoms()
+        .key_comparison_context(&schema)
+        .await
+        .map(Some)
+        .map_err(HostError::from)
 }
 
 pub(super) fn is_app_owned_schema_ref(name: &str) -> bool {
