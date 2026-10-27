@@ -87,10 +87,4 @@ pub trait HostNode: Send + Sync {
     /// Wait for write-triggered background side effects that can affect
     /// immediate follow-up reads, bounded by `timeout`.
     async fn wait_for_background_tasks(&self, timeout: Duration) -> bool;
-
-    /// Account E2E content key used to open field-level `ENC:` atom content
-    /// on index search. Default `None` leaves sealed strings as-is.
-    fn atom_content_key(&self) -> Option<[u8; 32]> {
-        None
-    }
 }
