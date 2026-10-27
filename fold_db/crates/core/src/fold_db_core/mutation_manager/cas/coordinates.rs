@@ -13,13 +13,14 @@ impl MutationManager {
         let Some(layout) = schema.key.as_ref() else {
             return Ok(vec![false; keys.len()]);
         };
+        let profile = self.db_ops.molecule_keys().schema_profile(schema)?;
         let mut requests = Vec::new();
         let mut slot_keys = Vec::new();
         for (index, key) in keys.iter().enumerate() {
             let mut count = 0;
-            for (name, coordinate) in [
-                (&layout.hash_field, &key.hash),
-                (&layout.range_field, &key.range),
+            for (name, coordinate, is_range) in [
+                (&layout.hash_field, &key.hash, false),
+                (&layout.range_field, &key.range, true),
             ] {
                 let Some(name) = name.as_ref() else {
                     continue;
@@ -46,7 +47,7 @@ impl MutationManager {
                         .api_hash_range_record_key(molecule, &hash, &range)
                         .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
                 );
-                requests.push((index, coordinate));
+                requests.push((index, coordinate, is_range));
             }
             valid[index] &= count > 0;
         }
@@ -63,9 +64,9 @@ impl MutationManager {
         let selected: Vec<_> = requests
             .into_iter()
             .zip(selected)
-            .map(|((index, coordinate), record)| {
+            .map(|((index, coordinate, is_range), record)| {
                 if let Some(record) = record {
-                    Ok(Some((index, coordinate, record.entry.atom_uuid)))
+                    Ok(Some((index, coordinate, is_range, record.entry.atom_uuid)))
                 } else {
                     valid[index] = false;
                     Ok(None)
@@ -75,17 +76,35 @@ impl MutationManager {
             .into_iter()
             .flatten()
             .collect();
-        let tips: Vec<_> = selected.iter().map(|(_, _, uuid)| uuid.as_str()).collect();
+        let tips: Vec<_> = selected
+            .iter()
+            .map(|(_, _, _, uuid)| uuid.as_str())
+            .collect();
         let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
             &tips,
             storage_prefix,
         )
         .await?;
-        for ((index, coordinate, _), atom) in selected.into_iter().zip(atoms) {
-            valid[index] &=
-                scalar_key_coordinate(atom.content()).as_deref() == Some(coordinate.as_str());
+        for ((index, coordinate, is_range, _), atom) in selected.into_iter().zip(atoms) {
+            valid[index] &= coordinate_matches(profile, coordinate, is_range, atom.content())?;
         }
         Ok(valid)
     }
+}
+
+fn coordinate_matches(
+    profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    coordinate: &str,
+    is_range: bool,
+    value: &serde_json::Value,
+) -> Result<bool, SchemaError> {
+    let Some(value) = scalar_key_coordinate(value) else {
+        return Ok(false);
+    };
+    if !is_range {
+        return Ok(value == coordinate);
+    }
+    use crate::schema::types::key_comparison::normalize::canonical_range;
+    Ok(canonical_range(profile, &value)? == canonical_range(profile, coordinate)?)
 }

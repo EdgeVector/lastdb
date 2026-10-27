@@ -19,10 +19,16 @@ impl FieldVariant {
         include_tombstones: bool,
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
         self.require_supported_read(filter.as_ref())?;
-        captured_field_read(
-            db_ops,
-            self.collect_matches_captured(db_ops, filter, include_tombstones)
-                .boxed(),
+        let profile = self.read_range_profile(db_ops).await?;
+        let filter =
+            crate::schema::types::key_comparison::normalize::canonical_filter(profile, filter)?;
+        crate::schema::types::key_comparison::KeyComparisonContext::run_for_molecule(
+            profile,
+            captured_field_read(
+                db_ops,
+                self.collect_matches_captured(db_ops, filter, include_tombstones)
+                    .boxed(),
+            ),
         )
         .await
     }

@@ -20,6 +20,7 @@ type PreparedAtomsAndKeys = (
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn resolve_mutation_key_value(
+        &self,
         schema_name: &str,
         schema: &Schema,
         mutation: &Mutation,
@@ -70,7 +71,7 @@ impl MutationManager {
                 )))
             }
             _ => Ok(key_value),
-        }
+        }.and_then(|key| self.db_ops.molecule_keys().canonical_key(schema, key))
     }
 
     /// Creates atoms and computes key values for all mutations in a schema group.
@@ -91,9 +92,9 @@ impl MutationManager {
         let mut mutation_key_values = Vec::with_capacity(schema_mutations.len());
 
         for (idx, mutation) in schema_mutations.iter_mut().enumerate() {
-            let key_value = Self::resolve_mutation_key_value(schema_name, schema, mutation)?;
+            let key_value = self.resolve_mutation_key_value(schema_name, schema, mutation)?;
 
-            Self::materialize_key_fields(schema_name, schema, mutation, &key_value)?;
+            self.materialize_key_fields(schema_name, schema, mutation, &key_value)?;
 
             mutation_key_values.push(key_value);
 

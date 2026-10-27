@@ -15,6 +15,7 @@ pub(super) const CAS_COLLECTION: &str = "cas_blobs";
 
 /// The v2 run homes (main and CAS) and their background merge thread.
 pub(super) struct V2Home {
+    pub(super) range_order: schema_types::key_comparison::KeyOrderVersion,
     pub(super) home: Arc<RunHome>,
     /// The CAS files only.
     pub(super) cas: Arc<RunHome>,
@@ -28,8 +29,13 @@ pub(super) struct V2Home {
 }
 
 impl V2Home {
-    pub(super) fn new(home: Arc<RunHome>, cas: Arc<RunHome>) -> Self {
+    pub(super) fn new(
+        home: Arc<RunHome>,
+        cas: Arc<RunHome>,
+        range_order: schema_types::key_comparison::KeyOrderVersion,
+    ) -> Self {
         Self {
+            range_order,
             home,
             cas,
             merging: Arc::default(),

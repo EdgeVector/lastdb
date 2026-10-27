@@ -17,6 +17,7 @@ pub(super) struct RunSource {
     pub cas: CapturedRunHome,
     pub root: PathBuf,
     pub files: Vec<SnapshotFile>,
+    version: u16,
 }
 impl RunSource {
     pub fn open(runtime: Arc<PackRuntime>, root: PathBuf, key: &[u8; 32]) -> StorageResult<Self> {
@@ -48,12 +49,7 @@ impl RunSource {
             remaining,
         )
         .map_err(super::super::map)?;
-        let mut marker = Self::node_file(&root)?;
-        let mut bytes = Vec::new();
-        (&mut marker).take(37).read_to_end(&mut bytes)?;
-        if bytes != super::super::run_node::RUN_NODE_BYTES {
-            return Err(invalid("run backup node marker"));
-        }
+        let (version, marker_bytes) = marker_profile(&runtime, &root)?;
         let count = main
             .files
             .len()
@@ -81,7 +77,7 @@ impl RunSource {
             .map_err(|_| invalid("run inventory allocation"))?;
         files.push(SnapshotFile {
             path: "laststore-pack-node-v1".into(),
-            bytes: bytes.len() as u64,
+            bytes: marker_bytes,
         });
         for (prefix, source) in [("disk-run", &main), ("disk-cas", &cas)] {
             for file in &source.files {
@@ -98,6 +94,7 @@ impl RunSource {
             cas,
             root,
             files,
+            version,
         };
         if source.retained_bytes() > maximum {
             return Err(invalid("run paired retained metadata allowance"));
@@ -123,7 +120,7 @@ impl RunSource {
     }
     pub fn profile(&self) -> StorageResult<RunBackupProfile> {
         let profile = RunBackupProfile {
-            version: 1,
+            version: self.version,
             main: self.home_profile("disk-run", &self.main)?,
             cas: self.home_profile("disk-cas", &self.cas)?,
         };
@@ -194,13 +191,37 @@ impl RunSource {
         Ok(())
     }
 }
+fn marker_profile(runtime: &PackRuntime, root: &Path) -> StorageResult<(u16, u64)> {
+    use schema_types::key_comparison::KeyOrderVersion;
+    let mut marker = RunSource::node_file(root)?;
+    let mut bytes = Vec::new();
+    (&mut marker).take(129).read_to_end(&mut bytes)?;
+    let version = match (bytes.as_slice(), runtime.range_order()) {
+        (super::super::run_node::RUN_NODE_BYTES, KeyOrderVersion::LegacyUtf8V1) => 1,
+        (super::super::run_admission::TYPED_NODE_BYTES, KeyOrderVersion::TypedScalarV1) => 2,
+        _ => {
+            return Err(invalid(
+                "run backup node marker differs from its logical order",
+            ))
+        }
+    };
+    Ok((version, bytes.len() as u64))
+}
+
 pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {
     let source = inner
         .run
         .as_ref()
         .ok_or_else(|| invalid("run source unavailable"))?;
     let (main, cas) = source.reads(super::super::budget())?;
-    super::super::run_restore::verify_readers(&main, &cas, key, &inner.store.root).map(|_| ())
+    super::super::run_restore::verify_readers_for_profile(
+        &main,
+        &cas,
+        key,
+        &inner.store.root,
+        source.version,
+    )
+    .map(|_| ())
 }
 fn hash(mut input: File) -> StorageResult<Digest> {
     let mut hash = Sha256::new();

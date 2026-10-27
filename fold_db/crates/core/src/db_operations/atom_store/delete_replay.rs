@@ -81,14 +81,22 @@ impl AtomStore {
         cutoff: Option<&[u8]>,
     ) -> StorageResult<u64> {
         match (marker, cutoff) {
-            (Some(FENCED_KEY_FORMAT), Some(bytes)) => {
+            (Some(marker), Some(bytes))
+                if marker == FENCED_KEY_FORMAT
+                    || marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT =>
+            {
                 let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
                 if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
                     return Err(invalid("invalid floor record"));
                 }
                 Ok(floor.minimum_written_at_nanos)
             }
-            (Some(marker), None) if marker == super::key_format::KEY_FORMAT => Ok(0),
+            (Some(marker), None)
+                if marker == super::key_format::KEY_FORMAT
+                    || marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT =>
+            {
+                Ok(0)
+            }
             _ => Err(invalid("the floor and format marker disagree")),
         }
     }
@@ -136,7 +144,14 @@ impl AtomStore {
             self.main_store
                 .inner()
                 .batch_mutate(vec![
-                    KvMutation::put(Self::CURRENT_KEY_FORMAT_KEY.as_bytes(), FENCED_KEY_FORMAT),
+                    KvMutation::put(
+                        Self::CURRENT_KEY_FORMAT_KEY.as_bytes(),
+                        if self.typed_ranges {
+                            crate::atom::molecule_key_codec::TYPED_KEY_FORMAT
+                        } else {
+                            FENCED_KEY_FORMAT
+                        },
+                    ),
                     KvMutation::put(CUTOFF_KEY.as_bytes(), floor),
                 ])
                 .await?;

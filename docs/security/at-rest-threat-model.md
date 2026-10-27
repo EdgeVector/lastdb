@@ -3,6 +3,19 @@
 Status: **adopted design** (2026-06-10). Implementation tracked as one
 fkanban card per gap — see [Gaps → follow-up cards](#gaps--follow-up-cards).
 
+**Current V2 boundary (2026-10-26):** The current node uses compact V2 run files.
+Data, logical keys, and lookup blocks use compression followed by AES-256-GCM.
+Atom JSON is plain inside those encrypted blocks. Native cloud backup retains the same ciphertext.
+Typed homes replace OPE lookup ranges with canonical ordered scalar payloads inside those blocks.
+The explicit converter preserves a stopped V2 source and writes a separate target. The primary stays unchanged.
+See [the complete typed V2 contract](../designs/typed-range-field-contract.md) for profiles, key authority, recovery, and measured release limits.
+
+CAUTION: `identity.key` is a plaintext 32-byte seed with owner-only permissions.
+A person who obtains that seed can derive the data keys. This model does not provide protection against complete home/key compromise.
+The cloud native-file backup excludes the identity file and cloud credentials.
+Clear file identities, lengths, positions, object counts, and request times remain visible.
+The June and Trinity sections below describe the older design. They do not override this V2 representation.
+
 **Update 2026-07-13 (Mini / identity.key):** LastDB Mini's shipping key root is
 the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed` + optional
 `at_rest_kek_from_seed` for keyring wrap). The Argon2id **passphrase root**

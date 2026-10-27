@@ -20,7 +20,7 @@ impl ProfiledRangeCodec {
     pub fn new(profile: RangeStorageProfile, existing: &MoleculeKeyCodec) -> Self {
         Self {
             profile,
-            codec: existing.clone(),
+            codec: existing.without_range_profile(),
         }
     }
 

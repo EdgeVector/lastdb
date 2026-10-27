@@ -16,7 +16,7 @@ from node import file_hash, save
 
 
 COMMAND = ["cargo", "build", "--locked", "--profile", "dev-release",
-           "-p", "lastdb_node", "--bin", "lastdbd"]
+           "-p", "lastdb_node", "--bin", "lastdbd", "--bin", "lastdb"]
 
 
 def native_context():
@@ -58,15 +58,20 @@ def context(output):
 
 def verify(directory, revision, fingerprint):
     binary, metadata_path = directory / "lastdbd", directory / "build.json"
-    if any(path.is_symlink() for path in (directory, binary, metadata_path)):
+    cli = directory / "lastdb"
+    if any(path.is_symlink() for path in (directory, binary, cli, metadata_path)):
         raise ValueError("The cached build contains an unexpected symlink")
     metadata = json.loads(metadata_path.read_text())
     if (metadata["revision"] != revision or metadata["context"] != fingerprint
-            or metadata["sha256"] != file_hash(binary)):
+            or metadata["sha256"] != file_hash(binary)
+            or metadata["cli_sha256"] != file_hash(cli)):
         raise ValueError("The cached build identity or checksum differs")
     version = subprocess.check_output([str(binary), "--version"], text=True, timeout=10).strip()
     if f"bench-{revision}" not in version or metadata["version"] != version:
         raise ValueError("The cached executable reports another revision")
+    cli_version = subprocess.check_output([str(cli), "--version"], text=True, timeout=10).strip()
+    if f"bench-{revision}" not in cli_version or metadata["cli_version"] != cli_version:
+        raise ValueError("The cached conversion CLI reports another revision")
     return metadata
 
 
@@ -86,14 +91,20 @@ def compile_binary(args, directory, fingerprint):
             print(line, end="", flush=True)
         if process.wait():
             raise RuntimeError(f"The {args.label} build failed; inspect {log_path.name}")
-    if any(path.is_symlink() for path in (directory, directory / "lastdbd", directory / "build.json")):
+    if any(path.is_symlink() for path in (directory, directory / "lastdbd", directory / "lastdb",
+                                        directory / "build.json")):
         raise ValueError("Refuse to replace a cached build through a symlink")
     directory.mkdir(parents=True, exist_ok=True)
     binary = directory / "lastdbd"
     shutil.copy2(target / "dev-release" / "lastdbd", binary)
+    cli = directory / "lastdb"
+    shutil.copy2(target / "dev-release" / "lastdb", cli)
     version = subprocess.check_output([str(binary), "--version"], text=True, timeout=10).strip()
     metadata = {"revision": args.revision, "context": fingerprint,
                 "sha256": file_hash(binary), "version": version,
+                "cli_sha256": file_hash(cli),
+                "cli_version": subprocess.check_output([str(cli), "--version"], text=True,
+                                                        timeout=10).strip(),
                 "runner_image": json.loads(args.context.read_text())["runner_image"],
                 "producer": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
                             f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"}

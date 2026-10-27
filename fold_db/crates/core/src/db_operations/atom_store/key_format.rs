@@ -30,6 +30,14 @@ pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
 pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[AtomStore::CURRENT_KEY_FORMAT_KEY];
 
 impl AtomStore {
+    fn supports_home_key_format(&self, value: &[u8]) -> bool {
+        if self.typed_ranges {
+            value == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT
+        } else {
+            is_supported_key_format(value)
+        }
+    }
+
     /// This logical format includes framed molecule identities and exact
     /// tuple-based binding sources. Snapshots require the same marker key.
     pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
@@ -76,7 +84,7 @@ impl AtomStore {
         if values.iter().any(|stored| {
             stored
                 .as_deref()
-                .is_none_or(|value| !is_supported_key_format(value))
+                .is_none_or(|value| !self.supports_home_key_format(value))
         }) {
             return Err(StorageError::InvalidOperation(
                 "current creation has an incomplete or different key-proof batch".into(),
@@ -88,7 +96,7 @@ impl AtomStore {
     pub(crate) async fn initialize_key_format(&self) -> Result<(), StorageError> {
         self.main_store
             .inner()
-            .batch_mutate(current_key_format_rows()?)
+            .batch_mutate(current_key_format_rows(self.typed_ranges)?)
             .await
     }
 
@@ -100,10 +108,10 @@ impl AtomStore {
             .await?;
         if stored
             .as_deref()
-            .is_none_or(|value| !is_supported_key_format(value))
+            .is_none_or(|value| !self.supports_home_key_format(value))
         {
             return Err(StorageError::InvalidOperation(
-                "this home does not use the CAS-only wrapper format; create a new empty home or convert it offline".into(),
+                "the logical key format does not match this node home; convert it offline".into(),
             ));
         }
         self.minimum_replay_time().await.map(|_| ())
@@ -111,9 +119,13 @@ impl AtomStore {
 }
 
 /// The rows of the key format marker, in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
-fn current_key_format_rows() -> Result<Vec<KvMutation>, StorageError> {
+fn current_key_format_rows(typed: bool) -> Result<Vec<KvMutation>, StorageError> {
     Ok(vec![KvMutation::put(
         AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
-        KEY_FORMAT,
+        if typed {
+            crate::atom::molecule_key_codec::TYPED_KEY_FORMAT
+        } else {
+            KEY_FORMAT
+        },
     )])
 }

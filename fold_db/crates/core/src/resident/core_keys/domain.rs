@@ -18,6 +18,7 @@ impl CoreKeyDomain {
     pub(crate) fn new_loading(
         identity: CoreKeyIdentity,
         range_encoding: RangeKeyEncoding,
+        range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
         budget: Arc<CoreKeyBudget>,
     ) -> Result<Arc<Self>, CoreKeyError> {
         let bytes = identity
@@ -28,6 +29,7 @@ impl CoreKeyDomain {
         Ok(Arc::new(Self {
             identity,
             range_encoding,
+            range_profile,
             budget,
             state: Mutex::new(DomainState {
                 phase: CoreKeyPhase::Loading,
@@ -47,6 +49,11 @@ impl CoreKeyDomain {
 
     pub(crate) fn range_encoding(&self) -> RangeKeyEncoding {
         self.range_encoding
+    }
+
+    pub(crate) fn accepts_stored_range(&self, range: &str) -> bool {
+        self.range_profile
+            .is_none_or(|profile| profile.decode_value(range).is_ok())
     }
 
     /// The caller owns the common publication lock for accepted write deltas.

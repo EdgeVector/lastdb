@@ -110,7 +110,8 @@ impl MutationManager {
         };
         super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
 
-        let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+        let key_value =
+            self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
         let mutation_key_values = vec![key_value.clone()];
         let single_mutation = vec![mutation.clone()];
         let changed_keys =
