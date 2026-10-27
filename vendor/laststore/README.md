@@ -27,6 +27,7 @@ A home (`disk_run::home::RunHome`) is a directory:
 - A read holds one CURRENT for its full call, so it sees complete commits only.
 - `merge_step` merges eight runs of one level into one run, and moves old runs into the base.
 - `plan.rs` states the size bound of the home.
+- Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the existing 1/8 stale-byte share.
 - At open, the owner deletes temporary files and runs that CURRENT does not name. Nothing replays.
 
 ## Proofs

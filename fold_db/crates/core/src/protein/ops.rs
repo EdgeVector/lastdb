@@ -133,26 +133,6 @@ impl AtomStore {
         Ok(protein)
     }
 
-    /// Read tip atom uuid at a member's key coordinates (None if absent).
-    pub async fn protein_get_member_tip(
-        &self,
-        molecule_uuid: &str,
-        hash: &str,
-        range: &str,
-    ) -> Result<Option<AtomEntry>, SchemaError> {
-        let storage_hash = self.storage_hash(molecule_uuid, hash)?;
-        let storage_range = self.storage_range(molecule_uuid, range)?;
-        let base = crate::atom::molecule_key_codec::hash_range_record_key(
-            molecule_uuid,
-            &storage_hash,
-            &storage_range,
-        );
-        match self.get_per_key(&base, None).await? {
-            Some((_, rec)) => Ok(Some(rec.entry)),
-            None => Ok(None),
-        }
-    }
-
     // ── internals ──────────────────────────────────────────────────────────
 
     async fn put_protein(&self, protein: &Protein) -> Result<(), SchemaError> {

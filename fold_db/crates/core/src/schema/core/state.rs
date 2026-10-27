@@ -193,22 +193,6 @@ impl SchemaCore {
         Ok(existed)
     }
 
-    /// Drop every cached identity whose `owner_app_id` equals `owner_app`.
-    ///
-    /// Walks the in-memory catalog (O(installed schemas)), not product rows.
-    /// Returns the canonical names that were present and dropped.
-    pub async fn drop_schemas_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
-        let names = self.schema_names_owned_by(owner_app)?;
-        let mut dropped = Vec::new();
-        for name in names {
-            if self.drop_schema(&name).await? {
-                dropped.push(name);
-            }
-        }
-        dropped.sort();
-        Ok(dropped)
-    }
-
     /// The cached identities whose `owner_app_id` equals `owner_app`.
     ///
     /// # Errors

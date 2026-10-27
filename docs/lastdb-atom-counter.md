@@ -148,7 +148,13 @@ of keys of the request and never the size of the schema.
 | Writes a delete barrier (`rdel:v2:`) | yes, so a replayed older write cannot bring the key back | no |
 | Reaches the protein siblings of the key | HashRange siblings only | HashRange siblings only |
 | Releases the kept conflict records of the key | yes | yes |
-| Leaves `mgd:v1:` markers | yes | yes |
+| Leaves `mgd:v1:` markers | only for an active or prepared generation | only for an active or prepared generation |
+
+An erase omits the generation marker when no active or prepared generation exists.
+A request guard excludes new generation cuts until the durable commit.
+The same guard covers every erase chunk. Delete replay barriers remain in the batch.
+The barrier keeps the delete order, exact key, replay sequence, and optional TTL cutoff.
+It omits the unused displaced atom identity. Older barriers remain readable.
 
 A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
 safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that

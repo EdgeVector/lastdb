@@ -80,16 +80,6 @@ pub fn verify(
     Ok(guard)
 }
 
-/// Capture and restore share one exact-root account and dependency proof.
-pub fn verify_readers(
-    main: &RunRead,
-    cas: &RunRead,
-    account_key: &[u8; 32],
-    scratch_root: &Path,
-) -> StorageResult<u64> {
-    verify_readers_for_profile(main, cas, account_key, scratch_root, 1)
-}
-
 pub(crate) fn verify_readers_for_profile(
     main: &RunRead,
     cas: &RunRead,

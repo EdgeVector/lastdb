@@ -100,16 +100,6 @@ impl FieldVariant {
         molecule.get_atom_uuid(hash, range).cloned()
     }
 
-    /// Remove the entry for `kv` from the molecule. Returns true if something dropped.
-    pub fn remove_key(&mut self, kv: &KeyValue) -> bool {
-        let Some((hash, range)) = self.slot_coordinates_ref(kv) else {
-            return false;
-        };
-        self.molecule
-            .as_mut()
-            .is_some_and(|molecule| molecule.remove_atom_uuid(hash, range).is_some())
-    }
-
     /// Derive the per-key change unit for a write at `key_value`.
     #[must_use]
     pub(crate) fn changed_key_for(

@@ -21,8 +21,9 @@
 //! base runs of 1/64 of the base each, so the peak is about 1.25 L. The file
 //! bytes follow when the runs compress alike. The bound leaves out the run
 //! of one large commit and the runs of commits during a base merge, and each
-//! trigger needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that
-//! much more.
+//! tier trigger needs [`MIN_BASE_MERGE_BYTES`]. Stale records have the smaller
+//! [`MIN_STALE_MERGE_BYTES`] floor, so deletes and replacements in a small
+//! home cannot retain a full MiB before compaction starts.
 //!
 //! The bound also takes a replaced run off the disk at once. A read that
 //! holds an older CURRENT keeps the runs that later steps replace, so one
@@ -62,8 +63,11 @@ pub const TIER_SHARE: u64 = 16;
 /// A base merge starts when the stale bytes are more than 1/8 of the record
 /// bytes.
 pub const STALE_SHARE: u64 = 8;
-/// Neither trigger fires below this many bytes.
+/// The tiered-byte trigger does not fire below this many bytes.
 pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
+/// Stale bytes need a smaller floor: one MiB can exceed the live data after
+/// deletes. Keep the relative stale share, with at most 64 KiB of slack.
+const MIN_STALE_MERGE_BYTES: u64 = 64 << 10;
 /// A base run holds about 1/64 of the base, inside the bounds below. With
 /// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB. The
 /// minimum keeps the two base runs of a step near 1/32 of a base of 16 MiB
@@ -106,10 +110,12 @@ pub(super) fn plan(held: &Manifest) -> Option<Plan> {
                 .saturating_add(run.meta.tombstone_bytes)
         })
         .sum();
-    let over = |bytes: u64, share: u64| {
-        bytes > MIN_BASE_MERGE_BYTES && bytes.saturating_mul(share) > total
+    let over = |bytes: u64, share: u64, minimum: u64| {
+        bytes > minimum && bytes.saturating_mul(share) > total
     };
-    if !over(tier, TIER_SHARE) && !over(stale, STALE_SHARE) {
+    if !over(tier, TIER_SHARE, MIN_BASE_MERGE_BYTES)
+        && !over(stale, STALE_SHARE, MIN_STALE_MERGE_BYTES)
+    {
         return None;
     }
     // The oldest tiered runs: every tiered run left is newer than them.

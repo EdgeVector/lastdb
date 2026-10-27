@@ -24,6 +24,8 @@ def slope(points, name):
 
 
 class GrowthWorkload:
+    case_names = CASES
+
     def __init__(self, node, recipe, output):
         self.node, self.output = node, output
         self.recipe = {**recipe["growth"],
@@ -181,7 +183,7 @@ class GrowthWorkload:
         self.seed()
         with (self.output / "growth-memory.jsonl").open("w") as raw:
             try:
-                for case in CASES:
+                for case in self.case_names:
                     self.samples = []
                     try:
                         with self.monitor():

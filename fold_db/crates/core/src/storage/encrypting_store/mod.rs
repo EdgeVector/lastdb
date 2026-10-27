@@ -3,7 +3,7 @@ use super::traits::{KvMutation, KvStore, PartitionedScan, PhysicalScanCursor, Ph
 use crate::crypto::at_rest::{
     at_rest_max_inflated_bytes, compress_for_seal, decode_binary_ciphertext,
     encode_binary_ciphertext, inflate_at_rest, kv_at_rest_compress_min_bytes,
-    kv_at_rest_compression_enabled, AT_REST_COMPRESS_MIN_BYTES_DEFAULT,
+    kv_at_rest_compression_enabled, kv_at_rest_raw_enabled, AT_REST_COMPRESS_MIN_BYTES_DEFAULT,
 };
 use crate::crypto::CryptoProvider;
 use crate::crypto::{
@@ -78,7 +78,7 @@ impl KvCompressionPolicy {
         Self {
             enabled: kv_at_rest_compression_enabled(),
             min_bytes: kv_at_rest_compress_min_bytes(),
-            raw: matches!(env_flag::var_parse("LASTDB_KV_AT_REST_RAW"), Some(true)),
+            raw: kv_at_rest_raw_enabled(),
         }
     }
 }

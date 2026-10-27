@@ -58,7 +58,7 @@ impl CoreNamespaces {
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
         // `lineage_forward` / `lineage_reverse` back the derived-molecule
         // lineage index; rebuildable from replay (project 2). Both namespaces
-        // are cloud-backed-up (encrypted since #1153, not at-rest-exempt).
+        // are in the main run home, which the V2 byte backup copies when on.
         // No production writers exist until
         // `projects/view-compute-as-mutations` wires them in.
         let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
@@ -67,11 +67,11 @@ impl CoreNamespaces {
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). It is one
         // whole-map value rewritten every debounce tick, so every put is dead
-        // bytes the moment the next one lands. In `metadata` (no automatic
-        // compaction; shares hash groups with correctness records) that grew
-        // one group to 39 GB and looped the primary. `keep_small` is
-        // capture-skipped, backup-excluded and residual-self-compacted, so the
-        // plane stays one live value plus whatever the last compact left.
+        // bytes the moment the next one lands. In `metadata` under the LastStore
+        // segment engine (no automatic compaction; shared hash groups with
+        // correctness records) that grew one group to 39 GB and looped the
+        // primary. In disk format v2 the plane is part of the main run home,
+        // so the V2 byte backup, when on, copies it with the other run files.
         let keep_small_kv = store
             .open_namespace(super::super::KEEP_SMALL_SNAPSHOT_COLLECTION)
             .await?;

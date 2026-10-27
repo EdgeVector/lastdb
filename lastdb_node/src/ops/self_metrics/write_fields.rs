@@ -94,24 +94,12 @@ pub(super) fn insert_allocator_and_disk_fields(
         json!(snapshot.memory_budget.allocator_reserved_bytes),
     );
     fields.insert(
-        "in_flight_cold_load_bytes".to_string(),
-        json!(snapshot.memory_budget.in_flight_cold_load_bytes),
-    );
-    fields.insert(
-        "in_flight_cold_load_count".to_string(),
-        json!(snapshot.memory_budget.in_flight_cold_load_count),
-    );
-    fields.insert(
         "peak_request_bytes".to_string(),
         json!(snapshot.memory_budget.peak_request_bytes),
     );
     fields.insert(
         "slowest_request_ms".to_string(),
         json!(snapshot.memory_budget.slowest_request_ms),
-    );
-    fields.insert(
-        "eviction_events".to_string(),
-        json!(snapshot.memory_budget.eviction_events),
     );
     fields.insert(
         "effective_warm_budget_bytes".to_string(),

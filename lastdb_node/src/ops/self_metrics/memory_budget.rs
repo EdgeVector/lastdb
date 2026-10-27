@@ -19,9 +19,13 @@ pub(super) fn logical_key_memory_limit_for(_budget: Option<u64>) -> String {
 /// Cheap runtime view of the memory budget declared at boot.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MemoryBudgetHealth {
+    /// Charged warm set bytes, the same value as `core_warm.used_bytes`.
+    /// `measured` leaves it 0; the status build copies it after the
+    /// native core read.
     pub warm_resident_bytes: u64,
+    /// Historical process projection input (`LASTDB_HASH_GROUP_WARM_BYTES`).
+    /// It is not the warm set limit; that is `core_warm.limit_bytes`.
     pub warm_budget_bytes: u64,
-    pub warm_resident_groups: u64,
     pub resident_graph_bytes: u64,
     pub resident_graph_budget_bytes: u64,
     pub deferred_persist_bytes: u64,
@@ -94,15 +98,9 @@ pub struct MemoryBudgetHealth {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allocator_reserved_bytes: Option<u64>,
     #[serde(default)]
-    pub in_flight_cold_load_bytes: u64,
-    #[serde(default)]
-    pub in_flight_cold_load_count: u64,
-    #[serde(default)]
     pub peak_request_bytes: u64,
     #[serde(default)]
     pub slowest_request_ms: u64,
-    #[serde(default)]
-    pub eviction_events: u64,
     #[serde(default)]
     pub effective_warm_budget_bytes: u64,
     /// Collections `warm_budget_bytes` bounds. Empty on an older daemon payload.
@@ -198,7 +196,6 @@ impl MemoryBudgetHealth {
         Self {
             warm_resident_bytes: 0,
             warm_budget_bytes: budget.warm_bytes,
-            warm_resident_groups: 0,
             resident_graph_bytes: resident.resident_bytes,
             resident_graph_budget_bytes: resident.budget_bytes,
             deferred_persist_bytes,
@@ -245,11 +242,8 @@ impl MemoryBudgetHealth {
             allocator_name: attribution.allocator.name.to_string(),
             allocator_committed_bytes: attribution.allocator.committed_bytes,
             allocator_reserved_bytes: attribution.allocator.reserved_bytes,
-            in_flight_cold_load_bytes: 0,
-            in_flight_cold_load_count: 0,
             peak_request_bytes: attribution.peak_request_bytes,
             slowest_request_ms: attribution.slowest_request_ms,
-            eviction_events: 0,
             effective_warm_budget_bytes: budget.warm_bytes,
             hash_group_warm_bounds: HASH_GROUP_WARM_BOUNDS.to_string(),
             resident_graph_bounds: RESIDENT_GRAPH_BOUNDS.to_string(),

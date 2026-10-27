@@ -36,8 +36,8 @@ pub(crate) fn clear_storage_prefix_on_schema(schema: &mut Schema) {
 
 /// Per modified field, the set of keys touched in a write batch — the unit the
 /// O(changed) persist path uses to write only the changed `mk:` records. A
-/// field mapped to an empty set is `Single` (no per-key shape; whole-blob
-/// `ref:` rewrite).
+/// field mapped to an empty set is `Single`: it has no per-key shape, and the
+/// per-key store path takes it with an empty changed set.
 pub(crate) type ModifiedFieldKeys = HashMap<String, HashSet<ChangedKey>>;
 
 /// Reject any mutation carrying `Provenance::Derived`.

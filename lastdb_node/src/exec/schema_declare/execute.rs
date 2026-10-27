@@ -3,198 +3,6 @@
 
 use super::*;
 
-pub(crate) fn declare_resolution_payload(
-    declare: &DirectDeclareProposal,
-    resolution: &DirectDeclareResolution,
-) -> Value {
-    match resolution {
-        DirectDeclareResolution::Register {
-            catalog_hash,
-            field_mappers,
-            replaced_schema,
-        } => register_payload(
-            declare,
-            catalog_hash,
-            field_mappers,
-            replaced_schema.as_deref(),
-        ),
-        DirectDeclareResolution::Reuse {
-            catalog_hash,
-            field_mappers,
-            confidence,
-        } => reuse_payload(declare, catalog_hash, field_mappers, *confidence),
-        DirectDeclareResolution::Compose {
-            components,
-            confidence,
-        } => compose_payload(declare, components, *confidence),
-    }
-}
-
-fn register_payload(
-    declare: &DirectDeclareProposal,
-    catalog_hash: &str,
-    field_mappers: &HashMap<String, String>,
-    replaced_schema: Option<&str>,
-) -> Value {
-    let adapter = serde_json::json!({
-        "kind": "registered_expansion",
-        "local_schema": declare.local_schema_id,
-        "catalog_schema": catalog_hash,
-        "field_mappers": field_mappers,
-    });
-    serde_json::json!({
-        "namespace": declare.namespace,
-        "schema_name": declare.local_schema_id.clone(),
-        "descriptive_name": declare.proposal.descriptive_name,
-        "identity_hash": catalog_hash,
-        "canonical": catalog_hash,
-        "resolution": if replaced_schema.is_some() { "expand" } else { "register" },
-        "replaced_schema": replaced_schema,
-        "adapter": adapter,
-        "adapters": [adapter],
-    })
-}
-
-fn reuse_payload(
-    declare: &DirectDeclareProposal,
-    catalog_hash: &str,
-    field_mappers: &HashMap<String, String>,
-    confidence: Option<f32>,
-) -> Value {
-    let adapter = serde_json::json!({
-        "kind": "edge_only",
-        "local_schema": declare.local_schema_id,
-        "catalog_schema": catalog_hash,
-        "field_mappers": field_mappers,
-    });
-    let mut payload = serde_json::json!({
-        "namespace": declare.namespace,
-        "schema_name": declare.local_schema_id.clone(),
-        "descriptive_name": declare.proposal.descriptive_name,
-        "identity_hash": catalog_hash,
-        "resolution": "reuse",
-        "adapter": adapter,
-        "adapters": [adapter],
-    });
-    if let Some(c) = confidence {
-        payload["confidence"] = serde_json::json!(c);
-    }
-    payload
-}
-
-fn compose_adapter(declare: &DirectDeclareProposal, c: &DirectDeclareComponent) -> Value {
-    let mut a = serde_json::json!({
-        "kind": "edge_only",
-        "local_schema": declare.local_schema_id,
-        "catalog_schema": c.catalog_hash,
-        "field_mappers": c.field_mappers,
-    });
-    if let Some(ref n) = c.matched_descriptive_name {
-        a["matched_descriptive_name"] = serde_json::json!(n);
-    }
-    if !c.unmapped_fields.is_empty() {
-        a["unmapped_fields"] = serde_json::json!(c.unmapped_fields);
-    }
-    if let Some(v) = c.is_exact_match {
-        a["is_exact_match"] = serde_json::json!(v);
-    }
-    if let Some(v) = c.is_superset {
-        a["is_superset"] = serde_json::json!(v);
-    }
-    a
-}
-
-fn compose_payload(
-    declare: &DirectDeclareProposal,
-    components: &[DirectDeclareComponent],
-    confidence: Option<f32>,
-) -> Value {
-    let adapters: Vec<Value> = components
-        .iter()
-        .map(|c| compose_adapter(declare, c))
-        .collect();
-    let component_hashes: Vec<String> = components.iter().map(|c| c.catalog_hash.clone()).collect();
-    let mut payload = serde_json::json!({
-        "namespace": declare.namespace,
-        "schema_name": declare.local_schema_id.clone(),
-        "descriptive_name": declare.proposal.descriptive_name,
-        "identity_hash": serde_json::Value::Null,
-        "resolution": "compose",
-        "component_catalog_hashes": component_hashes,
-        "adapters": adapters,
-        "adapter": adapters.first().cloned().unwrap_or(serde_json::json!({})),
-    });
-    if let Some(c) = confidence {
-        payload["confidence"] = serde_json::json!(c);
-    }
-    payload
-}
-
-pub(crate) fn audit_resolution(
-    event: &mut SchemaSyncAuditEvent,
-    resolution: &DirectDeclareResolution,
-) {
-    let mut predecessors = HashSet::new();
-    match resolution {
-        DirectDeclareResolution::Register {
-            catalog_hash,
-            field_mappers,
-            replaced_schema,
-        } => {
-            event.outcome = if replaced_schema.is_some() {
-                "expand".into()
-            } else {
-                "register".into()
-            };
-            event.catalog_hashes.push(catalog_hash.clone());
-            event.mapper_count = field_mappers.len();
-            if let Some(hash) = replaced_schema {
-                predecessors.insert(hash.clone());
-            }
-            predecessors.extend(
-                field_mappers
-                    .values()
-                    .filter_map(|mapper| mapper.split_once('.').map(|(hash, _)| hash.to_string())),
-            );
-        }
-        DirectDeclareResolution::Reuse {
-            catalog_hash,
-            field_mappers,
-            ..
-        } => {
-            event.outcome = "reuse".into();
-            event.catalog_hashes.push(catalog_hash.clone());
-            event.mapper_count = field_mappers.len();
-            predecessors.extend(
-                field_mappers
-                    .values()
-                    .filter_map(|mapper| mapper.split_once('.').map(|(hash, _)| hash.to_string())),
-            );
-        }
-        DirectDeclareResolution::Compose { components, .. } => {
-            event.outcome = "compose".into();
-            event.catalog_hashes = components
-                .iter()
-                .map(|component| component.catalog_hash.clone())
-                .collect();
-            event.mapper_count = components
-                .iter()
-                .map(|component| component.field_mappers.len())
-                .sum();
-            for component in components {
-                predecessors.extend(
-                    component.field_mappers.values().filter_map(|mapper| {
-                        mapper.split_once('.').map(|(hash, _)| hash.to_string())
-                    }),
-                );
-            }
-        }
-    }
-    event.predecessor_hashes = predecessors.into_iter().collect();
-    event.predecessor_hashes.sort();
-    event.bind_eligible = true;
-}
-
 pub(crate) async fn execute_catalog_schema_sync(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -232,7 +40,8 @@ pub(crate) async fn execute_catalog_schema_sync(
         }
     };
 
-    audit_resolution(&mut audit, &resolution);
+    let facts = ResolutionFacts::new(&resolution);
+    facts.stamp_audit(&mut audit);
     if let Err(e) = schema_sync_audit::append(&host.home, &audit) {
         return error_response(
             500,
@@ -253,8 +62,8 @@ pub(crate) async fn execute_catalog_schema_sync(
         "canonical app schema sync completed"
     );
 
-    let mut payload = sync_response_payload(&declare, &resolution, &audit);
-    retire_superseded_claims_into_payload(host, &declare, &mut payload).await;
+    let mut payload = sync_response_payload(&declare, &resolution, &facts, &audit);
+    retire_superseded_claims_into_payload(host, &declare, &facts, &mut payload).await;
 
     // The policy must exist before the first write, so it is applied before
     // this declare returns. Every refusal that can be known from the catalog
@@ -291,18 +100,12 @@ pub(crate) async fn execute_catalog_schema_sync(
 fn sync_response_payload(
     declare: &DirectDeclareProposal,
     resolution: &DirectDeclareResolution,
+    facts: &ResolutionFacts<'_>,
     audit: &SchemaSyncAuditEvent,
 ) -> Value {
-    let mut payload = declare_resolution_payload(declare, resolution);
-    payload["app_id"] = serde_json::json!(declare.namespace);
-    payload["schema"] = serde_json::json!(declare.local_schema_id);
+    let mut payload = declare_resolution_payload(declare, resolution, facts);
     payload["audit_event_id"] = serde_json::json!(audit.event_id);
     payload["bind_eligible"] = serde_json::json!(audit.bind_eligible);
-    if let Some(hash) = payload.get("identity_hash").cloned() {
-        if !hash.is_null() {
-            payload["canonical"] = hash;
-        }
-    }
     payload
 }
 
@@ -312,6 +115,7 @@ fn sync_response_payload(
 async fn retire_superseded_claims_into_payload(
     host: &Host,
     declare: &DirectDeclareProposal,
+    facts: &ResolutionFacts<'_>,
     payload: &mut Value,
 ) {
     // A rekey declares the same product under the same readable name with a
@@ -322,14 +126,8 @@ async fn retire_superseded_claims_into_payload(
     // repeat it, instead of leaving an operator a manual step they will not
     // know to run.
     let keeper_candidates = [
-        payload
-            .get("canonical")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        payload
-            .get("identity_hash")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        facts.canonical.map(str::to_string),
+        facts.canonical.map(str::to_string),
         Some(declare.local_schema_id.clone()),
     ];
     let keeper_candidates: Vec<String> = keeper_candidates.into_iter().flatten().collect();
@@ -379,19 +177,13 @@ pub(crate) async fn execute_catalog_schema_check(
         Ok(plan) => plan,
         Err(e) => return error_response(409, &e, ctx),
     };
-    let mut payload = declare_resolution_payload(&declare, &plan.resolution);
-    payload["app_id"] = serde_json::json!(declare.namespace);
-    payload["schema"] = serde_json::json!(declare.local_schema_id);
+    let facts = ResolutionFacts::new(&plan.resolution);
+    let mut payload = declare_resolution_payload(&declare, &plan.resolution, &facts);
     payload["intent"] = serde_json::json!("check");
     payload["dry_run"] = serde_json::json!(true);
     payload["bind_eligible"] = serde_json::json!(false);
     if let Some(reason) = plan.register_reason {
         payload["register_reason"] = serde_json::json!(reason);
-    }
-    if let Some(hash) = payload.get("identity_hash").cloned() {
-        if !hash.is_null() {
-            payload["canonical"] = hash;
-        }
     }
     match preview_declare_retention(host, &declare, &plan.resolution).await {
         Ok(Some(retention)) => payload["retention"] = retention,
@@ -493,6 +285,7 @@ pub(crate) async fn retire_superseded_name_claims(
 
 pub(crate) fn reject_schema_sync_request(
     req: &UdsRequest,
+    facts: &DeclareRequestFacts,
     ctx: &AccessContext,
     host: &Host,
     route: &str,
@@ -500,32 +293,17 @@ pub(crate) fn reject_schema_sync_request(
     error: &str,
 ) -> UdsResponse {
     // A refused read-only check writes nothing, not even an audit event.
-    if raw_body_is_check_intent(&req.body) {
+    if facts.check {
         return error_response(status, error, ctx);
     }
-    let raw = serde_json::from_slice::<Value>(&req.body).unwrap_or_default();
-    let app_id = raw
-        .get("app_id")
-        .or_else(|| raw.get("namespace"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
-    let schema = raw
-        .get("schema")
-        .and_then(|schema| schema.get("name"))
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
     let mut audit = SchemaSyncAuditEvent::new(
         route,
         &crate::request_telemetry::client_from_request(req),
         ctx.user_id.as_str(),
-        app_id,
-        schema,
+        &facts.app_id,
+        &facts.schema,
     );
-    audit.proposal_identity_hash = raw
-        .get("schema")
-        .and_then(|schema| schema.get("identity_hash"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    audit.proposal_identity_hash = facts.proposal_identity_hash.clone();
     audit.error = Some(error.to_string());
     if let Err(audit_error) = schema_sync_audit::append(&host.home, &audit) {
         return error_response(

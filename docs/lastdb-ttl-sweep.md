@@ -90,8 +90,9 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 Both verbs release the kept conflict records of the slots they remove, in the same batch as the
 tip deletes (the slot directory, `docs/lastdb-atom-counter.md`, section Conflict records and their
-retention). A kept loser whose last reference goes is deleted in that batch. Both verbs leave one
-`mgd:v1:` record for each field of each key (see Records that stay).
+retention). A kept loser whose last reference goes is deleted in that batch.
+Both verbs leave a `mgd:v1:` record only when an active or prepared generation needs it.
+A request guard excludes new generation cuts until the durable commit.
 
 Any other value logs one warning at the first sampler tick and uses `purge`. The delete ledger
 (`lastdb db delete-ledger`) names the caller of each erase: `ttl-sweep-purge` or `ttl-sweep-delete`.
@@ -108,8 +109,9 @@ The older build below wrote two barriers for each key and field, about 3,170 B i
 A log that expires 100,000 records per day on a 3-field schema retained about
 28.6 GB of barriers in 30 days (measured on a build from before the counter work: 2,000 keys of 3
 fields gave 12,000 rows and about 19 MB, and a run of 400 keys gave the same bytes per key, so the
-growth is linear). Compaction removed none of them. `purge` writes no barrier. Both verbs also leave about 700 B for each key and field of `mgd:v1:` rows
-(measured on the same earlier build).
+growth is linear). Compaction removed none of them. `purge` writes no barrier.
+The same earlier build left about 700 B of `mgd:v1:` rows for each key and field.
+The current build omits those markers when no active or prepared generation needs them.
 
 What `delete` buys: the barrier stops an older write from bringing the key back. A write that
 a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
@@ -254,8 +256,8 @@ An old incorrect Hash age needs explicit backfill or a later nonduplicate write.
 - `mgd:v1:` is a sparse delete marker. It holds the removed tip and stops a read from showing a
   slot of an immutable base generation of the molecule that the delete removed from the live rows
   (`db_operations/atom_store/molecules/delete.rs`, `generation/slots.rs`). The read looks at it
-  only for a molecule that has an active generation (`generation/merge.rs`). Both verbs write it,
-  because both use the same slot removal. It is local to the device (`sync/policy.rs`).
+  only for a molecule that has an active generation (`generation/merge.rs`).
+  Both verbs write it only for an active or prepared generation. It is local to the device (`sync/policy.rs`).
   A whole-molecule drain removes its markers. The owner can also remove redundant markers
   from a molecule with no active generation through bounded cleanup pages (below).
 - `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,

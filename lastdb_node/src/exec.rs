@@ -112,6 +112,7 @@ use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_local::*;
 use self::query_batch::*;
+pub use self::schema_declare::execute_apps_declare_schema_route;
 use self::schema_declare::*;
 
 /// Heap future for one data route.

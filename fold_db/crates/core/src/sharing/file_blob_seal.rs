@@ -177,15 +177,6 @@ pub(crate) fn seal_file_blob(
     Ok((blob_ref, encrypted))
 }
 
-/// Compute the reference by sealing once and hashing the binary envelope.
-/// Callers that also need ciphertext should retain the result of `seal_file_blob`.
-pub fn local_file_blob_ref(
-    plaintext: &[u8],
-    account_key: &[u8; 32],
-) -> Result<FileBlobRef, FileBlobSealError> {
-    seal_file_blob(plaintext, account_key).map(|(reference, _)| reference)
-}
-
 fn file_blob_ref(file_hash: String, dek: &[u8; 32], ciphertext: &[u8]) -> FileBlobRef {
     FileBlobRef {
         blob_ref: format!("sha256:{}", hex_lower(Sha256::digest(ciphertext))),

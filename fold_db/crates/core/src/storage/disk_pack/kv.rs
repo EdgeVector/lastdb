@@ -288,20 +288,22 @@ impl KvStore for PackKvStore {
     }
 }
 
-/// Catalog collections require direct JSON values. An at-rest envelope there is what made Tom's primary unbootable on 2026-08-16:
+/// Catalog collections require direct JSON values with no value envelope (the
+/// run-file blocks encrypt them). An at-rest envelope there is what made Tom's
+/// primary unbootable on 2026-08-16:
 /// `TypedKvStore` parsed ciphertext as JSON (`expected value at line 1 column 1`)
 /// and `get_all_schemas` aborted `open_existing_store`. Reject at the native
 /// put so a legacy replay envelope fails closed instead of poisoning the catalog.
 fn reject_enc_on_plaintext_catalog(collection: &str, value: &[u8]) -> StorageResult<()> {
-    // All at-rest envelopes are equally fatal on a plaintext catalog: the
+    // All at-rest envelopes are equally fatal on a catalog value: the
     // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
     // and `ENZ:` / binary `ENB:` bodies would fail identically.
     let enveloped = crate::crypto::is_sealed_at_rest(value);
     if enveloped && CATALOG_NAMESPACES.contains(&collection) {
         return Err(StorageError::InvalidOperation(format!(
-            "refusing to persist ENC:/ENZ:/ENB: envelope in plaintext catalog \
-             collection {collection:?} — schema/catalog rows must stay JSON so \
-             boot can deserialize them"
+            "refusing to persist ENC:/ENZ:/ENB: envelope in catalog collection \
+             {collection:?} — schema/catalog rows must stay JSON so boot can \
+             deserialize them"
         )));
     }
     Ok(())

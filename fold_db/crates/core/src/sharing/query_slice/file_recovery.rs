@@ -30,38 +30,6 @@ pub async fn resolve_file_bytes(
     blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
 }
 
-/// Resolve the exact original whole pointer and derivative kind without cloud access.
-/// The installed resolver remains available after a normal daemon restart.
-pub async fn resolve_file_bytes_kind(
-    db: &FoldDB,
-    pointer: &Value,
-    kind: cloud_backup_protocol::FileDependencyKind,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    use cloud_backup_protocol::FileDependencyKind;
-    if kind == FileDependencyKind::Main {
-        return resolve_file_bytes(db, pointer).await;
-    }
-    let Some(thumbnail) =
-        crate::sharing::delivery_wire::file_thumbnail_ref_from_atom_value(pointer)?
-    else {
-        return Ok(None);
-    };
-    let expected = if thumbnail.kind == "image" {
-        FileDependencyKind::Thumbnail
-    } else {
-        FileDependencyKind::Poster
-    };
-    if kind != expected {
-        return Ok(None);
-    }
-    let access = thumbnail.file_access()?;
-    let local = resolve_local_blob_bytes(db, &access).await?;
-    if local.is_some() {
-        return Ok(local);
-    }
-    resolve_recovered_pointer(db, pointer, kind, &access).await
-}
-
 /// A CAS row authenticates its own address; the atom also binds the plaintext hash.
 pub(super) async fn resolve_local_blob_bytes(
     db: &FoldDB,

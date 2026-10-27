@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod blocking;
-mod boundary;
 pub mod byte_backup;
 mod cleanup;
 mod cloud_work;
@@ -49,7 +48,6 @@ mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub(in crate::storage) use blocking::run_blocking;
-pub use boundary::CoreNativeBackupBoundary;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
@@ -73,7 +71,6 @@ pub struct PackRuntime {
     write_gate: Arc<tokio::sync::Mutex<()>>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
-    native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
     persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
@@ -165,7 +162,6 @@ impl PackNamespacedStore {
     fn assemble(
         physical: physical::V2Home,
         current: physical::V2Root,
-        native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
         initializing: bool,
         space_policy: laststore::space::SpacePolicy,
     ) -> Self {
@@ -185,7 +181,6 @@ impl PackNamespacedStore {
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
-                native_backup_boundary,
                 persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),

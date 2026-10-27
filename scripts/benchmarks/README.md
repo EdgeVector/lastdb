@@ -3,6 +3,7 @@
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
 It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
+The single-pass 1.5× total settled database-size limit also blocks merge.
 Build failures, rejected requests, incomplete measurements, and upload failures block completion.
 Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
@@ -261,10 +262,23 @@ It verifies the format-3 node marker of both generated homes. Since phase V3, ev
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.
-It uses two alternating pairs on PRs and three at night. Reads, updates, and inserts use the same four generated fields.
+It uses one baseline/candidate pair on PRs and at night, with no automatic disk-size repeat.
+Reads, updates, inserts, and deletes use the same four generated fields.
+Before deletes, the driver extends the known corpus to at least **10 MiB of logical atom data on PRs** or **40 MiB nightly**.
+It adds at most 128 records per batch and records the actual byte count. The seed has a five-minute and 512-batch bound.
+The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
+Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
+Logical atom bytes and the atom count must decrease after each delete round.
+Each delete checkpoint also records a bounded, complete inventory of current storage collections.
+The inventory follows the size sample and does not alter the measured bytes.
 Each checkpoint requires a durable flush and exact keyed reads of all live values.
 The pass then waits for three seconds of unchanged file lengths and allocated blocks, with a 90-second deadline.
 The v2 engine keeps its default automatic run merges.
+The isolated size pass enables native counters and records physical published, stale, held, and temporary file totals at each checkpoint.
+It does not request explicit cleanup. Read and write speed measurements keep their normal settings.
+This pass sets `LASTDB_SEARCH_ENABLED=0` for both programs. It verifies Search off before and after each run.
+Every size checkpoint requires an empty Search queue. A missing Search status fails completion.
+Historical programs that lack the Search-off status cannot satisfy this required size pass.
 
 The ratio is retained disk bytes divided by logical atom bytes:
 
@@ -273,15 +287,19 @@ The ratio is retained disk bytes divided by logical atom bytes:
 - Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
-- Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
+- The required maximum ratio includes every settled checkpoint in the single candidate run.
+  The report states the room below the cap in bytes and as a percent of the limit at each case's highest ratio.
 
-The advisory ceiling is **1.5×**. Equality is within the budget.
+The required ceiling is **1.5×**. Equality is within the budget.
+This is total database size. For example, 10 MiB of logical atoms permits at most 15 MiB of database files.
+After deletes, the denominator is the logical data that remains.
 CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
-Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
-Only the same case and measure above its limit in both comparisons produces a warning.
-Excess size stays advisory. Invalid measurements, an unstable checkpoint, and failed uploads block `benchmark-complete`.
-CI warns above 1.5× even when the base also exceeds that ceiling. This states current excess, not PR causation.
+Any candidate checkpoint above 1.5× fails the report step and the required `benchmark-complete` check after one pass.
+CI retains the measurements and verified upload even when this limit fails. The failure blocks merge.
+Relative database and Search queue growth stays advisory, with a notice from this single size pass.
+Invalid measurements, an unstable checkpoint, and failed uploads also block `benchmark-complete`.
+The absolute limit fails even when the base also exceeds 1.5×. This states current excess, not PR causation.
 
 The result stays under `disk-budget/` in the ordinary verified artifact, including logical reports and every settled-size sample.
 This pass checks a generated data shape. It does not read the primary, copy its data, or measure transient disk peaks.
@@ -408,7 +426,8 @@ A new suspect in the repeat produces no warning because it lacks confirmation. C
 Both passes retain their raw results and comparisons in the same artifact, under each suite's `confirmation/` directory.
 The artifact also retains `repeat-plan.json` and `advisory-confirmation.json` for the decision.
 An absent, failed, invalid, or mismatched required repeat means incomplete evidence and fails `benchmark-complete`.
-The notice does not change the exit status. No speed limit enters branch protection.
+Speed and relative-growth notices do not change the exit status. No speed limit enters branch protection.
+The absolute disk-size limit uses one pass and fails `benchmark-complete` through the measurement job's result.
 
 Cold means a LastDB warm-set miss. The operating system file cache stays uncontrolled.
 The workflow does not claim a physical-device cold read.

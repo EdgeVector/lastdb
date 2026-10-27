@@ -23,8 +23,8 @@ pub mod provider;
 pub mod stream;
 
 pub use at_rest::{
-    at_rest_compression_enabled, at_rest_compression_stats, at_rest_raw_enabled,
-    count_unsealed_discards, is_sealed_at_rest, open_at_rest, record_unsealed_discard,
+    at_rest_compression_stats, count_unsealed_discards, is_sealed_at_rest,
+    kv_at_rest_compression_enabled, kv_at_rest_raw_enabled, open_at_rest, record_unsealed_discard,
     record_unsealed_reap, seal_at_rest_raw, seal_at_rest_utf8, unsealed_discarded_count,
     unsealed_reaped_totals, AtRestCompressionStats, AT_REST_ENC_BINARY_PREFIX,
     AT_REST_ENC_DEFLATE_PREFIX, AT_REST_ENC_PREFIX,

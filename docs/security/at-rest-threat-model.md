@@ -103,7 +103,7 @@ Target posture for Mini personal data (no plaintext fallbacks):
 
 | Asset | Where it lives | Sensitivity |
 |---|---|---|
-| File blob bytes (photos, packs, imports) | Local `cas_blobs` (LastStore) + cloud CAS | Highest — raw user files |
+| File blob bytes (photos, packs, imports) | Local `cas_blobs` in the CAS run home (`disk-cas`) + cloud CAS | Highest — raw user files |
 | File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block. Search inbox batches do not carry it (older inbox files can; see the CAUTION above) | Critical — unlocks blob bytes |
 
 Mini file-blob plane is **live** (`/api/db/file-blob`, fetch, fork). Durable local
@@ -125,7 +125,8 @@ Design: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` · brain `project-operation-t
 ## 1. Scope
 
 In scope: everything a fold_db node persists on the local disk —
-the Last Store home, sensitive files under `$FOLDDB_HOME`, uploaded file
+the run homes (`data/disk-run` for the records and `data/disk-cas` for
+`cas_blobs`), sensitive files under `$FOLDDB_HOME`, uploaded file
 blobs, the embedding index, and the key material protecting them.
 
 Out of scope (separate workstreams):
@@ -142,7 +143,16 @@ Out of scope (separate workstreams):
 
 ## 2. Assets
 
-| Asset | Where it lives today | Sensitivity |
+**V2 note (2026-10-27):** Most locations in this table come from the
+LastStore segment engine (2026-07). In disk format v2, the `cas_blobs`
+collection is in the CAS run home (`disk-cas`), and each other collection,
+for example `atoms`, `metadata`, `schemas` or `lineage_forward`, is in the
+main run home (`disk-run`). No collection has its own directory, and each
+block of a run file uses AES-256-GCM. The `native_index`, `node_identity`,
+`node_config` and consent collections and the `fold_db_node/` paths do not
+exist now.
+
+| Asset | Where it lives (see the V2 note) | Sensitivity |
 |---|---|---|
 | Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
 | Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
@@ -299,6 +309,15 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    matters more, not less, over time).
 
 ### 4.5 LastStore catalog plaintext — measured, and why the recorded reason was wrong (2026-07-25)
+
+**V2 note (2026-10-27):** This section is a record of the LastStore segment
+engine (`laststore-layout-v1`, `.seg` files). Decision D1 (2026-10-26)
+deleted it together with the disk format v1 module. Disk format v2 has no
+`LASTSTORE_PLAINTEXT_NAMESPACES`. Catalog values still carry no value
+envelope, but they are in the run files, and each block of a run file uses
+AES-256-GCM. The chunk backup plane is also gone. When the V2 byte backup is
+on (`LASTDB_BYTE_BACKUP_V2_ENABLED`, or a saved `connect --existing`
+connection; default off), it copies the encrypted run files.
 
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
 current Mini storage map. The shipped backend is
@@ -750,8 +769,11 @@ long-lived node safe (no data loss, no full re-index):
 ## 8. Non-goals
 
 - Encrypting local-store key names (accepted leak for now; blind-token
-  hardening noted in 5.3).
-- Replacing Last Store with an encrypted storage engine (option d).
+  hardening noted in 5.3). Disk format v2 keeps the keys inside its
+  encrypted run file blocks.
+- Replacing the LastStore segment engine with an encrypted storage engine
+  (option d). Disk format v2 (`laststore::disk_run`) later did this: its
+  run files encrypt each block.
 - Defending against root/kernel compromise or live-memory attackers.
 - Runtime read-access control between apps (app-isolation workstream).
 - Any prod deploy or migration of the port-9001 brain as part of these

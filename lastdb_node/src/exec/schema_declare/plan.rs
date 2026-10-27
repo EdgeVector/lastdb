@@ -78,22 +78,8 @@ async fn plan_from_loaded_schemas(
     proposed_hash: &str,
     loaded_schemas: &HashMap<String, Schema>,
 ) -> Result<Option<DirectDeclarePlan>, String> {
-    let persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        Some(declare.namespace.as_str()),
-        loaded_schemas,
-        loaded_schemas.values().filter(|schema| {
-            schema.identity_hash.as_deref() == Some(proposed_hash)
-                && schema.owner_app_id.as_deref() == Some(declare.namespace.as_str())
-        }),
-    )
-    .await?;
-    let Some(resolution) = locally_loaded_catalog_reuse_resolution(
-        loaded_schemas,
-        declare,
-        proposed_hash,
-        &persisted_aliases,
-    )?
+    let Some(resolution) =
+        read_loaded_catalog_reuse(host, declare, proposed_hash, loaded_schemas).await?
     else {
         return Ok(None);
     };
@@ -104,14 +90,16 @@ async fn plan_from_loaded_schemas(
     } = &resolution
     {
         if let Some(schema) = loaded_schemas.get(catalog_hash) {
-            persist_repaired_mapper_source_aliases(
-                host,
-                schema,
-                loaded_schemas,
-                field_mappers,
-                false,
-            )
-            .await?;
+            for alias in repaired_mapper_source_aliases(schema, loaded_schemas, field_mappers) {
+                let alias = alias?;
+                check_proposal_catalog_alias(
+                    host,
+                    alias.owner_app_id,
+                    alias.proposal,
+                    alias.repaired.source_schema(),
+                )
+                .await?;
+            }
         }
         let catalog_fields = loaded_schemas
             .get(catalog_hash)
@@ -151,38 +139,24 @@ async fn plan_from_exact_catalog(
         }
     };
     let fold_schema: Schema = envelope.schema.into();
-    let mut persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        fold_schema.owner_app_id.as_deref(),
-        loaded_schemas,
-        std::iter::once(&fold_schema),
-    )
-    .await?;
-    recover_proposal_catalog_aliases_from_exact_target(
-        &fold_schema,
-        loaded_schemas,
-        &mut persisted_aliases,
-    )?;
-    let resolution = exact_catalog_reuse_resolution(
-        proposed_hash,
-        &fold_schema,
-        Some(loaded_schemas),
-        &persisted_aliases,
-    )?;
+    let resolution =
+        read_exact_catalog_reuse(host, proposed_hash, &fold_schema, loaded_schemas).await?;
     if let DirectDeclareResolution::Reuse {
         catalog_hash,
         field_mappers,
         ..
     } = &resolution
     {
-        persist_repaired_mapper_source_aliases(
-            host,
-            &fold_schema,
-            loaded_schemas,
-            field_mappers,
-            false,
-        )
-        .await?;
+        for alias in repaired_mapper_source_aliases(&fold_schema, loaded_schemas, field_mappers) {
+            let alias = alias?;
+            check_proposal_catalog_alias(
+                host,
+                alias.owner_app_id,
+                alias.proposal,
+                alias.repaired.source_schema(),
+            )
+            .await?;
+        }
         check_reuse_bind(
             host,
             declare,
@@ -209,7 +183,7 @@ async fn plan_from_resolver(
     proposed_hash: &str,
     loaded_schemas: &HashMap<String, Schema>,
 ) -> Result<DirectDeclarePlan, String> {
-    let result = resolve_direct_declare_result(host, url, declare).await?;
+    let result = resolve_direct_declare_result(host, url, declare).await;
     let resolved = result
         .as_ref()
         .map(|result| resolve_declare_bind(&declare.catalog_schema, result));
@@ -249,7 +223,13 @@ async fn plan_from_resolver(
     // Catalog sync would register (or expand) here. Schema Service decides
     // the stored identity, so report the proposal identity and the anchored
     // predecessor, which is what the registration request would carry.
-    let fallback = catalog_registration_fallback(host, declare, result.as_ref(), &resolved);
+    let mut fallback = catalog_registration_fallback(declare, result.as_ref(), &resolved);
+    if fallback.predecessor.is_none() {
+        if let Ok(schemas) = host.db.schema_manager().get_schemas() {
+            fallback.predecessor =
+                anchor_catalog_expansion_from_local(&schemas, &mut fallback.schema, declare);
+        }
+    }
     Ok(DirectDeclarePlan {
         resolution: DirectDeclareResolution::Register {
             catalog_hash: proposed_hash.to_string(),

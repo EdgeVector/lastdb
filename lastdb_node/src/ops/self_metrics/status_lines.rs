@@ -182,8 +182,7 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
          footprint_delta_per_evicted_byte={} governor_state={} governor_state_for={} \
          host_pressure={} swap_used={} \
          compressor={} purge_failed={} malloc_released_last_purge={} \
-         in_flight_loads={} in_flight_bytes={} \
-         peak_request_bytes={} slowest_request_ms={} eviction_events={} effective_warm={}",
+         peak_request_bytes={} slowest_request_ms={} effective_warm={}",
         format_bytes(memory.deferred_persist_bytes),
         format_bytes(memory.deferred_persist_cap_bytes),
         format_bytes(memory.deferred_lane_fair_share_bytes),
@@ -232,11 +231,8 @@ pub(super) fn memory_budget_status_line(memory: &MemoryBudgetHealth) -> Option<S
         format_bytes(memory.compressor_bytes),
         memory.purge_failed,
         format_bytes(memory.malloc_bytes_released_last_purge),
-        memory.in_flight_cold_load_count,
-        format_bytes(memory.in_flight_cold_load_bytes),
         format_bytes(memory.peak_request_bytes),
         memory.slowest_request_ms,
-        memory.eviction_events,
         format_bytes(memory.effective_warm_budget_bytes),
     ))
 }

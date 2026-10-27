@@ -1,9 +1,7 @@
 //! Use the existing exact product verifier before an inactive target publishes.
 
 use super::{invalid, StorageResult};
-use crate::storage::disk_pack::{
-    physical, restore_safety, space, CoreNativeBackupBoundary, PackNamespacedStore,
-};
+use crate::storage::disk_pack::{physical, restore_safety, space, PackNamespacedStore};
 use laststore::disk_run::home::RunHome;
 use schema_types::key_comparison::KeyOrderVersion;
 use std::sync::Arc;
@@ -21,13 +19,7 @@ pub(super) async fn validate(homes: &[Arc<RunHome>; 2]) -> StorageResult<()> {
         homes[0].current_root().frontier(),
         homes[1].current_root().frontier(),
     ];
-    let boundary = tokio::sync::watch::channel(CoreNativeBackupBoundary {
-        source_home: home.home.identity(),
-        frontier: root.frontier(),
-    })
-    .0;
-    let store =
-        PackNamespacedStore::assemble(home, root, boundary, false, space::policy_from_env()?);
+    let store = PackNamespacedStore::assemble(home, root, false, space::policy_from_env()?);
     restore_safety::exclusive(
         Arc::clone(&store.runtime),
         crate::db_operations::atom_store::counter::restore_validation::validate(&store),

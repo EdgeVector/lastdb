@@ -28,13 +28,17 @@ on:
       - 'scripts/benchmarks/node.py'
       - '.github/workflows/disk-v2-node-proof.yml'
   workflow_dispatch:
+  schedule:
+    # Match the nightly benchmark schedule (UTC).
+    - cron: "27 9 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: disk-v2-node-proof-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer PR update supersedes its run; nightly/manual runs stay independent.
+  group: disk-v2-node-proof-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   proof:
