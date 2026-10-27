@@ -235,11 +235,6 @@ impl MoleculeStorageCounter {
 }
 
 impl SchemaMeter {
-    #[must_use]
-    pub fn churn_ratio(&self) -> f64 {
-        churn_ratio(self.appended_bytes, self.live_bytes)
-    }
-
     /// Physical tip + bookkeeping bytes this schema owns.
     ///
     /// These are the bytes that used to fall out of per-schema accounting and
@@ -247,16 +242,6 @@ impl SchemaMeter {
     #[must_use]
     pub fn plane_bytes(&self) -> u64 {
         self.tip_bytes.saturating_add(self.bookkeeping_bytes)
-    }
-}
-
-/// `appended / live`. Live 0 → 0.0 (no division by zero).
-#[must_use]
-pub fn churn_ratio(appended_bytes: u64, live_bytes: u64) -> f64 {
-    if live_bytes == 0 {
-        0.0
-    } else {
-        appended_bytes as f64 / live_bytes as f64
     }
 }
 
