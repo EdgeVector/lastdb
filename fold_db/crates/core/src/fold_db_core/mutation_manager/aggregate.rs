@@ -28,6 +28,7 @@ use super::MutationManager;
 mod finalize;
 mod guard;
 mod repair;
+mod rules;
 mod source_guards;
 
 /// Result of a bounded member-partition repair.
