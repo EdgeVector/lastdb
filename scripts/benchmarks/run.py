@@ -97,7 +97,7 @@ def recipe_for(args):
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
                   "disk": "file lengths and allocated blocks from one bounded walk before and after the v2 wait"}
         if args.disk_budget_only:
-            recipe.update(disk_budget=True, disk_format=2, search_enabled=False,
+            recipe.update(disk_budget=True, disk_format=2, search_enabled=False, pairs=1,
                           writes="durable batches; flush at each checkpoint; default v2 automatic run merges",
                           disk="database data/ and blobs/ only for the 1.5x ratio; Search queue, other home, and whole home separate; three stable seconds",
                           logical="GET /api/db/schemas total_logical_bytes; plaintext serialized atoms")
@@ -148,6 +148,8 @@ def main():
         parser.error("Diagnostic, growth, upgrade, and worker measurements require a GitHub-hosted Actions runner")
     if args.disk_budget_only and (args.growth_only or args.native_timing or args.seed_with_baseline):
         parser.error("Disk budget requires its own generated v2 workload")
+    if args.disk_budget_only and args.pairs not in (None, 1):
+        parser.error("The disk budget uses one baseline/candidate pair")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
     if args.seed_with_baseline and args.growth_only:
@@ -180,7 +182,7 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
                                          "native_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py", "disk_usage.py", "disk_budget.py", "disk_budget_report.py",
+                                         "growth.py", "growth_report.py", "disk_usage.py", "disk_budget.py", "disk_budget_report.py", "disk_deletes.py",
                                          "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
                                          "range_continuation/process_counters.py", "typed_ranges.py")}}

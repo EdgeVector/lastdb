@@ -75,8 +75,10 @@ The required 1.5× limit uses database files under `data/` and `blobs/`, divided
 The size pass sets Search off and verifies its state before and after each run. Every checkpoint requires an empty Search queue.
 CI separately reports the Search inbox, other home files, and the whole home.
 Each checkpoint retains file lengths and allocated blocks. The raw categories add to the whole home.
-Database or queue growth of at least 10% and 64 KiB requires a second comparison before a warning.
+Database or queue growth of at least 10% and 64 KiB produces an advisory in the single size pass.
 The default-off and enabled queue growth runs also verify durable writes and current values after saturation and reopen.
 PRs use short runs. Nightly runs use more records and update rounds.
-The same case above 1.5× in both complete comparisons fails the required check and blocks merge. Equality passes.
+The disk-size pass uses one baseline/candidate pair with no repeat.
+Any settled candidate checkpoint above 1.5× total logical size fails the required check and blocks merge. Equality passes.
+The delete case uses the logical data that remains. The report states the room below the cap for each case.
 Relative size changes and the separate Search queue capacity findings stay advisory.

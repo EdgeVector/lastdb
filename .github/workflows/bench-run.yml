@@ -357,12 +357,6 @@ jobs:
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
 
-      - name: Repeat v2 disk size only when a size limit is crossed
-        id: disk-budget-confirmation
-        run: |
-          timeout --signal=TERM --kill-after=120s 40m \
-            python3 driver/scripts/benchmarks/confirm.py --kind disk --output "$BENCH_OUTPUT/disk-budget"
-
       - name: Measure default-off Search and a full queue without a consumer
         if: inputs.search_queue
         run: |
@@ -444,15 +438,13 @@ jobs:
             --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME" \
             --confirmation-status "$CONFIRMATION_OUTCOME"
 
-      - name: Require the confirmed v2 disk size limit and publish the summary
+      - name: Require the single-pass v2 disk size limit and publish the summary
         if: always()
         env:
           GROWTH_OUTCOME: ${{ steps.disk-budget.outcome }}
-          CONFIRMATION_OUTCOME: ${{ steps.disk-budget-confirmation.outcome }}
         run: |
           python3 driver/scripts/benchmarks/disk_budget_report.py \
-            --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME" \
-            --confirmation-status "$CONFIRMATION_OUTCOME"
+            --output "$BENCH_OUTPUT/disk-budget" --job-status "$GROWTH_OUTCOME"
 
       - name: Upload measurements and build receipts
         id: upload

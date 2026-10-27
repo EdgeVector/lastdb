@@ -3,16 +3,19 @@
 import math
 import statistics
 
-from growth import GrowthWorkload
+from growth import CASES as GROWTH_CASES, GrowthWorkload
+from disk_deletes import delete_records, verify_deleted
 from node import save
 from disk_usage import validate as validate_breakdown
 
 LIMIT = 1.5
 PERCENT = 10
 FLOOR = 64 * 1024
+CASES = (*GROWTH_CASES, "delete")
 MEASURES = ("logical_atom_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
             "max_disk_to_logical_ratio", "search_queue_bytes", "search_queue_payload_bytes",
-            "search_queue_files", "other_home_bytes", "whole_home_disk_bytes")
+            "search_queue_files", "other_home_bytes", "whole_home_disk_bytes",
+            "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent")
 
 
 def require_search_off(node, output, phase):
@@ -42,6 +45,10 @@ def validate_logical(report):
 def metrics(points):
     last = points[-1]
     breakdown = last["disk_breakdown"]
+    worst = max(points, key=lambda p: max(p["disk_breakdown"]["database"].values())
+                / p["logical_storage"]["total_logical_bytes"])
+    logical = worst["logical_storage"]["total_logical_bytes"]
+    retained = max(worst["disk_breakdown"]["database"].values())
     return {"logical_atom_bytes": last["logical_storage"]["total_logical_bytes"],
             "retained_disk_bytes": max(breakdown["database"].values()),
             "search_queue_bytes": max(breakdown["search_queue"].values()),
@@ -49,23 +56,30 @@ def metrics(points):
             "search_queue_files": breakdown["search_queue_files"],
             "other_home_bytes": max(breakdown["other_home"].values()),
             "whole_home_disk_bytes": max(breakdown["whole_home"].values()),
+            "limit_logical_bytes": logical, "limit_database_bytes": retained,
+            "limit_headroom_bytes": LIMIT * logical - retained,
+            "limit_headroom_percent": 100 * (1 - retained / (LIMIT * logical)),
             "disk_to_logical_ratio": max(breakdown["database"].values()) / last["logical_storage"]["total_logical_bytes"],
             "max_disk_to_logical_ratio": max(
                 max(p["disk_breakdown"]["database"].values()) / p["logical_storage"]["total_logical_bytes"] for p in points)}
 
 
 class DiskBudgetWorkload(GrowthWorkload):
+    case_names = CASES
+
     def checkpoint(self, number):
         result, _, _ = self.node.call("/api/db/flush", {})
         if result.get("durable") is not True:
             raise ValueError("The disk budget checkpoint lacks a durable flush")
         self.phase = "verify-disk-budget"
         self.read(0, self.live_records)
+        verify_deleted(self)
         logical = logical_storage(self.node)
         self.phase = "settle-disk-budget"
         idle = []
         current, samples, settled = self.settle_disk(idle, self.node.disk_breakdown)
-        return {"round": number, "live_records": self.live_records, "disk": current["whole_home"],
+        return {"round": number, "live_records": self.live_records,
+                "deleted_records": getattr(self, "deleted_records", 0), "disk": current["whole_home"],
                 "disk_breakdown": current,
                 "logical_storage": logical, "settled_seconds": settled,
                 "disk_samples": samples, "idle_memory_bytes": statistics.median(idle),
@@ -78,6 +92,8 @@ class DiskBudgetWorkload(GrowthWorkload):
             count = self.recipe["records"]
             if case == "fixed-read":
                 self.read(0, count)
+            elif case == "delete":
+                delete_records(self, count)
             else:
                 insert = case == "insert"
                 self.write(self.live_records if insert else 0, count, f"disk-{case}-{number:03d}", insert)
@@ -95,10 +111,17 @@ def validate(case, result, recipe):
     if len(points) != recipe["rounds"] + 1:
         raise ValueError(f"{case}: missing disk checkpoints")
     for number, point in enumerate(points):
-        expected = recipe["records"] * (1 + number if case == "insert" else 1)
+        expected = recipe["records"] * (1 + number if case == "insert"
+                                        else 1 + recipe["rounds"] - number if case == "delete" else 1)
         if point["round"] != number or point["live_records"] != expected:
             raise ValueError(f"{case}: invalid disk checkpoint count")
         validate_logical(point["logical_storage"])
+        if case == "delete":
+            if point["deleted_records"] != recipe["records"] * number:
+                raise ValueError("The delete checkpoint has an invalid deletion count")
+            if number and any(point["logical_storage"][name] >= points[number - 1]["logical_storage"][name]
+                              for name in ("total_logical_bytes", "total_atoms")):
+                raise ValueError("Deleted records did not reduce the logical data and atom count")
         validate_breakdown(point["disk_breakdown"])
         if point["disk_breakdown"]["search_queue_files"] != 0:
             raise ValueError(f"{case}: the disk budget requires an empty Search queue")
@@ -130,8 +153,6 @@ def validate(case, result, recipe):
 
 def advisories(base, candidate):
     result = []
-    if candidate["max_disk_to_logical_ratio"] > LIMIT:
-        result.append("max_disk_to_logical_ratio")
     for name in ("retained_disk_bytes", "search_queue_bytes"):
         if (candidate[name] - base[name] >= FLOOR
                 and candidate[name] >= base[name] * (1 + PERCENT / 100)):
@@ -164,10 +185,10 @@ def render(comparison):
                   "Each checkpoint follows durable flush and verified keyed reads, then three stable seconds, with a 90-second deadline.",
                   "The v2 format uses its default automatic run merges. This run does not force compaction or measure transient disk peaks.",
                   "Search is explicitly off before and after each run; every checkpoint requires an empty Search queue.",
-                  "The required maximum includes all settled checkpoints in every pair. Other figures use medians across pairs.",
-                  "A candidate above 1.5× requires confirmation even when the baseline also exceeds the ceiling.",
-                  "A database or Search queue increase of at least 10% and 64 KiB also requires confirmation.",
-                  "The same case above 1.5× in both comparisons fails benchmark-complete and blocks merge.",
+                  "This is one baseline/candidate pair with no repeat. The maximum includes every settled candidate checkpoint.",
+                  "Any candidate checkpoint above 1.5× fails benchmark-complete and blocks merge after this single pass.",
+                  "The cap is total database size, not an additional allowance. Deletes use the remaining logical atom bytes.",
+                  "A database or Search queue increase of at least 10% and 64 KiB produces an advisory from this pass.",
                   "Equality passes. Relative database and Search queue growth remains advisory.",
                   "The absolute limit fails even if the baseline also exceeds it; this does not prove PR causation.",
                   "The generated v2 workload supplies a guard for this data shape, not a measurement of the primary.", ""])
