@@ -1,10 +1,13 @@
 //! Applying one aggregate source mutation to its targets.
 
 mod guards;
+mod member_rules;
 mod reads;
+mod rules;
 mod writes;
 
 use super::*;
+use rules::{is_matching_retry, GuardState, PublishPlan, SummaryState};
 
 type DerivedClock = Option<(
     super::super::author_clock::AuthorClockPersistReservation,
@@ -23,72 +26,6 @@ struct ApplyCtx<'a> {
     expected_guard: AggregateGuard,
     guard_key: String,
     guard_pending_key: String,
-}
-
-/// Guard rows after pending reservations were reconciled.
-struct GuardState {
-    current: Option<AggregateGuard>,
-    target_owner: Option<AggregateGuard>,
-    target_guard_key: String,
-    target_pending_key: String,
-    recovering_first_enrollment: bool,
-}
-
-impl GuardState {
-    fn source_conflict(&self, expected: &AggregateGuard) -> Option<&AggregateGuard> {
-        self.current
-            .as_ref()
-            .filter(|current| !current.same_association(expected))
-    }
-
-    fn target_conflict(&self, expected: &AggregateGuard) -> Option<&AggregateGuard> {
-        self.target_owner
-            .as_ref()
-            .filter(|current| !current.same_association(expected))
-    }
-
-    fn loses_replay_conflict(&self, expected: &AggregateGuard) -> bool {
-        self.source_conflict(expected)
-            .into_iter()
-            .chain(self.target_conflict(expected))
-            .any(|current| !expected.cmp_enrollment(current).is_gt())
-    }
-
-    fn association_stable(&self, expected: &AggregateGuard) -> bool {
-        let stable = |guard: &Option<AggregateGuard>| {
-            guard
-                .as_ref()
-                .is_some_and(|guard| guard.committed && guard.same_association(expected))
-        };
-        stable(&self.current) && stable(&self.target_owner)
-    }
-
-    fn affected<'a>(&'a self, expected: &'a AggregateGuard) -> Vec<&'a AggregateGuard> {
-        let mut affected: Vec<&AggregateGuard> = self.current.iter().collect();
-        affected.extend(self.target_owner.iter());
-        affected.push(expected);
-        affected
-    }
-}
-
-/// Which guard rows this apply must publish, and which old row to drop.
-struct PublishPlan {
-    desired_guard: AggregateGuard,
-    publish_forward: bool,
-    publish_target: bool,
-    old_target_guard_key: Option<String>,
-}
-
-/// Summary row state read before the data generation.
-struct SummaryState {
-    current_summary: BTreeMap<String, i64>,
-    valid: bool,
-    guard_token: String,
-}
-
-fn is_matching_retry(pending: &AggregateGuard, expected: &AggregateGuard) -> bool {
-    pending.same_association(expected)
-        && pending.cmp_enrollment(expected) == std::cmp::Ordering::Equal
 }
 
 impl MutationManager {
@@ -136,17 +73,17 @@ impl MutationManager {
         let expected = &ctx.expected_guard;
         let migration_winner =
             gs.source_conflict(expected).is_some() || gs.target_conflict(expected).is_some();
-        Self::reject_request_migration(ctx.origin, migration_winner)?;
+        rules::reject_request_migration(ctx.origin, migration_winner)?;
         if gs.loses_replay_conflict(expected) {
             return self.apply_losing_replay(source, ctx, &gs).await;
         }
-        let plan = Self::plan_publish(ctx, &gs);
+        let plan = rules::plan_publish(ctx, &gs);
 
         let (source_fields, current_source_winner) = self.read_source_fields(ctx, &source).await?;
         let source_existed = !source_fields.is_empty();
         let old_member = self.read_old_member(ctx, &gs).await?;
-        let incoming = Self::build_incoming_member(ctx, &source);
-        Self::check_source_advance(
+        let incoming = member_rules::incoming_member(ctx, &source);
+        member_rules::check_source_advance(
             &source,
             &source_fields,
             current_source_winner.as_ref(),
@@ -173,15 +110,18 @@ impl MutationManager {
         let replacement_base = (!migration_winner).then_some(old_member.as_ref()).flatten();
         let missing_derived_for_existing_source =
             source_existed && old_member.is_none() && !gs.recovering_first_enrollment;
-        let apply = self
-            .compute_member_apply(
-                ctx,
-                replacement_base,
-                &incoming,
-                &summary.current_summary,
-                missing_derived_for_existing_source,
-            )
-            .await?;
+        let apply = match member_rules::replacement(
+            replacement_base,
+            &incoming,
+            &summary.current_summary,
+            missing_derived_for_existing_source,
+        ) {
+            Ok(apply) => apply,
+            Err(error) => {
+                self.invalidate_expected(ctx).await?;
+                return Err(error);
+            }
+        };
         let prior_valid = summary.valid && !missing_derived_for_existing_source;
         let association_stable = gs.association_stable(expected);
         let changes_member = matches!(apply, AggregateApply::Applied(_));
@@ -212,19 +152,6 @@ impl MutationManager {
             self.write_valid_marker(ctx, &summary.guard_token).await?;
         }
         Ok(data_receipt)
-    }
-
-    fn reject_request_migration(
-        origin: WriteOrigin,
-        migration_winner: bool,
-    ) -> Result<(), SchemaError> {
-        if matches!(origin, WriteOrigin::Request) && migration_winner {
-            return Err(SchemaError::InvalidData(
-                "aggregate source partition or target is already enrolled with a different association"
-                    .into(),
-            ));
-        }
-        Ok(())
     }
 
     fn build_apply_ctx<'a>(
