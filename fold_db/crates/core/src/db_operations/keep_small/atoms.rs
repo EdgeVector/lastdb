@@ -94,15 +94,6 @@ impl KeepSmallMeters {
         self.atom_bytes.fetch_sub(bytes.min(cur), Ordering::Relaxed);
     }
 
-    /// Look up a just-stored atom's logical size without consuming it.
-    #[must_use]
-    pub fn pending_atom_bytes(&self, atom_uuid: &str) -> Option<u64> {
-        self.pending_atoms
-            .lock()
-            .ok()
-            .and_then(|m| m.get(atom_uuid).map(|(_, b, _, _, _)| *b))
-    }
-
     /// Owning schema of a just-stored atom, without consuming it.
     ///
     /// The tip-accounting path uses this to bind a molecule to its schema.
