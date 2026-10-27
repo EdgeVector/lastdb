@@ -46,7 +46,7 @@ def read(node, schema, ranged, revision):
 
 
 def metadata(node, name):
-    return node.call("/api/schemas/" + quote(name, safe=""))[0]["schema"]
+    return node.call("/api/schema/" + quote(name, safe=""))[0]["schema"]
 
 
 def verify(node):
