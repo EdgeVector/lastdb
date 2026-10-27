@@ -21,12 +21,37 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
     let runtime = &host.byte_backup;
     let _transition = runtime.transition()?;
     runtime.check_admission()?;
+    match action {
+        ByteBackupRequest::EnableAutomatic { interval_seconds } => {
+            super::automatic::configure(host, true, *interval_seconds)?;
+            return status(host);
+        }
+        ByteBackupRequest::DisableAutomatic => {
+            super::automatic::configure(host, false, 0)?;
+            return status(host);
+        }
+        _ => {}
+    }
+    request_locked(host, action, RunOrigin::Manual)
+}
+
+/// The caller holds the owner transition lock across policy validation and admission.
+pub(super) fn request_locked(
+    host: &crate::host::Host,
+    action: &ByteBackupRequest,
+    origin: RunOrigin,
+) -> Result<ByteBackupStatus> {
+    let runtime = &host.byte_backup;
+    runtime.check_admission()?;
     let id = match action {
         ByteBackupRequest::Start { request_id } => request_id.clone(),
         ByteBackupRequest::Resume | ByteBackupRequest::Close => {
             Store::active(&host.home)?.ok_or(BackupError::Missing)?
         }
         ByteBackupRequest::Status => return status(host),
+        ByteBackupRequest::EnableAutomatic { .. } | ByteBackupRequest::DisableAutomatic => {
+            return Err(BackupError::Invalid);
+        }
     };
     let previous = store::state(&host.home, &id)?;
     if previous.as_ref().is_some_and(Saved::terminal) {
@@ -71,7 +96,7 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
         }
         super::worker::validate_terminal(&saved, &result)?;
         store.select(&id)?;
-        runtime.start(id, RunOrigin::Manual, move |pause| {
+        runtime.start(id, origin, move |pause| {
             super::worker::terminal_invocation(source, store, saved, permit, pause)
         })?;
         return status(host);
@@ -90,9 +115,13 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
         return Err(BackupError::Identity);
     }
     saved.blocked_reason = None;
+    store.write(
+        "pause.json",
+        &Option::<crate::backup_runtime::PauseState>::None,
+    )?;
     store.save(&saved)?;
     store.select(&id)?;
-    runtime.start(id, RunOrigin::Manual, move |pause| {
+    runtime.start(id, origin, move |pause| {
         super::invocation::run(source, store, saved, client, permit, pause)
     })?;
     status(host)
@@ -154,9 +183,11 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         .active
         .is_some_and(|active| Some(active.request_id) == id);
     let connection = super::connection::status(host)?;
+    let automatic = super::automatic::status(host)?;
     Ok(ByteBackupStatus {
         enabled: require_enabled().is_ok() || connection.is_some(),
-        automatic_backup_enabled: false,
+        automatic_backup_enabled: automatic.as_ref().is_some_and(|state| state.enabled),
+        automatic_backup: automatic,
         manual_connection: connection,
         running,
         request_id: id,

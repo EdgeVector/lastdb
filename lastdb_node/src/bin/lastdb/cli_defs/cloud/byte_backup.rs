@@ -44,7 +44,7 @@ pub(crate) enum ByteBackupCommand {
         json: bool,
     },
 
-    /// Save one manual V2 backup on the owner daemon. Automatic backup stays off.
+    /// Save one manual V2 backup on the owner daemon without changing its automatic policy.
     Start {
         #[arg(long)]
         request_id: Option<String>,
@@ -63,6 +63,19 @@ pub(crate) enum ByteBackupCommand {
     },
     /// Fence the saved job while retaining uncertain cloud byte obligations.
     Close {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Enable the owner daemon's automatic V2 backups. Unchanged data needs no new backup.
+    EnableAutomatic {
+        /// Minimum time between completed backups, in seconds (60 through 604800).
+        #[arg(long, default_value_t = 3600)]
+        interval_seconds: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop new automatic requests and retries. An active backup can finish safely.
+    DisableAutomatic {
         #[arg(long)]
         json: bool,
     },

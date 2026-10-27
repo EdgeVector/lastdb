@@ -138,6 +138,8 @@ An observer deadline never authorizes cancellation, another request, or a new ca
 The first milestone is a reliable manual backup and restore.
 A later automatic controller calls the same pipeline and admits one active job at a time.
 It does not introduce a separate backup implementation.
+The [automatic backup design](cloud-v2-automatic-backups.md) defines explicit owner consent,
+the durable schedule, same-request retries, unchanged-data checks, and operational proof.
 
 ## Work order and completion
 

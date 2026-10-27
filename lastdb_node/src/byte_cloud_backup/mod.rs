@@ -1,4 +1,5 @@
-//! Explicit V2 byte backup. The native format remains a client responsibility.
+//! Owner-controlled V2 byte backup. The native format remains a client responsibility.
+mod automatic;
 mod connection;
 mod control;
 mod credentials;
@@ -13,6 +14,7 @@ mod wait;
 mod worker;
 
 pub use crate::backup_runtime::{BackupError, BackupRuntime};
+pub use automatic::{spawn_automatic, AutomaticBackupStatus};
 pub use connection::{connect_existing, ManualConnectionStatus, SensitiveConnectionRequest};
 pub use control::request;
 pub(crate) use control::status;

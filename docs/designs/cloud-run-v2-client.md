@@ -15,7 +15,7 @@ The [completion design](cloud-v2-completion-plan.md) defines the release and ope
 - Send the existing encrypted file bytes without another encryption or text conversion.
 - Send CAS run files to B2. Send all other captured files to R2.
 - Keep the current object size and memory configuration. Add no backup-only native file size cap.
-- Keep automatic backup off. The legacy sync engine is retired.
+- Keep automatic backup off until the owner enables the [automatic policy](cloud-v2-automatic-backups.md). The legacy sync engine is retired.
 
 ## One consistent source
 

@@ -121,7 +121,24 @@ fn credential_bytes(
 }
 
 pub(super) fn status(host: &crate::host::Host) -> Result<Option<ManualConnectionStatus>> {
-    Ok(load(host)?.map(|(record, _)| record.into()))
+    let mut status: Option<ManualConnectionStatus> = load(host)?.map(|(record, _)| record.into());
+    if let Some(status) = &mut status {
+        status.automatic_backup_enabled =
+            super::automatic::status(host)?.is_some_and(|state| state.enabled);
+    }
+    Ok(status)
+}
+
+pub(super) fn automatic_binding(
+    host: &crate::host::Host,
+) -> Result<(AccountId, Id, String, Digest)> {
+    let (record, _) = load(host)?.ok_or(BackupError::Disabled)?;
+    Ok((
+        record.account_id,
+        record.source_home,
+        record.endpoint,
+        record.credential_sha256,
+    ))
 }
 
 pub(super) fn require_admission(host: &crate::host::Host) -> Result<()> {

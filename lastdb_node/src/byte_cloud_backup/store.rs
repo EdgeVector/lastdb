@@ -31,6 +31,12 @@ impl Store {
     pub fn base(home: &Path) -> PathBuf {
         home.join("data/cloud-byte-backup-v2")
     }
+    pub fn write_configuration<T: Serialize>(home: &Path, name: &str, value: &T) -> Result<()> {
+        let base = Self::base(home);
+        directory(&base)?;
+        let bytes = AtomicU64::new(count(&base, 0, &mut 0)?);
+        write(&base.join(name), value, &bytes)
+    }
     pub fn active(home: &Path) -> Result<Option<Id>> {
         Self::active_at(&Self::base(home))
     }

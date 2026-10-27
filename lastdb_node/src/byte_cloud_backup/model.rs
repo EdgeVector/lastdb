@@ -17,6 +17,8 @@ pub enum ByteBackupRequest {
     Resume,
     Status,
     Close,
+    EnableAutomatic { interval_seconds: u64 },
+    DisableAutomatic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +100,7 @@ impl Saved {
 pub struct ByteBackupStatus {
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
+    pub automatic_backup: Option<super::AutomaticBackupStatus>,
     pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
     pub request_id: Option<Id>,

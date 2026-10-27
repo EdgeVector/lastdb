@@ -1,4 +1,4 @@
-//! Explicit V2 owner requests and offline recovery. No automatic activation.
+//! Explicit V2 owner requests, automatic consent, and offline recovery.
 use super::*;
 use cloud_backup_protocol::Id;
 use lastdb_node::byte_cloud_backup::ByteBackupRequest;
@@ -23,6 +23,14 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
         ByteBackupCommand::Resume { json } => (ByteBackupRequest::Resume, json),
         ByteBackupCommand::Status { json } => (ByteBackupRequest::Status, json),
         ByteBackupCommand::Close { json } => (ByteBackupRequest::Close, json),
+        ByteBackupCommand::EnableAutomatic {
+            interval_seconds,
+            json,
+        } => (
+            ByteBackupRequest::EnableAutomatic { interval_seconds },
+            json,
+        ),
+        ByteBackupCommand::DisableAutomatic { json } => (ByteBackupRequest::DisableAutomatic, json),
         action => return offline::run(home, action),
     };
     let body = serde_json::to_value(request).map_err(|_| "cannot encode V2 owner request")?;
