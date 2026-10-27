@@ -126,11 +126,6 @@ impl AtomDeleteLedgerEntry {
             ..Self::base(verb, caller)
         }
     }
-
-    /// A purge row, before the delete batch runs.
-    pub fn purge(caller: &str, schema: &str, described_key: &str) -> Self {
-        Self::erasure(LEDGER_VERB_PURGE, caller, schema, described_key)
-    }
 }
 
 /// SHA-256 hex over `{schema}\0{described key}`.
