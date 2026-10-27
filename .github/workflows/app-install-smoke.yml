@@ -600,7 +600,7 @@ jobs:
             
             case "${{ matrix.app }}" in
               brain)
-                if [ -f "$PROOF_DIR/brain-get-test.txt" ] && grep -q "Smoke test from CI" "$PROOF_DIR/brain-get-test.txt"; then
+                if [ -f "$PROOF_DIR/brain-get-test.txt" ] && grep -q "Test concept from app-install-smoke" "$PROOF_DIR/brain-get-test.txt"; then
                   HEALTH_CHECK_PASSED=true
                 fi
                 ;;
