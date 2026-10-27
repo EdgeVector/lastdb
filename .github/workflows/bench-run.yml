@@ -332,6 +332,13 @@ jobs:
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind disk --output "$BENCH_OUTPUT/disk-budget"
 
+      - name: Measure default-off Search and a full queue without a consumer
+        run: |
+          timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
+            --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" \
+            --candidate-revision "${{ inputs.candidate }}" --driver-revision "${{ inputs.driver }}" \
+            --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue"
+
       - name: Capture native phases in separate generated homes
         if: inputs.investigation
         env:

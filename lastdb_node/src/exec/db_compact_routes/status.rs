@@ -24,7 +24,9 @@ pub(in crate::exec) async fn execute(
         .await
         .unwrap_or_else(|error| serde_json::json!({"error": error.to_string()}));
     json_ok(&envelope(
-        &serde_json::json!({"native_disk":runtime.status_native(), "retry_cache": retry_cache}),
+        &serde_json::json!({"native_disk":runtime.status_native(), "retry_cache": retry_cache,
+            "search": fold_db::db_operations::search_index::queue_policy::status(
+                &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home))}),
         ctx.user_id.as_str(),
     ))
 }

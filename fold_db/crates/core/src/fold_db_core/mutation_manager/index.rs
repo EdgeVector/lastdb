@@ -20,6 +20,9 @@ impl MutationManager {
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
     ) -> Option<IndexChangeBatch> {
+        if !crate::db_operations::search_index::queue_policy::enabled() {
+            return None;
+        }
         let mut changes = Vec::with_capacity(schema_mutations.len());
         for (idx, mutation) in schema_mutations.iter().enumerate() {
             let key_value = &mutation_key_values[idx];

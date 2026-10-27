@@ -80,11 +80,11 @@ class GrowthWorkload:
             self.expected.update({number: revision for number in numbers})
         self.read(first, count)
 
-    def settle_disk(self, idle):
+    def settle_disk(self, idle, sample=None):
         """Wait until the disk size stays constant for three seconds, within 90 seconds."""
         samples, deadline, stable_since, previous = [], time.monotonic() + 90, None, None
         while time.monotonic() < deadline:
-            current = self.node.disk_usage()
+            current = (sample or self.node.disk_usage)()
             now = time.monotonic()
             idle.append(self.memory())
             samples.append({"elapsed_seconds": now - self.started, **current})
@@ -106,7 +106,7 @@ class GrowthWorkload:
         result, _, _ = self.node.call("/api/db/flush", {})
         if result.get("durable") is not True:
             raise RuntimeError("A growth checkpoint lacks a durable flush")
-        before = self.node.disk_usage()
+        before = self.node.disk_breakdown()
         receipt = self.compact()
         self.phase = "verify-compaction"
         self.read(0, self.live_records)
@@ -115,14 +115,18 @@ class GrowthWorkload:
         while time.monotonic() < deadline:
             idle.append(self.memory())
             time.sleep(0.2)
-        after = self.node.disk_usage()
+        after = self.node.disk_breakdown()
         return {"round": number, "live_records": self.live_records,
                 "elapsed_seconds": time.monotonic() - self.started,
                 "idle_memory_bytes": statistics.median(idle), "idle_memory_samples": idle,
-                "disk_before_compaction_bytes": before["logical_bytes"],
-                "compacted_disk_bytes": after["logical_bytes"],
-                "allocated_disk_before_compaction_bytes": before["allocated_bytes"],
-                "compacted_allocated_disk_bytes": after["allocated_bytes"], "compaction": receipt}
+                "disk_breakdown_before": before, "disk_breakdown": after,
+                "disk_before_compaction_bytes": before["database"]["logical_bytes"],
+                "compacted_disk_bytes": after["database"]["logical_bytes"],
+                "search_queue_bytes": max(after["search_queue"].values()),
+                "whole_home_disk_bytes": max(after["whole_home"].values()),
+                "other_home_bytes": max(after["other_home"].values()),
+                "allocated_disk_before_compaction_bytes": before["database"]["allocated_bytes"],
+                "compacted_allocated_disk_bytes": after["database"]["allocated_bytes"], "compaction": receipt}
 
     def seed(self):
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
@@ -154,6 +158,7 @@ class GrowthWorkload:
             "memory_growth_bytes_per_round": slope(points, "idle_memory_bytes"),
             "disk_before_compaction_bytes": last["disk_before_compaction_bytes"],
             "compacted_disk_bytes": last["compacted_disk_bytes"],
+            **{name: last[name] for name in ("search_queue_bytes", "whole_home_disk_bytes", "other_home_bytes")},
             "disk_growth_bytes": last["compacted_disk_bytes"] - first["compacted_disk_bytes"],
             "disk_growth_bytes_per_round": slope(points, "compacted_disk_bytes"),
             "compacted_disk_bytes_per_record": last["compacted_disk_bytes"] / self.live_records,

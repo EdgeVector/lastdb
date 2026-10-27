@@ -1,5 +1,8 @@
 # LastDB
 
+Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
+See [optional Search and its queue limit](docs/lastdb-optional-search.md).
+
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
 `schema_service` (schema registry), shared host/identity crates,

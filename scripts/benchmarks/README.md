@@ -250,14 +250,15 @@ The v2 engine keeps its default automatic run merges.
 
 The ratio is retained disk bytes divided by logical atom bytes:
 
-- Retained disk uses the greater of whole-home file lengths and allocated file blocks.
+- Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
+  The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
 
 The advisory ceiling is **1.5×**. Equality is within the budget.
-CI also notes a final retained-disk increase of **at least 10% and 64 KiB** against the base commit.
+CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
 That rule also acts below 1.5×. Every measured change stays in the summary and artifact.
 Either suspect repeats the complete v2 size comparison once with fresh generated homes and the same programs and recipe.
 Only the same case and measure above its limit in both comparisons produces a warning.
@@ -269,6 +270,24 @@ This pass checks a generated data shape. It does not read the primary, copy its 
 Do not compare these ratios with a different workload.
 
 ## Request phases
+
+### Optional Search queue growth
+
+Search delivery is off by default. `lastdbd --enable-search` or `LASTDB_SEARCH_ENABLED=1` enables it.
+The live queue has a default cap of 64 MiB of batch file lengths and 4,096 files.
+At capacity, delivery stops with a durable rebuild marker. Database writes continue.
+See [the Search option and recovery policy](../../docs/lastdb-optional-search.md).
+
+Each measured run also compares default-off and explicit enabled modes of the verified candidate.
+PRs use 512 records, three full update rounds, two alternating pairs, and a 1 MiB queue cap.
+Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.
+No Search consumer runs. A further full update after reopen verifies writes after saturation.
+The artifact retains the policy status, keyed-value checks, size categories, shutdown and cleanup receipts.
+Only the same limit finding in the first two independent mode runs produces an advisory warning.
+Incomplete measurements fail completion; size findings stay advisory.
+
+The resource-growth disk fields now describe database storage. Separate queue and whole-home columns retain total disk visibility.
+Before/after comparisons use the same driver and category rules. Do not compare an older whole-home ratio with the database ratio.
 
 ### Optional v2 disk excess investigation
 
