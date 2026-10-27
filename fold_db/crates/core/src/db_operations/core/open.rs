@@ -115,9 +115,8 @@ impl DbOperations {
     ///
     /// `content_key` is the account E2E content key. It seals local file
     /// blobs, unwraps old `ENC:` schema catalog values, and is the key that
-    /// `content_key_proof` checks on each open (the molecule wrap key is the
-    /// fallback). Atom rows are plain JSON on a disk format v2 home, so it
-    /// seals no atom content.
+    /// `content_key_proof` checks on each open. Atom rows are plain JSON on a
+    /// disk format v2 home, so it seals no atom content.
     pub async fn from_namespaced_store_with_content_and_hash_key(
         store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
@@ -134,6 +133,8 @@ impl DbOperations {
     }
 
     /// Production constructor with a node key for durable molecule-key wraps.
+    /// The wrap key is also the `content_key_proof` key when `content_key` is
+    /// `None`.
     pub async fn from_namespaced_store_with_content_and_molecule_keys(
         store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
