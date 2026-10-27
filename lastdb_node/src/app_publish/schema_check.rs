@@ -35,7 +35,7 @@ impl SchemaCoverage {
     }
 }
 
-/// Which declare-schema intent `check_schemas` sends.
+/// Which declare-schema intent `check_schemas_with` sends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckMode {
     /// Intent `check`: resolve and validate only. The node writes nothing.
@@ -68,17 +68,10 @@ pub struct CheckOutcome {
 ///
 /// [`CheckMode::ReadOnly`] changes nothing on the node. [`CheckMode::Sync`]
 /// can register, expand, and bind schemas and writes audit events.
-pub fn check_schemas(
-    socket: &Path,
-    manifest: &AppManifest,
-    mode: CheckMode,
-) -> Result<Vec<CheckOutcome>, String> {
-    check_schemas_with(socket, manifest, mode, false)
-}
-
-/// [`check_schemas`] with the caller's confirmation that records which already
-/// exist may expire (`--confirm-expire-existing`). The node refuses a TTL that
-/// would delete existing records without it.
+///
+/// `confirm_expire_existing` is the caller's confirmation that records which
+/// already exist may expire (`--confirm-expire-existing`). The node refuses a
+/// TTL that would delete existing records without it.
 pub fn check_schemas_with(
     socket: &Path,
     manifest: &AppManifest,
