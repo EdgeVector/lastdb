@@ -10,8 +10,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) phys_footprint_bytes: Option<u64>,
     pub(super) phys_footprint_peak_bytes: Option<u64>,
     pub(super) memory_limit_bytes: Option<u64>,
-    pub(super) warm_resident_bytes: u64,
-    pub(super) warm_budget_bytes: u64,
     pub(super) resident_graph_bytes: u64,
     pub(super) resident_graph_budget_bytes: u64,
     pub(super) deferred_persist_bytes: u64,
@@ -57,8 +55,6 @@ pub(super) struct SelfMetricLogLine {
     pub(super) peak_request_bytes: u64,
     #[serde(default)]
     pub(super) slowest_request_ms: u64,
-    #[serde(default)]
-    pub(super) effective_warm_budget_bytes: u64,
     /// Warm set byte gauge, next to the footprint fields above.
     #[serde(default)]
     pub(super) core_warm_used_bytes: u64,
@@ -88,8 +84,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             phys_footprint_bytes: s.phys_footprint_bytes,
             phys_footprint_peak_bytes: s.phys_footprint_peak_bytes,
             memory_limit_bytes: s.memory_limit_bytes,
-            warm_resident_bytes: s.memory_budget.warm_resident_bytes,
-            warm_budget_bytes: s.memory_budget.warm_budget_bytes,
             resident_graph_bytes: s.memory_budget.resident_graph_bytes,
             resident_graph_budget_bytes: s.memory_budget.resident_graph_budget_bytes,
             deferred_persist_bytes: s.memory_budget.deferred_persist_bytes,
@@ -118,7 +112,6 @@ impl From<&StatusSnapshot> for SelfMetricLogLine {
             allocator_reserved_bytes: s.memory_budget.allocator_reserved_bytes,
             peak_request_bytes: s.memory_budget.peak_request_bytes,
             slowest_request_ms: s.memory_budget.slowest_request_ms,
-            effective_warm_budget_bytes: s.memory_budget.effective_warm_budget_bytes,
             core_warm_used_bytes: s.memory_budget.core_warm.used_bytes,
             core_warm_limit_bytes: s.memory_budget.core_warm.limit_bytes,
             cpu_percent: s.cpu_percent,

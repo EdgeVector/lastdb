@@ -45,7 +45,6 @@ pub(super) const SELF_METRIC_FIELDS: &[&str] = &[
     "allocator_reserved_bytes",
     "peak_request_bytes",
     "slowest_request_ms",
-    "effective_warm_budget_bytes",
 ];
 pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "series",

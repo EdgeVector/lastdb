@@ -101,10 +101,6 @@ pub(super) fn insert_allocator_and_disk_fields(
         "slowest_request_ms".to_string(),
         json!(snapshot.memory_budget.slowest_request_ms),
     );
-    fields.insert(
-        "effective_warm_budget_bytes".to_string(),
-        json!(snapshot.memory_budget.effective_warm_budget_bytes),
-    );
     fields.insert("cpu_percent".to_string(), json!(snapshot.cpu_percent));
     fields.insert("home_bytes".to_string(), json!(snapshot.home_bytes));
     fields.insert("data_dir_bytes".to_string(), json!(snapshot.data_dir_bytes));

@@ -27,9 +27,8 @@ impl DeferCapSource {
 /// Inputs for the pure budget computation, separate from `std::env`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MemoryBudgetInputs {
+    /// The warm set byte limit (`LASTDB_CORE_WARM_BYTES`).
     pub warm_bytes: u64,
-    pub key_cache_bytes: u64,
-    pub resident_graph_bytes: u64,
     pub rss_limit_bytes: u64,
     pub rss_multiplier: f64,
     /// Explicit deferred cap from env, if set.
@@ -40,10 +39,9 @@ pub struct MemoryBudgetInputs {
 /// for the deferred-persist window.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProcessMemoryBudget {
+    /// The warm set byte limit (`LASTDB_CORE_WARM_BYTES`).
     pub warm_bytes: u64,
-    pub key_cache_bytes: u64,
-    pub resident_graph_bytes: u64,
-    /// Sum of the budgets this process chose.
+    /// The charged budget: the warm set limit.
     pub charged_bytes: u64,
     pub rss_multiplier: f64,
     /// `charged_bytes * rss_multiplier` — what the charge is expected to cost
@@ -86,16 +84,12 @@ impl ProcessMemoryBudget {
     pub fn compute(inputs: MemoryBudgetInputs) -> Self {
         let MemoryBudgetInputs {
             warm_bytes,
-            key_cache_bytes,
-            resident_graph_bytes,
             rss_limit_bytes,
             rss_multiplier,
             deferred_cap_override,
         } = inputs;
 
-        let charged_bytes = warm_bytes
-            .saturating_add(key_cache_bytes)
-            .saturating_add(resident_graph_bytes);
+        let charged_bytes = warm_bytes;
         let multiplier = rss_multiplier.clamp(MIN_RSS_MULTIPLIER, MAX_RSS_MULTIPLIER);
         let projected_rss_bytes = scale_bytes(charged_bytes, multiplier);
         let headroom_bytes = rss_limit_bytes.saturating_sub(projected_rss_bytes);
@@ -121,8 +115,6 @@ impl ProcessMemoryBudget {
 
         Self {
             warm_bytes,
-            key_cache_bytes,
-            resident_graph_bytes,
             charged_bytes,
             rss_multiplier: multiplier,
             projected_rss_bytes,
@@ -136,21 +128,18 @@ impl ProcessMemoryBudget {
     }
 
     /// Resolve the conservative process admission projection from environment.
-    /// Historical field names remain on the status surface. Their configured
-    /// values reserve headroom; they do not measure native core allocations.
+    /// The configured values reserve headroom; they do not measure native core
+    /// allocations. The daemon refuses a bad `LASTDB_CORE_WARM_BYTES` at boot,
+    /// so the default here only covers a process that skipped that parse.
     #[must_use]
     pub fn from_env() -> Self {
-        let policy = ResidentPolicy::from_env();
         Self::compute(MemoryBudgetInputs {
-            warm_bytes: parse_bytes(std::env::var(WARM_BYTES_ENV).ok(), PRESET_WARM_BYTES),
-            key_cache_bytes: parse_bytes(
-                std::env::var(KEY_CACHE_BYTES_ENV).ok(),
-                PRESET_KEY_CACHE_BYTES,
-            ),
-            // Keep this reserve while clean native atom retention has a record
-            // cap rather than a global byte cap. Removing the old graph does
-            // not authorize donating its headroom to deferred writes.
-            resident_graph_bytes: policy.budget_bytes,
+            warm_bytes: crate::resident::parse_core_warm_bytes(
+                std::env::var(crate::resident::CORE_WARM_BYTES_ENV)
+                    .ok()
+                    .as_deref(),
+            )
+            .unwrap_or(crate::resident::DEFAULT_CORE_WARM_BYTES) as u64,
             rss_limit_bytes: parse_rss_limit_bytes(std::env::var(RSS_LIMIT_MB_ENV).ok()),
             rss_multiplier: parse_rss_multiplier(std::env::var(RSS_MULTIPLIER_ENV).ok()),
             deferred_cap_override: parse_deferred_cap_override(
@@ -167,8 +156,6 @@ impl ProcessMemoryBudget {
             tracing::info!(
                 target: "fold_node::database",
                 warm_mb = self.warm_bytes / MIB,
-                key_cache_mb = self.key_cache_bytes / MIB,
-                resident_graph_mb = self.resident_graph_bytes / MIB,
                 charged_mb = self.charged_bytes / MIB,
                 rss_multiplier = self.rss_multiplier,
                 projected_rss_mb = self.projected_rss_bytes / MIB,
@@ -177,21 +164,19 @@ impl ProcessMemoryBudget {
                 projected_total_mb = self.projected_total_bytes / MIB,
                 rss_limit_mb = self.rss_limit_bytes / MIB,
                 headroom_mb = self.headroom_bytes / MIB,
-                "process memory budget (one accounted number: warm + key cache + \
-                 resident graph, projected to RSS, plus the deferred-write window)"
+                "process memory budget (one accounted number: the warm set limit, \
+                 projected to RSS, plus the deferred-write window)"
             );
         } else {
             tracing::error!(
                 target: "fold_node::database",
                 warm_mb = self.warm_bytes / MIB,
-                key_cache_mb = self.key_cache_bytes / MIB,
-                resident_graph_mb = self.resident_graph_bytes / MIB,
                 charged_mb = self.charged_bytes / MIB,
                 rss_multiplier = self.rss_multiplier,
                 projected_rss_mb = self.projected_rss_bytes / MIB,
                 rss_limit_mb = self.rss_limit_bytes / MIB,
                 over_by_mb = self.projected_rss_bytes.saturating_sub(self.rss_limit_bytes) / MIB,
-                warm_env = WARM_BYTES_ENV,
+                warm_env = crate::resident::CORE_WARM_BYTES_ENV,
                 limit_env = RSS_LIMIT_MB_ENV,
                 "process memory budget CANNOT FIT the RSS guard: the chosen budgets \
                  project over the limit before any write pressure, so the memory guard \

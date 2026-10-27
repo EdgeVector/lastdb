@@ -187,7 +187,7 @@ A queued request can also wait for disk when its reservation or typed coverage i
 The [cutover receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
 `lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
-The logical key line reports the record count cap. A byte allowance does not replace that count cap.
+The logical key line reports the logical record count. It has no count limit; the warm set byte limit bounds it.
 The background purge counters describe queued purge tasks; they do not establish completion of all native logical writes.
 The direct native accepted/completed frontiers describe that completion.
 
@@ -196,8 +196,8 @@ Its retired graph bytes, entry count, and revision fields do not measure current
 A zero historical graph budget does not mean native memory is unbounded.
 The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
-`LASTDB_RESIDENT_BYTES` and `LASTDB_HASH_GROUP_WARM_BYTES` remain conservative process-reserve inputs.
-They do not size a native serving graph or a second logical cache.
+The warm set byte limit (`LASTDB_CORE_WARM_BYTES`) is the one conservative process-reserve input.
+It does not size a native serving graph or a second logical cache.
 `LASTDB_RESIDENT_MAX_DEFERRED_BYTES` controls the deferred write-body allowance.
 The native metadata, complete-key, and logical path limits remain separate.
 None of these counters defines a whole-process memory maximum.
