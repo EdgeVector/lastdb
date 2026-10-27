@@ -129,25 +129,6 @@ impl SchemaCore {
         Ok(())
     }
 
-    /// Block a schema and record its successor for query redirection.
-    /// Used during schema expansion: the old schema is blocked locally,
-    /// and queries against it transparently redirect to the new schema.
-    pub async fn block_and_supersede(
-        &self,
-        old_name: &str,
-        new_name: &str,
-    ) -> Result<(), SchemaError> {
-        self.set_schema_state(old_name, SchemaState::Blocked)
-            .await?;
-
-        self.db_ops.store_superseded_by(old_name, new_name).await?;
-
-        lock_map(&self.superseded_by, "superseded_by")?
-            .insert(old_name.to_string(), new_name.to_string());
-
-        Ok(())
-    }
-
     /// Retire one schema's claim on its `descriptive_name`.
     ///
     /// This is the supported retire primitive. It exists because the two
