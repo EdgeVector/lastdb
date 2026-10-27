@@ -48,8 +48,6 @@ pub(super) fn finish(clock: Option<Clock>, sample: &OpSample) {
                 "molecule_store_commits": sample.molecule_store_commits,
                 "resident_commits": sample.resident_commits,
                 "resident_operations": sample.resident_operations,
-                "partition_read_rejections": sample.partition_read_rejections,
-                "all_group_walks": sample.all_group_walks,
             },
         }),
     );

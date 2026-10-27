@@ -115,8 +115,6 @@ where
         cold_shard_loads,
         phases: phase_timings(queue_wait_us, &phase_totals),
         molecules_persisted: work_counts.molecules_persisted,
-        partition_read_rejections: work_counts.partition_read_rejections,
-        all_group_walks: work_counts.all_group_walks,
         molecule_store_commits: work_counts.molecule_store_commits,
         resident_commits: work_counts.resident_commits,
         resident_operations: work_counts.resident_operations,

@@ -26,13 +26,6 @@ pub struct OpSample {
     /// `None` on backends without hash groups.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_shard_loads: Option<u64>,
-    /// Unanchored product reads this request caused the store to reject.
-    /// Exact across async/blocking boundaries; concurrent callers are excluded.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub partition_read_rejections: u64,
-    /// Explicit startup/admin physical passes this request issued.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub all_group_walks: u64,
     /// Per-phase timing breakdown (microseconds). Empty means the handler
     /// reported no phases; serde omits it so pre-phase status JSON is
     /// unchanged. Fixed-size `Copy` by design — see [`PhaseTimings`].
