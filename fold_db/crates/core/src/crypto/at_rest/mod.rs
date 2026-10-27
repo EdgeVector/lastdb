@@ -29,7 +29,7 @@
 //! Ciphertext is incompressible, so a payload that is sealed and never
 //! compressed can never be shrunk again by any downstream plane: compaction,
 //! the backup chunk store, and the cloud bill all carry the full size
-//! forever. [`seal_at_rest_deflate`] therefore compresses *before* sealing —
+//! forever. The deflated forms therefore compress *before* sealing —
 //! the order Tom locked in `preference-lastdb-storage-compress-atoms-and-blobs`
 //! (plaintext -> compress -> encrypt, never encrypt first).
 //!
@@ -44,26 +44,25 @@
 //! gates on "is this sealed?" (Operation Trinity strict open, idempotent
 //! reseal) must never see `ENZ:` as unsealed.
 //!
-//! **Reads never depend on the write-side switch.** [`open_at_rest`] always
-//! understands `ENZ:`, whatever [`at_rest_compression_enabled`] says, so
-//! disabling compression stops new compressed writes without stranding a
-//! single row already written.
+//! **Reads never depend on a write-side switch.** [`open_at_rest`] always
+//! understands `ENZ:`, so a row that an older build wrote compressed stays
+//! readable.
 //!
-//! **The compression half is shared with the KV seam.** The namespaced
+//! **The compression half serves the KV seam.** The namespaced
 //! `EncryptingKvStore` — which wraps
 //! `atoms`, `tips`, `indexes`, `metadata`, `change_feed`, `cas_blobs`, the
-//! order log and the locators, i.e. essentially the whole store — cannot reuse
-//! [`seal_at_rest_deflate`] because it seals through the async
-//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key. It reuses
-//! the parts that must not drift instead: the `ENZ:` prefix, the
-//! compress-or-skip decision (`compress_for_seal`), the bounded inflate
-//! (`inflate_at_rest`), and these counters. One codec, two seal sites.
+//! order log and the locators, i.e. essentially the whole store — seals
+//! through the async [`CryptoProvider`](super::CryptoProvider) rather than a
+//! raw key. It uses the compress-or-skip decision (`compress_for_seal`), the
+//! bounded inflate (`inflate_at_rest`), and these counters. It is the only
+//! seal site that compresses; the raw-key seals here never deflate, and
+//! [`open_at_rest`] still reads an `ENZ:` value.
 
 mod compress;
 mod config;
 mod stats;
 
-pub use compress::*;
+pub(crate) use compress::*;
 pub use config::*;
 pub use stats::*;
 
@@ -103,8 +102,8 @@ pub fn is_sealed_at_rest(value: &[u8]) -> bool {
 /// Seal `plaintext` as legacy UTF-8 `ENC:` + base64(envelope).
 ///
 /// Use this only at a storage boundary that requires a JSON/string value.
-/// Byte-oriented stores should use [`seal_at_rest_raw`] or
-/// [`seal_at_rest_deflate_raw`], which carry no base64 tax.
+/// Byte-oriented stores should use [`seal_at_rest_raw`], which carries no
+/// base64 tax.
 pub fn seal_at_rest_utf8(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
     let ciphertext = encrypt_envelope(key, plaintext)?;
     let encoded = B64.encode(&ciphertext);
@@ -162,9 +161,8 @@ pub const AT_REST_ENC_DEFLATE_PREFIX: &str = "ENZ:";
 /// `ENB:` values read the raw envelope after the flags byte. Compressed forms
 /// are additionally inflated.
 ///
-/// `ENZ:` is decoded unconditionally — it is **not** gated on
-/// [`at_rest_compression_enabled`]. The kill switch stops new compressed
-/// writes; it must never strand rows already on disk.
+/// `ENZ:` is decoded unconditionally — no write-side switch gates it, so a
+/// row already on disk stays readable.
 pub fn open_at_rest(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
     open_at_rest_with_ceiling(key, stored, at_rest_max_inflated_bytes)
 }
