@@ -71,7 +71,7 @@ const MAX_WORKERS: usize = 64;
 /// still touches only the pages it uses.
 const DEFAULT_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
-/// Why [`UdsWorkerPool::try_submit_connection`] refused the job.
+/// Why [`UdsWorkerPool::try_submit_owned_connection`] refused the job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmitError {
     /// Queue is full — backpressure 503 was (or should be) written to the peer.
@@ -175,7 +175,7 @@ pub struct UdsPoolSnapshot {
     pub queue_full_rejects: u64,
 }
 
-/// Shared handle: accept loops `try_submit_connection`; workers drain the queue.
+/// Shared handle: accept loops `try_submit_owned_connection`; workers drain the queue.
 #[derive(Clone)]
 pub struct UdsWorkerPool {
     inner: Arc<PoolInner>,
