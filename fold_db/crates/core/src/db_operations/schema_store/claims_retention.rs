@@ -114,21 +114,6 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Refresh the node-local age index for successful writes to a retained
-    /// Hash/Single schema. The forward key is age-ordered; the reverse key
-    /// makes rewrites and purges O(1). Stale forward rows are harmless because
-    /// expiry selection validates them against the reverse row.
-    pub async fn record_schema_retention_writes(
-        &self,
-        schema_name: &str,
-        keys: &[KeyValue],
-        written_at: u64,
-    ) -> Result<(), SchemaError> {
-        let ages: Vec<_> = keys.iter().cloned().map(|key| (key, written_at)).collect();
-        self.record_schema_retention_write_ages(schema_name, &ages)
-            .await
-    }
-
     /// Record the original clocks of the current tips, not replay arrival time.
     /// The caller holds the native write scope across the tip reads and writes.
     pub(crate) async fn record_schema_retention_write_ages(
