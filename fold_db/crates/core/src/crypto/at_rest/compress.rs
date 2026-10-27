@@ -1,16 +1,9 @@
-//! Compress-before-seal decision, bounded inflate and the `ENZ:`/`ENB:` deflate
-//! seal entry points.
+//! Compress-before-seal decision and bounded inflate for the deflated `ENZ:`
+//! and `ENB:` forms.
 
-use super::config::{
-    at_rest_compress_min_bytes, at_rest_compression_enabled, at_rest_max_inflated_bytes,
-};
+use super::config::at_rest_max_inflated_bytes;
 use super::stats::{current_thread_cpu_ns, AtRestCompressionCounters, COMPRESS_COUNTERS};
-use super::{
-    encode_binary_ciphertext, seal_at_rest_raw, seal_at_rest_utf8, AT_REST_ENC_DEFLATE_PREFIX,
-};
-use crate::crypto::envelope::encrypt_envelope;
 use crate::crypto::error::{CryptoError, CryptoResult};
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 use flate2::Compression;
@@ -167,78 +160,6 @@ fn compress_for_seal_with_counters(
 /// decompressor in the product, not one per seal site.
 pub(crate) fn inflate_at_rest(compressed: &[u8]) -> CryptoResult<Vec<u8>> {
     inflate_bounded(compressed, at_rest_max_inflated_bytes())
-}
-
-/// Seal `plaintext` through the raw `ENB:` form, with compression when useful.
-///
-/// Binary-safe nested containers use this entry point. The caller already
-/// selected a byte container that can carry the result.
-pub fn seal_at_rest_deflate_raw(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-    seal_at_rest_deflate_with_format(
-        key,
-        plaintext,
-        at_rest_compress_min_bytes(),
-        at_rest_compression_enabled(),
-        true,
-    )
-}
-
-/// Seal with compression when useful, but keep the result UTF-8.
-///
-/// A nested JSON or string field uses this explicit legacy form when its
-/// container cannot carry raw ciphertext bytes.
-pub fn seal_at_rest_deflate_utf8(key: &[u8; 32], plaintext: &[u8]) -> CryptoResult<Vec<u8>> {
-    seal_at_rest_deflate_with(
-        key,
-        plaintext,
-        at_rest_compress_min_bytes(),
-        at_rest_compression_enabled(),
-    )
-}
-
-/// [`seal_at_rest_deflate`] with the policy passed in rather than read from the
-/// environment.
-///
-/// Exists because `LASTDB_AT_REST_COMPRESS` is process-global while Rust runs
-/// tests on parallel threads in one binary: a test that flips the kill switch
-/// would otherwise race every test that depends on compression being on. Taking
-/// the config as an argument removes that whole class of flake instead of
-/// papering it over with a mutex every test has to remember to take.
-pub(crate) fn seal_at_rest_deflate_with(
-    key: &[u8; 32],
-    plaintext: &[u8],
-    min_bytes: usize,
-    enabled: bool,
-) -> CryptoResult<Vec<u8>> {
-    seal_at_rest_deflate_with_format(key, plaintext, min_bytes, enabled, false)
-}
-
-fn seal_at_rest_deflate_with_format(
-    key: &[u8; 32],
-    plaintext: &[u8],
-    min_bytes: usize,
-    enabled: bool,
-    raw: bool,
-) -> CryptoResult<Vec<u8>> {
-    let Some(compressed) =
-        compress_for_seal(plaintext, min_bytes, at_rest_max_inflated_bytes(), enabled)
-    else {
-        return if raw {
-            seal_at_rest_raw(key, plaintext)
-        } else {
-            seal_at_rest_utf8(key, plaintext)
-        };
-    };
-
-    let ciphertext = encrypt_envelope(key, &compressed)?;
-    if raw {
-        return Ok(encode_binary_ciphertext(&ciphertext, true));
-    }
-    let encoded = B64.encode(&ciphertext);
-    let mut out = Vec::with_capacity(AT_REST_ENC_DEFLATE_PREFIX.len() + encoded.len());
-    out.extend_from_slice(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
-    out.extend_from_slice(encoded.as_bytes());
-    Ok(out)
 }
 
 /// Inflate a raw-deflate payload under an explicit ceiling.

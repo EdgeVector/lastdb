@@ -51,11 +51,14 @@ pub fn at_rest_max_inflated_bytes() -> u64 {
         .unwrap_or(AT_REST_MAX_INFLATED_BYTES_DEFAULT)
 }
 
-/// Whether new writes may compress before sealing.
+/// Whether `LASTDB_AT_REST_COMPRESS` is unset or on (`0`, `false`, or `no`
+/// turns it off).
 ///
-/// Kill switch: set `LASTDB_AT_REST_COMPRESS=0` (or `false`/`no`) to stop
-/// emitting `ENZ:`. **Reads are unaffected** — [`open_at_rest`] decodes `ENZ:`
-/// regardless, so flipping this off never strands a row already written.
+/// No writer consults this switch: the raw-key seals in this module never
+/// deflate, and the KV seam has its own [`kv_at_rest_compression_enabled`].
+/// Only the `lastdb_node` status labels read it (`determine_writer_policy`
+/// and `AtRestCompressionHealth::enabled`). **Reads are unaffected** —
+/// [`open_at_rest`] decodes `ENZ:` regardless.
 #[must_use]
 pub fn at_rest_compression_enabled() -> bool {
     !matches!(env_flag::var_parse("LASTDB_AT_REST_COMPRESS"), Some(false))
@@ -109,7 +112,7 @@ pub fn kv_at_rest_compress_min_bytes() -> usize {
 /// Whether `LASTDB_AT_REST_RAW` is set.
 ///
 /// No writer consults this switch: each seal call site picks its own form
-/// (`seal_at_rest_utf8`, `seal_at_rest_raw`, or a deflate entry point), and
+/// (`seal_at_rest_utf8`, `seal_at_rest_raw`, or the KV seam's `ENB:` form), and
 /// reads accept every form. Only the `codec_policy.writer_policy` status label
 /// reads it.
 #[must_use]

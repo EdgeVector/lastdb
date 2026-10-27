@@ -166,13 +166,11 @@ pub fn unsealed_reaped_totals() -> (u64, u64) {
 /// an estimate — policy item 5 of
 /// `preference-lastdb-storage-compress-atoms-and-blobs`.
 ///
-/// **Scope: both seals.** Every site that can emit `ENZ:` counts through
-/// `compress_for_seal`, so these totals cover the raw-key codec here
-/// *and* the namespaced KV seam
-/// (`EncryptingKvStore`) that wraps the
-/// product store. A reading of "0 compressed / N plain" while
-/// `LASTDB_KV_AT_REST_COMPRESS` is unset is therefore expected, not a fault:
-/// the KV seam's write switch defaults off.
+/// **Scope: the KV seam.** The only site that compresses, the namespaced KV
+/// seam (`EncryptingKvStore`) that wraps the product store, counts through
+/// `compress_for_seal`; the raw-key seals never deflate. A reading of
+/// "0 compressed / N plain" while `LASTDB_KV_AT_REST_COMPRESS` is unset is
+/// therefore expected, not a fault: the KV seam's write switch defaults off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AtRestCompressionStats {
     /// Plaintext bytes presented for sealing.
