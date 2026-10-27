@@ -224,11 +224,7 @@ fn parse_header(line: &[u8]) -> Result<(String, String), UdsHttpError> {
 /// to the blank line, and exactly `Content-Length` body bytes. All size caps
 /// ([`MAX_LINE_LEN`], [`MAX_HEADERS_TOTAL`], [`MAX_HEADER_COUNT`],
 /// [`MAX_BODY_LEN`]) are enforced; every failure is a content-free
-/// [`UdsHttpError`].
-pub fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpError> {
-    read_request_with_owner_blob(&mut reader, false)
-}
-
+/// [`UdsHttpError`]. `allow_owner_blob` is true only for the authenticated owner.
 fn read_request_with_owner_blob<R: BufRead>(
     mut reader: R,
     allow_owner_blob: bool,

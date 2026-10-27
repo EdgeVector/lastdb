@@ -132,7 +132,7 @@ pub fn error_response(err: &UdsHttpError) -> UdsResponse {
 
 /// Read one request off an accepted control-socket stream, run it through
 /// `handler` under the connection's [`AccessContext`], and write the response
-/// back — the connective glue between the parser ([`read_request`]), the posture
+/// back — the connective glue between the request parser, the posture
 /// mapping ([`uds_access_context`]), and a request handler.
 ///
 /// `owner_user_id` is the node owner the same-user peer runs as; `socket_kind`
