@@ -219,25 +219,12 @@ pub fn render(result: Result<Value, HostError>, ctx: &AccessContext) -> UdsRespo
             // A 5xx goes out content-free (I4), so the carried message is
             // ONLY visible here — an unlogged 500 leaves the owner staring at
             // "Internal Server Error" with an empty node log.
-            // Permanent quota (429) is operator-actionable and must not ERROR
-            // on every retry (Sentry issue 7654526497 storm). Sample as warn.
-            if e.status == 429
-                && (e.message.contains("quota exceeded")
-                    || e.message.contains("QUOTA_EXCEEDED")
-                    || e.message.contains("storage_quota_exceeded"))
-            {
-                tracing::warn!(
-                    target: "lastdb_host::handlers",
-                    status = e.status,
-                    "handler permanent quota: {}",
-                    e.message
-                );
-            } else if e.status == 507 {
-                // A full disk (507) is the same shape as the quota case above:
-                // operator-actionable, permanent until someone frees space, and
-                // repeated by every write that follows. At ERROR one episode
-                // becomes hundreds of identical Sentry issues (issue
-                // 7620061902: 207 events in 8 hours, 0 users affected).
+            if e.status == 507 {
+                // A full disk (507) is operator-actionable, permanent until
+                // someone frees space, and repeated by every write that
+                // follows. At ERROR one episode becomes hundreds of identical
+                // Sentry issues (issue 7620061902: 207 events in 8 hours,
+                // 0 users affected).
                 tracing::warn!(
                     target: "lastdb_host::handlers",
                     status = e.status,

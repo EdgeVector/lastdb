@@ -23,7 +23,7 @@ pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, Unres
 
 /// Database operations with pluggable storage backend
 ///
-/// Uses the storage abstraction layer (Last Store locally, with optional cloud sync).
+/// Uses the storage abstraction layer (Last Store).
 ///
 /// All persistence is encapsulated in domain store structs whose
 /// namespace fields are private. External callers reach them through

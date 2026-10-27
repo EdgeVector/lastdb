@@ -142,12 +142,9 @@ pub fn status_reason(status: u16) -> &'static str {
 /// A status the handlers actually produce but this list omits is worse than
 /// useless: [`owner_or_content_free`] collapses it to a bare `500`, so the
 /// careful classification upstream never reaches the wire. That is what
-/// happened to `422` (file-blob verification) and `429` (permanent cloud
-/// quota) — the quota mapping added for the Sentry `7654526497` storm spared
-/// the ERROR log, because `render` branches on `HostError::status`, but the
-/// caller still read `500 Internal Server Error`. Keep this list in step with
-/// the statuses handlers return.
-const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 429, 503, 507];
+/// happened to `422` (file-blob verification): the caller read `500 Internal
+/// Server Error`. Keep this list in step with the statuses handlers return.
+const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 503, 507];
 
 /// Render an error: the OWNER caller gets `message` in the body (developer
 /// diagnostics like a schema-resolution failure), every non-owner caller gets

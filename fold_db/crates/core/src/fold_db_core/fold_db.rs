@@ -54,8 +54,8 @@ pub struct FoldDB {
     pub(crate) background_conflict_janitor: super::conflict_janitor::BackgroundConflictJanitorTask,
     /// Paced removal of dead molecules. See [`super::molecule_drain`].
     pub(crate) background_molecule_drain: super::molecule_drain::BackgroundMoleculeDrainTask,
-    /// Post-commit mutation-log capture engine slot. Present on factory-built
-    /// stores even while Cloud Sync is off so live enable can start capture.
+    /// Mutation admission gate. Maintenance and local file-blob writes take
+    /// an admission; conflict metadata fences new mutations with it.
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
 }
 
