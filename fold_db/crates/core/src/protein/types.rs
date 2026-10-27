@@ -69,14 +69,6 @@ impl Protein {
         }
     }
 
-    /// Find the first member binding for a molecule uuid, if present.
-    #[must_use]
-    pub fn member_for_molecule(&self, molecule_uuid: &str) -> Option<&ProteinMember> {
-        self.members
-            .iter()
-            .find(|m| m.molecule_uuid == molecule_uuid)
-    }
-
     /// Find member by molecule + key layout (same molecule can have multiple
     /// conformations / key layouts).
     #[must_use]
@@ -91,11 +83,5 @@ impl Protein {
                 && m.hash_field == hash_field
                 && m.range_field.as_deref() == range_field
         })
-    }
-
-    /// True when `molecule_uuid` is already a member (any layout).
-    #[must_use]
-    pub fn contains_molecule(&self, molecule_uuid: &str) -> bool {
-        self.member_for_molecule(molecule_uuid).is_some()
     }
 }
