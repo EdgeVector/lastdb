@@ -27,11 +27,11 @@ def main():
                "source_revision": revision,
                "command": f"gh run rerun {os.environ['GITHUB_RUN_ID']} -R {os.environ['GITHUB_REPOSITORY']}",
                "expires_at": metadata["expires_at"],
-               "note": "14-day workflow artifact; API confirms ID, nonzero size, live state, and SHA-256 digest"}
+               "note": "Workflow artifact; API confirms ID, nonzero size, live state, and SHA-256 digest"}
     args.output.mkdir(parents=True, exist_ok=False)
     save(args.output / "artifact.json", receipt)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
-        summary.write(f"\n[Download raw benchmark results]({receipt['url']})\n\n"
+        summary.write(f"\n[Download CI artifact]({receipt['url']})\n\n"
                       f"SHA-256: `{digest}`  \nSource: `{revision}`  \nExpires: {receipt['expires_at']}\n")
     print(json.dumps(receipt, indent=2))
 
