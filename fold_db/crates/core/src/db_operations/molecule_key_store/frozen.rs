@@ -6,24 +6,24 @@ use super::{
 use crate::atom::molecule_key_codec::ConflictKeyIdentity;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use serde::de::DeserializeOwned;
-use zeroize::Zeroizing;
 
 pub(crate) const NODE_KEY_ROW_MAX_BYTES: u64 = 16 * 1024;
 const MOLECULE_ID_MAX_BYTES: usize = 1024;
 
 /// One metadata row replaces its legacy form during offline publication.
 /// Account-derived keys remain node authority; no key material is copied.
+/// The metadata row is plain JSON, so the converter's account key is unused.
 pub(crate) fn typed_frozen_metadata(
     molecule: &str,
     profile: MoleculeRangeProfile,
     identity: ConflictKeyIdentity,
-    account_key: &[u8; 32],
+    _account_key: &[u8; 32],
     source: Option<&[u8]>,
 ) -> StorageResult<Vec<u8>> {
     validate_molecule(molecule)?;
     profile.validate().map_err(StorageError::InvalidOperation)?;
     if let Some(source) = source {
-        let metadata: BundleMetadata = decode(account_key, source)?;
+        let metadata: BundleMetadata = decode(source)?;
         if !metadata.is_legacy_for(molecule) {
             return Err(invalid("source molecule metadata is not legacy"));
         }
@@ -59,11 +59,11 @@ pub(crate) fn open_frozen_node_bundle(
     wrap_stored: &[u8],
 ) -> StorageResult<MoleculeKeyBundle> {
     validate_molecule(molecule_uuid)?;
-    let metadata: BundleMetadata = decode(account_key, metadata_stored)?;
+    let metadata: BundleMetadata = decode(metadata_stored)?;
     if !metadata.is_legacy_for(molecule_uuid) {
         return Err(invalid("native molecule key metadata differs"));
     }
-    let wrap: BundleWrap = decode(account_key, wrap_stored)?;
+    let wrap: BundleWrap = decode(wrap_stored)?;
     open_wrap(&wrap, molecule_uuid, NODE_DOMAIN, account_key)
 }
 
@@ -80,10 +80,8 @@ pub(crate) fn verify_frozen_typed_profile(
     expected
         .validate()
         .map_err(StorageError::InvalidOperation)?;
-    let metadata: BundleMetadata = decode(
-        account_key,
-        metadata.ok_or_else(|| invalid("typed molecule metadata is absent"))?,
-    )?;
+    let metadata: BundleMetadata =
+        decode(metadata.ok_or_else(|| invalid("typed molecule metadata is absent"))?)?;
     if metadata.version != super::contracts::TYPED_METADATA_VERSION
         || metadata.molecule_uuid != molecule
         || metadata.range_profile != Some(expected)
@@ -94,7 +92,7 @@ pub(crate) fn verify_frozen_typed_profile(
     match (metadata.key_authority, wrap) {
         (Some(super::KeyAuthority::Node), None) => Ok(()),
         (Some(super::KeyAuthority::Bundle), Some(bytes)) => {
-            let wrap: BundleWrap = decode(account_key, bytes)?;
+            let wrap: BundleWrap = decode(bytes)?;
             open_wrap(&wrap, molecule, NODE_DOMAIN, account_key).map(drop)
         }
         _ => Err(invalid(
@@ -103,21 +101,13 @@ pub(crate) fn verify_frozen_typed_profile(
     }
 }
 
-fn decode<T: DeserializeOwned>(key: &[u8; 32], stored: &[u8]) -> StorageResult<T> {
+/// The native molecule_keys namespace stores metadata and wrapped keys as
+/// plain JSON.
+fn decode<T: DeserializeOwned>(stored: &[u8]) -> StorageResult<T> {
     if stored.len() as u64 > NODE_KEY_ROW_MAX_BYTES {
         return Err(invalid("native molecule key record exceeds its bound"));
     }
-    // The native molecule_keys namespace stores metadata and wrapped keys as
-    // plain JSON. Historical outer account envelopes remain readable.
-    let plain = crate::crypto::at_rest::is_sealed_at_rest(stored)
-        .then(|| {
-            crate::crypto::at_rest::open_at_rest_bounded(key, stored, NODE_KEY_ROW_MAX_BYTES)
-                .map(Zeroizing::new)
-                .map_err(|_| invalid("native molecule key record envelope"))
-        })
-        .transpose()?;
-    let bytes = plain.as_deref().map_or(stored, Vec::as_slice);
-    serde_json::from_slice(bytes).map_err(|_| invalid("native molecule key record format"))
+    serde_json::from_slice(stored).map_err(|_| invalid("native molecule key record format"))
 }
 
 fn invalid(detail: &str) -> StorageError {

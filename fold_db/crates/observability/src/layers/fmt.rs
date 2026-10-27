@@ -42,8 +42,8 @@ pub const OBS_LOG_RETENTION_DAYS: usize = 7;
 /// appender writes daily segments named `<stem>.<YYYY-MM-DD>.<ext>` in the same
 /// directory, so a path of `…/observability.jsonl` rolls into
 /// `…/observability.2026-06-19.jsonl`, `…/observability.2026-06-20.jsonl`, …
-/// The offline reader globs `<stem>.*.<ext>` (plus a legacy un-suffixed
-/// `<stem>.<ext>`) so `--since` keeps working across a roll.
+/// The offline reader globs `<stem>.*.<ext>` so `--since` keeps working across
+/// a roll.
 const DEFAULT_LOG_STEM: &str = "observability";
 const DEFAULT_LOG_EXT: &str = "jsonl";
 
@@ -125,8 +125,7 @@ pub(crate) fn build_fmt_writer(target: FmtTarget) -> Result<(NonBlocking, FmtGua
 }
 
 /// Build the daily-rotating, retention-bounded file appender for a canonical
-/// log path. Factored out of [`build_fmt_writer`] so it is unit-testable
-/// without standing up the whole `non_blocking` worker.
+/// log path.
 fn build_rolling_appender(path: &Path) -> Result<RollingFileAppender, ObsError> {
     let (dir, prefix, suffix) = split_log_path(path);
     // Ensure the log directory exists; `default_node_log_path` already creates
@@ -134,8 +133,6 @@ fn build_rolling_appender(path: &Path) -> Result<RollingFileAppender, ObsError> 
     // hands us the caller's path verbatim, and the rolling appender errors if
     // its directory is missing.
     std::fs::create_dir_all(&dir)?;
-    // Retire any pre-rotation legacy monolith so it ages out under retention.
-    retire_legacy_log(&dir, &prefix, &suffix);
     RollingFileAppender::builder()
         .rotation(Rotation::DAILY)
         .filename_prefix(prefix)
@@ -143,85 +140,6 @@ fn build_rolling_appender(path: &Path) -> Result<RollingFileAppender, ObsError> 
         .max_log_files(OBS_LOG_RETENTION_DAYS)
         .build(&dir)
         .map_err(|e| ObsError::Io(io::Error::other(e.to_string())))
-}
-
-/// Rename a pre-rotation legacy `<prefix>.<suffix>` monolith (e.g.
-/// `observability.jsonl`) into a dated segment so the rolling appender's
-/// retention window can prune it.
-///
-/// Nodes that ran before the rolling appender landed appended to a single
-/// un-dated `observability.jsonl`. `tracing_appender`'s `max_log_files` only
-/// counts the **dated** `<prefix>.<date>.<suffix>` segments it manages, so that
-/// legacy blob is invisible to retention and grows / sits **forever** — it was
-/// observed at 330 MB on 2026-06-20 even though daily rotation was already
-/// shipping (a small `observability.2026-06-21.jsonl` sat right beside it). The
-/// shipped app keeps the monolith open and unbounded.
-///
-/// We don't delete user data; we just give the blob a dated name so it falls
-/// under the same 7-day retention as every rolled segment and ages out
-/// naturally. The date used is the file's last-modified day (its newest data),
-/// so it prunes ~`OBS_LOG_RETENTION_DAYS` after the last line was written. We
-/// pick a `<date>.legacy` suffix component collision-free against the
-/// appender's own `<date>` segments — concretely we rename to
-/// `<prefix>.<YYYY-MM-DD>-legacy.<suffix>`, which still matches the offline
-/// reader's `<prefix>.*.<suffix>` glob (so `folddb logs --since` keeps reading
-/// it) and still matches `max_log_files`' prune glob (so retention prunes it),
-/// while never colliding with a real `<prefix>.<YYYY-MM-DD>.<suffix>` segment.
-///
-/// Best-effort: any IO failure (missing file, permission, a target that already
-/// exists) is swallowed — a failed retirement must never block observability
-/// init. The worst case is the status quo (the blob stays), not a boot failure.
-fn retire_legacy_log(dir: &Path, prefix: &str, suffix: &str) {
-    let legacy = dir.join(format!("{prefix}.{suffix}"));
-    let Ok(meta) = std::fs::metadata(&legacy) else {
-        return; // no legacy monolith — nothing to retire
-    };
-    if !meta.is_file() {
-        return;
-    }
-    let date = legacy_retire_date(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH));
-    let mut target = dir.join(format!("{prefix}.{date}-legacy.{suffix}"));
-    // Avoid clobbering an existing retirement (e.g. a previous boot already
-    // retired a blob on the same day): disambiguate with a counter.
-    let mut n = 1;
-    while target.exists() {
-        target = dir.join(format!("{prefix}.{date}-legacy-{n}.{suffix}"));
-        n += 1;
-        if n > 1000 {
-            return; // pathological dir — give up rather than spin
-        }
-    }
-    let _ = std::fs::rename(&legacy, &target);
-}
-
-/// Format a `SystemTime` as a `YYYY-MM-DD` UTC date string for the legacy-log
-/// retirement name. Done with a tiny civil-from-days computation rather than
-/// pulling in `chrono`/`time` (the observability crate stays dependency-lean,
-/// and `tracing_appender` already stamps its own dates in UTC).
-fn legacy_retire_date(modified: SystemTime) -> String {
-    let secs = modified
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let days = (secs / 86_400) as i64;
-    let (y, m, d) = civil_from_days(days);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
-/// Convert a count of days since the Unix epoch (1970-01-01) to a
-/// `(year, month, day)` Gregorian/proleptic civil date. Howard Hinnant's
-/// well-known branch-free `civil_from_days` algorithm; valid for the entire
-/// range we care about. Self-contained so the crate avoids a date-library dep.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +380,3 @@ impl<'a> Visit for JsonFieldVisitor<'a> {
         self.record_field(field.name(), Value::String(format!("{value:?}")));
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------

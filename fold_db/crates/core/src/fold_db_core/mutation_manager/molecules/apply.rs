@@ -71,8 +71,7 @@ impl MutationManager {
             // the persist step writes only the changed `mk:` records. A `Single`
             // field (no `changed_key`) is recorded with an empty set — still
             // present for the per-key store path (header rewrite / empty changed
-            // set). Product create/update never writes `ref:{M}` whole-molecule
-            // blobs (`refuse_legacy_ref_blob_store_items` refuses them).
+            // set).
             if schema_field.common().molecule_uuid().is_some() {
                 let entry = modified_fields.entry(field_name.clone()).or_default();
                 if let Some(ck) = changed_key {

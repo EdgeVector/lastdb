@@ -40,8 +40,8 @@ use crate::storage::disk_pack::transaction::blocked::measure;
 use std::time::Duration;
 
 /// The most tip records one batch erases, whatever the knob says. A tip costs at
-/// most three operations (the tip, the counter, the body), and an older home
-/// takes 4,096 operations in a batch.
+/// most three operations (the tip, the counter, the body), so 512 tips use at
+/// most 1,536 of the 16,384 operations a batch holds.
 pub(crate) const MAX_TIPS_PER_BATCH: usize = 512;
 
 /// The size of one batch.

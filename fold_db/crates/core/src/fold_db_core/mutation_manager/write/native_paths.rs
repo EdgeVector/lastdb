@@ -71,9 +71,6 @@ impl MutationManager {
         self.stage_native_headers(job, runtime, scope, siblings)?;
         // Schema-field/protein definitions are global. The logical records
         // below use this request's scope.
-        if !runtime.write_has_feature(laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS) {
-            transaction::require_durable(runtime)?;
-        }
         let tips = changed_tips(job, siblings);
         self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings))
             .boxed()

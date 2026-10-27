@@ -1,7 +1,6 @@
 //! Catalog key framing, retention row shapes and tolerant JSON decoding for
 //! [`super::SchemaStore`].
 
-use crate::crypto::at_rest::{is_sealed_at_rest, open_at_rest};
 use crate::schema::types::KeyValue;
 use crate::schema::Schema;
 use serde::de::DeserializeOwned;
@@ -135,36 +134,13 @@ pub(super) fn durable_schema_eq(a: &Schema, b: &Schema) -> bool {
     a == b
 }
 
-/// Decode a catalog value. JSON is the contract. An `ENC:` tip is opened
-/// with the Mini content key when present; otherwise it is unreadable.
+/// Decode a catalog value. Plain JSON is the only catalog row form.
 /// Never panics; callers must not turn a decode miss into a 400 that
 /// bricks list/query or boot.
-pub(super) fn decode_catalog_json<T: DeserializeOwned>(
-    bytes: &[u8],
-    unwrap_key: Option<&[u8; 32]>,
-) -> Result<T, String> {
-    match serde_json::from_slice::<T>(bytes) {
-        Ok(value) => Ok(value),
-        Err(json_err) => {
-            if is_sealed_at_rest(bytes) {
-                if let Some(key) = unwrap_key {
-                    match open_at_rest(key, bytes) {
-                        Ok(plain) => serde_json::from_slice(&plain).map_err(|e| e.to_string()),
-                        Err(e) => Err(format!("ENC: catalog tip would not open: {e}")),
-                    }
-                } else {
-                    Err(format!("ENC: catalog tip and no unwrap key ({json_err})"))
-                }
-            } else {
-                Err(json_err.to_string())
-            }
-        }
-    }
+pub(super) fn decode_catalog_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    serde_json::from_slice::<T>(bytes).map_err(|error| error.to_string())
 }
 
-pub(super) fn decode_catalog_schema(
-    bytes: &[u8],
-    unwrap_key: Option<&[u8; 32]>,
-) -> Result<Schema, String> {
-    decode_catalog_json(bytes, unwrap_key)
+pub(super) fn decode_catalog_schema(bytes: &[u8]) -> Result<Schema, String> {
+    decode_catalog_json(bytes)
 }

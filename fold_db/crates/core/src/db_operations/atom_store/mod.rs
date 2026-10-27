@@ -69,8 +69,6 @@ pub use counter::{
     VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
-/// Historical derived-index prefixes the reclaim path may delete.
-pub use helpers::retired_index_reclaim_prefixes;
 pub(crate) use key_format::CURRENT_NATIVE_INITIALIZATION_KEYS;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
