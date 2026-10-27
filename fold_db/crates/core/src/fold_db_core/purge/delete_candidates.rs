@@ -66,7 +66,6 @@ pub(crate) fn plan_normal_delete_barriers(
                     device_id: device_id.clone(),
                     mutation_uuid: mutation.uuid.clone(),
                     kind: DeleteKind::Normal,
-                    displaced_atom_uuid: None,
                     cloud_sequence: None,
                     tip_before_nanos: mutation.erase_tips_before_nanos,
                 };

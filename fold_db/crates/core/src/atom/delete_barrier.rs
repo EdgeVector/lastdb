@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 /// One Delete winner. The key includes the exact final `mk:` storage key,
 /// including its personal or org scope, after all key encodings.
+/// Older values may also contain `displaced_atom_uuid`. It never participates
+/// in replay, ordering, or counter release; serde ignores that legacy field.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DeleteBarrier {
     pub mk_key: String,
@@ -13,9 +15,9 @@ pub(crate) struct DeleteBarrier {
     pub device_id: String,
     pub mutation_uuid: String,
     pub kind: DeleteKind,
-    pub displaced_atom_uuid: Option<String>,
     /// The physical-log sequence is only a duplicate tie for legacy deletes.
     /// It must not outrank the original device's write time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_sequence: Option<u64>,
     /// A job Delete on a key whose age is its write time (the TTL sweep) spares
     /// a tip written at or after this time, in unix nanoseconds. `None` is an
@@ -57,7 +59,7 @@ pub(crate) fn delete_barrier_key(mk_key: &[u8]) -> String {
 
 impl DeleteBarrier {
     /// The common order is source time, counter, writer, mutation, and kind.
-    /// Delete wins an exact tie with Put. Displaced atom is history metadata.
+    /// Delete wins an exact tie with Put.
     pub(crate) fn order_key(&self) -> (u64, u64, &str, &str, u8) {
         (
             self.written_at,

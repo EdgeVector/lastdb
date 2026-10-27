@@ -153,6 +153,8 @@ of keys of the request and never the size of the schema.
 An erase omits the generation marker when no active or prepared generation exists.
 A request guard excludes new generation cuts until the durable commit.
 The same guard covers every erase chunk. Delete replay barriers remain in the batch.
+The barrier keeps the delete order, exact key, replay sequence, and optional TTL cutoff.
+It omits the unused displaced atom identity. Older barriers remain readable.
 
 A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
 safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that
