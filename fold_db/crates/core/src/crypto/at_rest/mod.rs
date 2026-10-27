@@ -19,10 +19,9 @@
 //! **Legacy wire format:** `ENC:` ++ base64(envelope) — identical to the
 //! [`EncryptingNamespacedStore`](crate::storage::EncryptingNamespacedStore) seam, so a value sealed here reads
 //! exactly like a value sealed there and the stored bytes stay valid UTF-8.
-//! Values *without* the prefix are treated as legacy pre-migration plaintext
-//! and returned verbatim (**dual-read**), enabling lazy rewrite-on-write
-//! migration with no separate pass — a node upgraded across the seal keeps
-//! reading its old rows, and the next write re-seals them.
+//! A value without one of the markers below is not sealed, and
+//! [`open_at_rest`] rejects it. The plaintext dual-read for rows written
+//! before their store was sealed went with disk format v1.
 //!
 //! **Second legacy wire format — `ENZ:` ++
 //! base64(envelope(deflate(plaintext))).**
@@ -49,14 +48,13 @@
 //! readable.
 //!
 //! **The compression half serves the KV seam.** The namespaced
-//! `EncryptingKvStore` — which wraps
-//! `atoms`, `tips`, `indexes`, `metadata`, `change_feed`, `cas_blobs`, the
-//! order log and the locators, i.e. essentially the whole store — seals
-//! through the async [`CryptoProvider`](super::CryptoProvider) rather than a
-//! raw key. It uses the compress-or-skip decision (`compress_for_seal`), the
-//! bounded inflate (`inflate_at_rest`), and these counters. It is the only
-//! seal site that compresses; the raw-key seals here never deflate, and
-//! [`open_at_rest`] still reads an `ENZ:` value.
+//! `EncryptingKvStore`, which wraps only the local CAS blob records
+//! (`cas_blobs`), seals through the async
+//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key. It uses
+//! the compress-or-skip decision (`compress_for_seal`), the bounded inflate
+//! (`inflate_at_rest`), and these counters. It is the only seal site that
+//! compresses; the raw-key seals here never deflate, and [`open_at_rest`]
+//! still reads an `ENZ:` value.
 
 mod compress;
 mod config;
@@ -155,11 +153,10 @@ pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<(bo
 /// base64 body or with JSON.
 pub const AT_REST_ENC_DEFLATE_PREFIX: &str = "ENZ:";
 
-/// Open a stored value. Values *without* a sealed prefix are returned
-/// verbatim (legacy pre-migration plaintext, dual-read). `ENC:`- and
-/// `ENZ:`-prefixed values are base64-decoded and decrypted under `key`, and
-/// `ENB:` values read the raw envelope after the flags byte. Compressed forms
-/// are additionally inflated.
+/// Open a sealed value. `ENC:`- and `ENZ:`-prefixed values are
+/// base64-decoded and decrypted under `key`, and `ENB:` values read the raw
+/// envelope after the flags byte. Compressed forms are additionally
+/// inflated. A value without a sealed prefix is an error.
 ///
 /// `ENZ:` is decoded unconditionally — no write-side switch gates it, so a
 /// row already on disk stays readable.
@@ -167,8 +164,7 @@ pub fn open_at_rest(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
     open_at_rest_with_ceiling(key, stored, at_rest_max_inflated_bytes)
 }
 
-/// Open existing formats with a caller-owned bound, independent of environment.
-/// Unlike the historical helper, this entry point requires an encrypted value.
+/// Open a sealed value with a caller-owned bound, independent of environment.
 pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoResult<Vec<u8>> {
     if max == 0
         || max.checked_add(1).is_none()
@@ -189,9 +185,8 @@ pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoRe
     Ok(plain)
 }
 
-// Verbatim reads do not inflate, so they do not need an environment lookup
-// for the inflate ceiling. Compressed reads still fetch the current ceiling
-// for each open and enforce it after authenticated decryption.
+// Only compressed reads fetch the current inflate ceiling, once for each
+// open, and enforce it after authenticated decryption.
 fn open_at_rest_with_ceiling<F>(
     key: &[u8; 32],
     stored: &[u8],
@@ -210,9 +205,9 @@ where
     }
     let deflated = stored.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
     if !deflated && !stored.starts_with(AT_REST_ENC_PREFIX.as_bytes()) {
-        // Legacy plaintext written before its store was sealed. Dual-read
-        // keeps it readable; the next write through a seal entry point re-seals it.
-        return Ok(stored.to_vec());
+        return Err(CryptoError::InvalidFormat(
+            "at-rest value has no ENC:, ENZ:, or ENB: marker".into(),
+        ));
     }
     // Both markers are the same width, so one slice serves both.
     let b64_part = &stored[AT_REST_ENC_PREFIX.len()..];
