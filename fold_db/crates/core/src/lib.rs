@@ -33,9 +33,6 @@ pub use resident::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneMetrics,
     PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
 };
-/// Age-based durability health, evaluated with no sync engine running.
-/// Sealed-chunk backup progress math (no network).
-pub mod backup_progress;
 pub mod canonical;
 pub mod clock;
 pub mod constants;
