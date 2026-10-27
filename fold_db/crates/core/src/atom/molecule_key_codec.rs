@@ -18,7 +18,6 @@
 use crate::crypto::E2eKeys;
 
 mod conflict_identity;
-pub mod conversion;
 pub use conflict_identity::ConflictKeyIdentity;
 mod profile;
 mod range_decode;
