@@ -367,18 +367,16 @@ jobs:
           # Install dependencies
           bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/lastsecrets-deps-install.log"
           
-          # bun link only registers the package name. It does not install the
-          # command. Later steps call `lastsecrets`, so put bin/lastsecrets on PATH.
-          chmod +x "$PWD/bin/lastsecrets"
+          # lastsecrets uses package.json bin pointing to src/cli.ts (not a compiled bin/ file)
+          # bun link registers the command based on package.json bin config
+          bun link 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log"
+          
+          # Add Bun's global bin directory to PATH
           BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
-          mkdir -p "$BUN_BIN"
-          ln -sfn "$PWD/bin/lastsecrets" "$BUN_BIN/lastsecrets"
-          if [ ! -x "$BUN_BIN/lastsecrets" ]; then
-            echo "lastsecrets command is not executable at $BUN_BIN/lastsecrets"
-            exit 1
-          fi
           echo "$BUN_BIN" >> "$GITHUB_PATH"
-          "$BUN_BIN/lastsecrets" --version 2>&1 | tee "$PROOF_DIR/lastsecrets-link.log" || echo "No version flag"
+          
+          # Verify the command is available
+          "$BUN_BIN/lastsecrets" --version 2>&1 || echo "No version flag"
         env:
           # LastSecrets reads socket path from this env var
           LASTSECRETS_SOCKET_PATH: ${{ env.LASTDB_HOME }}/data/folddb.sock
