@@ -96,11 +96,6 @@ pub(super) async fn write_request_ops_rollup(
         insert_if_nonzero(&mut fields, "max_ms", aggregate.max_ms);
         insert_if_nonzero(&mut fields, "last_ts_ms", aggregate.last_ts_ms);
         insert_if_nonzero(&mut fields, "error_count", aggregate.error_count);
-        insert_if_nonzero(
-            &mut fields,
-            "sum_cold_shard_loads",
-            aggregate.sum_cold_shard_loads,
-        );
         insert_if_nonzero(&mut fields, "sum_body_bytes", aggregate.sum_body_bytes);
         insert_if_nonzero(&mut fields, "max_body_bytes", aggregate.max_body_bytes);
         // Field names derive from the model's PHASE_NAMES so a phase added

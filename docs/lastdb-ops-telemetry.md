@@ -34,8 +34,8 @@ including request IDs when clients provide `X-LastDB-Request-Id`.
 It also ranks **request body bytes by caller** (`Top by request body bytes`):
 for each `(client, kind, schema)` key the node sums the HTTP request body sizes
 it already records on every sample. That is the cheap answer to "who is stuffing
-the node" — write volume by caller — complementary to wall-time and cold-load
-rankings. It is **not** net disk growth (tips, indexes, and history amplify
+the node" — write volume by caller — complementary to the wall-time
+ranking. It is **not** net disk growth (tips, indexes, and history amplify
 beyond the request body). The table is omitted when every work key has a zero
 body sum. Compact `lastdb ops --by-app` appends `body_sum=` / `body_max=` on
 app/verb rows that recorded any body bytes.
@@ -57,7 +57,7 @@ offender tables the live view uses.
 
 Each row is one `(client, kind, schema)` bucket for one sample interval and
 carries interval **deltas** for `count`, `sum_ms`, `error_count`,
-`sum_cold_shard_loads`, `sum_body_bytes` (write volume), the per-phase mutation timing sums
+`sum_body_bytes` (write volume), the per-phase mutation timing sums
 (`sum_queue_wait_us`, `sum_admission_wait_us`, `sum_parse_us`,
 `sum_schema_resolve_us`, `sum_validate_us`, `sum_apply_us`, `sum_persist_us`,
 `sum_flush_us`, `sum_index_wait_us`) and `phase_count` (how many requests in
@@ -69,6 +69,11 @@ Compatibility is append-only in both directions: the sampler upgrades the
 rollup schema in place when it sees missing fields, and rows written before a
 field shipped read back as 0 — for phase fields that means "no phases
 reported", not a measurement of zero.
+
+The rollup schema no longer lists `sum_cold_shard_loads`. Its value was always
+`0` in disk format v2. An extra field does not start a schema upgrade, so a
+store that registered the field keeps it until a missing field starts the next
+upgrade. The sampler does not write the field, and `--since` does not read it.
 
 Known limitation: the sampler's delta baselines are kept for the life of the
 process and never pruned. If an aggregate bucket is evicted from the bounded

@@ -15,17 +15,6 @@ pub struct OpSample {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rows: Option<u64>,
     pub body_bytes: u64,
-    /// Cold hash-group shard loads observed while this request was in flight.
-    ///
-    /// **Observed during, not necessarily caused by.** The underlying counter
-    /// is store-wide, so under concurrency a request is charged for loads other
-    /// requests triggered in the same window. That makes it a good ranking
-    /// signal over many samples and a bad forensic claim about one sample —
-    /// read it the way you would read a load average.
-    ///
-    /// `None` on backends without hash groups.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cold_shard_loads: Option<u64>,
     /// Per-phase timing breakdown (microseconds). Empty means the handler
     /// reported no phases; serde omits it so pre-phase status JSON is
     /// unchanged. Fixed-size `Copy` by design — see [`PhaseTimings`].
@@ -34,8 +23,8 @@ pub struct OpSample {
     /// Field molecules this request handed to the durable store.
     ///
     /// The denominator `phases.persist_molecules_us` lacks. Request-scoped and
-    /// exact — unlike [`Self::cold_shard_loads`], this is counted at the site
-    /// that issues the work, so it is never charged for a concurrent caller.
+    /// exact: this is counted at the site that issues the work, so it is never
+    /// charged for a concurrent caller.
     /// Zero (and omitted) on every non-mutating request.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub molecules_persisted: u64,
@@ -136,10 +125,6 @@ pub struct OpAggregate {
     pub max_ms: u64,
     pub last_ts_ms: u64,
     pub error_count: u64,
-    /// Total cold shard loads observed across this key's requests. Ranking
-    /// signal — see [`OpSample::cold_shard_loads`] for the attribution caveat.
-    #[serde(default)]
-    pub sum_cold_shard_loads: u64,
     /// Total request body bytes observed across this key's requests.
     ///
     /// For mutations / mutation batches / file-blob writes this is the best
@@ -361,40 +346,6 @@ impl OpAggregate {
 
     pub fn avg_ms(&self) -> u64 {
         self.sum_ms.checked_div(self.count).unwrap_or(0)
-    }
-
-    /// Cold shard loads observed per call on this key.
-    ///
-    /// **Not a per-caller read cost.** [`OpSample::cold_shard_loads`] is a
-    /// store-wide counter sampled around each request, so a call is charged for
-    /// every load concurrent callers triggered while it ran. This ratio
-    /// therefore scales with how LONG the key's calls are, and a key whose
-    /// calls are slow for reasons that have nothing to do with reading — lock
-    /// wait, queueing, a large sort — ranks at the top of it.
-    ///
-    /// Read [`Self::cold_shard_loads_per_service_second`] beside it. When the
-    /// per-second figure is flat across keys whose per-call figures differ by
-    /// orders of magnitude, the per-call column is measuring duration and the
-    /// node has one store-wide load rate, not one heavy caller.
-    pub fn avg_cold_shard_loads(&self) -> u64 {
-        self.sum_cold_shard_loads
-            .checked_div(self.count)
-            .unwrap_or(0)
-    }
-
-    /// Cold shard loads per SECOND of this key's service time.
-    ///
-    /// The duration-normalised companion to [`Self::avg_cold_shard_loads`].
-    /// Because the underlying counter is store-wide, a key that merely runs
-    /// long accumulates loads in proportion to its own duration; dividing them
-    /// out leaves the store-wide load rate during that key's windows. Keys that
-    /// genuinely differ in read cost separate here; keys that differ only in
-    /// duration converge.
-    pub fn cold_shard_loads_per_service_second(&self) -> u64 {
-        self.sum_cold_shard_loads
-            .saturating_mul(1000)
-            .checked_div(self.sum_ms)
-            .unwrap_or(0)
     }
 
     /// Mean request body size on this key.

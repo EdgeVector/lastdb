@@ -11,8 +11,7 @@ The receipt does not change the file format or the warm-set byte budget.
 
 Send `x-lastdb-read-receipt: true` with `POST /api/query` on the owner socket.
 The response header `x-lastdb-read-receipt` contains a compact JSON object.
-Ordinary queries omit the receipt header. Request telemetry uses its own
-per-request scope. Its `cold_shard_loads` value comes from `group_opens`, so it stays `0`.
+Ordinary queries omit the receipt header. Request telemetry does not read the receipt.
 
 The `query_storage` scope covers one query after request parse and before the
 response envelope. It includes schema resolution and the final record result.
@@ -34,7 +33,7 @@ scope can carry the partial receipt.
 | `requested_keys` | Storage lookup attempts. This includes fallback probes and repeated requests for the same key. It is not the number of API records. |
 | `logical_warm_hits` | Exact lookup results from the logical core path, including confirmed absence. |
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
-| `group_opens` | Has no writer in disk format v2 and stays `0`. Request telemetry reports it as `cold_shard_loads`. |
+| `group_opens` | Has no writer in disk format v2 and stays `0`. |
 | `returned_body_bytes` | Exact response body bytes after the result envelope. Header bytes are separate. |
 | `file_open_attempts` | Read-only file open attempts, including failed attempts. |
 | `file_opens` | Successful read-only file opens. A repeated open counts again. |

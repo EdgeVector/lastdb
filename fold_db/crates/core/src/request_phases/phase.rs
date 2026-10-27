@@ -227,11 +227,10 @@ pub enum RequestPhase {
     /// window push-down, and atom-body materialization for the matched rows.
     ///
     /// The only sub-step that touches storage, so it is the one that moves
-    /// with `cold_shard_loads` and with resident-cache hit rate. Large here
-    /// with loads at zero is in-memory materialization cost (molecule walk,
-    /// decrypt, value decode), which is a different fix from large here with
-    /// loads climbing — that is a placement or pruning problem, and
-    /// `hash_range_write_cost_tests` bounds its write-side twin.
+    /// with resident-cache hit rate. Large here with a warm cache is in-memory
+    /// materialization cost (molecule walk, decrypt, value decode), which is a
+    /// different fix from large here with cache misses climbing — that is a
+    /// placement or pruning problem.
     HydrateAtoms,
     /// Query only: building the response envelopes — `records_from_field_map`
     /// plus one `serde_json` object per row carrying its fields, metadata and
