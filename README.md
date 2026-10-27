@@ -38,7 +38,7 @@ deleted the desktop node on **2026-07-12**.
 ├── schema_service/             # cloud schema registry
 │   ├── crates/{core,client,server_shared,server_http,server_lambda,worker,…}
 │   └── openapi.yaml
-├── vendor/laststore/
+├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
 └── docs/                       # operator + release docs (Mini / Homebrew)
 ```
 

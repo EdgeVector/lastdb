@@ -31,11 +31,12 @@ inconclusive unless the log clearly proves an unrelated restart.
 
 ## Offline baseline
 
-The old one-shot cutover baseline helper has been retired with the rest of the
-historical sled to LastStore tooling. For current validation, use the
-`lastdb-safe-upgrade` flow: take a durable backup, run the candidate on synthetic
-data in a fresh empty home, and only then consider a live upgrade. The historical helper
-sources are in git history; reports are under `docs/history/mini-cutover/`.
+The old one-shot cutover baseline helper is retired, with the rest of the
+historical sled to LastStore tooling. Decision D1 (2026-10-26) also removed the
+LastStore segment engine; a current home uses disk format v2. For current
+validation, use the `lastdb-safe-upgrade` flow: take a durable backup, run the
+candidate on synthetic data in a fresh empty home, and only then consider a live
+upgrade. The historical helper sources are in git history; reports are under `docs/history/mini-cutover/`.
 
 ## Order-log warning
 

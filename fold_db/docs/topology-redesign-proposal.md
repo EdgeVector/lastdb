@@ -1,5 +1,7 @@
 # Topology Redesign: Remove It
 
+Status (2026-10-27): historical proposal. The code has no `JsonTopology` now, and LastDB removed the Sled storage that this text names.
+
 ## Current State
 
 `JsonTopology` is a recursive enum attached to every schema field. It carries three responsibilities:

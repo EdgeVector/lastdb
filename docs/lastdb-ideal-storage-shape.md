@@ -930,7 +930,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 | Locator codec | `fold_db/crates/core/src/atom/atom_locator_codec.rs` (`aloc:`) |
 | Collection routing | `fold_db/crates/core/src/storage/disk_pack/native_routing/key_routing.rs` |
 | Main key classify | `fold_db/crates/core/src/mini_cutover/main_keys.rs` |
-| Backup manifest | `fold_db/crates/core/src/storage/laststore/backup_manifest.rs` |
+| Backup manifest | [`fold_db/crates/core/src/storage/laststore/backup_manifest.rs`](https://github.com/EdgeVector/lastdb/blob/16c02a609f0d3dcad984463e60b81a031276ac08/fold_db/crates/core/src/storage/laststore/backup_manifest.rs) (removed) |
 | Page index rebuild | `fold_db/crates/core/src/db_operations/atom_store/filter/page_index.rs` |
 | fkanban protein | host-track fkanban `src/protein.ts` |
 

@@ -96,7 +96,8 @@ in `docs/observability/tokio-spawn-instrument-notes.md`:
    binary's startup span or no span at all — tagging every event with it
    would be misleading on dashboards. Per-event spans are created by
    downstream code as work flows through. Examples:
-   - `SledPool::start_idle_reaper` — the idle reaper.
+   - `BackgroundFlushTask::spawn` (`crates/core/src/fold_db_core/mutation_flush.rs`)
+     — the periodic flush loop.
 
 2. **`#[cfg(test)]` scaffolding.** Test driver tasks that advance a
    `MockClock` or block on a gate so the test can exercise concurrent

@@ -479,9 +479,8 @@ empty write scope also counts as a writer for the pacing of the background tasks
 - The totals hold about 32 bytes for each referenced atom, at most `--max-atoms`.
   Beyond it the verifier does not compare counters with totals (`tally_complete:
   false`). The command prints `INCOMPLETE` and exits non-zero.
-- A range read across hash groups seeks all 1,024 hash groups of the collection, and
-  one call may read 4,096 pages. A very large home can exceed that budget before the
-  first row. The verifier then fails with a read resource error.
+- One call may read 4,096 pages. A very large home can exceed that budget. The
+  verifier then fails with a read resource error.
 - A run checks one storage scope: the personal scope, `--scope PREFIX` (a 64-hex
   prefix), or `--all-scopes` (the personal scope and each scope the database catalog
   names). A scope that holds data and has no catalog entry needs `--scope`. A scope

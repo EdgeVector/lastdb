@@ -2,6 +2,8 @@
 
 > **Status**: Draft — Feb 2026  
 > **Relates to**: [GOAL.md](./GOAL.md), [STRATEGY.md](./STRATEGY.md)
+>
+> **2026-10-27 note:** This draft describes the Sled storage of its date. LastDB removed Sled; local storage is disk format v2 (`laststore::disk_run`).
 
 ---
 
