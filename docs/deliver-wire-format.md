@@ -54,7 +54,7 @@ travel as `bytes_b64`; consumers MUST recompute the hash after decode.
 
 | Field | Meaning |
 |-------|---------|
-| `blob_ref` | `sha256:<hex>` of raw bytes |
+| `blob_ref` | `sha256:<hex>`: for a blob that carries `access`, the hash of the account-v2 sealed bytes; otherwise the hash of the raw bytes |
 | `content_sha256` | hex digest without prefix |
 | `bytes_b64` | standard base64 of raw bytes |
 | `size` | decoded length |
@@ -82,7 +82,7 @@ Every `$lastdb_file.blob_ref` in `atoms[]` MUST have a matching entry in
 A non-LastDB consumer decrypts the JWE, verifies the payload hash and Ed25519
 signature, parses schemas/molecules/atoms/**blobs**, joins each molecule to its
 atom by `atom_ref`, and joins each `$lastdb_file` atom to its blob by
-`blob_ref` (after verifying the blob's raw-byte hash).
+`blob_ref` (after verifying the blob's hash).
 
 A LastDB consumer can mount the same payload by importing the schema definitions,
 replaying molecule/atom values into a peer namespace, and storing `blobs[]` in a

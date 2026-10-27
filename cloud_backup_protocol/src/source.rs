@@ -11,8 +11,7 @@ pub struct SourceReadSelector {
     pub kind: FileDependencyKind,
     pub owner_scope: Text<128>,
     pub app_id: Option<Text<128>>,
-    /// Object-path digest: ciphertext SHA-256 for account-v2 files, plaintext
-    /// SHA-256 for old suites. The wire name remains stable for old services.
+    /// Object-path digest: the ciphertext SHA-256 of the account-v2 file.
     pub file_hash: Digest,
     pub expected_ciphertext_bytes: DecimalU64,
 }
