@@ -11,7 +11,7 @@ import signal
 import subprocess
 import time
 
-from node import RUN_NODE_MARKER, Node, file_hash, save
+from node import Node, file_hash, save
 from native_phases import collect_native_phases
 from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
@@ -30,11 +30,11 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
                     environment=environment)
         node.start()
         if recipe.get("disk_budget"):
-            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-            save(output / "disk-format.json", {"marker": marker})
-            if marker != RUN_NODE_MARKER:
+            if node.disk_format() != 2:
                 raise ValueError("The disk budget requires a v2 run home")
             DiskBudgetWorkload(node, recipe, output).run()
+            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+            save(output / "disk-format.json", {"marker": marker})
         elif recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:

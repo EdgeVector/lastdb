@@ -10,7 +10,7 @@ import statistics
 from advisories import confirm, lines, notices
 import disk_budget
 from growth import CASES
-from node import save
+from node import RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER, save
 from typed_ranges import conversion_lines
 
 
@@ -24,7 +24,7 @@ def compare(output, manifest):
             raise ValueError("A disk budget measurement did not complete")
         directory = output / run["directory"]
         marker = json.loads((directory / "disk-format.json").read_text())
-        if marker != {"marker": "format=3\nhome=disk-run\ncas=disk-cas\n"}:
+        if set(marker) != {"marker"} or marker["marker"] not in (RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER):
             raise ValueError("The disk budget did not measure a v2 run home")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(CASES):

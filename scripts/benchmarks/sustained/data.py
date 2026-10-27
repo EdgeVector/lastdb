@@ -38,6 +38,7 @@ def schema_request(name=SCHEMA):
         "source": "system_seed", "name": name, "descriptive_name": name,
         "schema_type": "HashRange", "key": {"hash_field": "hash", "range_field": "range"},
         "fields": FIELDS,
+        "field_types": {"hash": "String", "range": "String"},
         "field_descriptions": {field: f"generated {name} measurement {field}" for field in FIELDS}}}
 
 

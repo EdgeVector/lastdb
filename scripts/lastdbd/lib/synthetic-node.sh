@@ -99,7 +99,7 @@ syn_boot() {
 # syn_declare: register the synthetic schema; sets SYN_SCHEMA_ID.
 syn_declare() {
   local body resp
-  body='{"namespace":"validation","schema":{"name":"MiniFreshInstall","descriptive_name":"Mini Fresh Install","schema_type":"HashRange","key":{"hash_field":"bucket","range_field":"id"},"fields":["bucket","id","title","body"],"field_descriptions":{"bucket":"hash partition for the validation record","id":"range key id","title":"short title","body":"long body text for semantic search"}}}'
+  body='{"namespace":"validation","schema":{"name":"MiniFreshInstall","descriptive_name":"Mini Fresh Install","schema_type":"HashRange","key":{"hash_field":"bucket","range_field":"id"},"fields":["bucket","id","title","body"],"field_types":{"bucket":"String","id":"String"},"field_descriptions":{"bucket":"hash partition for the validation record","id":"range key id","title":"short title","body":"long body text for semantic search"}}}'
   resp="$(SYN_OP_TIMEOUT_SECS=300 syn_curl -H 'Content-Type: application/json' \
     --data "$body" http://lastdb/api/schemas/declare 2>/dev/null || true)"
   SYN_SCHEMA_ID="$(printf '%s' "$resp" | jq -r '.canonical // .identity_hash // empty' 2>/dev/null || true)"
