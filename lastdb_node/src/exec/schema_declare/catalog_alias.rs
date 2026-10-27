@@ -23,6 +23,45 @@ pub(crate) fn is_catalog_hash(value: &str) -> bool {
     value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// Read the aliases for a loaded proposal, then use the shared reuse rules.
+/// The caller owns schema-read failures and the snapshot's capture point.
+pub(crate) async fn read_loaded_catalog_reuse(
+    host: &Host,
+    declare: &DirectDeclareProposal,
+    proposed_hash: &str,
+    schemas: &HashMap<String, Schema>,
+) -> Result<Option<DirectDeclareResolution>, String> {
+    let aliases = load_persisted_proposal_catalog_aliases(
+        host,
+        Some(&declare.namespace),
+        schemas,
+        schemas.values().filter(|schema| {
+            schema.identity_hash.as_deref() == Some(proposed_hash)
+                && schema.owner_app_id.as_deref() == Some(declare.namespace.as_str())
+        }),
+    )
+    .await?;
+    locally_loaded_catalog_reuse_resolution(schemas, declare, proposed_hash, &aliases)
+}
+
+/// Read and recover exact-target aliases before either check or sync acts.
+pub(crate) async fn read_exact_catalog_reuse(
+    host: &Host,
+    proposed_hash: &str,
+    schema: &Schema,
+    schemas: &HashMap<String, Schema>,
+) -> Result<DirectDeclareResolution, String> {
+    let mut aliases = load_persisted_proposal_catalog_aliases(
+        host,
+        schema.owner_app_id.as_deref(),
+        schemas,
+        std::iter::once(schema),
+    )
+    .await?;
+    recover_proposal_catalog_aliases_from_exact_target(schema, schemas, &mut aliases)?;
+    exact_catalog_reuse_resolution(proposed_hash, schema, Some(schemas), &aliases)
+}
+
 pub(crate) async fn load_persisted_proposal_catalog_aliases<'a>(
     host: &Host,
     owner_app_id: Option<&str>,

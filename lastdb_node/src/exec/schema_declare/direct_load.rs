@@ -47,22 +47,8 @@ async fn reuse_loaded_binding(
     let Ok(schemas) = host.db.schema_manager().get_schemas() else {
         return Ok(None);
     };
-    let persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        Some(declare.namespace.as_str()),
-        &schemas,
-        schemas.values().filter(|schema| {
-            schema.identity_hash.as_deref() == Some(proposed_hash)
-                && schema.owner_app_id.as_deref() == Some(declare.namespace.as_str())
-        }),
-    )
-    .await?;
-    let Some(resolution) = locally_loaded_catalog_reuse_resolution(
-        &schemas,
-        declare,
-        proposed_hash,
-        &persisted_aliases,
-    )?
+    let Some(resolution) =
+        read_loaded_catalog_reuse(host, declare, proposed_hash, &schemas).await?
     else {
         return Ok(None);
     };
@@ -119,24 +105,8 @@ async fn reuse_exact_catalog(
         .schema_manager()
         .get_schemas()
         .map_err(|e| format!("failed to inspect loaded schemas for exact reuse: {e}"))?;
-    let mut persisted_aliases = load_persisted_proposal_catalog_aliases(
-        host,
-        fold_schema.owner_app_id.as_deref(),
-        &loaded_schemas,
-        std::iter::once(&fold_schema),
-    )
-    .await?;
-    recover_proposal_catalog_aliases_from_exact_target(
-        &fold_schema,
-        &loaded_schemas,
-        &mut persisted_aliases,
-    )?;
-    let resolution = exact_catalog_reuse_resolution(
-        proposed_hash,
-        &fold_schema,
-        Some(&loaded_schemas),
-        &persisted_aliases,
-    )?;
+    let resolution =
+        read_exact_catalog_reuse(host, proposed_hash, &fold_schema, &loaded_schemas).await?;
     if let DirectDeclareResolution::Reuse { field_mappers, .. } = &resolution {
         persist_repaired_mapper_source_aliases(
             host,
