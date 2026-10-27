@@ -14,12 +14,11 @@
 //! Every change to a policy leaves a durable audit row.
 
 use super::retention::{read_policy, validate_declare_retention};
-use super::retention_assess::{assess, Assessment, NEEDS_ONE_SCHEMA};
+use super::retention_assess::{assess, NEEDS_ONE_SCHEMA};
 use super::retention_unmanaged::unmanaged_report;
 use super::*;
 use crate::retention_audit::{self, RetentionAuditEvent};
-use fold_db::schema::{ManifestRetentionStatus, RetentionSource, SchemaRetentionPolicy};
-use serde_json::json;
+use fold_db::schema::SchemaRetentionPolicy;
 
 /// The catalog schema both installed names share, when the resolution names one.
 pub(crate) fn resolution_anchor(resolution: &DirectDeclareResolution) -> Option<&str> {
@@ -129,20 +128,14 @@ pub(crate) async fn finish_declare_retention(
         status = ?outcome.status,
         "applied the manifest retention"
     );
-    let moved_from = moved_from.or_else(|| outcome.moved_from.clone());
-    let mut notes = apply_notes(&assessment, &outcome);
-    if let Some(from) = &moved_from {
-        notes.insert(
-            0,
-            format!("the retention policy followed the schema from {from} to {anchor}"),
-        );
-    }
-    let mut report = assessment.report(binding, anchor, retention.confirmed());
-    report.insert("status".into(), json!(outcome.status));
-    report.insert("effective".into(), json!(outcome.effective));
-    report.insert("moved_from".into(), json!(moved_from));
-    report.insert("notes".into(), json!(notes));
-    Ok(Some(Value::Object(report)))
+    Ok(Some(super::retention_reply::applied_report(
+        &assessment,
+        &outcome,
+        binding,
+        anchor,
+        retention.confirmed(),
+        moved_from,
+    )))
 }
 
 fn audit_event(
@@ -160,32 +153,6 @@ fn audit_event(
         binding,
         anchor,
     )
-}
-
-fn apply_notes(
-    assessment: &Assessment,
-    outcome: &fold_db::schema::ManifestRetentionOutcome,
-) -> Vec<String> {
-    let ttl = assessment.ttl_seconds;
-    let mut notes = Vec::new();
-    match outcome.status {
-        ManifestRetentionStatus::Applied => {
-            notes.push(format!("a new manifest TTL of {ttl}s is in force"));
-        }
-        ManifestRetentionStatus::Updated => notes.push(format!(
-            "the manifest TTL changed from {}s to {ttl}s ({})",
-            assessment.previous_ttl_seconds().unwrap_or(0),
-            assessment.change()
-        )),
-        ManifestRetentionStatus::Unchanged => {}
-        ManifestRetentionStatus::OperatorOverride => notes.push(format!(
-            "an operator policy of {}s is in force and wins; the manifest TTL of {ttl}s is kept \
-             beside it. Clearing the operator policy puts the manifest TTL in force: when it is \
-             shorter, that needs `--confirm-expire-existing`",
-            outcome.effective.ttl_seconds
-        )),
-    }
-    notes
 }
 
 /// Move the policy with the schema when the manifest name is bound to a new
@@ -249,20 +216,13 @@ pub(crate) async fn preview_declare_retention(
     let binding = declare.local_schema_id.as_str();
     let assessment = assess(host, declare, anchor, ttl_seconds, layout, &predecessors).await?;
     let current: Option<SchemaRetentionPolicy> = read_policy(host, binding).await?;
-    let operator_wins = current
-        .as_ref()
-        .is_some_and(|policy| policy.source == RetentionSource::Operator);
     let blocked = assessment.refusal(declare, anchor, retention.confirmed());
-    let mut report = assessment.report(binding, anchor, retention.confirmed());
-    report.insert(
-        "would_apply".into(),
-        json!(!operator_wins && blocked.is_none()),
-    );
-    report.insert("current".into(), json!(current));
-    report.insert(
-        "requires_confirmation".into(),
-        json!(assessment.needs_confirmation()),
-    );
-    report.insert("blocked".into(), json!(blocked));
-    Ok(Some(Value::Object(report)))
+    Ok(Some(super::retention_reply::preview_report(
+        &assessment,
+        current,
+        binding,
+        anchor,
+        retention.confirmed(),
+        blocked,
+    )))
 }
