@@ -67,6 +67,9 @@ pub fn convert(args: &RangeConversionArgs<'_>) -> Result<(), String> {
         },
     )
     .map_err(|error| error.to_string())?;
+    prepared
+        .require_capacity()
+        .map_err(|error| error.to_string())?;
     prepare_target(&target_home, &seed, args.resume, &mut prepared)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -91,7 +94,7 @@ pub fn convert(args: &RangeConversionArgs<'_>) -> Result<(), String> {
     Ok(())
 }
 
-fn target_path(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn target_path(path: &Path) -> Result<PathBuf, String> {
     if path.try_exists().map_err(|error| error.to_string())? {
         return path.canonicalize().map_err(|error| error.to_string());
     }

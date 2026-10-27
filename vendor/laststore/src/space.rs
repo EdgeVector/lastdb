@@ -166,7 +166,7 @@ fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReserva
     // The ordinary unfrozen-cap path must not enumerate the home per mutation.
     let usage = if policy.disk_cap_bytes == 0 {
         SpaceUsage {
-            available_bytes: available(&root)?,
+            available_bytes: available_space(&root)?,
             ..Default::default()
         }
     } else {
@@ -232,11 +232,12 @@ impl Drop for SpaceReservation {
 pub fn space_usage(root: &Path, max_files: usize) -> Result<SpaceUsage> {
     let mut out = SpaceUsage::default();
     count(root, 6, max_files, &mut out)?; // walk-ok: exact native root, depth six and finite file budget
-    out.available_bytes = available(root)?;
+    out.available_bytes = available_space(root)?;
     Ok(out)
 }
 
-fn available(root: &Path) -> Result<u64> {
+/// Filesystem bytes available to this user. Does not enumerate files or create a root.
+pub fn available_space(root: &Path) -> Result<u64> {
     let stats = rustix::fs::statvfs(root).map_err(std::io::Error::from)?;
     (stats.f_bavail as u64)
         .checked_mul(stats.f_frsize as u64)

@@ -38,6 +38,7 @@ pub(super) struct Molecule {
 
 pub(super) struct Catalog {
     pub(super) schemas: usize,
+    pub(super) range_fields: Vec<super::RangeFieldInventory>,
     pub(super) molecules: BTreeMap<String, Molecule>,
     pub(super) logical: super::logical::LogicalSlots,
     records: BTreeMap<(String, String), Vec<u8>>,
@@ -60,6 +61,7 @@ impl Catalog {
             .collect();
         let mut catalog = Self {
             schemas: 0,
+            range_fields: Vec::new(),
             molecules: BTreeMap::new(),
             logical: super::logical::LogicalSlots::default(),
             records: key_rows,
@@ -87,6 +89,9 @@ impl Catalog {
                 .populate_runtime_fields()
                 .map_err(|_| invalid("a schema declaration is invalid"))?;
             catalog.schemas += 1;
+            catalog
+                .range_fields
+                .extend(super::RangeFieldInventory::from_schema(&schema));
             let retention_blocker = super::retention::blocker(&schema, &retention, key, limits)?;
             let range = schema
                 .key

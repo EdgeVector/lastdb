@@ -6,8 +6,12 @@ use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::range_inventory::{inspect_range_conversion, InventoryLimits};
 use std::path::Path;
 
+mod readiness;
+
 pub struct RangeInventoryArgs<'a> {
     pub home: &'a Path,
+    pub target_home: Option<&'a Path>,
+    pub source_hash_encoding: Option<&'a str>,
     pub source_range_encoding: &'a str,
     pub target_range_encoding: &'a str,
     pub max_records: usize,
@@ -20,6 +24,7 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
     refuse_primary_or_archive(args.home)?;
     let root = args.home.join("data");
     refuse_primary_or_archive(&root)?;
+    let target = readiness::target(args)?;
     let preflight = preflight_read_only_home(args.home, &root)?;
     let seed = zeroize::Zeroizing::new(
         lastdb_identity::load_seed(args.home)?.ok_or("source account identity is absent")?,
@@ -38,8 +43,9 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
     };
     let report = inspect_range_conversion(&root, &keys, source_encoding, target_encoding, limits)
         .map_err(|error| error.to_string())?;
+    let readiness = readiness::inspect(args, &root, &keys, &report, target, limits)?;
     if args.json {
-        let output = serde_json::json!({"ok": true, "mode": "inspect-range-conversion", "preflight": preflight, "inventory": report});
+        let output = serde_json::json!({"ok": true, "mode": "inspect-range-conversion", "preflight": preflight, "inventory": report, "readiness": readiness});
         println!(
             "{}",
             serde_json::to_string_pretty(&output).map_err(|_| "cannot encode inventory")?
@@ -61,6 +67,12 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
             report.target_range_encoding,
             report.source_facts.logical_key_format
         );
+        for field in &report.range_fields {
+            println!(
+                "{}: range field {}; declared type {:?}",
+                field.schema, field.range_field, field.field_type
+            );
+        }
         for molecule in &report.molecules {
             let profile = molecule
                 .proposed_profile
@@ -76,6 +88,9 @@ pub fn inspect(args: &RangeInventoryArgs<'_>) -> Result<(), String> {
             for blocker in &molecule.blockers {
                 println!("  {blocker}");
             }
+        }
+        if let Some(readiness) = readiness {
+            readiness.print();
         }
         println!("The source stays unchanged. Database conversion and activation remain pending.");
     }

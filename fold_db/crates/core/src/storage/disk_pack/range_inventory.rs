@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 mod binding;
+mod capacity;
 mod capture;
 mod catalog;
 mod conversion_copy;
@@ -21,14 +22,17 @@ mod conversion_references;
 mod conversion_target;
 mod conversion_validate;
 mod convert;
+mod field_types;
 mod keys;
 mod logical;
 mod retention;
 mod run_pages;
 mod source;
 
+pub use capacity::{ConversionCapacity, ConversionSpaceEstimate};
 pub use catalog::MoleculeInventory;
 pub use convert::{PreparedRangeConversion, RangeConversionOptions, RangeConversionReport};
+pub use field_types::RangeFieldInventory;
 pub use source::{SourceFacts, SourceRoot};
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -68,6 +72,7 @@ pub struct RangeConversionInventory {
     pub metadata_bytes: usize,
     pub record_families: BTreeMap<String, u64>,
     pub schemas: usize,
+    pub range_fields: Vec<RangeFieldInventory>,
     pub molecules: Vec<MoleculeInventory>,
     /// These gates remain false until the separate publication/recovery stage.
     pub database_converted: bool,
@@ -117,7 +122,7 @@ pub fn inspect_range_conversion(
         publications.update(binding.digest.as_bytes());
     }
     Ok(RangeConversionInventory {
-        version: 2,
+        version: 3,
         source_format: source.format().into(),
         source_facts: source.facts(),
         source_publications_sha256: format!("{:x}", publications.finalize()),
@@ -129,6 +134,7 @@ pub fn inspect_range_conversion(
         metadata_bytes: bytes,
         record_families: families,
         schemas: inventory.schemas,
+        range_fields: inventory.range_fields,
         molecules,
         database_converted: false,
         activation_ready: false,
