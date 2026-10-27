@@ -96,17 +96,6 @@ impl PurgeLedger {
     pub fn snapshot(&self) -> HashMap<String, PurgeStats> {
         self.by_schema.lock().expect("purge_stats poisoned").clone()
     }
-
-    /// One schema's totals; all-zero for a schema never purged.
-    #[must_use]
-    pub fn for_schema(&self, schema_name: &str) -> PurgeStats {
-        self.by_schema
-            .lock()
-            .expect("purge_stats poisoned")
-            .get(schema_name)
-            .copied()
-            .unwrap_or_default()
-    }
 }
 
 /// Manages mutation operations for the FoldDB system

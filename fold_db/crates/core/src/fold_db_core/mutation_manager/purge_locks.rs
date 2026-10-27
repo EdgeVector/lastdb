@@ -28,11 +28,4 @@ impl MutationManager {
     pub fn purge_stats_snapshot(&self) -> HashMap<String, super::PurgeStats> {
         self.purge_stats.snapshot()
     }
-
-    /// One schema's cumulative purge totals.
-    /// All-zero means no purge has run on this schema since process start.
-    #[must_use]
-    pub fn purge_stats_for_schema(&self, schema_name: &str) -> super::PurgeStats {
-        self.purge_stats.for_schema(schema_name)
-    }
 }
