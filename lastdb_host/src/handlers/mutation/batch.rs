@@ -13,10 +13,7 @@ use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
 use super::plan::reject_illegal_must_exist;
-use super::{
-    configure_mutation, operations_json, stages_json, wait_for_requested_convergence,
-    MutationComponents,
-};
+use super::{operations_json, stages_json, wait_for_requested_convergence, MutationComponents};
 
 mod rules;
 
@@ -59,20 +56,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
 
         payload_bytes =
             payload_bytes.saturating_add(fields_payload_bytes(&components.fields_and_values));
-        mutations.push(configure_mutation(
-            Mutation::new(
-                canonical,
-                components.fields_and_values,
-                components.key_value,
-                host.public_key(),
-                components.mutation_type,
-            ),
-            components.source_file_name,
-            components.durability,
-            components.expected,
-            components.must_exist,
-            components.aggregate_set,
-        ));
+        mutations.push(components.into_mutation(canonical, host.public_key()));
     }
 
     let count = mutations.len();
