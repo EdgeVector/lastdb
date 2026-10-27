@@ -16,6 +16,10 @@ from typed_ranges import conversion_lines
 REQUIRED_METRICS = {"max_disk_to_logical_ratio"}
 
 
+def across_pairs(name, values):
+    return max(values) if name == "max_disk_to_logical_ratio" else statistics.median(values)
+
+
 def compare(output, manifest):
     recipe = manifest["recipe"]
     if (recipe.get("disk_budget") is not True or recipe.get("disk_format") != 2
@@ -46,7 +50,7 @@ def compare(output, manifest):
         raise ValueError("The disk budget lacks complete pairs")
     comparison = {}
     for case in CASES:
-        item = {label: {name: statistics.median(runs[p][case]["metrics"][name] for p in sorted(pairs))
+        item = {label: {name: across_pairs(name, (runs[p][case]["metrics"][name] for p in sorted(pairs)))
                         for name in disk_budget.MEASURES} for label, runs in values.items()}
         item["paired_changes_percent"] = {
             name: [100 * (values["candidate"][p][case]["metrics"][name]

@@ -164,7 +164,7 @@ def render(comparison):
                   "Each checkpoint follows durable flush and verified keyed reads, then three stable seconds, with a 90-second deadline.",
                   "The v2 format uses its default automatic run merges. This run does not force compaction or measure transient disk peaks.",
                   "Search is explicitly off before and after each run; every checkpoint requires an empty Search queue.",
-                  "The maximum is taken across checkpoints in each run, then the median across alternating pairs.",
+                  "The required maximum includes all settled checkpoints in every pair. Other figures use medians across pairs.",
                   "A candidate above 1.5× requires confirmation even when the baseline also exceeds the ceiling.",
                   "A database or Search queue increase of at least 10% and 64 KiB also requires confirmation.",
                   "The same case above 1.5× in both comparisons fails benchmark-complete and blocks merge.",

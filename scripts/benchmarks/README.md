@@ -277,7 +277,8 @@ The ratio is retained disk bytes divided by logical atom bytes:
 - Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
-- Each run records the final ratio and the maximum checkpoint ratio. The comparison uses their medians across pairs.
+- The required maximum ratio includes every settled checkpoint in every candidate pair.
+  Other comparison figures use medians across pairs.
 
 The required ceiling is **1.5×**. Equality is within the budget.
 CI also notes a final database or Search queue increase of **at least 10% and 64 KiB** against the base commit.
