@@ -115,71 +115,9 @@ pub struct MemoryBudgetHealth {
     /// Empty on an older daemon payload.
     #[serde(default)]
     pub logical_key_memory_limit: String,
-    /// Store durability barrier counts (see `WarmSetAdmissionStats`).
-    #[serde(flatten)]
-    pub flush: StoreFlushHealth,
     /// Warm set byte charge and limit from the native core.
     #[serde(default)]
     pub core_warm: CoreWarmBytesHealth,
-}
-
-/// Durability barriers the store issued since process start, by kind.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StoreFlushHealth {
-    /// Group data-file barriers.
-    #[serde(default)]
-    pub fsync_data_calls: u64,
-    /// Total microseconds in data-file barriers.
-    #[serde(default)]
-    pub fsync_data_micros: u64,
-    /// Key sidecar barriers (big groups only: a small group is not flushed).
-    #[serde(default)]
-    pub fsync_sidecar_calls: u64,
-    /// Total microseconds in sidecar barriers.
-    #[serde(default)]
-    pub fsync_sidecar_micros: u64,
-    /// Directory barriers.
-    #[serde(default)]
-    pub fsync_dir_calls: u64,
-    /// Scoped flushes walked serially.
-    #[serde(default)]
-    pub scope_flushes_serial: u64,
-    /// Scoped flushes synced with parallel workers.
-    #[serde(default)]
-    pub scope_flushes_parallel: u64,
-    /// Whole-store flushes walked serially.
-    #[serde(default)]
-    pub whole_flushes_serial: u64,
-    /// Whole-store flushes synced with parallel workers.
-    #[serde(default)]
-    pub whole_flushes_parallel: u64,
-    /// Flush barriers since open.
-    #[serde(default)]
-    pub flush_barriers: u64,
-    /// Groups synced by those barriers.
-    #[serde(default)]
-    pub groups_synced: u64,
-}
-
-impl StoreFlushHealth {
-    fn from_admission(admission: Option<fold_db::storage::traits::WarmSetAdmissionStats>) -> Self {
-        let Some(s) = admission else {
-            return Self::default();
-        };
-        Self {
-            fsync_data_calls: s.fsync_data_calls,
-            fsync_data_micros: s.fsync_data_micros,
-            fsync_sidecar_calls: s.fsync_sidecar_calls,
-            fsync_sidecar_micros: s.fsync_sidecar_micros,
-            fsync_dir_calls: s.fsync_dir_calls,
-            scope_flushes_serial: s.scope_flushes_serial,
-            scope_flushes_parallel: s.scope_flushes_parallel,
-            whole_flushes_serial: s.whole_flushes_serial,
-            whole_flushes_parallel: s.whole_flushes_parallel,
-            flush_barriers: s.flush_barriers,
-            groups_synced: s.groups_synced,
-        }
-    }
 }
 
 /// Charged warm set bytes next to the process footprint. The ratio of
@@ -239,16 +177,13 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
 
 #[derive(Clone, Copy)]
 pub(super) struct MemoryBudgetAttribution {
-    pub(super) admission: Option<fold_db::storage::traits::WarmSetAdmissionStats>,
     pub(super) allocator: crate::allocator::AllocatorMetrics,
     pub(super) peak_request_bytes: u64,
     pub(super) slowest_request_ms: u64,
 }
 
 impl MemoryBudgetHealth {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn measured(
-        read_cost: Option<&ReadCostHealth>,
         resident: &ResidentHealth,
         deferred_persist_bytes: u64,
         deferred_persist_cap_bytes: u64,
@@ -261,15 +196,9 @@ impl MemoryBudgetHealth {
         let charged_budget_bytes = budget.charged_bytes;
         let governor = crate::ops::footprint::governor_snapshot();
         Self {
-            warm_resident_bytes: read_cost
-                .and_then(|r| r.warm_resident_bytes.as_wire_u64())
-                .unwrap_or(0),
-            warm_budget_bytes: read_cost
-                .and_then(|r| r.warm_budget_bytes.as_wire_u64())
-                .unwrap_or(budget.warm_bytes),
-            warm_resident_groups: read_cost
-                .and_then(|r| r.warm_resident_groups.as_wire_u64())
-                .unwrap_or(0),
+            warm_resident_bytes: 0,
+            warm_budget_bytes: budget.warm_bytes,
+            warm_resident_groups: 0,
             resident_graph_bytes: resident.resident_bytes,
             resident_graph_budget_bytes: resident.budget_bytes,
             deferred_persist_bytes,
@@ -316,24 +245,17 @@ impl MemoryBudgetHealth {
             allocator_name: attribution.allocator.name.to_string(),
             allocator_committed_bytes: attribution.allocator.committed_bytes,
             allocator_reserved_bytes: attribution.allocator.reserved_bytes,
-            in_flight_cold_load_bytes: attribution
-                .admission
-                .map_or(0, |s| s.in_flight_cold_load_bytes),
-            in_flight_cold_load_count: attribution
-                .admission
-                .map_or(0, |s| s.in_flight_cold_load_count),
+            in_flight_cold_load_bytes: 0,
+            in_flight_cold_load_count: 0,
             peak_request_bytes: attribution.peak_request_bytes,
             slowest_request_ms: attribution.slowest_request_ms,
-            eviction_events: attribution.admission.map_or(0, |s| s.eviction_events),
-            effective_warm_budget_bytes: attribution
-                .admission
-                .map_or(budget.warm_bytes, |s| s.effective_warm_bytes),
+            eviction_events: 0,
+            effective_warm_budget_bytes: budget.warm_bytes,
             hash_group_warm_bounds: HASH_GROUP_WARM_BOUNDS.to_string(),
             resident_graph_bounds: RESIDENT_GRAPH_BOUNDS.to_string(),
             logical_key_memory_limit: logical_key_memory_limit_for(
                 resident.resident_key_budget.as_wire_u64(),
             ),
-            flush: StoreFlushHealth::from_admission(attribution.admission),
             core_warm: CoreWarmBytesHealth::default(),
         }
     }

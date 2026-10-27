@@ -118,17 +118,6 @@ pub struct StatusSnapshot {
     #[serde(default)]
     pub data_dir_path_disclosed: bool,
     pub sync: SyncHealth,
-    /// Sealed-chunk cloud backup progress (percent / ETA). Omitted fields when
-    /// backup is disabled; `show_progress` is false when fully caught up.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backup: Option<BackupProgressHealth>,
-    /// Cloud backup billable footprint: referenced keep-set vs listed total.
-    ///
-    /// Cached (GC / background list); never computed inline on the status path.
-    /// When present, operators can read "9 GiB tip / 25 GiB billed" without a
-    /// separate `backup-gc` dry-run.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backup_storage: Option<BackupStorageHealth>,
     /// Redacted explicit V2 job status; no legacy marker or automatic coverage claim.
     #[serde(default)]
     pub durability: DurabilityHealth,
@@ -147,10 +136,6 @@ pub struct StatusSnapshot {
     /// operators and agents see them without reading docs.
     #[serde(default)]
     pub limits: LimitsHealth,
-    /// Read cost: cold shard loads + warm-set residency vs budget. `None` on
-    /// backends that do not use hash groups.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read_cost: Option<ReadCostHealth>,
     /// Resident graph counters (T0 memory hits, rehydrates, deferred persists).
     #[serde(default)]
     pub resident: ResidentHealth,
@@ -163,14 +148,6 @@ pub struct StatusSnapshot {
     /// pointed at an atom that would not resolve.
     #[serde(default)]
     pub integrity: IntegrityHealth,
-    /// The bytes of the molecule binding records. An exact collection gauge,
-    /// read from file metadata. Status never scans the plane.
-    #[serde(default)]
-    pub molecule_edges: MoleculeEdgeHealth,
-    /// File-blob durability: fetches the remote CAS proved absent, split by
-    /// whether this node had recorded those bytes as uploaded.
-    #[serde(default)]
-    pub file_blob: FileBlobHealth,
     /// Per-schema purge accounting (cumulative since process start).
     ///
     /// This ledger reports purge counts, guarded critical-section time, and
