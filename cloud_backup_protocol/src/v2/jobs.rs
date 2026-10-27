@@ -39,13 +39,6 @@ impl Begin {
             .map(DecimalU64::new)
             .ok_or_else(|| ProtocolError::invalid("v2.begin.ordinal"))
     }
-    pub fn validate_initial(&self) -> Result<(), ProtocolError> {
-        self.validate()?;
-        if self.predecessor.is_some() {
-            return Err(ProtocolError::invalid("v2.begin.initial"));
-        }
-        Ok(())
-    }
     /// The acceptance transaction checks this exact predecessor atomically.
     /// Any native frontier or format ordering is solely a client rule.
     pub fn validate_successor(&self, previous: &AcceptedBackup) -> Result<(), ProtocolError> {

@@ -49,14 +49,6 @@ impl JobBeginInput {
             .ok_or_else(|| ProtocolError::invalid("job_begin.ordinal"))
     }
 
-    pub fn validate_initial(&self) -> Result<(), ProtocolError> {
-        self.validate()?;
-        if self.predecessor.is_some() {
-            return Err(ProtocolError::invalid("job_begin.initial.predecessor"));
-        }
-        Ok(())
-    }
-
     /// The acceptance transaction checks this same predecessor and native cut.
     pub fn validate_successor(&self, previous: &AcceptedBackup) -> Result<(), ProtocolError> {
         self.validate()?;
