@@ -44,6 +44,8 @@ def main():
         command.extend(["--seed-with-baseline", "--minimum-retired", str(manifest["recipe"]["minimum_retired"])])
     if manifest["recipe"].get("typed_range_comparison"):
         command.append("--candidate-typed-ranges")
+        if manifest["recipe"].get("typed_range_baseline"):
+            command.append("--baseline-typed-ranges")
     if manifest["recipe"]["native_timing"]:
         command.append("--native-timing")
     subprocess.run(command, check=True)

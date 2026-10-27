@@ -114,6 +114,10 @@ The candidate stops after the seed and uses its matching `lastdb` CLI to create 
 The converter must preserve every source data-file checksum and publish the exact typed marker.
 Only the candidate switches to that target before the normal reads and writes.
 The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
+For a typed-format before/after comparison, select `typed_ranges: both`.
+Each version then converts its independent stopped source with its own matching CLI.
+The request, growth, disk, and confirmation recipes retain that format on both sides.
+This option leaves ordinary PR measurements unchanged. The `false` and `true` choices retain their existing behavior.
 The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
 The retained sum excludes transient merge files. It does not establish peak disk use.
 The artifact retains the product output, CLI checksum, and Linux process resource measurements.
