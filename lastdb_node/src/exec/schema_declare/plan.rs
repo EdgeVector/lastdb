@@ -183,7 +183,7 @@ async fn plan_from_resolver(
     proposed_hash: &str,
     loaded_schemas: &HashMap<String, Schema>,
 ) -> Result<DirectDeclarePlan, String> {
-    let result = resolve_direct_declare_result(host, url, declare).await?;
+    let result = resolve_direct_declare_result(host, url, declare).await;
     let resolved = result
         .as_ref()
         .map(|result| resolve_declare_bind(&declare.catalog_schema, result));

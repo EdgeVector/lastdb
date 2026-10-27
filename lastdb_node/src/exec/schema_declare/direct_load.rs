@@ -152,7 +152,7 @@ async fn resolve_or_register_catalog(
     url: &str,
     declare: &DirectDeclareProposal,
 ) -> Result<(DirectDeclareResolution, Option<Schema>), String> {
-    let result = resolve_direct_declare_result(host, url, declare).await?;
+    let result = resolve_direct_declare_result(host, url, declare).await;
     let resolved = result
         .as_ref()
         .map(|result| resolve_declare_bind(&declare.catalog_schema, result));

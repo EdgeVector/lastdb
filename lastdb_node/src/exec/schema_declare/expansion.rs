@@ -84,47 +84,6 @@ pub(crate) fn anchor_catalog_expansion_from_local(
     Some(anchor_catalog_expansion_to(schema, predecessor))
 }
 
-/// Run the live resolver for a direct declare, or read the test injection.
-///
-/// `Ok(None)` means the resolver is unavailable; catalog sync then registers
-/// through Schema Service with the locally loaded predecessor. The resolver is
-/// a read: it never registers a schema.
-pub(crate) async fn resolve_direct_declare_result(
-    host: &Host,
-    schema_service_url: &str,
-    declare: &DirectDeclareProposal,
-) -> Result<Option<SchemaResolveResult>, String> {
-    // Ephemeral / dogfood only: inject a SchemaResolveResult JSON so multi-component
-    // compose can be proven without depending on a live beam UseComponents hit.
-    // Unset in production. File must deserialize as SchemaResolveResult.
-    if let Ok(path) = std::env::var("LASTDB_TEST_RESOLVE_JSON") {
-        let raw = std::fs::read_to_string(&path)
-            .map_err(|e| format!("LASTDB_TEST_RESOLVE_JSON read {path}: {e}"))?;
-        return serde_json::from_str::<SchemaResolveResult>(&raw)
-            .map(Some)
-            .map_err(|e| format!("LASTDB_TEST_RESOLVE_JSON parse: {e}"));
-    }
-    match crate::schema_resolver_host::resolve_direct_declare_with_host_config(
-        &host.home,
-        schema_service_url,
-        declare.local_schema_id.clone(),
-        declare.proposal.clone(),
-    )
-    .await
-    {
-        Ok(result) => Ok(Some(result)),
-        Err(e) => {
-            tracing::warn!(
-                target: "lastdb_node::apps_declare_schema",
-                schema = %declare.local_schema_id,
-                error = %e,
-                "schema resolver unavailable; registering through Schema Service with the locally loaded catalog predecessor"
-            );
-            Ok(None)
-        }
-    }
-}
-
 /// The schema catalog sync registers when no catalog schema covers the
 /// proposal, plus why. The executor supplies local schemas only if this
 /// remote-result decision cannot select a predecessor.
