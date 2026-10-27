@@ -28,6 +28,7 @@ pub(super) fn summary_mutation(
     mut fields: HashMap<String, serde_json::Value>,
     valid: bool,
     token: String,
+    pub_key: String,
 ) -> Mutation {
     fields.insert(
         AGGREGATE_VALID_FIELD.into(),
@@ -37,7 +38,7 @@ pub(super) fn summary_mutation(
         AGGREGATE_GUARD_TOKEN_FIELD.into(),
         serde_json::Value::String(token),
     );
-    let mut mutation = Mutation::new(schema, fields, key, String::new(), MutationType::Update);
+    let mut mutation = Mutation::new(schema, fields, key, pub_key, MutationType::Update);
     mutation.aggregate_derived_internal = true;
     mutation.synchronous = Some(true);
     mutation
