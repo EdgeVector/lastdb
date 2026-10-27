@@ -65,10 +65,10 @@ impl CoreNamespaces {
         let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
-        // The keep-small snapshot gets its own plane (2026-09-21). It is one
-        // whole-map value rewritten every debounce tick, so every put is dead
-        // bytes the moment the next one lands. Under the LastStore segment
-        // engine (removed with disk format v1, decision D1) that value in
+        // The keep-small snapshot gets its own plane (2026-09-21). The snapshot
+        // (a small header plus shards) is rewritten on each debounce tick, so
+        // the old bytes are dead when the next put lands. Under the LastStore
+        // segment engine (removed with disk format v1, decision D1) that value in
         // `metadata` grew one shared hash group to 39 GB and looped the
         // primary. In disk format v2 the plane is part of the main run home,
         // so the V2 byte backup, when on, copies it with the other run files.
@@ -114,8 +114,8 @@ impl DbOperations {
     /// an explicit HashKey storage encoding (design-lastdb-hashkey-blind-v1).
     ///
     /// `content_key` is the account E2E content key. It seals local file
-    /// blobs and is the key that `content_key_proof` checks on each open. Atom rows are plain JSON on a
-    /// disk format v2 home, so it seals no atom content.
+    /// blobs and is the key that `content_key_proof` checks on each open. Atom
+    /// rows are plain JSON on a disk format v2 home, so it seals no atom content.
     pub async fn from_namespaced_store_with_content_and_hash_key(
         store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
