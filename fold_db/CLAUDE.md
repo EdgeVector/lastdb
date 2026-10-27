@@ -1,7 +1,7 @@
 # fold_db
 
 Core library of the `EdgeVector/lastdb` workspace (`crates/{core,observability}`).
-Local database engine with native packed storage and the core logical memory
+Local database engine with disk format v2 storage and the core logical memory
 model. Cloud activation stays disabled for this round. Empty homes initialize
 directly; startup does not migrate older homes.
 **Library only — no UI, no React app, no desktop shell.**

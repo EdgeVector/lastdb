@@ -6,8 +6,8 @@ This change adds no runtime memory configuration or format migration.
 
 ## Fixed native format
 
-`native_v1` defines the existing native file format.
-Its values fix page addresses, record lengths, and compatible readers.
+`native_v1` holds the sizes of the removed disk format v1.
+The code still uses some of them as bounds, for example the record body and backup file limits.
 They are not environment settings or optional memory targets.
 
 | Item | Native V1 value |
@@ -36,8 +36,6 @@ They do not change the native V1 file format.
 | Stream buffer | 1 MiB |
 | Concurrent source streams | 4 |
 | Tracked metadata or temporary object cache | 1 GiB |
-| Native copy run | 16 blocks |
-| Native payload file handles | 32 |
 | Restore external pointer and kind identities | 43,690 within 8 MiB |
 
 Memory values control buffers and bounded decoded metadata, not a complete user file.

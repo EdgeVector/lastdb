@@ -1,6 +1,7 @@
 # Native cloud backup protocol, version 1
 
 Status: unreleased draft, revision 7. Runtime support stays disabled.
+Since 2026-10-26, the V1 client, capture, upload, and restore code is removed. The active backup is the [V2 byte transport](cloud-byte-transport-v2.md). Some shared types of this protocol stay in the V2 code.
 This revision separates bounded closure observations from exact allocation comparison and live provider proof.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 4118c7baa12539c8c6bcf4391c497159f2a1529a and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
@@ -616,8 +617,8 @@ Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
 
 B1 backup capture, S1 cloud jobs and transfers, R1 restore, B2 file coverage, and S2 acceptance now have disabled source implementations.
-The [second source wave](native-cloud-backup-wave-two.md) records their original boundaries.
-The [Mini integration wave](native-cloud-backup-mini-v1.md) supplies the saved worker, manifest assembler, native client, and normal commands.
+The [second source wave](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/designs/native-cloud-backup-wave-two.md) (removed) recorded their original boundaries.
+The [Mini integration wave](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/docs/designs/native-cloud-backup-mini-v1.md) (removed) supplied the saved worker, manifest assembler, native client, and normal commands.
 The source now supplies read-only scoped Main-file grants and timestamped native usage observations.
 Legacy grant isolation, complete allocation reconciliation, and purge exclusion remain release gates.
 Scoped thumbnails and posters require a separate exact source grant. Missing consumer copies refuse before backup completion.

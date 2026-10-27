@@ -1,6 +1,6 @@
 # Current core memory and historical convergence record
 
-Current summary, 2026-10-24: the native packed engine is the sole logical engine.
+Current summary, 2026-10-26: disk format v2 is the sole native engine.
 The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
 The recency list selects logical records for purge without a second set of values.
 The old serving graph, logical cache, mode controls, and alternate write branch are removed.
@@ -362,7 +362,7 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
 - 2026-10-12, warm set design: `docs/lastdb-warm-set-design.md` written and open for
   Tom's decisions. No code change.
 - 2026-10-13, designs: `docs/lastdb-blind-write-design.md` and
-  `docs/lastdb-write-ahead-journal-design.md` written. Built since the warm set
+  `docs/lastdb-write-ahead-journal-design.md` (since deleted) written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
   (The atom GC reaper and its verb were removed by the counter lifecycle,

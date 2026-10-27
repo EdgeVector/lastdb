@@ -1,7 +1,7 @@
 # LastDB read receipts
 
-The native reader uses the [selected snapshot](lastdb-snapshot-commits.md), with no internal journal or local mutation replay.
-Legacy replay counters remain available for their existing legacy paths.
+The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
+The legacy loader and replay counters stay in the response for compatibility. The v2 reader does not use them.
 
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time before the pack file and disk directory changes.

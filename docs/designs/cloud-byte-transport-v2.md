@@ -278,7 +278,6 @@ The unused sealed-chunk backup progress tracker, cycle samples, and ETA estimato
 The legacy progress snapshot and shared CLI formatter retain their status behavior.
 Active V2 byte-backup progress does not use that tracker.
 
-The client capture currently supports disk V1 packs only.
-The existing format check refuses disk V2 run homes before capture.
-A separate client adapter must retain both disk V2 homes across restart.
+The client capture supports only disk V2 run homes.
+The [disk V2 client design](cloud-run-v2-client.md) describes that adapter.
 The generic cloud contract requires no change for that adapter.

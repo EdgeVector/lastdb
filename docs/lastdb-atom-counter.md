@@ -183,8 +183,8 @@ A planner fault that raises `suspect` for a molecule counter works the same way:
 
 Two markers keep one build from opening a home with another counter model.
 
-- The LastStore `CURRENT` file carries the required-feature bit
-  `FEATURE_ATOM_RECORDS` (value 128): every atom body is one record at
+- A disk format v2 home records the required-feature bit
+  `FEATURE_ATOM_RECORDS` (value 128) from its creation: every atom body is one record at
   `atom:{uuid}\0b` in `atoms`. A build that does not know the bit refuses the
   home. This build refuses a home without the bit.
 - The logical key format marker is `layout:v3:keys` with the value `5`

@@ -1,7 +1,7 @@
 # Native records use their existing element encryption
 
-The native pack container has no whole-file encryption.
-It keeps its existing compression, checksums, and file format.
+Disk format v2 compresses each run-file block, then encrypts the block with AES-256-GCM.
+The element encryption below applies inside those blocks.
 
 The current policy wraps only local CAS blob records.
 Tom set this policy on 2026-10-23.
@@ -17,7 +17,7 @@ Tom set this policy on 2026-10-23.
 `EncryptingNamespacedStore` selects only the exact `cas_blobs` namespace.
 Its constructor has no caller-controlled plaintext list or broad encryption option.
 All other namespaces return the underlying storage handle directly.
-The wrapper never encrypts a complete packed file or a lookup key.
+The wrapper never encrypts a complete run file or a lookup key.
 
 The wrapper encrypts the complete local CAS record, including the blob metadata and encrypted file bytes.
 The CAS reader can still decode an account-v2 record with only its existing file envelope.
@@ -78,16 +78,12 @@ The key derivation uses the original file hash.
 ## Old-reader boundary
 
 The logical marker `layout:v3:keys` uses direct ASCII value `6`.
-The node format marker uses `format=2`.
+The node format marker uses `format=3`, or `format=4` for a home with typed ranges.
 The creation-intent marker names the third current-key initialization protocol.
 Normal startup rejects earlier node markers before it opens the physical store.
 A direct physical logical constructor also requires marker `6`.
 Startup does not rewrite an older home.
-The explicit native record transfer upgrades logical formats `4` and `5` in its inactive target.
-The old reader exports the source. The new reader authenticates its encrypted format marker before a target write.
-The conversion removes former outer envelopes except CAS and preserves the existing inner encryption.
-It publishes marker `6` and the new account-key proof last. An interrupted target can resume conversion.
-The source remains unchanged and can reopen with its original program.
+The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
 This change does not open or change a primary home.
 
 Native restore requires marker `6` and the explicit encrypted account-key proof.
@@ -97,7 +93,7 @@ An existing home with a missing proof refuses startup. Fresh creation writes the
 The atom and file readers still authenticate their existing encrypted content.
 The metadata and file-dependency decoders read the direct control records.
 
-The physical pack format and cloud transport do not change.
+The run-file format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
 New backups retain only the CAS storage wrapper, atom content encryption, and explicit key encryption.
 

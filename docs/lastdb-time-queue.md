@@ -199,7 +199,7 @@ Only write preparation reads its owned prefix. Ordinary reads retain the committ
 The job still returns after durability. Its cost includes the gate and shared flush holds.
 A sealed fence also counts its flush wait.
 The measurements below describe the earlier sealed-batch path.
-See `docs/lastdb-concurrent-compaction.md` for the current protocol.
+See `docs/lastdb-eager-durable-queue.md` for the current protocol.
 
 
 A user of the queue deletes in batches. Private background batches share a bounded collection window.
@@ -511,14 +511,12 @@ nothing to change.
   such requests, also with no release at all. The queue adds rows to such a
   request but no read. Replay batches (a mutation log that brings many records
   at once) were not run, so their margin is not shown.
-- The storage limits one publication to 65,536 dependency parts (`dependency
-  capacity`; see `docs/lastdb-storage-parts.md`). A durable batch adds
-  about 5 to 13 parts, and nothing merged them: a home refused writes after
-  about 20,000 to 22,000 mutations in a row, with or without a queue. This is a
-  limit of the storage, not of the queue. The node now runs maintenance when
-  the count passes 4,096 parts, so the janitor and the retirements no longer
-  feed the limit. Every publication still writes the whole receipt, so a queue
-  should keep its release batch large and its duty share low.
+- Disk format v1 limited one publication to 65,536 dependency parts. A durable
+  batch added about 5 to 13 parts, and a home refused writes after about 20,000
+  to 22,000 mutations in a row, with or without a queue. That format is removed.
+  Disk format v2 merges its run files in the background. Each commit still
+  writes one run file, so a queue should keep its release batch large and its
+  duty share low.
 - The directory is one hash. A retired bucket leaves one deleted key there. With
   one-hour slices that is 24 each day. A restart walks the directory from its
   start with bounded reads, so the deleted keys cost reads, not a failure.

@@ -13,7 +13,7 @@
 | Date | 2026-09-21 |
 | Scope | LastDB Mini owner maintenance |
 | Canonical model | `docs/lastdb-canonical-model.md` |
-| Related work | `fold_db/docs/DELETE_RETURNS_BYTES.md` |
+| Related work | [`fold_db/docs/DELETE_RETURNS_BYTES.md`](https://github.com/EdgeVector/lastdb/blob/2f4ba44bd0688b0c0361db325d037524d8bb243a/fold_db/docs/DELETE_RETURNS_BYTES.md) (removed) |
 | Delivery plan | `docs/designs/schema-root-data-attribution-delivery-plan.md` (also superseded) |
 
 ## Decision

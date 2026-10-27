@@ -73,14 +73,15 @@ break from the public `0.22.9` sled homes (Tom 2026-07-24), and `release.yml`
 had skipped the gate since then. The skipped step and
 `scripts/release/validate-mini-upgrade-decrypt.sh` are gone. **No in-place
 upgrade path from 0.22.x sled is promised.** Fresh-install gate remains
-required.
+required. The program also refuses a disk format v1 home (decision D1,
+2026-10-26), so no in-place upgrade path from disk format v1 exists either.
 
 **Semantic-search release posture:** Homebrew LastDB Mini ships the default
 `lastdb` and `lastdbd` binaries fastembed/ONNX-free. Shadow-pack/FastEmbed
 coverage stays in the explicit non-shipping semantic smoke lane, guarded by
 `scripts/release/validate-mini-semantic-release-test.sh`.
 
-**Fresh-install first-run gate (2026-07-14):** same job also runs
+**Fresh-install first-run gate (2026-07-14):** the `build` job also runs
 `scripts/release/validate-mini-fresh-install.sh --built …`, which boots the
 candidate on a pristine throwaway home and exercises `/api/schemas/declare`,
 `/api/apps/declare-schema` (brain/kanban init path), mutation/query, semantic

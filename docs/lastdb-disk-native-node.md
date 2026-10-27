@@ -1,18 +1,16 @@
 # Native disk node path
 
-CAUTION: This document describes disk format v1. Since decision D1 (2026-10-26), the program does not
-open, convert, or restore a v1 home. Every home is disk format v2.
-
-Current source: main `8a0a40b4f`, reviewed 2026-10-24.
+Current source: main `2f4ba44bd`, reviewed 2026-10-26.
 The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
-The [storage parts guide](lastdb-storage-parts.md) describes packed files and automatic maintenance.
+The [disk format v2 engine](../vendor/laststore/README.md) describes the run files and the background merge.
 
-The native packed engine is the sole logical LastDB engine.
+Disk format v2 is the sole native LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
-An empty home initializes directly. Startup refuses an unsupported older format before logical namespace access and performs no conversion.
+An empty home initializes directly. Startup refuses any other format before logical namespace access and performs no conversion.
+Since decision D1 (2026-10-26), the program does not open, convert, or restore a disk format v1 home.
 The disk format v1 removal deleted the separate owner command `lastdb-native-transfer` on 2026-10-26.
 Legacy Cloud Sync activation receives an explicit error.
-Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
+The V2 byte backup has a separate, disabled-by-default gate; its source availability does not establish production cloud readiness.
 
 The [cutover results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.
 The [logical warm-set plan](lastdb-logical-warm-set-plan.md) records the current component boundaries.
@@ -34,7 +32,7 @@ Those allowances do not define a whole-process memory maximum.
 
 Every native write waits for its complete disk commit and clean core publication before the ack.
 No native route returns an early memory ack.
-Logical requests no longer carry the legacy LastStore placement log across task
+Logical requests carry no placement log across task
 scopes and blocking calls. The serialized `touched_group_ids` field remains empty
 for native writes. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
@@ -51,21 +49,15 @@ A FIFO lock lets callers already ahead of the worker share one complete disk com
 Later callers wait behind the worker. Each caller waits for its own completed sequence.
 A private write queue retains prepared bytes and resource owners until completion.
 Ordinary reads cannot inspect that queue. Private write preparation can inspect its ordered pending changes.
-The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and compaction handoff.
+The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and merge handoff.
 
 ## Home fence
 
-Since disk format v2 phase V3, every new node home is v2.
+Every node home is disk format v2.
 Its `laststore-pack-node-v1` marker holds `format=3\nhome=disk-run\ncas=disk-cas\n`, beside the `disk-run` and `disk-cas` run homes.
-The rest of this section describes the v1 fence of an older home, which still opens as v1.
-
-The node store contains `laststore-pack-node-v1`, with the exact bytes `format=1\nhome=disk-pack\n`.
-The native physical home resides in its fixed `disk-pack` child directory.
-Both the node store and native child contain a downgrade refusal in `laststore-layout-v1`:
-`version=2\nlayout_mode=disk_pack_v1\n`.
-Native startup verifies that refusal and the node marker.
-The public constructor also recognizes a direct native physical home.
-Neither entry selects the older engine or converts its files.
+A home with typed ranges holds `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n`.
+The run homes are complete before the marker appears.
+Startup refuses a home in any other format. It does not convert the files.
 
 ## One read boundary
 
@@ -100,13 +92,14 @@ This queue is disk output and resource lifetime state, rather than an alternate 
 
 ## Backup boundary
 
-Local backup exports the selected snapshot and exact dependency files. Restore verifies them before it publishes a fresh destination.
-The native capture code also saves an exact source home, snapshot generation, frontier, and durable file hold before network work.
+The V2 byte backup copies the run files of both run homes.
+Capture saves the exact cut and its named hold before hashing or network work.
 Resume uses that saved cut. It does not select a newer root.
+Restore verifies the files before it publishes a fresh destination.
 
-The [native backup design](designs/native-cloud-backup-mini-v1.md) describes separate owner jobs, transfer, restore, and release gates.
-`LASTDB_NATIVE_BACKUP_ENABLED` controls that source route and defaults off.
-Legacy Cloud Sync remains disabled. Local capture and export do not prove deployed cloud transfer or cloud recovery.
+The [V2 byte transport design](designs/cloud-byte-transport-v2.md) and the [V2 client design](designs/cloud-run-v2-client.md) describe the jobs, transfer, and restore.
+`LASTDB_BYTE_BACKUP_V2_ENABLED` controls that route and defaults off.
+Legacy Cloud Sync is removed. A local capture does not prove deployed cloud transfer or cloud recovery.
 
 Sources: [request completion](../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs),
 [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs),
@@ -118,5 +111,5 @@ and [backup capture](../fold_db/crates/core/src/storage/disk_pack/byte_backup/ca
 The [October 15 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/disk-native-node-20261015/report.md) records the earlier development path and its debug comparison.
 That step required explicit engine activation. Its controls and measurements describe only its recorded source.
 The [7110c7f5 receipt](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/layer2-completion-20261016/node-final-off-summary.json) measures a later historical candidate.
-The [October 16 status report](lastdb-disk-rollout-status.md) describes that candidate's earlier limits.
+Both receipts describe disk format v1, which is removed.
 Neither receipt establishes current performance, primary behavior, or upgrade readiness.
