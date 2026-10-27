@@ -1,0 +1,147 @@
+name: Cloud backup recovery
+
+# A real recovery from a fixed, accepted DEV backup. This never starts another
+# backup, allocates provider objects, enrolls an account, or accesses PROD.
+on:
+  pull_request:
+    paths: &cloud_paths
+      - '.github/workflows/cloud-backup-recovery.yml'
+      - 'scripts/cloud_backup/**'
+      - 'scripts/release/nightly_package.py'
+      - 'lastdb_node/**'
+      - 'lastdb_host/**'
+      - 'lastdb_identity/**'
+      - 'lastdb_uds/**'
+      - 'lastdb_storage_policy/**'
+      - 'lastdb_range_crypto/**'
+      - 'app_identity_crypto/**'
+      - 'env_flag/**'
+      - 'schema_service/crates/schema_types/**'
+      - 'fold_db/crates/observability/**'
+      - 'fold_db/crates/core/**'
+      - '**/cloud_backup_protocol/**'
+      - 'vendor/laststore/**'
+      - 'folddb_profile/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  push:
+    branches: [main]
+    paths: *cloud_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Accepted-main operations serialize. A PR never receives cloud credentials.
+  group: cloud-backup-recovery-${{ github.event.pull_request.number || 'accepted-main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  recipe-syntax:
+    name: Cloud recovery recipe syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require accepted main for a manual cloud operation
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SELECTED_REF: ${{ github.ref }}
+        run: test "$SELECTED_REF" = refs/heads/main
+      - name: Check the operational recipe syntax
+        run: python3 -m py_compile scripts/cloud_backup/*.py
+
+  recover-dev:
+    name: Recover the accepted DEV backup
+    needs: recipe-syntax
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: cloud-backup-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: never
+      SOURCE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require protected DEV inputs
+        env:
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+        run: |
+          python3 -c 'import os; names=("LASTDB_CLOUD_DEV_API_KEY","LASTDB_CLOUD_DEV_RECOVERY_PHRASE","LASTDB_CLOUD_DEV_BASELINE"); missing=[n for n in names if not os.environ.get(n)]; raise SystemExit("Missing protected DEV inputs: "+", ".join(missing) if missing else 0)'
+      - name: Select the repository toolchain
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          base="$(python3 -c 'import re,tomllib; v=tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"].split("-")[0]; assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+",v); print(v)')"
+          printf 'CLIENT_VERSION=%s-nightly.%s.g%s\n' "$base" "$(date -u +%Y%m%d)" "${SOURCE_COMMIT:0:9}" >> "$GITHUB_ENV"
+          printf 'CARGO_TARGET_DIR=%s/cloud-backup-build\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cloud-backup-recovery-linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the exact accepted client
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          FOLDDB_BUILD_VERSION_OVERRIDE="$CLIENT_VERSION" \
+            cargo build --locked --profile dev-release -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Package the exact client
+        id: client-package
+        run: |
+          set -euo pipefail
+          python3 scripts/release/nightly_package.py \
+            --target x86_64-unknown-linux-gnu \
+            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --out-dir "$RUNNER_TEMP/cloud-backup-client" \
+            --git-oid "$SOURCE_COMMIT" --expect-version "$CLIENT_VERSION" \
+            --source-epoch "$(git show -s --format=%ct HEAD)"
+      - name: Retain the verified client package
+        id: client-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-backup-client-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cloud-backup-client
+          if-no-files-found: error
+          retention-days: 3
+      - name: Restore through R2 and B2, read the data, and restart
+        env:
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cloud_backup/recover.py \
+            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --mode restore --output "$RUNNER_TEMP/cloud-backup-recovery"
+      - name: Record client provenance
+        if: always() && steps.client-artifact.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.client-artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.client-artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.client-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\nExact client source: %s\n\n' "$SOURCE_COMMIT"
+            printf '[Client package](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Artifact ID: %s; ZIP SHA256: %s\n\n' "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+              --jq '"Artifact expires: " + .expires_at'
+            printf '\nThe recovery uses DEV only. No new backup or provider object is created.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
