@@ -27,6 +27,7 @@ use super::MutationManager;
 
 mod finalize;
 mod guard;
+mod invalidation_rules;
 mod repair;
 mod rules;
 mod source_guards;
