@@ -2,8 +2,8 @@
 //!
 //! Inbox files are plain JSON outside the encrypted disk runs, and a Search
 //! reader can keep them after it reads them. So a batch carries only the fields
-//! that the schema marks searchable, and never a file key. The live write path
-//! and the offline rebuild both use these functions.
+//! that the schema marks searchable, and no file key or file bytes. The live
+//! write path and the offline rebuild both use these functions.
 
 use std::collections::{HashMap, HashSet};
 
@@ -11,6 +11,10 @@ use serde_json::Value;
 
 use crate::atom::file_pointer::LASTDB_FILE_KEY;
 use crate::schema::types::Schema;
+use crate::sharing::delivery_wire::LEGACY_FILE_KEY;
+
+/// The file value fields that a Search inbox batch keeps.
+const SEARCH_FILE_FIELDS: [&str; 2] = ["name", "media_type"];
 
 /// Fields eligible for Search inbox delivery for this schema.
 ///
@@ -48,7 +52,7 @@ pub(crate) fn is_search_excluded(classifications: &[String]) -> bool {
 }
 
 /// The part of `fields` that a Search inbox batch may carry: the fields in
-/// `searchable` (every field when it is `None`), with file keys removed.
+/// `searchable` (every field when it is `None`), each through [`inbox_value`].
 pub(crate) fn inbox_fields(
     fields: &HashMap<String, Value>,
     searchable: Option<&HashSet<String>>,
@@ -60,28 +64,34 @@ pub(crate) fn inbox_fields(
         .collect()
 }
 
-/// Copy of one field value without file keys: every `dek` inside a
-/// `$lastdb_file` pointer (the file's own key and its thumbnail's key) is
-/// removed. The rest of the pointer stays, so the Search text does not change.
+/// Copy of one field value without file access data: at any depth, a
+/// `$lastdb_file` pointer or a legacy `$file` value keeps only its `name` and
+/// `media_type`.
+///
+/// Removing only the `dek` is not enough. A convergent-v1 key derives from
+/// the plaintext digest, which `blob_ref` and `file_hash` carry, and a legacy
+/// `$file` carries the file bytes in `content_b64`. The thumbnail goes too.
 pub(crate) fn inbox_value(value: &Value) -> Value {
     let mut value = value.clone();
-    strip_file_keys(&mut value, false);
+    strip_file_access(&mut value);
     value
 }
 
-fn strip_file_keys(value: &mut Value, in_pointer: bool) {
+fn strip_file_access(value: &mut Value) {
     match value {
         Value::Object(map) => {
-            if in_pointer {
-                map.remove("dek");
-            }
             for (key, child) in map.iter_mut() {
-                strip_file_keys(child, in_pointer || key == LASTDB_FILE_KEY);
+                match child {
+                    Value::Object(file) if key == LASTDB_FILE_KEY || key == LEGACY_FILE_KEY => {
+                        file.retain(|field, _| SEARCH_FILE_FIELDS.contains(&field.as_str()));
+                    }
+                    _ => strip_file_access(child),
+                }
             }
         }
         Value::Array(items) => {
             for item in items {
-                strip_file_keys(item, in_pointer);
+                strip_file_access(item);
             }
         }
         _ => {}
