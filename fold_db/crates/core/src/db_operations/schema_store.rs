@@ -59,12 +59,6 @@ pub struct SchemaStore {
     schemas_store: Arc<TypedKvStore<dyn KvStore>>,
     schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
     superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
-    /// Mini E2E content key. Catalog rows are plaintext-by-policy, but a
-    /// mis-wired sealer wrote `ENC:` tips (2026-08-16). Query falls back to
-    /// [`Self::get_schema`] on a cache miss; without this key that get would
-    /// serde-fail and become HTTP 400. Same account key as the local CAS file
-    /// blob encryption in `AtomStore`.
-    catalog_unwrap_key: Option<[u8; 32]>,
     runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
 }
 
@@ -79,15 +73,8 @@ impl SchemaStore {
             schemas_store,
             schema_states_store,
             superseded_by_store,
-            catalog_unwrap_key: None,
             runtime,
         }
-    }
-
-    /// Use the Mini content key to open `ENC:` catalog tips on get/boot.
-    pub(crate) fn with_catalog_unwrap_key(mut self, key: [u8; 32]) -> Self {
-        self.catalog_unwrap_key = Some(key);
-        self
     }
 
     /// Flush every schema-owned namespace to durable storage.
@@ -134,18 +121,8 @@ impl SchemaStore {
             schemas.insert(key, schema);
         }
 
-        let mut skipped = 0usize;
+        let skipped = scan.undecodable.len();
         for (key, error) in &scan.undecodable {
-            let opened = match self.schemas_store.inner().get(key.as_bytes()).await? {
-                Some(bytes) => decode_catalog_schema(&bytes, self.catalog_unwrap_key.as_ref()).ok(),
-                None => None,
-            };
-            if let Some(mut schema) = opened {
-                schema.populate_runtime_fields()?;
-                schemas.insert(key.clone(), schema);
-                continue;
-            }
-            skipped += 1;
             tracing::warn!(
                 schema = %key,
                 error = %error,
@@ -207,15 +184,12 @@ impl SchemaStore {
                         "schema catalog repair found a non-UTF-8 key: {error}"
                     ))
                 })?;
-                let mut schema =
-                    decode_catalog_schema(value_bytes, self.catalog_unwrap_key.as_ref()).map_err(
-                        |error| {
-                            SchemaError::InvalidData(format!(
-                                "schema catalog row {key} is unreadable ({error}); a strict \
-                                 catalog read cannot certify the complete catalog"
-                            ))
-                        },
-                    )?;
+                let mut schema = decode_catalog_schema(value_bytes).map_err(|error| {
+                    SchemaError::InvalidData(format!(
+                        "schema catalog row {key} is unreadable ({error}); a strict \
+                         catalog read cannot certify the complete catalog"
+                    ))
+                })?;
                 if schema.name != key {
                     return Err(SchemaError::InvalidData(format!(
                         "schema catalog repair found unresolved row {key}: payload names {}",
@@ -261,7 +235,7 @@ impl SchemaStore {
 
     /// Get all superseded-by mappings.
     ///
-    /// Same skip/unwrap contract as [`Self::get_all_schemas`]: an `ENC:` or
+    /// Same skip contract as [`Self::get_all_schemas`]: an unreadable or
     /// empty row must not fail boot (`SchemaCore::new` loads this map).
     pub async fn get_all_superseded_by(&self) -> Result<HashMap<String, String>, SchemaError> {
         self.load_catalog_map::<String>(&self.superseded_by_store, "superseded_by", &[])
@@ -271,10 +245,8 @@ impl SchemaStore {
     /// Get all schema states.
     ///
     /// Boot (`SchemaCore::new`) calls this right after `get_all_schemas`. A
-    /// strict scan here re-bricks the node on the same ENC:/empty poison that
-    /// #1501 already skips in the schemas collection (probe of #1502 against
-    /// Tom's home failed on key `08abb8b3…` with
-    /// `expected value at line 1 column 1`).
+    /// strict scan here would brick the node on the same unreadable or empty
+    /// row that the schemas collection already skips.
     pub async fn get_all_schema_states(&self) -> Result<HashMap<String, SchemaState>, SchemaError> {
         // Retention policies and name-claim records intentionally share this
         // node-local namespace, but they are not schema-state rows. Do not
@@ -309,16 +281,6 @@ impl SchemaStore {
                 .iter()
                 .any(|prefix| key.starts_with(prefix))
             {
-                continue;
-            }
-            let opened = match store.inner().get(key.as_bytes()).await? {
-                Some(bytes) => {
-                    decode_catalog_json::<T>(&bytes, self.catalog_unwrap_key.as_ref()).ok()
-                }
-                None => None,
-            };
-            if let Some(value) = opened {
-                out.insert(key.clone(), value);
                 continue;
             }
             skipped += 1;

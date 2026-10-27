@@ -201,7 +201,6 @@ impl AtomStore {
                 self.changed_key_store_items(molecule_uuid, data, changed, storage_prefix)?;
             all_items.extend(items);
         }
-        refuse_legacy_ref_blob_store_items(&all_items)?;
         let tip_keys = tip_item_keys(&all_items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
         let winners = self.retain_durable_tip_winners(all_items).await?;

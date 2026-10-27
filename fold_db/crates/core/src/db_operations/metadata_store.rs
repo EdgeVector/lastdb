@@ -54,12 +54,6 @@ impl MetadataStore {
                 return Ok(id);
             }
             Ok(Some(_) | None) => {}
-            Err(StorageError::SerializationError(e)) => {
-                tracing::warn!(
-                    "Failed to deserialize node_id (possibly old format): {}, creating new",
-                    e
-                );
-            }
             Err(e) => return Err(e.into()),
         }
 

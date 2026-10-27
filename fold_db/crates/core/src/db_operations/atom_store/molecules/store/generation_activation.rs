@@ -90,7 +90,6 @@ impl AtomStore {
         let mut items = Self::activation_structural_items(molecule_uuid, &header, storage_prefix)?;
         Self::append_activation_tip_items(&mut items, &records, storage_prefix)?;
 
-        refuse_legacy_ref_blob_store_items(&items)?;
         // No accounting here: these items reach the activation commit as
         // `activation_items`, and the meters count them there, against the old
         // tips that commit reads.

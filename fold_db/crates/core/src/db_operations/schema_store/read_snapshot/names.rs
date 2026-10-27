@@ -33,12 +33,12 @@ impl SchemaStore {
         for (schema, state, claim) in entries {
             let state = values[state]
                 .as_deref()
-                .map(|bytes| self.decode_name_value::<SchemaState>(bytes))
+                .map(decode_name_value::<SchemaState>)
                 .transpose()?
                 .unwrap_or_default();
             let retired = values[claim]
                 .as_deref()
-                .map(|bytes| self.decode_name_value::<SchemaNameClaim>(bytes))
+                .map(decode_name_value::<SchemaNameClaim>)
                 .transpose()?
                 .is_some_and(|claim| claim.retired);
             if !retired {
@@ -47,9 +47,8 @@ impl SchemaStore {
         }
         Ok(directory)
     }
+}
 
-    fn decode_name_value<T: DeserializeOwned>(&self, bytes: &[u8]) -> Result<T, SchemaError> {
-        decode_catalog_json(bytes, self.catalog_unwrap_key.as_ref())
-            .map_err(|detail| SchemaError::StorageRead { detail })
-    }
+fn decode_name_value<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, SchemaError> {
+    decode_catalog_json(bytes).map_err(|detail| SchemaError::StorageRead { detail })
 }

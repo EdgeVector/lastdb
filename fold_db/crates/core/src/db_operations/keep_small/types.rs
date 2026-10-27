@@ -98,12 +98,12 @@ impl MeterTrustPayload {
     }
 
     #[must_use]
-    pub fn legacy_incomplete() -> Self {
+    pub fn incomplete(cause: &str) -> Self {
         Self {
             version: KEEP_SMALL_TRUST_VERSION,
-            global: MeterDomainTrust::incomplete("legacy_snapshot_without_trust"),
+            global: MeterDomainTrust::incomplete(cause),
             schemas: BTreeMap::new(),
-            molecules: MeterDomainTrust::incomplete("legacy_snapshot_without_trust"),
+            molecules: MeterDomainTrust::incomplete(cause),
         }
     }
 
@@ -121,10 +121,6 @@ impl Default for MeterTrustPayload {
     fn default() -> Self {
         Self::trusted()
     }
-}
-
-pub(super) fn legacy_trust_payload() -> MeterTrustPayload {
-    MeterTrustPayload::legacy_incomplete()
 }
 
 /// Incremental live totals for the daily speedometer.

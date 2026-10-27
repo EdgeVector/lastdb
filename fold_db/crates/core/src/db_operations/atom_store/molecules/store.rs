@@ -23,27 +23,6 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
         .collect()
 }
 
-/// Product molecule store must never emit `ref:{M}` whole-molecule blobs.
-///
-/// Create/update paths use per-key tips (`mk:`/`mh:`/…). The disk format v1
-/// engine kept `ref:` keys in a `legacy_blob_refs` collection; no reader or
-/// purge for them remains, and this guard keeps the product store from
-/// writing one.
-fn refuse_legacy_ref_blob_store_items(items: &[(String, Value)]) -> Result<(), SchemaError> {
-    for (key, _) in items {
-        let bare = key
-            .rsplit_once(":ref:")
-            .map_or_else(|| key.clone(), |(_, rest)| format!("ref:{rest}"));
-        if bare.starts_with("ref:") {
-            return Err(SchemaError::InvalidData(format!(
-                "refusing product molecule store write of legacy ref: key `{key}` \
-                 (whole-molecule blobs are residual-only; use per-key mk:/mh:)"
-            )));
-        }
-    }
-    Ok(())
-}
-
 /// Which key domain an in-memory [`MoleculeData`]'s slots are in.
 ///
 /// This is **not** a property of the molecule type — it is a property of the

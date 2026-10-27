@@ -127,8 +127,8 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
     /// [`Self::scan_items_with_prefix`], which fails the whole scan on the first
     /// undecodable row. That layer partitions on **decrypt** failure; this one
     /// partitions on **deserialize** failure, which is a distinct fault (an
-    /// empty row, a legacy `ENC:` value read through a plain seam, or a
-    /// truncated segment all decrypt fine and then fail `serde_json`).
+    /// empty row or a truncated segment decrypts fine and then fails
+    /// `serde_json`).
     ///
     /// **Won't-undo — this must stay opt-in, per call site.** Do not "fix" an
     /// aborting scan by making [`Self::decode_rows`] skip bad rows globally: a

@@ -20,7 +20,7 @@ impl KeepSmallMeters {
     #[must_use]
     pub fn trust(&self) -> MeterTrustPayload {
         self.trust.lock().map_or_else(
-            |_| MeterTrustPayload::legacy_incomplete(),
+            |_| MeterTrustPayload::incomplete("trust_lock_poisoned"),
             |trust| trust.clone(),
         )
     }

@@ -124,15 +124,9 @@ impl KeepSmallMeters {
             // `Some(true)`.
             clean_stop: None,
             trust: self.trust.lock().map_or_else(
-                |_| MeterTrustPayload {
-                    version: KEEP_SMALL_TRUST_VERSION,
-                    global: MeterDomainTrust::incomplete("trust_lock_poisoned"),
-                    schemas: BTreeMap::new(),
-                    molecules: MeterDomainTrust::incomplete("trust_lock_poisoned"),
-                },
+                |_| MeterTrustPayload::incomplete("trust_lock_poisoned"),
                 |trust| trust.clone(),
             ),
-            sharded: false,
         }
     }
 
