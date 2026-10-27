@@ -185,7 +185,7 @@ pub(super) fn supported_coordinate(domain: &CoreKeyDomain, hash: &str, range: &s
             && hash
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')));
-    range_supported && hash_supported
+    range_supported && hash_supported && domain.accepts_stored_range(range)
 }
 
 /// A generation edit can hide or expose a logical coordinate. Keep the same

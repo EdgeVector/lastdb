@@ -53,6 +53,9 @@ impl AtomStore {
         conflicts: Vec<TipConflict>,
         storage_prefix: Option<&str>,
     ) -> Result<Recorded, SchemaError> {
+        let conflicts = self
+            .without_historical_repeats(conflicts, storage_prefix)
+            .await?;
         let mut unique: BTreeMap<super::TipConflictDigest, TipConflict> = BTreeMap::new();
         for conflict in conflicts {
             if !conflict.same_device() {

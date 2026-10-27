@@ -20,6 +20,23 @@ mod resolve;
 mod resolve_scan;
 
 impl FieldVariant {
+    async fn read_range_profile(
+        &self,
+        db_ops: &DbOperations,
+    ) -> Result<Option<schema_types::molecule_range_profile::MoleculeRangeProfile>, SchemaError>
+    {
+        let Some(molecule) = self.common().molecule_uuid() else {
+            return Ok(
+                crate::schema::types::key_comparison::KeyComparisonContext::current_profile(),
+            );
+        };
+        db_ops.atoms().load_molecule_key_bundle(molecule).await?;
+        Ok(db_ops
+            .atoms()
+            .key_codec_for_molecule(molecule)?
+            .range_profile())
+    }
+
     fn require_supported_read(&self, filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {
         use crate::schema::types::schema::DeclarativeSchemaType;
 

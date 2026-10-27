@@ -7,6 +7,11 @@ impl MoleculeKeyCodec {
     /// Never infer OPE from a string's alphabet. V2 block encryption supplies
     /// authentication. Offline conversion separately checks keyed re-encoding.
     pub fn api_range(&self, stored: &str) -> Result<String, MoleculeKeyCodecError> {
+        if let Some(profile) = self.range_profile {
+            return profile
+                .decode_value(stored)
+                .map_err(MoleculeKeyCodecError::InvalidRange);
+        }
         match self.range_encoding() {
             RangeKeyEncoding::Plain => Ok(stored.to_owned()),
             RangeKeyEncoding::OpeV1 => {

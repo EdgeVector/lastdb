@@ -17,6 +17,7 @@ pub const MERGE_WIDTH: usize = 8;
 pub const MAX_MERGE_INPUTS: usize = 64;
 
 /// Complete native stored mutation. The home derives its physical group.
+#[derive(Clone)]
 pub struct HomeMutation {
     /// Exact namespace identity, never a filesystem path.
     pub collection: String,

@@ -23,8 +23,19 @@ pub struct RunBackupProfile {
     pub cas: RunBackupHome,
 }
 impl RunBackupProfile {
+    /// Profile one retains the legacy key order. Profile two selects typed
+    /// ranges inside the same encrypted physical V2 files.
+    pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
+        match self.version {
+            1 => Ok(super::super::run_node::RUN_NODE_BYTES),
+            2 => Ok(super::super::run_admission::TYPED_NODE_BYTES),
+            _ => Err(invalid("run backup logical profile version")),
+        }
+    }
+
     pub fn validate(&self) -> StorageResult<()> {
-        if self.version != 1 || self.main.home_id == self.cas.home_id {
+        self.node_marker()?;
+        if self.main.home_id == self.cas.home_id {
             return Err(invalid("run backup profile identity"));
         }
         for home in [&self.main, &self.cas] {

@@ -85,6 +85,7 @@ struct DomainState {
 pub(crate) struct CoreKeyDomain {
     identity: CoreKeyIdentity,
     range_encoding: RangeKeyEncoding,
+    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
     budget: Arc<CoreKeyBudget>,
     state: Mutex<DomainState>,
 }

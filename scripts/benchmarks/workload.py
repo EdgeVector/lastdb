@@ -106,6 +106,8 @@ class Workload:
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
                   "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
                   "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
+        if self.recipe.get("typed_range_comparison"):
+            schema["field_types"] = {field: "String" for field in FIELDS}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         for start in range(0, self.recipe["records"], 128):
             numbers = list(range(start, min(start + 128, self.recipe["records"])))
@@ -119,6 +121,9 @@ class Workload:
             save(self.output / "seed-native-status.json", self.node.call("/api/db/native-status")[0])
             save(self.output / "seed-version.json", json.loads((self.output / "version.json").read_text()))
         self.node.stop()
+        if self.recipe.get("typed_range_target"):
+            from typed_ranges import convert
+            convert(self.node)
         if self.upgrade_target:
             save(self.output / "seed-shutdown.json", json.loads((self.output / "shutdown.json").read_text()))
             save(self.output / "upgrade-source.json", {

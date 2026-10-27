@@ -39,6 +39,8 @@ impl HashRangeQueryProcessor {
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         Self::require_supported_query(schema, filter.as_ref())?;
         let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
+        let filter = comparison.canonical_filter(filter)?;
+        let window = comparison.canonical_window(window)?;
         let query = QuerySelection {
             schema,
             fields,

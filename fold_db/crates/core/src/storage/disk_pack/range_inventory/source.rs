@@ -14,7 +14,7 @@ use std::path::Path;
 /// One read of each run home of a stopped v2 node home.
 pub(super) struct Source {
     pub(super) main: RunRead,
-    cas: RunRead,
+    pub(super) cas: RunRead,
 }
 
 pub(super) struct FrozenSource {

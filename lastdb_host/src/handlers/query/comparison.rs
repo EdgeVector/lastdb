@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) async fn execute<H: HostNode>(
     host: &H,
-    query: Query,
+    mut query: Query,
     limit: Option<usize>,
     offset: Option<usize>,
     cursor: Option<QueryCursor>,
@@ -12,6 +12,11 @@ pub(super) async fn execute<H: HostNode>(
 ) -> Result<Value, HostError> {
     rules::validate_query_options(&query, cursor.is_some())?;
     let comparison = capture(host, &query.schema_name).await?;
+    if let Some(comparison) = &comparison {
+        query.filter = comparison
+            .canonical_filter(query.filter.take())
+            .map_err(HostError::from)?;
+    }
     let binding = comparison
         .as_ref()
         .map(|comparison| {
@@ -31,6 +36,13 @@ pub(super) async fn execute<H: HostNode>(
         rules::validate_cursor_comparison(cursor, binding.as_deref(), comparison.as_deref())?;
     }
     let cursor = cursor.map(QueryCursor::into_key);
+    let cursor = match comparison.as_ref() {
+        Some(comparison) => cursor
+            .map(|key| comparison.canonical_key(key))
+            .transpose()
+            .map_err(HostError::from)?,
+        None => cursor,
+    };
     let run = execute::QueryRun {
         host,
         ctx,

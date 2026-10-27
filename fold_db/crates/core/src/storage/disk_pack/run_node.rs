@@ -56,7 +56,9 @@ pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
                 .into(),
         ));
     }
-    Ok(marker.as_deref() == Some(RUN_NODE_BYTES))
+    Ok(marker.as_deref().is_some_and(|bytes| {
+        bytes == RUN_NODE_BYTES || bytes == super::run_admission::TYPED_NODE_BYTES
+    }))
 }
 
 /// True when `path` is absent or empty: a new node home, which is v2.
@@ -219,9 +221,10 @@ impl PackNamespacedStore {
 
     pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
+        let range_order = super::run_admission::admit(path, node_key)?;
         let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let v2 = physical::V2Home::new(home, cas);
+        let v2 = physical::V2Home::new(home, cas, range_order);
         let root = v2.current_root();
         let native_backup_boundary = tokio::sync::watch::channel(CoreNativeBackupBoundary {
             source_home: v2.home.identity(),

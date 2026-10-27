@@ -77,6 +77,10 @@ pub(super) fn node_marker(root: &Path) -> StorageResult<()> {
 }
 
 pub(super) fn is_run_marker(root: &Path) -> StorageResult<bool> {
+    Ok(profile_version(root)?.is_some())
+}
+
+pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     // The non-run branch belongs to the unchanged V1 validator. Apply the
     // stricter V2 ownership rules only after exact format selection.
     let mut file = OpenOptions::new()
@@ -87,10 +91,12 @@ pub(super) fn is_run_marker(root: &Path) -> StorageResult<bool> {
         return Err(invalid("restored node marker type"));
     }
     let mut bytes = Vec::new();
-    Read::by_ref(&mut file)
-        .take(run_node::RUN_NODE_BYTES.len() as u64 + 1)
-        .read_to_end(&mut bytes)?;
-    Ok(bytes == run_node::RUN_NODE_BYTES)
+    Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
+    Ok(match bytes.as_slice() {
+        run_node::RUN_NODE_BYTES => Some(1),
+        super::super::run_admission::TYPED_NODE_BYTES => Some(2),
+        _ => None,
+    })
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {

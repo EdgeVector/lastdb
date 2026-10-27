@@ -105,6 +105,7 @@ impl SchemaStore {
     ) -> Result<ManifestRetentionOutcome, SchemaError> {
         self.require_installed_schema(schema_name).await?;
         self.require_installed_schema(anchor).await?;
+        self.require_retention_format(anchor).await?;
         if ttl_seconds == 0 {
             return Err(SchemaError::InvalidData(
                 "manifest retention ttl_seconds must be greater than zero".to_string(),

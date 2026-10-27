@@ -27,7 +27,8 @@ impl MutationManager {
     ) -> Result<(Option<String>, Option<serde_json::Value>), SchemaError> {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
 
-        let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+        let key_value =
+            self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
 
         let Some(schema_field) = schema.runtime_fields.get(field) else {
             return Err(SchemaError::InvalidField(format!(
@@ -137,7 +138,8 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
-        let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+        let key_value =
+            self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
         if let Some(field) = fields
             .iter()
             .find(|field| !schema.runtime_fields.contains_key(*field))
