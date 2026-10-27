@@ -7,14 +7,20 @@ use crate::db_operations::molecule_key_store::{
 use crate::schema::Schema;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
-pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {
+pub(super) fn verify(
+    main: &RunRead,
+    account_key: &[u8; 32],
+    version: u16,
+    key_heads: bool,
+) -> StorageResult<()> {
     if version == 1 {
         return Ok(());
     }
     if version != 2 {
         return Err(invalid("run backup range profile version"));
     }
-    let mut rows = Rows::new(main, "schemas");
+    let mut read = super::rows::read(main, key_heads)?;
+    let mut rows = Rows::new(main, read.as_mut(), "schemas")?;
     while let Some((_, bytes)) = rows.next()? {
         let opened = crate::crypto::is_sealed_at_rest(&bytes)
             .then(|| {

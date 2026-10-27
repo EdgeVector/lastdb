@@ -71,6 +71,8 @@ pub mod native_write {
 
 /// Small control values and proof identities have their own memory bounds.
 pub mod backup_decode {
+    /// Complete optional key-head cache, including transient key copies.
+    pub const PROOF_KEY_HEAD_BYTES: u64 = 1024 * 1024;
     pub const ATOM_BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
     pub const ATOM_JSON_TREE_MAX_BYTES: u64 = super::BACKUP_RESOURCES.decoded_values_bytes / 2;
     pub const DIRECTORY_MAX_BYTES: u64 = 4096;
@@ -92,6 +94,7 @@ pub mod backup_memory {
     use super::{backup_decode, BACKUP_RESOURCES};
     pub const UPLOAD_BUFFERS_PER_STREAM: u64 = 6;
     pub const PROOF_PEAK_BYTES: u64 = BACKUP_RESOURCES.decoded_values_bytes
+        + backup_decode::PROOF_KEY_HEAD_BYTES
         + backup_decode::DIRECTORY_READ_BYTES
         + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64
         + backup_decode::JSON_PAGE_RESERVE_BYTES
