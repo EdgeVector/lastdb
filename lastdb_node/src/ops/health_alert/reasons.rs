@@ -65,46 +65,6 @@ pub(super) fn durability_reason(status: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// `sync.sync_degraded=true` with the node's own reasons and recovery point.
-pub(super) fn sync_reason(status: &serde_json::Value) -> Option<String> {
-    // Preserve explicit node sync failures separately from manual V2 job status.
-    if let Some(sync) = status.get("sync") {
-        if sync
-            .get("sync_degraded")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true)
-        {
-            let why = sync
-                .get("degraded_reasons")
-                .and_then(|v| v.as_array())
-                .map(|rs| {
-                    rs.iter()
-                        .filter_map(|r| r.as_str())
-                        .collect::<Vec<_>>()
-                        .join(",")
-                })
-                .filter(|j| !j.is_empty())
-                .unwrap_or_else(|| "no reason given".to_string());
-            // The recovery point is the number an operator acts on, and it
-            // rides along as context rather than as a second judgement by
-            // this checker. Computed the same way `lastdb status`'s `Sync:`
-            // line computes it (frontier-based crash-loss window, falling
-            // back to the raw publish-event age only when no frontier is
-            // available) rather than reading the raw publish-event-age field
-            // directly, which understated real exposure by up to 150x
-            // (papercut-lastdb-alert-check-rpo-secs-reads-wrong-field-understates-recovery-point-20261013).
-            let rpo = crate::ops::self_metrics::crash_loss_window_secs_from_status_json(
-                fold_db::clock::unix_secs(),
-                sync,
-            )
-            .map(|secs| format!("; rpo_secs={secs}"))
-            .unwrap_or_default();
-            return Some(format!("sync.sync_degraded=true ({why}){rpo}"));
-        }
-    }
-    None
-}
-
 /// Reads served short because a tip pointed at a missing atom.
 pub(super) fn integrity_reason(status: &serde_json::Value) -> Option<String> {
     // Read integrity means callers were already served SHORT: a tip pointed at

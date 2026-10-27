@@ -117,7 +117,6 @@ pub struct StatusSnapshot {
     /// for durable node-relative artifacts.
     #[serde(default)]
     pub data_dir_path_disclosed: bool,
-    pub sync: SyncHealth,
     /// Redacted explicit V2 job status; no legacy marker or automatic coverage claim.
     #[serde(default)]
     pub durability: DurabilityHealth,

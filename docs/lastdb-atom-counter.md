@@ -584,6 +584,7 @@ each one.
 |---|---|---|
 | before the batch is accepted | no change | nothing to recover |
 | during the run file write, or before the new `CURRENT` | no batch | the next open deletes the temporary file or the run file that `CURRENT` does not name; the client got no ack |
+| after the new `CURRENT`, before the ack | the whole batch | nothing to recover; the client got no ack, so it reads the keys to learn the result |
 | after batch N of a job of many batches (TTL pass, janitor, drain, dwell pass, mixed request) | batches 1 to N applied | each batch is valid alone; the next pass continues |
 | a schema drop between the catalog rows and the schema record | rows gone, schema still installed | run the drop again |
 | a molecule drain between batches | header with zero counters, candidate row present | the next wake reads the candidate list and finishes |

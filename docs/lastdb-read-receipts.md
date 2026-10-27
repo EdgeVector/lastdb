@@ -1,10 +1,10 @@
 # LastDB read receipts
 
 The native reader reads the published `CURRENT` of each disk format v2 run home. It has no internal journal or local mutation replay.
-The legacy loader and replay counters stay in the response for compatibility. The v2 reader does not use them.
+The `group_opens` and `legacy_replay_bytes` counters stay in the response for compatibility. They have no writer in disk format v2 and stay `0`.
 
 A read receipt measures the storage work for one query. It identifies extra
-file reads, bytes, and time before the pack file and disk directory changes.
+file reads, bytes, and time.
 The receipt does not change the file format or the warm-set byte budget.
 
 ## Request and response
@@ -12,7 +12,7 @@ The receipt does not change the file format or the warm-set byte budget.
 Send `x-lastdb-read-receipt: true` with `POST /api/query` on the owner socket.
 The response header `x-lastdb-read-receipt` contains a compact JSON object.
 Ordinary queries omit the receipt header. Request telemetry uses its own
-per-request scope for actual group-open counts.
+per-request scope. Its `cold_shard_loads` value comes from `group_opens`, so it stays `0`.
 
 The `query_storage` scope covers one query after request parse and before the
 response envelope. It includes schema resolution and the final record result.
@@ -34,31 +34,27 @@ scope can carry the partial receipt.
 | `requested_keys` | Storage lookup attempts. This includes fallback probes and repeated requests for the same key. It is not the number of API records. |
 | `logical_warm_hits` | Exact lookup results from the logical core path, including confirmed absence. |
 | `logical_warm_misses` | Exact lookup attempts that the logical warm path cannot supply. |
-| `loader_calls` | Storage group loader entry attempts, including cap refusals. |
-| `group_opens` | Existing group directories that enter the storage parser. |
-| `group_load_nanos` | Inclusive time in admitted group reconstruction. This overlaps the file, metadata, and decode times. |
+| `group_opens` | Has no writer in disk format v2 and stays `0`. Request telemetry reports it as `cold_shard_loads`. |
 | `returned_body_bytes` | Exact response body bytes after the result envelope. Header bytes are separate. |
 | `file_open_attempts` | Read-only file open attempts, including failed attempts. |
 | `file_opens` | Successful read-only file opens. A repeated open counts again. |
-| `metadata_operations` | Explicit file status, existence, and directory-entry status calls. |
-| `directory_reads` | Directory enumeration attempts. |
-| `directory_entries` | Directory entries returned to the caller. |
+| `metadata_operations` | Explicit file status calls. |
 | `read_operations` | File read calls, including EOF and failed calls. |
-| `legacy_replay_bytes` | Bytes read for legacy group replay or append-tail replay. |
-| `footer_bytes` | Bytes read for sorted footers and key sidecars. |
-| `payload_bytes` | Bytes read from addressed record or sorted-block extents. |
-| `format_probe_bytes` | Bytes read for format, manifest, part, or allocation-bound probes. |
-| `decoded_bytes` | Output bytes from successful frame decode or plain replay copies. |
+| `legacy_replay_bytes` | Has no writer in disk format v2 and stays `0`. |
+| `footer_bytes` | Bytes read for disk run footers and index blocks. |
+| `payload_bytes` | Bytes read from disk run data blocks and streamed frame payloads. |
+| `format_probe_bytes` | Bytes read for streamed frame headers and tags. |
+| `decoded_bytes` | Output bytes from successful frame decode. |
 | `decrypted_bytes` | Plaintext bytes from the measured at-rest value envelope decode and inflate. |
 | `temporary_bytes_peak` | Peak concurrent capacity of the transient byte buffers that the receipt measures. |
 | `read_nanos` | Sum of file read time, including failed calls and OS-cache reads. |
-| `decode_nanos` | Sum of authentication, decompression, and plain-copy time. |
+| `decode_nanos` | Sum of frame open, authentication, and decompression time. |
 | `decrypt_nanos` | Sum of at-rest value envelope decode and inflate time in `open_or_discard`. |
-| `lock_wait_nanos` | Sum of waits for core warm-set locks. |
+| `lock_wait_nanos` | Sum of waits for the lock on the call's native read context. |
 | `blocking_queue_wait_nanos` | Sum of dispatch delay before an attached core blocking call starts. |
 | `socket_queue_wait_nanos` | Wait for the socket worker before this request starts. |
 | `open_nanos` | Sum of read-only file open time, including failed attempts. |
-| `metadata_nanos` | Sum of explicit status and directory enumeration time. |
+| `metadata_nanos` | Sum of explicit file status time. |
 | `query_storage_elapsed_nanos` | Elapsed time for the complete query scope. |
 | `filesystem_pages` | `unknown`: the receipt does not measure the operating system's filesystem page state. |
 | `temporary_bytes_scope` | `instrumented_byte_buffers`: the scope of the transient byte peak. |
@@ -66,7 +62,7 @@ scope can carry the partial receipt.
 The addressed-read byte classes are legacy replay, footer, payload, and format-probe bytes.
 They measure userspace reads from the operating system. They do not measure
 the bytes that a disk device transfers. A warm miss does not prove a cold
-filesystem page. A group open does not prove a new file open.
+filesystem page.
 
 Time fields use nanoseconds. Parallel workers can overlap, so their summed
 time can exceed `query_storage_elapsed_nanos`. HTTP elapsed time also includes
@@ -102,7 +98,7 @@ It does not measure the process memory size or prove the warm set cap.
   service network calls, or storage calls outside its attached context.
 - At-rest value decode and inflate contribute to `decrypt_nanos`. Upstream
   atom-owner content decryption is outside this measurement.
-- `lock_wait_nanos` covers selected storage and core memory locks.
+- `lock_wait_nanos` covers only the lock on the call's native read context.
   It does not measure every lock that a complete query uses.
 - The time fields cover named code paths. A zero field does not prove zero
   time for all decryption, all locks, all queues, or the complete query.

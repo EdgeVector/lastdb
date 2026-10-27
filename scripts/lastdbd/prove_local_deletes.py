@@ -227,7 +227,7 @@ class Proof:
     def local_status(self):
         status = self.request('GET', '/api/status')
         require(status.get('ok') is True, 'status_not_ok')
-        require(status['status']['sync']['enabled'] is False, 'cloud_enabled')
+        require(status['status']['durability']['automatic_enabled'] is False, 'cloud_enabled')
         require(status['status']['build']['version'] == self.result['binaries']['lastdbd']['version'],
                 'daemon_version_changed')
 

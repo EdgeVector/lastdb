@@ -327,7 +327,7 @@ fn limits_line(snapshot: &StatusSnapshot) -> String {
     )
 }
 
-/// Memory, CPU, paths, logs, and the sync/recoverability lines that open the report.
+/// Memory, CPU, paths, logs, and compression lines that open the report.
 fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let mut lines = vec![
         memory_status_line(snapshot),
@@ -341,7 +341,6 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
-        sync_status_line(snapshot.sampled_at, &snapshot.sync),
     ];
     lines.insert(1, logical_keys_status_line(&snapshot.resident));
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {

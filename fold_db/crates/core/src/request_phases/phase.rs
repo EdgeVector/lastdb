@@ -360,8 +360,6 @@ pub enum RequestPhase {
     ChangeRecordWrite,
     /// Final response envelope/error rendering after route work completes.
     ResponseEnvelope,
-    /// Status route: cloud-sync health snapshot.
-    StatusSync,
     /// Status route: sealed-chunk backup progress snapshot.
     StatusBackup,
     /// Status route: durable backup marker evaluation.

@@ -8,11 +8,7 @@ pub(super) async fn write_snapshot(host: &Host, snapshot: &StatusSnapshot) -> Re
     fields.insert("sample_id".to_string(), json!(sample_id));
     insert_process_and_memory_fields(&mut fields, snapshot);
     insert_allocator_and_disk_fields(&mut fields, snapshot);
-    insert_sync_status_fields(&mut fields, snapshot);
     insert_backup_durability_fields(&mut fields, snapshot);
-    insert_sync_queue_and_log_fields(&mut fields, snapshot);
-    insert_sync_mutation_log_fields(&mut fields, snapshot);
-    insert_sync_download_fields(&mut fields, snapshot);
     insert_sampler_qos_uds_fields(&mut fields, snapshot);
 
     write_mutation(
