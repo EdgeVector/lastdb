@@ -55,7 +55,8 @@ pub fn at_rest_max_inflated_bytes() -> u64 {
 ///
 /// Override with `LASTDB_AT_REST_COMPRESS_MIN_BYTES`. An unparseable or absent
 /// value falls back to [`AT_REST_COMPRESS_MIN_BYTES_DEFAULT`]. The KV seam
-/// uses it when `LASTDB_KV_AT_REST_COMPRESS_MIN_BYTES` is unset.
+/// uses it when `LASTDB_KV_AT_REST_COMPRESS_MIN_BYTES` is unset or does not
+/// parse.
 #[must_use]
 pub fn at_rest_compress_min_bytes() -> usize {
     env_flag::var_or(
