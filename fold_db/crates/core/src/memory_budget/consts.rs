@@ -28,21 +28,6 @@ pub const DEFERRED_BYTES_ENV: &str = "LASTDB_RESIDENT_MAX_DEFERRED_BYTES";
 /// Env: percent of the deferred window one persist lane may occupy (1–100).
 pub const LANE_FAIR_SHARE_PERCENT_ENV: &str = "LASTDB_DEFER_LANE_FAIR_SHARE_PERCENT";
 
-/// The two states behind a `DeferredPersistGauge::try_reserve` refusal.
-///
-/// They are not degrees of the same thing. `Disabled` is a configuration an
-/// operator chose (or the memory guard's hard latch chose for them): inline
-/// persist is the only defined behavior and there is nothing to act on.
-/// `WindowFull` is live backpressure against a positive cap, and raising the
-/// window is an action that would change it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeferRefusal {
-    /// The window is zero — deferral is switched off.
-    Disabled,
-    /// A positive window that this batch could not fit under.
-    WindowFull,
-}
-
 /// Default process memory ceiling in MiB.
 ///
 /// Tom ratified (2026-08-08) that the primary kill guard measures

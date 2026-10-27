@@ -326,15 +326,6 @@ impl MutationManager {
         )
     }
 
-    /// Why the defer window would refuse right now — `Disabled` (zero window)
-    /// or `WindowFull` (live backpressure). The degrade log must separate
-    /// these: only one of them is something an operator can act on.
-    #[inline]
-    #[must_use]
-    pub fn defer_refusal_kind(&self) -> crate::memory_budget::DeferRefusal {
-        self.defer_gauge.refusal_kind()
-    }
-
     /// Feed the periodic physical-footprint sample back into the defer window.
     /// This is deliberately a cheap atomic-only control loop: status and
     /// self-metrics must never scan storage to decide whether writes are safe.
