@@ -43,11 +43,8 @@ pub(super) const SELF_METRIC_FIELDS: &[&str] = &[
     "allocator_name",
     "allocator_committed_bytes",
     "allocator_reserved_bytes",
-    "in_flight_cold_load_bytes",
-    "in_flight_cold_load_count",
     "peak_request_bytes",
     "slowest_request_ms",
-    "eviction_events",
     "effective_warm_budget_bytes",
 ];
 pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
