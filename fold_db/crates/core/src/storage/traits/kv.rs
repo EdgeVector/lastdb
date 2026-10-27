@@ -258,13 +258,12 @@ pub trait KvStore: Send + Sync {
         Ok(YieldedScan { rows, resume })
     }
 
-    /// Scan a range while bounding physical shard/group resolution.
+    /// Scan one bounded page of a range for resumable maintenance.
     ///
     /// Product queries must use the globally ordered range methods above.
-    /// This primitive exists for resumable maintenance over a global physical
-    /// plane, where a logical first page would still resolve every hash group.
-    /// The default keeps correctness for non-sharded backends with a logical
-    /// key cursor. Local sharded backends should override it.
+    /// Disk format v2 has no sharded backend. The pack store keeps this
+    /// default (one logical keyset page with an `after_key` cursor), and the
+    /// encrypting store forwards to its inner store.
     async fn scan_range_physical_paged(
         &self,
         start: &[u8],

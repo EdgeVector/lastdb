@@ -218,11 +218,11 @@ async fn resolve_blob_bytes(
     }
     if let Some(access) = access {
         if !access.dek.is_empty() {
-            return file_recovery::resolve_local_blob_bytes(db, access).await;
+            return file_bytes::resolve_local_blob_bytes(db, access).await;
         }
     }
     blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
 }
 
-mod file_recovery;
-pub use file_recovery::resolve_file_bytes;
+mod file_bytes;
+pub use file_bytes::resolve_file_bytes;
