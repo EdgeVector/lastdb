@@ -322,4 +322,18 @@ impl RunHashRange<'_> {
             )),
         }
     }
+    /// One bounded backup page with fresh per-page work admission. The cursor
+    /// keeps its authenticated next-key heads; opened-run costs stay cumulative.
+    /// The caller must release the preceding page before it requests another.
+    pub fn next_backup_page(&mut self, limit: usize, maximum: u64) -> Result<RunRangePage> {
+        match &mut self.mode {
+            RangeMode::Bounded(range) => {
+                range.reset_page_budget();
+                range.page(limit, Some((0, 0)), maximum)
+            }
+            RangeMode::Ordinary(_) => Err(Error::Config(
+                "backup run pages require a captured or stopped-home read".into(),
+            )),
+        }
+    }
 }
