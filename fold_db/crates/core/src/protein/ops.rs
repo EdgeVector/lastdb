@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
+use crate::atom::AtomEntry;
 use crate::db_operations::atom_store::{AtomStore, ChangedKey, MoleculeData, MoleculeRefEdge};
 use crate::schema::SchemaError;
 use crate::security::Ed25519KeyPair;
