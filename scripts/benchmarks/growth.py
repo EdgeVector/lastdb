@@ -135,9 +135,8 @@ class GrowthWorkload:
     def seed(self):
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
                   "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-                  "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
-        if self.recipe.get("typed_range_comparison"):
-            schema["field_types"] = {field: "String" for field in FIELDS}
+                  "fields": FIELDS, "field_types": {field: "String" for field in FIELDS},
+                  "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         self.write(0, self.live_records, "growth-seed", True)
         if self.recipe.get("typed_range_target"):

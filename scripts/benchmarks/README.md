@@ -258,7 +258,8 @@ The report separates allocated space before and after compaction. These checkpoi
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the format-3 node marker of both generated homes. Since phase V3, every new home is v2, and disk format v1 is gone.
+It verifies the v2 node marker of both generated homes, including the default format-4 typed ranges.
+Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 
 The pass uses the resource counts above: 512 seed records and three rounds on PRs; 2,048 and eight rounds at night.

@@ -5,7 +5,7 @@ import statistics
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
 from disk_deletes import delete_records, prepare_delete, verify_deleted
-from node import Node, RUN_NODE_MARKER, save
+from node import Node, save
 from disk_usage import validate as validate_breakdown
 
 LIMIT = 1.5
@@ -82,13 +82,13 @@ class DiskBudgetWorkload(GrowthWorkload):
         try:
             node.start()
             require_search_off(node, output, "before")
-            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-            save(output / "disk-format.json", {"marker": marker})
-            if marker != RUN_NODE_MARKER:
+            if node.disk_format() != 2:
                 raise ValueError("The delete case requires a fresh v2 run home")
             workload = DiskBudgetWorkload(node, {**self.recipe, "growth": self.recipe}, output)
             workload.case_names = ("delete",)
             GrowthWorkload.run(workload)
+            marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+            save(output / "disk-format.json", {"marker": marker})
             require_search_off(node, output, "after")
             self.cases.update(workload.cases)
         finally:

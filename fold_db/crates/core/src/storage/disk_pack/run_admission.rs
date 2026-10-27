@@ -42,15 +42,12 @@ pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<KeyOrderVersio
         _ => return Err(invalid("the node range format is unsupported")),
     };
     require_settings(order)?;
-    if run_node::creation_pending(root)? {
-        if order == KeyOrderVersion::TypedScalarV1 {
-            return Err(invalid(
-                "typed range conversion is not a fresh-home initialization",
-            ));
-        }
+    if run_node::creation_pending(root)? && order == KeyOrderVersion::LegacyUtf8V1 {
         // The legacy creation gate admits only its atomic account/format proof.
         return Ok(order);
     }
+    // Typed creation commits both proofs before its node marker appears.
+    // Even with a creation intent, no missing or partial typed proof is admitted.
     verify(root, key, order)?;
     Ok(order)
 }

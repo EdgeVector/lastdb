@@ -50,6 +50,7 @@ def schema_request(name):
         "schema_type": "HashRange",
         "key": {"hash_field": hash_field, "range_field": range_field},
         "fields": list(fields),
+        "field_types": {hash_field: "String", range_field: "String"},
         "field_descriptions": {field: f"disk v2 proof {field}" for field in fields}}}
 
 

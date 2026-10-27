@@ -44,6 +44,11 @@ impl PackRuntime {
             {
                 continue;
             }
+            if self.range_order() == schema_types::key_comparison::KeyOrderVersion::TypedScalarV1 {
+                return Err(refusal(
+                    "typed creation already requires its durable proofs; source writes must wait",
+                ));
+            }
             if operation.collection == crate::crypto::content_key_proof::NAMESPACE
                 && operation.key.as_bytes() == crate::crypto::content_key_proof::KEY
                 && operation.body.is_some()
