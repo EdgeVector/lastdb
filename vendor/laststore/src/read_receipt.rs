@@ -55,6 +55,8 @@ pub struct DiskReadReceipt {
     pub frame_auth_nanos: u64,
     /// Frame zstd time, also included in decode_nanos.
     pub frame_decompress_nanos: u64,
+    /// Read-side decompressor contexts created; a lookup can share one.
+    pub frame_decompressor_setups: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
     /// Sum of explicit file status durations.

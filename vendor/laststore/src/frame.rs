@@ -137,7 +137,7 @@ pub fn encode_frame_with_stats(
 }
 
 pub use decode::decode_frame;
-pub(crate) use decode::{decode_frame_bounded, PreparedFrameKey};
+pub(crate) use decode::{decode_frame_bounded, DecodeScratch, PreparedFrameKey};
 
 fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]> {
     let hk = Hkdf::<Sha256>::new(Some(chunk_uuid.as_bytes()), data_key);

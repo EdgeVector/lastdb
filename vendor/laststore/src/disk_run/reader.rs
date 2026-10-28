@@ -5,7 +5,7 @@ use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
-use crate::frame::{decode_frame_bounded, min_encoded_len, PreparedFrameKey};
+use crate::frame::{decode_frame_bounded, min_encoded_len, DecodeScratch, PreparedFrameKey};
 use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
 use std::ops::Bound;
@@ -168,6 +168,17 @@ impl RunReader {
     }
 
     fn read_frame(&self, offset: u64, len: u32, counter: u64, max: usize) -> Result<Vec<u8>> {
+        self.read_frame_with(offset, len, counter, max, None)
+    }
+
+    fn read_frame_with(
+        &self,
+        offset: u64,
+        len: u32,
+        counter: u64,
+        max: usize,
+        scratch: Option<&mut DecodeScratch>,
+    ) -> Result<Vec<u8>> {
         // The clear footer and index entries name this length; bound it by
         // the payload limit (plus the 8-byte zstd length and frame overhead)
         // before allocating, since nothing is authenticated yet.
@@ -177,7 +188,7 @@ impl RunReader {
         let mut frame = vec![0u8; len as usize];
         measured::read_exact_at(&self.file, &mut frame, offset)?;
         let decoded = match &self.frame_key {
-            Some(key) => key.decode(&self.data_key, &frame, max),
+            Some(key) => key.decode(&self.data_key, &frame, max, scratch),
             None => decode_frame_bounded(&self.data_key, &frame, max),
         }?;
         if decoded.header.chunk_uuid != self.footer.run_id || decoded.header.counter != counter {
@@ -195,13 +206,22 @@ impl RunReader {
     }
 
     pub(super) fn read_index(&self, number: usize) -> Result<IndexBlock> {
+        self.read_index_with(number, None)
+    }
+
+    pub(super) fn read_index_with(
+        &self,
+        number: usize,
+        scratch: Option<&mut DecodeScratch>,
+    ) -> Result<IndexBlock> {
         let _class = ReadClass::Footer.enter();
         let entry = &self.top.indexes[number];
-        let payload = self.read_frame(
+        let payload = self.read_frame_with(
             entry.offset,
             entry.len,
             INDEX_COUNTER_BASE + entry.number,
             self.block_limit(),
+            scratch,
         )?;
         let mut at = 0;
         let blocks = get_refs(&payload, &mut at)?;
@@ -220,8 +240,22 @@ impl RunReader {
     }
 
     pub(super) fn read_data(&self, block: &BlockRef) -> Result<BlockRecords> {
+        self.read_data_with(block, None)
+    }
+
+    pub(super) fn read_data_with(
+        &self,
+        block: &BlockRef,
+        scratch: Option<&mut DecodeScratch>,
+    ) -> Result<BlockRecords> {
         let _class = ReadClass::Payload.enter();
-        let payload = self.read_frame(block.offset, block.len, block.number, self.block_limit())?;
+        let payload = self.read_frame_with(
+            block.offset,
+            block.len,
+            block.number,
+            self.block_limit(),
+            scratch,
+        )?;
         let records = decode_block(&payload)?;
         if records.first().map(|(k, _)| k) != Some(&block.first_key) {
             return Err(corrupt("data block does not start at its index entry"));
@@ -272,13 +306,14 @@ impl RunReader {
         let mut out: Vec<Option<T>> = keys.iter().map(|_| None).collect();
         let mut index: Option<(usize, IndexBlock)> = None;
         let mut data: Option<(u64, BlockRecords)> = None;
+        let mut scratch = DecodeScratch::default();
         for slot in order {
             let key = keys[slot];
             let Some(number) = self.index_for(key) else {
                 continue;
             };
             if index.as_ref().map(|(n, _)| *n) != Some(number) {
-                index = Some((number, self.read_index(number)?));
+                index = Some((number, self.read_index_with(number, Some(&mut scratch))?));
             }
             let (_, block_index) = index.as_ref().expect("index loaded");
             if !block_index.may_hold(key_hash(key))? {
@@ -288,7 +323,10 @@ impl RunReader {
                 continue;
             };
             if data.as_ref().map(|(n, _)| *n) != Some(block.number) {
-                data = Some((block.number, self.read_data(block)?));
+                data = Some((
+                    block.number,
+                    self.read_data_with(block, Some(&mut scratch))?,
+                ));
             }
             let (_, records) = data.as_ref().expect("block loaded");
             out[slot] = find(records, key, &pick);
