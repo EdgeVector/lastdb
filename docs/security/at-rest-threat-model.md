@@ -17,8 +17,8 @@ Clear file identities, lengths, positions, object counts, and request times rema
 The June and Trinity sections below describe the older design. They do not override this V2 representation.
 
 **Update 2026-07-13 (Mini / identity.key):** LastDB Mini's shipping key root is
-the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed` + optional
-`at_rest_kek_from_seed` for keyring wrap). The Argon2id **passphrase root**
+the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed`). Mini does not
+derive a separate keyring wrap key. The Argon2id **passphrase root**
 (`passphrase.params`, `PassphraseRoot`, `FOLDDB_PASSPHRASE*`) was removed from
 `fold_db` core — password unlock and in-place legacy-root migration were
 cancelled in favor of identity.key + cloud restore. Sections below that still
