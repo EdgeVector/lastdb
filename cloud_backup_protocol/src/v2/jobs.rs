@@ -11,11 +11,18 @@ pub struct Begin {
     /// An empty list preserves legacy admission and provider identities.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_destinations: Vec<Destination>,
+    /// Explicit terminal-upload contract for new CI R2 allocations. Omission
+    /// preserves legacy admission and hashes; false is never an opt-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r2_multipart: Option<bool>,
     pub predecessor: Option<Head>,
 }
 impl Begin {
     pub fn validate(&self) -> Result<(), ProtocolError> {
         super::common::validate_destinations(&self.required_destinations)?;
+        if self.r2_multipart == Some(false) {
+            return Err(ProtocolError::invalid("v2.begin.r2_multipart"));
+        }
         self.job.validate()?;
         self.descriptor.validate()?;
         if let Some(head) = &self.predecessor {

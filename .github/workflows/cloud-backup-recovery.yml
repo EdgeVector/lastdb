@@ -118,6 +118,7 @@ jobs:
           retention-days: 3
       - name: Run automatic snapshots, mutation logs, restart and both recoveries
         env:
+          GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}

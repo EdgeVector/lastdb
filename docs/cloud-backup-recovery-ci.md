@@ -118,6 +118,20 @@ It must preserve shared files, active restores, uploads, and uncertain allocatio
 An expired or missing ownership record supplies no automatic deletion authority.
 General user retention and PROD cleanup remain separate from this CI-only policy.
 
+Before cloud access, CI reads at most four recent successful main workflow runs.
+It verifies each available ownership archive against GitHub's digest, exact source, workflow, run, attempt, account, and generation.
+The exact attempt's successful recovery-job completion time orders reruns correctly.
+Missing or expired ownership records grant no cleanup authority.
+This read-only step does not classify a complete directory or delete cloud files.
+
+The client also supports an explicit terminal R2 upload contract for later CI activation.
+`LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS=1` sets the hash-bound `Begin.r2_multipart` field to true for a new request.
+The default omits that field and preserves old accepted hashes.
+False is invalid. An opted-in R2 upload rejects a direct-PUT grant before it sends bytes.
+The same uploader supports the existing B2 multipart grants and the new R2 multipart grants.
+The current recipe leaves this opt-in off until the separate CI capability confirms service support.
+These are transport controls. They change no native file format or content encryption.
+
 The recipe uses fresh private runner directories and checks the daemon identity before each stop.
 It removes only its own stopped temporary homes after a complete result.
 An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.

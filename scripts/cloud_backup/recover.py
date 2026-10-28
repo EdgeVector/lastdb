@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 
 from node import OwnedNode
 from automatic import Automatic
+from ownership_history import History
 from programs import Programs
 from restore_receipts import restored
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
@@ -74,6 +75,13 @@ class Operation:
         return home
 
     def execute(self):
+        self.summary["stage"] = "ci-ownership-history"
+        token = os.environ.pop("GH_TOKEN", "")
+        self.prior_ci_streams = History(self.baseline, self.programs.environment, token).collect(limit=4)
+        del token
+        self.summary["ci_ownership_history"] = {
+            "recent_successful_runs_limit": 4, "verified_streams": len(self.prior_ci_streams),
+            "complete_directory": False, "provider_deletion_authority": False}
         credentials = self.credentials()
         destination = self.root / "restored"
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
