@@ -27,6 +27,9 @@ impl SchemaCore {
         // reload it unchanged; do not walk all mapper chains on that hot path.
         if stored.is_some_and(|old| {
             schema.field_mappers == old.field_mappers
+                && schema.key == old.key
+                && schema.field_types == old.field_types
+                && schema.field_hashes == old.field_hashes
                 && schema.field_molecule_uuids.is_some()
                 && schema.field_molecule_uuids == old.field_molecule_uuids
         }) {
@@ -136,6 +139,11 @@ fn cross_key_molecule(
     source_field: &str,
     stored: Option<&Schema>,
 ) -> Result<String, SchemaError> {
+    if stored.is_some_and(|old| !same_coordinates(target, old)) {
+        return Err(invalid(
+            "existing molecule coordinates require explicit conversion",
+        ));
+    }
     let identity = target.field_hashes.get(field).filter(|id| !id.is_empty());
     if identity.is_none()
         || identity != source.field_hashes.get(source_field)

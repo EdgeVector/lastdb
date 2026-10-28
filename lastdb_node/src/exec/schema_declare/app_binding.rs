@@ -110,10 +110,14 @@ fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), 
         return Ok(());
     };
     for (field, mapper) in mappers {
+        if mapper.source_schema() == catalog.name {
+            continue;
+        }
         let catalog_field = if catalog
-            .fields
+            .field_mappers
             .as_ref()
-            .is_some_and(|fields| fields.contains(field))
+            .and_then(|sources| sources.get(field))
+            == Some(mapper)
         {
             Some(field.clone())
         } else {
