@@ -18,9 +18,8 @@ impl PackRuntime {
             crate::storage::current_keys::validate("main", counter.as_bytes())?;
             crate::storage::current_keys::validate("main", body.as_bytes())?;
         }
-        let owner = Arc::clone(self);
         super::super::run_blocking(move || {
-            let result = owner.disk_counter_body_probes(&context, &pending, &keys);
+            let result = Self::disk_counter_body_probes(&context, &pending, &keys);
             context.remember(&result);
             result
         })
@@ -28,7 +27,6 @@ impl PackRuntime {
     }
 
     fn disk_counter_body_probes(
-        &self,
         context: &ReadContext,
         pending: &Arc<transaction::PendingBatch>,
         keys: &[(String, String)],
