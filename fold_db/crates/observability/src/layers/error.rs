@@ -3,10 +3,8 @@
 //! Phase 4 / T4. The layer wraps [`sentry_tracing::layer`] with its own
 //! per-layer filter ([`FilterFn`]) so Sentry only ever sees ERROR-level
 //! events, regardless of how loose the global RELOAD filter is.
-//! Each captured Sentry event is enriched with the W3C `trace_id` and
-//! `span_id` lifted off the parent span's `OtelData` extension (set by
-//! `tracing-opentelemetry`) so an alert page can be cross-referenced against
-//! local logs filtered by the same trace id.
+//! The final client callback reconstructs each event from a small allowlist.
+//! Raw event text, user data, request data, and trace correlation stay local.
 //!
 //! ## When the layer is wired
 //!
@@ -47,6 +45,8 @@ use tracing_subscriber::layer::Layer;
 #[cfg(feature = "sentry")]
 use tracing_subscriber::registry::LookupSpan;
 
+#[cfg(feature = "sentry")]
+mod privacy;
 #[cfg(all(feature = "sentry", feature = "otel"))]
 mod trace_tags;
 
@@ -77,13 +77,8 @@ pub const OBS_SENTRY_ENVIRONMENT_ENV: &str = "OBS_SENTRY_ENVIRONMENT";
 /// the real crate/app version. Read once at [`build_error_layer`] time.
 pub const OBS_SENTRY_RELEASE_ENV: &str = "OBS_SENTRY_RELEASE";
 
-/// Environment variable carrying a stable, anonymous install identifier that is
-/// attached as an `install_id` tag on every Sentry event. It lets distinct
-/// machines be told apart (and separated from the maintainer's own boxes / agent
-/// test runs) without any PII — it is a random UUID persisted in the profile
-/// dir, not derived from anything user-identifying. When unset (or empty) no tag
-/// is added. Read once at [`build_error_layer`] time and applied to the global
-/// Sentry scope so it rides along with every captured event.
+/// Legacy name retained for source compatibility. The client ignores it and
+/// transmits no stable install identifier.
 pub const OBS_SENTRY_INSTALL_ID_ENV: &str = "OBS_SENTRY_INSTALL_ID";
 
 /// RAII guard returned by [`build_error_layer`].
@@ -225,14 +220,14 @@ pub fn parse_obs_sentry_dsn(raw: &str) -> Option<sentry::types::Dsn> {
 ///    back to this crate's `CARGO_PKG_VERSION` only when unset — see
 ///    [`OBS_SENTRY_RELEASE_ENV`]) and, when [`OBS_SENTRY_ENVIRONMENT_ENV`] is
 ///    set to a non-empty value, `environment = $OBS_SENTRY_ENVIRONMENT` so dev
-///    and prod desktop events are distinguishable in Sentry. When
-///    [`OBS_SENTRY_INSTALL_ID_ENV`] is non-empty, its value is attached as an
-///    `install_id` tag on the global scope so every event can be traced to a
-///    stable, anonymous install. The returned [`sentry::ClientInitGuard`] is
-///    wrapped in [`SentryGuard`] for lifetime management.
+///    and prod desktop events are distinguishable in Sentry. A final allowlist
+///    retains only fault category, severity, numeric package version, standard
+///    environment, platform, timestamp, and a fresh event ID. The returned
+///    [`sentry::ClientInitGuard`] is wrapped in [`SentryGuard`] for lifetime
+///    management.
 /// 2. Builds a [`sentry_tracing::SentryLayer`] with a custom `event_mapper`
-///    that lifts `trace_id` / `span_id` from the parent span's `OtelData`
-///    extension and attaches them to the outgoing event as Sentry tags.
+///    for local fault classification. The final callback removes arbitrary
+///    event fields and trace identifiers before transmission.
 /// 3. Wraps the layer in [`Layer::with_filter`] using
 ///    [`error_only_event_filter`] so only `tracing::error!` events ever
 ///    reach Sentry while leaving span tracking untouched (a per-layer
@@ -276,23 +271,15 @@ where
     let options = sentry::ClientOptions {
         release: Some(release),
         environment,
+        default_integrations: false,
+        send_default_pii: false,
+        attach_stacktrace: false,
+        max_breadcrumbs: 0,
+        auto_session_tracking: false,
+        before_send: Some(std::sync::Arc::new(|event| Some(privacy::event(&event)))),
         ..Default::default()
     };
     let client = sentry::init((dsn, options));
-
-    // Attach a stable, anonymous install-id tag to the global scope so every
-    // captured event carries it — this is how distinct machines (and the
-    // maintainer's own boxes / agent test runs) are told apart without any PII.
-    // The binary persists a random UUID in the profile dir and exports it via
-    // OBS_SENTRY_INSTALL_ID; an unset/empty value simply adds no tag.
-    if let Some(install_id) = env::var(OBS_SENTRY_INSTALL_ID_ENV)
-        .ok()
-        .filter(|id| !id.is_empty())
-    {
-        sentry::configure_scope(|scope| {
-            scope.set_tag("install_id", install_id);
-        });
-    }
 
     let layer = sentry_tracing::layer()
         .event_mapper(event_mapper_with_trace_context::<S>)
@@ -316,7 +303,8 @@ pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)> {
 /// `trace_id` / `span_id` onto the Sentry event as tags. When the span has
 /// no `OtelData` (no OTel layer wired, or no parent span at all) we emit the
 /// event without trace context — the event is still useful, it just won't
-/// deep-link.
+/// deep-link. The final client callback removes these raw fields and trace
+/// identifiers from the transmitted event.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "sentry_tracing::SentryLayer::event_mapper callback signature — Context<'_, S> is passed by value by the layer"

@@ -25,7 +25,7 @@ impl MoleculeKeyStore {
             ));
         }
         for ((key, molecule), metadata) in keys.into_iter().zip(molecules).zip(values) {
-            if self.is_typed() && metadata.is_none() {
+            if metadata.is_none() {
                 return Err(StorageError::InvalidOperation(
                     "typed molecule publication requires its range contract".into(),
                 ));

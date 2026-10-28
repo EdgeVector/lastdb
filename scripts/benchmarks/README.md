@@ -1,5 +1,27 @@
 # LastDB benchmarks in GitHub Actions
 
+## Historical 16-writer investigation
+
+`write-contention.yml` diagnoses the warning in run 40558556490. It downloads the exact two archived program pairs from that run.
+The SHA-256 bundle, source artifact identity, historical driver, program versions, and runtime dependencies must match.
+There is no diagnostic rebuild. The original artifact expires on 2026-11-10; an unavailable or expired artifact fails this historical operation.
+The ordinary required PR workflow still builds and measures its current source in CI.
+
+The operation uses one standard hosted runner and seven fresh generated homes with 100,000 records each.
+It compares one schema/one hash, one schema/16 hashes, and 16 schemas with distinct canonical field identities.
+Each client owns different keys. Cases include one writer, 16 writers, repeated writes, 16 socket workers, and 16-record mutation batches.
+Batch comparisons also keep 16 records in flight with 4 clients × 4 records and 1 client × 16 records. RPC latency is not divided by the batch size.
+The final shared home repeats executable A without another build. Every case verifies durable acknowledgements and the last values at known keys.
+Search is off; each home stops and is removed. Native logging is separate from the ordinary 16-writer cases.
+Native cases disable stdio log rotation so earlier numeric records survive; ordinary cases retain the default rotation policy.
+The focused homes do not replay the full nightly prehistory. These measurements diagnose causes; they do not establish a PR regression.
+
+CPU counters cover each whole case once for the daemon and Python client. Missing scheduler or host observations stay explicit.
+Native HTTP clocks must cover all instrumented write calls. Additional foreground scopes, such as author-clock metadata, remain explicit.
+Native phase averages cover all observed foreground storage work. Each physical commit is counted once, even when it serves multiple requests.
+Admission includes the global preparation gate and the sealed durable queue. Commit phases can overlap; do not add parents and children.
+The CI summary and verified artifacts retain the source identities, complete samples, CPU observations, native records, and cleanup evidence for 14 days.
+
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
 It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
@@ -117,23 +139,9 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
-The manual comparison also accepts `typed_ranges: true`.
-Both versions receive the same explicit String schema, values, blinded hashes, and OPE source configuration.
-The candidate stops after the seed and uses its matching `lastdb` CLI to create a separate typed V2 target.
-The converter must preserve every source data-file checksum and publish the exact typed marker.
-Only the candidate switches to that target before the normal reads and writes.
-The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
-For a typed-format before/after comparison, select `typed_ranges: both`.
-Each version then converts its independent stopped source with its own matching CLI.
-The request, growth, disk, and confirmation recipes retain that format on both sides.
-This option leaves ordinary PR measurements unchanged. The `false` and `true` choices retain their existing behavior.
-The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
-The retained sum excludes transient merge files. It does not establish peak disk use.
-The artifact retains the product output, CLI checksum, and Linux process resource measurements.
-The normal schema and encryption choices stay unchanged when this option is false.
-This comparison covers String ranges. Date, DateTime, Integer, and Boolean need their separate product operations.
-Typed comparison requires a GitHub-hosted runner and excludes the separate legacy-upgrade and active-TTL options.
-The benchmark build retains and verifies both matching programs. It never reuses an unverified companion CLI.
+Every measured home is a format 4 home: disk format v2 with blinded hashes and typed ranges.
+The driver accepts only the format 4 node marker. A revision that creates an older home fails completion.
+The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads and exact compiled baseline programs.
@@ -273,7 +281,7 @@ The report separates allocated space before and after compaction. These checkpoi
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the v2 node marker of both generated homes, including the default format-4 typed ranges.
+It verifies the format 4 node marker of both generated homes (disk format v2 with typed ranges).
 Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 

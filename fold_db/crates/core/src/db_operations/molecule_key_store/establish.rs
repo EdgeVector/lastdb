@@ -3,7 +3,7 @@
 use super::{
     contracts::TYPED_METADATA_VERSION, make_wrap, metadata_key, schema_molecule_uuids,
     validate_identity, wrap_key_for, BundleMetadata, ConflictKeyIdentity, KeyAuthority,
-    MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult, BUNDLE_VERSION, NODE_DOMAIN,
+    MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult, NODE_DOMAIN,
 };
 use crate::schema::Schema;
 use crate::storage::KvMutation;
@@ -50,7 +50,7 @@ impl MoleculeKeyStore {
     fn missing_contracts(
         &self,
         molecules: &[String],
-        expected: Option<MoleculeRangeProfile>,
+        expected: MoleculeRangeProfile,
     ) -> StorageResult<Vec<String>> {
         let mut missing = Vec::new();
         for molecule in molecules {
@@ -71,7 +71,7 @@ impl MoleculeKeyStore {
     async fn publish_new_bundles(
         &self,
         molecules: Vec<String>,
-        profile: Option<MoleculeRangeProfile>,
+        profile: MoleculeRangeProfile,
     ) -> StorageResult<()> {
         if molecules.is_empty() {
             return Ok(());
@@ -85,15 +85,11 @@ impl MoleculeKeyStore {
             let bundle = MoleculeKeyBundle::generate();
             let wrap = make_wrap(&molecule, NODE_DOMAIN, &bundle, key)?;
             let metadata = BundleMetadata {
-                version: if profile.is_some() {
-                    TYPED_METADATA_VERSION
-                } else {
-                    BUNDLE_VERSION
-                },
+                version: TYPED_METADATA_VERSION,
                 molecule_uuid: molecule.clone(),
-                range_profile: profile,
-                key_authority: profile.map(|_| KeyAuthority::Bundle),
-                conflict_identity: profile.map(|_| ConflictKeyIdentity::StoredV1),
+                range_profile: Some(profile),
+                key_authority: Some(KeyAuthority::Bundle),
+                conflict_identity: Some(ConflictKeyIdentity::StoredV1),
             };
             rows.push(KvMutation::put(
                 wrap_key_for(&molecule, NODE_DOMAIN).as_bytes(),
@@ -110,12 +106,7 @@ impl MoleculeKeyStore {
         self.entries.inner().batch_mutate(rows).await?;
         self.entries.inner().flush().await?;
         for (molecule, bundle) in bundles {
-            self.remember_contract(
-                &molecule,
-                profile,
-                profile.map(|_| ConflictKeyIdentity::StoredV1),
-                Some(bundle),
-            )?;
+            self.remember_contract(&molecule, profile, bundle)?;
         }
         Ok(())
     }

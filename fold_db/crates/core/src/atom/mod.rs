@@ -21,9 +21,7 @@ pub use atom_entry::AtomEntry;
 pub use molecule_hash_range::{
     ImportedTip, MoleculeHashRange, PendingTipConflict, TipAuthor, TipConflictKind,
 };
-pub use molecule_key_codec::{
-    HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding,
-};
+pub use molecule_key_codec::{HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError};
 pub use molecule_uuid::encode_molecule_uuid_bytes;
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,

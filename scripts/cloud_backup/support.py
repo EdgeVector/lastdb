@@ -113,6 +113,20 @@ def canonical_uuid(value):
     return value
 
 
+def baseline_scope_from_environment():
+    raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE_SCOPE", "")
+    require(0 < len(raw.encode()) <= 2048, "baseline_scope_missing_or_large")
+    value = decode_json(raw)
+    require(isinstance(value, dict) and set(value) == {"account", "account_generation", "stream_id"}
+            and value["account"] == ACCOUNT, "baseline_scope_fields")
+    canonical_uuid(value["stream_id"])
+    generation = str(value["account_generation"])
+    require(re.fullmatch(r"0|[1-9][0-9]{0,19}", generation) is not None
+            and int(generation) <= 2**64 - 1, "baseline_scope_generation")
+    value["account_generation"] = generation
+    return value
+
+
 def baseline_from_environment():
     raw = os.environ.pop("LASTDB_CLOUD_DEV_BASELINE", "")
     require(0 < len(raw.encode()) <= 65536, "baseline_missing_or_large")
@@ -142,6 +156,9 @@ def baseline_from_environment():
         ids.add(record["id"])
     require(type(value["file_bytes"]) is int and value["file_bytes"] == FILE_BYTES,
             "baseline_file_size")
+    scope = baseline_scope_from_environment()
+    require(all(value[name] == selected for name, selected in scope.items()),
+            "protected_baseline_matches_public_scope")
     return value
 
 

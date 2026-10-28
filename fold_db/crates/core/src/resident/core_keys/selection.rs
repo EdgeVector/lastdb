@@ -1,8 +1,6 @@
 //! Bounded ordered candidate selection without full tip or atom values.
 
-use super::{
-    CompactRangeKey, CoreKeyDomain, CoreKeyError, CoreKeyLease, CoreStoredKey, RangeKeyEncoding,
-};
+use super::{CompactRangeKey, CoreKeyDomain, CoreKeyError, CoreKeyLease, CoreStoredKey};
 use std::ops::Bound;
 
 const MAX_PAGE_KEYS: usize = 4096;
@@ -53,21 +51,13 @@ impl CoreKeyDomain {
         {
             return Err(CoreKeyError::PageLimit);
         }
-        let mut start = encode_bound(request.start, self.range_encoding);
-        let end = encode_bound(request.end, self.range_encoding);
+        let mut start = encode_bound(request.start);
+        let end = encode_bound(request.end);
         if let Some(prefix) = request.prefix {
-            raise_start(
-                &mut start,
-                CompactRangeKey::from_storage(prefix, self.range_encoding),
-                false,
-            );
+            raise_start(&mut start, CompactRangeKey::from_storage(prefix), false);
         }
         if let Some(after) = request.after {
-            raise_start(
-                &mut start,
-                CompactRangeKey::from_storage(after, self.range_encoding),
-                true,
-            );
+            raise_start(&mut start, CompactRangeKey::from_storage(after), true);
         }
         if empty_bounds(&start, &end) {
             return Ok(CoreKeyPage {
@@ -125,8 +115,7 @@ impl CoreKeyLease {
         if limit == 0 || limit > MAX_PAGE_KEYS {
             return Err(CoreKeyError::PageLimit);
         }
-        let after_key = after
-            .map(|(range, _)| CompactRangeKey::from_storage(range, self.domain.range_encoding));
+        let after_key = after.map(|(range, _)| CompactRangeKey::from_storage(range));
         let bound = after_key.as_ref().zip(after.map(|(_, hash)| hash));
         let state = self
             .domain
@@ -143,8 +132,8 @@ impl CoreKeyLease {
     }
 }
 
-fn encode_bound(value: Bound<&str>, encoding: RangeKeyEncoding) -> Bound<CompactRangeKey> {
-    value.map(|value| CompactRangeKey::from_storage(value, encoding))
+fn encode_bound(value: Bound<&str>) -> Bound<CompactRangeKey> {
+    value.map(CompactRangeKey::from_storage)
 }
 
 fn raise_start(start: &mut Bound<CompactRangeKey>, value: CompactRangeKey, excluded: bool) {

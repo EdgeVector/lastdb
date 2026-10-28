@@ -33,12 +33,6 @@ on:
       ttl_active:
         type: boolean
         default: false
-      typed_ranges:
-        type: boolean
-        default: false
-      baseline_typed_ranges:
-        type: boolean
-        default: false
       baseline_workers:
         type: string
         default: "0"
@@ -74,23 +68,8 @@ jobs:
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
-      BENCH_TYPED_RANGES: ${{ inputs.typed_ranges }}
-      BENCH_BASELINE_TYPED_RANGES: ${{ inputs.baseline_typed_ranges }}
       SPEED_TIMEOUT: ${{ inputs.profile == 'nightly' && '90m' || '65m' }}
     steps:
-      - name: Validate the explicit typed comparison configuration
-        env:
-          LEGACY_UPGRADE: ${{ inputs.legacy_cache_upgrade }}
-          TTL_ACTIVE: ${{ inputs.ttl_active }}
-        run: |
-          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ] && [ "$BENCH_TYPED_RANGES" != true ]; then
-            echo 'A typed baseline requires the typed candidate comparison.' >&2
-            exit 1
-          fi
-          if [ "$BENCH_TYPED_RANGES" = true ] && { [ "$LEGACY_UPGRADE" = true ] || [ "$TTL_ACTIVE" = true ]; }; then
-            echo 'The typed comparison requires separate legacy-upgrade and active-TTL runs.' >&2
-            exit 1
-          fi
       - name: Prepare external result directory
         run: |
           result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
@@ -151,8 +130,6 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
-          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
-          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -204,9 +181,6 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
-          args=()
-          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
-          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -216,7 +190,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth" "${args[@]}"
+              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
 
       - name: Repeat resource measurements only when an advisory limit is crossed
         if: matrix.lane == 'growth'
@@ -233,9 +207,6 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
-          args=()
-          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
-          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -245,7 +216,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
+              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
 
       - name: Attribute v2 disk excess in separate generated homes
         if: matrix.lane == 'disk' && inputs.disk_excess
@@ -277,9 +248,6 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
-          args=()
-          if [ "$BENCH_TYPED_RANGES" = true ]; then args+=(--candidate-typed-ranges); fi
-          if [ "$BENCH_BASELINE_TYPED_RANGES" = true ]; then args+=(--baseline-typed-ranges); fi
           timeout --signal=TERM --kill-after=120s 20m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -289,7 +257,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics" "${args[@]}"
+              --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
 
       - name: Measure writes with active TTL and full compaction
         if: matrix.lane == 'speed' && inputs.ttl_active

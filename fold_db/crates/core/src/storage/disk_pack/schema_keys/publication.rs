@@ -173,19 +173,13 @@ impl PackRuntime {
 }
 
 pub(super) fn supported_coordinate(domain: &CoreKeyDomain, hash: &str, range: &str) -> bool {
-    let range_supported = !domain.range_encoding().writes_ope()
-        || range.is_empty()
-        || (range.len().is_multiple_of(8)
-            && range
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
     let hash_supported = !domain.identity().encoding_identity.starts_with("BlindV1/")
         || hash.is_empty()
         || (hash.len() == 22
             && hash
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')));
-    range_supported && hash_supported && domain.accepts_stored_range(range)
+    hash_supported && domain.accepts_stored_range(range)
 }
 
 /// A generation edit can hide or expose a logical coordinate. Keep the same

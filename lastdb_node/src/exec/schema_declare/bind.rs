@@ -17,9 +17,11 @@ pub(crate) async fn load_catalog_hashes_on_host(
             .get_schema(hash)
             .await
             .map_err(|e| format!("failed to fetch catalog schema {hash}: {e}"))?;
+        let mut schema = envelope.schema.into();
+        prepare_catalog_for_load(host, &mut schema).await?;
         host.db
             .schema_manager()
-            .load_schema_internal(envelope.schema.into())
+            .load_schema_internal(schema)
             .await
             .map_err(|e| format!("failed to load catalog schema {hash}: {e}"))?;
     }

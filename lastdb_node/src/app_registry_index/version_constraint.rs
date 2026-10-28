@@ -7,9 +7,7 @@
 //! parsed as SemVer core + pre-release. Constraints match against the core
 //! version only (major.minor.patch), ignoring pre-release and build metadata.
 
-use std::cmp::Ordering;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
     pub major: u64,
     pub minor: u64,
@@ -46,21 +44,6 @@ impl Version {
     }
 }
 
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.major
-            .cmp(&other.major)
-            .then_with(|| self.minor.cmp(&other.minor))
-            .then_with(|| self.patch.cmp(&other.patch))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     Eq,
@@ -78,28 +61,20 @@ impl Predicate {
     /// Parse one predicate: `>=X.Y.Z`, `<X.Y.Z`, or `=X.Y.Z`.
     pub fn parse(s: &str) -> Result<Self, String> {
         let s = s.trim();
-        if let Some(rest) = s.strip_prefix(">=") {
-            Ok(Self {
-                op: Op::Gte,
-                version: Version::parse(rest.trim())?,
-            })
+        let (op, version) = if let Some(rest) = s.strip_prefix(">=") {
+            (Op::Gte, rest.trim())
         } else if let Some(rest) = s.strip_prefix('<') {
-            Ok(Self {
-                op: Op::Lt,
-                version: Version::parse(rest.trim())?,
-            })
+            (Op::Lt, rest.trim())
         } else if let Some(rest) = s.strip_prefix('=') {
-            Ok(Self {
-                op: Op::Eq,
-                version: Version::parse(rest.trim())?,
-            })
+            (Op::Eq, rest.trim())
         } else {
-            // Bare version means exact match
-            Ok(Self {
-                op: Op::Eq,
-                version: Version::parse(s)?,
-            })
-        }
+            // Bare version means exact match.
+            (Op::Eq, s)
+        };
+        Ok(Self {
+            op,
+            version: Version::parse(version)?,
+        })
     }
 
     /// Does `version` satisfy this predicate?
@@ -244,17 +219,14 @@ pub fn check_manifest_constraint(
 impl Constraint {
     /// Parse a constraint string, e.g. `">=0.23.0, <0.24.0"`.
     pub fn parse(s: &str) -> Result<Self, String> {
-        let parts: Vec<&str> = s
+        let predicates = s
             .split(',')
             .map(str::trim)
             .filter(|p| !p.is_empty())
-            .collect();
-        if parts.is_empty() {
+            .map(Predicate::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        if predicates.is_empty() {
             return Err("constraint must not be empty".into());
-        }
-        let mut predicates = Vec::new();
-        for part in parts {
-            predicates.push(Predicate::parse(part)?);
         }
         Ok(Self { predicates })
     }
@@ -268,19 +240,16 @@ impl Constraint {
     pub fn describe(&self) -> String {
         self.predicates
             .iter()
-            .map(|p| match p.op {
-                Op::Eq => format!(
-                    "={}.{}.{}",
+            .map(|p| {
+                let op = match p.op {
+                    Op::Eq => "=",
+                    Op::Gte => ">=",
+                    Op::Lt => "<",
+                };
+                format!(
+                    "{op}{}.{}.{}",
                     p.version.major, p.version.minor, p.version.patch
-                ),
-                Op::Gte => format!(
-                    ">={}.{}.{}",
-                    p.version.major, p.version.minor, p.version.patch
-                ),
-                Op::Lt => format!(
-                    "<{}.{}.{}",
-                    p.version.major, p.version.minor, p.version.patch
-                ),
+                )
             })
             .collect::<Vec<_>>()
             .join(", ")

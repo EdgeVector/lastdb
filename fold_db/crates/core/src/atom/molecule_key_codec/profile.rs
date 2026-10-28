@@ -1,25 +1,15 @@
-//! An explicit molecule contract selects typed payloads without OPE.
+//! An explicit molecule contract selects its typed range payloads.
 
-use super::{HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding};
+use super::{HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError};
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
 impl MoleculeKeyCodec {
-    pub fn with_range_profile(
-        &self,
-        profile: MoleculeRangeProfile,
-    ) -> Result<Self, MoleculeKeyCodecError> {
-        profile
-            .validate()
-            .map_err(MoleculeKeyCodecError::InvalidRange)?;
-        if self.range_encoding != RangeKeyEncoding::Plain {
-            return Err(MoleculeKeyCodecError::InvalidRange(
-                "a typed molecule range requires the plain payload representation".into(),
-            ));
-        }
-        Ok(Self {
+    #[must_use]
+    pub fn with_range_profile(&self, profile: MoleculeRangeProfile) -> Self {
+        Self {
             range_profile: Some(profile),
             ..self.clone()
-        })
+        }
     }
 
     #[must_use]
@@ -47,19 +37,10 @@ impl MoleculeKeyCodec {
         )
     }
 
-    /// Explicit incompatible environment settings are refused by node admission.
+    /// Every node home blinds its hashes.
     pub(crate) fn for_typed_home(&self) -> Self {
         Self {
             hash_encoding: HashKeyEncoding::BlindV1,
-            range_encoding: RangeKeyEncoding::Plain,
-            range_profile: None,
-            ..self.clone()
-        }
-    }
-
-    /// Supplied-key conversion selects its scalar profile separately.
-    pub(super) fn without_range_profile(&self) -> Self {
-        Self {
             range_profile: None,
             ..self.clone()
         }

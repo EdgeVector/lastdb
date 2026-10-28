@@ -77,7 +77,30 @@ def validate_cursor(cursor, previous, coordinate):
         raise RuntimeError("The range comparison identifier changed during continuation")
 
 
-def walk(node, expected, request, label, baseline=False, *, reopened=False, legacy_cursor=False):
+def matched_request_sha256(request):
+    """Each binary and home issues its own cursor comparison identifier, so a
+    matched pair compares the request without it. The raw receipt keeps it."""
+    cursor = request.get("cursor")
+    if isinstance(cursor, dict) and "comparison" in cursor:
+        request = {**request, "cursor": {name: value for name, value in cursor.items() if name != "comparison"}}
+    return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+
+
+def comparison_tag(node, request):
+    """A typed range order refuses a cursor without its comparison identifier.
+
+    The identifier binds the filter, fields, and scope, not the cursor position
+    or the page limit, so a one-record first page of the same query names it.
+    """
+    probe = {name: value for name, value in request.items() if name not in ("cursor", "offset")}
+    result, _ = node.call("/api/query", {**probe, "limit": 1})
+    tag = (result.get("next_cursor") or {}).get("comparison")
+    if result.get("has_more") is not True or not isinstance(tag, str):
+        raise RuntimeError("A range query page lacks its cursor comparison identifier")
+    return tag
+
+
+def walk(node, expected, request, label, baseline=False, *, reopened=False):
     wanted = selected(expected, request)
     offset = request.get("offset", 0)
     cursor = request.get("cursor")
@@ -107,7 +130,7 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False, lega
         if receipt["storage_read_receipt"] is None:
             raise RuntimeError("A measured query lacks its storage read receipt")
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],
-                        "request_sha256": hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest(),
+                        "request_sha256": matched_request_sha256(request),
                         "records": count, "storage_read_receipt": receipt["storage_read_receipt"]})
         if "process_counters" in receipt:
             samples[-1]["process_counters"] = receipt["process_counters"]
@@ -123,10 +146,9 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False, lega
             raise RuntimeError("The exclusive range cursor cannot advance")
         validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        # Matched latency uses the same supported legacy request on both binaries.
-        # Broad operations echo the full cursor, including its comparison identity.
-        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
-        request = {**request, "cursor": wire_cursor}
+        # A typed range order refuses a cursor without its comparison identity,
+        # so every walk echoes the full cursor.
+        request = {**request, "cursor": following}
         request.pop("offset", None)
     else:
         raise RuntimeError("The generated cursor walk exceeds its finite page bound")

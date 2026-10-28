@@ -131,6 +131,15 @@ pub struct ClientRoot {
 }
 impl ClientRoot {
     pub fn validate_for(&self, begin: &Begin) -> StorageResult<()> {
+        if begin
+            .recovery_dependencies
+            .as_ref()
+            .is_some_and(|parents| !parents.is_empty())
+        {
+            return Err(invalid(
+                "a full snapshot cannot declare recovery dependencies",
+            ));
+        }
         context(
             self.version,
             &self.begin_sha256,

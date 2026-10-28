@@ -75,7 +75,7 @@ def main():
         helpers = manifest.get("seed_helpers", {"candidate": manifest.get("seed_helper", {})})
         lines.extend(role + " seed helper SHA256: `" + helper.get("sha256", "unavailable") + "`."
                      for role, helper in helpers.items())
-        for mode in ("plain", "encrypted"):
+        for mode in ("typed",):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:
                 if entry["mode"] != mode:

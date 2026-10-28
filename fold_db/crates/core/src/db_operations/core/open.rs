@@ -244,8 +244,7 @@ impl DbOperations {
         admit_meter_trust: bool,
         proof_key: Option<[u8; 32]>,
     ) -> Result<AtomStore, crate::storage::StorageError> {
-        // Fresh native construction records the selected current key layout.
-        // Reopen requires that exact marker and refuses a different setting.
+        // Creation records the key layout. Every open requires that exact marker.
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             namespaces.main,
             content_key,
@@ -289,15 +288,9 @@ impl DbOperations {
             return Ok(());
         };
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
-            let fresh = runtime.fresh_initialization_pending()
-                && atoms.fresh_native_initialization_needed().await?;
-            if fresh {
-                atoms.initialize_key_format().await?;
-            }
             atoms.require_current_key_format().await?;
             if let Some(key) = proof_key {
-                crate::crypto::content_key_proof::verify_or_establish(store.as_ref(), &key, fresh)
-                    .await?;
+                crate::crypto::content_key_proof::verify_stored(store.as_ref(), &key).await?;
             }
             Ok::<(), crate::storage::StorageError>(())
         })

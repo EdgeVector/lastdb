@@ -13,9 +13,6 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if version == 1 {
-        return Ok(());
-    }
     if version != 2 {
         return Err(invalid("run backup range profile version"));
     }

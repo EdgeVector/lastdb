@@ -1,6 +1,7 @@
 """Actual daemon reads from independently seeded received and local scopes."""
 
 from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, TOTAL, key, latency, prefix, query, validate, walk
+from ranges import comparison_tag
 from seed import Seed
 from conditions import Conditions, capture_phases
 
@@ -47,9 +48,10 @@ class Workload:
         offset = query(key(8200), key(8328), 17)
         offset["offset"] = 71
         cases.append(("offset-after-dedup", offset))
+        tag = comparison_tag(self.node, query(key(8200), key(8328), 17))
         for hashed in ("a", HASH, "z"):
             after = query(key(8200), key(8328), 17)
-            after["cursor"] = {"hash": hashed, "range": key(8263)}
+            after["cursor"] = {"hash": hashed, "range": key(8263), "comparison": tag}
             cases.append(("cross-hash-cursor-" + hashed, after))
         projections = [("range-field-only", query(key(8180), key(8250), 17), ["id"]),
             ("range-without-range-field", query(key(8180), key(8250), 17), ["bucket", "title", "body"]),
@@ -90,7 +92,7 @@ class Workload:
                 if first + 128 > 24000:
                     first = 23000
                 value = walk(self.node, self.seed.expected(), query(key(first), key(first + 128), 64),
-                             "matched-narrow-" + str(ordinal), legacy_cursor=True)
+                             "matched-narrow-" + str(ordinal))
                 measured.extend(value["samples"])
         finally:
             self.node.capture_process = False

@@ -6,7 +6,7 @@ use sha2::{Digest as _, Sha256};
 
 /// Mini's existing keys and formats, not a new cryptographic construction.
 /// BIP39 supplies 32 raw entropy bytes for the Ed25519 seed. The existing
-/// E2eKeys derivation supplies content/hash/range keys. Manifests use existing
+/// E2eKeys derivation supplies the content and hash keys. Manifests use existing
 /// envelope v1; embedded store keyrings are outside this profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

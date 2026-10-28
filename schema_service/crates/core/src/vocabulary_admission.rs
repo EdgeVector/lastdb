@@ -17,8 +17,17 @@ impl SchemaServiceState {
         &self,
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
-        let mut candidates = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
-        let ordered = self.provisional_vocabulary_batch(fields)?;
+        let existing = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
+        self.checked_vocabulary_batch_against(&existing, fields)
+    }
+
+    pub(crate) fn checked_vocabulary_batch_against(
+        &self,
+        existing: &HashMap<String, CanonicalField>,
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
+        let mut candidates = existing.clone();
+        let ordered = Self::provisional_vocabulary_batch_against(existing, fields)?;
         let mut vectors = HashMap::new();
         for (name, field) in &ordered {
             if !candidates.contains_key(name) {
@@ -46,7 +55,15 @@ impl SchemaServiceState {
         &self,
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
-        let mut candidates = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
+        let existing = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
+        Self::provisional_vocabulary_batch_against(&existing, fields)
+    }
+
+    fn provisional_vocabulary_batch_against(
+        existing: &HashMap<String, CanonicalField>,
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
+        let mut candidates = existing.clone();
         let mut ordered = fields.to_vec();
         ordered.sort_by(|left, right| left.0.cmp(&right.0));
         for (name, field) in &mut ordered {

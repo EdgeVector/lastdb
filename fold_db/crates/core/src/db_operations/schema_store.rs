@@ -38,18 +38,8 @@ mod retention_recheck;
 mod retention_sharing;
 mod write;
 
-pub(crate) use catalog_keys::SchemaRetentionAnchor;
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
-pub(crate) use retention_format::require_typed_range_retention;
-
-/// Frozen conversion reads use the same exact retention-key layout as the node.
-pub(crate) fn frozen_retention_keys(schema_name: &str) -> [String; 2] {
-    [
-        catalog_keys::retention_anchor_key(schema_name),
-        catalog_keys::retention_policy_key(schema_name),
-    ]
-}
 
 use catalog_keys::*;
 

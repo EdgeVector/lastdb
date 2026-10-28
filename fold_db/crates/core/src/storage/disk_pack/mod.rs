@@ -32,7 +32,6 @@ pub(in crate::storage) mod native_routing;
 mod physical;
 mod physical_v2;
 mod queue;
-pub mod range_inventory;
 mod read;
 pub(crate) mod restore_safety;
 mod rows;
@@ -137,7 +136,6 @@ impl PackNamespacedStore {
     /// keys derive from it. Any other home is refused: this program opens
     /// only disk format v2.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
-        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         if run_node::is_run_node(path)? {
             return Self::open_run(path, node_key);
         }
@@ -166,7 +164,6 @@ impl PackNamespacedStore {
         node_key: &[u8; 32],
         resume_merges: bool,
     ) -> StorageResult<Self> {
-        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         if !path.join(NODE_MARKER).try_exists()? || run_node::creation_pending(path)? {
             return Err(StorageError::InvalidOperation(format!(
                 "an offline tool needs a complete node home at {}; start the node once, then \

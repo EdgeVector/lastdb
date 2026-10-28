@@ -6,22 +6,19 @@
 //! can also decode the historical empty-slot layouts.
 //!
 //! The supplied molecule UUID is an exact identity. Reads and writes never
-//! substitute a hex or base64url spelling. Hash and range encryption bind that
-//! same identity. One fixed key bundle defines each current molecule.
+//! substitute a hex or base64url spelling. Hash blinding binds that same
+//! identity. One fixed key bundle defines each current molecule.
 //!
 //! Free key builders take storage-form coordinates. API coordinates pass once
 //! through [`MoleculeKeyCodec::storage_hash`] and
 //! [`MoleculeKeyCodec::storage_range`], or through an `api_*` builder. The hash
 //! is byte-stuffed before the separator, so hash prefixes cannot overlap.
-//! Each OPE key preserves range order within its own encoded range stream.
+//! The typed range profile of the molecule orders its range payloads.
 
 use crate::crypto::E2eKeys;
 
-mod conflict_identity;
-pub use conflict_identity::ConflictKeyIdentity;
 mod profile;
 mod range_decode;
-pub mod storage_profile;
 
 /// Logical typed-range format; physical run blocks keep their existing format.
 pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
@@ -32,22 +29,16 @@ pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
 #[derive(Clone)]
 pub struct MoleculeKeyCodec {
     hash_encoding: HashKeyEncoding,
-    range_encoding: RangeKeyEncoding,
     range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
-    conflict_identity: ConflictKeyIdentity,
     /// Required when hash encoding is blind.
     index_key: Option<[u8; 32]>,
-    /// Required when range encoding is OPE.
-    ope_key: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for MoleculeKeyCodec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MoleculeKeyCodec")
             .field("hash_encoding", &self.hash_encoding)
-            .field("range_encoding", &self.range_encoding)
             .field("range_profile", &self.range_profile)
-            .field("conflict_identity", &self.conflict_identity)
             .finish_non_exhaustive()
     }
 }
@@ -56,44 +47,19 @@ impl Default for MoleculeKeyCodec {
     fn default() -> Self {
         Self {
             hash_encoding: HashKeyEncoding::Plain,
-            range_encoding: RangeKeyEncoding::Plain,
             range_profile: None,
-            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key: None,
-            ope_key: None,
         }
     }
 }
 
 impl MoleculeKeyCodec {
-    /// HashKey-only constructor (range stays plain). Kept for call-site compatibility.
     #[must_use]
     pub fn new(encoding: HashKeyEncoding, index_key: Option<[u8; 32]>) -> Self {
         Self {
             hash_encoding: encoding,
-            range_encoding: RangeKeyEncoding::Plain,
             range_profile: None,
-            conflict_identity: ConflictKeyIdentity::StoredV1,
             index_key,
-            ope_key: None,
-        }
-    }
-
-    /// Full constructor for HashKey blind + RangeKey OPE.
-    #[must_use]
-    pub fn with_encodings(
-        hash_encoding: HashKeyEncoding,
-        range_encoding: RangeKeyEncoding,
-        index_key: Option<[u8; 32]>,
-        ope_key: Option<[u8; 32]>,
-    ) -> Self {
-        Self {
-            hash_encoding,
-            range_encoding,
-            range_profile: None,
-            conflict_identity: ConflictKeyIdentity::StoredV1,
-            index_key,
-            ope_key,
         }
     }
 
@@ -107,53 +73,14 @@ impl MoleculeKeyCodec {
         self.hash_encoding
     }
 
-    #[must_use]
-    pub fn range_encoding(&self) -> RangeKeyEncoding {
-        self.range_encoding
-    }
-
-    /// Select a range representation without changing hash encoding or keys.
-    pub fn with_range_encoding(
-        &self,
-        range_encoding: RangeKeyEncoding,
-    ) -> Result<Self, MoleculeKeyCodecError> {
-        if self.range_profile.is_some() && range_encoding != RangeKeyEncoding::Plain {
-            return Err(MoleculeKeyCodecError::InvalidRange(
-                "a typed molecule range cannot use OPE".into(),
-            ));
-        }
-        Ok(Self {
-            range_encoding,
-            ..self.clone()
-        })
-    }
-
     /// Public format identity only; no encryption key material enters a cursor.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {
-        if self.range_profile.is_some() {
-            return match self.hash_encoding {
-                HashKeyEncoding::Plain => "plain/plain:typed-scalar-v1",
-                HashKeyEncoding::BlindV1 => "blind-v1/plain:typed-scalar-v1",
-            };
-        }
-        match (self.hash_encoding, self.range_encoding) {
-            (HashKeyEncoding::Plain, RangeKeyEncoding::Plain) => "plain/plain:utf8-v1",
-            (HashKeyEncoding::Plain, RangeKeyEncoding::OpeV1) => "plain/ope-v1:utf8-v1",
-            (HashKeyEncoding::BlindV1, RangeKeyEncoding::Plain) => "blind-v1/plain:utf8-v1",
-            (HashKeyEncoding::BlindV1, RangeKeyEncoding::OpeV1) => "blind-v1/ope-v1:utf8-v1",
-        }
-    }
-
-    #[must_use]
-    pub fn key_order(&self) -> schema_types::key_comparison::KeyOrderVersion {
-        if self.range_profile.is_some() {
-            return schema_types::key_comparison::KeyOrderVersion::TypedScalarV1;
-        }
-        match self.range_encoding {
-            RangeKeyEncoding::Plain | RangeKeyEncoding::OpeV1 => {
-                schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1
-            }
+        match (self.range_profile.is_some(), self.hash_encoding) {
+            (true, HashKeyEncoding::Plain) => "plain/plain:typed-scalar-v1",
+            (true, HashKeyEncoding::BlindV1) => "blind-v1/plain:typed-scalar-v1",
+            (false, HashKeyEncoding::Plain) => "plain/plain:utf8-v1",
+            (false, HashKeyEncoding::BlindV1) => "blind-v1/plain:utf8-v1",
         }
     }
 
@@ -180,31 +107,18 @@ impl MoleculeKeyCodec {
         }
     }
 
-    /// Map API RangeKey to storage-form range segment.
-    ///
-    /// Empty range is never OPE-encoded (hash-only / Single empty slot).
+    /// Map API RangeKey to storage-form range segment: the typed profile
+    /// payload, or the API value when no profile is selected.
     pub fn storage_range(
         &self,
-        molecule_uuid: &str,
+        _molecule_uuid: &str,
         api_range: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
-        if let Some(profile) = self.range_profile {
-            return profile
+        match self.range_profile {
+            Some(profile) => profile
                 .encode_value(api_range)
-                .map_err(MoleculeKeyCodecError::InvalidRange);
-        }
-        if api_range.is_empty() {
-            return Ok(String::new());
-        }
-        match self.range_encoding {
-            RangeKeyEncoding::Plain => Ok(api_range.to_string()),
-            RangeKeyEncoding::OpeV1 => {
-                let key = self
-                    .ope_key
-                    .as_ref()
-                    .ok_or(MoleculeKeyCodecError::MissingOpeKey)?;
-                Ok(E2eKeys::ope_encode_range(key, molecule_uuid, api_range))
-            }
+                .map_err(MoleculeKeyCodecError::InvalidRange),
+            None => Ok(api_range.to_owned()),
         }
     }
 
@@ -238,12 +152,8 @@ impl MoleculeKeyCodec {
 pub enum MoleculeKeyCodecError {
     /// Blind encoding requested but no E2E index key is configured.
     MissingIndexKey,
-    /// OPE encoding requested but no E2E ope key is configured.
-    MissingOpeKey,
     /// An explicitly selected range profile rejects the coordinate or token.
     InvalidRange(String),
-    /// A conversion must respect the caller's physical key byte limit.
-    RangeKeyTooLarge,
 }
 
 impl std::fmt::Display for MoleculeKeyCodecError {
@@ -253,12 +163,7 @@ impl std::fmt::Display for MoleculeKeyCodecError {
                 f,
                 "hash_key_encoding requires E2E index_key (set encoding=plain or provide index key)"
             ),
-            Self::MissingOpeKey => write!(
-                f,
-                "range_key_encoding requires E2E ope_key (set encoding=plain or provide ope key)"
-            ),
             Self::InvalidRange(reason) => write!(f, "invalid range key: {reason}"),
-            Self::RangeKeyTooLarge => write!(f, "range key exceeds the conversion byte limit"),
         }
     }
 }

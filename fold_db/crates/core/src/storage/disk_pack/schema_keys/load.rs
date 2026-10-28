@@ -105,7 +105,6 @@ impl PackRuntime {
         };
         let domain = match CoreKeyDomain::new_loading(
             identity,
-            codec.range_encoding(),
             codec.range_profile(),
             Arc::clone(&self.schema_keys.budget),
         ) {

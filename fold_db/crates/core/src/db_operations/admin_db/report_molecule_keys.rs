@@ -39,13 +39,13 @@ pub struct MoleculeKeysReport {
 /// blind-index key before it reads the bounded storage prefix.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoleculeHashBucketRow {
-    /// Full `mk:` storage key, including its blinded hash and OPE range.
+    /// Full `mk:` storage key, including its blinded hash and typed range payload.
     pub storage_key: String,
     /// Blinded storage hash decoded from `storage_key`.
     pub storage_hash: String,
-    /// OPE storage range decoded from `storage_key`.
+    /// Typed range payload decoded from `storage_key`.
     pub storage_range: String,
-    /// API range recovered from the reversible OPE representation.
+    /// API range decoded from the typed range payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_range: Option<String>,
     /// Raw current-tip value stored in the `mk:` row.

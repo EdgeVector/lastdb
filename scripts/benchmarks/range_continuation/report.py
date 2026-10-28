@@ -69,7 +69,7 @@ def main():
         if not accepted:
             lines.append("The measurement manifest or job is incomplete. Combined latency conclusions remain unavailable.")
         lines.append("Exact builds: " + "; ".join(role + " `" + row["revision"] + "`" for role, row in manifest["binaries"].items()))
-        for mode in ("plain", "encrypted"):
+        for mode in ("typed",):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:
                 if entry["mode"] != mode:
