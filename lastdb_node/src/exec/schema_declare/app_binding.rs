@@ -55,7 +55,15 @@ pub(crate) async fn load_app_single_catalog_binding(
         discard_orphan_catalog_schema(host, catalog_hash).await;
         return Err(refusal);
     }
-    let binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
+    let mut binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
+    if let Some(catalog) = host
+        .db
+        .schema_manager()
+        .get_schema_metadata(catalog_hash)
+        .map_err(|e| format!("failed to read catalog schema {catalog_hash}: {e}"))?
+    {
+        anchor_binding_mappers(&mut binding, &catalog)?;
+    }
     if let Some(catalog_fields) = host
         .db
         .schema_manager()
@@ -92,6 +100,48 @@ pub(crate) async fn load_app_single_catalog_binding(
                 declare.local_schema_id
             )
         })
+}
+
+/// Keep the catalog hop: flattening its cross-key mapper bypasses the catalog's
+/// own ordered molecule and routes an app range read onto its hash-only sibling.
+fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), String> {
+    let Some(mappers) = binding.field_mappers.as_mut() else {
+        return Ok(());
+    };
+    for (field, mapper) in mappers {
+        let catalog_field = if catalog
+            .fields
+            .as_ref()
+            .is_some_and(|fields| fields.contains(field))
+        {
+            Some(field.clone())
+        } else {
+            let candidates: Vec<_> = catalog
+                .field_mappers
+                .iter()
+                .flat_map(|m| m.iter())
+                .filter(|(_, source)| *source == mapper)
+                .map(|(name, _)| name.clone())
+                .collect();
+            match candidates.as_slice() {
+                [only] => Some(only.clone()),
+                [] => None,
+                _ => {
+                    return Err(format!(
+                        "ambiguous catalog field for {}.{field}",
+                        binding.name
+                    ))
+                }
+            }
+        };
+        if let Some(catalog_field) = catalog_field {
+            *mapper = FieldMapper::new(&catalog.name, catalog_field);
+        }
+    }
+    binding.field_molecule_uuids = None;
+    binding
+        .populate_runtime_fields()
+        .map_err(|e| format!("invalid catalog binding: {e}"))
 }
 
 /// Preserve local rows when an existing app schema first binds to an empty
