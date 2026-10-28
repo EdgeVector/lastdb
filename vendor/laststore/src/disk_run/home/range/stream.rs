@@ -1,4 +1,4 @@
-//! Backup cursor selects keys without retaining decoded value blocks.
+//! Backup-only cursor with bounded optional authenticated block storage.
 use super::super::{
     keys::{run_key, storage_key},
     RunRead,
@@ -7,7 +7,7 @@ use super::RunRangePage;
 use crate::{Error, Result};
 #[path = "memo.rs"]
 mod memo;
-use memo::{HeadMemo, Selection};
+use memo::{CachedValue, HeadMemo, Selection};
 
 pub(super) struct BoundedRange<'a> {
     owner: &'a mut RunRead,
@@ -165,9 +165,18 @@ impl<'a> BoundedRange<'a> {
             .checked_add(self.retained_bytes())
             .ok_or(Error::ReadBudgetExceeded)?;
         let value = match slot {
-            Some(slot) => self
-                .owner
-                .streamed_value_at(slot, &self.collection, key, maximum),
+            Some(slot) => match self
+                .memo
+                .as_ref()
+                .map(|memo| memo.value(self.owner, slot, &self.collection, key, maximum))
+                .transpose()
+            {
+                Ok(Some(CachedValue::Value(value))) => Ok(value),
+                Ok(_) => self
+                    .owner
+                    .streamed_value_at(slot, &self.collection, key, maximum),
+                Err(error) => Err(error),
+            },
             None => self.owner.streamed_value(&self.collection, key, maximum),
         };
         self.owner.shared_metadata_bytes = before;

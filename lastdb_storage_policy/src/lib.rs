@@ -70,6 +70,9 @@ pub mod native_write {
 pub mod backup_decode {
     /// Complete optional key-head cache, including transient key copies.
     pub const PROOF_KEY_HEAD_BYTES: u64 = 1024 * 1024;
+    /// Optional authenticated block cursors retain at most this many file handles.
+    /// Other inputs keep the streaming path; this never limits backup file count.
+    pub const PROOF_BLOCK_CURSOR_HANDLES: usize = 32;
     pub const ATOM_BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
     pub const ATOM_JSON_TREE_MAX_BYTES: u64 = super::BACKUP_RESOURCES.decoded_values_bytes / 2;
     pub const DIRECTORY_MAX_BYTES: u64 = 4096;
