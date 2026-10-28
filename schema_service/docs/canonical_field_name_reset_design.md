@@ -149,3 +149,22 @@ Approved canonical names retain their exact meaning during schema expansion.
 Heuristic similarity cannot rename one approved concept into another approved concept.
 Read-only resolution can still propose mappings from external names to the approved vocabulary.
 Explicit approval replaces the heuristic admission check for a known concept.
+
+
+## Definition storage during rollout
+
+Use an isolated definition prefix in the current schema-service bucket.
+Set `SCHEMA_DEFINITION_NAMESPACE=canonical-v1` for the candidate service.
+The prefix contains schemas, approved fields, declaration fields, near misses, releases, channels, and compatibility records.
+An empty prefix starts empty. The service does not read legacy definitions as a fallback.
+
+Keep app identities in their current shared storage.
+This avoids a second app registry and a copy of app identities during the canary.
+API credentials and mutation quotas also keep their current stores.
+Use a separate retained embedding store for the new definitions.
+Old service versions keep their old definitions and their old embedding store.
+
+First activate the candidate in DEV. Keep PROD on its current binary during this step.
+Approve the app vocabulary and verify real DEV operations before the production change.
+Then use the normal production canary and its 24-hour period.
+Keep the old definition generation for recovery. Do not delete it during the canary.

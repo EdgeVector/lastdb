@@ -40,8 +40,10 @@ CAUTION: The strict service refuses an old registry with unapproved names or def
 Do not deploy this source against the old registry before the coordinated reset.
 App definitions and their field adapters must use the reviewed vocabulary before normal publication resumes.
 
-Prepare an isolated registry generation from a fresh definition snapshot.
-Copy only the approved definitions and required app identities, permissions, credentials, and valid contracts.
+Prepare an isolated definition generation from a fresh definition snapshot.
+Set `SCHEMA_DEFINITION_NAMESPACE=canonical-v1` and use a separate embedding table with the same suffix.
+Keep app identities, permissions, and credentials in their current shared stores.
+Put only approved definitions and valid contracts in the new generation.
 Remove affected schema definitions, declarations, embeddings, and release references from the active generation.
 Keep a definition-only recovery snapshot outside Git.
 Use separate storage for the old and new service versions during the deployment canary.

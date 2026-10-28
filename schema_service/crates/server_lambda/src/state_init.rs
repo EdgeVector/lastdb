@@ -56,13 +56,15 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config.build());
     let ddb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let schema_mutation_gate_store = schema_mutation_gate_quota_store_from_env(&ddb_client);
-    let backend: Arc<dyn ExternalSchemaPersistence> =
-        Arc::new(s3_persistence::S3BlobPersistence::new(
+    let backend: Arc<dyn ExternalSchemaPersistence> = Arc::new(
+        s3_persistence::S3BlobPersistence::new(
             s3_client,
             bucket.clone(),
             ddb_client,
             embeddings_table,
-        ));
+        )
+        .with_definition_namespace_from_env()?,
+    );
     let embedder = default_embedder();
 
     SCHEMA_STATE
