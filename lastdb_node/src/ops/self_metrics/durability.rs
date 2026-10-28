@@ -77,8 +77,7 @@ impl DurabilityHealth {
         let automatic = if self.automatic_enabled { "on" } else { "off" };
         let log = self
             .last_accepted_log_unix
-            .map(unix_utc)
-            .unwrap_or_else(|| "none".to_string());
+            .map_or_else(|| "none".to_string(), unix_utc);
         let next = if self.automatic_enabled {
             match self.next_snapshot_unix {
                 Some(0) => "due now".to_string(),
@@ -103,9 +102,10 @@ fn unix_utc(secs: u64) -> String {
     let Ok(secs) = i64::try_from(secs) else {
         return "none".to_string();
     };
-    chrono::DateTime::from_timestamp(secs, 0)
-        .map(|time| time.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_else(|| "none".to_string())
+    chrono::DateTime::from_timestamp(secs, 0).map_or_else(
+        || "none".to_string(),
+        |time| time.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    )
 }
 
 fn blocked_label(status: &crate::byte_cloud_backup::ByteBackupStatus) -> Option<String> {
