@@ -148,24 +148,6 @@ pub trait KvStore: Send + Sync {
         Ok(out)
     }
 
-    /// Greatest decimal `u64` suffix after the last `marker` among keys under
-    /// `prefix`.
-    ///
-    /// The default is correctness-first and materializes the matching keys.
-    /// Backends with physical key indexes should override this with a
-    /// constant-memory fold that opens each physical group at most once.
-    async fn max_key_u64_after_marker(
-        &self,
-        prefix: &[u8],
-        marker: &[u8],
-    ) -> StorageResult<Option<u64>> {
-        let keys = self.scan_prefix_keys(prefix).await?;
-        Ok(keys
-            .iter()
-            .filter_map(|key| key_u64_after_last_marker(key, marker))
-            .max())
-    }
-
     /// Scan at most `limit` keys in the half-open byte range `start..end`
     /// (inclusive `start`, exclusive `end`), in ascending key order.
     ///

@@ -17,16 +17,8 @@
 //! See the parent [`crate::storage`] module docs for the layering diagram
 //! (traits → laststore/inmemory → encrypting wrappers).
 
+// `traits/typed.rs` takes these names through `use super::*`.
 use super::error::{StorageError, StorageResult};
-
-pub(crate) fn key_u64_after_last_marker(key: &[u8], marker: &[u8]) -> Option<u64> {
-    if marker.is_empty() || key.len() < marker.len() {
-        return None;
-    }
-    let marker_start = key.windows(marker.len()).rposition(|part| part == marker)?;
-    let suffix = key.get(marker_start + marker.len()..)?;
-    std::str::from_utf8(suffix).ok()?.parse().ok()
-}
 
 mod scan;
 mod typed;
