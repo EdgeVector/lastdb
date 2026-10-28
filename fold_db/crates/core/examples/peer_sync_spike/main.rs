@@ -72,11 +72,7 @@ async fn run_open(replica: &mut Replica, command: &str, args: &[String]) -> Resu
             require(args, 4)?;
             emit(&replica.get(&args[2], &args[3]).await?)
         }
-        "range" => {
-            require(args, 5)?;
-            let after = (args[3] != "-").then_some(args[3].as_str());
-            emit(&replica.range(&args[2], after, args[4].parse()?).await?)
-        }
+        "range" => operations::range(replica, args).await,
         "dump" => operations::dump(replica, args).await,
         "snapshot" => {
             require(args, 3)?;

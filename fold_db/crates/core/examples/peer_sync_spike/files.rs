@@ -86,7 +86,7 @@ pub(super) fn read_packet<T: serde::de::DeserializeOwned>(path: &Path, root: &st
     File::open(path)?
         .take((MAX_PACKET + 29) as u64)
         .read_to_end(&mut bytes)?;
-    if bytes.len() < 28 || bytes.len() > MAX_PACKET + 28 {
+    if !(28..=MAX_PACKET + 28).contains(&bytes.len()) {
         return Err("packet size outside the bounded page".into());
     }
     let key = read_key(&Path::new(root).join("ACCOUNT_KEY"))?;

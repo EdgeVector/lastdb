@@ -141,7 +141,7 @@ impl Replica {
             .await?
             .map(|bytes| decode(&bytes))
             .transpose()
-            .map(|state| state.unwrap_or_default())
+            .map(Option::unwrap_or_default)
     }
 
     fn require_ready(&self) -> StorageResult<()> {

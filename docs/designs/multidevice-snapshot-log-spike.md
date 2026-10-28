@@ -132,6 +132,7 @@ adopt ROOT SNAPSHOT
 ```
 
 `get` returns a JSON string or null. `range` returns `items` and `next`; a dash starts the first page.
+Each returned cursor has an `after:` prefix and an encoded key. Pass that cursor unchanged to continue, including after a literal dash key.
 An empty range page can still return a cursor after retained Delete records.
 `batch` returns its native durable write time. Process time also includes command startup and reopen.
 `export` returns `entries`, `bytes`, and `last_sequence`. Its file contains the encrypted packet.

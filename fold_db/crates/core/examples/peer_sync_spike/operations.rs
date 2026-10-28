@@ -1,4 +1,6 @@
 use super::{emit, files, require, Change, Replica, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use fold_db::storage::disk_pack::peer_sync_spike::Entry;
 use fold_db::storage::disk_pack::peer_sync_spike::{
     MAX_CHANGES, MAX_ENTRY_BYTES, MAX_EXPORT_BATCH, MAX_IMPORT_BYTES, MAX_IMPORT_CHANGES,
@@ -80,6 +82,24 @@ pub(super) async fn import(replica: &Replica, args: &[String]) -> Result<()> {
     require(args, 3)?;
     let entries: Vec<Entry> = files::read_packet(Path::new(&args[2]), &args[1])?;
     emit(&replica.import(&entries).await?)
+}
+
+pub(super) async fn range(replica: &Replica, args: &[String]) -> Result<()> {
+    require(args, 5)?;
+    let after = if args[3] == "-" {
+        None
+    } else if let Some(encoded) = args[3].strip_prefix("after:") {
+        Some(String::from_utf8(URL_SAFE_NO_PAD.decode(encoded)?)?)
+    } else {
+        Some(args[3].clone())
+    };
+    let page = replica
+        .range(&args[2], after.as_deref(), args[4].parse()?)
+        .await?;
+    let next = page
+        .next
+        .map(|key| format!("after:{}", URL_SAFE_NO_PAD.encode(key.as_bytes())));
+    emit(&serde_json::json!({"items": page.items, "next": next}))
 }
 
 pub(super) async fn dump(replica: &Replica, args: &[String]) -> Result<()> {

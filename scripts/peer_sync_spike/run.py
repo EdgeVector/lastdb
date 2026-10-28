@@ -157,6 +157,11 @@ def initialize(operation):
     operation.command("put", operation.devices["a"], HASH, "shared", "a-version")
     operation.command("put", operation.devices["a"], HASH, "removed", "a-deleted-value")
     operation.command("delete", operation.devices["a"], HASH, "removed")
+    operation.command("put", operation.devices["a"], HASH, "-", "literal-dash-range")
+    first_page = operation.command("range", operation.devices["a"], HASH, "-", 1)
+    second_page = operation.command("range", operation.devices["a"], HASH, first_page["next"], 1)
+    if first_page["items"][0]["range"] != "-" or second_page["items"][0]["range"] == "-":
+        raise RuntimeError("the actual range cursor repeats a literal dash key")
     operation.command("batch", operation.devices["b"], HASH, 1000, 64, 256)
     operation.command("put", operation.devices["b"], HASH, "shared", "b-version")
     operation.command("put", operation.devices["b"], HASH, "b-private", "unpublished-b-value")
