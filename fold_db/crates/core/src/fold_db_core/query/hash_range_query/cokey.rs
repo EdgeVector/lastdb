@@ -15,17 +15,6 @@ pub(super) struct CokeySelection<'a> {
 }
 
 impl HashRangeQueryProcessor {
-    /// Co-key plan: primary defines keys; secondaries fill those keys only.
-    pub(super) async fn query_cokey(
-        &self,
-        schema: &mut Schema,
-        selection: CokeySelection<'_>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_cokey_with_sources(schema, selection)
-            .await
-            .map(|rows| rows.fields)
-    }
-
     pub(super) async fn query_cokey_with_sources(
         &self,
         schema: &mut Schema,

@@ -99,8 +99,9 @@ impl HashRangeQueryProcessor {
         );
 
         let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
-        let scan_fields = self.scan_fields(
+        let scan_fields = condition_fields(
             schema,
+            self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain,
             predicates.unwrap_or(&[]),
             value_filters.unwrap_or(&[]),
             order_by,
@@ -138,7 +139,7 @@ impl HashRangeQueryProcessor {
         options: &FieldQueryOptions<'_>,
     ) -> Vec<KeyValue> {
         let condition_started = std::time::Instant::now();
-        let mut keys = self.matching_field_predicate_keys(
+        let mut keys = matching_field_predicate_keys(
             pass_a,
             options.predicates.unwrap_or(&[]),
             options.value_filters.unwrap_or(&[]),
@@ -148,7 +149,7 @@ impl HashRangeQueryProcessor {
             condition_started.elapsed(),
         );
         if let Some(order_by) = options.order_by {
-            self.sort_keys_by_field(&mut keys, &pass_a.fields, order_by);
+            sort_keys_by_field(&mut keys, &pass_a.fields, order_by);
         }
         if let Some(limit) = options.predicate_limit {
             keys.truncate(limit);
@@ -170,7 +171,7 @@ impl HashRangeQueryProcessor {
             request_concurrency,
         } = query;
         let received = self.collect_received_from_namespaces().await?;
-        self.query_cokey(
+        self.query_cokey_with_sources(
             schema,
             CokeySelection {
                 fields,
@@ -183,5 +184,6 @@ impl HashRangeQueryProcessor {
             },
         )
         .await
+        .map(|rows| rows.fields)
     }
 }

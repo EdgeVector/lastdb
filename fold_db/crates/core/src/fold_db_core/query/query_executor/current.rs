@@ -17,7 +17,7 @@ impl QueryExecutor {
 
     async fn query_current(
         &self,
-        query: Query,
+        mut query: Query,
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
@@ -37,25 +37,61 @@ impl QueryExecutor {
             None => None,
         };
 
-        match self
+        let Some(mut schema) = self
             .schema_manager
-            // Hot keyed-read path: take the molecule-stripped clone. The
-            // executor mutates `schema.runtime_fields` while `resolve_value`
-            // re-hydrates each field from storage, so the registry's hydrated
-            // molecule would only be overwritten before use — cloning it per
-            // query was the O(field cardinality) residual this avoids (#905
-            // follow-up).
+            // Resolved fields replace their molecules. Avoid a deep clone of
+            // molecule data that the read would discard.
             .get_schema_following_supersession_for_read(&query.schema_name)
             .await?
-        {
-            Some(schema) => {
-                self.run_query_on_schema(schema, query, window, storage_prefix)
-                    .await
-            }
-            None => Err(SchemaError::InvalidData(format!(
+        else {
+            return Err(SchemaError::InvalidData(format!(
                 "Schema '{}' not found",
                 query.schema_name
-            ))),
+            )));
+        };
+        self.schema_manager.require_queryable_schema(&schema.name)?;
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        crate::schema::require_logical_filter(query.filter.as_ref())?;
+        crate::schema::require_logical_query_controls(&query)?;
+
+        self.db_ops
+            .molecule_keys()
+            .load_schema(&schema)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "load molecule key bundles for schema '{}': {error}",
+                    schema.name
+                ))
+            })?;
+
+        rules::reject_unknown_projection(&schema, &query.fields)?;
+
+        // Scope molecule reads to the request DB handle (personal /
+        // org). Clone-only schema — never written back to the registry.
+        rules::scope_fields(&mut schema, storage_prefix.as_deref());
+
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
+                .await?;
         }
+
+        self.hash_range_processor
+            .query_with_field_predicates(
+                &mut schema,
+                &query.fields,
+                query.filter.take(),
+                window,
+                FieldQueryOptions {
+                    predicates: query.field_predicates.as_deref(),
+                    value_filters: query.value_filters.as_deref(),
+                    order_by: query.order_by.as_ref(),
+                    predicate_limit: query.predicate_limit,
+                    include_tombstones: query.include_tombstones,
+                    secondary_concurrency: query.secondary_concurrency,
+                },
+            )
+            .await
     }
 }
