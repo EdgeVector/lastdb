@@ -118,6 +118,18 @@ pub fn validate_schema_vocabulary(
             )));
         }
     }
+    for mapper in schema.field_mappers.iter().flat_map(|map| map.values()) {
+        validate_vocabulary_reference(mapper.source_field(), vocabulary)?;
+    }
+    for path in schema
+        .key
+        .iter()
+        .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
+        .flatten()
+    {
+        let root = path.split('.').next().unwrap_or(path);
+        validate_vocabulary_reference(root, vocabulary)?;
+    }
     Ok(())
 }
 
@@ -211,4 +223,17 @@ pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
                 .flat_map(|map| map.keys()),
         )
         .collect()
+}
+
+fn validate_vocabulary_reference(
+    name: &str,
+    vocabulary: &HashMap<String, CanonicalField>,
+) -> FoldDbResult<()> {
+    validate_new_field_name(name).map_err(FoldDbError::Config)?;
+    let field = vocabulary.get(name).ok_or_else(|| {
+        FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}' in a key or molecule mapper"
+        ))
+    })?;
+    validate_approved_field(name, field)
 }
