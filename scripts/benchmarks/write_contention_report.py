@@ -81,6 +81,8 @@ def render(output):
              "Every client owns different keys. Separate schemas have disjoint canonical field identities.",
              "All requests require durable acknowledgements and verified final values. Search stays off.",
              "These focused homes do not replay the full nightly history. Native logging can affect timings.",
+             "Native cases disable stdio log rotation to retain complete numeric records; ordinary cases keep the product default.",
+             "Fixed-flight batch cases keep 16 records in flight: 16 clients × 1, 4 × 4, or 1 × 16. Latency is per whole RPC, never divided by batch size.",
              "CPU counters describe one whole case, without adding overlapping per-request CPU intervals.",
              "Native admission includes the global preparation gate and waits on a sealed durable queue.",
              "Native phase averages describe all foreground storage scopes, including extra author-clock metadata scopes; they are not per-HTTP costs.",

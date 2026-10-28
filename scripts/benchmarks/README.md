@@ -10,8 +10,10 @@ The ordinary required PR workflow still builds and measures its current source i
 The operation uses one standard hosted runner and seven fresh generated homes with 100,000 records each.
 It compares one schema/one hash, one schema/16 hashes, and 16 schemas with distinct canonical field identities.
 Each client owns different keys. Cases include one writer, 16 writers, repeated writes, 16 socket workers, and 16-record mutation batches.
+Batch comparisons also keep 16 records in flight with 4 clients × 4 records and 1 client × 16 records. RPC latency is not divided by the batch size.
 The final shared home repeats executable A without another build. Every case verifies durable acknowledgements and the last values at known keys.
 Search is off; each home stops and is removed. Native logging is separate from the ordinary 16-writer cases.
+Native cases disable stdio log rotation so earlier numeric records survive; ordinary cases retain the default rotation policy.
 The focused homes do not replay the full nightly prehistory. These measurements diagnose causes; they do not establish a PR regression.
 
 CPU counters cover each whole case once for the daemon and Python client. Missing scheduler or host observations stay explicit.

@@ -129,7 +129,9 @@ class Writers:
         if len(rows) != requests:
             raise ValueError("The write case did not complete all requests")
         result = {"name": name, "clients": clients, "batch_records": batch, "requests": requests,
+                  "maximum_inflight_records": clients * batch,
                   "workers": status["uds"]["workers"], "native_timing": self.node.native_timing,
+                  "stdio_log_rotation": self.node.environment["LASTDBD_STDIO_LOG_ROTATION"],
                   "case_started_unix_us": started_us, "case_ended_unix_us": ended_us,
                   "wall_ns": ended - started, "metrics": describe(rows, (ended - started) / 1e9),
                   "process": {label: counter_delta(before[label], after[label]) for label in before}}

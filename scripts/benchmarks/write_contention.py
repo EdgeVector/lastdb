@@ -58,7 +58,8 @@ def investigate(args):
             directory = args.output / f"{ordinal}-{label}-{layout}"
             directory.mkdir()
             node = Node(programs[label], BASE if label == "A" else DRIVER, directory,
-                        native_timing=layout != "shared", environment={"LASTDB_SEARCH_ENABLED": "0"})
+                        native_timing=layout != "shared", environment={"LASTDB_SEARCH_ENABLED": "0",
+                            "LASTDBD_STDIO_LOG_ROTATION": "1" if layout == "shared" else "0"})
             home = {"directory": directory.name, "label": label, "layout": layout,
                     "complete": False, "cases": []}
             manifest["homes"].append(home)
@@ -72,6 +73,9 @@ def investigate(args):
                     home["cases"].append(writes.measure("ordinary-16", 16))
                     node.stop()
                     node.native_timing = True
+                    # Numeric evidence must survive the daemon's normal 10 MiB
+                    # stdout/stderr rotation. Ordinary cases retain the default.
+                    node.environment["LASTDBD_STDIO_LOG_ROTATION"] = "0"
                     node.start()
                     writes.verify()
                     home["cases"].append(writes.measure("native-1", 1, requests=256))
@@ -88,6 +92,8 @@ def investigate(args):
                     node.start()
                     writes.verify()
                     home["cases"].append(writes.measure("batch-16", 16, batch=16, requests=128))
+                    home["cases"].append(writes.measure("batch-4-fixed-flight", 4, batch=4, requests=512))
+                    home["cases"].append(writes.measure("batch-16-fixed-flight", 1, batch=16, requests=128))
                 require_search_off(node, directory, "after")
                 if node.call("/api/db/native-status")[0]["native_disk"].get("writer_failed") is not False:
                     raise ValueError("The native writer is unhealthy")
