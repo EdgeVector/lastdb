@@ -4,6 +4,8 @@
 LastDB uses disk format v2, which is the module `laststore::disk_run`.
 License: MIT OR Apache-2.0.
 
+The [V2 compatibility contract](../../docs/lastdb-disk-format-v2.md) records the accepted file versions, encryption, limits, and crash rules.
+
 ## Disk format v2 (`src/disk_run/`)
 
 A run is one immutable file of records in strict ascending key order.

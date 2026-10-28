@@ -160,10 +160,11 @@ pub(super) fn commit(target: &RunHome, batch: Vec<HomeMutation>) -> StorageResul
     target.commit(batch).map_err(map)?;
     drop(space);
     while target.needs_merge() {
-        let _space =
-            laststore::space::reserve_space(target.path(), &policy, target.status().file_bytes())
-                .map_err(map)?;
-        if target.merge_step().map_err(map)?.is_none() {
+        if target
+            .merge_step_with_space(&policy)
+            .map_err(map)?
+            .is_none()
+        {
             break;
         }
     }

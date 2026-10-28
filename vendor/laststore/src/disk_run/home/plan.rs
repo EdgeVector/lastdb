@@ -50,8 +50,9 @@
 use super::commit::{meta, overflow, MergeKind, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
 use super::manifest::{Manifest, RunFile};
 use super::{RunHome, RunRoot};
+use crate::disk_run::space::MergeSpace;
 use crate::disk_run::{Found, MergeIter, MergeSource, RunReader, RunSequence, RunWriter};
-use crate::Result;
+use crate::{space::SpacePolicy, Result};
 use std::collections::HashSet;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -236,7 +237,11 @@ impl RunHome {
 
     /// One step of a base merge. `start` names the tiered runs of a new
     /// base merge; `None` continues the base merge in progress.
-    pub(super) fn base_step(&self, start: Option<Vec<Arc<RunFile>>>) -> Result<RunMerge> {
+    pub(super) fn base_step(
+        &self,
+        start: Option<Vec<Arc<RunFile>>>,
+        policy: &SpacePolicy,
+    ) -> Result<RunMerge> {
         let _total = crate::commit_timing::stage("v2_base_merge_us");
         let held = self.held();
         let (merging, cut) = match &start {
@@ -264,8 +269,15 @@ impl RunHome {
             Some(run) if !last => Some(run.meta.last_key.clone()),
             _ => None,
         };
-        let pieces =
-            self.write_base_pieces(&merging, taken, cut.as_deref(), upper.as_deref(), target)?;
+        let space = MergeSpace::new(self.path(), policy)?;
+        let pieces = self.write_base_pieces(
+            &merging,
+            taken,
+            cut.as_deref(),
+            upper.as_deref(),
+            target,
+            &space,
+        )?;
         let records: u64 = pieces.iter().map(|run| run.meta.records).sum();
         let run_bytes: u64 = pieces.iter().map(|run| run.meta.file_bytes).sum();
         let _publish = crate::commit_timing::during("v2_publish_lock_wait_us", || {
@@ -296,7 +308,7 @@ impl RunHome {
         } else {
             next.merge_cut = upper;
         }
-        let installed = self.install_or_discard(next, &pieces)?;
+        let installed = self.install_merge(next, &space)?;
         for run in taken {
             run.retire();
         }
@@ -328,6 +340,7 @@ impl RunHome {
         cut: Option<&[u8]>,
         upper: Option<&[u8]>,
         target: u64,
+        space: &MergeSpace,
     ) -> Result<Vec<Arc<RunFile>>> {
         let lower = cut.map_or(Bound::Unbounded, Bound::Excluded);
         let upper = upper.map_or(Bound::Unbounded, Bound::Included);
@@ -340,7 +353,8 @@ impl RunHome {
         let sequence = RunSequence::new(paths, &self.key, Bound::Unbounded, Bound::Unbounded);
         sources.push(MergeSource::Sequence(sequence));
         let mut pieces = Vec::new();
-        if let Err(error) = self.write_pieces(MergeIter::from_sources(sources), target, &mut pieces)
+        if let Err(error) =
+            self.write_pieces(MergeIter::from_sources(sources), target, &mut pieces, space)
         {
             for piece in &pieces {
                 piece.retire();
@@ -355,6 +369,7 @@ impl RunHome {
         records: MergeIter<'_>,
         target: u64,
         pieces: &mut Vec<Arc<RunFile>>,
+        space: &MergeSpace,
     ) -> Result<()> {
         let mut writer: Option<RunWriter> = None;
         for record in records {
@@ -363,7 +378,12 @@ impl RunHome {
                 continue;
             };
             if writer.is_none() {
-                writer = Some(RunWriter::create(&self.runs, &self.key, self.options)?);
+                writer = Some(RunWriter::create_reserved(
+                    &self.runs,
+                    &self.key,
+                    self.options,
+                    space,
+                )?);
             }
             let open = writer.as_mut().expect("writer is open");
             open.push(&key, Some(&value))?;
