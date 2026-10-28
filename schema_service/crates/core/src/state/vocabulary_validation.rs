@@ -67,8 +67,8 @@ impl SchemaServiceState {
             .map(String::as_str)
             .collect();
         self.refresh_vocabulary_for_names(&names).await?;
-        let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
-        crate::field_name_policy::validate_schema_vocabulary(schema, &fields)
+        let mut proposal = schema.clone();
+        self.validate_proposal_field_names(&mut proposal)
     }
 
     pub(crate) async fn refresh_vocabulary_for_names(&self, names: &[&str]) -> FoldDbResult<()> {

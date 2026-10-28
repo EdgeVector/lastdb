@@ -209,7 +209,7 @@ async fn dispatch_fields(
     p: &str,
 ) -> RouteResult {
     Some(match (m, p) {
-        ("GET", "/v1/fields/vocabulary") => routes::vocabulary::get(state),
+        ("GET", "/v1/fields/vocabulary") => routes::vocabulary::get(state).await,
         ("POST", "/v1/fields/vocabulary") => routes::vocabulary::publish(state, event).await,
         ("POST", "/v1/fields/declare") => routes::fields::post_fields_declare(state, event).await,
         ("GET", _) if p.starts_with("/v1/fields/") => routes::fields::get_fields(state, p),

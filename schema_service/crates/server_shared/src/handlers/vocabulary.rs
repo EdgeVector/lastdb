@@ -19,12 +19,8 @@ pub async fn publish_canonical_vocabulary(
     }
 }
 
-#[allow(
-    clippy::unused_async,
-    reason = "actix-web requires an async route handler"
-)]
 pub async fn get_canonical_vocabulary(state: web::Data<SchemaServiceState>) -> impl Responder {
-    match state.canonical_vocabulary() {
+    match state.canonical_vocabulary().await {
         Ok(value) => HttpResponse::Ok().json(value),
         Err(error) => internal_error("Cannot read canonical vocabulary", error),
     }

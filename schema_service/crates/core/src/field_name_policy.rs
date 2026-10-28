@@ -98,7 +98,7 @@ pub fn validate_schema_vocabulary(
         if schema
             .field_descriptions
             .get(name)
-            .is_some_and(|description| description.trim() != field.description.trim())
+            .is_none_or(|description| description.trim() != field.description.trim())
         {
             return Err(FoldDbError::Config(format!(
                 "unapproved_canonical_field: '{name}' must use the approved description"
@@ -107,7 +107,7 @@ pub fn validate_schema_vocabulary(
         if schema
             .field_types
             .get(name)
-            .is_some_and(|value| value != &field.field_type)
+            .is_none_or(|value| value != &field.field_type)
             || schema.ref_fields.get(name).is_some_and(|target| {
                 field.field_type != schema_types::FieldValueType::SchemaRef(target.clone())
             })
@@ -136,7 +136,6 @@ pub fn validate_schema_vocabulary(
 impl SchemaServiceState {
     pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
         let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
-        validate_schema_vocabulary(schema, &vocabulary)?;
         let names: Vec<_> = schema_field_names(schema).into_iter().cloned().collect();
         for name in &names {
             if let Some(field) = vocabulary.get(name) {
@@ -154,7 +153,7 @@ impl SchemaServiceState {
                     .or_insert(field.version);
             }
         }
-        Ok(())
+        validate_schema_vocabulary(schema, &vocabulary)
     }
 }
 

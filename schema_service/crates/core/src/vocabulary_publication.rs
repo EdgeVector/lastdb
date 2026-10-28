@@ -6,7 +6,6 @@
 
 use crate::app_identity::env_label;
 use crate::field_name_policy::NAME_POLICY_VERSION;
-use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -40,9 +39,12 @@ fn failure(status: u16, reason: &'static str, detail: impl Into<String>) -> Voca
 
 impl SchemaServiceState {
     /// Public definitions, never user record values or declaration permissions.
-    pub fn canonical_vocabulary(&self) -> schema_types::FoldDbResult<Value> {
-        let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
-        Ok(json!({"name_policy_version": NAME_POLICY_VERSION, "fields": &*fields}))
+    pub async fn canonical_vocabulary(&self) -> schema_types::FoldDbResult<Value> {
+        let fields = self.storage.backend().load_all_canonical_fields().await?;
+        for (name, field) in &fields {
+            crate::field_name_policy::validate_approved_field(name, field)?;
+        }
+        Ok(json!({"name_policy_version": NAME_POLICY_VERSION, "fields": fields}))
     }
 
     pub async fn publish_canonical_vocabulary(
