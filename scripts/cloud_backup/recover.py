@@ -79,6 +79,7 @@ class Operation:
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")
         started = time.monotonic()
+        self.summary["stage"] = "pinned-restore"
         report = self.programs.restore(credentials, destination, self.baseline, phrase)
         require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
                 "pinned_ci_native_size")
@@ -89,6 +90,7 @@ class Operation:
         self.summary["restore"] = native
         self.summary["restore_seconds"] = round(time.monotonic() - started, 3)
         self.node = OwnedNode(destination, self.programs)
+        self.summary["stage"] = "pinned-restart"
         boots = []
         for _number in range(2):
             self.node.start()
@@ -140,6 +142,7 @@ class Operation:
             step_summary(self.summary)
         # Only this fixed summary can enter the Actions log or summary.
         print(json.dumps({"result": self.summary["result"],
+                          "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
                           "source": self.args.source, "primary_access": False}, sort_keys=True))
 
 
@@ -186,7 +189,9 @@ def main():
             operation.cleanup()
         except BaseException:
             operation.summary.update(result="failed", cleanup="incomplete",
-                                     failure="owned_cleanup_failed")
+                                     failure="owned_cleanup_failed", stage="cleanup")
+        if operation.summary["result"] == "passed":
+            operation.summary["stage"] = "complete"
         operation.finish()
     return 0 if operation.summary["result"] == "passed" else 1
 

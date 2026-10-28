@@ -1,11 +1,20 @@
-//! Query page response assembly and continuation cursors.
+//! Owned row/page response assembly. No host access, clocks, or telemetry.
 
-use super::*;
+use std::collections::HashMap;
+
+use fold_db::schema::types::{KeyValue, QueryCursor};
+use serde_json::Value;
+
+use super::rows::RowDrops;
+use crate::pagination::compute_has_more;
 
 /// The `has_more`-carrying page shape both sockets serve, before the envelope.
 ///
 /// `next_cursor` is always `null` for offset pages. Keyed query pages use
 /// [`cursor_payload`], whose continuation uses the same API-coordinate window.
+/// Integrity fields remain present for zero drops and unknown classifications.
+/// `RowDrops::total` counts unfilled slots separately from the reported integrity
+/// counters. Unknown key/conflict flags never establish a clean response.
 pub(in crate::handlers) fn page_payload(
     page: Vec<Value>,
     total_count: Option<usize>,
@@ -15,48 +24,30 @@ pub(in crate::handlers) fn page_payload(
     drops: RowDrops,
 ) -> Value {
     let returned_count = page.len();
-    let unresolved_rows = drops.unresolved;
-    let total_count = total_count.map_or(Value::Null, Value::from);
-    serde_json::json!({
-        "results": Value::Array(page),
-        "total_count": total_count,
-        "returned_count": returned_count,
-        "limit": limit,
-        "offset": offset,
-        "has_more": has_more,
-        "next_cursor": Value::Null,
-        // ALWAYS present, including `0`. This field was previously omitted when
-        // zero, which reads as tidy and is the wrong shape for an integrity
-        // signal: a client asserting `unresolved_rows == 0` cannot distinguish
-        // "this node counted zero drops" from "this node never counts", so the
-        // assertion silently passes against every node that does not emit it —
-        // exactly the read-back-is-the-only-confirmation failure this field was
-        // added to end. A completeness check has to be able to fail closed, so
-        // the absence of the key must mean "unsupported", never "clean".
-        "unresolved_rows": unresolved_rows,
-        // The other half of "counted by the index, not delivered to you": rows
-        // whose atom body is a content tombstone. `total_count` gates on
-        // `KeyMetadata.tombstoned` only, so these are counted, spend a page
-        // slot, and used to vanish without a signal — which is why a drain over
-        // a partition with deletions re-served rows and never terminated.
-        // Always present, including `0`, for the same fail-closed reason.
-        "tombstoned_rows": drops.tombstoned,
-        // Whether `key.hash` on these rows can be fed back as a key.
-        //
-        // `"api"` — addressable, point-read it. `"opaque"` — every key is a
-        // one-way storage token; a keyed read at it resolves NOTHING, which is
-        // the failure that reads as missing data. `"mixed"` — treat every key
-        // as unverified. `null` — this query emitted no classifiable page key
-        // (a keyed fast-path read, or an empty result).
-        //
-        // Absent key means "this node does not classify", never "addressable":
-        // the same fail-closed rule `unresolved_rows` documents above.
-        "key_form": drops.key_form.map_or(Value::Null, |form| Value::from(form.as_str())),
-        // Always present. `"unknown"` is not clean. A client that treats a
-        // missing `has_conflicts` as clean must also see this field, or a
-        // page with no stamp looks the same as a complete empty stamp.
-        "conflict_flags": drops.conflict_flags,
-    })
+    // Move the owned page directly into the response. json! serializes Value
+    // expressions by reference and would copy every nested field value here.
+    // Integrity fields stay present even when zero, null, or unknown.
+    Value::Object(serde_json::Map::from_iter([
+        ("results".into(), Value::Array(page)),
+        (
+            "total_count".into(),
+            total_count.map_or(Value::Null, Value::from),
+        ),
+        ("returned_count".into(), Value::from(returned_count)),
+        ("limit".into(), Value::from(limit)),
+        ("offset".into(), Value::from(offset)),
+        ("has_more".into(), Value::from(has_more)),
+        ("next_cursor".into(), Value::Null),
+        ("unresolved_rows".into(), Value::from(drops.unresolved)),
+        ("tombstoned_rows".into(), Value::from(drops.tombstoned)),
+        (
+            "key_form".into(),
+            drops
+                .key_form
+                .map_or(Value::Null, |form| Value::from(form.as_str())),
+        ),
+        ("conflict_flags".into(), Value::from(drops.conflict_flags)),
+    ]))
 }
 
 pub(in crate::handlers) fn cursor_payload(
@@ -146,4 +137,38 @@ fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
     page.last()
         .and_then(|row| row.get("key"))
         .and_then(|key| serde_json::from_value::<KeyValue>(key.clone()).ok())
+}
+
+/// Build `/api/query` row envelopes without clocks, host access, or telemetry.
+/// Keep the sort helper's value until ordering, but exclude its metadata before
+/// choosing the author. Conditions already selected the keys in the core.
+pub(in crate::handlers) fn format_rows(
+    result_map: HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
+    sort_helper: Option<&str>,
+) -> Vec<Value> {
+    let records_map = fold_db::fold_db_core::query::records_from_field_map(result_map);
+    records_map
+        .into_iter()
+        .map(|(key, mut record)| {
+            if let Some(field) = sort_helper {
+                record.metadata.remove(field);
+            }
+            let author_pub_key = record
+                .metadata
+                .values()
+                .find_map(|m| m.writer_pubkey.as_deref())
+                .filter(|s| !s.is_empty());
+            let mut row = serde_json::Map::new();
+            row.insert("key".into(), serde_json::json!(key));
+            // These values already own their JSON. Serializing them through
+            // json! would recursively copy them before discarding the originals.
+            row.insert(
+                "fields".into(),
+                Value::Object(record.fields.into_iter().collect()),
+            );
+            row.insert("metadata".into(), serde_json::json!(record.metadata));
+            row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
+            Value::Object(row)
+        })
+        .collect()
 }

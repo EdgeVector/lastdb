@@ -25,14 +25,30 @@ The source stores a new 64 KiB file through the ordinary file command.
 One batch updates 15 records to reference that file and deletes the other record.
 The automatic mutation log must publish those writes and cover the complete current journal head.
 Its accepted native file extents must route main files to R2, CAS files to B2, and client metadata to R2.
-The log must leave the daily snapshot time unchanged.
+The log must leave both the last snapshot time and the next daily snapshot time unchanged.
 The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
+Its next snapshot time must also remain unchanged after the restart.
 
 The operation changes the snapshot interval to 60 seconds and requires a later automatic snapshot.
 It then restores the daily interval, disables automatic backup, and stops the source cleanly.
 Two separate absent destinations restore the exact selected mutation-log checkpoint and the later snapshot.
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
+
+The source also declares one bounded HashRange schema for the atom lifecycle check.
+Two expired range keys and one live range key share the same field value and the original 8 MiB file.
+The initial snapshot retains all three keys while the TTL worker stays off.
+After the source restarts with TTL on, the ordinary TTL purge must erase the two expired keys.
+The delete ledger and complete journal frontier must confirm those removals before the log selection.
+Two more expired keys pass through the same TTL path before the later snapshot.
+The selected snapshot must cover their complete main and CAS frontiers.
+
+Three absent destinations restore the initial snapshot, the selected log checkpoint, and the later snapshot.
+The initial snapshot must retain its two original expired keys.
+The log and later snapshot must preserve their expired-key removals.
+Every destination must return the exact live key, shared field value, and complete original file after two boots.
+TTL stays off on every restored daemon, so a later local purge cannot conceal a missed cloud deletion.
+The operation uses real owner commands and native TTL mutations, without a service substitute.
 
 The log restore checks its frozen base, exact selected head, completed replay cursor, and expected journal position.
 It records hashes for the final native files and checks the product receipt and complete native file count and size.
@@ -85,3 +101,4 @@ The recipe uses fresh private runner directories and checks the daemon identity 
 It removes only its own stopped temporary homes after a complete result.
 An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.
 It preserves accepted backups and uncertain provider obligations and reports the failure without raw product output.
+The Actions log reports a fixed stage name and failure code. Product replies and credentials stay private.

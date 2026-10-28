@@ -23,9 +23,8 @@
 //!
 //! This is the **adapter only**: turning a loaded [`Keyring`] into a
 //! [`CryptoProvider`] the seam can hold. It does *not*
-//! resolve the real KEK (the master key from the node's `secure_store`),
-//! call [`load_or_init`](super::keyring_store::load_or_init), or swap the
-//! factory's wiring away from [`LocalCryptoProvider`](super::LocalCryptoProvider)
+//! resolve the real KEK (the master key from the node's `secure_store`)
+//! or swap the factory's wiring away from [`LocalCryptoProvider`](super::LocalCryptoProvider)
 //! — that boot-time wiring (which touches the node's keychain machinery and
 //! the os-keychain feature combo) is the convergence's runtime half and
 //! lands separately. Keeping the adapter pure-core means it is fully
@@ -65,8 +64,7 @@ impl KeyringCryptoProvider {
     /// Build a provider that seals under `purpose`'s active DEK in `keyring`
     /// and decrypts only key-id-stamped envelopes held by the keyring.
     ///
-    /// `keyring` must already hold an active DEK for `purpose` (see
-    /// [`load_or_init`](super::keyring_store::load_or_init)); construction
+    /// `keyring` must already hold an active DEK for `purpose`. Construction
     /// does not check this, but the first `encrypt` will error rather than
     /// mint one (no-silent-mint).
     pub fn new(keyring: Arc<Keyring>, purpose: KeyPurpose) -> Self {

@@ -87,19 +87,6 @@ impl E2eKeys {
         self.ope_key
     }
 
-    /// Compute a blind index token: HMAC-SHA256(index_key, term), truncated to
-    /// 16 bytes and base64url-encoded (no padding).
-    ///
-    /// Used for **search keyword** blinding. For storage HashKey partitions use
-    /// [`Self::blind_hash_key`] (domain-separated; bound to molecule uuid).
-    pub fn blind_token(index_key: &[u8; 32], term: &str) -> String {
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(index_key).expect("HMAC accepts any key length");
-        mac.update(term.as_bytes());
-        let result = mac.finalize().into_bytes();
-        URL_SAFE_NO_PAD.encode(&result[..16])
-    }
-
     /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
     ///
     /// MAC input (exact bytes):
@@ -107,9 +94,9 @@ impl E2eKeys {
     /// hk|v1\0{molecule_uuid}\0{plaintext_hash}
     /// ```
     ///
-    /// Domain tag `hk|v1` never collides with search [`Self::blind_token`] terms.
-    /// Output encoding matches `blind_token` (HMAC-SHA256 → first 16 bytes →
-    /// base64url no pad) so `escape_segment` remains safe.
+    /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
+    /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
+    /// `escape_segment` remains safe.
     pub fn blind_hash_key(
         index_key: &[u8; 32],
         molecule_uuid: &str,

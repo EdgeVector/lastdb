@@ -1,4 +1,4 @@
-//! Query read flow, with data-only response and projection rules below it.
+//! Query read flow. Response builders and row rules live in sibling modules.
 
 use super::*;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
@@ -82,7 +82,7 @@ async fn execute_rows_captured<H: HostNode>(
 ) -> Result<(Vec<Value>, RowDrops), HostError> {
     let sort_order = query.sort_order.clone();
     let order_by = query.order_by.clone();
-    let sort_helper = unprojected_sort_field(&query);
+    let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
     // Scope the tally to this request. Atom hydration happens inside
     // `query_with_access`, so the scope has to wrap that call and nothing
@@ -141,7 +141,7 @@ async fn execute_rows_captured<H: HostNode>(
     let sort_started = std::time::Instant::now();
     let sorted = {
         let range_comparison = KeyComparisonContext::capture_current_range_comparison();
-        super::rules::sort_rows(
+        super::row_rules::sort_rows(
             &mut results,
             sort_order.as_ref(),
             order_by.as_ref(),
@@ -151,7 +151,7 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
     sorted?;
 
-    remove_sort_helper(&mut results, sort_helper.as_deref());
+    super::row_rules::remove_sort_helper(&mut results, sort_helper.as_deref());
     request_phases::add_phase(RequestPhase::Hydrate, hydrate_started.elapsed());
 
     let annotate_started = std::time::Instant::now();
@@ -160,58 +160,4 @@ async fn execute_rows_captured<H: HostNode>(
     request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
 
     Ok((results, drops))
-}
-
-/// Build `/api/query` row envelopes without clocks, host access, or telemetry.
-/// Keep the sort helper's value until ordering, but exclude its metadata before
-/// choosing the author. Conditions already selected the keys in the core.
-pub(in crate::handlers) fn format_rows(
-    result_map: HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
-    sort_helper: Option<&str>,
-) -> Vec<Value> {
-    let records_map = fold_db::fold_db_core::query::records_from_field_map(result_map);
-    records_map
-        .into_iter()
-        .map(|(key, mut record)| {
-            if let Some(field) = sort_helper {
-                record.metadata.remove(field);
-            }
-            let author_pub_key = record
-                .metadata
-                .values()
-                .find_map(|m| m.writer_pubkey.as_deref())
-                .filter(|s| !s.is_empty());
-            let mut row = serde_json::Map::new();
-            row.insert("key".into(), serde_json::json!(key));
-            // These values already own their JSON. Serializing them through
-            // json! would recursively copy them before discarding the originals.
-            row.insert(
-                "fields".into(),
-                Value::Object(record.fields.into_iter().collect()),
-            );
-            row.insert("metadata".into(), serde_json::json!(record.metadata));
-            row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
-            Value::Object(row)
-        })
-        .collect()
-}
-
-/// Hide an unprojected sort value only after the complete result order is set.
-fn remove_sort_helper(results: &mut [Value], sort_helper: Option<&str>) {
-    if let Some(field) = sort_helper {
-        for row in results {
-            if let Some(fields) = row.get_mut("fields").and_then(Value::as_object_mut) {
-                fields.remove(field);
-            }
-        }
-    }
-}
-
-/// The core retains this sort value without changing projection key discovery.
-fn unprojected_sort_field(query: &Query) -> Option<String> {
-    let field = &query.order_by.as_ref()?.field;
-    if query.fields.is_empty() || query.fields.contains(field) {
-        return None;
-    }
-    Some(field.clone())
 }
