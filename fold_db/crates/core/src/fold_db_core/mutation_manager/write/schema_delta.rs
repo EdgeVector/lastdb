@@ -2,13 +2,6 @@
 
 use super::*;
 
-struct PreparedAtomPhase {
-    mutation_key_values: Vec<crate::schema::types::KeyValue>,
-    atom_results: Vec<(usize, String, crate::atom::Atom)>,
-    deferred_atoms: Option<Vec<crate::atom::Atom>>,
-    changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
-}
-
 impl MutationManager {
     /// Whether the schema feeds the retention-age or hash-partition trackers.
     fn retention_tracking(
@@ -21,43 +14,6 @@ impl MutationManager {
         let tracks_hash_partitions =
             storage_prefix.is_none() && matches!(&schema.schema_type, Kind::HashRange);
         (tracks_age, tracks_hash_partitions)
-    }
-
-    /// Create atoms and key values, then restore the current selected tips.
-    async fn prepare_atom_phase(
-        &self,
-        schema_name: &str,
-        schema: &mut crate::schema::types::Schema,
-        schema_mutations: &mut [Mutation],
-        storage_prefix: Option<&str>,
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-    ) -> Result<PreparedAtomPhase, SchemaError> {
-        let phase1_start = std::time::Instant::now();
-        let (mutation_key_values, atom_results, deferred_atoms) = self
-            .prepare_atoms_and_key_values(schema_name, schema, schema_mutations, storage_prefix)?;
-        Self::add_timing(
-            timing_breakdown,
-            "  - create_atoms_batch",
-            phase1_start.elapsed(),
-        );
-
-        let changed_keys =
-            Self::changed_keys_by_field(schema, schema_mutations, &mutation_key_values);
-        let restore_start = std::time::Instant::now();
-        self.reload_changed_for_prepare(schema, &changed_keys)
-            .await?;
-        Self::add_timing(
-            timing_breakdown,
-            "  - restore_molecules",
-            restore_start.elapsed(),
-        );
-
-        Ok(PreparedAtomPhase {
-            mutation_key_values,
-            atom_results,
-            deferred_atoms,
-            changed_keys,
-        })
     }
 
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
@@ -85,20 +41,27 @@ impl MutationManager {
             Self::retention_tracking(&schema, storage_prefix);
         Self::add_timing(timing_breakdown, "schema_load", load_start.elapsed());
 
-        let PreparedAtomPhase {
+        let phase1_start = std::time::Instant::now();
+        let super::super::molecules::PreparedAtoms {
             mutation_key_values,
             atom_results,
             deferred_atoms,
-            changed_keys,
-        } = self
-            .prepare_atom_phase(
-                &schema_name,
-                &mut schema,
-                &mut schema_mutations,
-                storage_prefix,
-                timing_breakdown,
-            )
+        } = self.prepare_atoms_and_key_values(&schema_name, &schema, &mut schema_mutations)?;
+        Self::add_timing(
+            timing_breakdown,
+            "  - create_atoms_batch",
+            phase1_start.elapsed(),
+        );
+        let changed_keys =
+            Self::changed_keys_by_field(&schema, &schema_mutations, &mutation_key_values);
+        let restore_start = std::time::Instant::now();
+        self.reload_changed_for_prepare(&mut schema, &changed_keys)
             .await?;
+        Self::add_timing(
+            timing_breakdown,
+            "  - restore_molecules",
+            restore_start.elapsed(),
+        );
         let search_batch = Self::build_index_change_batch(
             &schema_name,
             &schema,
