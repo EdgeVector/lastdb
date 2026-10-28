@@ -473,7 +473,6 @@ An authenticated request body never grants authority by itself.
 
 | Route | Request | Successful or operation result |
 | --- | --- | --- |
-| context/read | ContextReadRequest | ContextReadResponse |
 | jobs/begin | JobBeginRequest | JobBeginResult |
 | jobs/status | JobStatusRequest | JobStatusResult |
 | jobs/close | JobCloseRequest | JobCloseResult |
@@ -484,12 +483,11 @@ An authenticated request body never grants authority by itself.
 | commits/prepare | CommitRequest | CommitResponse |
 | commits/status | CommitStatusRequest | CommitResponse |
 | heads/read | HeadReadRequest | HeadReadResult |
-| streams/list | StreamsListRequest | StreamsListResponse |
 | objects/read | ReadGrantRequest | ReadGrantResponse |
-| usage/read | UsageReadRequest | UsageReadResponse |
 
 The crate does not include the v1 references/put messages. No caller remains.
 The crate does not include the v1 source/read messages. No caller remains.
+The crate does not include the v1 context, usage, or discovery messages. No caller remains. The live messages are the v2 types.
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.

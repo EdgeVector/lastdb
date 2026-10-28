@@ -4,9 +4,7 @@
 //! through its existing LastDB submodule after the canonical source lands.
 
 mod common;
-pub mod context;
 mod digest;
-pub mod discovery;
 mod error;
 pub mod jobs;
 pub mod limits;
@@ -16,7 +14,6 @@ pub mod publication;
 pub mod recovery;
 pub mod references;
 pub mod transfer;
-pub mod usage;
 pub mod v2;
 
 pub use common::*;
