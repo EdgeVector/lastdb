@@ -56,12 +56,21 @@ pub(crate) async fn load_app_single_catalog_binding(
         return Err(refusal);
     }
     let mut binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
-    if let Some(catalog) = host
+    if let Some(mut catalog) = host
         .db
         .schema_manager()
         .get_schema_metadata(catalog_hash)
         .map_err(|e| format!("failed to read catalog schema {catalog_hash}: {e}"))?
     {
+        let previous_mappers = catalog.field_mappers.clone();
+        prepare_catalog_for_load(host, &mut catalog).await?;
+        if catalog.field_mappers != previous_mappers {
+            host.db
+                .schema_manager()
+                .load_schema_internal(catalog.clone())
+                .await
+                .map_err(|e| format!("failed to refresh recovered catalog mappers: {e}"))?;
+        }
         anchor_binding_mappers(&mut binding, &catalog)?;
     }
     if let Some(catalog_fields) = host
