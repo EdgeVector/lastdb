@@ -133,3 +133,14 @@ Seed counts use source revision `88cd15cfcbba781b8ed0aea6071757a8080c0d1f`.
 - [Automatic canonical registration](../crates/core/src/state_fields.rs)
 - [Current name policy](../crates/core/src/field_name_policy.rs)
 - [PR 597](https://github.com/EdgeVector/lastdb/pull/597)
+
+## Implementation simplifications
+
+The existing registry verifier key controls canonical publication. App owner keys cannot approve vocabulary.
+The seed uses one source vocabulary file and one batch write. Cold start does not compute seed embeddings.
+The service assigns policy metadata outside field identity. No extra approval database is required.
+The reset uses an isolated registry generation during the standard deployment canary.
+Old writers cannot repopulate the new generation. The previous generation remains available for definition recovery.
+
+The seed manifest reviews all 151 former definitions. It retains or replaces 113 entries and removes 38 ambiguous entries.
+See [the seed manifest](canonical_field_seed_manifest.md) and [the operator procedure](canonical_vocabulary_operations.md).
