@@ -60,11 +60,8 @@ impl Host {
         e2e_keys: &E2eKeys,
         search_outbox_inbox: PathBuf,
     ) -> Result<Arc<FoldDB>, String> {
-        let config = DatabaseConfig {
-            path: data_path.to_path_buf(),
-        };
         fold_db::fold_db_core::factory::create_fold_db_with_options(
-            &config,
+            data_path,
             e2e_keys,
             Arc::clone(keypair),
             fold_db::fold_db_core::factory::FoldDbOptions {

@@ -20,7 +20,6 @@
 //! Normal logical constructors use the native packed engine and refuse older
 //! nonempty formats without migration.
 
-pub mod config;
 pub(crate) mod current_keys;
 pub mod disk_pack;
 pub mod encrypting_namespaced_store;
@@ -30,7 +29,6 @@ pub mod error;
 pub mod traits;
 
 // Re-exports for convenience
-pub use config::DatabaseConfig;
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};

@@ -15,7 +15,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use fold_db::db_operations::{RecountOptions, RecountReport};
-use fold_db::storage::config::DatabaseConfig;
 use serde::Serialize;
 
 use crate::offline_home::{load_e2e_keys, preflight_stopped_home, refuse_primary, Preflight};
@@ -117,7 +116,7 @@ async fn run_recount(
 ) -> Result<RecountReport, String> {
     let (e2e, keypair) = load_e2e_keys(home)?;
     let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
-        &DatabaseConfig { path: store_root },
+        &store_root,
         &e2e,
         keypair,
         fold_db::fold_db_core::factory::FoldDbOptions {
