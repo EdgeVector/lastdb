@@ -99,14 +99,14 @@ An accepted-backup retention operation remains separate work and must preserve e
 
 ## CI stream ownership
 
-After both source-free restores succeed, the operation writes a small CI ownership receipt outside Git.
+After all source-free restores succeed, the operation writes a small CI ownership receipt outside Git.
 The receipt names the exact repository, workflow, main source, run, attempt, DEV account, generation, and new stream.
-It also names the observed accepted points and the exact log and snapshot that both restores verified.
+It also names the observed accepted points and the exact base snapshot, log, and later snapshot that the restores verified.
 The receipt excludes record contents, credentials, file keys, and provider grants.
 CI retains it for 90 days and records its download link, checksum, source, and expiration in the summary.
 Only a successful operation uploads the receipt. A cleanup caller must also verify the associated workflow result.
 
-The source must stop cleanly twice, and every observed point must use one new stream in the fixed DEV account and generation.
+The source must stop cleanly at least twice, and every observed point must use one new stream in the fixed DEV account and generation.
 That stream must differ from the pinned baseline stream.
 This requirement lets a future cleanup operation identify completed CI streams without an account-wide ownership guess.
 It does not classify an old stream merely because it has an automatic request ID.
