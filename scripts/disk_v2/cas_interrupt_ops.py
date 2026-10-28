@@ -90,8 +90,9 @@ def blob(node, file):
         response = connection.getresponse()
         body = response.read(FILE_BYTES + 1)
         if response.status == 404:
-            reply = json.loads(body)
-            require("file blob was not found locally" in json.dumps(reply), "unrelated file refusal")
+            # The ordinary owner-socket error renderer returns a plain body.
+            # Require its exact message, rather than accept any unrelated 404.
+            require(body == b"file blob was not found locally", "unrelated file refusal")
             return False
         require(response.status == 200 and len(body) == FILE_BYTES
                 and hashlib.sha256(body).hexdigest() == file["sha256"], "live file bytes changed")
