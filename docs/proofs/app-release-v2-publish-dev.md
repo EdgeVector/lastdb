@@ -1,6 +1,15 @@
 # App Release /v2 Publishing Proof (DEV)
 
-**Goal**: Demonstrate publishing an app release (Brain, LastSecrets, lastseek) to the /v2 app registry in DEV, enabling the verifier to import and sign compat rows.
+**Status**: Proof script is complete and validated (bash -n, shellcheck) but has NOT been executed against DEV. Execution requires credentials and a registered test app that are not available in the development environment.
+
+**Required to run**:
+- `LASTDB_API_KEY`: Developer API key from https://exemem.com
+- `LASTDB_DEV_KEY_B64`: Base64-encoded Ed25519 private key (32-byte secret) that matches a registered app's publisher
+- `TEST_APP_ID`: A registered test app in DEV /v2 (not brain, lastsecrets, or lastseek)
+- `TEST_APP_UUID`: The registered UUID for the test app
+- The test app must be registered in DEV with `POST /v2/apps` using the same dev key
+
+**Goal**: Demonstrate publishing an app release to the /v2 app registry in DEV, enabling the verifier to import and sign compat rows.
 
 **Context**: 
 - The /v2 registry is live in DEV (schema-infra PR #477, #479)
