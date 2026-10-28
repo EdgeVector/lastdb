@@ -187,11 +187,11 @@ pub(in crate::byte_cloud_backup) fn configure(
         .last_snapshot_at
         .map_or(0, |at| at.saturating_add(snapshot));
     policy.state.paused = None;
+    policy.save(host)?;
     if let Some(pending) = &policy.pending {
         Store::open(&host.home, &pending.id)?.write("pause.json", &Option::<PauseState>::None)?;
         host.byte_backup.acknowledge_completion(&pending.id);
     }
-    policy.save(host)?;
     native(host)?.configure_mutation_log(true)?;
     host.byte_backup.wake();
     Ok(())
