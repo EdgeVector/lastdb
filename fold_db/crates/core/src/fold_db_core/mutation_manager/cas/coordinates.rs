@@ -13,7 +13,7 @@ impl MutationManager {
         let Some(layout) = schema.key.as_ref() else {
             return Ok(vec![false; keys.len()]);
         };
-        let profile = self.db_ops.molecule_keys().schema_profile(schema)?;
+        let profile = Some(self.db_ops.molecule_keys().schema_profile(schema)?);
         let mut requests = Vec::new();
         let mut slot_keys = Vec::new();
         for (index, key) in keys.iter().enumerate() {

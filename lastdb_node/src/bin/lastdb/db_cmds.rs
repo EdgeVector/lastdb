@@ -86,46 +86,6 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
-        DbOfflineCommand::ConvertTypedRanges {
-            target_home,
-            source_hash_encoding,
-            source_range_encoding,
-            resume,
-            max_records,
-            max_metadata_mib,
-            json,
-        } => lastdb_node::offline_range_conversion::convert(
-            &lastdb_node::offline_range_conversion::RangeConversionArgs {
-                source_home: home,
-                target_home: &target_home,
-                source_hash_encoding: &source_hash_encoding,
-                source_range_encoding: &source_range_encoding,
-                resume,
-                max_records,
-                max_metadata_mib,
-                json,
-            },
-        ),
-        DbOfflineCommand::InspectRangeConversion {
-            target_home,
-            source_hash_encoding,
-            source_range_encoding,
-            target_range_encoding,
-            max_records,
-            max_metadata_mib,
-            json,
-        } => lastdb_node::offline_range_inventory::inspect(
-            &lastdb_node::offline_range_inventory::RangeInventoryArgs {
-                home,
-                target_home: target_home.as_deref(),
-                source_hash_encoding: source_hash_encoding.as_deref(),
-                source_range_encoding: &source_range_encoding,
-                target_range_encoding: &target_range_encoding,
-                max_records,
-                max_metadata_mib,
-                json,
-            },
-        ),
         DbOfflineCommand::Recount {
             execute,
             scopes,

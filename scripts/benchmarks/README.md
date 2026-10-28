@@ -117,23 +117,9 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
-The manual comparison also accepts `typed_ranges: true`.
-Both versions receive the same explicit String schema, values, blinded hashes, and OPE source configuration.
-The candidate stops after the seed and uses its matching `lastdb` CLI to create a separate typed V2 target.
-The converter must preserve every source data-file checksum and publish the exact typed marker.
-Only the candidate switches to that target before the normal reads and writes.
-The growth and disk recipes use the same conversion. Confirmation repeats retain that choice.
-For a typed-format before/after comparison, select `typed_ranges: both`.
-Each version then converts its independent stopped source with its own matching CLI.
-The request, growth, disk, and confirmation recipes retain that format on both sides.
-This option leaves ordinary PR measurements unchanged. The `false` and `true` choices retain their existing behavior.
-The CI summary includes conversion time, source size, target size, and the retained source-plus-target size.
-The retained sum excludes transient merge files. It does not establish peak disk use.
-The artifact retains the product output, CLI checksum, and Linux process resource measurements.
-The normal schema and encryption choices stay unchanged when this option is false.
-This comparison covers String ranges. Date, DateTime, Integer, and Boolean need their separate product operations.
-Typed comparison requires a GitHub-hosted runner and excludes the separate legacy-upgrade and active-TTL options.
-The benchmark build retains and verifies both matching programs. It never reuses an unverified companion CLI.
+Every measured home is a format 4 home: disk format v2 with blinded hashes and typed ranges.
+The driver accepts only the format 4 node marker. A revision that creates an older home fails completion.
+The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads and exact compiled baseline programs.
@@ -273,7 +259,7 @@ The report separates allocated space before and after compaction. These checkpoi
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the v2 node marker of both generated homes, including the default format-4 typed ranges.
+It verifies the format 4 node marker of both generated homes (disk format v2 with typed ranges).
 Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 

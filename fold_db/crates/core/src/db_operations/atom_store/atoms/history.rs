@@ -5,9 +5,7 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, SchemaError> {
-        if self.typed_ranges {
-            self.load_molecule_key_bundle(molecule_uuid).await?;
-        }
+        self.load_molecule_key_bundle(molecule_uuid).await?;
         self.key_codec_for_molecule(molecule_uuid)
     }
 
@@ -22,9 +20,7 @@ impl AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<MutationEvent>, SchemaError> {
-        if self.typed_ranges {
-            self.load_molecule_key_bundle(molecule_uuid).await?;
-        }
+        self.load_molecule_key_bundle(molecule_uuid).await?;
         self.get_mutation_event_rows(molecule_uuid, storage_prefix)
             .await?
             .into_iter()

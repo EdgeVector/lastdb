@@ -24,8 +24,6 @@ def measure(binary, revision, recipe, output, workers, seed=None, minimum_retire
     try:
         program = seed or (binary, revision, workers)
         environment = {"LASTDB_SEARCH_ENABLED": "0"} if recipe.get("disk_budget") else {}
-        if recipe.get("typed_range_comparison"):
-            environment.update(LASTDB_HASH_KEY_ENCODING="blind_v1", LASTDB_RANGE_KEY_ENCODING="ope_v1")
         node = Node(program[0], program[1], output,
                     native_timing=recipe["native_timing"] or recipe.get("disk_budget", False), workers=program[2],
                     environment=environment)
@@ -110,12 +108,6 @@ def recipe_for(args):
         recipe["seed_with_baseline"] = True
         recipe["minimum_retired"] = args.minimum_retired
     recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
-    if args.candidate_typed_ranges:
-        recipe["typed_range_comparison"] = True
-        recipe["typed_range_baseline"] = args.baseline_typed_ranges
-        typed = "typed-v1 inside encrypted V2 blocks"
-        recipe["range_formats"] = {"baseline": typed if args.baseline_typed_ranges else "legacy OPE-v1",
-                                   "candidate": typed}
     return recipe
 
 
@@ -132,20 +124,12 @@ def main():
     parser.add_argument("--disk-budget-only", action="store_true")
     parser.add_argument("--seed-with-baseline", action="store_true",
                         help="Measure a real upgrade of an owned home created by the baseline daemon")
-    parser.add_argument("--candidate-typed-ranges", action="store_true",
-                        help="Convert only the candidate's stopped generated seed with its matching CLI")
-    parser.add_argument("--baseline-typed-ranges", action="store_true",
-                        help="Also convert the baseline's independent seed with its matching CLI")
     parser.add_argument("--minimum-retired", type=int, default=0)
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.baseline_typed_ranges and not args.candidate_typed_ranges:
-        parser.error("A typed baseline requires --candidate-typed-ranges")
-    if args.candidate_typed_ranges and args.seed_with_baseline:
-        parser.error("Typed range comparison requires independent generated seeds")
     if (args.native_timing or args.growth_only or args.disk_budget_only or args.seed_with_baseline
-            or args.baseline_workers or args.candidate_workers or args.candidate_typed_ranges) and (
+            or args.baseline_workers or args.candidate_workers) and (
             os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
         parser.error("Diagnostic, growth, upgrade, and worker measurements require a GitHub-hosted Actions runner")
@@ -188,7 +172,7 @@ def main():
                                          "growth.py", "growth_report.py", "disk_usage.py", "disk_budget.py", "disk_budget_report.py", "disk_deletes.py",
                                          "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
-                                         "range_continuation/process_counters.py", "typed_ranges.py")}}
+                                         "range_continuation/process_counters.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
         order = ("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")
@@ -202,9 +186,7 @@ def main():
             entry = {"pair": pair, "label": label, "directory": output.name,
                      "seed_revision": baseline["revision"] if seed else binaries[label]["revision"],
                      "uds_workers": recipe["uds_workers"][label],
-                     **measure(Path(binaries[label]["path"]), binaries[label]["revision"],
-                               {**recipe, "typed_range_target": bool(args.candidate_typed_ranges
-                                   and (label == "candidate" or args.baseline_typed_ranges))}, output,
+                     **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output,
                                recipe["uds_workers"][label], seed,
                                args.minimum_retired if label == "candidate" else 0)}
             manifest["runs"].append(entry)

@@ -28,9 +28,7 @@ class GrowthWorkload:
 
     def __init__(self, node, recipe, output):
         self.node, self.output = node, output
-        self.recipe = {**recipe["growth"],
-                       "typed_range_comparison": recipe.get("typed_range_comparison", False),
-                       "typed_range_target": recipe.get("typed_range_target", False)}
+        self.recipe = {**recipe["growth"]}
         self.live_records = self.recipe["records"]
         self.expected = {}
         self.samples, self.cases, self.phase = [], {}, "seed"
@@ -139,12 +137,6 @@ class GrowthWorkload:
                   "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         self.write(0, self.live_records, "growth-seed", True)
-        if self.recipe.get("typed_range_target"):
-            from typed_ranges import convert
-            self.node.call("/api/db/flush", {})
-            self.node.stop()
-            convert(self.node)
-            self.node.start()
 
     def measure(self, case):
         points = [self.checkpoint(0)]

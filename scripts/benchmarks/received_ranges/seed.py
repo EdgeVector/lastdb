@@ -21,13 +21,14 @@ class Seed:
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-            "fields": FIELDS + EXTRA_FIELDS, "field_descriptions": {
+            "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
+            "field_descriptions": {
                 name: "received range batches " + name for name in FIELDS + EXTRA_FIELDS}}})
         alternate_fields = ["bucket", "alternate_id", "title", "body"]
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": HIDDEN_SCHEMA, "descriptive_name": HIDDEN_SCHEMA,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "alternate_id"},
-            "fields": alternate_fields,
+            "fields": alternate_fields, "field_types": {"bucket": "String", "alternate_id": "String"},
             "field_descriptions": {name: "received range batches " + name for name in alternate_fields},
             "field_mappers": {name: SCHEMA + "." + name for name in ("bucket", "title", "body")}}})
         self.node.call("/api/db/flush", {})
