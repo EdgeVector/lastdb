@@ -26,6 +26,7 @@ pub(super) struct V2Home {
     pub(super) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// After a failed merge, no new merge thread starts before this time.
     pub(super) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
+    pub(super) cas_delete_recovery: Option<super::cas_delete::CasDeleteRecovery>,
 }
 
 impl V2Home {
@@ -42,6 +43,7 @@ impl V2Home {
             stop: Arc::default(),
             merger: Mutex::new(None),
             retry_after: Arc::default(),
+            cas_delete_recovery: None,
         }
     }
 }

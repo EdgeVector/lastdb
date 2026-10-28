@@ -45,3 +45,13 @@ injection design, and the canonicalization gate, ask the brain
 See also: `README.md`, `openapi.yaml` (the `/v1/*` contract).
 
 Do not write, restore, or run tests. Use product build, format, and lint checks.
+
+## Scoped exception: canonical properties (Tom, 2026-10-28)
+
+Tom requested automated stress, property, and concurrency tests for the current
+canonical-field update. Tom also approved the scoped CI PR and execution.
+That authorization supersedes the test prohibition above only for
+`crates/core/tests/`, its explicit `canonical_properties` Cargo target, and
+`.github/workflows/schema-canonical-properties.yml` at the repository root.
+Keep all other test targets retired. Use CI for builds and execution.
+Use isolated memory stores; this grants no primary, shared load, or deployment permission.

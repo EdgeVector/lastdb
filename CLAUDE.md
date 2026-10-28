@@ -72,6 +72,13 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 
 ## CI checks
 
+**Scoped exception (Tom, 2026-10-28):** Tom explicitly requested canonical schema
+property and concurrency tests and approved their CI PR and run. The test
+retirement below excludes only `schema_service/crates/core/tests/`, its explicit
+`canonical_properties` Cargo target, and `schema-canonical-properties.yml`.
+Run this target in CI with isolated memory stores. All other test targets stay
+retired. This exception grants no primary, shared load, or deployment permission.
+
 **The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
 The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
 secret scan (`scripts/lints/lint-secrets.py`), and builds only, and the repo

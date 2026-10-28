@@ -135,10 +135,6 @@ pub async fn list_near_misses(
     })
 }
 
-#[allow(
-    clippy::unused_async,
-    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
-)]
 pub async fn get_schema(
     path: web::Path<String>,
     state: web::Data<SchemaServiceState>,
@@ -150,20 +146,13 @@ pub async fn get_schema(
         schema_name
     );
 
-    let schemas = match read_schemas(&state) {
-        Ok(s) => s,
-        Err(r) => return r,
-    };
-
-    match schemas.get(&schema_name) {
-        Some(schema) => {
+    match state.lookup_schema_by_name(&schema_name).await {
+        Ok(Some(schema)) => {
             let system = state.is_system_schema(&schema.name);
-            HttpResponse::Ok().json(SchemaEnvelope {
-                schema: schema.clone(),
-                system,
-            })
+            HttpResponse::Ok().json(SchemaEnvelope { schema, system })
         }
-        None => not_found("Schema", &schema_name),
+        Ok(None) => not_found("Schema", &schema_name),
+        Err(error) => internal_error("Failed to get schema", error),
     }
 }
 

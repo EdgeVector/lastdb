@@ -3,9 +3,16 @@ use super::*;
 impl SchemaServiceState {
     /// Persist a schema to the storage backend.
     pub(crate) async fn persist_schema(&self, schema: &Schema) -> FoldDbResult<()> {
+        let fields = self.checked_schema_vocabulary(std::slice::from_ref(schema))?;
         match &self.storage {
-            SchemaStorage::External(backend) => {
-                backend.save_schema(schema).await?;
+            SchemaStorage::External(_) => {
+                self.commit_vocabulary(
+                    &fields,
+                    crate::vocabulary_commit::VocabularyCommit::Schemas(std::slice::from_ref(
+                        schema,
+                    )),
+                )
+                .await?;
                 tracing::info!(
                 target: "schema_service::schema",
                         "Schema '{}' persisted to external backend",
@@ -23,9 +30,14 @@ impl SchemaServiceState {
         if schemas_to_persist.is_empty() {
             return Ok(());
         }
+        let fields = self.checked_schema_vocabulary(schemas_to_persist)?;
         match &self.storage {
-            SchemaStorage::External(backend) => {
-                backend.save_schemas(schemas_to_persist).await?;
+            SchemaStorage::External(_) => {
+                self.commit_vocabulary(
+                    &fields,
+                    crate::vocabulary_commit::VocabularyCommit::Schemas(schemas_to_persist),
+                )
+                .await?;
                 tracing::info!(
                 target: "schema_service::schema",
                         "{} schemas persisted to external backend",

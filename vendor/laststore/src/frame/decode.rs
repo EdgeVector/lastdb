@@ -2,6 +2,10 @@
 
 use super::*;
 use crate::read_receipt::Timer;
+use zeroize::Zeroizing;
+
+#[path = "decode/open.rs"]
+mod open;
 
 /// One lookup owns this workspace; no decoder or decoded block survives it.
 #[derive(Default)]
@@ -43,20 +47,13 @@ impl Drop for DecodeScratch {
 pub(crate) struct PreparedFrameKey {
     chunk: Uuid,
     cipher: Aes256Gcm,
+    raw_key: Zeroizing<[u8; 32]>,
 }
 
 impl PreparedFrameKey {
     pub(crate) fn new(data_key: &[u8; 32], chunk: Uuid) -> Result<Self> {
         // Keep one-time key setup inside the aggregate decode metric too.
-        crate::read_receipt_io::decode(
-            || {
-                Ok(Self {
-                    chunk,
-                    cipher: make_cipher(data_key, chunk)?,
-                })
-            },
-            |_| (0, 0),
-        )
+        crate::read_receipt_io::decode(|| make_key(data_key, chunk), |_| (0, 0))
     }
 
     pub(crate) fn decode(
@@ -97,10 +94,17 @@ fn observed_decode(
     )
 }
 
-fn make_cipher(data_key: &[u8; 32], chunk: Uuid) -> Result<Aes256Gcm> {
+fn make_key(data_key: &[u8; 32], chunk: Uuid) -> Result<PreparedFrameKey> {
     let timer = Timer::start();
-    let result = chunk_key(data_key, chunk).and_then(|key| {
-        Aes256Gcm::new_from_slice(&key).map_err(|_| Error::Config("invalid aead key length".into()))
+    let result = chunk_key(data_key, chunk).and_then(|raw_key| {
+        let raw_key = Zeroizing::new(raw_key);
+        let cipher = Aes256Gcm::new_from_slice(raw_key.as_ref())
+            .map_err(|_| Error::Config("invalid aead key length".into()))?;
+        Ok(PreparedFrameKey {
+            chunk,
+            cipher,
+            raw_key,
+        })
     });
     timer.finish(|receipt, nanos| {
         receipt.frame_key_setups = receipt.frame_key_setups.saturating_add(1);
@@ -132,29 +136,24 @@ fn decode_inner(
         return Err(Error::Corrupt("stored frame exceeds block limit".into()));
     }
     let tag_offset = HEADER_SIZE + payload_len;
-    let mut payload = frame[HEADER_SIZE..tag_offset].to_vec();
-    let mut payload_charge = crate::read_receipt::TemporaryBytes::new(payload.capacity());
-    let tag = Tag::from_slice(&frame[tag_offset..]);
     let generated;
-    let cipher = if let Some(key) = prepared.filter(|key| key.chunk == header.chunk_uuid) {
-        &key.cipher
+    let key = if let Some(key) = prepared.filter(|key| key.chunk == header.chunk_uuid) {
+        key
     } else {
         // Preserve authentication and the original error for a foreign frame.
-        generated = make_cipher(data_key, header.chunk_uuid)?;
+        generated = make_key(data_key, header.chunk_uuid)?;
         &generated
     };
-    let nonce_bytes = counter_nonce(header.counter);
-    let timer = Timer::start();
-    let opened = cipher.decrypt_in_place_detached(
-        Nonce::from_slice(&nonce_bytes),
-        header_bytes,
-        &mut payload,
-        tag,
-    );
-    timer.finish(|receipt, nanos| {
-        receipt.frame_auth_nanos = receipt.frame_auth_nanos.saturating_add(nanos);
-    });
-    opened.map_err(|_| Error::AeadAuthFail)?;
+    let (mut payload, mut payload_charge) = open::payload(
+        key,
+        open::Input {
+            nonce: counter_nonce(header.counter),
+            header: header_bytes,
+            ciphertext: &frame[HEADER_SIZE..tag_offset],
+            tag: &frame[tag_offset..],
+        },
+        prepared.is_some(),
+    )?;
     if flags & FLAG_ZSTD != 0 {
         payload = decompress_bounded(
             &payload,

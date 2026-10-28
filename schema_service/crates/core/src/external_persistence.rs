@@ -29,6 +29,7 @@ use super::declared_fields::DeclaredFieldRecord;
 use super::near_miss::NearMissRecord;
 use super::snapshot::AppRecord;
 use super::types::CanonicalField;
+use crate::CanonicalVocabularyWrite;
 use schema_types::FoldDbResult;
 use schema_types::Schema;
 
@@ -57,6 +58,28 @@ pub trait ExternalSchemaPersistence: Send + Sync {
             self.save_schema(schema).await?;
         }
         Ok(())
+    }
+
+    /// Commit schemas and their admitted canonical definitions atomically.
+    /// A failed commit must expose neither side. Backends must validate field
+    /// conflicts inside the same transaction/conditional write as the schemas.
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()>;
+
+    /// Commit only if the durable vocabulary still matches the admission
+    /// snapshot. Verify it inside the same lock/conditional write, on every
+    /// retry. Unsupported backends fail closed rather than split the check.
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        _schemas: &[Schema],
+        _vocabulary: &CanonicalVocabularyWrite,
+    ) -> FoldDbResult<()> {
+        Err(schema_types::FoldDbError::Config(
+            "conditional vocabulary commit is not supported by this backend".into(),
+        ))
     }
 
     /// Load every schema from storage.
@@ -237,15 +260,29 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     // does this field mean" globally and is unchanged. These answer "should a
     // write here land there", which needs a scope one level narrower.
     //
-    // Default impls are no-ops / empty so a backend that predates declared
-    // fields runs without them rather than failing startup — the same
-    // opt-in shape as the app registry.
+    // A declaration and its canonical definitions share one backend commit.
+    // No default may silently split publication into independent writes.
 
-    /// Persist one declaration, keyed by `declaration_id`. Upsert: a
-    /// re-declare adds fields or grants to an existing row, and the id itself
-    /// is immutable, so overwriting the row is correct.
-    async fn save_declared_field(&self, _record: &DeclaredFieldRecord) -> FoldDbResult<()> {
-        Ok(())
+    /// Commit a declaration and its canonical vocabulary atomically. Check
+    /// `expected` inside the commit to reject a concurrent handle/update race.
+    async fn save_declared_field_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()>;
+
+    /// Check both the declaration precondition and the admission snapshot
+    /// inside one atomic commit. No unguarded fallback is permitted.
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        _record: &DeclaredFieldRecord,
+        _vocabulary: &CanonicalVocabularyWrite,
+        _expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        Err(schema_types::FoldDbError::Config(
+            "conditional vocabulary commit is not supported by this backend".into(),
+        ))
     }
 
     /// Load every declaration. Called once at startup to rebuild both the

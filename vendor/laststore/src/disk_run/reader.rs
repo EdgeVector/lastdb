@@ -9,9 +9,10 @@ use crate::frame::{decode_frame_bounded, min_encoded_len, DecodeScratch, Prepare
 use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
 use std::ops::Bound;
-use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
+#[path = "reader/open.rs"]
+mod open;
 #[path = "reader/probes.rs"]
 mod probes;
 #[path = "reader/stream.rs"]
@@ -46,107 +47,6 @@ impl IndexBlock {
 }
 
 impl RunReader {
-    /// Opens a run and checks its footer and top block. The file must be
-    /// named `<run id>.ldrun` for the run id its footer and blocks carry, so
-    /// a valid older run copied over another name does not open.
-    pub fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
-        Self::open_inner(path, data_key, None, 0)
-    }
-
-    /// Open metadata under a caller's total decode-memory admission.
-    /// Ordinary reads keep their existing open path and allocation behavior.
-    pub fn open_bounded(path: &Path, data_key: &[u8; 32], bytes: u64) -> Result<Self> {
-        Self::open_inner(path, data_key, Some(bytes), 0)
-    }
-    pub(crate) fn open_bounded_with_reserve(
-        path: &Path,
-        data_key: &[u8; 32],
-        bytes: u64,
-        reserved: u64,
-    ) -> Result<Self> {
-        Self::open_inner(path, data_key, Some(bytes), reserved)
-    }
-
-    fn open_inner(
-        path: &Path,
-        data_key: &[u8; 32],
-        bytes: Option<u64>,
-        reserved: u64,
-    ) -> Result<Self> {
-        let named = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.strip_suffix(RUN_SUFFIX))
-            .and_then(|stem| Uuid::parse_str(stem).ok());
-        let Some(named) = named else {
-            return Err(corrupt("run file name is not <run id>.ldrun"));
-        };
-        let file = measured::open(path)?;
-        let len = file.metadata()?.len();
-        if len < FOOTER_BYTES as u64 {
-            return Err(corrupt("file shorter than a footer"));
-        }
-        let _class = ReadClass::Footer.enter();
-        let mut raw = [0u8; FOOTER_BYTES];
-        measured::read_exact_at(&file, &mut raw, len - FOOTER_BYTES as u64)?;
-        let footer = Footer::decode(&raw)?;
-        if bytes.is_some_and(|n| u64::from(footer.top_len).saturating_mul(4) > n) {
-            return Err(crate::Error::ReadBudgetExceeded);
-        }
-        if footer.run_id != named {
-            return Err(corrupt("run file name and run id disagree"));
-        }
-        let end = footer
-            .top_offset
-            .checked_add(u64::from(footer.top_len))
-            .and_then(|end| end.checked_add(FOOTER_BYTES as u64));
-        if end != Some(len) {
-            return Err(corrupt("top block is not before the footer"));
-        }
-        let mut reader = Self {
-            reserved_memory: reserved,
-            file,
-            data_key: *data_key,
-            // Bounded backup readers retain their original allocation path.
-            frame_key: if bytes.is_none() {
-                Some(Box::new(PreparedFrameKey::new(data_key, footer.run_id)?))
-            } else {
-                None
-            },
-            footer,
-            top: Top {
-                records: 0,
-                data_blocks: 0,
-                max_payload: 0,
-                indexes: Vec::new(),
-                last_key: Vec::new(),
-            },
-        };
-        let payload = match bytes {
-            Some(admission) => reader.read_metadata_frame(
-                footer.top_offset,
-                footer.top_len,
-                TOP_COUNTER,
-                MAX_TOP_BYTES,
-                admission,
-            )?,
-            None => reader.read_frame(
-                footer.top_offset,
-                footer.top_len,
-                TOP_COUNTER,
-                MAX_TOP_BYTES,
-            )?,
-        };
-        reader.top = match bytes {
-            Some(admission) => Top::decode_bounded(&payload, admission)?,
-            None => Top::decode(&payload)?,
-        };
-        if !reader.top.agrees_with(&footer) {
-            return Err(corrupt("footer and top block disagree"));
-        }
-        Ok(reader)
-    }
-
     /// Run id from the footer.
     pub fn run_id(&self) -> Uuid {
         self.footer.run_id
@@ -187,9 +87,22 @@ impl RunReader {
         }
         let mut frame = vec![0u8; len as usize];
         measured::read_exact_at(&self.file, &mut frame, offset)?;
+        self.decode_checked_frame(&frame, counter, max, scratch)
+    }
+
+    fn decode_checked_frame(
+        &self,
+        frame: &[u8],
+        counter: u64,
+        max: usize,
+        scratch: Option<&mut DecodeScratch>,
+    ) -> Result<Vec<u8>> {
+        if frame.len() > max.saturating_add(8 + min_encoded_len()) {
+            return Err(corrupt("stored block length over its limit"));
+        }
         let decoded = match &self.frame_key {
-            Some(key) => key.decode(&self.data_key, &frame, max, scratch),
-            None => decode_frame_bounded(&self.data_key, &frame, max),
+            Some(key) => key.decode(&self.data_key, frame, max, scratch),
+            None => decode_frame_bounded(&self.data_key, frame, max),
         }?;
         if decoded.header.chunk_uuid != self.footer.run_id || decoded.header.counter != counter {
             return Err(corrupt("block belongs to another place"));

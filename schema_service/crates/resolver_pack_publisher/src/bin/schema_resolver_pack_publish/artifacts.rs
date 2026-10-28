@@ -61,7 +61,7 @@ pub(crate) fn build_schema_snapshot_artifact(
     snapshot: &SnapshotEnvelope,
 ) -> Result<SchemaSnapshotArtifact, String> {
     for (name, field) in &snapshot.canonical_fields {
-        schema_service_core::field_name_policy::validate_approved_field(name, field)
+        schema_service_core::field_name_policy::validate_canonical_field(name, field)
             .map_err(|error| error.to_string())?;
     }
     for schema in &snapshot.schemas {

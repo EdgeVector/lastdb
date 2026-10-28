@@ -2,10 +2,9 @@ name: CI required
 
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
-# this tree. This workflow runs NO tests (Tom, 2026-10-09: the tests flaked and
-# gave no signal), and the tests are deleted. It keeps fmt, clippy, lints,
-# a tracked-text secret scan, and builds. No lint or CI step requires tests
-# or test coverage.
+# this tree. Tom authorized only the canonical schema property target on
+# 2026-10-28. Other tests stay retired. The gate also keeps fmt, clippy,
+# lints, a tracked-text secret scan, and builds. No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
 on:
@@ -170,6 +169,30 @@ jobs:
             -p schema_service_worker \
             --bins \
             -- -D warnings
+      - name: Start the default schema service and read its seed vocabulary
+        run: |
+          set -euo pipefail
+          cargo build --locked -p schema_service_server_http --bin schema_service
+          runtime="$(mktemp -d "$RUNNER_TEMP/schema-service-startup.XXXXXX")"
+          OBS_FILE_PATH="$runtime/observability.jsonl" \
+            target/debug/schema_service --port 19102 >"$runtime/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          if ! curl --fail --silent --show-error --retry 30 --retry-connrefused \
+            --retry-delay 1 --max-time 2 http://127.0.0.1:19102/v1/health \
+            --output "$runtime/health.json"; then
+            cat "$runtime/server.log"
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 10 \
+            http://127.0.0.1:19102/v1/fields/vocabulary --output "$runtime/vocabulary.json"
+          seed_count="$(jq length schema_service/crates/core/src/builtin_canonical_fields.json)"
+          jq --exit-status --argjson expected "$seed_count" \
+            '.name_policy_version == 1 and (.fields | length) == $expected' \
+            "$runtime/vocabulary.json"
+          kill -0 "$server_pid"
+          printf 'Default schema service started without FastEmbed; GET vocabulary returned %s seed fields. Source: %s\n' \
+            "$seed_count" "$GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
 
   diff_file_size:
     name: Changed-file size lint
@@ -209,6 +232,10 @@ jobs:
       - name: Scan tracked text files for secrets
         run: python3 scripts/lints/lint-secrets.py
 
+  schema_canonical_properties:
+    name: Canonical schema properties
+    uses: ./.github/workflows/schema-canonical-properties.yml
+
   ci-required:
     name: ci-required
     needs:
@@ -217,6 +244,7 @@ jobs:
       - full_workspace_check
       - diff_file_size
       - secret_scan
+      - schema_canonical_properties
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -226,9 +254,9 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
           echo "Required job results: $RESULTS"
-          # Five jobs: build_test, lastdb_app_sdk_check, full_workspace_check,
-          # diff_file_size, secret_scan. A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success" ]; then
+          # Every required job must succeed, including the scoped property suite.
+          # A skip is a failure.
+          if [ "$RESULTS" != "success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

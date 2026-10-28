@@ -47,16 +47,25 @@ pub struct DiskReadReceipt {
     pub read_nanos: u64,
     /// Sum of frame open, authentication, and decompression durations.
     pub decode_nanos: u64,
-    /// Read-side per-chunk key derivations and AES key schedules.
+    /// Per-chunk derivations and prepared Rust AES schedules. Native per-frame
+    /// context setup is included in frame_auth_nanos instead.
     pub frame_key_setups: u64,
     /// Key setup time, also included in decode_nanos.
     pub frame_key_setup_nanos: u64,
     /// Frame authentication time, also included in decode_nanos.
     pub frame_auth_nanos: u64,
+    /// Frame header, ciphertext and tag bytes submitted to authentication.
+    pub frame_authenticated_bytes: u64,
+    /// Large ordinary frames opened through the existing native GCM backend.
+    pub frame_native_opens: u64,
+    /// Authenticated frame bytes of those native opens.
+    pub frame_native_bytes: u64,
     /// Frame zstd time, also included in decode_nanos.
     pub frame_decompress_nanos: u64,
     /// Read-side decompressor contexts created; a lookup can share one.
     pub frame_decompressor_setups: u64,
+    /// Ordinary opens whose footer read also supplied the complete top frame.
+    pub coalesced_metadata_reads: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
     /// Sum of explicit file status durations.
@@ -73,10 +82,10 @@ struct State {
 /// Capture before dispatch, then call `with` inside the worker. Nested observers
 /// contribute to their parent once; unrelated threads have no context.
 #[derive(Clone)]
-pub struct DiskReadContext(Vec<Arc<Mutex<State>>>);
+pub struct DiskReadContext(Arc<Vec<Arc<Mutex<State>>>>);
 
 thread_local! {
-    static CURRENT: RefCell<DiskReadContext> = const { RefCell::new(DiskReadContext(Vec::new())) };
+    static CURRENT: RefCell<Option<DiskReadContext>> = const { RefCell::new(None) };
 }
 
 impl Default for DiskReadContext {
@@ -88,43 +97,58 @@ impl Default for DiskReadContext {
 impl DiskReadContext {
     /// Create an independent empty receipt.
     pub fn new() -> Self {
-        Self(vec![Arc::new(Mutex::new(State::default()))])
+        Self(Arc::new(vec![Arc::new(Mutex::new(State::default()))]))
     }
 
     /// Create a separate child receipt that also contributes to this context.
     pub fn child(&self) -> Self {
-        let mut child = self.clone();
-        child.0.push(Arc::new(Mutex::new(State::default())));
-        child
+        let mut states = self.0.as_ref().clone();
+        states.push(Arc::new(Mutex::new(State::default())));
+        Self(Arc::new(states))
     }
 
     /// Capture the currently active scope, including its parent scopes.
     pub fn capture() -> Option<Self> {
-        CURRENT.with(|scope| {
-            let current = scope.borrow();
-            (!current.0.is_empty()).then(|| current.clone())
-        })
+        CURRENT.with(|scope| scope.borrow().clone())
     }
 
     /// Attach this context for synchronous work. Unwind restores the prior scope.
     pub fn with<T>(&self, work: impl FnOnce() -> T) -> T {
-        struct Restore(DiskReadContext);
+        struct Restore(Option<DiskReadContext>);
         impl Drop for Restore {
             fn drop(&mut self) {
-                CURRENT.with(|scope| scope.replace(self.0.clone()));
+                CURRENT.with(|scope| scope.replace(self.0.take()));
             }
         }
         let old = CURRENT.with(|scope| {
-            let mut combined = scope.borrow().clone();
-            for state in &self.0 {
-                if !combined.0.iter().any(|old| Arc::ptr_eq(old, state)) {
-                    combined.0.push(Arc::clone(state));
-                }
-            }
-            scope.replace(combined)
+            let combined = scope
+                .borrow()
+                .as_ref()
+                .map_or_else(|| self.clone(), |current| current.combined(self));
+            scope.replace(Some(combined))
         });
         let _restore = Restore(old);
         work()
+    }
+
+    /// Scope attachment can join workers, but a timer only clones one Arc.
+    /// Shared immutable parent lists avoid a per-frame vector allocation.
+    fn combined(&self, other: &Self) -> Self {
+        if Arc::ptr_eq(&self.0, &other.0)
+            || other
+                .0
+                .iter()
+                .all(|state| self.0.iter().any(|old| Arc::ptr_eq(old, state)))
+        {
+            return self.clone();
+        }
+        let mut states = self.0.as_ref().clone();
+        for state in other.0.iter() {
+            if !states.iter().any(|old| Arc::ptr_eq(old, state)) {
+                states.push(Arc::clone(state));
+            }
+        }
+        Self(Arc::new(states))
     }
 
     /// Read this scope's receipt. Join attached workers before the final read.
@@ -140,7 +164,7 @@ impl DiskReadContext {
     }
 
     fn update(&self, mut update: impl FnMut(&mut State)) {
-        for state in &self.0 {
+        for state in self.0.iter() {
             update(&mut state.lock().unwrap_or_else(|error| error.into_inner()));
         }
     }

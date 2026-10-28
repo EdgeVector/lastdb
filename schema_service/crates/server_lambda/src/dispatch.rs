@@ -54,7 +54,6 @@ fn root_listing() -> serde_json::Value {
             "POST /v1/schemas": "Add new schema",
             "POST /v1/schemas/mutation-challenge": "Issue a short-lived node-key proof-of-work challenge for shared schema mutation",
             "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
-            "POST /v1/fields/vocabulary": "Publish operator-approved canonical definitions",
             "POST /v1/apps": "Register an app namespace as sandbox (dev cert + signature)",
             "GET /v1/apps": "Browse promoted, non-revoked apps (public shelf)",
             "GET /v1/apps/{app_id}": "Read a registered app incl. tier (public; lookup-by-known-id)",
@@ -122,7 +121,7 @@ async fn dispatch_schemas(
             routes::schemas::get_schemas_similar(state, event, p)
         }
         ("GET", _) if p.starts_with("/v1/schema/") || p.starts_with("/v1/schemas/") => {
-            routes::schemas::get_schema(state, p)
+            routes::schemas::get_schema(state, p).await
         }
         ("POST", "/v1/schemas/mutation-challenge") => {
             routes::schemas::post_schemas_mutation_challenge(state, event)
@@ -210,7 +209,6 @@ async fn dispatch_fields(
 ) -> RouteResult {
     Some(match (m, p) {
         ("GET", "/v1/fields/vocabulary") => routes::vocabulary::get(state).await,
-        ("POST", "/v1/fields/vocabulary") => routes::vocabulary::publish(state, event).await,
         ("POST", "/v1/fields/declare") => routes::fields::post_fields_declare(state, event).await,
         ("GET", _) if p.starts_with("/v1/fields/") => routes::fields::get_fields(state, p),
         _ => return None,

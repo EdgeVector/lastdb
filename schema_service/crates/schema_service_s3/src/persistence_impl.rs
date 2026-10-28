@@ -1,38 +1,38 @@
 //! `ExternalSchemaPersistence` implementation for [`S3BlobPersistence`].
 
 use super::*;
+use schema_service_core::CanonicalVocabularyWrite;
 
 #[async_trait]
 impl ExternalSchemaPersistence for S3BlobPersistence {
     async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        let name = schema.name.clone();
-        let schema = schema.clone();
-        self.update_blob::<Schema, _>(SCHEMAS_KEY, move |blob| {
-            blob.items.insert(name.clone(), schema.clone());
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(std::slice::from_ref(schema), &[], None)
+            .await
     }
 
     async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        if schemas.is_empty() {
-            return Ok(());
-        }
-        // One GET-modify-PUT for the whole batch — the default trait impl
-        // would round-trip the entire schemas blob once per schema.
-        let schemas = schemas.to_vec();
-        self.update_blob::<Schema, _>(SCHEMAS_KEY, move |blob| {
-            for schema in &schemas {
-                blob.items.insert(schema.name.clone(), schema.clone());
-            }
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(schemas, &[], None).await
+    }
+
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()> {
+        self.commit_schema_definitions(schemas, fields, None).await
+    }
+
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        schemas: &[Schema],
+        vocabulary: &CanonicalVocabularyWrite,
+    ) -> FoldDbResult<()> {
+        self.commit_schema_definitions(schemas, &vocabulary.fields, Some(vocabulary))
+            .await
     }
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
-        let (blob, _) = self.get_blob::<Schema>(SCHEMAS_KEY).await?;
-        Ok(blob.items)
+        Ok(self.load_definition_set().await?.schemas)
     }
 
     async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
@@ -41,32 +41,11 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        if fields.is_empty() {
-            return Ok(());
-        }
-        // One GET-modify-PUT for the whole batch (see `save_schemas`).
-        let fields = fields.to_vec();
-        self.update_blob::<CanonicalField, _>(CANONICAL_FIELDS_KEY, move |blob| {
-            for (name, field) in &fields {
-                schema_service_core::field_name_policy::validate_canonical_insert(
-                    &blob.items,
-                    name,
-                    field,
-                )?;
-            }
-            for (name, field) in &fields {
-                blob.items.insert(name.clone(), field.clone());
-            }
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(&[], fields, None).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
-        let (blob, _) = self
-            .get_blob::<CanonicalField>(CANONICAL_FIELDS_KEY)
-            .await?;
-        Ok(blob.items)
+        Ok(self.load_definition_set().await?.canonical_fields)
     }
 
     async fn save_descriptive_name_embedding(
@@ -210,27 +189,33 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         Ok(blob.items.get(app_id).cloned())
     }
 
-    async fn save_declared_field(&self, record: &DeclaredFieldRecord) -> FoldDbResult<()> {
-        let declaration_id = record.declaration_id.clone();
-        let record = record.clone();
-        self.update_blob::<DeclaredFieldRecord, _>(DECLARED_FIELDS_KEY, move |blob| {
-            // Upsert under the ETag loop. Unlike `save_app`, this is NOT
-            // first-write-wins: a re-declare legitimately adds fields or
-            // grants. The declaration id is immutable and the owner is
-            // verified before we get here, so the row can only grow — and a
-            // concurrent Lambda writing the same declaration is writing the
-            // same owner's data.
-            blob.items.insert(declaration_id.clone(), record.clone());
-            Ok(())
-        })
-        .await
+    async fn save_declared_field_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        self.commit_declaration_definitions(record, fields, expected, None)
+            .await
+    }
+
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        record: &DeclaredFieldRecord,
+        vocabulary: &CanonicalVocabularyWrite,
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        self.commit_declaration_definitions(record, &vocabulary.fields, expected, Some(vocabulary))
+            .await
     }
 
     async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
-        let (blob, _) = self
-            .get_blob::<DeclaredFieldRecord>(DECLARED_FIELDS_KEY)
-            .await?;
-        Ok(blob.items.into_values().collect())
+        Ok(self
+            .load_definition_set()
+            .await?
+            .declared_fields
+            .into_values()
+            .collect())
     }
 
     async fn save_release(

@@ -3,6 +3,7 @@
 use super::bloom::{key_hash, put_filter};
 use super::codec::{corrupt, put_record, record_len};
 use super::footer::{put_refs, BlockRef, Footer, Top};
+use super::space::MergeSpace;
 use super::{
     RunOptions, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
     MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
@@ -73,6 +74,7 @@ pub struct RunWriter {
     /// file offset is unknown, so the writer refuses every later call.
     failed: bool,
     finished: bool,
+    space: Option<MergeSpace>,
 }
 
 impl RunWriter {
@@ -116,7 +118,19 @@ impl RunWriter {
             max_payload: 0,
             failed: false,
             finished: false,
+            space: None,
         })
+    }
+
+    pub(crate) fn create_reserved(
+        dir: &Path,
+        data_key: &[u8; 32],
+        options: RunOptions,
+        space: &MergeSpace,
+    ) -> Result<Self> {
+        let mut writer = Self::create(dir, data_key, options)?;
+        writer.space = Some(space.clone());
+        Ok(writer)
     }
 
     /// Run id of the file this writer builds.
@@ -205,7 +219,13 @@ impl RunWriter {
             encode_frame(&self.data_key, header, payload)
         })?;
         let len = u32::try_from(frame.len()).map_err(|_| corrupt("block over 4 GiB"))?;
+        if let Some(space) = &self.space {
+            space.admit_run(u64::from(len))?;
+        }
         timing::during("v2_run_write_us", || self.file.write_all(&frame))?;
+        if let Some(space) = &self.space {
+            space.materialize(u64::from(len))?;
+        }
         timing::count("v2_run_frames", 1);
         timing::count("v2_run_frame_input_bytes", payload.len() as u64);
         timing::count("v2_run_written_bytes", frame.len() as u64);
@@ -305,12 +325,21 @@ impl RunWriter {
             max_payload,
             data_blocks,
         };
+        if let Some(space) = &self.space {
+            space.admit_run(super::footer::FOOTER_BYTES as u64)?;
+        }
         timing::during("v2_run_write_us", || self.file.write_all(&footer.encode()))?;
+        if let Some(space) = &self.space {
+            space.materialize(super::footer::FOOTER_BYTES as u64)?;
+        }
         timing::count("v2_run_written_bytes", super::footer::FOOTER_BYTES as u64);
         timing::count("v2_run_file_flushes", 1);
         timing::during("v2_run_file_flush_us", || sync_dirty_file(&self.file))?;
         let path = self.dir.join(format!("{}{RUN_SUFFIX}", self.run_id));
         timing::during("v2_run_rename_us", || fs::rename(&self.tmp, &path))?;
+        if let Some(space) = &self.space {
+            space.output(&path);
+        }
         timing::count("v2_run_directory_flushes", 1);
         timing::during("v2_run_directory_flush_us", || {
             sync_directory(&File::open(&self.dir)?)

@@ -5,11 +5,12 @@ impl SchemaServiceState {
     pub(super) fn validate_loaded_vocabulary(&self) -> FoldDbResult<()> {
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for (name, field) in fields.iter() {
-            crate::field_name_policy::validate_approved_field(name, field)?;
+            crate::field_name_policy::validate_canonical_field(name, field)?;
         }
         let schemas = read_lock(&self.schemas, "schemas")?;
         for schema in schemas.values() {
             crate::field_name_policy::validate_schema_vocabulary(schema, &fields)?;
+            self.validate_schema_declared_identities(schema, false)?;
         }
         Ok(())
     }
@@ -29,9 +30,12 @@ impl SchemaServiceState {
             ));
         }
         self.refresh_vocabulary_for_names(&names).await?;
+        self.refresh_schema_declarations(&schemas.values().collect::<Vec<_>>())
+            .await?;
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for schema in schemas.values() {
             crate::field_name_policy::validate_schema_vocabulary(schema, &fields)?;
+            self.validate_schema_declared_identities(schema, false)?;
         }
         Ok(())
     }
@@ -42,6 +46,7 @@ impl SchemaServiceState {
     ) -> FoldDbResult<()> {
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for record in records {
+            crate::field_identity_validation::validate_declaration_identities(record)?;
             for field in &record.fields {
                 crate::field_name_policy::validate_declared_concept(
                     &fields,
@@ -72,7 +77,7 @@ impl SchemaServiceState {
         Ok(())
     }
     /// Refresh only for a new concept. Existing definitions are immutable;
-    /// approved publication must work across warm Lambda instances without a deploy.
+    /// new declarations must work across warm Lambda instances without a deploy.
     pub async fn validate_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<()> {
         let mut names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
             .into_iter()
@@ -82,12 +87,19 @@ impl SchemaServiceState {
             schema,
         ));
         self.refresh_vocabulary_for_names(&names).await?;
+        self.refresh_schema_declarations(&[schema]).await?;
         self.normalized_schema_field_vocabulary(schema).map(|_| ())
     }
 
     pub fn normalized_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<Schema> {
         let mut proposal = schema.clone();
-        self.validate_proposal_field_names(&mut proposal)?;
+        let candidates = self.schema_vocabulary_candidates(schema)?;
+        let checked = self.provisional_vocabulary_batch(&candidates)?;
+        let mut vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
+        vocabulary.extend(checked);
+        crate::field_name_policy::fill_schema_field_defaults(&mut proposal, &vocabulary);
+        crate::field_name_policy::validate_schema_vocabulary(&proposal, &vocabulary)?;
+        self.validate_schema_declared_identities(&proposal, true)?;
         Ok(proposal)
     }
 
@@ -110,7 +122,7 @@ impl SchemaServiceState {
         loaded: &HashMap<String, crate::types::CanonicalField>,
     ) -> FoldDbResult<()> {
         for (name, field) in loaded {
-            crate::field_name_policy::validate_approved_field(name, field)?;
+            crate::field_name_policy::validate_canonical_field(name, field)?;
         }
         let mut fields = write_lock(&self.canonical_fields, "canonical_fields")?;
         for (name, field) in loaded {

@@ -1,12 +1,11 @@
 //! One name rule for canonical publication, declarations, schemas and imports.
 
-use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 use schema_types::{FoldDbError, FoldDbResult, Schema};
 use std::collections::{BTreeSet, HashMap};
 
-/// Administrative approval metadata; excluded from field identity hashes.
+/// Validation rule version; excluded from field identity hashes.
 pub const NAME_POLICY_VERSION: u32 = 1;
 
 const APP_ABBREVIATIONS: &[&str] = &[
@@ -14,8 +13,12 @@ const APP_ABBREVIATIONS: &[&str] = &[
     "klh", "liv", "nh", "prk", "psi", "rle", "tmb",
 ];
 
-/// Syntax is only the first gate. Only operator-approved vocabulary entries
-/// can pass schema publication; a long invented name grants no approval.
+const SHORT_WORDS: &[&str] = &[
+    "at", "by", "in", "of", "on", "or", "to", "id", "ip", "cm", "kg", "km", "mm", "ms", "ns", "ph",
+    "us",
+];
+
+/// Syntax is the first gate. Meaning, type and concept reuse are checked too.
 pub fn validate_new_field_name(name: &str) -> Result<(), String> {
     let words: Vec<_> = name.split('_').collect();
     let reason = if name.len() > 96 || name.is_empty() {
@@ -42,6 +45,11 @@ pub fn validate_new_field_name(name: &str) -> Result<(), String> {
         Some("name both the subject and its property")
     } else if words.iter().any(|word| word.len() == 1) {
         Some("spell out each concept; a one-letter key role is not a concept")
+    } else if words
+        .iter()
+        .any(|word| word.len() == 2 && !SHORT_WORDS.contains(word))
+    {
+        Some("spell out short names; use standard key terms, connectives or units")
     } else if words.iter().enumerate().any(|(index, word)| {
         APP_ABBREVIATIONS.contains(word)
             && !(*word == "psi"
@@ -70,19 +78,19 @@ pub(crate) fn invalid_canonical_name(name: &str) -> bool {
     validate_new_field_name(name).is_err()
 }
 
-pub fn validate_approved_field(name: &str, field: &CanonicalField) -> FoldDbResult<()> {
+pub fn validate_canonical_field(name: &str, field: &CanonicalField) -> FoldDbResult<()> {
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
     if field.name_policy_version != NAME_POLICY_VERSION {
         return Err(FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}' requires operator approval for name policy {NAME_POLICY_VERSION}"
+            "invalid_canonical_policy: '{name}' requires name policy {NAME_POLICY_VERSION}"
         )));
     }
     if field.description.trim().is_empty() || field.version == 0 {
         return Err(FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}' requires a description and a positive identity version"
+            "canonical_field_definition_conflict: '{name}' requires a description and a positive identity version"
         )));
     }
-    Ok(())
+    crate::vocabulary_matching::validate_description(name, field)
 }
 
 pub fn validate_schema_vocabulary(
@@ -92,16 +100,16 @@ pub fn validate_schema_vocabulary(
     for name in schema_field_names(schema) {
         validate_new_field_name(name).map_err(FoldDbError::Config)?;
         let field = vocabulary.get(name).ok_or_else(|| FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}'; reuse an approved concept or request operator publication"
+            "unknown_canonical_field: '{name}'; submit a precise description and explicit type through schema or field declaration"
         )))?;
-        validate_approved_field(name, field)?;
+        validate_canonical_field(name, field)?;
         if schema
             .field_descriptions
             .get(name)
             .is_none_or(|description| description.trim() != field.description.trim())
         {
             return Err(FoldDbError::Config(format!(
-                "unapproved_canonical_field: '{name}' must use the approved description"
+                "canonical_field_definition_conflict: '{name}' must use the registered description"
             )));
         }
         if schema
@@ -114,41 +122,48 @@ pub fn validate_schema_vocabulary(
             || schema.field_versions.get(name).copied().unwrap_or(1) != field.version
         {
             return Err(FoldDbError::Config(format!(
-                "unapproved_canonical_field: '{name}' must use the approved type and identity version"
+                "canonical_field_definition_conflict: '{name}' must use the registered type and identity version"
             )));
         }
     }
     for name in schema_referenced_field_names(schema) {
         validate_vocabulary_reference(name, vocabulary)?;
     }
+    crate::field_identity_validation::validate_canonical_schema_hashes(schema, vocabulary)?;
     Ok(())
 }
 
 impl SchemaServiceState {
     pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
-        let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
-        let names: Vec<_> = schema_field_names(schema).into_iter().cloned().collect();
-        for name in &names {
-            if let Some(field) = vocabulary.get(name) {
-                schema
-                    .field_descriptions
-                    .entry(name.clone())
-                    .or_insert_with(|| field.description.clone());
-                schema
-                    .field_types
-                    .entry(name.clone())
-                    .or_insert_with(|| field.field_type.clone());
-                schema
-                    .field_versions
-                    .entry(name.clone())
-                    .or_insert(field.version);
-            }
-        }
-        validate_schema_vocabulary(schema, &vocabulary)
+        *schema = self.normalized_schema_field_vocabulary(schema)?;
+        Ok(())
     }
 }
 
-/// The same name denotes one approved type/version, including owned declarations.
+pub(crate) fn fill_schema_field_defaults(
+    schema: &mut Schema,
+    vocabulary: &HashMap<String, CanonicalField>,
+) {
+    let names: Vec<_> = schema_field_names(schema).into_iter().cloned().collect();
+    for name in &names {
+        if let Some(field) = vocabulary.get(name) {
+            schema
+                .field_descriptions
+                .entry(name.clone())
+                .or_insert_with(|| field.description.clone());
+            schema
+                .field_types
+                .entry(name.clone())
+                .or_insert_with(|| field.field_type.clone());
+            schema
+                .field_versions
+                .entry(name.clone())
+                .or_insert(field.version);
+        }
+    }
+}
+
+/// The same name denotes one registered type/version, including owned declarations.
 pub fn validate_declared_concept(
     vocabulary: &HashMap<String, CanonicalField>,
     name: &str,
@@ -159,16 +174,16 @@ pub fn validate_declared_concept(
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
     let field = vocabulary.get(name).ok_or_else(|| {
         FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}'; request operator publication first"
+            "unknown_canonical_field: '{name}'; submit a precise description and explicit type"
         ))
     })?;
-    validate_approved_field(name, field)?;
+    validate_canonical_field(name, field)?;
     if field_type != &field.field_type
         || version != field.version
         || description.trim() != field.description.trim()
     {
         return Err(FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}' must use the approved description, type and identity version"
+            "canonical_field_definition_conflict: '{name}' must use the registered description, type and identity version"
         )));
     }
     Ok(())
@@ -180,13 +195,33 @@ pub fn validate_canonical_insert(
     name: &str,
     field: &CanonicalField,
 ) -> FoldDbResult<()> {
-    validate_approved_field(name, field)?;
+    validate_canonical_field(name, field)?;
     if existing.get(name).is_some_and(|stored| stored != field) {
         return Err(FoldDbError::Config(format!(
             "canonical_field_conflict: '{name}' already has another definition; reset it explicitly before replacement"
         )));
     }
+    for (other_name, other) in existing {
+        if other_name != name
+            && crate::vocabulary_matching::same_description(&other.description, &field.description)
+        {
+            return Err(crate::vocabulary_matching::reuse_error(name, other_name));
+        }
+    }
     Ok(())
+}
+
+/// Validate against durable definitions and the earlier entries in the batch.
+pub fn canonical_fields_after_insert(
+    existing: &HashMap<String, CanonicalField>,
+    fields: &[(String, CanonicalField)],
+) -> FoldDbResult<HashMap<String, CanonicalField>> {
+    let mut candidate = existing.clone();
+    for (name, field) in fields {
+        validate_canonical_insert(&candidate, name, field)?;
+        candidate.insert(name.clone(), field.clone());
+    }
+    Ok(candidate)
 }
 
 /// Include transform outputs and metadata-only names; none can hide a new field.
@@ -222,10 +257,10 @@ fn validate_vocabulary_reference(
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
     let field = vocabulary.get(name).ok_or_else(|| {
         FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}' in a key or molecule mapper"
+            "canonical_field_definition_conflict: '{name}' in a key or molecule mapper"
         ))
     })?;
-    validate_approved_field(name, field)
+    validate_canonical_field(name, field)
 }
 
 /// Referenced concepts participate in refresh, but are not local schema fields.
