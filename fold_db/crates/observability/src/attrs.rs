@@ -1,20 +1,4 @@
-//! Canonical attribute keys + redaction macros.
-//!
-//! All `tracing` event/span fields across the fold_db ecosystem should use
-//! the constants in this module rather than ad-hoc strings — that way the
-//! format-time deny-list (Phase 1 / T3) and the CI lint (Phase 5) have a
-//! single source of truth to enforce.
-//!
-//! ## Naming conventions
-//!
-//! - HTTP, DB, and service-level keys follow OpenTelemetry semantic
-//!   conventions (`http.method`, `db.system`, `service.name`).
-//! - fold_db-specific keys use a `fold.*` prefix.
-//! - User-derived identifiers that need correlatability but not legibility
-//!   use the `*.hash` suffix and **must** be wrapped in [`redact_id!`] at
-//!   the call site.
-//!
-//! ## Redaction
+//! Redaction macros for `tracing` fields.
 //!
 //! Two macros, two purposes:
 //!
@@ -37,31 +21,6 @@
 //!     "request received",
 //! );
 //! ```
-
-// ---------------------------------------------------------------------------
-// HTTP — OpenTelemetry semantic conventions
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// DB / storage — OpenTelemetry semantic conventions where applicable
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Service identity
-// ---------------------------------------------------------------------------
-
-pub const SERVICE_NAME: &str = "service.name";
-
-// ---------------------------------------------------------------------------
-// fold_db-specific
-// ---------------------------------------------------------------------------
-
-/// Logical schema name (e.g. `Notes`, `Conversation`).
-pub const SCHEMA_NAME: &str = "schema.name";
-
-// ---------------------------------------------------------------------------
-// Redaction macros
-// ---------------------------------------------------------------------------
 
 /// Replace a sensitive value with the literal `<redacted>`.
 ///

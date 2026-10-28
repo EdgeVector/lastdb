@@ -9,8 +9,8 @@
 //!
 //! What ships:
 //!
-//! - [`attrs`] — canonical attribute keys + the [`redact!`] / [`redact_id!`]
-//!   macros used at log call-sites for PII opacity.
+//! - [`attrs`] — the [`redact!`] / [`redact_id!`] macros used at log
+//!   call-sites for PII opacity.
 //! - [`propagation`] — W3C `traceparent` inject on `reqwest` egress and
 //!   extract from `http::HeaderMap` on ingress (requires `otel` feature).
 //! - [`layers`] — FMT (redacting JSON formatter), RELOAD (runtime
