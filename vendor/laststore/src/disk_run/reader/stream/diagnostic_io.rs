@@ -53,6 +53,7 @@ pub(super) fn open_reader(path: &Path, key: &[u8; 32], allowance: u64) -> Result
         reserved_memory: 0,
         file,
         data_key: *key,
+        frame_key: None,
         footer,
         top: Top {
             records: 0,
