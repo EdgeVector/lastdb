@@ -50,11 +50,8 @@ pub struct DbOperations {
     /// Durable app change feed. Product rows remain authoritative. It rides
     /// cloud backup sealed (`ENC:`).
     change_feed: ChangeFeedStore,
-    /// Forward + reverse lineage indexes for derived molecules. Both
-    /// backing namespaces (`lineage_forward`, `lineage_reverse`) ride cloud
-    /// backup (encrypted, not at-rest-exempt).
-    /// Scaffolding only; no production call sites yet (PR 6 of
-    /// `projects/molecule-provenance-dag`).
+    /// Forward and reverse lineage namespaces. Shutdown flushes them.
+    /// No caller writes or reads the index.
     lineage_index: LineageIndex,
 
     /// Background purge counters shared with the native runtime.
@@ -120,11 +117,6 @@ impl DbOperations {
     /// Access copy-migration attribution proof rows.
     pub fn attribution(&self) -> &AttributionLedger {
         &self.attribution_ledger
-    }
-
-    /// Access the derived-molecule lineage index (forward + reverse, local-only).
-    pub fn lineage(&self) -> &LineageIndex {
-        &self.lineage_index
     }
 
     /// Borrow the primary namespaced store handle.
