@@ -31,7 +31,7 @@ impl Drop for Credentials {
 }
 
 struct Account {
-    credentials: Credentials,
+    api_key: Zeroizing<String>,
     user_hash: String,
     environment: Environment,
 }
@@ -83,7 +83,7 @@ fn account(home: &Path) -> Result<Account, String> {
         CLOUD_SYNC_PAUSED_FILE,
         RESPONSE_LIMIT as u64,
     )?);
-    let credentials: Credentials =
+    let mut credentials: Credentials =
         serde_json::from_slice(&bytes).map_err(|_| "invalid saved cloud credentials")?;
     let environment = environment_for_exemem_api_url(&credentials.api_url)
         .filter(|env| credentials.api_url == exemem_api_url_for(*env))
@@ -97,7 +97,7 @@ fn account(home: &Path) -> Result<Account, String> {
         return Err("invalid saved native account API key".into());
     }
     Ok(Account {
-        credentials,
+        api_key: Zeroizing::new(std::mem::take(&mut credentials.api_key)),
         user_hash,
         environment,
     })
@@ -167,14 +167,17 @@ async fn request<T: serde::de::DeserializeOwned>(
     action: &str,
     post: bool,
 ) -> Result<T, String> {
-    let url = format!("{}/api/auth/payments/{action}", account.credentials.api_url);
+    let url = format!(
+        "{}/api/auth/payments/{action}",
+        exemem_api_url_for(account.environment)
+    );
     let builder = if post {
         client.post(&url).json(&serde_json::json!({}))
     } else {
         client.get(&url)
     };
     let mut response = builder
-        .bearer_auth(&account.credentials.api_key)
+        .bearer_auth(account.api_key.as_str())
         .send()
         .await
         .map_err(|_| REQUEST_FAILED)?;
