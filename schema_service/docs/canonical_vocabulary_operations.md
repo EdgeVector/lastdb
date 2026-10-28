@@ -56,3 +56,7 @@ Confirm a fresh service start and an invalid import batch before production acti
 The definition reset does not remap local data.
 It does not open, copy, reset, or delete the primary home, atoms, or files.
 A local data remap remains a separate operation.
+
+A DEV snapshot import cannot approve a new concept through a policy marker.
+Publish new definitions with operator authority before an import that contains them.
+The importer requires exact approved definitions and preserves declaration and release references.
