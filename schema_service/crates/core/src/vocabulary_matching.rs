@@ -25,11 +25,16 @@ pub(crate) fn same_description(left: &str, right: &str) -> bool {
 }
 
 pub(crate) fn name_has_definition_support(name: &str, description: &str) -> bool {
-    let description = words(description);
-    words(name).iter().any(|word| {
+    let description_words = words(description);
+    let description: Vec<_> = description_words
+        .iter()
+        .map(|word| meaning_word(word))
+        .collect();
+    words(name).iter().any(|raw_word| {
+        let word = meaning_word(raw_word);
         word.len() > 2
             && !matches!(
-                word.as_str(),
+                word,
                 "field"
                     | "value"
                     | "data"
@@ -42,8 +47,36 @@ pub(crate) fn name_has_definition_support(name: &str, description: &str) -> bool
                     | "array"
                     | "type"
             )
-            && description.contains(word)
+            && (description.contains(&word) || acronym_matches(raw_word, &description_words))
     })
+}
+
+/// Meaning checks accept ordinary plurals and common equivalent terms. Keep
+/// identity/duplicate normalization and unit/role separation unchanged.
+fn meaning_word(word: &str) -> &str {
+    let singular = if word.len() > 3 && !word.ends_with("ss") && !word.ends_with("us") {
+        word.strip_suffix('s').unwrap_or(word)
+    } else {
+        word
+    };
+    match singular {
+        "telephone" => "phone",
+        "photograph" => "photo",
+        "timestamp" | "datetime" | "duration" | "second" | "minute" | "hour" => "time",
+        _ => singular,
+    }
+}
+
+fn acronym_matches(word: &str, description: &[String]) -> bool {
+    (3..=5).contains(&word.len())
+        && word.bytes().all(|byte| byte.is_ascii_lowercase())
+        && description.windows(word.len()).any(|phrase| {
+            phrase
+                .iter()
+                .filter_map(|part| part.chars().next())
+                .collect::<String>()
+                == word
+        })
 }
 
 fn overlap(left: &str, right: &str) -> f32 {

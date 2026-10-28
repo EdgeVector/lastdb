@@ -21,8 +21,10 @@ impl SchemaServiceState {
         let ordered = self.provisional_vocabulary_batch(fields)?;
         let mut vectors = HashMap::new();
         for (name, field) in &ordered {
-            self.check_field_meaning(name, field)?;
             if !candidates.contains_key(name) {
+                // The deterministic pass already requires an exact immutable
+                // definition for a known name. Reuse needs no model re-admission.
+                self.check_field_meaning(name, field)?;
                 let mut possible: Vec<_> = candidates.iter().collect();
                 possible.sort_by(|left, right| left.0.cmp(right.0));
                 for (other_name, other) in possible {

@@ -18,6 +18,8 @@ The description contains at least three words and at most 4096 bytes.
 An existing name retains its description, type, and version.
 A different definition requires a different precise name.
 The name needs a meaningful word in its description or name/description embedding similarity of at least 0.3.
+Lexical support accepts ordinary plurals, common equivalent terms, duration units, and spelled-out acronym initials.
+These checks do not change field identity or unit checks for concept reuse.
 The service assigns the name policy version as validation metadata.
 That version grants no caller permission.
 
@@ -31,7 +33,8 @@ The service compares their description embeddings when vectors are available.
 A cosine score of at least 0.96 requires concept reuse or a distinct definition.
 Type and qualifier checks keep different units, time roles, and key roles separate.
 The response names the existing concept; the service does not silently rename a new field.
-Generic text container checks also run for existing names and seed fields.
+New definitions also pass the generic text container check, including seed fields.
+An exact existing definition passes the deterministic checks without another model decision.
 
 Model vectors use a process cache with at most 4096 entries.
 Cheap request checks precede ordinary authorization and quotas.

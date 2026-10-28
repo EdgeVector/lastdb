@@ -17,6 +17,8 @@ A new field supplies its description, explicit type, and positive identity versi
 One name retains one definition.
 A conflicting name fails before a field or schema write.
 The name needs lexical support from its description or an embedding score of at least 0.3 for that description.
+Lexical support accepts ordinary plurals, common equivalent terms, duration units, and spelled-out acronym initials.
+Exact existing definitions need no new model decision after the deterministic checks pass.
 Field identity still includes the name, description, type, and version.
 The policy version records code validation and grants no authority.
 
