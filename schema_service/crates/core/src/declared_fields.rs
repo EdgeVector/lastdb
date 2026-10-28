@@ -196,19 +196,12 @@ impl DeclaredFieldError {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeclareFieldInput {
     pub name: String,
-    /// Defaults to `Any` when omitted — `FieldValueType` has no `Default`
-    /// impl, and inventing one crate-wide to serve this field would change
-    /// behaviour elsewhere.
-    #[serde(default = "default_field_type")]
+    /// Every declaration supplies its type; omission cannot introduce `Any`.
     pub field_type: FieldValueType,
     #[serde(default)]
     pub description: String,
     #[serde(default = "default_field_version")]
     pub version: u32,
-}
-
-fn default_field_type() -> FieldValueType {
-    FieldValueType::Any
 }
 
 const fn default_field_version() -> u32 {
@@ -395,6 +388,7 @@ impl SchemaServiceState {
         &self,
         request: &DeclareFieldRequest,
     ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
+        declare_steps::validate_declare_request(request)?;
         let names: Vec<_> = request
             .fields
             .iter()
@@ -404,7 +398,8 @@ impl SchemaServiceState {
             .await
             .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
         self.record_schema_write();
-        self.validate_declared_vocabulary(&request.fields)
+        self.admit_declared_vocabulary(&request.fields)
+            .await
             .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
         let record = {
             let mut registry = self

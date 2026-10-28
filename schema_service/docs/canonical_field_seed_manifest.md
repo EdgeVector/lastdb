@@ -2,7 +2,7 @@
 
 This manifest reviews all 151 former seed definitions.
 It approves the source vocabulary in `builtin_canonical_fields.json`.
-Removed concepts require a precise, separately approved definition before reuse.
+Removed concepts require a precise definition that passes the common code policy before reuse.
 No removed name serves as an accepted alias. App adapters can keep external names.
 
 Date and integer changes require explicit value conversion outside this definition reset.

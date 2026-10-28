@@ -1,65 +1,62 @@
-# Canonical vocabulary operations
+# Canonical vocabulary rules
 
-The canonical registry defines the standard vocabulary. Each entry has one approved name, description, type, and identity version.
-App schema publication reuses this vocabulary. It cannot add a new canonical field.
-A declaration handle still controls shared data. Vocabulary approval does not grant access to another app's data.
+The schema service enforces one field policy for every caller.
+No special vocabulary key, operator signature, or vocabulary write endpoint exists.
+New fields enter through normal schema publication or field declaration.
+The existing app identity, permission, mutation, and quota checks remain active.
 
-## Approval and publication
+## Field validation
 
-Review each new concept before publication. Name the actual subject and property.
-Specify units, text formats, and container element types when they affect the meaning.
-Use an existing definition when its meaning and type match.
+A canonical name identifies the subject and its property.
+Use lowercase words separated by underscores.
+Spell out app abbreviations and key roles.
+Names such as `at`, `size`, `klh_h`, and `generic_value` fail.
+A name such as `file_size_bytes` states the subject, property, and unit.
 
-The service operator publishes approved fields through `POST /v1/fields/vocabulary`.
-The body contains these properties:
+A new field requires a specific description, an explicit type, and a positive identity version.
+The description contains at least three words and at most 4096 bytes.
+An existing name retains its description, type, and version.
+A different definition requires a different precise name.
+The service assigns the name policy version as validation metadata.
+That version grants no caller permission.
 
-- `operation`: `canonical_fields.publish`.
-- `environment`: `dev` or `prod`, equal to the service environment.
-- `name_policy_version`: `1`.
-- `fields`: an object with 1 through 512 name-to-definition entries.
+The complete candidate batch passes validation before its first field write.
+Normalized text checks reject duplicate descriptions under different names.
+A conditional storage write repeats this check against current durable definitions.
+This catches a conflicting concurrent request.
 
-Each definition contains `description`, `field_type`, `version`, and optional classification metadata.
-The server assigns the active name policy version. App requests cannot assign approval.
-The request requires `X-Canonical-Signature`: a base64 Ed25519 signature over the canonical JSON body.
-The configured `CANONICAL_FIELD_PUBLISHER_PUBKEY` defines operator authority.
-Compatibility verifier keys and app developer certificates do not grant this authority.
-The operation and environment form part of the signed body.
-A repeated identical batch is safe. A conflicting definition requires an explicit reset before replacement.
-The complete batch passes validation before the first write.
+Name token overlap and description token overlap select possible semantic duplicates.
+The service compares their description embeddings when vectors are available.
+A cosine score of at least 0.96 requires concept reuse or a distinct definition.
+Type and qualifier checks keep different units, time roles, and key roles separate.
+The response names the existing concept; the service does not silently rename a new field.
+Generic text container checks also run for existing names and seed fields.
 
-Use `schema_service/scripts/canonical-vocabulary` for real operator work.
-Install its Python dependencies, `cryptography` and `rfc8785`, before use.
-The `get` command returns the approved vocabulary.
-The `publish` command accepts a definition file, an environment, and a LastSecrets locator for the dedicated operator Ed25519 seed.
-The command retrieves the seed at the point of use. It does not print or save the seed.
-It accepts HTTPS service URLs only.
+Model vectors use a process cache.
+When the model is unavailable, deterministic name, description, identity, and duplicate checks still run.
+The service infers no semantic equivalence without vector evidence.
+Similarity scores have limits; precise names and immutable typed definitions remain required.
 
-## Activation boundary
+## Read and restore
 
-CAUTION: The strict service refuses an old registry with unapproved names or definitions.
-Do not deploy this source against the old registry before the coordinated reset.
-App definitions and their field adapters must use the reviewed vocabulary before normal publication resumes.
+`GET /v1/fields/vocabulary` returns the current definitions and policy version.
+`schema_service/scripts/canonical-vocabulary --url <service-url> get` reads that endpoint.
+The command has no publication action and needs no secret.
+Apps keep local names through explicit field maps to registered canonical names.
+Declaration handles continue to control shared field access.
 
-Prepare an isolated definition generation from a fresh definition snapshot.
-Set `SCHEMA_DEFINITION_NAMESPACE=canonical-v1` and use a separate embedding table with the same suffix.
-Keep app identities, permissions, and credentials in their current shared stores.
-Put only approved definitions and valid contracts in the new generation.
-Remove affected schema definitions, declarations, embeddings, and release references from the active generation.
-Keep a definition-only recovery snapshot outside Git.
-Use separate storage for the old and new service versions during the deployment canary.
-Old writers must not restore rejected names into the new generation.
-Preserve the normal deployment gates and canary period.
+Seeds, normal declarations, and snapshot imports use the same admission policy.
+An import also checks its schema references, declaration references, release references, and embedding references.
+The importer validates the whole snapshot before it changes the active definitions.
+Resolver artifacts retain the current format and policy checks.
 
-Refresh all service caches after activation.
-Publish the derived resolver pack with format version 3 and schema snapshot format version 2.
-The snapshot carries name policy version 1. Old packs cannot enter the new client cache.
-Use a real DEV request to confirm approved names work and rejected names fail.
-Confirm a fresh service start and an invalid import batch before production activation.
+## Rollout
 
-The definition reset does not remap local data.
-It does not open, copy, reset, or delete the primary home, atoms, or files.
-A local data remap remains a separate operation.
+The DEV definition generation remains `canonical-v1/` with its separate embedding store.
+Old definitions stay available for recovery.
+App identities, permissions, credentials, and quotas keep their common stores.
+The primary home, archive, atoms, files, and daemon stay outside this rollout.
 
-A DEV snapshot import cannot approve a new concept through a policy marker.
-Publish new definitions with operator authority before an import that contains them.
-The importer requires exact approved definitions and preserves declaration and release references.
+Use real isolated DEV app operations before the separate production phase.
+Keep the normal deployment gates, canary period, alarms, and rollback definitions.
+No local data remap follows from a canonical name change.

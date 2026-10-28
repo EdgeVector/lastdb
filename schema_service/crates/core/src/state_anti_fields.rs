@@ -43,21 +43,9 @@ impl SchemaServiceState {
         incoming_fields: &[String],
         schema: &Schema,
     ) -> FoldDbResult<()> {
-        let approved: std::collections::HashSet<String> =
-            crate::lock_helpers::read_lock(&self.canonical_fields, "canonical_fields")?
-                .keys()
-                .cloned()
-                .collect();
         for field_name in incoming_fields {
-            // Explicit operator approval replaces heuristic admission for known concepts.
-            if approved.contains(field_name) {
-                continue;
-            }
             let description = Self::build_field_description(field_name, schema);
-            let Ok(embedding) = self
-                .embedder
-                .embed_text(&Self::build_embedding_text(&description))
-            else {
+            let Some(embedding) = self.vocabulary_embedding(&description) else {
                 continue;
             };
             if self.embedding_matches_anti_field(&embedding) {

@@ -753,11 +753,11 @@ paths:
     get:
       tags: [fields]
       operationId: get_canonical_vocabulary
-      summary: Read the approved standard vocabulary
+      summary: Read the validated standard vocabulary
       description: Read current durable definitions. No user record values are returned.
       responses:
         '200':
-          description: The active policy and its approved fields.
+          description: The active policy and its validated fields.
           content:
             application/json:
               schema:
@@ -771,65 +771,6 @@ paths:
                     type: object
                     additionalProperties:
                       $ref: '#/components/schemas/CanonicalVocabularyField'
-    post:
-      tags: [fields]
-      operationId: publish_canonical_vocabulary
-      summary: Publish an operator-approved vocabulary batch
-      description: |
-        The dedicated canonical publisher key signs the canonical JSON body.
-        Configure its public key with CANONICAL_FIELD_PUBLISHER_PUBKEY.
-        App owner keys and compatibility verifier keys do not grant this authority.
-        The signed operation and environment prevent cross-purpose and cross-environment replay.
-        The complete batch passes validation before the first write.
-        Ordinary schema publication cannot add vocabulary entries.
-      parameters:
-        - in: header
-          name: X-Canonical-Signature
-          required: true
-          schema:
-            type: string
-          description: Base64 Ed25519 signature over the canonical JSON body.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [operation, environment, name_policy_version, fields]
-              properties:
-                operation:
-                  type: string
-                  enum: [canonical_fields.publish]
-                environment:
-                  type: string
-                  enum: [dev, prod]
-                name_policy_version:
-                  type: integer
-                  enum: [1]
-                fields:
-                  type: object
-                  minProperties: 1
-                  maxProperties: 512
-                  additionalProperties:
-                    $ref: '#/components/schemas/CanonicalVocabularyField'
-      responses:
-        '200':
-          description: The complete batch is approved and durable.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  approved_fields:
-                    type: integer
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          description: The dedicated operator signature is absent or invalid.
-        '503':
-          description: The canonical publisher public key is absent or invalid.
-
   /v1/fields/declare:
     post:
       tags: [fields]
@@ -1093,14 +1034,14 @@ components:
 
     DeclareFieldInput:
       type: object
-      required: [name]
+      required: [name, field_type, description]
       properties:
         name:
           type: string
           description: Field name. Trimmed; case is significant.
         field_type:
           type: string
-          description: Value type from the shared registry. Defaults to `Any`.
+          description: Explicit value type from the shared registry. Omission is rejected.
         description:
           type: string
           description: |
@@ -1111,8 +1052,8 @@ components:
           format: int32
           default: 1
           description: |
-            Bump when meaning or type changes incompatibly. A bump mints a new
-            identity, hence a new protein.
+            The registered version for this canonical name. A distinct meaning or type
+            requires a distinct precise canonical name.
 
     DeclaredField:
       type: object

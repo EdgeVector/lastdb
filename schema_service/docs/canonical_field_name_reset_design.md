@@ -1,170 +1,59 @@
-# Canonical field names and registry reset
+# Canonical field names and common admission
 
-Status: Approved by Tom on 2026-10-27. Implementation in progress.
+Tom requires precise canonical names across domains.
+The schema service enforces this rule in code for every caller.
+The operator approval key and vocabulary publication endpoint are removed.
+A normal schema or field declaration can introduce a valid new concept.
 
-Canonical fields use names that identify one clear fact across domains.
-Tom permits a reset of affected definitions. Published use does not justify a name exception.
-The reset concerns schema-service definitions. It does not delete primary data.
+## Name and identity
 
-## Current seed
+A name identifies the actual subject and property.
+Include units and representation details when they affect meaning.
+Use `file_size_bytes` instead of `size`.
+Spell out app abbreviations and key roles.
+A prefix alone does not make a vague property precise.
 
-The canonical seed contains 151 fields. Fifty-one names have one component.
-Examples include `id`, `name`, `content`, `timestamp`, `amount`, and `quantity`.
-The seed contains none of the 20 audited app abbreviations.
-The schema publication path can promote new app fields into the global canonical registry.
+A new field supplies its description, explicit type, and positive identity version.
+One name retains one definition.
+A conflicting name fails before a field or schema write.
+Field identity still includes the name, description, type, and version.
+The policy version records code validation and grants no authority.
 
-The built-in schema seed is empty. The Lambda does not run the Schema.org seed.
-Both conditions stay in place. Offline templates must not repopulate invalid canonical names.
+## Admission sequence
 
-## Name rule
+1. Validate the request and its ordinary identity, permission, mutation, and quota rules.
+2. Validate every field name, description, explicit type, and identity version.
+3. Compare normalized descriptions with the current vocabulary and the rest of the candidate batch.
+4. Compare likely duplicates through name tokens, description tokens, and description embeddings.
+5. Preserve different units and roles; require reuse when the candidate duplicates an existing concept.
+6. Write validated definitions through the conditional backend, then make them visible in memory.
 
-Each canonical name must meet these rules:
+The semantic candidate needs name token overlap of at least 0.5 and description token overlap of at least 0.35.
+A type match and compatible qualifiers are also required.
+A description cosine score of at least 0.96 requires reuse or a distinct definition.
+The result identifies the existing concept and does not silently rename the field.
+Exact normalized description duplicates fail even when no embedding model is available.
+The backend repeats that deterministic check against current durable definitions to cover concurrent requests.
 
-1. Use lowercase words with underscores. Use at least two meaningful components.
-2. Identify the subject and property. Add the unit or encoding when it changes the meaning.
-3. Use full concept names. An app name or namespace cannot substitute for the meaning.
-4. Reject app abbreviations and unqualified names such as `at`, `size`, `id`, `name`, and `status`.
-5. Reject vague longer names such as `item_data`, `entity_name`, and `generic_record_payload`.
+Generic text container checks have no approved-name exception.
+The same code checks seeds, ordinary declarations, and imported field definitions.
+Read-only proposal validation does not create canonical fields.
+A failed request cannot use a special key or a policy marker to bypass validation.
 
-Short standard terms can form part of a qualified name.
-Examples include `user_id`, `photo_url`, `book_isbn`, and `file_size_bytes`.
-Connectors such as `of` remain valid in `date_of_birth`.
-A character count or word count alone does not establish a descriptive name.
+## App behavior
 
-Examples of candidate changes follow. Each replacement requires a matching definition and type.
+An app can keep local command names through explicit maps to precise canonical names.
+A new canonical identity does not move an existing record.
+Existing-home data conversion remains a separate operation.
+The current app manifests remain source inputs to ordinary declarations.
+They require no signed publication bundle.
 
-| Current name | New definition or action |
-| --- | --- |
-| `at` | `notice_event_occurred_at` for the existing notice concept. |
-| `size` | Select `file_size_bytes` or define `text_content_size_bytes` from the actual value contract. |
-| `name`, `title`, `description`, `summary`, `content` | Define the subject. Reuse `document_title` where its meaning matches. Drop entries with no precise subject. |
-| `timestamp`, `created_at`, `updated_at` | Name the event and subject, such as `graph_edge_created_at`. |
-| `amount`, `price`, `quantity` | Define the monetary or item concept and its unit. Do not invent an unspecified numeric replacement. |
-| `sender`, `recipient`, `cc`, `bcc` | Use message or email roles, such as `message_sender` and `email_cc_recipients`. |
-| `city`, `country`, `bio`, `username` | Consider `address_city`, `address_country`, `person_biography`, and `account_login_name`. |
-| `image_width`, `image_height` | Use `image_width_pixels` and `image_height_pixels`. |
-| `rle_h`, `bge_src` | Use full concepts, such as `record_list_hash_key` and `graph_edge_source_record_slug`. |
+## Storage and rollout
 
-The seed review covers all 151 definitions, including qualified names.
-Keep precise names such as `invoice_number` and `date_of_birth` when their definitions and types fit.
-Remove an ambiguous seed entry when a replacement would require a guess.
-Do not add a generic prefix merely to satisfy the word rule.
+The reset uses the existing `canonical-v1/` definition generation and its separate embedding store.
+App identities, permissions, credentials, and quotas remain in their common stores.
+Old definitions remain available for recovery and rollback.
+The primary home and its archive remain outside the operation.
+The DEV phase precedes the separately reviewed production phase and its normal canary gates.
 
-## Canonical field approval
-
-Use the existing canonical registry as the set of approved definitions.
-An ordinary schema publication can reuse that set. It cannot silently promote an unknown app field into a global canonical field.
-
-A genuinely new concept requires a separate, explicit canonical publication after review of its name, description, type, and version.
-An operator can publish approved definitions in a batch. No new approval database or runtime language model is required.
-The seed supplies the initial approved set. Later canonical publications can extend it without a service binary change.
-
-This adds an explicit approval step for new concepts.
-It closes the semantic gap that a blacklist or length rule cannot close.
-The canonical publication command requires permission from the service operator.
-Ordinary app schema publication cannot grant that permission.
-The implementation must define that permission and the batch command before deployment.
-
-Each approved definition records the active name policy version.
-Only the canonical publication path sets this value.
-The policy version is administrative metadata. It does not change data field identity.
-Imports and resolver artifacts must carry approved definitions for the active policy version.
-Do not trust approval flags from ordinary app requests.
-
-An unapproved name receives an `unapproved_canonical_field` result.
-An invalid name receives an `invalid_canonical_name` result with the field, reason, and a qualified example.
-The service must not silently invent a replacement, infer a new type, or approve a vague name through similarity alone.
-
-External data can retain local names such as `id`.
-An app adapter maps those names to approved canonical names before schema publication.
-Canonical approval defines meaning and type. Existing declaration handles still control shared data.
-Approval of the same canonical concept must not merge unrelated apps' values.
-
-## One strict rule for every source
-
-Use the same validation before seed insertion, schema publication, declared-field publication, and direct canonical publication.
-Check imports, restore artifacts, resolver artifacts, and cache load before they expose canonical definitions.
-Validate a complete batch before the first write. Reject an invalid batch rather than silently remove its fields.
-
-Validate before an existing-entry return and again before a final definition write.
-An existing name, stored hash, app namespace, or seed flag provides no exception.
-Automatic matches can select only approved definitions that meet the policy.
-
-Remove the legacy name exceptions from PR #597.
-The name rule no longer needs a search through stored schema families or a comparison of old identities.
-Keep the general fixes that preserve field versions and identities during a valid schema expansion.
-
-## Reset boundary
-
-Before the reset, fetch a fresh definition snapshot and prepare the exact removal set.
-Remove rejected canonical definitions and their embeddings.
-Remove or replace dependent schema definitions, declaration fields, and published app contracts that contain rejected canonical names.
-Regenerate their derived registry and resolver artifacts. Invalidate warm service caches.
-
-Published references do not block this reset. Do not keep aliases that accept the rejected canonical names.
-Preserve unrelated app identities, permissions, credentials, and definitions.
-
-CAUTION: New field names can produce new field and schema identities.
-Update the affected app definitions before normal publication resumes.
-Any remap of existing local data requires a separate, explicit operation.
-The cloud definition reset does not copy, reset, or delete the primary home, atoms, or files.
-
-## Work order
-
-1. Review a complete seed manifest with Keep, Replace, Split, or Remove for each definition.
-2. Implement the common rule, explicit canonical publication, and removal of legacy name exceptions.
-3. Update the affected app definitions. Prepare the exact reset manifest and definition-only recovery snapshot outside Git.
-4. Use CI for builds and normal required checks. Use real DEV service operations for the publication proof.
-5. Coordinate a short schema publication pause. Activate the clean registry and strict service together, then refresh service caches.
-6. Confirm that precise approved names work and rejected names fail through every publication source.
-7. Confirm that restart and import cannot restore rejected names. Resume publication with the updated app definitions.
-
-No tests or fixture harnesses form part of this work.
-Product seed validation must fail before partial seed insertion.
-The live operational check must cover a fresh service start, an existing-name request, and an invalid import batch.
-
-## Source references
-
-Seed counts use source revision `88cd15cfcbba781b8ed0aea6071757a8080c0d1f`.
-
-- [Canonical seed](../crates/core/src/builtin_canonical_fields.rs)
-- [Empty built-in schema set](../crates/core/src/builtin_schemas/mod.rs)
-- [Lambda seed order](../crates/server_lambda/src/state_init.rs)
-- [Automatic canonical registration](../crates/core/src/state_fields.rs)
-- [Current name policy](../crates/core/src/field_name_policy.rs)
-- [PR 597](https://github.com/EdgeVector/lastdb/pull/597)
-
-## Implementation simplifications
-
-A dedicated operator key controls canonical publication. Compatibility verifier and app owner keys cannot approve vocabulary.
-The seed uses one source vocabulary file and one batch write. Cold start does not compute seed embeddings.
-The service assigns policy metadata outside field identity. No extra approval database is required.
-The reset uses an isolated registry generation during the standard deployment canary.
-Old writers cannot repopulate the new generation. The previous generation remains available for definition recovery.
-
-The seed manifest reviews all 151 former definitions. It retains or replaces 113 entries and removes 38 ambiguous entries.
-See [the seed manifest](canonical_field_seed_manifest.md) and [the operator procedure](canonical_vocabulary_operations.md).
-
-Approved canonical names retain their exact meaning during schema expansion.
-Heuristic similarity cannot rename one approved concept into another approved concept.
-Read-only resolution can still propose mappings from external names to the approved vocabulary.
-Explicit approval replaces the heuristic admission check for a known concept.
-
-
-## Definition storage during rollout
-
-Use an isolated definition prefix in the current schema-service bucket.
-Set `SCHEMA_DEFINITION_NAMESPACE=canonical-v1` for the candidate service.
-The prefix contains schemas, approved fields, declaration fields, near misses, releases, channels, and compatibility records.
-An empty prefix starts empty. The service does not read legacy definitions as a fallback.
-
-Keep app identities in their current shared storage.
-This avoids a second app registry and a copy of app identities during the canary.
-API credentials and mutation quotas also keep their current stores.
-Use a separate retained embedding store for the new definitions.
-Old service versions keep their old definitions and their old embedding store.
-
-First activate the candidate in DEV. Keep PROD on its current binary during this step.
-Approve the app vocabulary and verify real DEV operations before the production change.
-Then use the normal production canary and its 24-hour period.
-Keep the old definition generation for recovery. Do not delete it during the canary.
+See [the seed manifest](canonical_field_seed_manifest.md) and [the common field policy](canonical_vocabulary_operations.md).

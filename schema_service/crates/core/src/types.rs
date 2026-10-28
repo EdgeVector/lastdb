@@ -21,7 +21,7 @@ pub struct CanonicalField {
     /// Defaults to 1 for legacy registry rows.
     #[serde(default = "default_field_version")]
     pub version: u32,
-    /// Operator approval under the active canonical-name policy. Never part of identity.
+    /// Code validation policy version. Never part of field identity or caller authority.
     #[serde(default)]
     pub name_policy_version: u32,
     /// Data classification label for this field. `None` for legacy fields
