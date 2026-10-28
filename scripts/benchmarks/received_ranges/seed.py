@@ -47,10 +47,13 @@ class Seed:
                 "key_value": {"hash": hashed, "range": ranged}, "pub_key": "generated-ci",
                 "mutation_type": action, "synchronous": True,
                 "source_file_name": marker(source) if hashed == CONDITION_HASH else None})
-            if action in ("delete", "purge"):
-                self.sources[source].pop((hashed, ranged), None)
-            else:
-                self.sources[source][(hashed, ranged)] = None if alternate else value
+            # A different typed key layout has its own molecules. Its local
+            # writes cannot hide received keys in the queried schema.
+            if not alternate:
+                if action in ("delete", "purge"):
+                    self.sources[source].pop((hashed, ranged), None)
+                else:
+                    self.sources[source][(hashed, ranged)] = value
         raw = json.dumps({"source": source, "mutations": mutations}, sort_keys=True, separators=(",", ":")).encode() + b"\n"
         self.offered.update(raw)
         stream.write(raw)
@@ -106,11 +109,7 @@ class Seed:
     def expected(self):
         result = {}
         for source in (1, 0, None):
-            for coordinate, value in self.sources[source].items():
-                if value is None:
-                    result.pop(coordinate, None)
-                else:
-                    result[coordinate] = value
+            result.update(self.sources[source])
         return result
 
     def final_hash(self):
