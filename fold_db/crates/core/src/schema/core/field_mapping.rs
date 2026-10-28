@@ -8,6 +8,7 @@ use super::SchemaCore;
 use crate::schema::types::{Schema, SchemaError};
 
 mod rules;
+mod typed;
 use rules::{chain_step, ChainStep};
 
 impl SchemaCore {
@@ -17,6 +18,14 @@ impl SchemaCore {
         let mut schema = self.db_ops.get_schema(schema_name).await?.ok_or_else(|| {
             SchemaError::InvalidData(format!("Schema '{schema_name}' not found in database"))
         })?;
+        if self
+            .db_ops
+            .molecule_keys()
+            .schema_profile(&schema)?
+            .is_some()
+        {
+            return self.load_schema_internal(schema).await;
+        }
         let field_mappers = schema.field_mappers().cloned().unwrap_or_default();
         let mut source_cache = HashMap::new();
         let mut resolved = false;
