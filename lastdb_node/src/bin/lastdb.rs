@@ -71,9 +71,9 @@ fn is_std_stream_broken_pipe_panic(message: &str) -> bool {
 /// Exit quietly with [`BROKEN_PIPE_EXIT_CODE`] when a downstream reader closes
 /// stdout/stderr early. Non-zero on purpose: output was cut, so a caller that
 /// checks the status (for example `restore --json`) must still fail closed.
+/// Other panics emit only the fixed marker, never the previous hook's payload.
 fn install_broken_pipe_exit_hook() {
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
+    std::panic::set_hook(Box::new(|info| {
         let payload = info.payload();
         let message = payload
             .downcast_ref::<String>()
@@ -82,7 +82,7 @@ fn install_broken_pipe_exit_hook() {
         if message.is_some_and(is_std_stream_broken_pipe_panic) {
             std::process::exit(BROKEN_PIPE_EXIT_CODE);
         }
-        default_hook(info);
+        observability::crash::write_panic_marker();
     }));
 }
 

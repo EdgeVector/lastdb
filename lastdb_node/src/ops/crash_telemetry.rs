@@ -10,7 +10,8 @@
 //! The node leaves two kinds of durable, local-only crash evidence:
 //!
 //! - `observability::crash` writes a `<home>/crash-reports/<ts>.txt` report on
-//!   every Rust panic (message, location, backtrace, ring tail);
+//!   every Rust panic with a fixed marker, numeric line/column and version,
+//!   timestamp, OS, and architecture; historical reports can contain raw text;
 //! - [`crate::session_ledger`] records whether the *previous* session ended
 //!   cleanly (a native crash — SIGSEGV/abort/kill/power-loss — leaves no panic
 //!   report, but it does leave a ledger row with no clean-shutdown stamp).
@@ -23,8 +24,8 @@
 //!
 //! Events contain a fixed fault category and severity. The shared client's
 //! final allowlist adds only the numeric package version, standard environment,
-//! platform, current timestamp, and a fresh event ID. Panic text, source paths,
-//! backtraces, startup errors, and log tails stay on the machine.
+//! platform, current timestamp, and a fresh event ID. Raw historical report
+//! fields, startup errors, and log tails never enter these events.
 //!
 //! ## Consent / gating
 //!
@@ -74,8 +75,8 @@ pub struct PanicReportSummary {
     pub backtrace: String,
 }
 
-/// Parse fields from a local crash report. None of these values leave the
-/// machine through crash telemetry.
+/// Parse fields from current or historical local reports. Historical raw text
+/// can remain on disk; none of these values leave through crash telemetry.
 pub fn parse_panic_report(body: &str) -> PanicReportSummary {
     // The parser serves local diagnostics only. Keep the ring separate from
     // the crash fields; telemetry uses fixed categories instead of this text.

@@ -97,9 +97,9 @@ pub fn install_baked_sentry_release() -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Install the on-panic crash-report hook so a Rust panic leaves a durable
-/// `<home>/crash-reports/<ts>.txt` (message, location, backtrace, build
-/// version) instead of an empty log. The daemon has no observability RING, so
-/// the report's ring section is simply absent. Best-effort; call once at boot.
+/// fixed-field report: panic category, numeric line/column, numeric version,
+/// timestamp, OS, and architecture. Payloads, paths, backtraces, and log tails
+/// are excluded. Best-effort; call once after the node home is resolved.
 pub fn install_crash_hook(home: &Path) {
     observability::install_crash_hook(observability::CrashContext::new(
         home,

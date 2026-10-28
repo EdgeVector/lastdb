@@ -1,5 +1,24 @@
 # LastDB ops telemetry
 
+## Panic report privacy source change, 2026-10-28
+
+The proposed source replaces raw panic reports with fixed fields.
+New reports contain a fixed panic marker, numeric source line and column, numeric package version, timestamp, OS, and architecture.
+They contain no panic payload, source path, backtrace, port, or log tail.
+The daemon installs a fixed stderr marker before its setup and adds the report hook after it resolves the home.
+The hooks do not call the previous hook, which can print raw panic details to captured stderr.
+The CLI keeps exit status 141 for the existing broken-pipe condition and uses the fixed marker for other panics.
+The daemon startup message omits the home path, socket path, and account ID.
+
+Existing report retention stays at 20 files, with the existing startup purge.
+This work does not access historical reports on Tom's machine.
+Historical reports and captured logs can contain raw details. Their inventory and cleanup require separate confirmation.
+Controlled startup errors can still enter the local session ledger with paths or other raw details.
+Other local diagnostic logs can also contain user content. This change does not establish that all local logs contain no personal information.
+
+This is a source review. CI and approved product checks must establish the behavior of a built candidate.
+The source change does not authorize a merge, nightly release, deployment, or primary upgrade.
+
 `lastdb ops` reads the live daemon's in-memory request telemetry from
 `/api/status`. The CLI itself never writes metrics, so inspecting load does
 not amplify the load being measured. Durable history is the sampler's job and

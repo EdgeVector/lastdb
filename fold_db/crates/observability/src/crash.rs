@@ -1,28 +1,23 @@
 //! On-panic crash reports for long-running node binaries.
 //!
-//! When the FoldDB node dies on a Rust panic, macOS leaves no fold-specific
-//! crash report and the unified log rotates past the window — so an incident
-//! after the fact has nothing to read but a gap in `observability.jsonl` (the
-//! 2026-06-19 :9001 outage). This module installs a chained
-//! [`std::panic::set_hook`] that drops a durable, human-readable report under
-//! `$FOLDDB_HOME/crash-reports/<rfc3339-utc>.txt` on every panic, and surfaces
-//! any unseen reports on the next start.
+//! The hook writes a bounded, fixed-field report under the selected node
+//! home's `crash-reports` directory and surfaces unseen reports at startup.
 //!
 //! ## What the hook writes
 //!
-//! - the panic message + source location,
-//! - a force-captured [`std::backtrace::Backtrace`],
-//! - the build version, selected HTTP port, and OS/arch,
-//! - the last ~200 lines of the in-memory observability RING buffer.
+//! - a fixed panic marker and numeric source line/column,
+//! - a numeric package version, OS/arch, and timestamp.
+//!
+//! Payloads, source paths, backtraces, ports, and log tails are excluded.
+//! The hook replaces the previous hook so captured stderr cannot retain its
+//! raw panic output. Historical reports remain subject to existing retention.
 //!
 //! ## Panic-safety
 //!
 //! The hook runs on the panicking thread, possibly while another panic is
 //! unwinding. It must not allocate heavily, must not re-panic, and must not
-//! block. Every fallible step is best-effort: write errors are swallowed, the
-//! RING tail is bounded, and the report directory is created lazily. The
-//! default hook is always invoked first so console behaviour (and the Sentry
-//! panic integration, where wired) is unchanged.
+//! block. Every fallible step is best-effort: write errors are swallowed and
+//! the report directory is created lazily.
 //!
 //! ## Retention
 //!
@@ -30,7 +25,6 @@
 //! pruned on the next [`scan_and_warn_previous_crashes`] (i.e. at startup),
 //! never inside the panic hook.
 
-use std::backtrace::Backtrace;
 use std::fs;
 use std::io::Write;
 use std::panic::PanicHookInfo;
@@ -42,9 +36,6 @@ use crate::layers::ring::RingHandle;
 
 /// Sub-directory under `$FOLDDB_HOME` where crash reports are written.
 pub const CRASH_REPORTS_DIR: &str = "crash-reports";
-
-/// How many lines of the observability RING buffer to embed in a report.
-const RING_TAIL_LINES: usize = 200;
 
 /// Maximum number of crash-report files to retain. Pruned at startup
 /// (newest-first) — never inside the panic hook.
@@ -64,20 +55,13 @@ const LAST_START_MARKER: &str = ".last-clean-start";
 /// panic-safe and time-bounded; it must never re-panic.
 pub type OnReportWritten = Arc<dyn Fn(&Path) + Send + Sync + 'static>;
 
-/// Immutable context the panic hook needs to compose a report. Cheap to clone
-/// (the [`RingHandle`] is `Arc`-backed); captured once at install time so the
-/// hook closure owns everything it touches and never reaches back into
-/// process-global state that might itself be mid-panic.
+/// Immutable, bounded context captured once when the report hook is installed.
 #[derive(Clone)]
 pub struct CrashContext {
     /// Directory crash reports are written to (`$FOLDDB_HOME/crash-reports`).
     dir: PathBuf,
-    /// Build version string (e.g. `env!("CARGO_PKG_VERSION")`).
+    /// Numeric package version, or the fixed `unknown` marker.
     version: Arc<str>,
-    /// Selected HTTP port, when known at install time.
-    port: Option<u16>,
-    /// Handle to the in-memory RING buffer, for the tail-of-log section.
-    ring: Option<RingHandle>,
     /// Optional post-write hook — see [`OnReportWritten`]. `None` (the default)
     /// preserves the write-only behaviour every existing caller relies on.
     on_report_written: Option<OnReportWritten>,
@@ -85,17 +69,16 @@ pub struct CrashContext {
 
 impl CrashContext {
     /// Build a context rooted at `folddb_home/crash-reports`.
+    /// Port and ring arguments remain for source compatibility and are ignored.
     pub fn new(
         folddb_home: impl AsRef<Path>,
         version: &str,
-        port: Option<u16>,
-        ring: Option<RingHandle>,
+        _port: Option<u16>,
+        _ring: Option<RingHandle>,
     ) -> Self {
         Self {
             dir: folddb_home.as_ref().join(CRASH_REPORTS_DIR),
-            version: Arc::from(version),
-            port,
-            ring,
+            version: Arc::from(numeric_version(version).unwrap_or("unknown")),
             on_report_written: None,
         }
     }
@@ -106,25 +89,25 @@ impl CrashContext {
     }
 }
 
-/// Install the process-wide panic hook that writes a crash report on every
-/// panic. Chains to (calls) the previously-installed hook first, so console
-/// output and any registered panic integrations are preserved.
-///
-/// Idempotent in spirit: calling twice simply re-chains, but binaries should
-/// call it exactly once, as early as the RING handle is available.
+/// Emit only a fixed marker, even when stderr is captured by a service host.
+pub fn write_panic_marker() {
+    let _ = writeln!(std::io::stderr().lock(), "LastDB panic");
+}
+
+/// Install fixed panic output before a node home is available.
+pub fn install_private_panic_hook() {
+    std::panic::set_hook(Box::new(|_| write_panic_marker()));
+}
+
+/// Replace the process-wide hook with fixed stderr output and a safe report.
+/// The previous hook is not called because it can expose the panic payload.
 pub fn install_crash_hook(ctx: CrashContext) {
-    let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // Default hook first: preserve console backtrace + Sentry capture.
-        previous(info);
+        write_panic_marker();
         // Best-effort report write. Never propagate an error out of the hook.
         if let Ok(path) = write_crash_report(&ctx, info) {
-            // Optional crash-time delivery. Runs on the panicking thread; the
-            // callback owns its own panic-safety + time bound (a shipped build
-            // sends the report to Sentry here, bounded by a flush timeout, so
-            // a crash is reported the instant it happens rather than on the
-            // next launch). Under `panic = "abort"` this hook is the last code
-            // that runs, so a bounded send here still completes before exit.
+            // Optional delivery receives only the fixed-field report path.
+            // The callback must remain panic-safe and time-bounded.
             if let Some(cb) = &ctx.on_report_written {
                 cb(&path);
             }
@@ -165,31 +148,23 @@ fn write_crash_report(ctx: &CrashContext, info: &PanicHookInfo<'_>) -> std::io::
     Ok(path)
 }
 
-/// Build the report body. Pure (no IO beyond the RING read) and panic-safe so
-/// it can be unit-tested directly.
+/// Build the report body from fixed or bounded fields only.
 fn compose_report(ctx: &CrashContext, info: &PanicHookInfo<'_>, rfc3339: &str) -> String {
-    let mut out = String::with_capacity(4096);
+    let mut out = String::with_capacity(256);
 
-    out.push_str("FoldDB crash report\n");
+    out.push_str("LastDB crash report\n");
     out.push_str("===================\n");
     out.push_str(&format!("time:    {rfc3339}\n"));
     out.push_str(&format!("version: {}\n", ctx.version));
-    out.push_str(&format!(
-        "port:    {}\n",
-        ctx.port
-            .map_or_else(|| "unknown".to_string(), |p| p.to_string())
-    ));
     out.push_str(&format!("os:      {}\n", std::env::consts::OS));
     out.push_str(&format!("arch:    {}\n", std::env::consts::ARCH));
     out.push('\n');
 
-    // Panic message + location.
     out.push_str("panic\n-----\n");
-    out.push_str(&format!("message:  {}\n", panic_message(info)));
+    out.push_str("message:  Rust panic\n");
     match info.location() {
         Some(loc) => out.push_str(&format!(
-            "location: {}:{}:{}\n",
-            loc.file(),
+            "location: line {}, column {}\n",
             loc.line(),
             loc.column()
         )),
@@ -197,50 +172,24 @@ fn compose_report(ctx: &CrashContext, info: &PanicHookInfo<'_>, rfc3339: &str) -
     }
     out.push('\n');
 
-    // Force-capture a backtrace regardless of RUST_BACKTRACE — a crash report
-    // with no backtrace is the exact gap this feature exists to close.
-    out.push_str("backtrace\n---------\n");
-    let bt = Backtrace::force_capture();
-    out.push_str(&bt.to_string());
-    if !out.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push('\n');
-
-    // Tail of the in-memory event log.
-    out.push_str(&format!(
-        "observability ring (last {RING_TAIL_LINES} events)\n"
-    ));
-    out.push_str("------------------------------------------\n");
-    match &ctx.ring {
-        Some(ring) => {
-            let lines = ring.tail_text(RING_TAIL_LINES);
-            if lines.is_empty() {
-                out.push_str("<ring buffer empty>\n");
-            } else {
-                for line in lines {
-                    out.push_str(&line);
-                    out.push('\n');
-                }
-            }
-        }
-        None => out.push_str("<ring buffer unavailable>\n"),
-    }
-
     out
 }
 
-/// Extract the panic payload's string form. Handles the common `&str` /
-/// `String` payloads; falls back to a placeholder for other types.
-fn panic_message(info: &PanicHookInfo<'_>) -> String {
-    let payload = info.payload();
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "<non-string panic payload>".to_string()
+/// Drop build suffixes and reject arbitrary version text.
+fn numeric_version(release: &str) -> Option<&str> {
+    let version = release
+        .strip_prefix('v')
+        .unwrap_or(release)
+        .split('-')
+        .next()?;
+    let mut parts = version.split('.');
+    for _ in 0..3 {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 6 || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
     }
+    parts.next().is_none().then_some(version)
 }
 
 /// Scan the crash-reports directory at startup, emit one `WARN` per report
@@ -265,9 +214,7 @@ pub fn scan_and_warn_previous_crashes(folddb_home: impl AsRef<Path>) -> Vec<Path
         if report.modified_ms > last_seen_ms {
             tracing::warn!(
                 target: "observability::crash",
-                path = %report.path.display(),
-                "previous session left a crash report at {}",
-                report.path.display()
+                "previous session left a crash report"
             );
             surfaced.push(report.path.clone());
         }

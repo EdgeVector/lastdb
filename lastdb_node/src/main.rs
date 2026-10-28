@@ -231,9 +231,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             data_dir.display()
         ))
     })?;
-    println!("lastdbd serving {}", socket.path().display());
-    println!("  Home:   {}", home.display());
-    println!("  Owner:  {}", host.user_hash);
+    println!("lastdbd serving the owner socket");
 
     register_shutdown_signals(&shutdown_flag).map_err(&note_fatal)?;
 
@@ -285,6 +283,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
 }
 
 fn main() -> Result<(), String> {
+    observability::crash::install_private_panic_hook();
     let allocator_tuning = lastdb_node::allocator::configure();
     lastdb_node::log_rotation::spawn_stdio_log_rotators();
 
