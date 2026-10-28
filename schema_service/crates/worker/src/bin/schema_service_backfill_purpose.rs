@@ -185,13 +185,15 @@ async fn build_state(cli: &Cli) -> Result<SchemaServiceState, String> {
     );
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config.build());
     let ddb_client = aws_sdk_dynamodb::Client::new(&aws_config);
-    let backend: Arc<dyn schema_service_core::ExternalSchemaPersistence> =
-        Arc::new(schema_service_s3::S3BlobPersistence::new(
+    let backend: Arc<dyn schema_service_core::ExternalSchemaPersistence> = Arc::new(
+        schema_service_s3::S3BlobPersistence::new(
             s3_client,
             bucket.clone(),
             ddb_client,
             embeddings_table,
-        ));
+        )
+        .with_definition_namespace_from_env()?,
+    );
     tracing::info!(
         bucket = %bucket,
         endpoint_url = endpoint_url.as_deref().unwrap_or("aws-default"),

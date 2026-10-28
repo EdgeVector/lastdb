@@ -26,7 +26,7 @@ impl S3BlobPersistence {
             .client
             .put_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(self.definition_key(key).as_ref())
             .body(ByteStream::from(body))
             .content_type("application/json");
         if use_conditional {
@@ -46,7 +46,7 @@ impl S3BlobPersistence {
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(self.definition_key(key).as_ref())
             .send()
             .await;
         match result {
@@ -84,7 +84,7 @@ impl S3BlobPersistence {
                 .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
-                .prefix("releases/");
+                .prefix(self.definition_key("releases/").as_ref());
             if let Some(token) = continuation {
                 req = req.continuation_token(token);
             }
@@ -117,7 +117,7 @@ impl S3BlobPersistence {
                 .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
-                .prefix("channels/");
+                .prefix(self.definition_key("channels/").as_ref());
             if let Some(token) = continuation {
                 req = req.continuation_token(token);
             }
@@ -184,7 +184,7 @@ impl S3BlobPersistence {
                 .client
                 .get_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .send()
                 .await;
             match result {
@@ -227,7 +227,7 @@ impl S3BlobPersistence {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .body(ByteStream::from(body))
                 .content_type("application/json")
                 .if_match(etag)
@@ -242,7 +242,7 @@ impl S3BlobPersistence {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .body(ByteStream::from(body))
                 .content_type("application/json")
                 .if_none_match("*")
@@ -265,7 +265,7 @@ impl S3BlobPersistence {
                 .client
                 .get_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .send()
                 .await;
             match result {
@@ -315,7 +315,7 @@ impl S3BlobPersistence {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .body(ByteStream::from(body))
                 .content_type("application/json")
                 .if_match(etag)
@@ -337,7 +337,7 @@ impl S3BlobPersistence {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .body(ByteStream::from(body))
                 .content_type("application/json")
                 .if_none_match("*")
@@ -362,7 +362,7 @@ impl S3BlobPersistence {
                 .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
-                .prefix(&prefix);
+                .prefix(self.definition_key(&prefix).as_ref());
             if let Some(token) = continuation {
                 req = req.continuation_token(token);
             }
