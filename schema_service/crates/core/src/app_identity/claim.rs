@@ -54,7 +54,9 @@ impl SchemaServiceState {
         payload: &Value,
         purpose: Purpose,
     ) -> Result<(), SchemaClaimError> {
-        let app_id = owner_app_id.trim();
+        // App IDs are exact-byte principals. Do not authorize a trimmed alias
+        // while the schema persists the caller's different owner string.
+        let app_id = owner_app_id;
         if app_id.is_empty() {
             return Err(SchemaClaimError::CertRequired);
         }

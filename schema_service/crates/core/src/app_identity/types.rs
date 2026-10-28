@@ -214,7 +214,7 @@ impl AppRegisterError {
 pub enum SchemaClaimError {
     /// `owner_app_id` set but the cert/signature headers are missing. 401.
     CertRequired,
-    /// Exemem cert lacks paid or developer access. 403.
+    /// Exemem cert lacks publication entitlement. 403.
     NotAuthorizedPublisher,
     CertInvalid,
     CertExpired,
