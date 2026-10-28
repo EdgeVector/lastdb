@@ -1,3 +1,8 @@
+> Current Mini implementation: the client uses `LiveSchemaResolver` and calls the
+> live service only. Local pack modes and their Mini configuration are retired.
+> See [current configuration](mini_schema_resolver_config.md). The pack-mode
+> descriptions below record the earlier design, not an available Mini route.
+
 # Shared-surface caller inventory
 
 Status: living inventory for the catalog-registration migration

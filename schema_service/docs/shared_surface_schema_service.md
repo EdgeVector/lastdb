@@ -1,3 +1,8 @@
+> Current Mini implementation: the client uses `LiveSchemaResolver` and calls the
+> live service only. Local pack modes and their Mini configuration are retired.
+> See [current configuration](mini_schema_resolver_config.md). The pack-mode
+> descriptions below record the earlier design, not an available Mini route.
+
 # Schema service shared-surface governance
 
 Status: governance layer retained; storage boundary superseded by
