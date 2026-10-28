@@ -6,6 +6,7 @@ import time
 
 from automatic_source import Source
 from node import OwnedNode
+from ownership import complete as complete_ownership
 from restore_receipts import restored
 from support import require
 
@@ -95,6 +96,8 @@ class Automatic:
         replay = {"base": snapshot["last_accepted_backup"], "through": log["mutation_log"]["head"]}
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"])
+        ownership = complete_ownership(operation, source, log["last_accepted_backup"],
+                                       later["last_accepted_backup"])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
                 "automatic_policy_survives_restart": True, "changed_snapshot_interval_observed": True,
                 "log_interval_seconds": 60, "final_snapshot_interval_seconds": 86400,
@@ -103,6 +106,7 @@ class Automatic:
                 "updated_records": 15, "deleted_records": 1, "observed_checkpoints": len(source.completed),
                 "declared_checkpoint_bytes": source.declared_bytes,
                 "log_recovery": log_restore, "later_snapshot_recovery": snapshot_restore,
+                "ci_stream_ownership": ownership,
                 "accepted_backups_retained": True, "provider_deletions": 0,
                 "previous_automatic_local_metadata_retired": True,
                 "enrollment_requests": 0, "primary_access": False}
