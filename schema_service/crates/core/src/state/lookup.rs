@@ -11,23 +11,20 @@ impl SchemaServiceState {
         schema: &Schema,
         _mutation_mappers: &HashMap<String, String>,
     ) -> FoldDbResult<Option<Schema>> {
-        let Some(description) = schema
+        if schema
             .descriptive_name
             .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        else {
+            .is_none_or(|name| name.trim().is_empty())
+        {
             return Ok(None);
-        };
+        }
         let stored = self.storage.backend().load_all_schemas().await?;
         let mut probe = schema.clone();
         probe.dedup_fields();
         probe.compute_identity_hash();
         let existing = match probe.get_identity_hash().and_then(|id| stored.get(id)) {
             Some(existing) => Some(durable_active_schema(&stored, existing)?.clone()),
-            None => Self::stored_schema_by_description(
-                &stored,
-                &descriptive_name_key(schema.owner_app_id.as_deref(), description),
-            )?,
+            None => stored_repost_by_namespace(&stored, schema)?,
         };
         let Some(existing) = existing else {
             return Ok(None);
@@ -91,6 +88,32 @@ impl SchemaServiceState {
         }
         Ok(schema)
     }
+}
+
+/// Owner and descriptive name are distinct principals, not an encoded path.
+fn stored_repost_by_namespace(
+    stored: &HashMap<String, Schema>,
+    proposal: &Schema,
+) -> FoldDbResult<Option<Schema>> {
+    let owner = proposal.owner_app_id.as_deref().filter(|id| !id.is_empty());
+    let mut matches = stored.values().filter(|candidate| {
+        candidate.superseded_by.is_none()
+            && candidate
+                .owner_app_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                == owner
+            && candidate.descriptive_name == proposal.descriptive_name
+            && !crate::state_expansion::is_cross_key_layout(proposal, candidate)
+            && !crate::state_expansion::is_cross_schema_type_expansion(proposal, candidate)
+    });
+    let candidate = matches.next().cloned();
+    if matches.next().is_some() {
+        return Err(FoldDbError::Config(
+            "stored schema namespace has ambiguous active entries".into(),
+        ));
+    }
+    Ok(candidate)
 }
 
 /// Resolve only links in this snapshot; reject broken or cyclic chains.
