@@ -86,10 +86,23 @@ impl Source {
         saved.work.validate(Some(begin))?;
         match &saved.work {
             Work::Snapshot { minimum } => {
-                let capture = self
-                    .runtime
-                    .prepare_record_backup_capture(begin.clone(), &self.key, self.recovery.clone())
-                    .await?;
+                let capture = if saved.begin_submitted {
+                    self.runtime
+                        .prepare_record_backup_capture(
+                            begin.clone(),
+                            &self.key,
+                            self.recovery.clone(),
+                        )
+                        .await?
+                } else {
+                    self.runtime
+                        .prepare_unsubmitted_record_backup_capture(
+                            begin.clone(),
+                            &self.key,
+                            self.recovery.clone(),
+                        )
+                        .await?
+                };
                 let profile = capture.run_profile()?;
                 if minimum.as_ref().is_some_and(|min| {
                     profile.main.frontier.get() < min.main || profile.cas.frontier.get() < min.cas

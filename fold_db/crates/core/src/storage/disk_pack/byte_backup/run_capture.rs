@@ -45,6 +45,7 @@ pub(super) async fn prepare(
     begin: Begin,
     key: &[u8; 32],
     recovery: RecoveryDescriptor,
+    renew_unmaterialized: bool,
 ) -> StorageResult<ByteBackupCapture> {
     begin.validate().map_err(protocol)?;
     recovery
@@ -79,7 +80,7 @@ pub(super) async fn prepare(
             }
             super::capture::clear_previous(&store, &old)?;
         }
-        let intent = if store.exists("run-intent.json")? {
+        let mut intent = if store.exists("run-intent.json")? {
             let saved: Intent = store.read("run-intent.json")?;
             if saved.begin != begin
                 || saved.key_sha256 != bytes_sha256(key.as_ref())
@@ -100,16 +101,7 @@ pub(super) async fn prepare(
         };
         let root = held_root(&runtime, intent.reference_id);
         if !root.try_exists()? {
-            if let Some(anchor) = &intent.journal_anchor {
-                let actual = runtime.physical.current_root();
-                if actual.main.frontier() != anchor.frontiers.main
-                    || actual.cas.frontier() != anchor.frontiers.cas
-                {
-                    return Err(invalid(
-                        "snapshot mutation log anchor changed before capture",
-                    ));
-                }
-            }
+            renew_intent(&runtime, &store, &mut intent, renew_unmaterialized)?;
             capture_pair(&runtime, &root)?;
         }
         drop(gate);
@@ -124,6 +116,33 @@ pub(super) async fn prepare(
         )
     })
     .await
+}
+
+fn renew_intent(
+    runtime: &PackRuntime,
+    store: &Store,
+    intent: &mut Intent,
+    allowed: bool,
+) -> StorageResult<()> {
+    let Some(anchor) = &intent.journal_anchor else {
+        return Ok(());
+    };
+    let actual = runtime.physical.current_root();
+    if actual.main.frontier() == anchor.frontiers.main
+        && actual.cas.frontier() == anchor.frontiers.cas
+    {
+        return Ok(());
+    }
+    if !allowed {
+        return Err(invalid(
+            "snapshot mutation log anchor changed before capture",
+        ));
+    }
+    // The caller still owns the same write gate as capture_pair. No source State,
+    // held directory, transfer input, or remote begin exists for this request.
+    // Old journal epochs remain retained until the replacement snapshot is accepted.
+    intent.journal_anchor = runtime.mutation_log.snapshot_anchor(&runtime.physical)?;
+    store.write("run-intent.json", intent)
 }
 fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     let homes = &runtime.physical;
