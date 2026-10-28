@@ -21,11 +21,10 @@
 //!
 //! ## What is sent — deliberately minimal
 //!
-//! For a panic report: the panic message, source location, build version,
-//! report timestamp, and the backtrace — code-shaped data only. The
-//! observability-ring tail embedded in the local report is NOT sent; it stays
-//! on the machine. For an unclean exit: version, downtime, OS shutdown cause,
-//! and the tail of the previous daemon log (code-shaped operational lines).
+//! Events contain a fixed fault category and severity. The shared client's
+//! final allowlist adds only the numeric package version, standard environment,
+//! platform, current timestamp, and a fresh event ID. Panic text, source paths,
+//! backtraces, startup errors, and log tails stay on the machine.
 //!
 //! ## Consent / gating
 //!
@@ -37,8 +36,6 @@
 use crate::session_ledger::StartSummary;
 #[cfg(feature = "sentry-telemetry")]
 use std::collections::BTreeMap;
-#[cfg(feature = "sentry-telemetry")]
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Sibling marker written next to a report once it has been shipped at crash
@@ -53,18 +50,8 @@ const SENT_MARKER_SUFFIX: &str = ".sent";
 #[cfg(feature = "sentry-telemetry")]
 const MAX_REPORTS_PER_LAUNCH: usize = 5;
 
-/// Upper bound on the backtrace text shipped per event. Sentry rejects
-/// oversized events outright; a truncated backtrace still names the frames
-/// that matter (the top), a rejected event names nothing.
+/// Upper bound on the backtrace text parsed from a local crash report.
 const BACKTRACE_CAP_BYTES: usize = 32 * 1024;
-
-/// Upper bound on the previous-session log tail attached to an unclean-exit
-/// event. The tail is the app-lifecycle log (startup phases, supervisor and
-/// shutdown lines — code-shaped operational data, same posture as the panic
-/// fields above; the observability ring stays local). Capped so a chatty
-/// session can't push the event over Sentry's size limit.
-#[cfg(feature = "sentry-telemetry")]
-const LOG_TAIL_CAP_BYTES: usize = 16 * 1024;
 
 /// Section header that opens the local-only ring-tail portion of a crash
 /// report (see `observability::crash::compose_report`). Parsing stops here —
@@ -87,12 +74,11 @@ pub struct PanicReportSummary {
     pub backtrace: String,
 }
 
-/// Parse the code-shaped fields out of a crash-report body, stopping before
-/// the observability-ring section (which never leaves the machine).
+/// Parse fields from a local crash report. None of these values leave the
+/// machine through crash telemetry.
 pub fn parse_panic_report(body: &str) -> PanicReportSummary {
-    // Everything we send comes from ABOVE the ring header; slicing first
-    // makes "the ring tail is never shipped" structural rather than a
-    // per-field promise (a panic message can't smuggle ring lines in).
+    // The parser serves local diagnostics only. Keep the ring separate from
+    // the crash fields; telemetry uses fixed categories instead of this text.
     let shipped = body
         .find(RING_SECTION_HEADER)
         .map_or(body, |idx| &body[..idx]);
@@ -166,21 +152,17 @@ pub fn report_crashes(reports: &[PathBuf], start: Option<&StartSummary>) -> usiz
     report_crashes_with_log_tail(reports, start, None)
 }
 
-/// [`report_crashes`] plus the tail of the PREVIOUS session's app log, attached
-/// to the unclean-exit event so "what was it doing when it died" is answerable
-/// from the Sentry event alone (2026-07-10 incident: the killed session's log
-/// was truncated away and its in-memory ring died with it — the event carried
-/// nothing).
+/// Compatibility entry point. The previous session's log tail stays local.
 #[cfg(feature = "sentry-telemetry")]
 pub fn report_crashes_with_log_tail(
     reports: &[PathBuf],
     start: Option<&StartSummary>,
-    prev_log_tail: Option<&str>,
+    _prev_log_tail: Option<&str>,
 ) -> usize {
     if sentry::Hub::current().client().is_none() {
         return 0;
     }
-    capture_events(reports, start, prev_log_tail)
+    capture_events(reports, start)
 }
 
 #[cfg(not(feature = "sentry-telemetry"))]
@@ -214,106 +196,34 @@ pub fn is_report_sent(report: &Path) -> bool {
 /// Build + capture the events for the given evidence. Caller has ensured a
 /// client is bound.
 #[cfg(feature = "sentry-telemetry")]
-fn capture_events(
-    reports: &[PathBuf],
-    start: Option<&StartSummary>,
-    prev_log_tail: Option<&str>,
-) -> usize {
+fn capture_events(reports: &[PathBuf], start: Option<&StartSummary>) -> usize {
     let mut captured = 0;
     for path in reports.iter().take(MAX_REPORTS_PER_LAUNCH) {
-        let Ok(body) = fs::read_to_string(path) else {
+        if !path.is_file() {
             continue;
-        };
-        sentry::capture_event(panic_event(&parse_panic_report(&body)));
+        }
+        sentry::capture_event(panic_event());
         captured += 1;
     }
     if unclean_exit_unexplained(start, reports.len()) {
-        // `unclean_exit_unexplained` returned true, so start is Some.
-        if let Some(summary) = start {
-            sentry::capture_event(unclean_exit_event(summary, prev_log_tail));
-            captured += 1;
-        }
+        sentry::capture_event(unclean_exit_event());
+        captured += 1;
     } else if startup_failure_recorded(start) {
-        // `startup_failure_recorded` returned true, so start is Some.
-        if let Some(summary) = start {
-            sentry::capture_event(startup_failure_event(summary, prev_log_tail));
-            captured += 1;
-        }
+        sentry::capture_event(startup_failure_event());
+        captured += 1;
     }
     captured
 }
 
 #[cfg(feature = "sentry-telemetry")]
-fn panic_event(report: &PanicReportSummary) -> sentry::protocol::Event<'static> {
-    let mut extra = BTreeMap::new();
-    if let Some(location) = &report.location {
-        extra.insert("panic_location".to_string(), location.clone().into());
-    }
-    if let Some(version) = &report.version {
-        extra.insert("crashed_version".to_string(), version.clone().into());
-    }
-    if let Some(time) = &report.time {
-        extra.insert("crash_time".to_string(), time.clone().into());
-    }
-    if !report.backtrace.is_empty() {
-        extra.insert("backtrace".to_string(), report.backtrace.clone().into());
-    }
+fn panic_event() -> sentry::protocol::Event<'static> {
     sentry::protocol::Event {
         level: sentry::Level::Fatal,
-        message: Some(format!(
-            "previous session crashed (panic): {}",
-            report.message
-        )),
-        // Group by panic site when known, else by message — the timestamp in
-        // the default message would otherwise make every crash its own issue.
-        fingerprint: vec![
-            "crash_telemetry".into(),
-            report
-                .location
-                .clone()
-                .unwrap_or_else(|| report.message.clone())
-                .into(),
-        ]
-        .into(),
+        message: Some("previous session crashed (panic)".to_string()),
+        fingerprint: vec!["crash_telemetry".into(), "panic".into()].into(),
         tags: BTreeMap::from([("crash_kind".to_string(), "panic".to_string())]),
-        extra,
         ..Default::default()
     }
-}
-
-/// The context both previous-session events carry: how long the node was down,
-/// what the OS said about the last shutdown, and the tail of the dead session's
-/// log ("what was it doing when it died").
-#[cfg(feature = "sentry-telemetry")]
-fn previous_session_extra(
-    summary: &StartSummary,
-    prev_log_tail: Option<&str>,
-) -> BTreeMap<String, sentry::protocol::Value> {
-    let mut extra = BTreeMap::new();
-    if let Some(secs) = summary.prev_downtime_secs {
-        extra.insert("downtime_secs".to_string(), secs.into());
-    }
-    if let Some(cause) = &summary.prev_shutdown_cause {
-        extra.insert("os_shutdown_cause".to_string(), cause.clone().into());
-    }
-    if let Some(tail) = prev_log_tail.map(str::trim).filter(|t| !t.is_empty()) {
-        // Tail-biased truncation: when over the cap, the END of the log (the
-        // last things the dying session did) matters more than the start.
-        let tail = if tail.len() > LOG_TAIL_CAP_BYTES {
-            let mut begin = tail.len() - LOG_TAIL_CAP_BYTES;
-            while begin < tail.len() && !tail.is_char_boundary(begin) {
-                begin += 1;
-            }
-            &tail[begin..]
-        } else {
-            tail
-        };
-        extra.insert(
-            "previous_session_log_tail".to_string(),
-            tail.to_string().into(),
-        );
-    }
-    extra
 }
 
 /// The previous session returned a fatal error from its own startup/serve path
@@ -321,18 +231,9 @@ fn previous_session_extra(
 /// error we already know is in the event instead of a guess about crashes,
 /// kills, and power loss.
 #[cfg(feature = "sentry-telemetry")]
-fn startup_failure_event(
-    summary: &StartSummary,
-    prev_log_tail: Option<&str>,
-) -> sentry::protocol::Event<'static> {
-    let mut extra = previous_session_extra(summary, prev_log_tail);
-    if let Some(reason) = &summary.prev_exit_reason {
-        extra.insert("startup_error".to_string(), reason.clone().into());
-    }
+fn startup_failure_event() -> sentry::protocol::Event<'static> {
     sentry::protocol::Event {
         level: sentry::Level::Error,
-        // Stable message + fingerprint: a launchd restart loop on one bad store
-        // is ONE issue, and the varying error text rides in `startup_error`.
         message: Some(
             "previous session failed to start (node exited with a recorded startup error; \
              not a crash)"
@@ -340,17 +241,12 @@ fn startup_failure_event(
         ),
         fingerprint: vec!["crash_telemetry".into(), "startup_failed".into()].into(),
         tags: BTreeMap::from([("crash_kind".to_string(), "startup_failed".to_string())]),
-        extra,
         ..Default::default()
     }
 }
 
 #[cfg(feature = "sentry-telemetry")]
-fn unclean_exit_event(
-    summary: &StartSummary,
-    prev_log_tail: Option<&str>,
-) -> sentry::protocol::Event<'static> {
-    let extra = previous_session_extra(summary, prev_log_tail);
+fn unclean_exit_event() -> sentry::protocol::Event<'static> {
     sentry::protocol::Event {
         level: sentry::Level::Error,
         message: Some(
@@ -360,7 +256,6 @@ fn unclean_exit_event(
         ),
         fingerprint: vec!["crash_telemetry".into(), "unclean_exit".into()].into(),
         tags: BTreeMap::from([("crash_kind".to_string(), "unclean_exit".to_string())]),
-        extra,
         ..Default::default()
     }
 }
