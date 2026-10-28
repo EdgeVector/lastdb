@@ -149,10 +149,10 @@ impl SchemaServiceState {
             .collect()
     }
 
-    pub(crate) async fn admit_declared_vocabulary(
+    pub(crate) fn checked_declared_vocabulary(
         &self,
         inputs: &[crate::declared_fields::DeclareFieldInput],
-    ) -> FoldDbResult<()> {
+    ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
         let fields = {
             let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
             inputs
@@ -173,10 +173,8 @@ impl SchemaServiceState {
                 })
                 .collect::<Vec<_>>()
         };
-        let provisional = self
-            .checked_vocabulary_batch(&fields)?
-            .into_iter()
-            .collect();
+        let checked = self.checked_vocabulary_batch(&fields)?;
+        let provisional = checked.iter().cloned().collect();
         for input in inputs {
             field_name_policy::validate_declared_concept(
                 &provisional,
@@ -186,7 +184,7 @@ impl SchemaServiceState {
                 input.version,
             )?;
         }
-        self.add_canonical_fields(&fields).await
+        Ok(checked)
     }
 
     /// Prepare admission after logical guards, without a persistence/cache write.

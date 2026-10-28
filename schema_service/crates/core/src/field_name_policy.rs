@@ -210,6 +210,19 @@ pub fn validate_canonical_insert(
     Ok(())
 }
 
+/// Validate against durable definitions and the earlier entries in the batch.
+pub fn canonical_fields_after_insert(
+    existing: &HashMap<String, CanonicalField>,
+    fields: &[(String, CanonicalField)],
+) -> FoldDbResult<HashMap<String, CanonicalField>> {
+    let mut candidate = existing.clone();
+    for (name, field) in fields {
+        validate_canonical_insert(&candidate, name, field)?;
+        candidate.insert(name.clone(), field.clone());
+    }
+    Ok(candidate)
+}
+
 /// Include transform outputs and metadata-only names; none can hide a new field.
 pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
     schema

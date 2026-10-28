@@ -54,8 +54,10 @@ They require no signed publication bundle.
 ## Storage and rollout
 
 The reset uses a fresh `canonical-v2/` definition generation and its separate embedding store.
-One `definitions.json` commit contains the schemas and canonical fields.
+One `definitions.json` commit contains schemas, canonical fields, and owned declarations.
 A failed schema save cannot reserve new canonical names on its own.
+An owned declaration uses the same atomic boundary before either process cache changes.
+Concurrent updates must match the prior durable declaration before commit.
 The service refuses an implicit conversion of nonempty legacy definition files.
 The earlier `canonical-v1/` generation remains available for recovery.
 App identities, permissions, credentials, and quotas remain in their common stores.

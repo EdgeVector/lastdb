@@ -1,4 +1,4 @@
-//! One conditional S3 write publishes schemas and canonical definitions together.
+//! One conditional S3 image holds schemas, canonical fields and declarations.
 
 use super::*;
 
@@ -10,6 +10,7 @@ const REGISTRY_ITEM: &str = "registry";
 pub(super) struct DefinitionSet {
     pub(super) schemas: HashMap<String, Schema>,
     pub(super) canonical_fields: HashMap<String, CanonicalField>,
+    pub(super) declared_fields: HashMap<String, DeclaredFieldRecord>,
 }
 
 impl S3BlobPersistence {
@@ -30,11 +31,12 @@ impl S3BlobPersistence {
                 "definitions.json is missing its registry image".to_owned(),
             ));
         }
-        let ((schemas, _), (fields, _)) = tokio::try_join!(
+        let ((schemas, _), (fields, _), (declarations, _)) = tokio::try_join!(
             self.get_blob::<Schema>(SCHEMAS_KEY),
             self.get_blob::<CanonicalField>(CANONICAL_FIELDS_KEY),
+            self.get_blob::<DeclaredFieldRecord>(DECLARED_FIELDS_KEY),
         )?;
-        if !schemas.items.is_empty() || !fields.items.is_empty() {
+        if !schemas.items.is_empty() || !fields.items.is_empty() || !declarations.items.is_empty() {
             return Err(FoldDbError::Config(
                 "atomic definitions require an empty namespace or explicit conversion; legacy blobs remain unchanged".to_owned(),
             ));
@@ -68,21 +70,44 @@ impl S3BlobPersistence {
         let schemas = schemas.to_vec();
         let fields = fields.to_vec();
         self.update_definition_set(move |definitions| {
-            for (name, field) in &fields {
-                schema_service_core::field_name_policy::validate_canonical_insert(
+            definitions.canonical_fields =
+                schema_service_core::field_name_policy::canonical_fields_after_insert(
                     &definitions.canonical_fields,
-                    name,
-                    field,
+                    &fields,
                 )?;
-                definitions
-                    .canonical_fields
-                    .insert(name.clone(), field.clone());
-            }
             for schema in &schemas {
                 definitions
                     .schemas
                     .insert(schema.name.clone(), schema.clone());
             }
+            Ok(())
+        })
+        .await
+    }
+
+    pub(super) async fn commit_declaration_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        let record = record.clone();
+        let fields = fields.to_vec();
+        let expected = expected.cloned();
+        self.update_definition_set(move |definitions| {
+            schema_service_core::declared_fields::validate_declaration_commit(
+                &definitions.declared_fields,
+                &record,
+                expected.as_ref(),
+            )?;
+            definitions.canonical_fields =
+                schema_service_core::field_name_policy::canonical_fields_after_insert(
+                    &definitions.canonical_fields,
+                    &fields,
+                )?;
+            definitions
+                .declared_fields
+                .insert(record.declaration_id.clone(), record.clone());
             Ok(())
         })
         .await

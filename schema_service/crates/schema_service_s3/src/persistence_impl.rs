@@ -179,27 +179,23 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         Ok(blob.items.get(app_id).cloned())
     }
 
-    async fn save_declared_field(&self, record: &DeclaredFieldRecord) -> FoldDbResult<()> {
-        let declaration_id = record.declaration_id.clone();
-        let record = record.clone();
-        self.update_blob::<DeclaredFieldRecord, _>(DECLARED_FIELDS_KEY, move |blob| {
-            // Upsert under the ETag loop. Unlike `save_app`, this is NOT
-            // first-write-wins: a re-declare legitimately adds fields or
-            // grants. The declaration id is immutable and the owner is
-            // verified before we get here, so the row can only grow — and a
-            // concurrent Lambda writing the same declaration is writing the
-            // same owner's data.
-            blob.items.insert(declaration_id.clone(), record.clone());
-            Ok(())
-        })
-        .await
+    async fn save_declared_field_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        self.commit_declaration_definitions(record, fields, expected)
+            .await
     }
 
     async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {
-        let (blob, _) = self
-            .get_blob::<DeclaredFieldRecord>(DECLARED_FIELDS_KEY)
-            .await?;
-        Ok(blob.items.into_values().collect())
+        Ok(self
+            .load_definition_set()
+            .await?
+            .declared_fields
+            .into_values()
+            .collect())
     }
 
     async fn save_release(

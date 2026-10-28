@@ -29,6 +29,9 @@ A conditional storage write repeats this check against current durable definitio
 This catches a conflicting concurrent request.
 The backend commits a schema and its new field definitions in one operation.
 The process exposes the new vocabulary only after that commit succeeds.
+An owned field declaration and its new definitions also share one commit.
+The process publishes its declaration cache only after that commit succeeds.
+Concurrent declaration updates use the prior durable record as a commit condition.
 
 Name token overlap and description token overlap select possible semantic duplicates.
 The service compares their description embeddings when vectors are available.
@@ -62,7 +65,8 @@ Resolver artifacts retain the current format and policy checks.
 ## Rollout
 
 The DEV definition generation uses `canonical-v2/` with its separate embedding store.
-Its `definitions.json` contains schemas and canonical fields in one conditional cloud write.
+Its `definitions.json` contains schemas, canonical fields, and owned declarations.
+One conditional cloud write commits each change.
 The memory backend uses one lock for the same operation.
 The service refuses an implicit conversion of a nonempty legacy definition store.
 The earlier `canonical-v1/` store stays intact for recovery.

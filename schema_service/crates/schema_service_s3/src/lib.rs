@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! s3://{bucket}/
-//! ├── definitions.json          # one schema + canonical-field commit image
+//! ├── definitions.json          # schemas, canonical fields and declarations
 //! ├── near_misses.json          # Phase C shadow audit log, keyed by registration_id
 //! ```
 //!
