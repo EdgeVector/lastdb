@@ -84,7 +84,7 @@ pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Resul
             let path = session.root.join("replay-files").join(&name);
             match std::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.is_file() && meta.len() == part.bytes => {
-                    std::fs::remove_file(&path)?
+                    std::fs::remove_file(&path)?;
                 }
                 Ok(_) => return Err(RestoreError::Invalid("mutation source release identity")),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
