@@ -103,6 +103,56 @@ fn independent_instances_keep_one_declaration_per_owner_handle() {
 }
 
 #[test]
+fn concurrent_schema_creation_keeps_every_app_and_one_shared_vocabulary() {
+    let backend = Arc::new(InMemorySchemaPersistence::default());
+    let states: Vec<_> = (0..16).map(|_| run(state(backend.clone()))).collect();
+    let barrier = Arc::new(Barrier::new(states.len()));
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = states
+            .into_iter()
+            .enumerate()
+            .map(|(number, state)| {
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    run(state.add_schema(
+                        schema(&format!("parcel-app-{number}"), number % 2 == 0),
+                        std::collections::HashMap::new(),
+                    ))
+                    .expect("schema creation")
+                })
+            })
+            .collect();
+        for handle in handles {
+            assert!(matches!(
+                handle.join().expect("worker"),
+                schema_service_core::types::SchemaAddOutcome::Added(_, _)
+            ));
+        }
+    });
+    let schemas = run(backend.load_all_schemas()).expect("schemas");
+    let owners: HashSet<_> = schemas
+        .values()
+        .map(|schema| &schema.owner_app_id)
+        .collect();
+    assert_eq!(schemas.len(), 16);
+    assert_eq!(owners.len(), 16);
+    assert_eq!(
+        run(backend.load_all_canonical_fields())
+            .expect("fields")
+            .len(),
+        2
+    );
+    assert_eq!(
+        run(state(backend))
+            .get_schema_names()
+            .expect("reload")
+            .len(),
+        16
+    );
+}
+
+#[test]
 fn same_concept_in_unrelated_apps_does_not_share_declaration_identity() {
     run(async {
         let backend = Arc::new(InMemorySchemaPersistence::default());
