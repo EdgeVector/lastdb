@@ -261,24 +261,6 @@ impl NativeBackupManifest {
         Ok(())
     }
 
-    /// The importer first verifies and decrypts the selected index bytes.
-    /// This check then binds its plaintext to that exact accepted backup.
-    pub fn validate_for_accepted(
-        &self,
-        accepted: &crate::publication::AcceptedBackup,
-    ) -> Result<(), ProtocolError> {
-        self.validate()?;
-        accepted.validate()?;
-        if self.job != accepted.job
-            || self.native_root != accepted.native_root
-            || self.object_references != accepted.reference_root
-            || self.recovery_commitment != accepted.recovery.commitment()?
-        {
-            return Err(ProtocolError::invalid("native_manifest.accepted_backup"));
-        }
-        Ok(())
-    }
-
     /// The importer also verifies cross-page uniqueness, all receipt extents and
     /// the exact native inventory. A page alone cannot certify complete closure.
     pub fn validate_page(&self, page: &ManifestPage) -> Result<(), ProtocolError> {
