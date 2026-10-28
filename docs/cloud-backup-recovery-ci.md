@@ -35,6 +35,21 @@ Two separate absent destinations restore the exact selected mutation-log checkpo
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
 
+The source also declares one bounded HashRange schema for the atom lifecycle check.
+Two expired range keys and one live range key share the same field value and the original 8 MiB file.
+The initial snapshot retains all three keys while the TTL worker stays off.
+After the source restarts with TTL on, the ordinary TTL purge must erase the two expired keys.
+The delete ledger and complete journal frontier must confirm those removals before the log selection.
+Two more expired keys pass through the same TTL path before the later snapshot.
+The selected snapshot must cover their complete main and CAS frontiers.
+
+Three absent destinations restore the initial snapshot, the selected log checkpoint, and the later snapshot.
+The initial snapshot must retain its two original expired keys.
+The log and later snapshot must preserve their expired-key removals.
+Every destination must return the exact live key, shared field value, and complete original file after two boots.
+TTL stays off on every restored daemon, so a later local purge cannot conceal a missed cloud deletion.
+The operation uses real owner commands and native TTL mutations, without a service substitute.
+
 The log restore checks its frozen base, exact selected head, completed replay cursor, and expected journal position.
 It records hashes for the final native files and checks the product receipt and complete native file count and size.
 The snapshot restore also compares every file with the original authenticated per-file proof.
