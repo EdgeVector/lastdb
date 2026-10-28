@@ -64,13 +64,6 @@ impl RangeKeyComparison {
     pub fn canonical_value<'a>(&self, text: &'a str) -> Result<CanonicalRange<'a>, String> {
         parse(ordered_type(&self.field_type)?, text)
     }
-
-    pub fn require_typed_prefix(&self) -> Result<(), String> {
-        if *ordered_type(&self.field_type)? != FieldValueType::String {
-            return Err("a text prefix requires a String range field".into());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
