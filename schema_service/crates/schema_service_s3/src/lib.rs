@@ -4,14 +4,13 @@
 //!
 //! ```text
 //! s3://{bucket}/
-//! ├── schemas.json              # single JSON doc, every schema keyed by identity_hash
-//! ├── canonical_fields.json     # every canonical field keyed by name
+//! ├── definitions.json          # schemas, canonical fields and declarations
 //! ├── near_misses.json          # Phase C shadow audit log, keyed by registration_id
 //! ```
 //!
 //! ## Concurrency model
 //!
-//! **Domain blobs (schemas, canonical_fields)** use
+//! **Domain blobs** use
 //! read-modify-write with an `If-Match: {etag}` precondition on PUT.
 //! If another Lambda wrote in between our GET and our PUT, the ETag
 //! changes and S3 returns 412 Precondition Failed; we re-read, re-merge,
@@ -23,10 +22,11 @@
 //! means a cache populated from a past `load_all_*` call is always
 //! correct for the keys it holds; it can only be *incomplete*, never
 //! *wrong*. Writes go directly to S3 via conditional PUT and S3 is the
-//! sole arbiter of who wins a race. See the design doc for the full
-//! discussion.
+//! sole arbiter of who wins a race. Atomic definitions require a fresh
+//! namespace; old two-blob stores remain untouched until explicit conversion.
 
 mod definition_namespace;
+mod definitions;
 mod per_record;
 mod persistence_impl;
 mod quota_store;
@@ -115,8 +115,8 @@ impl<T> Default for DomainBlob<T> {
     }
 }
 
-/// Persist schema-service state in S3 domain blobs (`schemas.json`,
-/// `canonical_fields.json`, `near_misses.json`, `apps.json`) and a
+/// Persist schema-service state in S3 domain blobs (`definitions.json`,
+/// `near_misses.json`, `apps.json`) and a
 /// DynamoDB embeddings table. Implements `ExternalSchemaPersistence`
 /// so the fold_db schema service can delegate all persistence without
 /// knowing the split.

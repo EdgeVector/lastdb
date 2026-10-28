@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Read the standard vocabulary or publish an explicitly approved operator batch.
+"""Read the standard vocabulary. New fields use normal schema or field declaration.
 
-Dependencies: cryptography and rfc8785. The signing seed stays in LastSecrets.
-This command changes definitions only. It never opens a LastDB home.
+This command reads public definitions. It never retrieves a signing key,
+changes the vocabulary, or opens a LastDB home.
 """
 import argparse
-import base64
 import json
-from pathlib import Path
-import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -17,40 +14,13 @@ import urllib.request
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True, help='Schema service base URL')
-    actions = parser.add_subparsers(dest='action', required=True)
-    actions.add_parser('get', help='Read approved definitions')
-    publish = actions.add_parser('publish', help='Publish an approved definition batch')
-    publish.add_argument('--fields', type=Path, required=True, help='JSON object of name to definition')
-    publish.add_argument('--environment', choices=['dev', 'prod'], required=True)
-    publish.add_argument('--signing-key-locator', required=True, help='LastSecrets locator for the dedicated canonical publisher Ed25519 seed (base64)')
+    parser.add_argument('action', choices=['get'], help='Read current definitions')
     args = parser.parse_args()
     url = urllib.parse.urlsplit(args.url)
     if url.scheme != 'https' or not url.netloc or url.username or url.password:
         parser.error('--url requires HTTPS without credentials')
     endpoint = args.url.rstrip('/') + '/v1/fields/vocabulary'
-    request = urllib.request.Request(endpoint)
-    if args.action == 'publish':
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        import rfc8785
-        prefix = 'lastsecrets://'
-        if not args.signing_key_locator.startswith(prefix):
-            parser.error('--signing-key-locator requires a LastSecrets locator')
-        fields = json.loads(args.fields.read_text())
-        if not isinstance(fields, dict) or not 1 <= len(fields) <= 512:
-            parser.error('--fields requires 1..512 approved definitions')
-        body = {'operation': 'canonical_fields.publish', 'environment': args.environment,
-                'name_policy_version': 1, 'fields': fields}
-        encoded = rfc8785.dumps(body)
-        seed_text = subprocess.run(['lastsecrets', 'get', args.signing_key_locator[len(prefix):]],
-                                   check=True, capture_output=True, text=True).stdout.strip()
-        seed = base64.b64decode(seed_text, validate=True)
-        key = Ed25519PrivateKey.from_private_bytes(seed)
-        signature = base64.b64encode(key.sign(encoded)).decode('ascii')
-        del seed_text, seed, key
-        request = urllib.request.Request(endpoint, data=encoded, method='POST',
-                                        headers={'Content-Type': 'application/json',
-                                                 'X-Canonical-Signature': signature})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(endpoint, timeout=60) as response:
         result = json.load(response)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -58,6 +28,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError) as error:
         print(f'Canonical vocabulary command failed: {type(error).__name__}', file=sys.stderr)
         sys.exit(1)

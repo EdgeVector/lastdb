@@ -125,10 +125,6 @@ fn v1_field_and_registry_routes(scope: actix_web::Scope) -> actix_web::Scope {
             "/fields/vocabulary",
             web::get().to(handlers::get_canonical_vocabulary),
         )
-        .route(
-            "/fields/vocabulary",
-            web::post().to(handlers::publish_canonical_vocabulary),
-        )
         .route("/fields/declare", web::post().to(handlers::declare_field))
         .route(
             "/fields/{declaration_id}",

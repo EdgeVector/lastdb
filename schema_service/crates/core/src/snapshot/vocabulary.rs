@@ -1,4 +1,4 @@
-//! Import is a restore path, never another vocabulary-approval path.
+//! Restores use the same field validation rules as normal declarations.
 use super::*;
 
 impl SchemaServiceState {
@@ -6,14 +6,14 @@ impl SchemaServiceState {
         &self,
         envelope: &SnapshotEnvelope,
     ) -> FoldDbResult<()> {
-        let approved = read_lock(&self.canonical_fields, "canonical_fields")?;
+        let candidates: Vec<_> = envelope
+            .canonical_fields
+            .iter()
+            .map(|(name, field)| (name.clone(), field.clone()))
+            .collect();
+        self.checked_vocabulary_batch(&candidates)?;
         for (name, field) in &envelope.canonical_fields {
-            crate::field_name_policy::validate_approved_field(name, field)?;
-            if approved.get(name) != Some(field) {
-                return Err(FoldDbError::Config(format!(
-                    "unapproved_canonical_field: '{name}'; publish its definition with operator authority before import"
-                )));
-            }
+            crate::field_name_policy::validate_canonical_field(name, field)?;
         }
         for schema in &envelope.schemas {
             crate::field_name_policy::validate_schema_vocabulary(

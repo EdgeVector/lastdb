@@ -41,6 +41,7 @@ mod collection_names;
 mod idempotent_repost;
 mod lifecycle;
 mod loading;
+mod lookup;
 mod mutation_gate;
 mod near_misses;
 mod persistence;
@@ -239,6 +240,7 @@ pub struct SchemaServiceState {
     /// one answers "should a write here land there", which needs a scope one
     /// level narrower than meaning.
     pub declared_fields: Arc<RwLock<crate::declared_fields::DeclaredFieldRegistry>>,
+    pub(crate) declared_field_writes: Arc<tokio::sync::Mutex<()>>,
     /// App-identity verification config (trusted exemem root pubkeys,
     /// deployment env, revoked dev pubkeys). Set once at startup via
     /// [`SchemaServiceState::configure_app_identity`]; defaults to empty

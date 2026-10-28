@@ -105,6 +105,7 @@ impl SchemaServiceState {
             declared_fields: Arc::new(RwLock::new(
                 crate::declared_fields::DeclaredFieldRegistry::new(),
             )),
+            declared_field_writes: Arc::new(tokio::sync::Mutex::new(())),
             app_identity: Arc::new(RwLock::new(
                 crate::app_identity::AppIdentityConfig::default(),
             )),
