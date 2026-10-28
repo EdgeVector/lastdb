@@ -102,9 +102,14 @@ fn full_component_cover_response(
             Err(e) => return Some(internal_error("Failed to fetch covered schema", e)),
         }
     }
-    let system = state.is_system_schema(&request.schema.name);
+    let mut normalized = match state.normalized_schema_field_vocabulary(&request.schema) {
+        Ok(schema) => schema,
+        Err(error) => return Some(internal_error("Cannot normalize covered schema", error)),
+    };
+    normalized.compute_identity_hash();
+    let system = state.is_system_schema(&normalized.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
-        schema: request.schema.clone(),
+        schema: normalized,
         mutation_mappers: request.mutation_mappers.clone(),
         replaced_schema: None,
         system,

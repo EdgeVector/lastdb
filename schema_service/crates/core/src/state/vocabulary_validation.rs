@@ -62,13 +62,21 @@ impl SchemaServiceState {
     /// Refresh only for a new concept. Existing definitions are immutable;
     /// approved publication must work across warm Lambda instances without a deploy.
     pub async fn validate_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<()> {
-        let names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
+        let mut names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
             .into_iter()
             .map(String::as_str)
             .collect();
+        names.extend(crate::field_name_policy::schema_referenced_field_names(
+            schema,
+        ));
         self.refresh_vocabulary_for_names(&names).await?;
+        self.normalized_schema_field_vocabulary(schema).map(|_| ())
+    }
+
+    pub fn normalized_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<Schema> {
         let mut proposal = schema.clone();
-        self.validate_proposal_field_names(&mut proposal)
+        self.validate_proposal_field_names(&mut proposal)?;
+        Ok(proposal)
     }
 
     pub(crate) async fn refresh_vocabulary_for_names(&self, names: &[&str]) -> FoldDbResult<()> {

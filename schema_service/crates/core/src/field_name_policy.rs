@@ -118,17 +118,8 @@ pub fn validate_schema_vocabulary(
             )));
         }
     }
-    for mapper in schema.field_mappers.iter().flat_map(|map| map.values()) {
-        validate_vocabulary_reference(mapper.source_field(), vocabulary)?;
-    }
-    for path in schema
-        .key
-        .iter()
-        .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
-        .flatten()
-    {
-        let root = path.split('.').next().unwrap_or(path);
-        validate_vocabulary_reference(root, vocabulary)?;
+    for name in schema_referenced_field_names(schema) {
+        validate_vocabulary_reference(name, vocabulary)?;
     }
     Ok(())
 }
@@ -235,4 +226,22 @@ fn validate_vocabulary_reference(
         ))
     })?;
     validate_approved_field(name, field)
+}
+
+/// Referenced concepts participate in refresh, but are not local schema fields.
+pub(crate) fn schema_referenced_field_names(schema: &Schema) -> BTreeSet<&str> {
+    schema
+        .field_mappers
+        .iter()
+        .flat_map(|map| map.values())
+        .map(schema_types::FieldMapper::source_field)
+        .chain(
+            schema
+                .key
+                .iter()
+                .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
+                .flatten()
+                .map(|path| path.split('.').next().unwrap_or(path)),
+        )
+        .collect()
 }
