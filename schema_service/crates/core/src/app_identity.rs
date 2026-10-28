@@ -186,16 +186,6 @@ pub fn env_label(env: Env) -> &'static str {
     }
 }
 
-/// Inverse of [`env_label`]: parse a wire label back into [`Env`].
-/// Unknown labels return `None`.
-pub fn env_from_label(label: &str) -> Option<Env> {
-    match label {
-        "dev" => Some(Env::Dev),
-        "prod" => Some(Env::Prod),
-        _ => None,
-    }
-}
-
 /// Resolve the deployment env from the `ENVIRONMENT` process variable.
 /// Single source of truth for what env this deployment is — every
 /// app-identity verification path reads through this so an
