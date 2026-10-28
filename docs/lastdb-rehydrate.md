@@ -154,6 +154,13 @@ Change notices use that exact input-to-ID association. They do not substitute an
 
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
+Within that preparation, repeated exact disk reads reuse the already authenticated result from the held root.
+The private result store has a 1 MiB key/value/entry allowance and at most 10,000 records.
+It omits individual values larger than 16 KiB and falls back to disk when its allowance is full.
+Every read checks the current private changes and the accepted prefix before these saved disk results.
+Each reuse still charges the complete call's key and returned-byte allowance before it copies a value.
+Errors never become saved absences. Ordinary queries do not allocate this result store.
+The result store ends with the write preparation. It holds no decoded storage blocks and creates no shared file or block cache.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
 Concurrent schema declarations cannot create competing proteins for the same unbound molecule.

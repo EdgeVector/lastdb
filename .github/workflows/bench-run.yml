@@ -18,6 +18,9 @@ on:
       investigation:
         type: boolean
         default: false
+      writer16:
+        type: boolean
+        default: false
       resource_only:
         type: boolean
         default: false
@@ -62,7 +65,7 @@ jobs:
       # A speed failure must not cancel the independent disk/delete cap.
       fail-fast: false
       matrix:
-        lane: ${{ fromJSON(inputs.resource_only && '["disk", "growth"]' || '["speed", "disk", "growth"]') }}
+        lane: ${{ fromJSON(inputs.resource_only && '["disk", "growth"]' || inputs.writer16 && '["speed", "disk", "growth", "writers"]' || '["speed", "disk", "growth"]') }}
     env:
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
@@ -119,6 +122,24 @@ jobs:
 
       - name: Require corpus space before measurements
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
+
+      - name: Compare 16 durable writers on six fresh generated homes
+        if: matrix.lane == 'writers'
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 60m \
+            python3 driver/scripts/benchmarks/write_gate.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" --candidate-revision "$CANDIDATE_SHA" \
+              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/writers"
+
+      - name: Publish the paired writer comparison
+        if: always() && matrix.lane == 'writers'
+        run: python3 driver/scripts/benchmarks/write_gate_report.py --output "$BENCH_OUTPUT/writers"
 
       - name: Measure alternating baseline and candidate pairs
         if: matrix.lane == 'speed'
