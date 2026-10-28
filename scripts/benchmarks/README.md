@@ -1,5 +1,18 @@
 # LastDB benchmarks in GitHub Actions
 
+## Paired current 16-writer comparison
+
+The optional `writer16` comparison reuses the normal verified build artifact in a separate hosted measurement job.
+It is available in the manual historical comparison.
+Three alternating pairs each use a fresh 100,000-record home, one schema, one hash, and 16 clients with disjoint keys.
+Each ordinary case completes 2,048 single-record durable writes and verifies the final values.
+The final pair also records native clocks after a restart; instrumented latency stays separate from the ordinary comparison.
+The summary compares median P95 and throughput, and retains logical preparation phases and actual read/decode counts.
+Candidate-only write-read-reuse counters remain explicit; absent baseline instrumentation is unreported.
+Search stays off. All generated daemons stop and their owned homes are removed.
+Speed changes remain advisory. Required standard speed, growth, disk/delete and upload checks still run.
+The additional job uses the same source revisions and programs, without another build or local operation.
+
 ## Historical 16-writer investigation
 
 `write-contention.yml` diagnoses the warning in run 40558556490. It downloads the exact two archived program pairs from that run.

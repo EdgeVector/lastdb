@@ -46,7 +46,7 @@ use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::host_node::{ReadBusy, ReadPermit};
+use crate::host_node::ReadBusy;
 
 /// Which fairness lane an operation belongs to. Classified server-side from the
 /// operation's shape/size — no client cooperation required.
@@ -328,15 +328,4 @@ pub struct QosPermit {
     // Bulk ops hold their lane slot until drop; interactive ops carry `None`.
     _lane: Option<OwnedSemaphorePermit>,
     _global: OwnedSemaphorePermit,
-}
-
-// A `QosPermit` is `Send`, so the blanket impl in `host_node` already makes it a
-// `ReadPermit`; this is the explicit boxing helper the hosts return.
-impl QosPermit {
-    /// Box this permit as the trait object the [`HostNode`](crate::HostNode)
-    /// surface returns.
-    #[must_use]
-    pub fn boxed(self) -> Box<dyn ReadPermit> {
-        Box::new(self)
-    }
 }
