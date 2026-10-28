@@ -7,6 +7,14 @@ pub(crate) use byte_backup::ByteBackupCommand;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Read or manage Stripe payments for this home's existing native account.
+    /// Requires an explicit absolute --data-dir; never starts a daemon or store.
+    Payments {
+        #[command(subcommand)]
+        action: CloudPaymentCommand,
+        #[arg(long, global = true)]
+        json: bool,
+    },
     /// Explicit V2 byte backup and source-free restore.
     BackupV2 {
         #[command(subcommand)]
@@ -66,4 +74,14 @@ pub(crate) enum CloudCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand, Clone, Copy, Debug)]
+pub(crate) enum CloudPaymentCommand {
+    /// Read payment status through the saved native account API key.
+    Status,
+    /// Print a Stripe-hosted Checkout URL for the same native account.
+    Checkout,
+    /// Print a Stripe-hosted customer portal URL for the same native account.
+    Portal,
 }
