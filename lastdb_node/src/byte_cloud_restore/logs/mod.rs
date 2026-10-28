@@ -1,4 +1,5 @@
 //! Restore one fixed accepted root: a private snapshot followed by whole native batches.
+mod cache;
 mod checkpoint;
 mod plan;
 use super::{

@@ -75,14 +75,13 @@ pub(super) async fn download(
 pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
     for entry in &root.entries {
         for part in &entry.parts {
-            let path = session.root.join("replay-files").join(
-                fold_db::storage::disk_pack::mutation_log::log_path(
-                    &root.anchor.epoch,
-                    entry.sequence,
-                    part.role,
-                    &part.run_id,
-                ),
+            let name = fold_db::storage::disk_pack::mutation_log::log_path(
+                &root.anchor.epoch,
+                entry.sequence,
+                part.role,
+                &part.run_id,
             );
+            let path = session.root.join("replay-files").join(&name);
             match std::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.is_file() && meta.len() == part.bytes => {
                     std::fs::remove_file(&path)?
@@ -91,8 +90,10 @@ pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Resul
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
+            session
+                .remove_spool_file(&session.root.join("entries").join(native::path_key(&name)))?;
         }
     }
     std::fs::File::open(session.root.join("replay-files"))?.sync_all()?;
-    Ok(())
+    super::cache::clear(session)
 }

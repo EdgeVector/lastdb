@@ -27,6 +27,7 @@ pub(super) async fn restore(
             &session.accepted().begin,
         )
         .map_err(|_| RestoreError::Invalid("client mutation log root"))?;
+        drop(inventory);
         return super::logs::restore(session, client, keys, root).await;
     }
     if version != CLIENT_VERSION {

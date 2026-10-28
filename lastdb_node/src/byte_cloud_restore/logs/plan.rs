@@ -58,6 +58,7 @@ pub(super) async fn prepare(
             save(session, &link, &accepted)?;
         }
         count += 1;
+        super::cache::clear(session)?;
         if root.previous == latest.base {
             break;
         }
