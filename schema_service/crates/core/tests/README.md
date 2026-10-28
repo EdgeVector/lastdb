@@ -7,8 +7,15 @@ PR 651 adds the corrections and the automatic checks to accepted main.
 
 ## Run boundary
 
-The required `ci-required` gate calls the reusable workflow on each PR.
-Relevant main pushes and manual dispatch also run the workflow.
+Every branch push runs the suite through `schema-canonical-properties.yml`.
+There is no path filter. Deleted branches and tag pushes do not execute the suite.
+The required `ci-required` gate calls that workflow on each PR and main push.
+It reuses only the exact repository, workflow, branch, and source revision's successful push run.
+For a PR, reuse also requires identical head and merge-candidate trees.
+Fork PRs and changed merge candidates run the isolated suite themselves.
+Missing, failed, cancelled, skipped, or timed-out producer runs fail the required gate.
+Each pushed revision has its own concurrency group; a later push does not cancel it.
+Manual dispatch remains available for a fresh run.
 Run the target in GitHub Actions:
 
 ```sh
