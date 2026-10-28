@@ -206,7 +206,7 @@ never follows the size of the schema. A purge of 64 keys of a 24-field schema (1
 ## Batch size and the request limit
 
 One erase request stages all its chunks of 64 keys in one native batch. A batch holds at most
-16,384 operations (4,096 on a home from an older build), and the reads of the request share a
+16,384 operations, and the reads of the request share a
 budget of 40,000 examined keys. A tip costs at most 4 operations in a `purge` (the tip delete, the
 `mgd` marker, and the body and counter deletes) and 5 in a `delete` (one barrier row more). It costs
 at most 12 and 13 examined keys. A chunk adds `F + 8` of each for F fields. The node counts the

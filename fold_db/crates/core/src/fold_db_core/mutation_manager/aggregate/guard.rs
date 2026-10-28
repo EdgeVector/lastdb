@@ -41,14 +41,7 @@ impl MutationManager {
         pub_key: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Mutation>, SchemaError> {
-        let mut targets: BTreeMap<(String, String), std::collections::BTreeSet<String>> =
-            BTreeMap::new();
-        for guard in guards {
-            targets
-                .entry((guard.target_schema_name.clone(), guard.target_key.clone()))
-                .or_default()
-                .extend(guard.metric_fields.iter().cloned());
-        }
+        let targets = invalidation_rules::guard_targets(guards);
         let mut invalidations = Vec::with_capacity(targets.len());
         for ((target_schema_name, target_key), metric_fields) in targets {
             let target_schema = self
@@ -59,58 +52,22 @@ impl MutationManager {
                         "aggregate target schema '{target_schema_name}' not found during guard migration"
                     ))
                 })?;
-            for field in [AGGREGATE_VALID_FIELD, AGGREGATE_GUARD_TOKEN_FIELD] {
-                if !target_schema.runtime_fields.contains_key(field) {
-                    return Err(SchemaError::InvalidField(format!(
-                        "aggregate target schema '{target_schema_name}' must declare field '{field}'"
-                    )));
-                }
-            }
+            invalidation_rules::check_target_fields(&target_schema, &target_schema_name)?;
             let target_key_value = KeyValue::from_storage_key(&target_key)?;
             let metric_names: Vec<String> = metric_fields.into_iter().collect();
             let probe = Self::aggregate_probe(target_schema_name.clone(), target_key_value.clone());
             let current = self
                 .read_current_row_fields(&probe, &metric_names, storage_prefix)
                 .await?;
-            let mut values = HashMap::new();
-            match current {
-                CurrentRowFields::Absent | CurrentRowFields::Corrupt { .. } => {
-                    values.extend(
-                        metric_names
-                            .iter()
-                            .cloned()
-                            .map(|field| (field, serde_json::Value::from(0))),
-                    );
-                }
-                CurrentRowFields::Present(current) => {
-                    values.extend(
-                        metric_names
-                            .iter()
-                            .filter(|field| {
-                                current
-                                    .get(*field)
-                                    .and_then(serde_json::Value::as_i64)
-                                    .is_none()
-                            })
-                            .map(|field| (field.clone(), serde_json::Value::from(0))),
-                    );
-                }
-            }
-            values.insert(AGGREGATE_VALID_FIELD.into(), serde_json::Value::from(0));
-            values.insert(
-                AGGREGATE_GUARD_TOKEN_FIELD.into(),
-                serde_json::Value::String(token.to_string()),
-            );
-            let mut invalidation = Mutation::new(
+            let values = invalidation_rules::missing_metric_values(&metric_names, &current);
+            invalidations.push(super::rules::summary_mutation(
                 target_schema_name,
-                values,
                 target_key_value,
+                values,
+                false,
+                token.to_string(),
                 pub_key.to_string(),
-                MutationType::Update,
-            );
-            invalidation.aggregate_derived_internal = true;
-            invalidation.synchronous = Some(true);
-            invalidations.push(invalidation);
+            ));
         }
         Ok(invalidations)
     }
@@ -143,24 +100,7 @@ impl MutationManager {
                     storage_prefix,
                 )
                 .await?;
-            let CurrentRowFields::Present(status) = status else {
-                return Err(SchemaError::InvalidData(
-                    "aggregate invalidation marker did not become readable".into(),
-                ));
-            };
-            if status
-                .get(AGGREGATE_VALID_FIELD)
-                .and_then(serde_json::Value::as_i64)
-                != Some(0)
-                || status
-                    .get(AGGREGATE_GUARD_TOKEN_FIELD)
-                    .and_then(serde_json::Value::as_str)
-                    != Some(token)
-            {
-                return Err(SchemaError::InvalidData(
-                    "aggregate invalidation marker did not become current".into(),
-                ));
-            }
+            invalidation_rules::check_marker(&status, token)?;
         }
         Ok(())
     }

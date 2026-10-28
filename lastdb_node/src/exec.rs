@@ -197,7 +197,6 @@ mod schema_routes;
 mod setup_routes;
 mod socket_queue;
 mod storage_routes;
-mod sync_routes;
 mod timeouts;
 pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
@@ -216,5 +215,4 @@ use query_mutation_routes::*;
 use schema_routes::*;
 pub use setup_routes::*;
 use storage_routes::*;
-use sync_routes::*;
 pub use timeouts::*;

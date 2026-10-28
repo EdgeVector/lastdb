@@ -55,7 +55,7 @@ fn checked_home() -> Result<PathBuf, Box<dyn std::error::Error>> {
     {
         return Err("the exact generated home ownership differs".into());
     }
-    if lastdb_node::cloud::cloud_sync_file_state(&home) != "unset"
+    if lastdb_node::cloud::cloud_credentials_path(&home).exists()
         || lastdb_node::cloud::cloud_resume_required_path(&home).exists()
     {
         return Err("the generated home has cloud configuration".into());

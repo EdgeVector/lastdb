@@ -31,6 +31,8 @@ impl SchemaServiceState {
             }
         }
 
+        crate::field_name_policy::validate_new_field_name(name).map_err(FoldDbError::Config)?;
+
         // Compute the embedding outside any lock. Best-effort: in
         // environments where the embedding model isn't available
         // (e.g. fastembed in Lambda), we still insert the field; only

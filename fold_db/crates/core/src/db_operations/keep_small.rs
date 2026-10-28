@@ -23,9 +23,9 @@ pub use types::*;
 impl KeepSmallSnapshot {
     /// Split per-schema maps into shards and leave a small header behind.
     ///
-    /// `only_schemas = None` emits a shard for every schema (repair, first
-    /// split of a legacy whole-map row). `Some(set)` emits only those names,
-    /// so a persist of one dirty schema does not rewrite the rest.
+    /// `only_schemas = None` emits a shard for every schema (repair).
+    /// `Some(set)` emits only those names, so a persist of one dirty schema
+    /// does not rewrite the rest.
     #[must_use]
     pub fn into_header_and_shards(
         mut self,
@@ -84,7 +84,6 @@ impl KeepSmallSnapshot {
             .map(|(name, shard)| (keep_small_schema_shard_key(&name), shard))
             .collect();
         shards.sort_by(|a, b| a.0.cmp(&b.0));
-        self.sharded = true;
         (self, shards)
     }
 
@@ -159,7 +158,7 @@ pub struct KeepSmallMeters {
     /// [`Self::import`] clears it.
     hydrate_missed: AtomicBool,
     /// Set when boot hydrated a snapshot not written by a shutdown flush
-    /// (`clean_stop != Some(true)`): metered writes landed after the last
+    /// (`clean_stop == Some(false)`): metered writes landed after the last
     /// debounced persist and the process stopped without the shutdown flush
     /// (2026-09-21 design — the debounce accepts that staleness, the report
     /// must not call it exact). Cleared only by

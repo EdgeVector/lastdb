@@ -6,14 +6,21 @@ use crate::schema::SchemaError;
 
 use super::MutationManager;
 
+/// The accepted retry decisions and the surviving writes with their hashes.
+pub(super) struct FilteredMutations {
+    pub(super) already_seen_ids: Vec<String>,
+    pub(super) mutations: Vec<Mutation>,
+    pub(super) hashes: Vec<String>,
+}
+
 impl MutationManager {
     /// Filters out already-processed mutations using content-hash idempotency.
-    /// Returns (already_seen_ids, new_mutations, new_hashes).
+    /// Keeps each surviving mutation in the same position as its content hash.
     pub(super) async fn filter_idempotent_mutations(
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-    ) -> Result<(Vec<String>, Vec<Mutation>, Vec<String>), SchemaError> {
+    ) -> Result<FilteredMutations, SchemaError> {
         let mut already_seen_ids: Vec<String> = Vec::new();
         let mut new_mutations: Vec<Mutation> = Vec::new();
         let mut new_hashes: Vec<String> = Vec::new();
@@ -49,35 +56,32 @@ impl MutationManager {
                         hash,
                         mutation.uuid
                     );
-                    new_hashes.push(hash);
-                    new_mutations.push(mutation);
                 } else if self
                     .idempotency_hit_matches_current_state(&mutation, storage_prefix)
                     .await?
                 {
                     already_seen_ids.push(cached_id);
+                    continue;
                 } else {
                     tracing::debug!(
                         "Idempotency hit for mutation hash {} is stale against current molecule heads; reapplying mutation {}",
                         hash,
                         mutation.uuid
                     );
-                    new_hashes.push(hash);
-                    new_mutations.push(mutation);
                 }
-            } else {
-                new_hashes.push(hash);
-                new_mutations.push(mutation);
             }
+            new_hashes.push(hash);
+            new_mutations.push(mutation);
         }
 
-        Ok((already_seen_ids, new_mutations, new_hashes))
+        Ok(FilteredMutations {
+            already_seen_ids,
+            mutations: new_mutations,
+            hashes: new_hashes,
+        })
     }
 
-    pub(super) fn has_prior_batch_write_for_same_key(
-        prior: &[Mutation],
-        mutation: &Mutation,
-    ) -> bool {
+    fn has_prior_batch_write_for_same_key(prior: &[Mutation], mutation: &Mutation) -> bool {
         prior.iter().any(|candidate| {
             candidate.schema_name == mutation.schema_name
                 && candidate.key_value == mutation.key_value

@@ -22,16 +22,14 @@ impl SchemaStore {
         )
         .map_err(SchemaError::from)?;
         let mut schema = schema
-            .map(|bytes| decode_catalog_schema(&bytes, self.catalog_unwrap_key.as_ref()))
+            .map(|bytes| decode_catalog_schema(&bytes))
             .transpose()
             .map_err(|error| SchemaError::StorageRead { detail: error })?;
         if let Some(schema) = &mut schema {
             schema.populate_runtime_fields()?;
         }
         let state = state
-            .map(|bytes| {
-                decode_catalog_json::<SchemaState>(&bytes, self.catalog_unwrap_key.as_ref())
-            })
+            .map(|bytes| decode_catalog_json::<SchemaState>(&bytes))
             .transpose()
             .map_err(|error| SchemaError::StorageRead { detail: error })?
             .unwrap_or_default();
@@ -40,9 +38,7 @@ impl SchemaStore {
                 .inner()
                 .get(name.as_bytes())
                 .await?
-                .map(|bytes| {
-                    decode_catalog_json::<String>(&bytes, self.catalog_unwrap_key.as_ref())
-                })
+                .map(|bytes| decode_catalog_json::<String>(&bytes))
                 .transpose()
                 .map_err(|error| SchemaError::StorageRead { detail: error })?
         } else {

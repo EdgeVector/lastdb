@@ -229,10 +229,6 @@ pub enum DataRoute {
     /// the source instance_id and grants target-domain key wraps.
     /// OWNER socket only.
     DbCatalogShare,
-    /// `POST /api/sync/cloud-off` — intentional Cloud Sync pause: stamp grace
-    /// clock on the live engine + rename `cloud_sync.json` → `.paused` for
-    /// durable reboot intent. OWNER only. Local R/W never blocked.
-    SyncCloudOff,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.

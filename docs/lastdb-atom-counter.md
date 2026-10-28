@@ -100,7 +100,7 @@ elsewhere and passes to a generic helper.
 
 | Limit | Value |
 |---|---|
-| Operations in one native batch | 16,384 (4,096 on a home from an older build) |
+| Operations in one native batch | 16,384 |
 | Examined keys in the reads of one write request | 40,000 |
 | Examined keys in one ordinary read call | 10,000 |
 | Metadata pages in one read call | 4,096 |
@@ -124,9 +124,8 @@ A tip costs the tip delete, the `mgd` marker, and the body delete and the
 counter delete when it holds the last reference. A delete adds one barrier row.
 A request over a limit is refused with HTTP 400 before it takes the gate, and
 the message gives the number of keys that fits. A schema of 24 fields fits 138
-keys for a purge and 128 for a delete on a fresh home (42 and 33 on a home from an
-older build). The TTL sweep cuts its batch to fit and halves a batch that still
-hits a limit.
+keys for a purge and 128 for a delete. The TTL sweep cuts its batch to fit and
+halves a batch that still hits a limit.
 
 ## Delete on zero, delete and purge
 

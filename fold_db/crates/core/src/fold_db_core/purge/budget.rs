@@ -1,7 +1,7 @@
 //! The size of one erase request, counted before the write gate.
 //!
 //! One erase request stages all its chunks of keys in one native batch. A
-//! batch holds at most 16,384 operations (4,096 on a home from an older build).
+//! batch holds at most 16,384 operations.
 //! The reads of the request, inside the write gate, share one budget of 40,000
 //! examined keys. A request that is too big used to fail after it staged two
 //! chunks, with a message that named no remedy. This module counts the
@@ -45,8 +45,6 @@ pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
 pub const PURGE_READS_PER_TIP: usize = 12;
 /// Examined keys for each tip of a delete, at most (one more than a purge).
 pub const DELETE_READS_PER_TIP: usize = 13;
-/// The operation limit of a home from an older build.
-pub const LEGACY_BATCH_OPERATIONS: usize = 4_096;
 
 fn per_tip(delete: bool) -> usize {
     if delete {

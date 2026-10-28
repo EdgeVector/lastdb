@@ -9,6 +9,7 @@ impl SchemaServiceState {
         schema: &mut Schema,
         schema_name: &str,
     ) -> FoldDbResult<()> {
+        self.validate_proposal_field_names(schema)?;
         // Resolve inherited types before any durable write or cache publication.
         self.apply_canonical_types(schema)?;
         let schema_name = schema_name.to_string();

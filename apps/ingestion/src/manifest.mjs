@@ -115,7 +115,6 @@ export function nodeTarget(env) {
     env.INGESTION_NODE_TARGET,
     env.INGESTION_SOCKET_PATH,
     env.FOLDDB_SOCKET_PATH,
-    env.FOLDDB_SOCK,
     env.INGESTION_BASE_URL,
   );
 }

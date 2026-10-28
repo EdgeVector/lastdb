@@ -56,11 +56,15 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
 /// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 ///
-/// `5` (2026-10-27) removes the two at-rest migration owner-socket routes
+/// `5` (2026-10-27) removes the legacy Cloud Sync owner-socket route
+/// `POST /api/sync/cloud-off`. No app-socket route and no request key
+/// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+///
+/// `6` (2026-10-27) removes the two at-rest migration owner-socket routes
 /// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
 /// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 5;
+pub const API_VERSION: u32 = 6;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

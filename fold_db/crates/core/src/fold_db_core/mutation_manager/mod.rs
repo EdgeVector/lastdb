@@ -14,6 +14,7 @@ mod cas;
 mod cas_current_state;
 mod cas_idempotency;
 mod cas_preconditions;
+mod cas_rules;
 pub(super) mod helpers;
 mod index;
 mod molecules;

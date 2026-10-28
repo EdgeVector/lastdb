@@ -120,7 +120,6 @@ async fn run_recount(
         &DatabaseConfig {
             path: store_root,
             engine: StorageEngine::Laststore,
-            cloud_sync: None,
         },
         &e2e,
         keypair,

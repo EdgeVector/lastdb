@@ -29,9 +29,6 @@ use fold_db::storage::config::{DatabaseConfig, StorageEngine};
 /// SAME node home.
 pub use lastdb_identity::IDENTITY_KEY_FILE;
 
-/// Historical credential file name, also read by explicit backup enrollment.
-pub const CLOUD_SYNC_CONFIG_FILE: &str = "cloud_sync.json";
-
 /// The booted minimal host: the core database plus the node identity.
 pub struct Host {
     /// Node home directory.

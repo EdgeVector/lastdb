@@ -16,6 +16,8 @@ use std::collections::{BTreeMap, HashMap};
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
 
+mod probes;
+
 /// What the counter store says about one atom, for operators.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct AtomCounterView {
@@ -152,7 +154,12 @@ impl AtomStore {
         scope: Option<&str>,
     ) -> Result<HashMap<String, AtomBefore>, SchemaError> {
         let atoms: Vec<&String> = deltas.keys().collect();
-        let keys: Vec<String> = atoms
+        let mut out = self.native_counter_probes(&atoms, scope).await?;
+        let missing: Vec<_> = atoms
+            .into_iter()
+            .filter(|atom| !out.contains_key(*atom))
+            .collect();
+        let keys: Vec<String> = missing
             .iter()
             .map(|atom| build_storage_key(scope, &atom_key_codec::counter_key(atom)))
             .collect();
@@ -167,9 +174,8 @@ impl AtomStore {
                     })?,
             );
         }
-        let bodies = self.body_records_exist(&atoms, &stored, scope).await?;
-        let mut out = HashMap::with_capacity(atoms.len());
-        for ((atom, counter), body_without_counter) in atoms.into_iter().zip(stored).zip(bodies) {
+        let bodies = self.body_records_exist(&missing, &stored, scope).await?;
+        for ((atom, counter), body_without_counter) in missing.into_iter().zip(stored).zip(bodies) {
             out.insert(
                 atom.clone(),
                 AtomBefore {

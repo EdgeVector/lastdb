@@ -9,7 +9,7 @@ Every native write waits for the complete disk commit and clean core publication
 The first accepted request starts the worker immediately. Callers ahead of that worker in the FIFO can share one commit.
 The private disk-output queue retains bytes and resource owners until completion; ordinary reads cannot inspect it.
 Captured core values keep their memory charges until their calls release them.
-There is no 500 ms collection timer. Legacy Cloud Sync activation stays disabled.
+There is no 500 ms collection timer. Legacy Cloud Sync is removed.
 
 Use the [current native summary](lastdb-disk-native-node.md) and [memory and disk routes](lastdb-rehydrate.md) for current responsibilities.
 The [October work plan](lastdb-logical-warm-set-plan.md) records the earlier implementation sequence.

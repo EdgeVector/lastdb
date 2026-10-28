@@ -38,19 +38,6 @@ pub struct PauseState {
     pub reason: PauseReason,
 }
 
-impl PauseState {
-    pub fn validate(&self) -> super::Result<()> {
-        let retry = matches!(
-            self.reason,
-            PauseReason::Temporary | PauseReason::Busy | PauseReason::Shutdown
-        );
-        if (self.disposition == Disposition::Retry) != retry {
-            return Err(BackupError::Invalid);
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
 pub enum BackupError {
     Disabled,

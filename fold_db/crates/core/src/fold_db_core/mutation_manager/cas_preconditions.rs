@@ -1,10 +1,9 @@
 //! CAS and must-exist precondition checks.
 
-use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
-use super::cas::CurrentRowFields;
+use super::cas_rules;
 use super::MutationManager;
 
 impl MutationManager {
@@ -23,8 +22,10 @@ impl MutationManager {
             let Some(expected) = &mutation.expected else {
                 continue;
             };
-            self.evaluate_cas(mutation, expected, storage_prefix)
+            let head = self
+                .read_current_head(mutation, expected.field(), storage_prefix)
                 .await?;
+            cas_rules::check_expectation(mutation, expected, head)?;
         }
         Ok(())
     }
@@ -108,17 +109,12 @@ impl MutationManager {
 
         // Probe the written fields first — their molecules are already
         // restored by this write, so a live row usually answers here.
-        let mut written: Vec<String> = mutation
-            .fields_and_values
-            .keys()
-            .filter(|field| schema.runtime_fields.contains_key(*field))
-            .cloned()
-            .collect();
-        written.sort_unstable();
+        let written = cas_rules::written_fields(mutation, &schema);
         if !written.is_empty()
             && self
-                .row_present_over_fields(mutation, &written, storage_prefix)
+                .read_current_row_fields(mutation, &written, storage_prefix)
                 .await?
+                .has_live_field()
         {
             return Ok(true);
         }
@@ -126,77 +122,13 @@ impl MutationManager {
         // Nothing written resolved. Widen to the rest of the schema before
         // calling the row absent, so a heal write to a field the row never
         // carried is not mistaken for a phantom-row create.
-        let mut rest: Vec<String> = schema
-            .runtime_fields
-            .keys()
-            .filter(|field| !written.contains(field))
-            .cloned()
-            .collect();
-        rest.sort_unstable();
+        let rest = cas_rules::remaining_fields(&schema, &written);
         if rest.is_empty() {
             return Ok(false);
         }
-        self.row_present_over_fields(mutation, &rest, storage_prefix)
-            .await
-    }
-
-    /// One presence probe over an exact field set.
-    ///
-    /// Invalid fields, invalid keys and storage failures are not absence.
-    async fn row_present_over_fields(
-        &self,
-        mutation: &Mutation,
-        fields: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        let row = self
-            .read_current_row_fields(mutation, fields, storage_prefix)
-            .await?;
-        Ok(matches!(
-            row,
-            CurrentRowFields::Present(_) | CurrentRowFields::Corrupt { .. }
-        ))
-    }
-
-    /// Compare one CAS mutation's expectation against the live head at its key,
-    /// returning `Ok(())` on a match and [`SchemaError::CasConflict`] on a miss.
-    pub(super) async fn evaluate_cas(
-        &self,
-        mutation: &Mutation,
-        expected: &CasExpectation,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let field = expected.field();
-        let (current_uuid, current_value) = self
-            .read_current_head(mutation, field, storage_prefix)
-            .await?;
-
-        let conflict = |exp: String, actual: Option<String>| SchemaError::CasConflict {
-            schema: mutation.schema_name.clone(),
-            field: field.to_string(),
-            key: mutation.key_value.to_storage_key(),
-            expected: exp,
-            actual,
-        };
-
-        match expected {
-            CasExpectation::Absent { .. } => {
-                // A live value present where the caller expected none.
-                if let Some(value) = current_value {
-                    return Err(conflict("<absent>".to_string(), Some(value.to_string())));
-                }
-                Ok(())
-            }
-            CasExpectation::Value { value, .. } => match current_value {
-                Some(current) if &current == value => Ok(()),
-                Some(current) => Err(conflict(value.to_string(), Some(current.to_string()))),
-                None => Err(conflict(value.to_string(), None)),
-            },
-            CasExpectation::ContentHash { hash, .. } => match current_uuid {
-                Some(current) if &current == hash => Ok(()),
-                Some(current) => Err(conflict(hash.clone(), Some(current))),
-                None => Err(conflict(hash.clone(), None)),
-            },
-        }
+        Ok(self
+            .read_current_row_fields(mutation, &rest, storage_prefix)
+            .await?
+            .has_live_field())
     }
 }

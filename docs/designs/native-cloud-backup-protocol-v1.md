@@ -331,9 +331,9 @@ Build the closure in this order:
 
 1. Obtain receipts for native files, metadata objects, and backup-owned blob parts.
 2. Save each exact encrypted manifest page, then obtain its receipt.
-3. Sort those content and page receipts into bounded public ReferencePages.
+3. Sort those content and page receipts into bounded public pages.
 4. Save their exact canonical bytes through references/put.
-5. Create and save a bounded ReferenceIndex over those pages.
+5. Create and save a bounded index over those pages.
 6. Compute ReferenceRoot from the exact canonical index and its checked totals.
 7. Put that root and the recovery commitment into the encrypted manifest index.
 8. Save its exact encrypted bytes and obtain its separate receipt.
@@ -349,8 +349,8 @@ Quota admission adds the excluded metadata and temporary bytes separately.
 The service verifies the full reference tree and the separate authoritative ManifestIndex receipt.
 That check does not prove encrypted native semantics.
 The importer verifies the decrypted index, all page contexts, receipt membership, file hashes, extents, totals, and exact native inventory.
-It checks that the index job, native root, reference root, and recovery commitment equal the selected AcceptedBackup values.
-It calls validate_for_accepted only after byte-hash verification and authenticated decryption of that selected index object.
+It checks that the index job, native root, reference root, and recovery commitment equal the selected accepted backup values.
+That comparison runs only after byte-hash verification and authenticated decryption of that selected index object.
 
 Manifest encryption uses existing account envelope v1:
 one version byte, 12-byte random nonce, ciphertext, and 16-byte tag.
@@ -451,8 +451,7 @@ The first encrypted manifest index read starts with AcceptedBackup's receipt ID,
 Reconstruct its ObjectReceipt from Version 1, the accepted scope, ManifestIndex kind, and the grant's hash and length.
 Verify that reconstructed receipt against the accepted receipt ID before download.
 This check also enforces the ManifestIndex envelope byte bound.
-Use ReadGrantResponse::manifest_index_grant_for for this first response.
-That helper binds the selected job and receipt selector, then verifies the reconstructed receipt before it returns the grant.
+Bind the selected job and the receipt selector, then verify the reconstructed receipt before use of the grant.
 An echoed receipt selector alone cannot establish the grant's byte identity.
 Other receipt reads use the full receipt from the verified reference tree.
 
@@ -474,7 +473,6 @@ An authenticated request body never grants authority by itself.
 
 | Route | Request | Successful or operation result |
 | --- | --- | --- |
-| context/read | ContextReadRequest | ContextReadResponse |
 | jobs/begin | JobBeginRequest | JobBeginResult |
 | jobs/status | JobStatusRequest | JobStatusResult |
 | jobs/close | JobCloseRequest | JobCloseResult |
@@ -482,14 +480,17 @@ An authenticated request body never grants authority by itself.
 | transfers/status | TransferStatusRequest | TransferBatchResponse |
 | transfers/resume | TransferResumeRequest | TransferResumeResult |
 | transfers/complete | TransferCompleteRequest | TransferItemResult |
-| references/put | ReferencePutRequest | ReferencePutResult |
 | commits/prepare | CommitRequest | CommitResponse |
 | commits/status | CommitStatusRequest | CommitResponse |
 | heads/read | HeadReadRequest | HeadReadResult |
-| streams/list | StreamsListRequest | StreamsListResponse |
 | objects/read | ReadGrantRequest | ReadGrantResponse |
-| source/read | SourceReadRequest | SourceReadResponse |
-| usage/read | UsageReadRequest | UsageReadResponse |
+
+The crate does not include the v1 references/put messages. No caller remains.
+The crate does not include the v1 reference-page or transfer messages. The live inventory and transfer messages are the v2 types.
+The crate does not include the v1 job or publication messages. The live job and publication messages are the v2 types.
+The crate does not include the v1 source/read messages. No caller remains.
+The crate does not include the v1 context, usage, or discovery messages. No caller remains. The live messages are the v2 types.
+The crate does not include the v1 manifest page or manifest index messages. NativeRoot, object extents, and file dependencies stay. The live inventory messages are the v2 types.
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
@@ -500,15 +501,6 @@ Valid batch envelopes return 200 with each item's state or error; top-level requ
 No response code permits a new identity merely because an earlier outcome is unknown.
 
 Private service state includes stream subject bindings, revisions, provider targets, verification evidence, quota reservations, submission certificates, and usage obligations.
-
-source/read authorizes only an existing personal consumer copy, under the current account generation.
-One bounded transactional read binds current control to at most four exact reference records.
-Each selector names its original owner scope, optional app, file identity, kind, and expected ciphertext length.
-The service derives the consumer from authentication and verifies the exact saved copy identity, path, provider, length, and proof.
-The first source profile supports Main only. Other kinds and missing copies receive explicit refusal.
-The grant uses the configured B2 target and one saved strong ETag through signed If-Match.
-No source request creates, registers, releases, adopts, or copies an object.
-The capture still checks the complete original encryption, plaintext identity, exact length, and EOF.
 
 usage/read binds an account-wide observation to the authenticated personal account.
 It reads the same reserved and retained counters that native quota admission changes.
@@ -592,7 +584,7 @@ All totals use checked arithmetic and complete final encodings.
 The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
 It does not cap the whole LastDB process.
 The [resource policy](native-backup-resource-policy-v1.md) identifies `lastdb_storage_policy/src/lib.rs` as the shared source for native sizes and resource values.
-Native V1 pages and physical parts remain fixed at 16 KiB and 8 MiB.
+The crate does not include the unused native v1 page or physical part sizes. No reader remains.
 A native format change requires compatible versioned readers; resource values are editable source policy, not runtime memory settings.
 Capture and restore use bounded buffers and private disk files for the existing encryption formats.
 The former 16 MiB backup authentication and 32 MiB native-CAS allocation guards no longer control those stream paths.

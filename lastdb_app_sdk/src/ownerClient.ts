@@ -65,7 +65,7 @@ export interface OwnerClientOptions {
   /**
    * When `true`, and no explicit `socketPath` resolved, discover the node's
    * data-plane socket from the environment + default data dir (the same
-   * `LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` → `FOLDDB_SOCK` →
+   * `LASTDB_SOCKET_PATH` → `FOLDDB_SOCKET_PATH` →
    * `<data_dir>/folddb.sock` order {@link connect} uses), falling back to
    * `baseUrl`'s TCP listener when none exists. Still loopback-gated: discovery
    * only runs when `baseUrl` is loopback (or absent). Default `false` — an

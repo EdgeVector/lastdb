@@ -38,8 +38,8 @@ pub enum Environment {
 static EXPLICIT_ENV: OnceLock<Option<Environment>> = OnceLock::new();
 
 /// The environment of the node home's persisted cloud connection
-/// (`lastdb connect --env <e>` writes that env's Exemem `api_url` into
-/// `<home>/cloud_sync.json`). The daemon pins it at boot with
+/// (explicit backup enrollment writes that env's Exemem `api_url` into
+/// `<home>/cloud_sync.json.paused`). The daemon pins it at boot with
 /// [`set_home_environment`]; it outranks the build-profile default but never
 /// an explicit env var.
 static HOME_ENV: OnceLock<Environment> = OnceLock::new();

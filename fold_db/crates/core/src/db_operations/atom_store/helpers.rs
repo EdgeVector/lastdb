@@ -1,9 +1,4 @@
-//! Retired-key cleanup and active schema-key helpers.
-
-/// Historical derived-index prefixes that the reclaim path may delete.
-pub fn retired_index_reclaim_prefixes() -> Vec<&'static str> {
-    vec!["mhr:", "mhi:", "mhk:"]
-}
+//! Active schema-key helpers.
 
 /// Strip the (possibly `{storage_prefix}:`-prefixed) `mk:{M}:` record prefix from a
 /// scanned key, yielding the encoded key segment. The scan guarantees the

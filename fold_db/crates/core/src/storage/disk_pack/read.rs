@@ -8,6 +8,7 @@ mod core_holds;
 pub(super) mod memory;
 mod overlay;
 mod preload;
+mod probes;
 mod raw;
 pub(crate) mod snapshots;
 

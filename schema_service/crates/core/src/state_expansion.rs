@@ -219,6 +219,7 @@ impl SchemaServiceState {
 
         Self::stamp_predecessor_mappers(schema, &existing_fields, old_name);
         merge_existing_metadata(schema, existing);
+        self.validate_proposal_field_names(schema)?;
         self.apply_canonical_types(schema)?;
 
         // Recompute identity hash with merged fields.

@@ -1,10 +1,8 @@
-//! Explicit V2 backup and local credential safety commands.
+//! Explicit V2 backup and credentials-only recovery-home commands.
 use super::*;
 
 #[path = "cloud_cmds/byte_backup.rs"]
 mod byte_backup;
-#[path = "cloud_cmds/off.rs"]
-mod off;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 
@@ -26,7 +24,6 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
         CloudCommand::BackupV2 { action } => byte_backup::run(&home, action),
-        CloudCommand::Off { json } => off::run(&home, json),
         CloudCommand::PrepareRecoveryHome { .. }
         | CloudCommand::RecoverCredentialsHome { .. }
         | CloudCommand::RecoverDevCredentialsHome { .. } => {

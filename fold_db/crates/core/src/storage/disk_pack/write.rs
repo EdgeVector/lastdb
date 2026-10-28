@@ -75,13 +75,6 @@ impl PackRuntime {
         physical::V2_BATCH_OPERATIONS
     }
 
-    /// A v2 home has every write feature, so a feature is present inside a
-    /// write request.
-    pub(crate) fn write_has_feature(&self, feature: u64) -> bool {
-        transaction::PendingBatch::current(self).is_some()
-            && physical::V2_FEATURES & feature == feature
-    }
-
     /// Wake an accepted owner and capture the durable boundary after its flush.
     pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
         let target_sequence = self.flush_prefix().await?;
