@@ -17,9 +17,11 @@ pub(crate) async fn load_catalog_hashes_on_host(
             .get_schema(hash)
             .await
             .map_err(|e| format!("failed to fetch catalog schema {hash}: {e}"))?;
+        let mut schema = envelope.schema.into();
+        prepare_catalog_for_load(host, &mut schema).await?;
         host.db
             .schema_manager()
-            .load_schema_internal(envelope.schema.into())
+            .load_schema_internal(schema)
             .await
             .map_err(|e| format!("failed to load catalog schema {hash}: {e}"))?;
     }
@@ -88,8 +90,8 @@ pub(crate) fn registered_binding_field_mappers(
 /// Refuse a binding that maps onto a catalog field the catalog does not have.
 ///
 /// Without this the binding loads and `apply_field_mappers` fails later with
-/// `source field '<catalog>.<field>' missing from runtime_fields`, which names
-/// neither the proposal field nor what the catalog does carry.
+/// `typed mapper source field is absent`, which names neither the proposal
+/// field nor what the catalog does carry.
 pub(crate) fn check_binding_sources_exist(
     binding: &Schema,
     catalog_hash: &str,

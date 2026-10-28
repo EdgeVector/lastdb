@@ -56,6 +56,24 @@ jobs:
       - name: Check the operational recipe syntax
         run: python3 -m py_compile scripts/cloud_backup/*.py
 
+  ownership-readback:
+    name: Read real CI ownership records
+    needs: recipe-syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify actual main ownership archives without cloud credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: python3 scripts/cloud_backup/inspect_history.py
+
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: recipe-syntax
@@ -80,8 +98,9 @@ jobs:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
-          python3 -c 'import os; names=("LASTDB_CLOUD_DEV_API_KEY","LASTDB_CLOUD_DEV_RECOVERY_PHRASE","LASTDB_CLOUD_DEV_BASELINE"); missing=[n for n in names if not os.environ.get(n)]; raise SystemExit("Missing protected DEV inputs: "+", ".join(missing) if missing else 0)'
+          python3 -c 'import os; names=("LASTDB_CLOUD_DEV_API_KEY","LASTDB_CLOUD_DEV_RECOVERY_PHRASE","LASTDB_CLOUD_DEV_BASELINE","LASTDB_CLOUD_DEV_BASELINE_SCOPE"); missing=[n for n in names if not os.environ.get(n)]; raise SystemExit("Missing DEV inputs: "+", ".join(missing) if missing else 0)'
       - name: Select the repository toolchain
         run: |
           set -euo pipefail
@@ -118,9 +137,11 @@ jobs:
           retention-days: 3
       - name: Run automatic snapshots, mutation logs, restart and both recoveries
         env:
+          GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           set -euo pipefail
           python3 scripts/cloud_backup/recover.py \
