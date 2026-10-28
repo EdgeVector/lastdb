@@ -13,6 +13,7 @@ sys.dont_write_bytecode = True
 
 from ci_control import Control
 from ownership_history import History
+from startup_proof import runner_path, save as save_startup
 from support import (OperationError, baseline_from_environment, child_environment,
                      private_directory, require)
 
@@ -38,6 +39,7 @@ def main():
     parser.add_argument("--artifact-id", required=True)
     parser.add_argument("--artifact-sha256", required=True)
     parser.add_argument("--phase", choices=("startup", "complete"), default="complete")
+    parser.add_argument("--startup-proof", type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     control = None
@@ -51,6 +53,11 @@ def main():
         runner = Path(os.environ.get("RUNNER_TEMP", ""))
         require(runner.is_absolute() and runner.is_dir(), "runner_temp")
         baseline = baseline_from_environment()
+        require((args.phase == "startup") == (args.startup_proof is not None),
+                "ci_startup_proof_argument")
+        if args.startup_proof is not None:
+            runner_path(args.startup_proof)
+            require(not os.path.lexists(args.startup_proof), "ci_startup_proof_absent")
         token = os.environ.pop("GH_TOKEN", "")
         key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "").encode()
         with tempfile.TemporaryDirectory(prefix="ci-ownership-save-", dir=runner) as temporary:
@@ -63,8 +70,10 @@ def main():
             record = history.current(args.artifact_id, digest, args.source, startup=args.phase == "startup")
             control = Control(baseline, key)
             del key
-            control.context()
+            control.context(startup=args.phase == "startup")
             registered = control.start(record) if args.phase == "startup" else control.register(record)
+            if args.phase == "startup":
+                save_startup(args.startup_proof, record, registered, baseline, args.source)
             result.update(result="passed", source=args.source, artifact_id=args.artifact_id,
                           phase=args.phase, registration=registered, backup_service_requests=control.calls)
     except OperationError as error:

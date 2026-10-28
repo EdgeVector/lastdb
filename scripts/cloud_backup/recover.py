@@ -21,6 +21,7 @@ from ci_control import Control
 from ownership_history import History
 from programs import Programs
 from restore_receipts import restored
+from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
                      dev_endpoint, private_directory, require, save_json)
 
@@ -58,6 +59,9 @@ class Operation:
         for name in ("credentials", "os-home", "tmp"):
             (self.root / name).mkdir(mode=0o700)
         self.baseline = baseline_from_environment()
+        self.ci_stream_id = load_startup(self.args.startup_proof,
+                                       self.args.startup_artifact, self.baseline, self.args.source)
+        self.terminal_r2 = True
         self.summary["selection"] = {key: self.baseline[key] for key in (
             "stream_id", "account_generation", "commit_id", "commit_sha256")}
         self.programs = Programs(self.args.bin_dir, self.args.version, child_environment(self.root))
@@ -90,7 +94,7 @@ class Operation:
         self.summary["stage"] = "ci-ownership-registration"
         control = Control(self.baseline, self.api_key)
         try:
-            control.context()
+            control.context(startup=True)
             registered = [control.register(record) for record in self.prior_ci_streams]
             self.summary["ci_ownership_registration"] = {
                 "registered": len(registered), "refresh": control.refresh(),
@@ -191,6 +195,8 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--startup-proof", required=True, type=Path)
+    parser.add_argument("--startup-artifact", required=True, type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)

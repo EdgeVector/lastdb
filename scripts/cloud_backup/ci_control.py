@@ -104,13 +104,18 @@ class Control:
         finally:
             connection.close()
 
-    def context(self):
+    def context(self, require_open=True, startup=False):
         value = self.post("context", {})
-        require(value.get("scope") == self.scope and value.get("new_work_allowed") is True,
+        require(value.get("scope") == self.scope and type(value.get("new_work_allowed")) is bool
+                and (not require_open or value["new_work_allowed"]),
                 "ci_control_account_context")
         capabilities = value.get("capabilities")
         require(isinstance(capabilities, dict) and capabilities.get("registration") is True,
                 "ci_registration_capability")
+        if startup:
+            require(all(capabilities.get(name) is True for name in (
+                "startup_registration", "startup_required", "r2_multipart_part")),
+                "ci_startup_capabilities")
         return capabilities
 
     def usage(self):

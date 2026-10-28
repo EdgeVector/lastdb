@@ -172,6 +172,17 @@ The service must refuse adoption of any pre-existing stream without the exact pr
 Full workflow activation remains blocked on the paired service and the pre-upload pending-request/cleanup stage.
 That stage must finish before startup registration, so an earlier frozen request can resume before any new effect.
 
+The recovery command requires the private startup admission record and its exact uploaded receipt.
+It checks the source, workflow, run, attempt, fixed baseline, and receipt hash before the source receives its stream ID.
+The live context must require startup ownership and support both startup registration and terminal R2 uploads.
+Restored nodes receive neither source setting.
+
+After retirement, the kept-latest recovery helper selects the third verified point from the supported three-point receipt recipe.
+That point is the full later snapshot. The helper refuses unsupported recipes or inconsistent point order.
+It derives the expected record updates and complete file hash from the saved source revision.
+It checks the restored native inventory before the first boot, then checks all baseline keys and full file bytes after two boots.
+The helper accesses only a fresh private DEV restore. The pre-upload controller must call it before a new source starts.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
