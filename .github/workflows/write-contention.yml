@@ -27,7 +27,7 @@ jobs:
       CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       BASELINE_SHA: d1d3cc98a9a0c163539b825b407585503831e350
       CANDIDATE_SHA: 953a956c7607461947d24ecc11fcc2e21d2cbfaf
-      BUILD_CONTEXT: 1df04ca885d2d484814ae33fc2344c75fc51a3b8bb186fd225c8e3595ee3f9c5
+      BUILD_CONTEXT: fc9ec02a22cd37c77b74925aaff5ac9baaebe1fdf22425b9f452b73a497e0d99
       BUNDLE_SHA256: 8efbb1c9e45ed50d627e50310139a3d8e910b6549d77a8a9c516b359a4591bd2
     steps:
       - name: Prepare external output and require hosted CI
