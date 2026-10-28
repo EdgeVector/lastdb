@@ -217,16 +217,3 @@ pub fn exemem_api_url_for(env: Environment) -> &'static str {
         Environment::Prod => gen::PROD_EXEMEM_API,
     }
 }
-
-/// Web-portal base URL for a specific environment (the passkey/magic-link
-/// login + developer API-key dashboard). The dev and prod portal URLs are
-/// the `portal` entries in `environments.json` (dev = the `ExememStack-dev`
-/// CloudFront distribution; prod = the public site). Used by `folddb login`
-/// to point a developer at the *real* key page (`{portal}/developer`) for
-/// the env they're logging into — keys are per-env, so the URL must be too.
-pub fn portal_url_for(env: Environment) -> &'static str {
-    match env {
-        Environment::Dev => gen::DEV_PORTAL,
-        Environment::Prod => gen::PROD_PORTAL,
-    }
-}
