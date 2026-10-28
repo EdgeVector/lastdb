@@ -220,11 +220,11 @@ pub(crate) fn v2_channel_path(path: &str) -> Option<(&str, &str)> {
 }
 
 /// `GET /v1/schema/{name}` body: the schema envelope, 404, or 500.
-pub(crate) fn get_schema_by_name(
+pub(crate) async fn get_schema_by_name(
     state: &SchemaServiceState,
     schema_name: &str,
 ) -> Result<Response<Body>, Error> {
-    match state.get_schema_by_name(schema_name) {
+    match state.lookup_schema_by_name(schema_name).await {
         Ok(Some(schema)) => {
             let system = state.is_system_schema(&schema.name);
             let envelope = SchemaEnvelope { schema, system };

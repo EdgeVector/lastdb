@@ -121,7 +121,7 @@ async fn dispatch_schemas(
             routes::schemas::get_schemas_similar(state, event, p)
         }
         ("GET", _) if p.starts_with("/v1/schema/") || p.starts_with("/v1/schemas/") => {
-            routes::schemas::get_schema(state, p)
+            routes::schemas::get_schema(state, p).await
         }
         ("POST", "/v1/schemas/mutation-challenge") => {
             routes::schemas::post_schemas_mutation_challenge(state, event)

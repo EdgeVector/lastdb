@@ -41,6 +41,7 @@ mod collection_names;
 mod idempotent_repost;
 mod lifecycle;
 mod loading;
+mod lookup;
 mod mutation_gate;
 mod near_misses;
 mod persistence;
