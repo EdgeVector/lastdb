@@ -1,6 +1,7 @@
 use super::*;
 use crate::db_operations::atom_store::counter::TipCommit;
 use crate::db_operations::keep_small::MoleculeTipCounterSource;
+use crate::write_preparation::measure;
 
 impl AtomStore {
     /// Incremental budget/churn: tip bytes + bookkeeping + live-replace correction.
@@ -203,7 +204,7 @@ impl AtomStore {
         }
         let tip_keys = tip_item_keys(&all_items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
-        let winners = self.retain_durable_tip_winners(all_items).await?;
+        let winners = measure("tip_winners_us", self.retain_durable_tip_winners(all_items)).await?;
         // The conflict rows join the batch of the tips. See `conflict_record`.
         // Boxed: the store future is already deep in the node's async graph,
         // and the recorder adds a second deep subtree.
@@ -216,8 +217,9 @@ impl AtomStore {
         let mut rows = winners.rows;
         rows.extend(recorded.rows);
         let accounted = accounted_items(&winners.tips, &rows)?;
-        let commit = self
-            .commit_tip_changes(TipChangeSet {
+        let commit = measure(
+            "tip_commit_us",
+            self.commit_tip_changes(TipChangeSet {
                 scope: storage_prefix,
                 tips: winners.tips,
                 bodies,
@@ -227,14 +229,15 @@ impl AtomStore {
                 rows,
                 deletes: Vec::new(),
                 guarded_deletes: Vec::new(),
-            })
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "Failed to batch store changed keys for {} molecules: {e}",
-                    molecules.len()
-                ))
-            })?;
+            }),
+        )
+        .await
+        .map_err(|e| {
+            SchemaError::InvalidData(format!(
+                "Failed to batch store changed keys for {} molecules: {e}",
+                molecules.len()
+            ))
+        })?;
         self.account_stored_bodies(bodies, &commit);
         // The storage counter describes acknowledged source rows. Account only
         // after the ordered batch succeeds, so a failed write cannot create a

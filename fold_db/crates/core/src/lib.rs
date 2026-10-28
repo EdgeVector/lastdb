@@ -60,6 +60,7 @@ pub mod storage;
 pub mod sync;
 pub mod sync_conflict;
 pub mod user_context;
+mod write_preparation;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};

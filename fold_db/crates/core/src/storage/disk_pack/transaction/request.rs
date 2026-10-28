@@ -46,7 +46,10 @@ where
     let result = read::write_scope(
         Arc::clone(&runtime),
         Arc::clone(&pending),
-        WRITE.scope(Arc::clone(&pending), future),
+        WRITE.scope(
+            Arc::clone(&pending),
+            crate::write_preparation::capture(future),
+        ),
     )
     .await;
     // A scope that staged nothing is not counted as a writer (`blocked::opened`): a poll
