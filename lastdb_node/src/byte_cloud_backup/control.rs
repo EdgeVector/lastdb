@@ -132,21 +132,11 @@ fn request_locked(
         super::connection::client_for_host(host)?
     };
     let store = Store::open(&host.home, &id)?;
-    let mut saved = store
-        .state()?
+    let existing = store.state()?;
+    let mut saved = existing
+        .clone()
         .unwrap_or_else(|| source.saved(id.clone(), client.canonical_endpoint()));
-    if let (RunOrigin::Auto { consent_revision }, Some(work)) = (origin, work) {
-        if saved.automatic_revision.is_some()
-            && (saved.automatic_revision != Some(consent_revision) || saved.work != *work)
-        {
-            return Err(BackupError::Identity);
-        }
-        if saved.automatic_revision.is_none() && store.state()?.is_some() {
-            return Err(BackupError::Identity);
-        }
-        saved.automatic_revision = Some(consent_revision);
-        saved.work = work.clone();
-    }
+    bind_work(&mut saved, origin, work, existing.is_some())?;
     source.validate(&saved)?;
     if saved.endpoint != client.canonical_endpoint() {
         return Err(BackupError::Identity);
@@ -162,6 +152,27 @@ fn request_locked(
         super::invocation::run(source, store, saved, client, permit, pause)
     })?;
     status(host)
+}
+
+fn bind_work(
+    saved: &mut Saved,
+    origin: RunOrigin,
+    work: Option<&super::work::Work>,
+    existing: bool,
+) -> Result<()> {
+    if let (RunOrigin::Auto { consent_revision }, Some(work)) = (origin, work) {
+        if saved.automatic_revision.is_some()
+            && (saved.automatic_revision != Some(consent_revision) || saved.work != *work)
+        {
+            return Err(BackupError::Identity);
+        }
+        if saved.automatic_revision.is_none() && existing {
+            return Err(BackupError::Identity);
+        }
+        saved.automatic_revision = Some(consent_revision);
+        saved.work = work.clone();
+    }
+    Ok(())
 }
 
 fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {

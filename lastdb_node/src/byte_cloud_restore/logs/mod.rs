@@ -117,7 +117,7 @@ pub(super) async fn restore(
         .map_err(|_| RestoreError::Invalid("replayed native totals"))?;
     context(session, &root).finish_run(
         keys,
-        super::super::NativeInventory {
+        super::NativeInventory {
             files,
             bytes,
             dependencies: 0,
@@ -136,7 +136,7 @@ async fn replay_checkpoint(
     let accepted: AcceptedBackup =
         local::read_json(&plan::link_path(session, cursor.remaining - 1), 256 * 1024)?;
     let ancestor = session.ancestor(accepted.clone())?;
-    let (inventory, bytes) = super::super::closure::load(&ancestor, client).await?;
+    let (inventory, bytes) = super::closure::load(&ancestor, client).await?;
     let root = MutationLogRoot::decode(&bytes, keys.content_key(), &accepted.begin)
         .map_err(|_| RestoreError::Invalid("replayed checkpoint root"))?;
     if root.base != latest.base

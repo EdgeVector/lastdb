@@ -3,7 +3,15 @@ use super::*;
 use std::fs::{self, File};
 
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
+    let root = Store::base(&host.home).join("jobs").join(id.as_str());
     let Some(saved) = store::state(&host.home, id)? else {
+        if root.try_exists()? {
+            if fs::read_dir(&root)?.next().is_some() {
+                return Err(BackupError::Invalid);
+            }
+            fs::remove_dir(&root)?;
+            File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
+        }
         return Ok(());
     };
     if saved.automatic_revision.is_none()
@@ -12,7 +20,6 @@ pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
     {
         return Err(BackupError::Identity);
     }
-    let root = Store::base(&host.home).join("jobs").join(id.as_str());
     let mut files = Vec::new();
     for entry in fs::read_dir(&root)? {
         let entry = entry?;
