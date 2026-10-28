@@ -56,6 +56,19 @@ Use format, syntax, type, lint, and product build checks.
 This rule replaces all earlier test and test coverage requirements.
 Situation: `no-tests-all-repos-20261009`.
 
+### Scoped exception: canonical schema properties (Tom, 2026-10-28)
+
+Tom explicitly requested automated schema-service stress, property, and concurrency
+tests and approved the scoped CI PR and execution on 2026-10-28. Within this scope,
+the 2026-10-09 test prohibition does not apply:
+
+- `schema_service/crates/core/tests/` and the explicit Cargo target `canonical_properties`.
+- `.github/workflows/schema-canonical-properties.yml` for that target only.
+
+Keep every other test target retired. Use CI for Rust builds and execution.
+The scope uses isolated memory stores and grants no primary, shared service load,
+deployment, or production authorization.
+
 ## Cursor Cloud specific instructions
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
