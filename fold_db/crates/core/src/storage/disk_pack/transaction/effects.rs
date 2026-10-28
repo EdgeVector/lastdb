@@ -56,6 +56,34 @@ pub(crate) fn stage_core_memory<T: Any + Send + Sync>(
     }
 }
 
+/// Reuse only this request's already charged and source-validated definition.
+/// Physical stages invalidate these entries through forget_superseded.
+pub(crate) fn prepared_core_memory<T: Any + Send + Sync>(
+    runtime: &PackRuntime,
+    owner: usize,
+    name: &str,
+) -> StorageResult<Option<Arc<crate::resident::CoreMemoryValue<T>>>> {
+    let Some(pending) = PendingBatch::current(runtime) else {
+        return Ok(None);
+    };
+    let Some(context) = super::super::read::ReadContext::captured(runtime) else {
+        return Ok(None);
+    };
+    context.require_prepared_view(&pending)?;
+    let definitions = pending
+        .definitions
+        .lock()
+        .expect("native private definitions");
+    definitions
+        .get(&(owner, name.to_owned()))
+        .map(|definition| {
+            definition.typed().ok_or_else(|| {
+                StorageError::BackendError("native prepared definition type differs".into())
+            })
+        })
+        .transpose()
+}
+
 fn current(runtime: &PackRuntime) -> StorageResult<Arc<PendingBatch>> {
     PendingBatch::current(runtime).ok_or_else(|| {
         StorageError::InvalidOperation("typed effects require a complete write scope".into())

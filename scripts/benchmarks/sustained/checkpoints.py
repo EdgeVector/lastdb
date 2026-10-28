@@ -14,9 +14,10 @@ class Checkpoints:
         self.node = node
         self.capture = Diagnostics(output, output / "node.log") if enabled else None
 
-    def interval(self, name, start_us, expected_requests=None):
+    def interval(self, name, start_us, expected_requests=None, workload_complete=True):
         if self.capture:
-            self.capture.interval(name, start_us, unix_us(), expected_requests)
+            self.capture.interval(name, start_us, unix_us(), expected_requests,
+                                  workload_complete=workload_complete)
 
     def checkpoint(self, name):
         if not self.capture:

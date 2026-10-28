@@ -18,6 +18,10 @@ pub(crate) struct PreparedCoreMemory {
 }
 
 impl PreparedCoreMemory {
+    pub(crate) fn typed<T: Any + Send + Sync>(&self) -> Option<Arc<CoreMemoryValue<T>>> {
+        Arc::clone(&self.value).downcast().ok()
+    }
+
     pub(crate) fn sources(&self) -> &[CoreMemorySource] {
         self.sources.as_slice()
     }

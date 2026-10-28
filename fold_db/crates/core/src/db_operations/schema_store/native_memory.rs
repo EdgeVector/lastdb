@@ -6,6 +6,21 @@ use crate::storage::disk_pack::{core_memory_sources, transaction, CoreMemorySour
 use std::sync::Arc;
 
 impl SchemaStore {
+    pub(super) fn prepared_snapshot(
+        &self,
+        name: &str,
+    ) -> Result<Option<Arc<crate::resident::CoreMemoryValue<SchemaReadSnapshot>>>, SchemaError>
+    {
+        let Some(runtime) = self.runtime.as_ref() else {
+            return Ok(None);
+        };
+        Ok(transaction::prepared_core_memory(
+            runtime,
+            self.snapshot_owner(),
+            name,
+        )?)
+    }
+
     pub(crate) fn snapshot_owner(&self) -> usize {
         Arc::as_ptr(&self.schemas_store) as usize
     }
@@ -15,6 +30,9 @@ impl SchemaStore {
             return Ok(());
         };
         if !transaction::publication::active(Some(Arc::clone(runtime))) {
+            return Ok(());
+        }
+        if self.prepared_snapshot(name)?.is_some() {
             return Ok(());
         }
         let snapshot = self.read_snapshot(name).await?;

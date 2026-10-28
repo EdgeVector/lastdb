@@ -15,6 +15,7 @@ impl RunReader {
         keys: &[&[u8]],
         presence: &[bool],
         parents: &[Option<usize>],
+        scratch: &mut DecodeScratch,
     ) -> Result<Vec<Option<Selected>>> {
         let mut order: Vec<_> = (0..keys.len()).collect();
         order.sort_by(|&a, &b| {
@@ -36,7 +37,7 @@ impl RunReader {
                 continue;
             };
             if index.as_ref().map(|(n, _)| *n) != Some(number) {
-                index = Some((number, self.read_index(number)?));
+                index = Some((number, self.read_index_with(number, Some(&mut *scratch))?));
             }
             let (_, block_index) = index.as_ref().expect("index loaded");
             if !block_index.may_hold(key_hash(key))? {
@@ -46,7 +47,10 @@ impl RunReader {
                 continue;
             };
             if data.as_ref().map(|(n, _)| *n) != Some(block.number) {
-                data = Some((block.number, self.read_data(block)?));
+                data = Some((
+                    block.number,
+                    self.read_data_with(block, Some(&mut *scratch))?,
+                ));
             }
             let (_, records) = data.as_ref().expect("block loaded");
             out[slot] = find(records, key, |found| {

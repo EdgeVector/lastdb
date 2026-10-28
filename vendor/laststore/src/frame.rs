@@ -8,6 +8,7 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
 
+mod decode;
 mod stream;
 pub(crate) use stream::VerifiedFrameReader;
 
@@ -135,94 +136,8 @@ pub fn encode_frame_with_stats(
     })
 }
 
-/// Decode and authenticate one AES-256-GCM frame.
-///
-/// Any authentication failure returns [`Error::AeadAuthFail`]; plaintext is
-/// returned only after the tag verifies.
-pub fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
-    crate::read_receipt_io::decode(
-        || decode_frame_inner(data_key, frame, None),
-        |decoded| (decoded.payload.len(), decoded.payload.capacity()),
-    )
-}
-
-/// A block reader supplies its physical format's tighter allocation limit.
-/// [`decode_frame`] callers keep the full frame limit.
-pub(crate) fn decode_frame_bounded(
-    data_key: &[u8; 32],
-    frame: &[u8],
-    max_payload: usize,
-) -> Result<DecodedFrame> {
-    crate::read_receipt_io::decode(
-        || decode_frame_inner(data_key, frame, Some(max_payload)),
-        |decoded| (decoded.payload.len(), decoded.payload.capacity()),
-    )
-}
-
-fn decode_frame_inner(
-    data_key: &[u8; 32],
-    frame: &[u8],
-    max_payload: Option<usize>,
-) -> Result<DecodedFrame> {
-    if frame.len() < HEADER_SIZE + TAG_SIZE {
-        return Err(Error::Corrupt("frame too short".into()));
-    }
-    let header_bytes = &frame[..HEADER_SIZE];
-    let (header, payload_len, flags) = decode_header(header_bytes)?;
-    let expected_len = HEADER_SIZE
-        .checked_add(payload_len)
-        .and_then(|n| n.checked_add(TAG_SIZE))
-        .ok_or_else(|| Error::Corrupt("frame length overflow".into()))?;
-    if frame.len() != expected_len {
-        return Err(Error::Corrupt("frame length mismatch".into()));
-    }
-    if max_payload.is_some_and(|limit| payload_len > limit.saturating_add(UNCOMPRESSED_LEN_SIZE)) {
-        return Err(Error::Corrupt("stored frame exceeds block limit".into()));
-    }
-    let tag_offset = HEADER_SIZE + payload_len;
-    let mut payload = frame[HEADER_SIZE..tag_offset].to_vec();
-    let mut payload_charge = crate::read_receipt::TemporaryBytes::new(payload.capacity());
-    let tag = Tag::from_slice(&frame[tag_offset..]);
-    let cipher = Aes256Gcm::new_from_slice(&chunk_key(data_key, header.chunk_uuid)?)
-        .map_err(|_| Error::Config("invalid aead key length".into()))?;
-    let nonce_bytes = counter_nonce(header.counter);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    cipher
-        .decrypt_in_place_detached(nonce, header_bytes, &mut payload, tag)
-        .map_err(|_| Error::AeadAuthFail)?;
-    if flags & FLAG_ZSTD != 0 {
-        payload = decompress_bounded(
-            &payload,
-            max_payload.unwrap_or(MAX_DECOMPRESSED_FRAME_BYTES),
-        )?;
-        payload_charge.resize(payload.capacity());
-    } else if max_payload.is_some_and(|limit| payload.len() > limit) {
-        return Err(Error::Corrupt("decoded frame exceeds block limit".into()));
-    }
-    Ok(DecodedFrame { header, payload })
-}
-
-fn decompress_bounded(stored: &[u8], max_payload: usize) -> Result<Vec<u8>> {
-    if stored.len() < UNCOMPRESSED_LEN_SIZE {
-        return Err(Error::Corrupt("compressed frame missing length".into()));
-    }
-    let expected_u64 = u64::from_le_bytes(stored[..8].try_into().unwrap());
-    let expected = usize::try_from(expected_u64)
-        .map_err(|_| Error::Corrupt("decompressed frame length too large".into()))?;
-    let limit = max_payload.min(MAX_DECOMPRESSED_FRAME_BYTES);
-    if expected > limit {
-        return Err(Error::Corrupt(format!(
-            "decompressed frame exceeds {limit} bytes"
-        )));
-    }
-    let decoded = zstd::bulk::decompress(&stored[8..], expected)
-        .map_err(|e| Error::Corrupt(format!("frame zstd decompression failed: {e}")))?;
-    let _decoded_charge = crate::read_receipt::TemporaryBytes::new(decoded.capacity());
-    if decoded.len() != expected {
-        return Err(Error::Corrupt("decompressed frame length mismatch".into()));
-    }
-    Ok(decoded)
-}
+pub use decode::decode_frame;
+pub(crate) use decode::{decode_frame_bounded, DecodeScratch, PreparedFrameKey};
 
 fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]> {
     let hk = Hkdf::<Sha256>::new(Some(chunk_uuid.as_bytes()), data_key);
