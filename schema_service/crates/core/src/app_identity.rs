@@ -68,7 +68,7 @@ pub use validation::*;
 // ─── Config ───────────────────────────────────────────────────────────────
 
 /// App-identity verification config. Built once at startup (from env on
-/// the binaries, injected directly in tests) and read per request.
+/// the binaries) and read per request.
 #[derive(Clone)]
 pub struct AppIdentityConfig {
     /// Deployment environment the envelopes must be bound to.

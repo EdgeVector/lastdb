@@ -18,6 +18,7 @@ use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 
 mod import;
+mod vocabulary;
 
 /// Snapshot wire format version. Bumped on any breaking change to
 /// [`SnapshotEnvelope`]; importers refuse unknown versions rather than

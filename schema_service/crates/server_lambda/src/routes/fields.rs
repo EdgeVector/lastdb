@@ -11,8 +11,7 @@ use serde_json::{json, Value};
 // `server_http::configure_routes`. The Lambda has its own router, so a
 // route added only to actix is present in every local/dev actix run and
 // silently 404s in dev and prod — which is exactly what happened on the
-// first deploy of this feature, and is why the card's END STATE asks
-// for a real round trip rather than a green test suite.
+// first deploy of this feature. Use a real round trip for product proof.
 //
 // The literal `/v1/fields/declare` arm must precede the `/v1/fields/`
 // prefix arm below, or a declare would be routed as a lookup.

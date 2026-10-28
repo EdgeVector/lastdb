@@ -45,6 +45,7 @@ mod mutation_gate;
 mod near_misses;
 mod persistence;
 mod resolve;
+mod vocabulary_validation;
 
 pub use backfill::BackfillPurposeReport;
 pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};

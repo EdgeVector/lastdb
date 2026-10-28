@@ -128,6 +128,7 @@ impl SchemaServiceState {
         self.load_apps_cache().await?;
         self.load_releases_and_channels_cache().await?;
         self.load_declared_fields_cache().await?;
+        self.validate_loaded_vocabulary()?;
         Ok(())
     }
 
@@ -233,7 +234,9 @@ impl SchemaServiceState {
                 fields.insert(name, canonical);
             }
             for (name, embedding) in loaded_canonical_embeddings {
-                embeddings.insert(name, embedding);
+                if fields.contains_key(&name) {
+                    embeddings.insert(name, embedding);
+                }
             }
             tracing::info!(
             target: "schema_service::schema",
@@ -325,7 +328,8 @@ impl SchemaServiceState {
         // restart — without the `(owner, handle)` index a client's next
         // declare would mint a fresh id and silently fork every identity it
         // had already stamped into its schemas.
-        let loaded_declared_fields = backend.load_all_declared_fields().await.unwrap_or_default();
+        let loaded_declared_fields = backend.load_all_declared_fields().await?;
+        self.validate_loaded_declarations(&loaded_declared_fields)?;
         {
             let mut declared = write_lock(&self.declared_fields, "declared_fields")?;
             let count = loaded_declared_fields.len();
@@ -344,6 +348,7 @@ impl SchemaServiceState {
     /// Load all schemas from storage
     pub async fn load_schemas(&self) -> FoldDbResult<()> {
         let loaded = self.storage.backend().load_all_schemas().await?;
+        self.validate_loaded_schemas(&loaded).await?;
         let mut schemas = write_lock(&self.schemas, "schemas")?;
         schemas.clear();
         let count = loaded.len();

@@ -36,14 +36,6 @@ impl MoleculeRangeProfile {
         }
     }
 
-    pub fn require_field_type(self, range: Option<&FieldValueType>) -> Result<(), String> {
-        self.validate()?;
-        if self != Self::for_field_type(range)? {
-            return Err("the schema range type differs from the stored molecule profile".into());
-        }
-        Ok(())
-    }
-
     /// Direct field reads use this domain without a second schema lookup.
     pub fn comparison_type(self) -> Result<FieldValueType, String> {
         self.validate()?;

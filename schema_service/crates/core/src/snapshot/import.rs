@@ -26,6 +26,7 @@ impl SchemaServiceState {
         envelope: SnapshotEnvelope,
     ) -> FoldDbResult<SnapshotImportReport> {
         self.check_snapshot_compatibility(&envelope)?;
+        self.validate_snapshot_vocabulary(&envelope)?;
         self.persist_snapshot_to_backend(&envelope)?;
 
         let SnapshotEnvelope {

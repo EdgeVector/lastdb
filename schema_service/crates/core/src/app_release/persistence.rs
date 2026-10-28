@@ -34,6 +34,7 @@ impl SchemaServiceState {
         releases: HashMap<String, ReleaseRecord>,
         channels: HashMap<String, ChannelRecord>,
     ) -> Result<(), schema_types::FoldDbError> {
+        self.validate_loaded_release_schemas(&releases)?;
         {
             let mut store = write_lock(&self.app_releases, "app_releases")?;
             *store = releases;
