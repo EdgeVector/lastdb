@@ -259,6 +259,9 @@ impl SchemaServiceState {
         let mut canonical_emb = Vec::new();
         if let Ok(cf) = self.canonical_fields.read() {
             for (name, field) in cf.iter() {
+                if crate::field_name_policy::uses_app_abbreviation(name) {
+                    continue;
+                }
                 let cid = format!("field:{name}");
                 canonical_meta.push(RegistryCanonicalFieldHandle {
                     canonical_field_id: cid.clone(),

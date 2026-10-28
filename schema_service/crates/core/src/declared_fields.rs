@@ -288,8 +288,8 @@ impl DeclaredFieldRegistry {
     /// added; existing ones keep their identity unless the declarer bumps
     /// `version`, which is the deliberate signal for an incompatible change.
     ///
-    /// `mint_id` is injected so tests get deterministic ids; production passes
-    /// a UUID-backed generator.
+    /// `mint_id` supplies the declaration id; the service passes a UUID-backed
+    /// generator.
     pub fn declare(
         &mut self,
         request: &DeclareFieldRequest,
@@ -326,6 +326,7 @@ impl DeclaredFieldRegistry {
             });
         }
 
+        declare_steps::validate_new_field_names(&record, request)?;
         declare_steps::merge_declared_fields(&mut record, request);
         declare_steps::grant_readers(&mut record, request, owner);
 

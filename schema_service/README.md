@@ -12,6 +12,11 @@ one-language storage model, and
 [shared_surface_schema_service.md](docs/shared_surface_schema_service.md) for
 publish/attach governance.
 
+Canonical field names use full concept and property names. New fields cannot
+use the audited app abbreviations such as `bge_*` and `rle_*`. See the
+[field-name policy](docs/canonical_field_names.md) for the direct checks and
+the migration rules for existing identities.
+
 **Distribution:** shared apps add publish/attach metadata and distribution
 verification on top of catalog identities - see
 [schema_registration_distribution_gate.md](docs/schema_registration_distribution_gate.md).
@@ -48,7 +53,7 @@ inject an `Arc<dyn Embedder>` into `SchemaServiceState::new_in_memory()` or
 `SchemaServiceState::new_with_external()`, so a
 Lambda deployment can swap embedder implementations without touching core.
 Default local/dev binaries inject a disabled embedder: exact matching,
-resolver packs, imported embedding artifacts, and test-injected embedders
+resolver packs and imported embedding artifacts
 work without initializing or downloading a model. Real FastEmbed is an
 explicit build feature for semantic/full-product validation.
 

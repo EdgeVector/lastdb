@@ -95,6 +95,9 @@ impl SchemaServiceState {
         if new_fields.is_empty() {
             return Ok(());
         }
+        for name in &new_fields {
+            crate::field_name_policy::validate_new_field_name(name).map_err(FoldDbError::Config)?;
+        }
 
         // Phase 2: resolve classification without LLM; build entries.
         let field_meta: Vec<(String, String, FieldValueType)> = new_fields
@@ -218,6 +221,9 @@ impl SchemaServiceState {
             // Find best canonical match
             let mut best: Option<(&str, f32)> = None;
             for (canon_name, canon_vec) in embeddings.iter() {
+                if crate::field_name_policy::uses_app_abbreviation(canon_name) {
+                    continue;
+                }
                 let sim = cosine_similarity(&incoming_embedding, canon_vec);
                 if sim >= FIELD_SIMILARITY_THRESHOLD
                     && best.is_none_or(|(_, best_sim)| sim > best_sim)
