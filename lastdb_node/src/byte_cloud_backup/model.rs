@@ -38,6 +38,12 @@ pub enum Phase {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LocalAction {
+    ReplaceWithSnapshot,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Saved {
@@ -47,6 +53,8 @@ pub(super) struct Saved {
     pub work: super::work::Work,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub automatic_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_action: Option<LocalAction>,
     pub account: AccountId,
     pub source_home: Id,
     pub endpoint: String,
@@ -67,6 +75,16 @@ pub(super) struct Saved {
 impl Saved {
     pub fn validate(&self) -> Result<()> {
         self.work.validate(self.begin.as_ref())?;
+        if self.local_action.is_some()
+            && (self.begin_submitted
+                || self.commit.is_some()
+                || self.accepted.is_some()
+                || self.phase == Phase::Published
+                || self.automatic_revision.is_none()
+                || !matches!(self.work, super::work::Work::MutationLog { .. }))
+        {
+            return Err(BackupError::Invalid);
+        }
         if self.format != 2 || self.account.as_str().len() != 32 || self.endpoint.len() > 4096 {
             return Err(BackupError::Invalid);
         }

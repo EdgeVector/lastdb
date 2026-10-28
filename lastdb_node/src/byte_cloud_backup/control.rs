@@ -175,7 +175,7 @@ fn bind_work(
     Ok(())
 }
 
-fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
+pub(super) fn ensure_previous(home: &std::path::Path, id: &Id) -> Result<()> {
     let Some(previous) = Store::active(home)? else {
         return Ok(());
     };

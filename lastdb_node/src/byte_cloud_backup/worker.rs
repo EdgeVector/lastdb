@@ -27,6 +27,13 @@ pub(super) async fn run(
     pause: &AtomicBool,
 ) -> Result<()> {
     source.validate(saved)?;
+    if saved.local_action.is_some() {
+        source.cancel_replacement(saved)?;
+        saved.phase = Phase::Closed;
+        saved.retained_source_bytes = Some(0);
+        saved.blocked_reason = None;
+        return store.save(saved);
+    }
     if store.read::<JobResult>("terminal.json")?.is_some() {
         return terminal::reconcile(source, store, saved).await;
     }

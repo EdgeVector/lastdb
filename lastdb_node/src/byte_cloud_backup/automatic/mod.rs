@@ -1,6 +1,7 @@
 //! One owner, one saved pending request, separate log and snapshot schedules.
 mod cleanup;
 mod policy;
+mod replacement;
 use super::{
     model::Saved,
     recovery::RecoveryPoint,
@@ -144,6 +145,10 @@ fn pending_job(
     pending: &Pending,
     now: u64,
 ) -> Result<()> {
+    if replacement::retire(host, policy, pending)? {
+        let saved = store::state(&host.home, &pending.id)?.ok_or(BackupError::Missing)?;
+        return complete(host, policy, &saved, now);
+    }
     if let Some(saved) = store::state(&host.home, &pending.id)? {
         policy.validate_job(&saved)?;
         if saved.terminal() {
@@ -179,10 +184,20 @@ fn pending_job(
 }
 fn complete(host: &crate::host::Host, policy: &mut Policy, saved: &Saved, now: u64) -> Result<()> {
     if saved.phase != Phase::Published {
-        policy.state.paused = Some(PauseState {
-            disposition: Disposition::Attention,
-            reason: PauseReason::Closing,
-        });
+        policy.pending = None;
+        policy.state.pending_request_id = None;
+        policy.state.attempts = 0;
+        policy.state.retry_at = 0;
+        if saved.local_action.is_some() {
+            policy.state.next_snapshot_at = 0;
+            policy.state.next_log_at = 0;
+            policy.state.paused = None;
+        } else {
+            policy.state.paused = Some(PauseState {
+                disposition: Disposition::Attention,
+                reason: PauseReason::Closing,
+            });
+        }
         return policy.save(host);
     }
     let point: RecoveryPoint = Store::open(&host.home, &saved.request_id)?

@@ -122,6 +122,8 @@ impl MutationLog {
         if state.head.sequence < store::MAX_ENTRIES {
             self.remove_entry(epoch, state.head.sequence + 1, true)?;
         }
+        // The durable index must not forget sequence removals that can reappear.
+        std::fs::File::open(store::epoch(&self.root, epoch))?.sync_all()?;
         let mut cache = self.lock()?;
         let index = cache
             .index

@@ -43,6 +43,7 @@ impl Source {
             request_id,
             work: super::work::Work::default(),
             automatic_revision: None,
+            local_action: None,
             endpoint,
             account: self.account.clone(),
             source_home: self.source_home.clone(),
@@ -164,6 +165,15 @@ impl Source {
                 .runtime
                 .cancel_unsubmitted_mutation_log_capture(begin)?,
         }
+        Ok(())
+    }
+    pub fn cancel_replacement(&self, saved: &Saved) -> Result<()> {
+        self.validate(saved)?;
+        if saved.local_action != Some(super::model::LocalAction::ReplaceWithSnapshot) {
+            return Err(BackupError::Invalid);
+        }
+        self.runtime
+            .cancel_unmaterialized_mutation_log_capture(&saved.request_id)?;
         Ok(())
     }
 }

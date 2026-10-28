@@ -1,4 +1,5 @@
 //! One immutable bounded native log range, retained through an exact cloud terminal.
+mod absent;
 mod model;
 mod reader;
 mod retirement;
@@ -35,12 +36,7 @@ impl PackRuntime {
         let directory = root.join(begin.job.commit_id.as_str());
         let Some(state): Option<FrozenLogCapture> = store::read(&directory.join("capture.json"))?
         else {
-            store::remove_metadata(&directory.join("capture.pending"))?;
-            store::remove_empty(&directory)?;
-            if root.try_exists()? {
-                File::open(&root)?.sync_all()?;
-            }
-            return retirement::cancel_absent(&root, &begin.job.commit_id);
+            return absent::cancel(&root, &begin.job.commit_id);
         };
         state.validate()?;
         if state.begin != *begin
