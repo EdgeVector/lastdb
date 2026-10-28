@@ -23,6 +23,29 @@ struct Inner {
 }
 
 impl PackRuntime {
+    /// The coordinator proves no begin submission under its durable owner lock.
+    /// Cancellation must not create an otherwise absent capture.
+    pub fn cancel_unsubmitted_mutation_log_capture(
+        self: &Arc<Self>,
+        begin: &Begin,
+    ) -> StorageResult<()> {
+        let path = self
+            .mutation_log
+            .root
+            .join("captures")
+            .join(begin.job.commit_id.as_str())
+            .join("capture.json");
+        let Some(state): Option<FrozenLogCapture> = store::read(&path)? else {
+            return Ok(());
+        };
+        state.validate()?;
+        if state.begin != *begin {
+            return Err(invalid("mutation cancellation job differs"));
+        }
+        self.resume_mutation_log_capture(&begin.job.commit_id)?
+            .cancel_unsubmitted()
+    }
+
     pub fn prepare_mutation_log_capture(
         self: &Arc<Self>,
         begin: &Begin,

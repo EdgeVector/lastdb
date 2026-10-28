@@ -36,6 +36,10 @@ pub enum Phase {
 pub(super) struct Saved {
     pub format: u32,
     pub request_id: Id,
+    #[serde(default, skip_serializing_if = "super::work::Work::is_default")]
+    pub work: super::work::Work,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic_revision: Option<u64>,
     pub account: AccountId,
     pub source_home: Id,
     pub endpoint: String,
@@ -55,6 +59,7 @@ pub(super) struct Saved {
 
 impl Saved {
     pub fn validate(&self) -> Result<()> {
+        self.work.validate(self.begin.as_ref())?;
         if self.format != 2 || self.account.as_str().len() != 32 || self.endpoint.len() > 4096 {
             return Err(BackupError::Invalid);
         }
@@ -96,6 +101,7 @@ impl Saved {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ByteBackupStatus {
+    pub backup_kind: &'static str,
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
     pub manual_connection: Option<super::ManualConnectionStatus>,

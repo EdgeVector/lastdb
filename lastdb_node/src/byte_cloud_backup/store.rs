@@ -91,6 +91,12 @@ impl Store {
     pub fn write<T: Serialize>(&self, name: &str, value: &T) -> Result<()> {
         write(&self.root.join(name), value, &self.bytes)
     }
+    pub fn raw(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        raw(&self.root.join(name))
+    }
+    pub fn write_raw(&self, name: &str, bytes: &[u8]) -> Result<()> {
+        write_bytes(&self.root.join(name), bytes, &self.bytes)
+    }
     pub fn read_base<T: DeserializeOwned>(&self, name: &str) -> Result<Option<T>> {
         read(&self.base.join(name))
     }
@@ -150,10 +156,16 @@ pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
 }
 
 pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
+    raw(path)?
+        .map(|bytes| serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid))
+        .transpose()
+}
+
+fn raw(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::symlink_metadata(path) {
         Ok(info) => {
             private_file(&info)?;
-            if info.len() > MAX_JSON {
+            if info.len() > MAX_JSON + 29 {
                 return Err(BackupError::Limit);
             }
         }
@@ -166,18 +178,23 @@ pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
         .open(path)?;
     private_file(&file.metadata()?)?;
     let mut bytes = Vec::new();
-    file.take(MAX_JSON + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_JSON {
+    file.take(MAX_JSON + 30).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_JSON + 29 {
         return Err(BackupError::Limit);
     }
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|_| BackupError::Invalid)
+    Ok(Some(bytes))
 }
 
 fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
     let bytes = cloud_backup_protocol::v2::hash::canonical_bytes(value)?;
     if bytes.len() as u64 > MAX_JSON {
+        return Err(BackupError::Limit);
+    }
+    write_bytes(path, &bytes, used)
+}
+
+fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
+    if bytes.len() as u64 > MAX_JSON + 29 {
         return Err(BackupError::Limit);
     }
     let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
@@ -214,7 +231,7 @@ fn write<T: Serialize>(path: &Path, value: &T, used: &AtomicU64) -> Result<()> {
         .custom_flags(libc::O_NOFOLLOW)
         .open(&pending)?;
     private_file(&file.metadata()?)?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     file.sync_all()?;
     fs::rename(&pending, path)?;
     File::open(parent)?.sync_all()?;

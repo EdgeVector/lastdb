@@ -155,6 +155,9 @@ fn status_for(host: &crate::host::Host, id: Option<Id>) -> Result<ByteBackupStat
         .is_some_and(|active| Some(active.request_id) == id);
     let connection = super::connection::status(host)?;
     Ok(ByteBackupStatus {
+        backup_kind: saved
+            .as_ref()
+            .map_or("snapshot", |saved| saved.work.label()),
         enabled: require_enabled().is_ok() || connection.is_some(),
         automatic_backup_enabled: false,
         manual_connection: connection,

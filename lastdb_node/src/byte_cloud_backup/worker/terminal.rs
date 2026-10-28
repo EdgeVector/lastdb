@@ -43,7 +43,7 @@ pub(in crate::byte_cloud_backup) async fn reconcile(
     source.validate(saved)?;
     let result: JobResult = store.read("terminal.json")?.ok_or(BackupError::Missing)?;
     validate_terminal(saved, &result)?;
-    let capture = source.resume().await?;
+    let capture = source.resume(saved, store).await?;
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
