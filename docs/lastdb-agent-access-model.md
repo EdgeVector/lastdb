@@ -197,8 +197,8 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 | Piece | Shipping default | Notes |
 |-------|------------------|--------|
-| HashKey in `mk:…` | `blind_v1` for fresh and typed homes | Existing explicit unencoded homes retain their own configuration. |
-| RangeKey in `mk:…` | Legacy homes retain `ope_v1` by default. Typed homes use one canonical ordered scalar payload. | The persisted node and molecule profiles control the choice. |
+| HashKey in `mk:…` | `blind_v1` on every home | No setting selects another encoding. |
+| RangeKey in `mk:…` | One canonical ordered scalar payload. No range uses OPE. | The persisted molecule profile selects the payload type. |
 | Run data and lookup blocks | Compression, then AES-256-GCM | Main and CAS use separate derived home keys. |
 | Atom content | Plain logical JSON inside encrypted V2 blocks | No extra atom envelope. |
 | Portable file blobs | Existing portable ciphertext and access bundles | The enclosing CAS run blocks also use V2 encryption. |

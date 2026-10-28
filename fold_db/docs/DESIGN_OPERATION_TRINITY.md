@@ -22,7 +22,7 @@ run-file blocks, and file blobs always encrypted under that file KDK (cloud
 
 | Person | Surface | Strict seal |
 |--------|---------|-------------|
-| **Father** | Molecules (`mk:` / `mhr:`) | HashKey `blind_v1` · RangeKey `ope_v1` |
+| **Father** | Molecules (`mk:` / `mhr:`) | HashKey `blind_v1` · RangeKey typed payload inside encrypted run blocks |
 | **Son** | Atoms | Plain JSON row inside an encrypted run-file block; the file KDK lives inside the atom row |
 | **Holy Ghost** | Files | Cloud CAS under per-blob DEK; local `cas_blobs` sealed under same DEK (DEK not stored in CAS) |
 

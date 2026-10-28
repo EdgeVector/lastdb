@@ -85,9 +85,10 @@ their old contents.
 
 Target posture for Mini personal data (no plaintext fallbacks):
 
-1. **Father — molecules:** product default HashKey `blind_v1` + RangeKey `ope_v1`.
-   Storage `mk:` keys must not embed API plaintext hash/range segments; API still
-   accepts plaintext HashKey/RangeKey (Option I).
+1. **Father — molecules:** every home blinds the HashKey with `blind_v1`. A
+   RangeKey is the typed range payload inside the encrypted run blocks; no
+   range uses OPE. Storage `mk:` keys must not embed an API plaintext hash
+   segment; the API still accepts plaintext HashKey/RangeKey (Option I).
 2. **Son — atoms:** field `content` sealed under account E2E key (`ENC:…`).
    **Binary default (unset env) is dual-read** so legacy plain still opens during
    migrate. **Product primaries after reseal** must set durable
