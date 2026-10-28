@@ -97,7 +97,7 @@ Automatic requests use a reserved UUID prefix and 90 random bits.
 After source release, the next request removes the previous automatic request's local transfer and terminal files.
 An expired automatic ID returns absent and cannot start a new manual backup.
 The cloud keeps the accepted backup and its receipts.
-Older UUID requests retain their existing terminal records; new automatic work does not add to that history.
+Manual requests retain their terminal records. Automatic cleanup accepts only the reserved automatic IDs.
 Disable stops new automatic requests and retries while an active invocation can finish safely.
 
 New mutations make the log due for upload within the configured log interval.

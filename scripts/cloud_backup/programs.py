@@ -21,7 +21,7 @@ def execute(command, environment, input_bytes=None, timeout=120):
     limits = {"stdout": 4 * CHUNK, "stderr": 65536}
     deadline = time.monotonic() + timeout
     try:
-        # Only the bounded recovery phrase enters stdin; never an argument.
+        # Only a bounded recovery phrase or API key enters stdin, never argv.
         require(input_bytes is None or len(input_bytes) <= 4096, "stdin_size")
         if input_bytes:
             process.stdin.write(input_bytes)
@@ -84,6 +84,12 @@ class Programs:
     def verify(self):
         for name, identity in self.identities.items():
             require(executable(self.directory / name) == identity, "binary_pair_changed")
+
+    def command(self, home, arguments, input_bytes=None):
+        self.verify()
+        environment = dict(self.environment, LASTDB_BYTE_BACKUP_V2_ENABLED="true")
+        command = [str(self.directory / "lastdb"), "--data-dir", str(home), *arguments]
+        return decode_json(execute(command, environment, input_bytes))
 
     def restore(self, home, destination, baseline, phrase):
         self.verify()

@@ -3,10 +3,12 @@ use super::*;
 use std::fs::{self, File};
 
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
+    if !super::reserved(id) {
+        return Err(BackupError::Identity);
+    }
     let root = Store::base(&host.home).join("jobs").join(id.as_str());
     let previous = store::state(&host.home, id)?;
-    let expires = super::reserved(id);
-    if previous.is_none() && expires && Store::active(&host.home)?.as_ref() != Some(id) {
+    if previous.is_none() && Store::active(&host.home)?.as_ref() != Some(id) {
         return remove_directory(&root);
     }
     let saved = previous.ok_or(BackupError::Missing)?;
@@ -33,19 +35,15 @@ pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
         }
         files.push(entry.path());
     }
-    // Legacy UUID jobs retain their terminal; new reserved IDs expire locally.
     for path in files {
         super::super::store::remove_owned(&path)?;
     }
     File::open(&root)?.sync_all()?;
-    if expires {
-        store::remove_owned(&root.join("terminal.json"))?;
-        File::open(&root)?.sync_all()?;
-        store::remove_owned(&root.join("state.json"))?;
-        File::open(&root)?.sync_all()?;
-        remove_directory(&root)?;
-    }
-    Ok(())
+    store::remove_owned(&root.join("terminal.json"))?;
+    File::open(&root)?.sync_all()?;
+    store::remove_owned(&root.join("state.json"))?;
+    File::open(&root)?.sync_all()?;
+    remove_directory(&root)
 }
 fn remove_directory(root: &std::path::Path) -> Result<()> {
     match fs::remove_dir(root) {
