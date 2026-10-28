@@ -111,7 +111,7 @@ impl RunRead {
             let open: Vec<_> = (0..wanted.len())
                 .filter(|&at| found[at].is_none())
                 .filter(|&at| {
-                    at.is_multiple_of(2)
+                    at % 2 == 0
                         || !matches!(&found[at - 1], Some(Selected::Record(Found::Value(_))))
                 })
                 .filter(|&at| self.runs[slot].0.meta.covers(&wanted[at]))
@@ -120,14 +120,14 @@ impl RunRead {
                 continue;
             }
             let keys: Vec<_> = open.iter().map(|&at| wanted[at].as_slice()).collect();
-            let presence: Vec<_> = open.iter().map(|at| !at.is_multiple_of(2)).collect();
+            let presence: Vec<_> = open.iter().map(|at| at % 2 == 1).collect();
             let parents: Vec<_> = open
                 .iter()
                 .enumerate()
                 .map(|(local, &at)| {
                     local
                         .checked_sub(1)
-                        .filter(|&parent| !at.is_multiple_of(2) && open[parent] == at - 1)
+                        .filter(|&parent| at % 2 == 1 && open[parent] == at - 1)
                 })
                 .collect();
             let hits = self.reader(slot)?.select_many(&keys, &presence, &parents)?;
