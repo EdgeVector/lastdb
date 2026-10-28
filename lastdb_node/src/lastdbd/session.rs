@@ -5,7 +5,7 @@ use std::path::Path;
 use lastdb_node::session_ledger::Ledger;
 
 /// Promote previous-session crash evidence to Sentry: surfaced panic reports
-/// plus a single unclean_exit event (carrying the previous daemon log tail)
+/// plus a single unclean_exit event with a fixed category
 /// when the prior session died with no panic report to explain it. No-op
 /// without a bound client.
 fn promote_previous_crash(
@@ -13,12 +13,7 @@ fn promote_previous_crash(
     summary: Option<&lastdb_node::session_ledger::StartSummary>,
 ) {
     let reports = lastdb_node::crash_attribution::scan_previous_crashes(home);
-    let tail = lastdb_node::crash_attribution::previous_log_tail();
-    lastdb_node::crash_attribution::promote_previous_crash_evidence(
-        &reports,
-        summary,
-        tail.as_deref(),
-    );
+    lastdb_node::crash_attribution::promote_previous_crash_evidence(&reports, summary, None);
 }
 
 /// Record this session's start (reading the prior session for clean/unclean +
