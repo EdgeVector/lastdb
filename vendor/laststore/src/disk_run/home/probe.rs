@@ -17,7 +17,7 @@ pub struct ProbedValue {
 
 impl RunRead {
     /// Share block decode for primary reads and conditional absence probes.
-    /// A positive fallback uses normal `get` to validate its stored value.
+    /// Positive fallbacks use a normal batch read to validate stored values.
     /// Negative probes need no second pass. Only primary bodies are retained.
     /// None selects the original two-pass path before any budget is consumed.
     pub fn get_many_or_probe(&mut self, pairs: &[ReadProbe]) -> Result<Option<Vec<ProbedValue>>> {
@@ -48,19 +48,30 @@ impl RunRead {
                 fallback_present,
             });
         }
-        for (pair, result) in pairs.iter().zip(&mut results) {
+        self.finish_probes(pairs, &mut results)?;
+        Ok(Some(results))
+    }
+
+    fn finish_probes(&mut self, pairs: &[ReadProbe], results: &mut [ProbedValue]) -> Result<()> {
+        let mut positive = Vec::new();
+        let mut coordinates = Vec::new();
+        for (position, (pair, result)) in pairs.iter().zip(results.iter_mut()).enumerate() {
             if result.value.is_some() {
                 result.fallback_present = false;
             } else if result.fallback_present {
-                // Preserve value decode errors and the original body-byte
-                // charge for an orphan body. No speculative body is retained.
-                result.fallback_present = self.get(&pair.fallback.0, &pair.fallback.1)?.is_some();
+                positive.push(position);
+                coordinates.push(pair.fallback.clone());
             } else {
                 self.examine(1)?;
                 self.charge((pair.fallback.0.len() + pair.fallback.1.len()) as u64)?;
             }
         }
-        Ok(Some(results))
+        // Preserve value decode errors and the original body-byte charge for
+        // orphan bodies. Validation remains one batch, with the same held root.
+        for (position, body) in positive.into_iter().zip(self.get_many(&coordinates)?) {
+            results[position].fallback_present = body?.is_some();
+        }
+        Ok(())
     }
 
     fn probe_keys(&self, pairs: &[ReadProbe]) -> Result<Option<Vec<Vec<u8>>>> {
