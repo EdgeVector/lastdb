@@ -98,6 +98,15 @@ pub(super) async fn restore(
     while cursor.remaining > 0 {
         replay_checkpoint(session, client, keys, &latest, &mut cursor).await?;
     }
+    finish(session, keys, &latest, &cursor)
+}
+
+fn finish(
+    session: &RestoreSession,
+    keys: &RecoveryKeys,
+    latest: &MutationLogRoot,
+    cursor: &Cursor,
+) -> Result<RestoreReport> {
     if cursor.previous != *session.accepted() || cursor.position != latest.through {
         return Err(RestoreError::Invalid("mutation complete selected prefix"));
     }
