@@ -23,17 +23,19 @@ impl SchemaCore {
         {
             return Ok(());
         }
-        // A published typed map already passed this boundary. Ordinary writes
-        // reload it unchanged; do not walk all mapper chains on that hot path.
-        if stored.is_some_and(|old| {
-            schema.field_mappers == old.field_mappers
-                && schema.owner_app_id == old.owner_app_id
-                && schema.key == old.key
-                && schema.field_types == old.field_types
-                && schema.field_hashes == old.field_hashes
-                && schema.field_molecule_uuids.is_some()
-                && schema.field_molecule_uuids == old.field_molecule_uuids
-        }) {
+        // Only this process's completed publication can establish the fast
+        // path. An older binary may have stored a collapsed cross-key map.
+        if self.coherence_memo(&schema.name)?.is_some()
+            && stored.is_some_and(|old| {
+                schema.field_mappers == old.field_mappers
+                    && schema.owner_app_id == old.owner_app_id
+                    && schema.key == old.key
+                    && schema.field_types == old.field_types
+                    && schema.field_hashes == old.field_hashes
+                    && schema.field_molecule_uuids.is_some()
+                    && schema.field_molecule_uuids == old.field_molecule_uuids
+            })
+        {
             return Ok(());
         }
         let fields: Vec<_> = schema
