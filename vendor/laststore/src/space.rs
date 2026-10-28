@@ -3,75 +3,14 @@
 //! One process-wide ledger admits every native write against these limits.
 
 use crate::Result;
-use std::collections::HashMap;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+
+mod ledger;
 
 /// A broken invariant of the space ledger itself.
 fn corrupt(reason: &'static str) -> crate::Error {
     crate::Error::Corrupt(reason.into())
-}
-
-static RESERVATIONS: OnceLock<Mutex<HashMap<PathBuf, ReservationState>>> = OnceLock::new();
-
-#[derive(Default)]
-struct ReservationState {
-    bytes: u64,
-    inventories: usize,
-    // None refuses admission after overflow until all current inventories end.
-    released: Option<u64>,
-}
-
-/// Keep releases visible until this inventory's admission decision. No ledger
-/// mutex spans filesystem I/O, and an idle root leaves no retained map entry.
-struct ReservationInventory {
-    root: PathBuf,
-    released: u64,
-}
-
-impl ReservationInventory {
-    fn start(root: &Path) -> Result<Self> {
-        let mut ledger = RESERVATIONS
-            .get_or_init(Mutex::default)
-            .lock()
-            .map_err(|_| corrupt("space reservation lock is poisoned"))?;
-        let state = ledger.entry(root.to_path_buf()).or_default();
-        if state.inventories == 0 {
-            state.released = Some(0);
-        }
-        let released = state
-            .released
-            .ok_or_else(|| corrupt("space inventory release overflow"))?;
-        state.inventories = state
-            .inventories
-            .checked_add(1)
-            .ok_or_else(|| corrupt("space inventory count overflow"))?;
-        Ok(Self {
-            root: root.to_path_buf(),
-            released,
-        })
-    }
-
-    fn released_since(&self, state: &ReservationState) -> Result<u64> {
-        let released = state
-            .released
-            .and_then(|n| n.checked_sub(self.released))
-            .ok_or_else(|| corrupt("space inventory release overflow"))?;
-        Ok(released)
-    }
-}
-
-impl Drop for ReservationInventory {
-    fn drop(&mut self) {
-        if let Ok(mut ledger) = RESERVATIONS.get_or_init(Mutex::default).lock() {
-            if let Some(state) = ledger.get_mut(&self.root) {
-                state.inventories -= 1;
-                if state.bytes == 0 && state.inventories == 0 {
-                    ledger.remove(&self.root);
-                }
-            }
-        }
-    }
 }
 
 /// One policy governs write headroom, replacement space, and obsolete-file grace.
@@ -119,6 +58,7 @@ pub struct SpaceUsage {
 /// Capacity owned through publication, cancellation, or explicit failed-work release.
 pub struct SpaceReservation {
     root: PathBuf,
+    device: u64,
     bytes: u64,
 }
 
@@ -146,6 +86,7 @@ impl SpaceReservation {
     /// already checked by the ledger when the extension was reserved.
     pub fn absorb(&mut self, mut previous: SpaceReservation) {
         assert_eq!(self.root, previous.root, "space reservation root changed");
+        assert_eq!(self.device, previous.device, "space filesystem changed");
         self.bytes = self
             .bytes
             .checked_add(previous.bytes)
@@ -162,8 +103,9 @@ pub fn reserve_space(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<Sp
 
 fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReservation> {
     let root = std::fs::canonicalize(root)?;
-    let inventory = ReservationInventory::start(&root)?;
-    // The ordinary unfrozen-cap path must not enumerate the home per mutation.
+    let device = std::fs::metadata(&root)?.dev();
+    let inventory = ledger::Inventory::start(&root, device)?;
+    // The ordinary uncapped path observes filesystem space, never file inventory.
     let usage = if policy.disk_cap_bytes == 0 {
         SpaceUsage {
             available_bytes: available_space(&root)?,
@@ -172,59 +114,25 @@ fn reserve(root: &Path, policy: &SpacePolicy, bytes: u64) -> Result<SpaceReserva
     } else {
         space_usage(&root, policy.max_files)?
     };
-    let mut ledger = RESERVATIONS
-        .get_or_init(Mutex::default)
-        .lock()
-        .map_err(|_| corrupt("space reservation lock is poisoned"))?;
-    let state = ledger
-        .get_mut(&root)
-        .ok_or_else(|| corrupt("space inventory lost its reservation ledger"))?;
-    let required = state
-        .bytes
-        .checked_add(bytes)
-        .ok_or_else(|| corrupt("space reservation overflow"))?;
-    // A file omitted by the inventory either still has a live reservation or
-    // belongs to a ticket released since inventory start. Count both sets.
-    // Releases may include cancelled work or files already seen: overcounting
-    // is conservative, temporary, and avoids retries under continuous writes.
-    let accounted = required
-        .checked_add(inventory.released_since(state)?)
-        .ok_or_else(|| corrupt("space inventory charge overflow"))?;
-    let headroom = policy
-        .free_space_reserve_bytes
-        .checked_add(policy.replacement_reserve_bytes)
-        .and_then(|n| n.checked_add(accounted))
-        .ok_or_else(|| corrupt("space headroom overflow"))?;
-    let cap_required = accounted
-        .checked_add(policy.replacement_reserve_bytes)
-        .ok_or_else(|| corrupt("space cap headroom overflow"))?;
-    let cap_exceeded = policy.disk_cap_bytes != 0
-        && usage
+    inventory.reserve(policy, usage, bytes)
+}
+
+impl SpaceReservation {
+    /// Replace unwritten quota with bytes now visible to filesystem observations.
+    /// Admission inventories retain releases that overlap their observations.
+    pub(crate) fn materialize(&mut self, bytes: u64) -> Result<()> {
+        self.bytes = self
             .bytes
-            .checked_add(cap_required)
-            .map_or(true, |n| n > policy.disk_cap_bytes);
-    if usage.available_bytes < headroom || cap_exceeded {
-        return Err(crate::Error::Io(std::io::Error::from_raw_os_error(
-            rustix::io::Errno::NOSPC.raw_os_error(),
-        )));
+            .checked_sub(bytes)
+            .ok_or_else(|| corrupt("space materialization exceeds its ticket"))?;
+        ledger::release(&self.root, self.device, bytes);
+        Ok(())
     }
-    state.bytes = required;
-    Ok(SpaceReservation { root, bytes })
 }
 
 impl Drop for SpaceReservation {
     fn drop(&mut self) {
-        if let Ok(mut ledger) = RESERVATIONS.get_or_init(Mutex::default).lock() {
-            if let Some(state) = ledger.get_mut(&self.root) {
-                state.bytes = state.bytes.saturating_sub(self.bytes);
-                if state.inventories > 0 {
-                    state.released = state.released.and_then(|n| n.checked_add(self.bytes));
-                }
-                if state.bytes == 0 && state.inventories == 0 {
-                    ledger.remove(&self.root);
-                }
-            }
-        }
+        ledger::release(&self.root, self.device, self.bytes);
     }
 }
 

@@ -7,6 +7,7 @@ import time
 from automatic_source import Source
 from lifecycle import Lifecycle
 from node import OwnedNode
+from ownership import complete as complete_ownership
 from restore_receipts import restored
 from support import require
 
@@ -118,6 +119,8 @@ class Automatic:
                                    lifecycle=lifecycle)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle)
+        ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
+                                       for value in (snapshot, log, later)])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
                 "automatic_policy_survives_restart": True, "changed_snapshot_interval_observed": True,
                 "log_interval_seconds": 60, "final_snapshot_interval_seconds": 86400,
@@ -128,6 +131,7 @@ class Automatic:
                 "base_recovery": base_restore, "log_recovery": log_restore,
                 "later_snapshot_recovery": snapshot_restore,
                 "ttl_log_frontiers": first_ttl, "ttl_snapshot_frontiers": second_ttl,
+                "ci_stream_ownership": ownership,
                 "accepted_backups_retained": True, "provider_deletions": 0,
                 "previous_automatic_local_metadata_retired": True,
                 "enrollment_requests": 0, "primary_access": False}

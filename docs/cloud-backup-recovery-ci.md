@@ -97,6 +97,27 @@ CI does not create replacement accounts, increase quotas, or bypass a block.
 It does not use account deletion or bucket deletion as cleanup, because those operations do not reconcile V2 allocations.
 An accepted-backup retention operation remains separate work and must preserve every retained snapshot and log dependency.
 
+## CI stream ownership
+
+After all source-free restores succeed, the operation writes a small CI ownership receipt outside Git.
+The receipt names the exact repository, workflow, main source, run, attempt, DEV account, generation, and new stream.
+It also names the observed accepted points and the exact base snapshot, log, and later snapshot that the restores verified.
+The receipt excludes record contents, credentials, file keys, and provider grants.
+CI retains it for 90 days and records its download link, checksum, source, and expiration in the summary.
+Only a successful operation uploads the receipt. A cleanup caller must also verify the associated workflow result.
+
+The source must stop cleanly at least twice, and every observed point must use one new stream in the fixed DEV account and generation.
+That stream must differ from the pinned baseline stream.
+This requirement lets a future cleanup operation identify completed CI streams without an account-wide ownership guess.
+It does not classify an old stream merely because it has an automatic request ID.
+The receipt describes observed points, not a complete frozen directory, and grants no provider deletion authority.
+
+The CI retention rule keeps the fixed baseline stream and the latest successful CI stream.
+The cloud service must validate a complete frozen directory before it retires an older owned CI stream.
+It must preserve shared files, active restores, uploads, and uncertain allocations, then confirm exact provider absence and release quota once.
+An expired or missing ownership record supplies no automatic deletion authority.
+General user retention and PROD cleanup remain separate from this CI-only policy.
+
 The recipe uses fresh private runner directories and checks the daemon identity before each stop.
 It removes only its own stopped temporary homes after a complete result.
 An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.

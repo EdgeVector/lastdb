@@ -27,6 +27,7 @@ pub mod home;
 mod merge;
 mod range;
 mod reader;
+mod space;
 pub mod value;
 mod writer;
 
