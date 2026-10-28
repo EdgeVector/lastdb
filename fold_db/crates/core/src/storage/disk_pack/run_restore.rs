@@ -2,6 +2,7 @@
 mod files;
 mod node;
 mod proof;
+mod replay;
 
 use super::byte_backup::RunBackupProfile;
 use super::{StorageError, StorageResult};
@@ -10,6 +11,7 @@ use laststore::disk_run::home::RunRead;
 use std::path::Path;
 
 pub use node::{validate_restored_node, RunNodeGuard};
+pub use replay::{verify_replayed, MutationReplay};
 
 pub struct RunRestoreFile {
     pub path: String,
@@ -23,6 +25,9 @@ pub struct RunRestoreGuard {
 }
 
 impl RunRestoreGuard {
+    pub fn native_root(&self) -> StorageResult<NativeRoot> {
+        self.native.profile.native_root()
+    }
     pub fn verified_atoms(&self) -> u64 {
         self.atoms
     }

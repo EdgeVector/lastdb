@@ -24,6 +24,7 @@ mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
 mod memory;
+pub mod mutation_log;
 mod namespace_delete;
 pub(in crate::storage) mod native_routing;
 mod physical;
@@ -63,6 +64,7 @@ const NAMESPACES: &str = "namespaces\0";
 pub struct PackRuntime {
     physical: physical::V2Home,
     cleanup_job: Arc<cleanup::CleanupJob>,
+    mutation_log: mutation_log::MutationLog,
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
@@ -167,10 +169,12 @@ impl PackNamespacedStore {
         let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
         let cleanup_job = Arc::new(cleanup::CleanupJob::open(&physical));
+        let mutation_log = mutation_log::MutationLog::new(&physical);
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
                 cleanup_job,
+                mutation_log,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,

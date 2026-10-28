@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicUsize, Arc, Mutex};
+mod ready;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,6 +17,8 @@ struct Intent {
     begin: Begin,
     key_sha256: Digest,
     reference_id: uuid::Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    journal_anchor: Option<super::super::mutation_log::LogAnchor>,
 }
 pub(super) fn held_root(runtime: &PackRuntime, id: uuid::Uuid) -> PathBuf {
     runtime
@@ -43,6 +46,7 @@ pub(super) async fn prepare(
     begin: Begin,
     key: &[u8; 32],
     recovery: RecoveryDescriptor,
+    renew_unmaterialized: bool,
 ) -> StorageResult<ByteBackupCapture> {
     begin.validate().map_err(protocol)?;
     recovery
@@ -77,7 +81,7 @@ pub(super) async fn prepare(
             }
             super::capture::clear_previous(&store, &old)?;
         }
-        let intent = if store.exists("run-intent.json")? {
+        let mut intent = if store.exists("run-intent.json")? {
             let saved: Intent = store.read("run-intent.json")?;
             if saved.begin != begin
                 || saved.key_sha256 != bytes_sha256(key.as_ref())
@@ -91,12 +95,19 @@ pub(super) async fn prepare(
                 begin: begin.clone(),
                 key_sha256: bytes_sha256(key.as_ref()),
                 reference_id: uuid::Uuid::new_v4(),
+                journal_anchor: runtime.mutation_log.snapshot_anchor(&runtime.physical)?,
             };
             store.write("run-intent.json", &intent)?;
             intent
         };
         let root = held_root(&runtime, intent.reference_id);
+        if renew_unmaterialized && root.try_exists()? && !ready::complete(&root)? {
+            // No source State or provider begin exists. Reuse exact local-only
+            // cancellation authority to retire an interrupted paired capture.
+            RunSource::release_saved(&root)?;
+        }
         if !root.try_exists()? {
+            renew_intent(&runtime, &store, &mut intent, renew_unmaterialized)?;
             capture_pair(&runtime, &root)?;
         }
         drop(gate);
@@ -111,6 +122,36 @@ pub(super) async fn prepare(
         )
     })
     .await
+}
+
+fn renew_intent(
+    runtime: &PackRuntime,
+    store: &Store,
+    intent: &mut Intent,
+    allowed: bool,
+) -> StorageResult<()> {
+    let Some(anchor) = &intent.journal_anchor else {
+        return Ok(());
+    };
+    let actual = runtime.physical.current_root();
+    let journal = runtime.mutation_log.status(&runtime.physical)?;
+    if actual.main.frontier() == anchor.frontiers.main
+        && actual.cas.frontier() == anchor.frontiers.cas
+        && journal.anchor.as_ref() == Some(anchor)
+        && journal.gap.is_none()
+    {
+        return Ok(());
+    }
+    if !allowed {
+        return Err(invalid(
+            "snapshot mutation log anchor changed before capture",
+        ));
+    }
+    // The caller still owns the same write gate as capture_pair. No source State,
+    // held directory, transfer input, or remote begin exists for this request.
+    // Old journal epochs remain retained until the replacement snapshot is accepted.
+    intent.journal_anchor = runtime.mutation_log.snapshot_anchor(&runtime.physical)?;
+    store.write("run-intent.json", intent)
 }
 fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
     let homes = &runtime.physical;
@@ -143,7 +184,7 @@ fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         return Err(invalid("run source node marker"));
     }
     fs::hard_link(&node, root.join("node"))?;
-    File::open(root)?.sync_all()?;
+    ready::publish(root)?;
     File::open(root.parent().ok_or_else(|| invalid("run capture parent"))?)?.sync_all()?;
     Ok(())
 }
@@ -299,5 +340,6 @@ fn new_state(
         released: false,
         recovery: Some(recovery),
         run: Some(profile),
+        journal_anchor: intent.journal_anchor,
     })
 }

@@ -23,6 +23,18 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
         ByteBackupCommand::Resume { json } => (ByteBackupRequest::Resume, json),
         ByteBackupCommand::Status { json } => (ByteBackupRequest::Status, json),
         ByteBackupCommand::Close { json } => (ByteBackupRequest::Close, json),
+        ByteBackupCommand::EnableAutomatic {
+            log_interval_seconds,
+            snapshot_interval_seconds,
+            json,
+        } => (
+            ByteBackupRequest::EnableAutomatic {
+                log_interval_seconds,
+                snapshot_interval_seconds,
+            },
+            json,
+        ),
+        ByteBackupCommand::DisableAutomatic { json } => (ByteBackupRequest::DisableAutomatic, json),
         action => return offline::run(home, action),
     };
     let body = serde_json::to_value(request).map_err(|_| "cannot encode V2 owner request")?;

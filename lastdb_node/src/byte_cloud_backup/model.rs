@@ -13,10 +13,17 @@ pub(super) struct StreamRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ByteBackupRequest {
-    Start { request_id: Id },
+    Start {
+        request_id: Id,
+    },
     Resume,
     Status,
     Close,
+    EnableAutomatic {
+        log_interval_seconds: u64,
+        snapshot_interval_seconds: u64,
+    },
+    DisableAutomatic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,11 +38,23 @@ pub enum Phase {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LocalAction {
+    ReplaceWithSnapshot,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Saved {
     pub format: u32,
     pub request_id: Id,
+    #[serde(default, skip_serializing_if = "super::work::Work::is_default")]
+    pub work: super::work::Work,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automatic_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_action: Option<LocalAction>,
     pub account: AccountId,
     pub source_home: Id,
     pub endpoint: String,
@@ -55,6 +74,17 @@ pub(super) struct Saved {
 
 impl Saved {
     pub fn validate(&self) -> Result<()> {
+        self.work.validate(self.begin.as_ref())?;
+        if self.local_action.is_some()
+            && (self.begin_submitted
+                || self.commit.is_some()
+                || self.accepted.is_some()
+                || self.phase == Phase::Published
+                || self.automatic_revision.is_none()
+                || !matches!(self.work, super::work::Work::MutationLog { .. }))
+        {
+            return Err(BackupError::Invalid);
+        }
         if self.format != 2 || self.account.as_str().len() != 32 || self.endpoint.len() > 4096 {
             return Err(BackupError::Invalid);
         }
@@ -96,8 +126,11 @@ impl Saved {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ByteBackupStatus {
+    pub backup_kind: &'static str,
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
+    pub automatic_backup: Option<super::AutomaticBackupStatus>,
+    pub mutation_log: Option<fold_db::storage::disk_pack::mutation_log::MutationLogStatus>,
     pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
     pub request_id: Option<Id>,

@@ -175,10 +175,12 @@ impl RunSource {
     pub fn release_saved(root: &Path) -> StorageResult<()> {
         CapturedRunHome::release_saved(&root.join("main")).map_err(super::super::map)?;
         CapturedRunHome::release_saved(&root.join("cas")).map_err(super::super::map)?;
-        match fs::remove_file(root.join("node")) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
+        for name in ["node", "pair-ready", "pair-ready.pending"] {
+            match fs::remove_file(root.join(name)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
         }
         match fs::remove_dir(root) {
             Ok(()) => {}

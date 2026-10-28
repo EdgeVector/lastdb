@@ -66,6 +66,22 @@ pub(crate) enum ByteBackupCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Enable native mutation-log updates and independent periodic snapshots.
+    EnableAutomatic {
+        /// Time between log checks, in seconds (60 through 604800).
+        #[arg(long, default_value_t = 60)]
+        log_interval_seconds: u64,
+        /// Time between full snapshots, in seconds (60 through 604800).
+        #[arg(long, default_value_t = 86400)]
+        snapshot_interval_seconds: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop new automatic requests and retries. Active work can finish safely.
+    DisableAutomatic {
+        #[arg(long)]
+        json: bool,
+    },
     /// Read one account-scoped page of V2 streams and accepted heads.
     Discover {
         #[arg(long, required = true)]

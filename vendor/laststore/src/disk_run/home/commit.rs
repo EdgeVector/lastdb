@@ -31,6 +31,8 @@ pub struct HomeMutation {
 /// One published commit.
 #[derive(Debug, Clone)]
 pub struct RunCommit {
+    /// The immutable native file written by this commit.
+    pub run_id: Uuid,
     /// The state this commit installed.
     pub root: RunRoot,
     /// Generation of the CURRENT this commit published.
@@ -144,6 +146,7 @@ impl RunHome {
         drop(run_timing);
         let records = run.records;
         let run_bytes = run.file_bytes;
+        let run_id = run.run_id;
         let _publish = timing::during("v2_publish_lock_wait_us", || {
             self.publish.lock().unwrap_or_else(|e| e.into_inner())
         });
@@ -160,6 +163,7 @@ impl RunHome {
         drop(prepare_timing);
         let installed = self.install_or_discard(next, &[file])?;
         Ok(RunCommit {
+            run_id,
             root: RunRoot(Arc::clone(&installed)),
             generation: installed.generation,
             frontier: installed.frontier,

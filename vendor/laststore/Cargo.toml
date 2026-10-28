@@ -21,7 +21,7 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 openssl = "0.10.76"
 sha2 = "0.10"
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 uuid = { version = "1", features = ["v4"] }
 zstd = "0.13"
 zeroize.workspace = true

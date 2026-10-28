@@ -1,3 +1,4 @@
+use super::capture::Capture;
 use super::{
     model::{Saved, StreamRecord},
     publication, retry,
@@ -12,7 +13,6 @@ use cloud_backup_protocol::v2::{
     AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Stream, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
-use fold_db::storage::disk_pack::byte_backup::ByteBackupCapture;
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
@@ -27,6 +27,13 @@ pub(super) async fn run(
     pause: &AtomicBool,
 ) -> Result<()> {
     source.validate(saved)?;
+    if saved.local_action.is_some() {
+        source.cancel_replacement(saved)?;
+        saved.phase = Phase::Closed;
+        saved.retained_source_bytes = Some(0);
+        saved.blocked_reason = None;
+        return store.save(saved);
+    }
     if store.read::<JobResult>("terminal.json")?.is_some() {
         return terminal::reconcile(source, store, saved).await;
     }
@@ -36,7 +43,7 @@ pub(super) async fn run(
     }
     setup(source, store, saved, client, pause).await?;
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?.clone();
-    let capture = source.prepare(begin.clone()).await?;
+    let capture = source.prepare(saved, store).await?;
     refresh(&capture, store, saved)?;
     source.validate(saved)?;
     let result = drive(source, &capture, store, saved, client, pause).await;
@@ -158,7 +165,7 @@ async fn setup(
 
 async fn drive(
     source: &Source,
-    capture: &ByteBackupCapture,
+    capture: &Capture,
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,
@@ -218,7 +225,7 @@ async fn drive(
         let context = super::wait::Context::new(store, saved, pause);
         let mut work = Vec::new();
         for ((index, input), prepared) in batch.iter().zip(prepared.items) {
-            let reader = Box::new(capture.reader(*index)?);
+            let reader = capture.reader(*index)?;
             work.push(transfer::complete(
                 client, input, prepared, reader, &context,
             ));
@@ -243,7 +250,7 @@ async fn drive(
     publication::publish(capture, store, saved, client, pause).await
 }
 
-fn refresh(capture: &ByteBackupCapture, store: &Store, saved: &mut Saved) -> Result<()> {
+fn refresh(capture: &Capture, store: &Store, saved: &mut Saved) -> Result<()> {
     let status = capture.status()?;
     saved.objects_verified = status.verified_objects;
     saved.metadata_pack_objects = status.metadata_pack_objects;
@@ -254,12 +261,7 @@ fn refresh(capture: &ByteBackupCapture, store: &Store, saved: &mut Saved) -> Res
     store.save(saved)
 }
 
-fn finish(
-    capture: &ByteBackupCapture,
-    store: &Store,
-    saved: &mut Saved,
-    result: &JobResult,
-) -> Result<()> {
+fn finish(capture: &Capture, store: &Store, saved: &mut Saved, result: &JobResult) -> Result<()> {
     result.validate_for_begin(saved.begin.as_ref().ok_or(BackupError::Invalid)?)?;
     if let JobStatus::Published { backup } = &result.status {
         if saved.commit.as_ref() != Some(&backup.commit_input()?)
@@ -272,6 +274,9 @@ fn finish(
     store.write("terminal.json", result)?;
     if let JobStatus::Published { backup } = &result.status {
         store.write_base("accepted.json", backup)?;
+        let point = capture.recovery_point(backup)?;
+        store.write("recovery.json", &point)?;
+        store.write_base("recovery.json", &point)?;
     }
     capture.terminal(result)?;
     saved.phase = match result.status {
@@ -295,14 +300,12 @@ async fn close(
         return store.save(saved);
     }
     if !saved.begin_submitted {
-        source
-            .cancel(saved.begin.as_ref().ok_or(BackupError::Invalid)?)
-            .await?;
+        source.cancel(saved).await?;
         saved.phase = Phase::Closed;
         saved.retained_source_bytes = Some(0);
         return store.save(saved);
     }
-    let capture = source.resume().await?;
+    let capture = source.resume(saved, store).await?;
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
@@ -310,7 +313,7 @@ async fn close(
 }
 
 async fn close_capture(
-    capture: &ByteBackupCapture,
+    capture: &Capture,
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,

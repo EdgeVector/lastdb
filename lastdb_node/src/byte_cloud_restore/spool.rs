@@ -54,8 +54,11 @@ impl RestoreSession {
     pub(super) fn check_spool(&self) -> Result<()> {
         let mut bytes = 0u64;
         let mut count = 0usize;
-        for folder in ["cache", "entries"] {
+        for folder in ["cache", "entries", "chain"] {
             let path = self.root.join(folder);
+            if folder == "chain" && !path.try_exists()? {
+                continue;
+            }
             local::directory(&path)?;
             for entry in fs::read_dir(path)? {
                 count += 1;

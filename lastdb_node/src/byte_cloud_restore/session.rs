@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
+use std::sync::{atomic::AtomicU64, Arc};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -26,7 +26,7 @@ pub struct RestoreSession {
     pub(super) root: PathBuf,
     pub(super) selection: Selection,
     _lock: File,
-    pub(super) spool_bytes: AtomicU64,
+    pub(super) spool_bytes: Arc<AtomicU64>,
 }
 
 impl RestoreSession {
@@ -68,7 +68,7 @@ impl RestoreSession {
             root,
             selection,
             _lock: lock,
-            spool_bytes: AtomicU64::new(0),
+            spool_bytes: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -103,7 +103,7 @@ impl RestoreSession {
             root,
             selection,
             _lock: lock,
-            spool_bytes: AtomicU64::new(0),
+            spool_bytes: Arc::new(AtomicU64::new(0)),
         };
         session.check_spool()?;
         Ok(session)
@@ -114,6 +114,28 @@ impl RestoreSession {
     }
     pub fn accepted(&self) -> &AcceptedBackup {
         &self.selection.accepted
+    }
+    /// A private read view shares the owned destination and spool, but uses only
+    /// the exact accepted ancestor named by the authenticated client root.
+    pub(super) fn ancestor(&self, accepted: AcceptedBackup) -> Result<Self> {
+        accepted.validate()?;
+        if accepted.job().stream != self.accepted().job().stream
+            || accepted.ordinal.get() > self.accepted().ordinal.get()
+        {
+            return Err(RestoreError::Invalid("accepted ancestor stream or order"));
+        }
+        Ok(Self {
+            root: self.root.clone(),
+            selection: Selection {
+                version: 2,
+                session_id: self.selection.session_id,
+                accepted,
+                destination: self.selection.destination.clone(),
+                endpoint: self.selection.endpoint.clone(),
+            },
+            _lock: self._lock.try_clone()?,
+            spool_bytes: Arc::clone(&self.spool_bytes),
+        })
     }
     pub async fn restore(
         &mut self,
@@ -158,7 +180,7 @@ impl RestoreSession {
 }
 
 fn scaffold(root: &Path) -> Result<()> {
-    for name in ["cache", "entries", "home", "home/data"] {
+    for name in ["cache", "entries", "chain", "home", "home/data"] {
         let path = root.join(name);
         match fs::DirBuilder::new().mode(0o700).create(&path) {
             Ok(()) => {}
