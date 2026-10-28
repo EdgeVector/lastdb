@@ -1,6 +1,7 @@
 //! One immutable bounded native log range, retained through an exact cloud terminal.
 mod model;
 mod reader;
+mod retirement;
 mod terminal;
 use super::*;
 use cloud_backup_protocol::v2::Begin;
@@ -29,21 +30,33 @@ impl PackRuntime {
         self: &Arc<Self>,
         begin: &Begin,
     ) -> StorageResult<()> {
-        let path = self
-            .mutation_log
-            .root
-            .join("captures")
-            .join(begin.job.commit_id.as_str())
-            .join("capture.json");
-        let Some(state): Option<FrozenLogCapture> = store::read(&path)? else {
-            return Ok(());
+        let admission = super::super::NativeCloudWorkGuard::acquire()?;
+        let root = self.mutation_log.root.join("captures");
+        let directory = root.join(begin.job.commit_id.as_str());
+        let Some(state): Option<FrozenLogCapture> = store::read(&directory.join("capture.json"))?
+        else {
+            return retirement::cancel_absent(&root, &begin.job.commit_id);
         };
         state.validate()?;
-        if state.begin != *begin {
+        if state.begin != *begin
+            || state.anchor.main_home != self.mutation_log.main_home
+            || state.anchor.cas_home != self.mutation_log.cas_home
+        {
             return Err(invalid("mutation cancellation job differs"));
         }
-        self.resume_mutation_log_capture(&begin.job.commit_id)?
-            .cancel_unsubmitted()
+        retirement::prepare(&root, &begin.job.commit_id)?;
+        let capture = MutationLogCapture {
+            inner: Arc::new(Inner {
+                runtime: Arc::clone(self),
+                directory,
+                state: Mutex::new(state),
+                readers: AtomicUsize::new(0),
+                _admission: admission,
+            }),
+        };
+        capture.cancel_unsubmitted()?;
+        store::write(&root.join("active.json"), &begin.job.commit_id)?;
+        retirement::finish(&root, &begin.job.commit_id)
     }
 
     pub fn prepare_mutation_log_capture(
@@ -57,7 +70,7 @@ impl PackRuntime {
         if !root.try_exists()? {
             store::create(&root)?;
         }
-        prepare_previous(&root, &begin.job.commit_id)?;
+        retirement::prepare(&root, &begin.job.commit_id)?;
         let directory = root.join(begin.job.commit_id.as_str());
         let mut state: FrozenLogCapture =
             if let Some(state) = store::read(&directory.join("capture.json"))? {
@@ -87,6 +100,7 @@ impl PackRuntime {
             store::write(&directory.join("capture.json"), &state)?;
         }
         store::write(&root.join("active.json"), &begin.job.commit_id)?;
+        retirement::finish(&root, &begin.job.commit_id)?;
         Ok(MutationLogCapture {
             inner: Arc::new(Inner {
                 runtime: Arc::clone(self),
@@ -108,26 +122,6 @@ impl PackRuntime {
                 .ok_or_else(|| invalid("saved mutation capture is absent"))?;
         self.prepare_mutation_log_capture(&state.begin, &state.from)
     }
-}
-
-fn prepare_previous(root: &std::path::Path, request: &Id) -> StorageResult<()> {
-    let Some(previous): Option<Id> = store::read(&root.join("active.json"))? else {
-        return Ok(());
-    };
-    if previous == *request {
-        return Ok(());
-    }
-    let directory = root.join(previous.as_str());
-    let state: FrozenLogCapture = store::read(&directory.join("capture.json"))?
-        .ok_or_else(|| invalid("previous mutation capture is absent"))?;
-    state.validate()?;
-    if !state.released || state.terminal.is_none() && !state.local_cancelled {
-        return Err(invalid("previous mutation capture retains its source"));
-    }
-    for name in ["capture.json", "capture.pending"] {
-        store::remove_metadata(&directory.join(name))?;
-    }
-    store::remove_empty(&directory)
 }
 
 fn plan(
