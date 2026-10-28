@@ -149,12 +149,24 @@ pub(crate) fn post_schemas_mutation_challenge(
 }
 
 /// Cert-free echo of an exact existing schema, including an unnamespaced one.
-fn idempotent_repost_response(
+async fn idempotent_repost_response(
     state: &SchemaServiceState,
     schema: &schema_types::Schema,
     mutation_mappers: &HashMap<String, String>,
 ) -> Option<Result<Response<Body>, Error>> {
-    let existing = state.classify_idempotent_repost(schema, mutation_mappers)?;
+    let existing = match state
+        .lookup_idempotent_repost(schema, mutation_mappers)
+        .await
+    {
+        Ok(Some(existing)) => existing,
+        Ok(None) => return None,
+        Err(error) => {
+            return Some(json_response(
+                500,
+                &json!({"error": format!("Failed to read existing schema: {error}")}),
+            ));
+        }
+    };
     let system = state.is_system_schema(&existing.name);
     Some(json_response(
         200,
@@ -213,10 +225,8 @@ pub(crate) async fn post_schemas(
     }
     let mutation_mappers = parse_mutation_mappers(&request);
 
-    // Whether this is an OFFER into shared discovery (cert-gated) vs a
-    // local namespace CLAIM (cert-free, the default — local-first
-    // app-namespacing). Absent / non-bool → false (local claim), so an
-    // older client that omits the field is treated as a local claim.
+    // Absent / non-bool means a local namespace claim. Both a local claim
+    // and a shared discovery offer need developer authorization when new.
     let offer_to_shared_discovery = request
         .get("offer_to_shared_discovery")
         .and_then(serde_json::Value::as_bool)
@@ -226,7 +236,7 @@ pub(crate) async fn post_schemas(
         state.observe_schema_mutation_gate(&schema, &mutation_mappers, offer_to_shared_discovery);
 
     // Validation precedes the cert-free echo of a public existing schema.
-    if let Some(resp) = idempotent_repost_response(state, &schema, &mutation_mappers) {
+    if let Some(resp) = idempotent_repost_response(state, &schema, &mutation_mappers).await {
         return resp;
     }
 

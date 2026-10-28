@@ -4,6 +4,30 @@ use super::*;
 use std::collections::hash_map::Entry;
 
 impl SchemaServiceState {
+    /// An exact public repost stays a read when another instance registered it.
+    /// Refresh a missing owner/name entry before deciding credentials are needed.
+    pub async fn lookup_idempotent_repost(
+        &self,
+        schema: &Schema,
+        mutation_mappers: &HashMap<String, String>,
+    ) -> FoldDbResult<Option<Schema>> {
+        if let Some(existing) = self.classify_idempotent_repost(schema, mutation_mappers) {
+            return Ok(Some(existing));
+        }
+        let Some(description) = schema
+            .descriptive_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        else {
+            return Ok(None);
+        };
+        let name = descriptive_name_key(schema.owner_app_id.as_deref(), description);
+        self.lookup_schema_by_name(&name).await?;
+        // A durable lookup only fills the cache. The existing classifier still
+        // checks owner, descriptive name, key layout, type and field membership.
+        Ok(self.classify_idempotent_repost(schema, mutation_mappers))
+    }
+
     /// A warm process can lack an identity that another instance acknowledged.
     /// Consult durable definitions on a miss; never replace concurrent cache entries.
     pub async fn lookup_schema_by_name(&self, name: &str) -> FoldDbResult<Option<Schema>> {

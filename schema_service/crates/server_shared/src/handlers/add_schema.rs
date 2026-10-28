@@ -55,11 +55,22 @@ fn observe_shared_surface(request: &AddSchemaRequest) -> Result<(), HttpResponse
 /// body are already publicly readable via `GET /v1/schemas`, so
 /// echoing an existing entry leaks nothing beyond enumeration.
 /// Create / expand / conflict outcomes still require a cert below.
-fn idempotent_repost_response(
+async fn idempotent_repost_response(
     state: &SchemaServiceState,
     request: &AddSchemaRequest,
 ) -> Option<HttpResponse> {
-    let existing = state.classify_idempotent_repost(&request.schema, &request.mutation_mappers)?;
+    let existing = match state
+        .lookup_idempotent_repost(&request.schema, &request.mutation_mappers)
+        .await
+    {
+        Ok(Some(existing)) => existing,
+        Ok(None) => return None,
+        Err(error) => {
+            return Some(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to read existing schema: {error}"),
+            }));
+        }
+    };
     let system = state.is_system_schema(&existing.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
         schema: existing,
@@ -189,7 +200,7 @@ pub async fn add_schema(
         request.offer_to_shared_discovery,
     );
 
-    if let Some(response) = idempotent_repost_response(&state, &request) {
+    if let Some(response) = idempotent_repost_response(&state, &request).await {
         return response;
     }
 
