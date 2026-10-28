@@ -26,6 +26,8 @@ The native context ends after each frame. Plaintext stays private until the full
 The native path clears its plaintext on failure. The derived key clears when its reader ends.
 This changes no key derivation, nonce, authenticated header, frame format, or compression policy.
 Authentication time includes native context setup. Counter receipts also report native frame bytes and metadata read bytes.
+Read contexts share one immutable parent list. A timer does not allocate or copy that list for each frame.
+Each scope still contributes its measurements to every distinct parent once.
 
 A home (`disk_run::home::RunHome`) is a directory:
 
