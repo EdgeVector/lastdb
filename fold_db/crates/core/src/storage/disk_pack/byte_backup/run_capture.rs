@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicUsize, Arc, Mutex};
+mod ready;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -100,6 +101,11 @@ pub(super) async fn prepare(
             intent
         };
         let root = held_root(&runtime, intent.reference_id);
+        if renew_unmaterialized && root.try_exists()? && !ready::complete(&root)? {
+            // No source State or provider begin exists. Reuse exact local-only
+            // cancellation authority to retire an interrupted paired capture.
+            RunSource::release_saved(&root)?;
+        }
         if !root.try_exists()? {
             renew_intent(&runtime, &store, &mut intent, renew_unmaterialized)?;
             capture_pair(&runtime, &root)?;
@@ -128,8 +134,11 @@ fn renew_intent(
         return Ok(());
     };
     let actual = runtime.physical.current_root();
+    let journal = runtime.mutation_log.status(&runtime.physical)?;
     if actual.main.frontier() == anchor.frontiers.main
         && actual.cas.frontier() == anchor.frontiers.cas
+        && journal.anchor.as_ref() == Some(anchor)
+        && journal.gap.is_none()
     {
         return Ok(());
     }
@@ -175,7 +184,7 @@ fn capture_pair(runtime: &PackRuntime, root: &Path) -> StorageResult<()> {
         return Err(invalid("run source node marker"));
     }
     fs::hard_link(&node, root.join("node"))?;
-    File::open(root)?.sync_all()?;
+    ready::publish(root)?;
     File::open(root.parent().ok_or_else(|| invalid("run capture parent"))?)?.sync_all()?;
     Ok(())
 }
