@@ -1,7 +1,8 @@
 # Shared snapshot and device log spike
 
 Status: isolated implementation spike. Tom approved the concept and requested this prototype.
-The prototype implementation is prepared for review. CI execution awaits approval; operational evidence remains pending.
+The prototype implementation is prepared for review. Tom approved the manual CI job and run on 2026-10-28.
+Build and operational evidence remain pending.
 The spike PR closes after review of that evidence; it does not merge into the product.
 
 ## Scope
@@ -144,7 +145,7 @@ The job builds only the feature-gated example and executes the operational scrip
 It records the exact source, program checksum, artifact checksum, download URL, and expiration.
 Results remain in CI artifacts for 14 days. Raw results do not enter Git.
 
-The CI patch needs Tom's approval before push. The current disk proof jobs remain unchanged.
+Tom approved this opt-in CI patch and its execution on 2026-10-28. The current disk proof jobs remain unchanged.
 Builds, clippy, and all prototype execution stay in CI. No local product command supplies substitute evidence.
 
 ## Remaining production work
