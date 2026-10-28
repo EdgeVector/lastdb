@@ -36,7 +36,7 @@ impl HashRangeQueryProcessor {
         };
         if sample_size == Some(0) {
             return Ok((
-                Self::cokey_primary_field(schema, selected),
+                field_rules::primary_field(schema, selected),
                 HashMap::new(),
                 Vec::new(),
                 HashMap::new(),
@@ -104,7 +104,7 @@ impl HashRangeQueryProcessor {
         ),
         SchemaError,
     > {
-        let mut primary_name = Self::cokey_primary_field(schema, selected);
+        let mut primary_name = field_rules::primary_field(schema, selected);
 
         let mut inspected = self
             .inspection_field(
@@ -117,7 +117,7 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         if !inspected.had_spine {
-            if let Some(fallback) = Self::cokey_fallback_field(selected, &primary_name) {
+            if let Some(fallback) = field_rules::fallback_field(selected, &primary_name) {
                 let fallback = fallback.to_string();
                 inspected = self
                     .inspection_field(
