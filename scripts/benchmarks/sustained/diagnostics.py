@@ -10,7 +10,7 @@ from diagnostic_report import render
 
 
 MARKERS = {"LASTDB_WRITE_REQUEST_TIMING ": {"request"},
-           "LASTDB_SNAPSHOT_TIMING ": {"scope", "commit", "completion", "search_outbox", "merge"}}
+           "LASTDB_SNAPSHOT_TIMING ": {"scope", "prepare", "commit", "completion", "search_outbox", "merge"}}
 MAX_LOG_BYTES, MAX_LINE_BYTES, MAX_EVENTS = 2 * 1024 ** 3, 256 * 1024, 2_000_000
 MAX_WINDOWS, MAX_FIELDS, MAX_ERRORS = 64, 512, 32
 MAX_EXCLUDED_BYTES = 32 * 1024 ** 2

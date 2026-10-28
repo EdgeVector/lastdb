@@ -6,6 +6,7 @@ use crate::atom::{AtomEntry, KeyMetadata};
 use crate::storage::disk_pack::logical_paths::source::CertifiedAtom;
 use crate::storage::disk_pack::logical_paths::{schema_identity, LogicalPath, LogicalPathRecord};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::write_preparation::measure;
 use futures::FutureExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -72,11 +73,18 @@ impl MutationManager {
         // Schema-field/protein definitions are global. The logical records
         // below use this request's scope.
         let tips = changed_tips(job, siblings);
-        self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings))
-            .boxed()
-            .await?;
-        let bindings = self.native_path_bindings(job, runtime, &tips).await?;
-        let Some(atoms) = self.path_atoms(&tips, scope).await? else {
+        measure(
+            "path_controls_us",
+            self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings)),
+        )
+        .boxed()
+        .await?;
+        let bindings = measure(
+            "path_bindings_us",
+            self.native_path_bindings(job, runtime, &tips),
+        )
+        .await?;
+        let Some(atoms) = measure("path_atoms_us", self.path_atoms(&tips, scope)).await? else {
             return Ok(transaction::require_durable(runtime)?);
         };
         let Some(records) = self.native_path_records(scope, &tips, &atoms, &bindings)? else {

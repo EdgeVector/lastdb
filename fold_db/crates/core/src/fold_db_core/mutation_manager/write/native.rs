@@ -4,6 +4,7 @@ use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
 use crate::db_operations::search_index::{IndexSink, SearchOutboxSink};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::write_preparation::measure;
 use futures::FutureExt;
 use std::sync::Arc;
 
@@ -121,12 +122,16 @@ impl MutationManager {
             request
                 .runtime
                 .record_read_stage("stored-stages-done", delta_count);
-            self.stage_native_author_clock().await?;
-            self.db_ops
-                .change_feed()
-                .stage_native_events(notifications)
-                .await?;
-            self.reserve_native_core_memory(&request.runtime)?;
+            measure("author_clock_us", self.stage_native_author_clock()).await?;
+            measure(
+                "change_feed_us",
+                self.db_ops.change_feed().stage_native_events(notifications),
+            )
+            .await?;
+            measure("memory_reserve_us", async {
+                self.reserve_native_core_memory(&request.runtime)
+            })
+            .await?;
             Ok::<_, SchemaError>(NativeCommit {
                 already_seen_ids,
                 mutation_ids,
@@ -161,13 +166,16 @@ impl MutationManager {
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
     ) -> Result<std::time::Duration, SchemaError> {
-        let (modified_fields, fold_elapsed) =
-            self.rebase_delta_for_publish(&mut delta, heads).await?;
+        let (modified_fields, fold_elapsed) = measure(
+            "rebase_us",
+            self.rebase_delta_for_publish(&mut delta, heads),
+        )
+        .await?;
         heads.record(&delta);
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
-        self.stage_native_job(&mut job).await?;
-        self.stage_native_paths(&job, runtime).await?;
+        measure("store_job_us", self.stage_native_job(&mut job)).await?;
+        measure("logical_paths_us", self.stage_native_paths(&job, runtime)).await?;
         runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
         if let Some(batch) = job.search_batch.take() {
             let inbox = self.search_outbox_inbox.clone();

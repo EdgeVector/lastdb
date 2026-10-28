@@ -9,6 +9,9 @@ use std::sync::Arc;
 #[path = "stream.rs"]
 mod stream;
 pub use stream::CopiedRunBody;
+#[path = "probe.rs"]
+mod probe;
+pub use probe::{ProbedValue, ReadProbe};
 
 /// Most coordinates one batch read accepts.
 const MAX_BATCH_KEYS: usize = 10_000;

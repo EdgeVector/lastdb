@@ -1,5 +1,3 @@
-//! The store side of the planner: read the old state, plan, write one batch.
-//!
 //! [`AtomStore::commit_tip_changes`] is the only function that writes `mk:` tip
 //! records, conflict record keys, atom bodies, and counters. It runs inside the
 //! native write request scope, so every read sees the committed root, the
@@ -16,6 +14,7 @@ use super::{AtomSize, DeletedAtom};
 use crate::atom::{molecule_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::SchemaError;
+use crate::write_preparation::measure;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
@@ -120,9 +119,7 @@ pub(crate) struct TipCommit {
     pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
-    /// The old tip of each changed key that had one. A changed key that is
-    /// not here had no tip. The keep-small meters subtract these values, so
-    /// they keep no per-key state.
+    /// Old tips of changed keys, for the keep-small replacement debit.
     pub previous: HashMap<String, PreviousTip>,
     /// The size of each atom whose count changed, from its counter or from
     /// the body this run created. An atom whose counter has no size is absent.
@@ -172,7 +169,7 @@ impl AtomStore {
         } = set;
         let tips = collapse_tips(tips);
         let records = dedupe_records(records);
-        let old = self.read_old_tips(&tips).await?;
+        let old = measure("old_tips_us", self.read_old_tips(&tips)).await?;
         let new_records = self.read_new_records(&records).await?;
         let released = self.read_released_records(releases).await?;
         self.note_touched_atoms(&tips, &old, (&records, &new_records));
@@ -188,18 +185,29 @@ impl AtomStore {
         let guarded = self.guarded_delete_keys(guarded_deletes).await?;
         let guarded_deleted = guarded.len() as u64;
         deletes.extend(guarded);
-        let before = self.read_counters(&deltas, scope).await?;
+        let before = measure("atom_counters_us", self.read_counters(&deltas, scope)).await?;
         let sources = BodySources {
             bodies,
             source: body_source,
         };
-        let offers = self.offer_bodies(&deltas, &before, &sources).await?;
+        let offers = measure(
+            "body_offers_us",
+            self.offer_bodies(&deltas, &before, &sources),
+        )
+        .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
-        let (rows, molecule_run) = self.apply_molecule_counters(scope, &changes, rows).await?;
+        let (rows, molecule_run) = measure(
+            "molecule_counters_us",
+            self.apply_molecule_counters(scope, &changes, rows),
+        )
+        .await?;
         let previous = previous_tips(&old);
         let atom_sizes = atom_sizes(&before, &offers);
-        let (mutations, mut commit) =
-            build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
+        let (mutations, mut commit) = measure(
+            "build_rows_us",
+            build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers),
+        )
+        .await?;
         commit.previous = previous;
         commit.atom_sizes = atom_sizes;
         commit.headers = molecule_run.headers;

@@ -61,7 +61,7 @@ pub use diagnostic::{
 pub use inventory::AdministrativePage;
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
-pub use read::{CopiedRunBody, ReadBudget, RunRead, RunReadCosts, RunRoot};
+pub use read::{CopiedRunBody, ProbedValue, ReadBudget, ReadProbe, RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
