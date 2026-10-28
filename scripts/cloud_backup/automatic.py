@@ -24,6 +24,17 @@ class Automatic:
         self.operation, self.credentials, self.phrase = operation, credentials, phrase
         self.programs, self.baseline = operation.programs, operation.baseline
 
+    def dependencies(self, expected, accepted):
+        chosen = selection(expected, accepted)
+        report = self.programs.command(self.credentials, ["cloud", "backup-v2", "inspect-dependencies",
+            "--recovery-phrase-stdin", "--stream", chosen["stream_id"], "--generation", chosen["account_generation"],
+            "--commit", chosen["commit_id"], "--commit-sha256", chosen["commit_sha256"], "--json"], self.phrase)
+        require(report["accepted_hashes_verified"] is True and report["retained_points"] > 0
+                and report["closure_only"] is True and report["account_directory_frozen"] is False
+                and report["provider_deletion_authorized"] is False and report["provider_deletions"] == 0,
+                "accepted_dependency_inspection")
+        return report
+
     def recover(self, name, expected, accepted, replay=None):
         operation = self.operation
         require(operation.node.process is None, "source_stays_stopped_for_restore")
@@ -81,6 +92,8 @@ class Automatic:
         source.retired(restarted["request_id"])
         source.disable()
         source.node.stop()
+        dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
+                                  "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
         replay = {"base": snapshot["last_accepted_backup"], "through": log["mutation_log"]["head"]}
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"])
@@ -92,6 +105,7 @@ class Automatic:
                 "updated_records": 15, "deleted_records": 1, "observed_checkpoints": len(source.completed),
                 "declared_checkpoint_bytes": source.declared_bytes,
                 "log_recovery": log_restore, "later_snapshot_recovery": snapshot_restore,
+                "dependency_inspections": dependency_inspections,
                 "accepted_backups_retained": True, "provider_deletions": 0,
                 "previous_automatic_local_metadata_retired": True,
                 "enrollment_requests": 0, "primary_access": False}

@@ -45,6 +45,21 @@ It checks exact identities, complete dependencies, resource bounds, and all sele
 It returns a deterministic directory digest, retained points, and candidate points.
 It grants no provider deletion authority.
 
+The owner can inspect one exact accepted point with this command:
+
+```text
+lastdb --data-dir <credentials-home> cloud backup-v2 inspect-dependencies --recovery-phrase-stdin --stream <uuid> --generation <n> --commit <uuid> --commit-sha256 <sha256> --json
+```
+
+The phrase enters protected stdin through the existing recovery command path.
+The command opens no node, requests no provider URL, and changes no accepted backup.
+It follows exact accepted dependencies through the real service with four concurrent requests and explicit count, byte, and time limits.
+It checks every accepted hash and exact predecessor identity.
+Its result describes one recovery closure, not a complete frozen account directory.
+It explicitly reports that provider deletion lacks authorization.
+The protected DEV operation inspects its actual accepted log and later snapshot before their source-free restores.
+Those results can verify legacy wire hashes with real accepted data, without a synthetic fixture.
+
 ## Freeze and plan
 
 The service saves a request ID, expected account generation, and the owner selection.

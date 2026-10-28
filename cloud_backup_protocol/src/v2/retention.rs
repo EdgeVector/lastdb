@@ -9,8 +9,10 @@ use super::{AcceptedBackup, Head, Job};
 use crate::{CloudScope, Digest, ProtocolError};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_POINTS: usize = 32768;
-const MAX_DIRECTORY_BYTES: usize = 32 * 1024 * 1024;
+/// Maximum accepted points in one bounded dependency calculation.
+pub const MAX_POINTS: usize = 32768;
+/// Maximum complete encoded accepted metadata retained by one calculation.
+pub const MAX_DIRECTORY_BYTES: usize = 32 * 1024 * 1024;
 
 /// Exact immutable identity. Native frontiers and atom identities stay private.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
