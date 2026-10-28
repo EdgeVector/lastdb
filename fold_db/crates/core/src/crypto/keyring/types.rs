@@ -1,7 +1,5 @@
 use super::super::envelope::KeyId;
 use super::super::error::{CryptoError, CryptoResult};
-use rand::rngs::OsRng;
-use rand::RngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// AAD domain separator bound into every wrapped DEK. Combined with the
@@ -16,13 +14,6 @@ pub struct Dek([u8; 32]);
 impl Dek {
     /// Wrap raw key bytes.
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// Generate a fresh random DEK from the OS CSPRNG.
-    pub fn generate() -> Self {
-        let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
         Self(bytes)
     }
 
@@ -105,10 +96,9 @@ pub(super) struct Entry {
 
 /// An in-memory set of wrapped DEKs, one or more per [`KeyPurpose`].
 ///
-/// Construct empty with [`Keyring::new`], add keys with
-/// [`Keyring::mint_dek`], persist with [`Keyring::serialize`], and reload
-/// with [`Keyring::deserialize`]. Resolution is by `key_id` (decrypt
-/// path) or by active-per-purpose (encrypt path).
+/// Construct empty with [`Keyring::new`], persist with [`Keyring::serialize`],
+/// and reload with [`Keyring::deserialize`]. Resolution is by `key_id`
+/// (decrypt path) or by active-per-purpose (encrypt path).
 #[derive(Default, Clone)]
 pub struct Keyring {
     pub(super) entries: Vec<Entry>,
@@ -119,8 +109,7 @@ impl Keyring {
     /// key.
     pub const LEGACY_KEY_ID: KeyId = KeyId::from_u32(0);
 
-    /// A fresh, empty keyring. Holds no keys until [`Keyring::mint_dek`]
-    /// is called.
+    /// A fresh, empty keyring.
     pub fn new() -> Self {
         Self::default()
     }

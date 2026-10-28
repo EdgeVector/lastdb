@@ -35,6 +35,21 @@ Two separate absent destinations restore the exact selected mutation-log checkpo
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
 
+The source also declares one bounded HashRange schema for the atom lifecycle check.
+Two expired range keys and one live range key share the same field value and the original 8 MiB file.
+The initial snapshot retains all three keys while the TTL worker stays off.
+After the source restarts with TTL on, the ordinary TTL purge must erase the two expired keys.
+The delete ledger and complete journal frontier must confirm those removals before the log selection.
+Two more expired keys pass through the same TTL path before the later snapshot.
+The selected snapshot must cover their complete main and CAS frontiers.
+
+Three absent destinations restore the initial snapshot, the selected log checkpoint, and the later snapshot.
+The initial snapshot must retain its two original expired keys.
+The log and later snapshot must preserve their expired-key removals.
+Every destination must return the exact live key, shared field value, and complete original file after two boots.
+TTL stays off on every restored daemon, so a later local purge cannot conceal a missed cloud deletion.
+The operation uses real owner commands and native TTL mutations, without a service substitute.
+
 The log restore checks its frozen base, exact selected head, completed replay cursor, and expected journal position.
 It records hashes for the final native files and checks the product receipt and complete native file count and size.
 The snapshot restore also compares every file with the original authenticated per-file proof.
@@ -81,6 +96,27 @@ The fixed base file can use existing object receipts. A quota or integrity block
 CI does not create replacement accounts, increase quotas, or bypass a block.
 It does not use account deletion or bucket deletion as cleanup, because those operations do not reconcile V2 allocations.
 An accepted-backup retention operation remains separate work and must preserve every retained snapshot and log dependency.
+
+## CI stream ownership
+
+After all source-free restores succeed, the operation writes a small CI ownership receipt outside Git.
+The receipt names the exact repository, workflow, main source, run, attempt, DEV account, generation, and new stream.
+It also names the observed accepted points and the exact base snapshot, log, and later snapshot that the restores verified.
+The receipt excludes record contents, credentials, file keys, and provider grants.
+CI retains it for 90 days and records its download link, checksum, source, and expiration in the summary.
+Only a successful operation uploads the receipt. A cleanup caller must also verify the associated workflow result.
+
+The source must stop cleanly at least twice, and every observed point must use one new stream in the fixed DEV account and generation.
+That stream must differ from the pinned baseline stream.
+This requirement lets a future cleanup operation identify completed CI streams without an account-wide ownership guess.
+It does not classify an old stream merely because it has an automatic request ID.
+The receipt describes observed points, not a complete frozen directory, and grants no provider deletion authority.
+
+The CI retention rule keeps the fixed baseline stream and the latest successful CI stream.
+The cloud service must validate a complete frozen directory before it retires an older owned CI stream.
+It must preserve shared files, active restores, uploads, and uncertain allocations, then confirm exact provider absence and release quota once.
+An expired or missing ownership record supplies no automatic deletion authority.
+General user retention and PROD cleanup remain separate from this CI-only policy.
 
 The recipe uses fresh private runner directories and checks the daemon identity before each stop.
 It removes only its own stopped temporary homes after a complete result.

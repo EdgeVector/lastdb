@@ -21,6 +21,7 @@
 use super::physical::{PhysicalRoot, V2Home, V2Root, CAS_COLLECTION};
 use super::*;
 use laststore::disk_run::home::RunHome;
+use laststore::space::SpacePolicy;
 
 /// Hidden record changes and key-membership changes of one commit.
 type Changes<'a> = (&'a [(String, String)], &'a [(String, String, bool)]);
@@ -84,7 +85,12 @@ impl PackRuntime {
         drop(publication_timing);
         drop(space);
         self.failed.store(false, Ordering::Release);
-        start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.last_root));
+        start_merges(
+            v2,
+            Arc::clone(&self.view),
+            Arc::clone(&self.last_root),
+            &self.space_policy,
+        );
         Ok(())
     }
 
@@ -93,7 +99,12 @@ impl PackRuntime {
     pub(super) fn resume_merges(&self) {
         let v2 = &self.physical;
         if v2.home.needs_merge() || v2.cas.needs_merge() {
-            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.last_root));
+            start_merges(
+                v2,
+                Arc::clone(&self.view),
+                Arc::clone(&self.last_root),
+                &self.space_policy,
+            );
         }
     }
 
@@ -182,6 +193,7 @@ fn start_merges(
     v2: &V2Home,
     view: Arc<RwLock<view::NativeReadView>>,
     last_root: Arc<view::LastRoot>,
+    policy: &SpacePolicy,
 ) {
     let waiting = v2
         .retry_after
@@ -195,11 +207,12 @@ fn start_merges(
     let merging = Arc::clone(&v2.merging);
     let stop = Arc::clone(&v2.stop);
     let retry_after = Arc::clone(&v2.retry_after);
+    let policy = policy.clone();
     let spawned = std::thread::Builder::new()
         .name("lastdb-run-merge".into())
         .spawn(move || {
             let adopted = Adopted { view, last_root };
-            merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after);
+            merge_until_settled(&homes, &adopted, &merging, &stop, &retry_after, &policy);
         });
     match spawned {
         Ok(handle) => {
@@ -262,7 +275,9 @@ fn merge_until_settled(
     merging: &AtomicBool,
     stop: &AtomicBool,
     retry_after: &Mutex<Option<std::time::Instant>>,
+    policy: &SpacePolicy,
 ) {
+    let cas_policy = SpacePolicy::default();
     loop {
         'steps: while !stop.load(Ordering::Acquire) {
             let mut merged = false;
@@ -271,7 +286,12 @@ fn merge_until_settled(
                     break 'steps;
                 };
                 let (result, report) = laststore::commit_timing::measure(|| {
-                    let result = home.merge_step();
+                    let space = if home_number == 0 {
+                        policy
+                    } else {
+                        &cas_policy
+                    };
+                    let result = home.merge_step_with_space(space);
                     if matches!(&result, Ok(Some(_))) {
                         drop(home);
                         laststore::commit_timing::during("v2_merge_root_adoption_us", || {

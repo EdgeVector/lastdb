@@ -127,6 +127,29 @@ jobs:
             --bin-dir "$CARGO_TARGET_DIR/dev-release" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
             --output "$RUNNER_TEMP/cloud-backup-recovery"
+      - name: Retain successful CI stream ownership
+        id: ci-stream-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-ci-stream-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cloud-backup-recovery/ci-stream.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Record CI ownership provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.ci-stream-artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.ci-stream-artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n[Successful CI stream ownership](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Source: %s; artifact ID: %s; ZIP SHA256: %s\n\n' "$SOURCE_COMMIT" "$ARTIFACT_ID" "$ARTIFACT_DIGEST"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
+              --jq '"Ownership artifact expires: " + .expires_at'
+            printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Record client provenance
         if: always() && steps.client-artifact.outcome == 'success'
         env:

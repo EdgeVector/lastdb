@@ -40,7 +40,7 @@ class Source:
         require(value["blocked_reason"] is None, "automatic_backup_blocked")
         return policy
 
-    def published(self, kind, previous=None, snapshot=86400):
+    def published(self, kind, previous=None, snapshot=86400, through=None):
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
             value = self.cloud("status")
@@ -49,7 +49,9 @@ class Source:
             if (value["phase"] == "published" and not value["running"]
                     and value["retained_source_bytes"] == 0 and value["backup_kind"] == kind
                     and policy["last_completed_request_id"] == value["request_id"]
-                    and accepted and accepted["commit_sha256"] != previous):
+                    and accepted and accepted["commit_sha256"] != previous
+                    and (through is None or all(policy["last_backed_up_frontiers"][name] >= frontier
+                         for name, frontier in through.items()))):
                 request = accepted["begin"]["job"]["commit_id"]
                 canonical_uuid(request)
                 require(request.startswith("a17dbac2-") and request == value["request_id"],

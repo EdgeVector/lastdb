@@ -39,13 +39,17 @@ impl PackRuntime {
         status.phase = NativeCleanupPhase::Running;
         status.last_error = None;
         self.cleanup_job.set(status.clone());
-        for home in [&self.physical.home, &self.physical.cas] {
+        let cas_policy = laststore::space::SpacePolicy::default();
+        for (home, policy) in [
+            (&self.physical.home, &self.space_policy),
+            (&self.physical.cas, &cas_policy),
+        ] {
             self.adopt_merged_root();
             if home.retired_bytes() > 0 {
                 status.phase = NativeCleanupPhase::WaitingForReads;
                 continue;
             }
-            if home.cleanup_step().map_err(map)?.is_some() {
+            if home.cleanup_step_with_space(policy).map_err(map)?.is_some() {
                 status.merge_steps_since_resume = status.merge_steps_since_resume.saturating_add(1);
                 self.cleanup_job.set(status.clone());
                 self.adopt_merged_root();
