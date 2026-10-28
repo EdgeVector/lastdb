@@ -7,7 +7,8 @@ from retirement_status import MINIMUM, Status
 from support import OperationError, require, save_json
 
 TRANSIENT = frozenset(("ci_control_transport_unknown", "ci_control_service_provider_pending",
-                       "ci_control_service_outcome_unknown", "ci_control_service_retry_later"))
+                       "ci_control_service_outcome_unknown", "ci_control_service_retry_later",
+                       *("ci_control_http_" + str(code) for code in (408, 429, 500, 502, 503, 504))))
 
 
 class Retirement:
