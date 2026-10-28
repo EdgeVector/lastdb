@@ -18,5 +18,3 @@ mod open;
 mod types;
 
 pub use types::{Dek, KeyPurpose, Keyring};
-
-use types::Entry;
