@@ -19,8 +19,7 @@ cd "$REPO_ROOT"
 # The current API Gateway IDs. Update by editing environments.json
 # (which this lint reads back); never edit this list by hand.
 #
-# `region` is metadata, not a URL. `portal` is excluded too: it is
-# registry-owned (Rust reads it via endpoints::portal_url_for) but its
+# `region` is metadata, not a URL. `portal` is excluded too: its
 # prod value is the *shared public web host* (exemem.com — also used by
 # billing, verify-email, marketing), not a unique opaque gateway. Scanning
 # it would wrongly flag every legitimate exemem.com literal across the
