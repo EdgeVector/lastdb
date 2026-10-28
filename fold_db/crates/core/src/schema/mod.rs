@@ -28,7 +28,6 @@ pub mod field_hash_coherence;
 pub mod interpreter;
 mod logical_rules;
 pub mod manifest_retention;
-pub mod persistence;
 pub mod schema_types;
 pub mod types;
 

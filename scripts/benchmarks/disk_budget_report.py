@@ -7,8 +7,7 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER, save
-from typed_ranges import conversion_lines
+from node import RUN_NODE_MARKER, save
 
 
 def compare(output, manifest):
@@ -27,7 +26,7 @@ def compare(output, manifest):
                 if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
                     raise ValueError("The disk budget does not establish Search off in both homes")
             marker = json.loads((corpus / "disk-format.json").read_text())
-            if set(marker) != {"marker"} or marker["marker"] not in (RUN_NODE_MARKER, TYPED_RUN_NODE_MARKER):
+            if set(marker) != {"marker"} or marker["marker"] != RUN_NODE_MARKER:
                 raise ValueError("The disk budget did not measure two v2 run homes")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(disk_budget.CASES):
@@ -103,8 +102,7 @@ def main():
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
                   f"Driver: `{manifest['driver_revision']}`\n"
-                  + disk_budget.render(comparison) + headroom_lines(comparison)
-                  + "\n".join(conversion_lines(args.output, manifest)) + "\n")
+                  + disk_budget.render(comparison) + headroom_lines(comparison))
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = f"# LastDB v2 disk size budget — incomplete\n\n{type(failure).__name__}: {failure}\n"

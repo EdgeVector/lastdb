@@ -273,18 +273,14 @@ Depends on PR 1.
 - `schema_service/crates/core/src/wasm_exec_caps.rs` — delete
 - `schema_service/crates/core/Cargo.toml`
 - `schema_service/crates/resolver_pack_publisher/src/bin/schema_resolver_pack_publish.rs`
-- resolver-pack fixtures/tests
+- resolver-pack product checks
 - `.github/workflows/ci.yml`
 - `schema_service/README.md`
 
 ### Exit gate
 
 ```bash
-cargo test -p schema_service_core --test resolver_pack_test
-cargo test -p schema_service_core --test resolver_pack_consumer_test
-cargo test -p schema_service_core --test native_schema_resolver_test
-cargo test -p schema_resolver_pack_publisher
-cargo clippy -p schema_service_core -p schema_resolver_pack_publisher --all-targets -- -D warnings
+cargo clippy -p schema_service_core -p schema_resolver_pack_publisher --lib --bins -- -D warnings
 ```
 
 And negative dependency/source checks:

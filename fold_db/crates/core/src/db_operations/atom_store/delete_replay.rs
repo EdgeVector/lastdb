@@ -8,7 +8,6 @@ use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
-pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"6;delete-replay-cutoff=v1";
 
 #[derive(Serialize, Deserialize)]
 struct Cutoff {
@@ -33,7 +32,7 @@ fn invalid(text: impl std::fmt::Display) -> StorageError {
 
 impl AtomStore {
     /// The floor is global to this home and changes only through stopped-home
-    /// maintenance. Its format marker fences programs that do not enforce it.
+    /// maintenance.
     pub(crate) async fn minimum_replay_time(&self) -> StorageResult<u64> {
         if let Some(cutoff) = self.serving_replay_cutoff.get() {
             return Ok(*cutoff);
@@ -80,25 +79,17 @@ impl AtomStore {
         marker: Option<&[u8]>,
         cutoff: Option<&[u8]>,
     ) -> StorageResult<u64> {
-        match (marker, cutoff) {
-            (Some(marker), Some(bytes))
-                if marker == FENCED_KEY_FORMAT
-                    || marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT =>
-            {
-                let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
-                if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
-                    return Err(invalid("invalid floor record"));
-                }
-                Ok(floor.minimum_written_at_nanos)
-            }
-            (Some(marker), None)
-                if marker == super::key_format::KEY_FORMAT
-                    || marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT =>
-            {
-                Ok(0)
-            }
-            _ => Err(invalid("the floor and format marker disagree")),
+        if marker != Some(crate::atom::molecule_key_codec::TYPED_KEY_FORMAT) {
+            return Err(invalid("the format marker is not the node format"));
         }
+        let Some(bytes) = cutoff else {
+            return Ok(0);
+        };
+        let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
+        if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
+            return Err(invalid("invalid floor record"));
+        }
+        Ok(floor.minimum_written_at_nanos)
     }
 
     /// Explicit offline maintenance only. The caller holds the stopped-home
@@ -132,7 +123,7 @@ impl AtomStore {
             ..Default::default()
         };
         if previous != cutoff {
-            report.operations += 2;
+            report.operations += 1;
             report.batches += 1;
         }
         if execute && previous != cutoff {
@@ -143,17 +134,7 @@ impl AtomStore {
             .map_err(invalid)?;
             self.main_store
                 .inner()
-                .batch_mutate(vec![
-                    KvMutation::put(
-                        Self::CURRENT_KEY_FORMAT_KEY.as_bytes(),
-                        if self.typed_ranges {
-                            crate::atom::molecule_key_codec::TYPED_KEY_FORMAT
-                        } else {
-                            FENCED_KEY_FORMAT
-                        },
-                    ),
-                    KvMutation::put(CUTOFF_KEY.as_bytes(), floor),
-                ])
+                .batch_mutate(vec![KvMutation::put(CUTOFF_KEY.as_bytes(), floor)])
                 .await?;
             self.main_store.inner().flush().await?;
         }

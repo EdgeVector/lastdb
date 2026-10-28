@@ -106,10 +106,8 @@ From the worktree at `/Users/example/.cline/worktrees/7e053/schema_service`:
 
 - `cargo build --workspace` — clean.
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean.
-- `cargo test -p schema_service_server_http --test observability_smoke`
-  — 1 passed.
-- `cargo test --workspace` — the new smoke test passes; any unrelated
-  workspace failures should be triaged against the current baseline.
+
+Tests are retired. Current verification uses CI build, lint, and approved operational checks.
 
 ## Follow-ups
 

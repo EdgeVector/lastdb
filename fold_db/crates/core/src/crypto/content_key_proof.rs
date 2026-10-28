@@ -23,21 +23,17 @@ pub(crate) fn verify(key: &[u8; 32], stored: &[u8]) -> Result<(), StorageError> 
     Ok(())
 }
 
-/// A wrong key never replaces an existing proof or any source record.
-/// Every keyed constructor checks this one record after its format fence.
-pub(crate) async fn verify_or_establish(
+/// Home creation writes this record. Every keyed constructor checks it after
+/// its format fence, and a missing or different proof is refused.
+pub(crate) async fn verify_stored(
     store: &dyn NamespacedStore,
     key: &[u8; 32],
-    fresh: bool,
 ) -> Result<(), StorageError> {
     let kv = store.open_namespace(NAMESPACE).await?;
-    if let Some(stored) = kv.get(KEY).await? {
-        return verify(key, &stored);
+    match kv.get(KEY).await? {
+        Some(stored) => verify(key, &stored),
+        None => Err(StorageError::EncryptionError(
+            "content key proof is missing; this program opens only a home it created".into(),
+        )),
     }
-    if !fresh {
-        return Err(StorageError::EncryptionError(
-            "content key proof is missing; refusing to replace it".into(),
-        ));
-    }
-    kv.put(KEY, create(key)?).await
 }

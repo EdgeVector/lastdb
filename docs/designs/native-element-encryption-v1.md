@@ -73,13 +73,12 @@ The key derivation uses the original file hash.
 
 ## Old-reader boundary
 
-The logical marker `layout:v3:keys` uses direct ASCII value `6`, or `6;delete-replay-cutoff=v1` after a delete-replay cutoff.
-A home with typed ranges uses `7;typed-ranges=v1`.
-The node format marker uses `format=3`, or `format=4` for a home with typed ranges.
+The logical marker `layout:v3:keys` uses direct ASCII value `7;typed-ranges=v1`.
+The node format marker uses `format=4`: disk format v2 with typed ranges.
 The creation-intent marker names the third current-key initialization protocol.
-Normal startup rejects earlier node markers before it opens the physical store.
-A direct physical logical constructor also requires the marker for its key order: `6` or `6;delete-replay-cutoff=v1` for the UTF-8 order, `7;typed-ranges=v1` for the typed order.
-Startup does not rewrite an older home.
+Normal startup rejects every other node marker before it opens the physical store.
+A direct physical logical constructor also requires `7;typed-ranges=v1`.
+Startup does not rewrite an older home. An older home moves with one manual copy into a new home.
 The native record transfer that upgraded logical formats `4` and `5` is removed with disk format v1.
 This change does not open or change a primary home.
 

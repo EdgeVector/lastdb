@@ -197,8 +197,8 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 | Piece | Shipping default | Notes |
 |-------|------------------|--------|
-| HashKey in `mk:…` | `blind_v1` for fresh and typed homes | Existing explicit unencoded homes retain their own configuration. |
-| RangeKey in `mk:…` | Legacy homes retain `ope_v1` by default. Typed homes use one canonical ordered scalar payload. | The persisted node and molecule profiles control the choice. |
+| HashKey in `mk:…` | `blind_v1` on every home | No setting selects another encoding. |
+| RangeKey in `mk:…` | One canonical ordered scalar payload. No range uses OPE. | The persisted molecule profile selects the payload type. |
 | Run data and lookup blocks | Compression, then AES-256-GCM | Main and CAS use separate derived home keys. |
 | Atom content | Plain logical JSON inside encrypted V2 blocks | No extra atom envelope. |
 | Portable file blobs | Existing portable ciphertext and access bundles | The enclosing CAS run blocks also use V2 encryption. |
@@ -218,7 +218,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 **Agent rules:**
 
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
-2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE. Legacy conflict identifiers can retain their source codec.
+2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE.
 3. Preserve the V2 plain atom representation inside encrypted blocks. Do not add an atom envelope or a second ordered lookup.
 4. See `docs/designs/typed-range-field-contract.md` for the complete contract and release limits. Trinity describes the older record-encryption design.
 

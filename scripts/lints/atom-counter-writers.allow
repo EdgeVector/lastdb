@@ -50,8 +50,6 @@ fold_db/crates/core/src/db_operations/conflict_operations.rs|write_home_conflict
 # db_catalog_store.rs::drop_scoped_source_rows deletes every row of one scope through a store argument (tips, bodies and counters go together). The lint cannot see keys that a caller hands to it.
 
 
-fold_db/crates/core/src/crypto/content_key_proof.rs|verify_or_establish|-|explicit account-key proof sentinel; no atom, tip, counter, or conflict writes
-
 fold_db/crates/core/src/protein/ops.rs|protein_add_member_in_scope|-|protein records and member back-references
 fold_db/crates/core/src/protein/ops.rs|put_protein|-|protein records and member back-references
 
@@ -99,7 +97,6 @@ lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-onl
 
 
 
-fold_db/crates/core/src/db_operations/atom_store/key_format.rs|initialize_key_format|-|key format marker of a new empty home
 
 fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs|record_atom_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no atom, tip, or counter keys
 fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|finish|-|exclusive restore completion deletes only its durable pending marker after exact read-only counter verification

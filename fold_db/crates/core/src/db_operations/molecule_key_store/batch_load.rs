@@ -1,8 +1,8 @@
 //! Two batch reads resolve all uncached molecule contracts for one schema.
 
 use super::{
-    open_wrap, validate_identity, wrap_key_for, BundleWrap, KeyAuthority, MoleculeKeyStore,
-    StorageError, StorageResult, NODE_DOMAIN,
+    open_wrap, validate_identity, wrap_key_for, BundleWrap, MoleculeKeyStore, StorageError,
+    StorageResult, NODE_DOMAIN,
 };
 
 impl MoleculeKeyStore {
@@ -23,11 +23,10 @@ impl MoleculeKeyStore {
         let metadata = self.metadata_batch_from_memory(&missing).await?;
         let mut present = Vec::new();
         for (molecule, metadata) in missing.into_iter().zip(metadata) {
-            if let Some(metadata) = metadata {
-                present.push((molecule, Some(self.metadata_contract(molecule, &metadata)?)));
-            } else if self.is_typed() {
-                present.push((molecule, None));
-            }
+            let contract = metadata
+                .map(|metadata| self.metadata_contract(molecule, &metadata))
+                .transpose()?;
+            present.push((molecule, contract));
         }
         if present.is_empty() {
             return Ok(());
@@ -44,32 +43,23 @@ impl MoleculeKeyStore {
         let contracts = present
             .into_iter()
             .zip(wraps)
-            .map(|((molecule, contract), wrap)| {
-                let Some((profile, authority, identity)) = contract else {
-                    return if wrap.is_none() {
-                        Ok(None)
-                    } else {
-                        Err(StorageError::InvalidOperation(
-                            "a typed molecule wrap has no range contract".into(),
-                        ))
-                    };
-                };
-                let bundle = match (authority, wrap) {
-                    (KeyAuthority::Bundle, Some(wrap)) => {
-                        Some(open_wrap(&wrap, molecule, NODE_DOMAIN, wrap_key)?)
-                    }
-                    (KeyAuthority::Node, None) => None,
-                    _ => {
-                        return Err(StorageError::InvalidOperation(
-                            "the molecule key authority differs from its stored node wrap".into(),
-                        ))
-                    }
-                };
-                Ok(Some((molecule, profile, identity, bundle)))
+            .map(|((molecule, profile), wrap)| match (profile, wrap) {
+                (Some(profile), Some(wrap)) => Ok(Some((
+                    molecule,
+                    profile,
+                    open_wrap(&wrap, molecule, NODE_DOMAIN, wrap_key)?,
+                ))),
+                (None, None) => Ok(None),
+                (Some(_), None) => Err(StorageError::InvalidOperation(
+                    "a typed molecule contract has no node wrap".into(),
+                )),
+                (None, Some(_)) => Err(StorageError::InvalidOperation(
+                    "a typed molecule wrap has no range contract".into(),
+                )),
             })
             .collect::<StorageResult<Vec<_>>>()?;
-        for (molecule, profile, identity, bundle) in contracts.into_iter().flatten() {
-            self.remember_contract(molecule, profile, identity, bundle)?;
+        for (molecule, profile, bundle) in contracts.into_iter().flatten() {
+            self.remember_contract(molecule, profile, bundle)?;
         }
         Ok(())
     }

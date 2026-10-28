@@ -114,7 +114,7 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              {mnemonic}\n\
              ===========================================================\n\
              This phrase is your account root: identity, content encryption, \
-             HashKey blind, and RangeKey OPE. Enabling cloud later reuses it — \
+             and HashKey blinding. Enabling cloud later reuses it — \
              no re-encryption of molecule keys.\n"
         )
     } else {
@@ -394,6 +394,8 @@ impl Host {
 /// [`Host::qos`].
 #[async_trait::async_trait]
 impl lastdb_host::HostNode for Host {
+    type OpPermit = lastdb_host::QosPermit;
+
     fn fold_db(&self) -> &Arc<FoldDB> {
         &self.db
     }
@@ -405,11 +407,8 @@ impl lastdb_host::HostNode for Host {
     async fn acquire_op_permit(
         &self,
         lane: lastdb_host::Lane,
-    ) -> Result<Box<dyn lastdb_host::ReadPermit>, lastdb_host::ReadBusy> {
-        self.qos
-            .acquire(lane)
-            .await
-            .map(lastdb_host::QosPermit::boxed)
+    ) -> Result<Self::OpPermit, lastdb_host::ReadBusy> {
+        self.qos.acquire(lane).await
     }
 
     async fn wait_for_background_tasks(&self, timeout: std::time::Duration) -> bool {

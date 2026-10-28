@@ -108,6 +108,21 @@ pub(crate) enum ByteBackupCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Inspect the exact accepted recovery dependency closure. Deletes nothing.
+    InspectDependencies {
+        #[arg(long, required = true)]
+        recovery_phrase_stdin: bool,
+        #[arg(long)]
+        stream: String,
+        #[arg(long)]
+        generation: Option<u64>,
+        #[arg(long)]
+        commit: String,
+        #[arg(long)]
+        commit_sha256: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Restore one frozen V2 accepted backup into an absent home.
     Restore {
         #[arg(long, required = true)]

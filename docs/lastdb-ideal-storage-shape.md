@@ -829,7 +829,7 @@ Logical ladder **unchanged**. On-disk ownership changes per prefix table.
 | Topic | Treatment |
 |-------|-----------|
 | At-rest encryption | Planes under encrypting store where policy requires; `native_index` plaintext-by-policy stays explicit |
-| HashKey blind / RangeKey OPE | Orthogonal; codecs apply to `mk:` in tips |
+| HashKey blind / typed RangeKey payload | Orthogonal; codecs apply to `mk:` in tips |
 | Protein records | Molecule UUIDs + key field names — node-local metadata |
 | **Backup roles** | **Proteins → Mutable** (must be in `MUTABLE_BACKUP_COLLECTIONS`). Tips/schemas Mutable. Atoms Atom role. **Cold sync → optional separate / non-ladder backup class** so capture/outbox is not confused with user SOT restore |
 | CAS blobs | Content-addressed; share layer for access control |

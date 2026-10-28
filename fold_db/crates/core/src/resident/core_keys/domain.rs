@@ -3,7 +3,6 @@
 use super::{
     CompactRangeKey, CoreKeyBudget, CoreKeyDomain, CoreKeyDomainStats, CoreKeyError,
     CoreKeyIdentity, CoreKeyLease, CoreKeyPhase, DomainState, KeyVisibility, MoleculeKeys,
-    RangeKeyEncoding,
 };
 use std::sync::{Arc, Mutex};
 
@@ -17,8 +16,7 @@ const HASH_OVERHEAD: usize = 1024;
 impl CoreKeyDomain {
     pub(crate) fn new_loading(
         identity: CoreKeyIdentity,
-        range_encoding: RangeKeyEncoding,
-        range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+        range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
         budget: Arc<CoreKeyBudget>,
     ) -> Result<Arc<Self>, CoreKeyError> {
         let bytes = identity
@@ -28,7 +26,6 @@ impl CoreKeyDomain {
         let charge = budget.reserve_temporary(bytes)?;
         Ok(Arc::new(Self {
             identity,
-            range_encoding,
             range_profile,
             budget,
             state: Mutex::new(DomainState {
@@ -47,13 +44,8 @@ impl CoreKeyDomain {
         &self.identity
     }
 
-    pub(crate) fn range_encoding(&self) -> RangeKeyEncoding {
-        self.range_encoding
-    }
-
     pub(crate) fn accepts_stored_range(&self, range: &str) -> bool {
-        self.range_profile
-            .is_none_or(|profile| profile.decode_value(range).is_ok())
+        self.range_profile.decode_value(range).is_ok()
     }
 
     /// The caller owns the common publication lock for accepted write deltas.
@@ -85,10 +77,10 @@ impl CoreKeyDomain {
         range: &str,
         visibility: KeyVisibility,
     ) -> Result<bool, CoreKeyError> {
-        let allocation = CompactRangeKey::allocation_bound(range, self.range_encoding);
+        let allocation = CompactRangeKey::allocation_bound(range);
         let scratch = allocation.checked_mul(2).ok_or(CoreKeyError::Capacity)?;
         let _temporary = self.budget.reserve_temporary(scratch)?;
-        let key = CompactRangeKey::from_storage(range, self.range_encoding);
+        let key = CompactRangeKey::from_storage(range);
         if !state.keys.contains(hash, &key) {
             let next_key_bytes = state
                 .live_key_bytes
@@ -126,7 +118,7 @@ impl CoreKeyDomain {
     pub(crate) fn remove(&self, hash: &str, range: &str) -> Result<bool, CoreKeyError> {
         let mut state = self.state.lock().map_err(|_| CoreKeyError::Poisoned)?;
         accepts_changes(state.phase)?;
-        let allocation = CompactRangeKey::allocation_bound(range, self.range_encoding);
+        let allocation = CompactRangeKey::allocation_bound(range);
         let temporary = self.budget.reserve_temporary(allocation.saturating_mul(2));
         let _temporary = match temporary {
             Ok(temporary) => temporary,
@@ -136,7 +128,7 @@ impl CoreKeyDomain {
                 return Err(error);
             }
         };
-        let key = CompactRangeKey::from_storage(range, self.range_encoding);
+        let key = CompactRangeKey::from_storage(range);
         let removed = state.keys.remove(hash, &key);
         if removed {
             state.live_key_bytes -= allocation;

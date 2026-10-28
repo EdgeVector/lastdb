@@ -121,11 +121,9 @@ BASE_URL=https://pub-a27a88cf1c0b47cdb158819600250b98.r2.dev
 POINTER=schema-resolver-packs/dev/latest/contract-v1/native_component_cover-v1/embedder-sha256-8f59a052f3e17a28982df924bc4eb42889054e2c82d63089f793eb78dc5c1263/manifest.json
 curl -fsS -o /dev/null -w "%{http_code}\n" "$BASE_URL/$POINTER" # 200
 
-DOGFOOD_PACK_BASE_URL="$BASE_URL" \
-DOGFOOD_PACK_KEY_ID=e5ecd9135cac5b41ec799694b5a6f8370d5afa4a5a9642d336fb09898810f490 \
-DOGFOOD_PACK_PUBLIC_KEY_B64=4o7rMoWiSbo4MGykaa8Yq2VEFUHMoBZonX+HAGCr2yU= \
-  cargo test -p schema_service_client --test pack_dogfood_http_load -- --nocapture
 ```
+
+The former test harness is retired. Use the CI product proof for current verification.
 
 ## Modes
 

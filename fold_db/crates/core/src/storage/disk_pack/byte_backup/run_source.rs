@@ -49,7 +49,7 @@ impl RunSource {
             remaining,
         )
         .map_err(super::super::map)?;
-        let (version, marker_bytes) = marker_profile(&runtime, &root)?;
+        let (version, marker_bytes) = marker_profile(&root)?;
         let count = main
             .files
             .len()
@@ -193,21 +193,14 @@ impl RunSource {
         Ok(())
     }
 }
-fn marker_profile(runtime: &PackRuntime, root: &Path) -> StorageResult<(u16, u64)> {
-    use schema_types::key_comparison::KeyOrderVersion;
+fn marker_profile(root: &Path) -> StorageResult<(u16, u64)> {
     let mut marker = RunSource::node_file(root)?;
     let mut bytes = Vec::new();
     (&mut marker).take(129).read_to_end(&mut bytes)?;
-    let version = match (bytes.as_slice(), runtime.range_order()) {
-        (super::super::run_node::RUN_NODE_BYTES, KeyOrderVersion::LegacyUtf8V1) => 1,
-        (super::super::run_admission::TYPED_NODE_BYTES, KeyOrderVersion::TypedScalarV1) => 2,
-        _ => {
-            return Err(invalid(
-                "run backup node marker differs from its logical order",
-            ))
-        }
-    };
-    Ok((version, bytes.len() as u64))
+    if bytes != super::super::run_admission::TYPED_NODE_BYTES {
+        return Err(invalid("run backup node marker is not the node format"));
+    }
+    Ok((super::run_codec::RUN_PROFILE_VERSION, bytes.len() as u64))
 }
 
 pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {

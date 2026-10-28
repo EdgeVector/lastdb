@@ -101,7 +101,6 @@ impl HashRangeQueryProcessor {
         let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
         let scan_fields = condition_fields(
             schema,
-            self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain,
             predicates.unwrap_or(&[]),
             value_filters.unwrap_or(&[]),
             order_by,

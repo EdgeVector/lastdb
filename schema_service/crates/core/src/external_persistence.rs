@@ -29,6 +29,7 @@ use super::declared_fields::DeclaredFieldRecord;
 use super::near_miss::NearMissRecord;
 use super::snapshot::AppRecord;
 use super::types::CanonicalField;
+use crate::CanonicalVocabularyWrite;
 use schema_types::FoldDbResult;
 use schema_types::Schema;
 
@@ -67,6 +68,19 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         schemas: &[Schema],
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<()>;
+
+    /// Commit only if the durable vocabulary still matches the admission
+    /// snapshot. Verify it inside the same lock/conditional write, on every
+    /// retry. Unsupported backends fail closed rather than split the check.
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        _schemas: &[Schema],
+        _vocabulary: &CanonicalVocabularyWrite,
+    ) -> FoldDbResult<()> {
+        Err(schema_types::FoldDbError::Config(
+            "conditional vocabulary commit is not supported by this backend".into(),
+        ))
+    }
 
     /// Load every schema from storage.
     ///
@@ -257,6 +271,19 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         fields: &[(String, CanonicalField)],
         expected: Option<&DeclaredFieldRecord>,
     ) -> FoldDbResult<()>;
+
+    /// Check both the declaration precondition and the admission snapshot
+    /// inside one atomic commit. No unguarded fallback is permitted.
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        _record: &DeclaredFieldRecord,
+        _vocabulary: &CanonicalVocabularyWrite,
+        _expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        Err(schema_types::FoldDbError::Config(
+            "conditional vocabulary commit is not supported by this backend".into(),
+        ))
+    }
 
     /// Load every declaration. Called once at startup to rebuild both the
     /// id index and the `(owner, handle)` index that keeps re-declare

@@ -1,11 +1,11 @@
 //! Durable per-molecule key bundles and access-domain wraps.
 //!
-//! A molecule's content, blind-index, and OPE keys are minted once. The
-//! plaintext bundle stays only in the process cache. Durable rows contain a
-//! small metadata record (`mkb:`) and one encrypted wrap per access domain
-//! (`mkw:`). Catalog sharing adds a wrap; it never reseals molecule data.
+//! A molecule's three-key bundle is minted once; its blind-index key blinds
+//! the molecule hashes. The plaintext bundle stays only in the process cache.
+//! Durable rows contain a small metadata record (`mkb:`) and one encrypted
+//! wrap per access domain (`mkw:`). Catalog sharing adds a wrap; it never
+//! reseals molecule data.
 
-use crate::atom::molecule_key_codec::ConflictKeyIdentity;
 use crate::crypto::{seal_at_rest_utf8, AT_REST_ENC_PREFIX};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
@@ -31,8 +31,7 @@ mod metadata_batch;
 mod share;
 
 pub(crate) use frozen::{
-    node_bundle_storage_keys, open_frozen_node_bundle, typed_frozen_metadata,
-    verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
+    node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, CachedMoleculeContract>>>;
@@ -40,16 +39,22 @@ pub use bundle::MoleculeKeyBundle;
 
 #[derive(Clone)]
 pub(crate) struct CachedMoleculeContract {
-    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
-    bundle: Option<MoleculeKeyBundle>,
-    conflict_identity: Option<ConflictKeyIdentity>,
+    range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
+    bundle: MoleculeKeyBundle,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+/// Every molecule owns an independent key bundle under its node wrap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum KeyAuthority {
     Bundle,
-    Node,
+}
+
+/// Every conflict ID names the stored molecule coordinate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ConflictKeyIdentity {
+    StoredV1,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -63,18 +68,6 @@ struct BundleMetadata {
     key_authority: Option<KeyAuthority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conflict_identity: Option<ConflictKeyIdentity>,
-}
-
-impl BundleMetadata {
-    /// Current homes have no typed profile. Refuse a profile rather than ignore
-    /// it until the complete typed runtime and logical format are published.
-    fn is_legacy_for(&self, molecule: &str) -> bool {
-        self.version == BUNDLE_VERSION
-            && self.molecule_uuid == molecule
-            && self.range_profile.is_none()
-            && self.key_authority.is_none()
-            && self.conflict_identity.is_none()
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -114,11 +107,11 @@ impl MoleculeKeyStore {
         self.node_wrap_key.is_some()
     }
 
-    /// Resolve the exact molecule contract. Node authority has no molecule bundle.
+    /// Resolve the exact molecule contract and its key bundle.
     pub async fn load(&self, molecule_uuid: &str) -> StorageResult<Option<MoleculeKeyBundle>> {
         validate_identity(molecule_uuid, NODE_DOMAIN)?;
         if let Some(contract) = self.cached_contract(molecule_uuid)? {
-            return Ok(contract.bundle);
+            return Ok(Some(contract.bundle));
         }
         self.load_existing(&[molecule_uuid.to_owned()]).await?;
         self.cached_bundle(molecule_uuid)
@@ -128,12 +121,10 @@ impl MoleculeKeyStore {
         self.entries.inner().flush().await
     }
 
-    /// Establish every final field molecule's keys before schema publication.
+    /// Load every final field molecule's established keys. Only schema
+    /// publication mints keys.
     pub async fn ensure_schema(&self, schema: &Schema) -> StorageResult<()> {
-        if self.is_typed() {
-            return self.load_schema(schema).await;
-        }
-        self.establish_schema(schema).await
+        self.load_schema(schema).await
     }
 
     /// Only schema publication may mint new typed contracts. Existing fields
@@ -143,10 +134,8 @@ impl MoleculeKeyStore {
         schema: &Schema,
         existing: Option<&Schema>,
     ) -> StorageResult<()> {
-        if self.is_typed() {
-            if let Some(existing) = existing {
-                self.load_schema(existing).await?;
-            }
+        if let Some(existing) = existing {
+            self.load_schema(existing).await?;
         }
         self.establish_schema(schema).await
     }

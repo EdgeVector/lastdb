@@ -1,13 +1,18 @@
 //! Live-key counts use the same schema gates as reads, then decline field-dependent controls.
 
-use super::*;
+use std::sync::Arc;
+
+use crate::access::AccessContext;
+use crate::schema::{types::Query, SchemaError};
+
+use super::{rules, QueryExecutor};
 
 impl QueryExecutor {
     /// Count live keys for the same supported keyed query and projection.
     /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
     /// also require the declared hash-field values to distinguish their keys.
     /// See
-    /// [`HashRangeQueryProcessor::count_rows`].
+    /// [`super::HashRangeQueryProcessor::count_rows`].
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
     /// the caller uses the regular captured query and counts its selected keys.
@@ -44,46 +49,23 @@ impl QueryExecutor {
             )
             .await?;
 
-        match self
-            .schema_manager
-            // Counted fields reload their molecules, so keep the registry clone
-            // free of hydrated molecule data, as on the read path.
-            .get_schema_following_supersession_for_read(&query.schema_name)
-            .await?
-        {
-            Some(mut schema) => {
-                self.schema_manager.require_queryable_schema(&schema.name)?;
-                crate::schema::require_logical_layout(&schema.schema_type)?;
-                crate::schema::require_logical_filter(query.filter.as_ref())?;
-                crate::schema::require_logical_query_controls(query)?;
-                self.db_ops
-                    .molecule_keys()
-                    .load_schema(&schema)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "load molecule key bundles for schema '{}': {error}",
-                            schema.name
-                        ))
-                    })?;
-                rules::reject_unknown_projection(&schema, &query.fields)?;
-                if query.requires_post_key_work() || query.include_tombstones {
-                    return Ok(None);
-                }
-                rules::scope_fields(&mut schema, storage_prefix.as_deref());
-                if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
-                    runtime
-                        .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
-                        .await?;
-                }
-                let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
-                let count = self
-                    .hash_range_processor
-                    .count_rows(&mut schema, &query.fields, count_filter)
-                    .await?;
-                Ok(Some(count))
-            }
-            None => Ok(None),
+        let Some(mut schema) = self.prepare_query_schema(query).await? else {
+            return Ok(None);
+        };
+        if query.requires_post_key_work() || query.include_tombstones {
+            return Ok(None);
         }
+        rules::scope_fields(&mut schema, storage_prefix.as_deref());
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
+                .await?;
+        }
+        let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
+        let count = self
+            .hash_range_processor
+            .count_rows(&mut schema, &query.fields, count_filter)
+            .await?;
+        Ok(Some(count))
     }
 }

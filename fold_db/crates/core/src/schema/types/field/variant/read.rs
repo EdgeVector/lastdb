@@ -31,10 +31,12 @@ impl FieldVariant {
             );
         };
         db_ops.atoms().load_molecule_key_bundle(molecule).await?;
-        Ok(db_ops
-            .atoms()
-            .key_codec_for_molecule(molecule)?
-            .range_profile())
+        Ok(Some(
+            db_ops
+                .atoms()
+                .key_codec_for_molecule(molecule)?
+                .range_profile(),
+        ))
     }
 
     fn require_supported_read(&self, filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {

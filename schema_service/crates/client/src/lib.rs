@@ -53,15 +53,13 @@ use std::time::Duration;
 /// returns control before the whole operation expires.
 pub const SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-use schema_service_core::registry_index::RegistryIndexEnvelope;
 use schema_service_core::snapshot::{
     AppArtifact, AppCodeSignature, AppMetadata, AppRecord, AppTier, SnapshotEnvelope,
     SnapshotImportReport,
 };
 use schema_service_core::types::{
-    AddSchemaRequest, AddSchemaResponse, BatchSchemaReuseRequest, BatchSchemaReuseResponse,
-    DescriptiveNameConflict, SchemaEnvelope, SchemaLookupEntry, SchemaResolveProposal,
-    SchemaResolveRequest, SchemaResolveResponse,
+    AddSchemaRequest, AddSchemaResponse, DescriptiveNameConflict, SchemaEnvelope,
+    SchemaResolveProposal, SchemaResolveRequest, SchemaResolveResponse,
 };
 use schema_service_core::{
     node_signature_payload, pow_satisfies, schema_payload_hash, SchemaMutationChallengeRequest,

@@ -1,10 +1,10 @@
-//! Preserve the existing timestamp-prefix TTL rule across typed conversion.
+//! A range TTL needs a String range with the 20-digit timestamp prefix.
 
 use super::{Schema, SchemaError, SchemaStore};
 use crate::schema::types::schema::DeclarativeSchemaType;
-use schema_types::{key_comparison::KeyOrderVersion, range_storage_profile::RangeStorageProfile};
+use schema_types::range_storage_profile::RangeStorageProfile;
 
-pub(crate) fn require_typed_range_retention(schema: &Schema) -> Result<(), SchemaError> {
+fn require_typed_range_retention(schema: &Schema) -> Result<(), SchemaError> {
     if !matches!(
         schema.schema_type,
         DeclarativeSchemaType::Range | DeclarativeSchemaType::HashRange
@@ -22,7 +22,7 @@ pub(crate) fn require_typed_range_retention(schema: &Schema) -> Result<(), Schem
         != RangeStorageProfile::StringUtf8V1
     {
         return Err(SchemaError::InvalidData(
-            "range TTL requires a String range with the existing 20-digit timestamp prefix; this typed scalar needs an explicit retention-policy conversion".into(),
+            "range TTL requires a String range with the 20-digit timestamp prefix".into(),
         ));
     }
     Ok(())
@@ -33,13 +33,6 @@ impl SchemaStore {
         &self,
         schema_name: &str,
     ) -> Result<(), SchemaError> {
-        if self
-            .runtime
-            .as_ref()
-            .is_none_or(|runtime| runtime.range_order() != KeyOrderVersion::TypedScalarV1)
-        {
-            return Ok(());
-        }
         let schema = self
             .get_schema(schema_name)
             .await?

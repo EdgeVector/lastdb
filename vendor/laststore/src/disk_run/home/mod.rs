@@ -41,7 +41,6 @@ mod diagnostic;
 mod diagnostic_cursor;
 mod diagnostic_files;
 mod diagnostic_inventory;
-mod inventory;
 mod keys;
 mod maintenance;
 mod manifest;
@@ -61,7 +60,6 @@ pub use diagnostic::{
     CollectionInventory, FileDiagnostics, LogicalInventory, RunDiagnosticCheckpoint,
     RunHomeDiagnostics,
 };
-pub use inventory::AdministrativePage;
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RangeBounds, RunHashRange, RunRangePage};
 pub use read::{CopiedRunBody, ProbedValue, ReadBudget, ReadProbe, RunRead, RunReadCosts, RunRoot};

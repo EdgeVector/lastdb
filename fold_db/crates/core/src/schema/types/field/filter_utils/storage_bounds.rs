@@ -16,9 +16,6 @@ pub fn filter_range_bounds_for_apply(
     if matches!(filter, HashRangePrefix { .. } | RangePrefix(_)) {
         codec.require_text_range_prefix()?;
     }
-    if !codec.range_encoding().writes_ope() && codec.range_profile().is_none() {
-        return Ok(filter.clone());
-    }
     let encode = |value: &str| codec.storage_range(molecule_uuid, value);
     Ok(match filter {
         HashRangePrefix { hash, prefix } if !prefix.is_empty() => HashRangePrefix {

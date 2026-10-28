@@ -3,8 +3,8 @@
 //! The publication owner coordinates captures, source exhaustion, accepted
 //! writes, and schema readiness. These types own key data and its byte leases.
 
+use crate::atom::MoleculeKeys;
 pub(crate) use crate::atom::{CompactRangeKey, CoreStoredKey, KeyVisibility};
-use crate::atom::{MoleculeKeys, RangeKeyEncoding};
 use std::sync::{Arc, Mutex};
 
 mod budget;
@@ -84,8 +84,7 @@ struct DomainState {
 #[derive(Debug)]
 pub(crate) struct CoreKeyDomain {
     identity: CoreKeyIdentity,
-    range_encoding: RangeKeyEncoding,
-    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
     budget: Arc<CoreKeyBudget>,
     state: Mutex<DomainState>,
 }

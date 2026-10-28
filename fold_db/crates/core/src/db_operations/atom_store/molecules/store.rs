@@ -33,10 +33,10 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
 /// - [`AtomStore::load_all_mk_records`] (the full load behind
 ///   `FieldVariant::refresh_from_db`) reassembles each slot by decoding the
 ///   `mk:` key it was stored under, so its slots are **storage form**:
-///   HMAC-blinded under `BlindV1`, OPE-encoded under `OpeV1`.
+///   HMAC-blinded hashes and typed range payloads.
 ///
 /// A full rewrite has to know which it was handed. Encoding a molecule that is
-/// already encoded produces `blind(blind(hash))` / `ope(ope(range))` — keys no
+/// already encoded produces `blind(blind(hash))` or a twice-encoded range — keys no
 /// lookup will ever derive, so every surviving slot is rewritten out from under
 /// every future read. The rows are still on disk and still list, which is what
 /// makes it so quiet: only a keyed read can tell.

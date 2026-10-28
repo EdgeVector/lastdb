@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 
-from ranges import latency, validate, validate_cursor
+from ranges import latency, matched_request_sha256, validate, validate_cursor
 from condition_values import extend
 
 SCHEMA, HASH, COUNT, SHIFT = "ReceivedRangeBatches", "generated", 16384, 8192
@@ -59,7 +59,7 @@ def selected(expected, request):
     return sorted(keys, key=lambda coordinate: (coordinate[1], coordinate[0]))[request.get("offset", 0):]
 
 
-def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False):
+def walk(node, expected, request, label, baseline=False):
     wanted, position, samples = selected(expected, request), 0, []
     cursor = request.get("cursor")
     maximum_pages = len(wanted) // max(1, request["limit"]) + 16
@@ -86,7 +86,7 @@ def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False)
         if receipt["storage_read_receipt"] is None:
             raise RuntimeError("A received range page lacks its native read receipt")
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],
-            "request_sha256": hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest(),
+            "request_sha256": matched_request_sha256(request),
             "records": count, "storage_read_receipt": receipt["storage_read_receipt"]})
         if "process_counters" in receipt:
             samples[-1]["process_counters"] = receipt["process_counters"]
@@ -100,8 +100,7 @@ def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False)
             raise RuntimeError("A received range cursor does not advance past its last returned key")
         validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
-        request = {**request, "cursor": wire_cursor}
+        request = {**request, "cursor": following}
         request.pop("offset", None)
     else:
         raise RuntimeError("The received range cursor walk exceeds its finite page bound")

@@ -19,8 +19,7 @@ from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architec
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-MARKERS = {"format=3\nhome=disk-run\ncas=disk-cas\n",
-           "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"}
+MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -216,11 +215,12 @@ def operations(node):
     if not isinstance(json.loads(status.stdout), dict):
         raise RuntimeError("The packaged CLI returned an invalid status response")
     marker = node.home / "data" / "laststore-pack-node-v1"
-    if marker.read_text() not in MARKERS:
-        raise RuntimeError("The packaged daemon did not initialize disk format v2")
+    if marker.read_text() != MARKER:
+        raise RuntimeError("The packaged daemon did not initialize a format 4 home")
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
         "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,
+        "field_types": {"bucket": "String", "id": "String"},
         "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS}}})
     write(node, range(8), create=True)
     read(node, set())

@@ -23,7 +23,6 @@ mod lifecycle;
 mod local_file_blobs;
 mod maintenance_admission;
 mod provenance;
-mod schema_api;
 mod schema_drop;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;

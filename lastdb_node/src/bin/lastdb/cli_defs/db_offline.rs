@@ -4,48 +4,6 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
-    /// Convert a stopped compact V2 development home into a separate typed home.
-    /// The source remains unchanged. Primary homes and archives are refused.
-    ConvertTypedRanges {
-        #[arg(long)]
-        target_home: PathBuf,
-        /// Assert the source hash domain. The first converter preserves blinding.
-        #[arg(long, value_parser = ["blind_v1"])]
-        source_hash_encoding: String,
-        #[arg(long, value_parser = ["plain", "ope_v1"])]
-        source_range_encoding: String,
-        /// Resume only the same job, source publications, target, and limits.
-        #[arg(long)]
-        resume: bool,
-        #[arg(long, default_value_t = 1_000_000)]
-        max_records: usize,
-        #[arg(long, default_value_t = 128)]
-        max_metadata_mib: usize,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Inventory typed range conversion from one stopped development home.
-    /// Reads existing files only. The primary and its archives are refused.
-    InspectRangeConversion {
-        /// Also check a new target's conversion eligibility and temporary space.
-        #[arg(long, requires = "source_hash_encoding")]
-        target_home: Option<PathBuf>,
-        /// Assert the old hash configuration; it cannot be inferred from stored bytes.
-        #[arg(long, value_parser = ["blind_v1"], requires = "target_home")]
-        source_hash_encoding: Option<String>,
-        /// The source node's explicit range encoding. No format is inferred.
-        #[arg(long, value_parser = ["plain", "ope_v1"])]
-        source_range_encoding: String,
-        /// Explicit range representation for the proposed typed target.
-        #[arg(long, value_parser = ["plain", "ope_v1"])]
-        target_range_encoding: String,
-        #[arg(long, default_value_t = 1_000_000)]
-        max_records: usize,
-        #[arg(long, default_value_t = 128)]
-        max_metadata_mib: usize,
-        #[arg(long)]
-        json: bool,
-    },
     /// Rebuild every atom counter from the tip records and the conflict
     /// records. OFFLINE: it refuses a home that a daemon serves.
     ///
@@ -94,7 +52,7 @@ pub(crate) enum DbOfflineCommand {
         molecules: bool,
         /// Reject replay at or before this unix second, then prune older Delete
         /// barriers. This is an explicit global cutoff. Stale peers need resync.
-        /// Without --execute this reports only. Older programs refuse the fenced home.
+        /// Without --execute this reports only.
         #[arg(long, requires = "all_scopes")]
         delete_cutoff_unix_secs: Option<u64>,
         /// Passes over the tips and records. More passes use less memory.

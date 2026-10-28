@@ -1,9 +1,7 @@
 # Dual-signal-only canonicalization — feasibility spike results
 
 **Date:** 2026-06-11
-**Harness:** `schema_service/crates/server_shared/tests/dual_signal_only_spike.rs`
-(`#[ignore]`d; run with
-`cargo test -p schema_service_server_shared --test dual_signal_only_spike -- --ignored --nocapture`)
+**Method:** Historical feasibility experiment. Its test harness is retired.
 **Model:** real `fastembed/all-MiniLM-L6-v2` (the production embedder), debug build, ~8 s.
 **Question (gating experiment for the shared-schema-canonicals design):** with
 owner-scoping disabled (`owner_app_id = None` on every input), does dual-signal

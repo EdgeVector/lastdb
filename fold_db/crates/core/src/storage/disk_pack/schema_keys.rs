@@ -214,29 +214,17 @@ impl PackRuntime {
 
 fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, SchemaError> {
     let codec = db_ops.atoms().key_codec_for_molecule(molecule)?;
-    if let Some(profile) = codec.range_profile() {
-        return Ok(format!(
-            "{:?}/{:?}/{:?}/{}",
-            codec.encoding(),
-            codec.range_encoding(),
-            codec
-                .storage_hash(molecule, "schema-preload-identity")
-                .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
-            profile.format_id().map_err(SchemaError::InvalidData)?,
-        ));
-    }
-    // Sentinel outputs identify the fixed molecule key pair without
-    // retaining encryption keys. They are never used as database coordinates.
+    // The identity lives only in memory, so the Debug form of the profile
+    // is as exact as its format ID. The sentinel output identifies the fixed
+    // molecule hash key without retaining it. It is never used as a database
+    // coordinate. `BlindV1` is the only hash encoding; the text stays the
+    // former `Debug` spelling that `supported_coordinate` checks.
     Ok(format!(
-        "{:?}/{:?}/{:?}/{:?}",
-        codec.encoding(),
-        codec.range_encoding(),
+        "BlindV1/{:?}/{:?}",
         codec
             .storage_hash(molecule, "schema-preload-identity")
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
-        codec
-            .storage_range(molecule, "\0")
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+        codec.range_profile(),
     ))
 }
 

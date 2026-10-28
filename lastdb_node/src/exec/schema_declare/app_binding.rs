@@ -55,7 +55,25 @@ pub(crate) async fn load_app_single_catalog_binding(
         discard_orphan_catalog_schema(host, catalog_hash).await;
         return Err(refusal);
     }
-    let binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
+    let mut binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
+    prepare_catalog_for_load(host, &mut binding).await?;
+    if let Some(mut catalog) = host
+        .db
+        .schema_manager()
+        .get_schema_metadata(catalog_hash)
+        .map_err(|e| format!("failed to read catalog schema {catalog_hash}: {e}"))?
+    {
+        let previous_mappers = catalog.field_mappers.clone();
+        prepare_catalog_for_load(host, &mut catalog).await?;
+        if catalog.field_mappers != previous_mappers {
+            host.db
+                .schema_manager()
+                .load_schema_internal(catalog.clone())
+                .await
+                .map_err(|e| format!("failed to refresh recovered catalog mappers: {e}"))?;
+        }
+        anchor_binding_mappers(&mut binding, &catalog)?;
+    }
     if let Some(catalog_fields) = host
         .db
         .schema_manager()
@@ -78,10 +96,9 @@ pub(crate) async fn load_app_single_catalog_binding(
         })?;
 
     // The catalog schema can carry molecule UUIDs that predate the current
-    // deterministic derivation. Loading the mapper metadata alone leaves the
-    // app alias on derived, empty molecules, so every historical row appears
-    // absent. Apply the mappers now and persist the catalog's stored molecule
-    // locations onto the app-qualified schema.
+    // deterministic derivation. A load binds the app alias to the catalog's
+    // stored molecules, unless this process already published that binding.
+    // This call reloads the stored binding through the typed mapper pass.
     host.db
         .schema_manager()
         .apply_field_mappers(&declare.local_schema_id)
@@ -92,6 +109,52 @@ pub(crate) async fn load_app_single_catalog_binding(
                 declare.local_schema_id
             )
         })
+}
+
+/// Keep the catalog hop: flattening its cross-key mapper bypasses the catalog's
+/// own ordered molecule and routes an app range read onto its hash-only sibling.
+fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), String> {
+    let binding_name = binding.name.clone();
+    let Some(mappers) = binding.field_mappers.as_mut() else {
+        return Ok(());
+    };
+    for (field, mapper) in mappers {
+        if mapper.source_schema() == catalog.name {
+            continue;
+        }
+        let catalog_field = if catalog
+            .field_mappers
+            .as_ref()
+            .and_then(|sources| sources.get(field))
+            == Some(mapper)
+        {
+            Some(field.clone())
+        } else {
+            let candidates: Vec<_> = catalog
+                .field_mappers
+                .iter()
+                .flat_map(|m| m.iter())
+                .filter(|(_, source)| *source == mapper)
+                .map(|(name, _)| name.clone())
+                .collect();
+            match candidates.as_slice() {
+                [only] => Some(only.clone()),
+                [] => None,
+                _ => {
+                    return Err(format!(
+                        "ambiguous catalog field for {binding_name}.{field}"
+                    ))
+                }
+            }
+        };
+        if let Some(catalog_field) = catalog_field {
+            *mapper = FieldMapper::new(&catalog.name, catalog_field);
+        }
+    }
+    binding.field_molecule_uuids = None;
+    binding
+        .populate_runtime_fields()
+        .map_err(|e| format!("invalid catalog binding: {e}"))
 }
 
 /// Preserve local rows when an existing app schema first binds to an empty

@@ -50,6 +50,7 @@ pub mod builtin_schemas;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
+mod field_identity_validation;
 pub mod field_name_policy;
 mod lock_helpers;
 pub mod memory_persistence;
@@ -90,7 +91,9 @@ pub use state_native_resolve::{
 };
 pub mod types;
 mod vocabulary_admission;
+mod vocabulary_commit;
 mod vocabulary_matching;
+pub use vocabulary_commit::CanonicalVocabularyWrite;
 
 pub use app_identity::{
     env_label, AppIdentityConfig, AppPromoteError, AppPromoteOutcome, AppRegisterError,
