@@ -50,8 +50,10 @@ def warm(node):
 def observe(node):
     # Status and filesystem observations are not an atomic physical snapshot.
     started = time.monotonic_ns()
+    unix_started = time.time_ns() // 1000
     state = snapshot(node)
-    state.update(observation_start_ns=started, observation_end_ns=time.monotonic_ns())
+    state.update(observation_start_ns=started, observation_end_ns=time.monotonic_ns(),
+                 observation_start_unix_us=unix_started, observation_end_unix_us=time.time_ns() // 1000)
     return state
 
 
