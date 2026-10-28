@@ -29,7 +29,7 @@ pub(in crate::byte_cloud_backup) fn retain_manifest(
     hash.update(b"lastdb:stopped-byte-source-manifest:v1\0");
     for index in 0..snapshot.object_count()? {
         let object = snapshot.object_manifest(index)?;
-        let raw = serde_json::to_vec(&object).map_err(|_| BackupError::Invalid)?;
+        let raw = cloud_backup_protocol::v2::hash::canonical_bytes(&object)?;
         hash.update(index.to_be_bytes());
         hash.update((raw.len() as u64).to_be_bytes());
         hash.update(&raw);

@@ -47,7 +47,7 @@ pub(super) fn build(manifest: &manifest::Manifest, store: &Store) -> Result<Plan
     for index in 0..manifest.objects {
         let object = manifest::object(store, index)?;
         object.input.validate()?;
-        let raw = serde_json::to_vec(&object).map_err(|_| BackupError::Invalid)?;
+        let raw = cloud_backup_protocol::v2::hash::canonical_bytes(&object)?;
         descriptor_hash.update(index.to_be_bytes());
         descriptor_hash.update((raw.len() as u64).to_be_bytes());
         descriptor_hash.update(&raw);
