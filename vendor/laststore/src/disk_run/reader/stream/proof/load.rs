@@ -99,12 +99,11 @@ impl RunReader {
         }
         preflight(maximum, fixed, retained)?;
         let identity = self.file.metadata()?;
-        let mut input = VerifiedFrameReader::open_with_window(
+        let mut input = VerifiedFrameReader::open(
             &self.file,
             reference.offset,
             u64::from(reference.len),
             &self.data_key,
-            maximum,
         )?;
         if input.header().chunk_uuid != self.footer.run_id
             || input.header().counter != reference.number
@@ -120,9 +119,7 @@ impl RunReader {
         {
             return Err(Error::ReadBudgetExceeded);
         }
-        let stream_workspace = input
-            .default_window_memory_bytes()
-            .saturating_add(extent.metadata);
+        let stream_workspace = input.memory_bytes().saturating_add(extent.metadata);
         let count = usize::try_from(input.payload_len()).map_err(|_| Error::ReadBudgetExceeded)?;
         if count > maximum {
             return Err(Error::ReadBudgetExceeded);
@@ -167,13 +164,10 @@ impl RunReader {
 
 fn preflight(maximum: usize, fixed: u64, retained: u64) -> Result<()> {
     let resources = lastdb_storage_policy::BACKUP_RESOURCES;
-    let window = maximum
-        .max(1024)
-        .checked_next_power_of_two()
-        .ok_or(Error::ReadBudgetExceeded)? as u64;
-    // Authentication runs before the frame exposes its header. Reserve both GCM
-    // buffers and the largest possible decoder for this optional window first.
-    let frame = 4 * resources.stream_buffer_bytes + 16 + window;
+    // Keep the original accepted decoder window independent of cache payload
+    // admission. Reserve its full workspace before frame authentication.
+    let frame =
+        4 * resources.stream_buffer_bytes + 16 + crate::frame::MAX_DECOMPRESSED_FRAME_BYTES as u64;
     if retained
         .saturating_add(frame)
         .saturating_add(maximum as u64)

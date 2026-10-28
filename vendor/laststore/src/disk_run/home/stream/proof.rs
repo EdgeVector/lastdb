@@ -48,8 +48,8 @@ impl RunRead {
         self.charge((collection.len() + key.len()) as u64)?;
         let wanted = self.compound_key(collection, key.as_bytes())?;
         let resources = lastdb_storage_policy::BACKUP_RESOURCES;
-        // The cache-load window is smaller. Keep the original stream's exact
-        // frame workspace deduction for selected-body admission.
+        // Keep the original stream's exact frame workspace deduction for
+        // selected-body admission, even though this cache needs less.
         let available = resources
             .working_memory_bytes
             .checked_sub(self.shared_metadata_bytes.max(self.retained_bytes()))

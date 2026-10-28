@@ -84,7 +84,6 @@ pub(crate) struct VerifiedFrameReader {
     payload: Payload,
     payload_len: u64,
     memory_bytes: u64,
-    default_window_memory_bytes: u64,
     decoder_charge: Option<TemporaryBytes>,
     delivered: u64,
     finished: bool,
@@ -179,18 +178,11 @@ impl VerifiedFrameReader {
             } else {
                 0
             };
-        let default_window_memory_bytes = buffer_bytes
-            + if decoder_charge.is_some() {
-                decoder_reserve(MAX_DECOMPRESSED_FRAME_BYTES) as u64
-            } else {
-                0
-            };
         Ok(Self {
             source,
             payload,
             payload_len,
             memory_bytes,
-            default_window_memory_bytes,
             decoder_charge,
             delivered: 0,
             finished: false,
@@ -209,11 +201,6 @@ impl VerifiedFrameReader {
     /// Reserve this amount before the first nonempty read, including an empty payload's EOF probe.
     pub(crate) fn memory_bytes(&self) -> u64 {
         self.memory_bytes
-    }
-
-    /// Equivalent admission of the original full-window streaming reader.
-    pub(crate) fn default_window_memory_bytes(&self) -> u64 {
-        self.default_window_memory_bytes
     }
 
     fn verify_end(&mut self) -> io::Result<()> {
