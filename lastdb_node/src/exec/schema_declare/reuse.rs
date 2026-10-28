@@ -7,7 +7,7 @@ use super::*;
 ///
 /// Catalog registration once stored the proposal identity in expansion
 /// mappers even when Schema Service returned a different storage name. Keep a
-/// missing or ambiguous source unchanged so `apply_field_mappers` still fails
+/// missing or ambiguous source unchanged so the typed mapper pass still fails
 /// closed instead of choosing an unrelated molecule map.
 pub(crate) fn reuse_field_mappers_with_loaded_sources(
     schema: &DeclarativeSchemaDefinition,
