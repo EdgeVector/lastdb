@@ -111,22 +111,21 @@ if "$REPO_ROOT/target/debug/lastdb" app check --manifest manifest.json --json > 
     echo "✓ Lockfile created: manifest.json.lock.json"
     echo "  Locked schemas: $(jq -r '.schemas | keys | join(", ")' manifest.json.lock.json)"
   else
-    echo "⚠ Lockfile was not created by check command"
-    echo "  Creating a placeholder lockfile (may cause publish to fail)"
-    cat > manifest.json.lock.json <<EOF
-{
-  "schemas": {}
-}
-EOF
+    echo "❌ Lockfile was not created by check command"
+    echo "   Schema resolution succeeded but no lockfile was written"
+    echo "   This indicates a CLI bug or configuration issue"
+    exit 1
   fi
 else
-  echo "⚠ Schema check command failed (this is expected if no node is running)"
-  echo "  Creating a placeholder lockfile (publish will fail without real identities)"
-  cat > manifest.json.lock.json <<EOF
-{
-  "schemas": {}
-}
-EOF
+  echo "❌ Schema check command failed"
+  cat check-result.json
+  echo
+  echo "Cannot proceed without resolved schema identities"
+  echo "Prerequisites:"
+  echo "  - Running lastdb node with DEV catalog access"
+  echo "  - Valid LASTDB_API_KEY for DEV"
+  echo "  - Network access to DEV schema service"
+  exit 1
 fi
 echo
 
