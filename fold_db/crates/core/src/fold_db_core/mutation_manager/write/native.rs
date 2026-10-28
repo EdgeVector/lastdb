@@ -122,12 +122,16 @@ impl MutationManager {
             request
                 .runtime
                 .record_read_stage("stored-stages-done", delta_count);
-            self.stage_native_author_clock().await?;
-            self.db_ops
-                .change_feed()
-                .stage_native_events(notifications)
-                .await?;
-            self.reserve_native_core_memory(&request.runtime)?;
+            measure("author_clock_us", self.stage_native_author_clock()).await?;
+            measure(
+                "change_feed_us",
+                self.db_ops.change_feed().stage_native_events(notifications),
+            )
+            .await?;
+            measure("memory_reserve_us", async {
+                self.reserve_native_core_memory(&request.runtime)
+            })
+            .await?;
             Ok::<_, SchemaError>(NativeCommit {
                 already_seen_ids,
                 mutation_ids,

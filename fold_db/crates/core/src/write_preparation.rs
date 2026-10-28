@@ -25,7 +25,7 @@ pub(crate) async fn capture<F: Future>(work: F) -> F::Output {
             let started_us = laststore::commit_timing::unix_us();
             let started = Instant::now();
             let result = work.await;
-            let report = ACTIVE.with(|active| active.take());
+            let report = ACTIVE.with(RefCell::take);
             laststore::commit_timing::emit(
                 "LASTDB_SNAPSHOT_TIMING",
                 &serde_json::json!({
