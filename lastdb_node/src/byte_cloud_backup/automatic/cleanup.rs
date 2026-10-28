@@ -4,16 +4,7 @@ use std::fs::{self, File};
 
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
     let root = Store::base(&host.home).join("jobs").join(id.as_str());
-    let Some(saved) = store::state(&host.home, id)? else {
-        if root.try_exists()? {
-            if fs::read_dir(&root)?.next().is_some() {
-                return Err(BackupError::Invalid);
-            }
-            fs::remove_dir(&root)?;
-            File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
-        }
-        return Ok(());
-    };
+    let saved = store::state(&host.home, id)?.ok_or(BackupError::Missing)?;
     if saved.automatic_revision.is_none()
         || !saved.terminal()
         || Store::active(&host.home)?.as_ref() == Some(id)
@@ -32,16 +23,16 @@ pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
             return Err(BackupError::Invalid);
         }
         super::super::store::size(&entry.path())?;
+        if ["state.json", "terminal.json"].contains(&name) {
+            continue;
+        }
         files.push(entry.path());
     }
-    // The saved terminal state remains the restart authority until all bulk data is gone.
-    files.sort_by_key(|path| path.file_name().is_some_and(|n| n == "state.json"));
+    // Keep the small exact terminal record: a repeated old request remains terminal.
     for path in files {
         super::super::store::remove_owned(&path)?;
     }
     File::open(&root)?.sync_all()?;
-    fs::remove_dir(&root)?;
-    File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
     Ok(())
 }
 fn allowed(name: &str) -> bool {
