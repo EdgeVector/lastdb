@@ -12,8 +12,6 @@ pub mod manifest;
 mod primitives;
 pub mod publication;
 pub mod recovery;
-pub mod references;
-pub mod transfer;
 pub mod v2;
 
 pub use common::*;
