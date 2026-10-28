@@ -1,8 +1,7 @@
 //! Key material stays private until its complete native write publishes.
 
 use super::{
-    CachedMoleculeContract, ConflictKeyIdentity, MoleculeKeyBundle, MoleculeKeyStore, StorageError,
-    StorageResult,
+    CachedMoleculeContract, MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult,
 };
 use crate::atom::MoleculeKeyCodec;
 use crate::storage::disk_pack::transaction::publication;
@@ -32,7 +31,7 @@ impl MoleculeKeyStore {
     pub(crate) fn cached_bundle(&self, molecule: &str) -> StorageResult<Option<MoleculeKeyBundle>> {
         Ok(self
             .cached_contract(molecule)?
-            .and_then(|contract| contract.bundle))
+            .map(|contract| contract.bundle))
     }
 
     pub(crate) fn codec_for_molecule(
@@ -43,30 +42,24 @@ impl MoleculeKeyStore {
         let Some(contract) = self.cached_contract(molecule)? else {
             return Ok(None);
         };
-        let codec = contract
-            .bundle
-            .as_ref()
-            .map_or_else(|| configured.clone(), |bundle| bundle.key_codec(configured));
-        codec
-            .for_typed_home()
-            .with_range_profile(contract.range_profile)
-            .map(|codec| Some(codec.with_conflict_identity(contract.conflict_identity)))
-            .map_err(|_| {
-                StorageError::InvalidOperation("the molecule range profile is invalid".into())
-            })
+        Ok(Some(
+            contract
+                .bundle
+                .key_codec(configured)
+                .for_typed_home()
+                .with_range_profile(contract.range_profile),
+        ))
     }
 
     pub(super) fn remember_contract(
         &self,
         molecule: &str,
         profile: MoleculeRangeProfile,
-        identity: ConflictKeyIdentity,
-        bundle: Option<MoleculeKeyBundle>,
+        bundle: MoleculeKeyBundle,
     ) -> StorageResult<()> {
         let contract = CachedMoleculeContract {
             range_profile: profile,
             bundle,
-            conflict_identity: identity,
         };
         let cache = Arc::clone(&self.cache);
         let molecule = molecule.to_owned();

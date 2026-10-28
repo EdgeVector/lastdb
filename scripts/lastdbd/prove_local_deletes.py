@@ -78,7 +78,8 @@ def fixture(kind):
     declaration = {'namespace': 'local_delete_proof', 'schema': {
         'name': name, 'descriptive_name': name, 'schema_type': kind,
         'key': {'hash_field': 'bucket', **({'range_field': 'id'} if kind == 'HashRange' else {})},
-        'fields': fields, 'field_descriptions': {f: 'Delete proof ' + f for f in fields}}}
+        'fields': fields, 'field_types': {'bucket': 'String', 'id': 'String'},
+        'field_descriptions': {f: 'Delete proof ' + f for f in fields}}}
     records = []
     for role in ('deleted', 'retained'):
         key = {'hash': 'partition' if kind == 'HashRange' else role,

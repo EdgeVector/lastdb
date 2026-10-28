@@ -24,9 +24,7 @@ impl MoleculeKeyStore {
         let mut rows = Vec::with_capacity(molecules.len());
         for molecule in &molecules {
             let bundle = self.cached_bundle(molecule)?.ok_or_else(|| {
-                StorageError::InvalidOperation(
-                    "schema share requires independent molecule keys; node-authority molecules need an explicit scoped conversion".into(),
-                )
+                StorageError::InvalidOperation("schema share requires the molecule keys".into())
             })?;
             let wrap = make_wrap(molecule, domain, &bundle, domain_wrap_key)?;
             rows.push(KvMutation::put(

@@ -37,7 +37,7 @@ pub struct DbOperations {
     schema_store: SchemaStore,
     /// Database/schema references into the node-universal molecule store.
     db_catalog: DbCatalogStore,
-    /// Per-molecule content/index/OPE keys and access-domain wraps.
+    /// Per-molecule key bundles and access-domain wraps.
     molecule_keys: MoleculeKeyStore,
     /// Main namespace — atoms, molecules, mutation events, sync conflicts
     atom_store: AtomStore,

@@ -2,7 +2,7 @@
 
 Status: every node home is a format 4 home: disk format v2 with blinded hashes and typed ranges.
 On 2026-10-28 the program stopped support for format 3 homes.
-The typed-range converter, its stopped-home inventory, and the legacy UTF-8 range profile are gone.
+The typed-range converter, its stopped-home inventory, the legacy UTF-8 range profile, OPE-v1, node key authority, and the old conflict-ID domain are gone.
 An older home moves with one manual copy into a new home. The program has no migration code.
 Git history keeps the transition design (main `bb2452651`).
 
@@ -40,7 +40,7 @@ The shared type contract includes explicit `Date` and `DateTime` types.
 The user identity supplies the encryption root. Recovery retains that same identity.
 The existing key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for separate encryption and hash keys.
 Separate HKDF labels derive the main and CAS home keys from the encryption key.
-No format 4 lookup key uses OPE. The OPE key derivation stays in the codec until a later codec cleanup.
+No lookup key uses OPE, and the key derivation has no OPE key.
 
 | Part | Representation and protection |
 | --- | --- |
@@ -160,15 +160,13 @@ The reader validates the complete set before it puts key bundles in the memory c
 The runtime refuses a missing, incompatible, or incomplete contract before it serves records.
 
 The molecule metadata uses version 2 and names its key authority explicitly.
-Bundle authority retains the independent molecule bundle and its node wrap.
-Schema publication creates every new molecule with bundle authority.
-Node authority uses an account-derived key domain and requires no molecule wrap.
-Only the removed converter wrote node authority. The reader still accepts it until the later codec cleanup.
-A share refuses node authority. It never copies account keys into a shareable bundle.
+Bundle authority is the only authority: an independent molecule bundle and its node wrap.
+Schema publication creates every molecule with bundle authority. The reader refuses any other authority.
+A share copies only that molecule bundle. It never copies account keys into a shareable bundle.
 A normal mutation refuses a missing profile. Only schema publication can create a new molecule contract.
-The existing three-key bundle wire form stays unchanged.
+The existing three-key bundle wire form stays unchanged. Its third key has no user.
 
-A new molecule uses its current stored coordinate for its conflict IDs.
+Every molecule uses its stored coordinate for its conflict IDs. The reader refuses any other conflict-ID domain.
 History responses use canonical API keys. Stored history and signed provenance retain their original bytes.
 
 Range TTL retains its 20-digit timestamp prefix in a String range.
@@ -211,8 +209,7 @@ Those checks use bounded batch reads. They create no key and change no profile.
 
 ## Later codec cleanup
 
-These parts stay in the codec after the format 3 removal. A later change removes them:
+These parts stay in the codec. A later change removes them:
 
-- The OPE-v1 range encoding and the plain hash encoding of `MoleculeKeyCodec`.
+- The plain hash encoding of `MoleculeKeyCodec`.
 - The optional range profile in `MoleculeKeyCodec` and in the reader and writer calls that take `Option<MoleculeRangeProfile>`.
-- Node key authority and the historical OPE conflict-ID domain.

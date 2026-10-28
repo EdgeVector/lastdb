@@ -77,6 +77,15 @@ def validate_cursor(cursor, previous, coordinate):
         raise RuntimeError("The range comparison identifier changed during continuation")
 
 
+def matched_request_sha256(request):
+    """Each binary and home issues its own cursor comparison identifier, so a
+    matched pair compares the request without it. The raw receipt keeps it."""
+    cursor = request.get("cursor")
+    if isinstance(cursor, dict) and "comparison" in cursor:
+        request = {**request, "cursor": {name: value for name, value in cursor.items() if name != "comparison"}}
+    return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+
+
 def comparison_tag(node, request):
     """A typed range order refuses a cursor without its comparison identifier.
 
@@ -121,7 +130,7 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False):
         if receipt["storage_read_receipt"] is None:
             raise RuntimeError("A measured query lacks its storage read receipt")
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],
-                        "request_sha256": hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest(),
+                        "request_sha256": matched_request_sha256(request),
                         "records": count, "storage_read_receipt": receipt["storage_read_receipt"]})
         if "process_counters" in receipt:
             samples[-1]["process_counters"] = receipt["process_counters"]

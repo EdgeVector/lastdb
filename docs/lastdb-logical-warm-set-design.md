@@ -242,13 +242,13 @@ A used path does not fetch other fields or keys.
 A protein update follows the existing propagation schedule.
 Every related update enters the same logical owner when that update becomes accepted.
 
-## Key order and OPE
+## Key order
 
 Normal HashRange order belongs to one molecule, one hash, and one key-encoding domain.
-The core uses canonical logical keys. The disk adapter translates bounds to the appropriate OPE form.
+The core uses canonical logical keys. The disk adapter translates bounds to the stored typed range payload.
 Both use the same comparison and endpoint rules.
 
-OPE values from different molecules or encryption-key epochs cannot share one comparison domain.
+Values from different molecules or key domains cannot share one comparison domain.
 The selector therefore names the scope, molecule, hash, key layout, and encoding identity.
 A key-layout or encoding change requires a new selection and cursor.
 
