@@ -9,8 +9,16 @@ class Lifecycle:
     def __init__(self, source, baseline):
         self.source, self.baseline = source, baseline
         self.schema = "CloudAtomLifecycle" + source.source[:12]
-        self.pointer = source.node.pointer
-        require(self.pointer is not None, "lifecycle_shared_file")
+        key = baseline["records"][0]["id"]
+        query = {"schema_name": baseline["schema"], "fields": ["file"], "filter": {"HashKey": key}, "limit": 2}
+        reply = source.node.call("/api/queries/batch", {"queries": [query]})["results"][0]
+        value = reply["response"]
+        require(reply["status"] == 200 and value["ok"] is True and value["returned_count"] == 1
+                and len(value["results"]) == 1 and not value.get("has_more", False)
+                and value.get("unresolved_rows", 0) == 0
+                and value["results"][0]["key"] == {"hash": key, "range": None}, "lifecycle_shared_file")
+        self.pointer = value["results"][0]["fields"]["file"]
+        require(isinstance(self.pointer, dict) and "$lastdb_file" in self.pointer, "lifecycle_file_pointer")
         self.expired = [f"{1:020d}-expired-{n}" for n in range(4)]
         self.live = f"{int(time.time()) + 604800:020d}-live"
 
@@ -48,7 +56,7 @@ class Lifecycle:
                     and not reply["response"].get("has_more", False), "lifecycle_complete_read")
         return list(zip(keys, (reply["response"] for reply in result)))
 
-    def verify(self, node, initial=False):
+    def verify(self, node, initial=False, after_second=False):
         for key, reply in self.replies(node):
             present = key == self.live or (initial and key in self.expired[:2])
             rows = reply["results"]
@@ -61,6 +69,8 @@ class Lifecycle:
                         "lifecycle_live_shared_value")
         node.verify_file(self.pointer, self.baseline)
         return {"expired_absent": 0 if initial else 4, "expired_present_at_base": 2 if initial else 0,
+                "ttl_erased_records": 0 if initial else (4 if after_second else 2),
+                "not_yet_created": 0 if after_second else 2,
                 "live_exact": 1, "shared_file_bytes": self.baseline["file_bytes"],
                 "shared_file_sha256": self.baseline["file_sha256"], "ttl_worker_disabled": not node.ttl_sweep}
 

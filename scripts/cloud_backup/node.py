@@ -32,7 +32,7 @@ class OwnedNode:
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
-        self.backup_source, self.pointer = backup_source, None
+        self.backup_source = backup_source
         # A restore must prove the selected bytes before any TTL worker can
         # erase an expired key and conceal a missing journal deletion.
         self.ttl_sweep = False
@@ -205,7 +205,6 @@ class OwnedNode:
             require(fields["file"] == pointer, "shared_file_pointer")
         require(pointer is not None and pointer == baseline.get("file_pointer", pointer),
                 "expected_file_pointer")
-        self.pointer = pointer
         self.verify_file(pointer, baseline)
         self.health()
         return {"records": sum(not record.get("deleted", False) for record in baseline["records"]),

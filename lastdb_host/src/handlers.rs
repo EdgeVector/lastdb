@@ -20,7 +20,7 @@
 //! POST routes take the already-parsed body value. The caller's only job is to
 //! bind the user-context task-local, parse the wire, and apply the envelope.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use fold_db::access::AccessContext;
 use fold_db::db_operations::HomeConflictAnnotation;
@@ -35,7 +35,7 @@ use serde_json::Value;
 
 use crate::envelope::{envelope, json_ok, owner_json_or_content_free, owner_or_content_free};
 use crate::host_node::{HostNode, ReadBusy};
-use crate::pagination::{clamp_request_limit, compute_has_more, INTERNAL_FETCH_CAP};
+use crate::pagination::{clamp_request_limit, INTERNAL_FETCH_CAP};
 use crate::qos::Lane;
 
 mod conflict_metadata;
