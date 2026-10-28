@@ -283,13 +283,12 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
 
 fn main() -> std::process::ExitCode {
     observability::crash::install_private_panic_hook();
-    match run() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(_) => {
-            use std::io::Write;
-            let _ = writeln!(std::io::stderr().lock(), "lastdbd: daemon_failed");
-            std::process::ExitCode::FAILURE
-        }
+    if run().is_ok() {
+        std::process::ExitCode::SUCCESS
+    } else {
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr().lock(), "lastdbd: daemon_failed");
+        std::process::ExitCode::FAILURE
     }
 }
 
