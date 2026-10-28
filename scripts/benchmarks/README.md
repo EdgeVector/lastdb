@@ -3,7 +3,7 @@
 ## Paired current 16-writer comparison
 
 The optional `writer16` comparison reuses the normal verified build artifact in a separate hosted measurement job.
-It runs automatically for the write-read-reuse PR and is also available in the manual historical comparison.
+It is available in the manual historical comparison.
 Three alternating pairs each use a fresh 100,000-record home, one schema, one hash, and 16 clients with disjoint keys.
 Each ordinary case completes 2,048 single-record durable writes and verifies the final values.
 The final pair also records native clocks after a restart; instrumented latency stays separate from the ordinary comparison.
