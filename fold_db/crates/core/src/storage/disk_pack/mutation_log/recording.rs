@@ -170,6 +170,13 @@ impl<'a> Recording<'a> {
         let mut next = self.state.clone();
         next.head = position;
         next.retained_bytes = bytes;
+        let metadata = cloud_backup_protocol::v2::hash::canonical_bytes(&self.entry)
+            .map_err(|_| invalid("mutation log canonical entry"))?
+            .len() as u64;
+        next.metadata_bytes = next
+            .metadata_bytes
+            .checked_add(2 * metadata)
+            .ok_or_else(|| invalid("mutation log metadata size overflow"))?;
         store::write(
             &store::epoch(&self.log.root, &self.entry.epoch).join("state.json"),
             &next,

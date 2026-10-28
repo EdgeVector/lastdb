@@ -114,3 +114,50 @@ fn private(info: &fs::Metadata) -> StorageResult<()> {
     }
     Ok(())
 }
+
+/// Exact owned control file only; absent means an earlier cleanup completed this step.
+pub(super) fn remove_metadata(path: &Path) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => private(&info)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    directory(
+        path.parent()
+            .ok_or_else(|| invalid("mutation log cleanup parent"))?,
+    )?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+pub(super) fn remove_part(path: &Path, bytes: u64) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => {
+            if !info.is_file()
+                || info.uid() != unsafe { libc::geteuid() }
+                || info.mode() & 0o077 != 0
+                || info.len() != bytes
+            {
+                return Err(invalid("mutation log cleanup file identity"));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    directory(
+        path.parent()
+            .ok_or_else(|| invalid("mutation log cleanup parent"))?,
+    )?;
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+pub(super) fn remove_empty(path: &Path) -> StorageResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => directory(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    fs::remove_dir(path)?;
+    Ok(())
+}

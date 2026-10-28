@@ -143,14 +143,18 @@ pub(super) struct EpochState {
     pub anchor: LogAnchor,
     pub head: LogPosition,
     pub acknowledged: u64,
+    pub released: LogPosition,
     pub retained_bytes: u64,
+    pub metadata_bytes: u64,
     pub gap: Option<String>,
 }
 impl EpochState {
     pub fn validate(&self) -> StorageResult<()> {
         self.anchor.position()?;
         if self.head.epoch != self.anchor.epoch
+            || self.released.epoch != self.anchor.epoch
             || self.acknowledged > self.head.sequence
+            || self.released.sequence > self.acknowledged
             || self.head.sequence == 0 && self.head != self.anchor.position()?
         {
             return Err(invalid("mutation log saved epoch"));
@@ -168,4 +172,5 @@ pub(super) struct Index {
     pub cas_home: Id,
     pub epochs: Vec<Id>,
     pub active: Option<Id>,
+    pub cleanup: Vec<Id>,
 }

@@ -1,9 +1,12 @@
 //! Optional native mutation log. Durable commit bytes remain native encrypted files.
+mod capture;
 mod model;
 mod recording;
+mod retention;
 mod store;
 
 use super::{physical::V2Home, PackRuntime, StorageError, StorageResult};
+pub use capture::{FrozenLogCapture, FrozenLogFile, MutationLogCapture, MutationLogReader};
 use cloud_backup_protocol::Id;
 pub use model::{CommitRole, Frontiers, LogAnchor, LogEntry, LogPart, LogPosition};
 use model::{EpochState, Index};
@@ -22,6 +25,7 @@ pub struct MutationLogStatus {
     pub head: Option<LogPosition>,
     pub acknowledged_through: u64,
     pub retained_bytes: u64,
+    pub metadata_spool_bytes: u64,
     pub snapshot_required: bool,
     pub gap: Option<String>,
 }
@@ -66,7 +70,7 @@ impl MutationLog {
         if index.version != 1
             || index.main_home != self.main_home
             || index.cas_home != self.cas_home
-            || index.epochs.len() > store::MAX_EPOCHS
+            || index.epochs.len() + index.cleanup.len() > store::MAX_EPOCHS
             || index
                 .active
                 .as_ref()
@@ -76,6 +80,11 @@ impl MutationLog {
                 .iter()
                 .enumerate()
                 .any(|(n, id)| index.epochs[..n].contains(id))
+            || index
+                .cleanup
+                .iter()
+                .enumerate()
+                .any(|(n, id)| index.epochs.contains(id) || index.cleanup[..n].contains(id))
         {
             return Err(invalid("mutation log owner identities or resource bounds"));
         }
@@ -95,22 +104,50 @@ impl MutationLog {
         Ok(state)
     }
 
+    fn totals(&self, index: &Index) -> StorageResult<(u64, u64)> {
+        index
+            .epochs
+            .iter()
+            .try_fold((0u64, 0u64), |(payload, metadata), id| {
+                let state = self.state(id)?;
+                let pending: Option<LogEntry> = if state.head.sequence < store::MAX_ENTRIES {
+                    store::read(
+                        &store::entry(&self.root, id, state.head.sequence + 1)?
+                            .join("pending.json"),
+                    )?
+                } else {
+                    None
+                };
+                let extra = pending
+                    .as_ref()
+                    .map(LogEntry::bytes)
+                    .transpose()?
+                    .unwrap_or(0);
+                let payload = payload
+                    .checked_add(state.retained_bytes)
+                    .and_then(|n| n.checked_add(extra))
+                    .ok_or_else(|| invalid("mutation log retained size overflow"))?;
+                let extra_metadata = pending
+                    .map(|entry| {
+                        cloud_backup_protocol::v2::hash::canonical_bytes(&entry)
+                            .map(|bytes| bytes.len() as u64)
+                            .map_err(|_| invalid("mutation log metadata encoding"))
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                let metadata = metadata
+                    .checked_add(state.metadata_bytes)
+                    .and_then(|n| n.checked_add(extra_metadata))
+                    .ok_or_else(|| invalid("mutation log metadata size overflow"))?;
+                Ok((payload, metadata))
+            })
+    }
+
     fn charge(&self, index: &Index) -> StorageResult<u64> {
-        index.epochs.iter().try_fold(0u64, |total, id| {
-            let state = self.state(id)?;
-            let pending: Option<LogEntry> = if state.head.sequence < store::MAX_ENTRIES {
-                store::read(
-                    &store::entry(&self.root, id, state.head.sequence + 1)?.join("pending.json"),
-                )?
-            } else {
-                None
-            };
-            let extra = pending.map(|entry| entry.bytes()).transpose()?.unwrap_or(0);
-            total
-                .checked_add(state.retained_bytes)
-                .and_then(|n| n.checked_add(extra))
-                .ok_or_else(|| invalid("mutation log retained size overflow"))
-        })
+        let (payload, metadata) = self.totals(index)?;
+        payload
+            .checked_add(metadata)
+            .ok_or_else(|| invalid("mutation log total size overflow"))
     }
 
     pub fn configure(&self, enabled: bool) -> StorageResult<()> {
@@ -129,6 +166,7 @@ impl MutationLog {
                 cas_home: self.cas_home.clone(),
                 epochs: Vec::new(),
                 active: None,
+                cleanup: Vec::new(),
             });
         }
         let index = cache
@@ -148,7 +186,7 @@ impl MutationLog {
         if !index.enabled {
             return Ok(None);
         }
-        if index.epochs.len() >= store::MAX_EPOCHS {
+        if index.epochs.len() + index.cleanup.len() >= store::MAX_EPOCHS {
             return Err(invalid("mutation log retained epoch limit"));
         }
         let epoch = Id::try_from(uuid::Uuid::new_v4().to_string())
@@ -162,9 +200,11 @@ impl MutationLog {
         };
         let state = EpochState {
             head: anchor.position()?,
+            released: anchor.position()?,
             anchor: anchor.clone(),
             acknowledged: 0,
             retained_bytes: 0,
+            metadata_bytes: 0,
             gap: None,
         };
         let directory = store::epoch(&self.root, &epoch);
@@ -185,6 +225,7 @@ impl MutationLog {
                 head: None,
                 acknowledged_through: 0,
                 retained_bytes: 0,
+                metadata_spool_bytes: 0,
                 snapshot_required: true,
                 gap: None,
             });
@@ -199,12 +240,14 @@ impl MutationLog {
                     .filter(|state| state.head.frontiers != frontiers(v2))
                     .map(|_| "native frontier exceeds the complete mutation log".to_owned())
             });
+        let (retained_bytes, metadata_spool_bytes) = self.totals(index)?;
         Ok(MutationLogStatus {
             enabled: index.enabled,
             anchor: state.as_ref().map(|s| s.anchor.clone()),
             head: state.as_ref().map(|s| s.head.clone()),
             acknowledged_through: state.as_ref().map_or(0, |s| s.acknowledged),
-            retained_bytes: self.charge(index)?,
+            retained_bytes,
+            metadata_spool_bytes,
             snapshot_required: state.is_none() || gap.is_some(),
             gap,
         })

@@ -12,7 +12,7 @@ The proposed defaults are 86400 seconds for snapshots and 60 seconds for log upl
 An initial full snapshot establishes the recovery base when automatic backup starts.
 
 LastDB owns the mutation log, its order, native formats, encryption, capture, and replay.
-The cloud continues to accept opaque byte objects, verify receipts, enforce storage limits, and accept one complete recovery inventory.
+The cloud continues to accept opaque byte objects, verify receipts, enforce storage limits, and accept immutable recovery points.
 The service never decodes a mutation, a native file, or a recovery key.
 The existing R2 and B2 transport remains the common path.
 
@@ -56,25 +56,28 @@ It does not silently discard unprotected changes or claim current cloud protecti
 Local ordinary writes retain their existing disk and memory rules and never wait for a cloud request.
 The status distinguishes local durability, pending log work, cloud acceptance, and retained source bytes.
 
-## One complete recovery inventory
+## Snapshot and ordered log
 
 A snapshot remains a complete native backup through the accepted V2 byte pipeline.
-A mutation-log checkpoint references that snapshot and all ordered log entries after its exact cursor.
-The checkpoint's inventory contains every object required for the snapshot and that complete log prefix.
-It reuses authoritative receipts for existing objects and uploads only new log bytes and new metadata.
-Recovery does not depend on a chain of earlier checkpoint selections.
+A mutation-log checkpoint references that snapshot and the preceding accepted checkpoint.
+Its inventory contains the new complete log batches, their client metadata, and their exact object receipts.
+The client checks a continuous sequence from the snapshot through the selected recovery point.
+It uploads new log bytes and metadata instead of another full inventory of the growing log prefix.
+The daily snapshot starts a new recovery base and ends the earlier replay chain.
 
 The new log root is a client metadata version, not a cloud protocol or native file-format change.
-It binds the base snapshot, account scope, epoch, entry sequence, entry hashes, and final frontiers.
+It binds the base snapshot, preceding accepted point, account scope, epoch, entry sequence, entry hashes, and final frontiers.
 Its pages describe exact log file extents and receipts.
 The byte service applies the same receipt, length, hash, quota, predecessor, acceptance, and storage checks.
 It receives no mutation-log schema or native-format field.
 
-One conditional cloud acceptance publishes the complete new recovery point.
+One conditional cloud acceptance publishes the new recovery point after its complete batch inventory passes verification.
 An incomplete log upload leaves the earlier accepted recovery point available.
 The controller releases local journal bytes only after acceptance covers those exact entries and all readers stop.
 An accepted daily snapshot replaces the recovery base and covers the earlier log prefix.
-Existing accepted cloud backups remain protected; this change adds no cloud backup deletion policy.
+The snapshot and every accepted checkpoint required for replay remain protected.
+The current service retains accepted backups; this change adds no cloud backup deletion policy.
+A future deletion policy must preserve the complete dependency set for each retained recovery point.
 
 ## Controller and owner controls
 
@@ -92,12 +95,17 @@ Disable stops new automatic requests and retries while an active invocation can 
 New mutations make the log due for upload within the configured log interval.
 An unchanged journal causes no repeated upload.
 The daily snapshot schedule remains independent from successful log uploads.
+An active snapshot, an offline connection, or a required retry can delay a log upload.
+The local journal retains those mutations and status reports the pending frontier.
 A journal gap or a recovery-manifest resource limit can require an earlier snapshot.
 Status reports that reason and the actual last successful snapshot and log checkpoint.
 
 ## Restore
 
-Restore freezes one accepted recovery point and verifies its complete object inventory.
+Restore freezes one accepted recovery point and follows its exact accepted predecessors to the named snapshot.
+It checks the account, hashes, sequence, repeated references, and resource bounds before replay.
+It saves the finite replay plan outside the destination and never follows a newer head.
+Each checkpoint supplies its own complete batch inventory and authoritative receipts.
 It restores the base snapshot into an absent private destination through the current native checks.
 It then replays complete journal entries in order through the native file-import path.
 Each entry must match the preceding entry hash and both expected native frontiers.
@@ -113,7 +121,7 @@ The restored home starts with automatic backup off.
 
 1. Add the optional native journal and bounded commit-file retention. Keep it off by default.
 2. Add the client log manifest and native replay path. Keep the cloud byte contract unchanged.
-3. Extend the saved byte pipeline to publish a complete snapshot-plus-log recovery inventory.
+3. Extend the saved byte pipeline to publish exact log checkpoints with complete batch inventories and accepted predecessor references.
 4. Add the owner controls and controller with separate log and snapshot intervals.
 5. Use the exact CI client for real DEV writes, an initial snapshot, automatic log uploads, restart recovery, and a later scheduled snapshot.
 6. Stop the source. Restore a snapshot plus multiple log batches, including an update, a delete, counters, and an actual CAS file.
