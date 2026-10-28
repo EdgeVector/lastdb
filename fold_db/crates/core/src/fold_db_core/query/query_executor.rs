@@ -8,7 +8,6 @@ use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Query;
-use crate::schema::Schema;
 use crate::schema::SchemaCore;
 use crate::schema::SchemaError;
 use std::collections::HashMap;
