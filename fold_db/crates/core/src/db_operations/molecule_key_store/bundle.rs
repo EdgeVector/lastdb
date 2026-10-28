@@ -2,6 +2,7 @@
 
 use crate::atom::MoleculeKeyCodec;
 use rand::{rngs::OsRng, RngCore};
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -34,7 +35,7 @@ impl MoleculeKeyBundle {
         bundle
     }
 
-    pub(crate) fn key_codec(&self, configured: &MoleculeKeyCodec) -> MoleculeKeyCodec {
-        MoleculeKeyCodec::new(configured.encoding(), Some(self.blind_key))
+    pub(crate) fn key_codec(&self, profile: MoleculeRangeProfile) -> MoleculeKeyCodec {
+        MoleculeKeyCodec::new(self.blind_key, profile)
     }
 }

@@ -61,9 +61,8 @@ impl QueryRowDrops {
 
 /// Whether the `key.hash` values in a page can be fed back as a key.
 ///
-/// The defect this exists to end: under
-/// [`HashKeyEncoding::BlindV1`](crate::atom::HashKeyEncoding::BlindV1) a page
-/// key that could not be recovered to API form is an HMAC token that is
+/// The defect this exists to end: every hash is blinded (`blind_v1`), so a
+/// page key that could not be recovered to API form is an HMAC token that is
 /// *shape-indistinguishable* from a real plaintext key. A caller listing rows
 /// and then point-reading each one gets zero rows back and reads that as
 /// "the data is missing" rather than "you asked with the wrong key".
