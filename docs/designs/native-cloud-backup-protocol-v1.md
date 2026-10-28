@@ -584,7 +584,7 @@ All totals use checked arithmetic and complete final encodings.
 The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
 It does not cap the whole LastDB process.
 The [resource policy](native-backup-resource-policy-v1.md) identifies `lastdb_storage_policy/src/lib.rs` as the shared source for native sizes and resource values.
-Native V1 pages and physical parts remain fixed at 16 KiB and 8 MiB.
+The crate does not include the unused native v1 page or physical part sizes. No reader remains.
 A native format change requires compatible versioned readers; resource values are editable source policy, not runtime memory settings.
 Capture and restore use bounded buffers and private disk files for the existing encryption formats.
 The former 16 MiB backup authentication and 32 MiB native-CAS allocation guards no longer control those stream paths.
