@@ -85,18 +85,6 @@ impl Begin {
             .map(DecimalU64::new)
             .ok_or_else(|| ProtocolError::invalid("v2.begin.ordinal"))
     }
-    /// The acceptance transaction checks this exact predecessor atomically.
-    /// Any native frontier or format ordering is solely a client rule.
-    pub fn validate_successor(&self, previous: &AcceptedBackup) -> Result<(), ProtocolError> {
-        self.validate()?;
-        previous.validate()?;
-        if self.job.stream != previous.job().stream
-            || self.predecessor.as_ref() != Some(&previous.head())
-        {
-            return Err(ProtocolError::invalid("v2.begin.successor"));
-        }
-        Ok(())
-    }
 }
 pub type JobBeginRequest = Begin;
 
