@@ -3,6 +3,7 @@
 Current source: main `2f4ba44bd`, reviewed 2026-10-26.
 The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
 The [disk format v2 engine](../vendor/laststore/README.md) describes the run files and the background merge.
+The [V2 compatibility contract](lastdb-disk-format-v2.md) records the accepted file versions, encryption, limits, and crash rules.
 
 Disk format v2 is the sole native LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
@@ -56,6 +57,13 @@ A value that is not a positive byte count stops the node open.
 The node checks space when it admits a write. The filesystem must keep 128 MiB of reserve after the batch.
 With a cap, the home bytes, the batch, and 64 MiB of replacement reserve must also stay within the cap.
 A refused write gets a no-space error alone. It does not fail a commit.
+
+Compaction reserves its output bytes before each file write and retains publication space through the required barriers.
+The shared filesystem allowance covers both run homes. The configured disk cap applies to `disk-run`; `disk-cas` keeps its default uncapped policy.
+Compaction can use the 64 MiB replacement allowance, but retains 64 MiB of free filesystem space and the hard home cap.
+A large step can still require more free space or a larger configured cap.
+
+An admission refusal preserves the previous readable root. Output owners attempt to remove unpublished files; reopen removes any unnamed leftovers.
 
 ## Home fence
 
