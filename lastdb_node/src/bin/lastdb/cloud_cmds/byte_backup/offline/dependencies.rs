@@ -73,7 +73,7 @@ pub(super) async fn inspect(
                     let backup =
                         super::accepted(client, stream, Some(expected.commit_id.clone())).await?;
                     if backup.head() != expected {
-                        return Err("accepted dependency selection differs".into());
+                        return Err("accepted dependency selection differs".to_owned());
                     }
                     Ok(backup)
                 }
