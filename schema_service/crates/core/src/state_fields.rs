@@ -79,8 +79,9 @@ impl SchemaServiceState {
         let mut claimed: HashSet<String> = HashSet::new();
 
         for incoming_field in incoming_fields {
-            // Don't rename if it already IS a canonical field
-            if canonical.contains_key(incoming_field) {
+            // Precise names use common admission and keep their identities.
+            // Fuzzy aliases remain available to read-only legacy probes.
+            if !crate::field_name_policy::invalid_canonical_name(incoming_field) {
                 continue;
             }
 

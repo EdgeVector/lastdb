@@ -59,6 +59,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(())
     }
 
+    /// Commit schemas and their admitted canonical definitions atomically.
+    /// A failed commit must expose neither side. Backends must validate field
+    /// conflicts inside the same transaction/conditional write as the schemas.
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()>;
+
     /// Load every schema from storage.
     ///
     /// Called once during schema service startup to populate the
@@ -237,16 +246,17 @@ pub trait ExternalSchemaPersistence: Send + Sync {
     // does this field mean" globally and is unchanged. These answer "should a
     // write here land there", which needs a scope one level narrower.
     //
-    // Default impls are no-ops / empty so a backend that predates declared
-    // fields runs without them rather than failing startup — the same
-    // opt-in shape as the app registry.
+    // A declaration and its canonical definitions share one backend commit.
+    // No default may silently split publication into independent writes.
 
-    /// Persist one declaration, keyed by `declaration_id`. Upsert: a
-    /// re-declare adds fields or grants to an existing row, and the id itself
-    /// is immutable, so overwriting the row is correct.
-    async fn save_declared_field(&self, _record: &DeclaredFieldRecord) -> FoldDbResult<()> {
-        Ok(())
-    }
+    /// Commit a declaration and its canonical vocabulary atomically. Check
+    /// `expected` inside the commit to reject a concurrent handle/update race.
+    async fn save_declared_field_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()>;
 
     /// Load every declaration. Called once at startup to rebuild both the
     /// id index and the `(owner, handle)` index that keeps re-declare

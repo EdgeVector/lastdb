@@ -108,12 +108,15 @@ pub(crate) fn get_schemas_similar(
 }
 
 // Singular /v1/schema/{name} or plural /v1/schemas/{name}
-pub(crate) fn get_schema(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
+pub(crate) async fn get_schema(
+    state: &SchemaServiceState,
+    p: &str,
+) -> Result<Response<Body>, Error> {
     let schema_name = p
         .strip_prefix("/v1/schemas/")
         .or_else(|| p.strip_prefix("/v1/schema/"))
         .unwrap_or("");
-    crate::http::get_schema_by_name(state, schema_name)
+    crate::http::get_schema_by_name(state, schema_name).await
 }
 
 pub(crate) fn post_schemas_mutation_challenge(

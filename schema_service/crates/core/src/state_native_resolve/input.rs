@@ -20,7 +20,9 @@ impl SchemaServiceState {
         let vec = self.embedder.embed_text(text).map_err(|e| e.to_string())?;
         memo.misses += 1;
         if let Ok(mut cache) = self.native_resolve_embeddings.write() {
-            cache.insert(text.to_string(), vec.clone());
+            if cache.len() < crate::vocabulary_admission::EMBEDDING_CACHE_LIMIT {
+                cache.insert(text.to_string(), vec.clone());
+            }
         }
         Ok(vec)
     }

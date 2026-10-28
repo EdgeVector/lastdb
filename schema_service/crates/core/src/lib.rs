@@ -89,7 +89,8 @@ pub use state_native_resolve::{
     FieldMatchProbeRequest, FieldMatchProbeResponse,
 };
 pub mod types;
-pub mod vocabulary_publication;
+mod vocabulary_admission;
+mod vocabulary_matching;
 
 pub use app_identity::{
     env_label, AppIdentityConfig, AppPromoteError, AppPromoteOutcome, AppRegisterError,

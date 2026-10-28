@@ -117,8 +117,7 @@ impl SchemaServiceState {
                         })?;
                     rt.block_on(async {
                         backend.clear_registry_for_snapshot_import().await?;
-                        backend.save_schemas(&schemas).await?;
-                        backend.save_canonical_fields(&cf_batch).await?;
+                        backend.save_schema_definitions(&schemas, &cf_batch).await?;
                         for app in &apps {
                             backend.update_app(app).await?;
                         }

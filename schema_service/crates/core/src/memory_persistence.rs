@@ -56,9 +56,28 @@ impl InMemorySchemaPersistence {
 #[async_trait]
 impl ExternalSchemaPersistence for InMemorySchemaPersistence {
     async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        self.write()?
-            .schemas
-            .insert(schema.name.clone(), schema.clone());
+        self.save_schema_definitions(std::slice::from_ref(schema), &[])
+            .await
+    }
+
+    async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
+        self.save_schema_definitions(schemas, &[]).await
+    }
+
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
+            &registry.canonical_fields,
+            fields,
+        )?;
+        registry.canonical_fields = canonical_fields;
+        for schema in schemas {
+            registry.schemas.insert(schema.name.clone(), schema.clone());
+        }
         Ok(())
     }
 
@@ -72,20 +91,7 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        let mut registry = self.write()?;
-        for (name, field) in fields {
-            crate::field_name_policy::validate_canonical_insert(
-                &registry.canonical_fields,
-                name,
-                field,
-            )?;
-        }
-        for (name, field) in fields {
-            registry
-                .canonical_fields
-                .insert(name.clone(), field.clone());
-        }
-        Ok(())
+        self.save_schema_definitions(&[], fields).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
@@ -175,8 +181,24 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
         Ok(self.read()?.channels.clone())
     }
 
-    async fn save_declared_field(&self, record: &DeclaredFieldRecord) -> FoldDbResult<()> {
-        self.write()?
+    async fn save_declared_field_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        crate::declared_fields::validate_declaration_commit(
+            &registry.declared_fields,
+            record,
+            expected,
+        )?;
+        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
+            &registry.canonical_fields,
+            fields,
+        )?;
+        registry.canonical_fields = canonical_fields;
+        registry
             .declared_fields
             .insert(record.declaration_id.clone(), record.clone());
         Ok(())

@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod blocking;
 pub mod byte_backup;
+mod cas_delete;
+pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
 mod cleanup;
 mod cloud_work;
 mod diagnostics;
