@@ -20,7 +20,6 @@
 //! this node (`AtomStore::is_peer_write`): a local write has seen every tip
 //! of this node.
 
-mod legacy_identity;
 mod rows;
 mod write;
 
@@ -52,8 +51,6 @@ pub(crate) struct TipConflict {
     /// that sees one decision computes one digest.
     pub(crate) storage_hash: String,
     pub(crate) storage_range: String,
-    /// Historical digest input only. Retention uses the current stored slot.
-    pub(crate) digest_coordinate: Option<(String, String)>,
     pub(crate) kind: TipConflictKind,
     /// The entry that is the tip after the decision.
     pub(crate) winner: AtomEntry,
@@ -95,15 +92,11 @@ impl TipConflict {
             TipConflictKind::Replaced => "replaced",
             TipConflictKind::Dropped => "dropped",
         };
-        let (hash, range) = self.digest_coordinate.as_ref().map_or(
-            (self.storage_hash.as_str(), self.storage_range.as_str()),
-            |(hash, range)| (hash.as_str(), range.as_str()),
-        );
         for part in [
             "lastdb:tip-conflict:v1",
             self.molecule_uuid.as_str(),
-            hash,
-            range,
+            self.storage_hash.as_str(),
+            self.storage_range.as_str(),
             kind,
         ] {
             hasher.update((part.len() as u64).to_be_bytes());
@@ -248,21 +241,17 @@ impl AtomStore {
             field_key: field_key_of(&pending.hash, &pending.range),
             storage_hash: self.storage_hash(molecule_uuid, &pending.hash)?,
             storage_range: self.storage_range(molecule_uuid, &pending.range)?,
-            digest_coordinate: self.historical_conflict_coordinate(
-                molecule_uuid,
-                Some((&pending.hash, &pending.range)),
-            )?,
             kind: pending.kind,
             winner: pending.winner.clone(),
             loser: pending.loser.clone(),
         })
     }
 
-    /// The API form of the key of each durable decision. A blind or
-    /// order-preserving key codec stores the hash and the range in a form that
-    /// cannot be turned back, but the store call holds the changed keys in API
-    /// form. The history row names its key in API form, because the purge and
-    /// the history route match it against an API key.
+    /// The API form of the key of each durable decision. A blind key codec
+    /// stores the hash in a form that cannot be turned back, but the store
+    /// call holds the changed keys in API form. The history row names its key
+    /// in API form, because the purge and the history route match it against
+    /// an API key.
     fn api_keys_of(
         &self,
         molecules: &[StoreMolecule<'_>],
@@ -324,18 +313,11 @@ impl AtomStore {
             ),
             None => (field_key_of(&hash, &range), hash, range),
         };
-        let digest_coordinate = self.historical_conflict_coordinate(
-            molecule,
-            api_keys
-                .get(&key)
-                .map(|(hash, range)| (hash.as_str(), range.as_str())),
-        )?;
         Ok(Some(TipConflict {
             molecule_uuid: molecule.to_string(),
             field_key,
             storage_hash,
             storage_range,
-            digest_coordinate,
             kind,
             winner,
             loser,

@@ -34,14 +34,10 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("run backup logical marker is absent"))?;
-    match version {
-        1 if key_format::is_supported_key_format(marker) => {}
-        2 if marker == crate::atom::molecule_key_codec::TYPED_KEY_FORMAT => {}
-        _ => {
-            return Err(invalid(
-                "run backup logical marker differs from its node profile",
-            ))
-        }
+    if version != 2 || marker != crate::atom::molecule_key_codec::TYPED_KEY_FORMAT {
+        return Err(invalid(
+            "run backup logical marker differs from its node profile",
+        ));
     }
     let stored = {
         let mut read = main

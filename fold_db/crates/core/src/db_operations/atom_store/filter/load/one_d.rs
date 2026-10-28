@@ -238,8 +238,8 @@ impl AtomStore {
     }
 
     /// Point-get a 1-D slot under the unified key layout.
-    /// `hash` / `range` are **API-form**, mapped once to storage form (plain or
-    /// blind/OPE) — no dual-read fallback.
+    /// `hash` / `range` are **API-form**, mapped once to storage form (a
+    /// blinded hash and a typed range payload) — no dual-read fallback.
     pub(crate) async fn get_per_key_1d(
         &self,
         molecule_uuid: &str,

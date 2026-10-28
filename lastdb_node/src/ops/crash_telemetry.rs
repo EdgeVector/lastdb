@@ -50,75 +50,6 @@ const SENT_MARKER_SUFFIX: &str = ".sent";
 #[cfg(feature = "sentry-telemetry")]
 const MAX_REPORTS_PER_LAUNCH: usize = 5;
 
-/// Upper bound on the backtrace text parsed from a local crash report.
-const BACKTRACE_CAP_BYTES: usize = 32 * 1024;
-
-/// Section header that opens the local-only ring-tail portion of a crash
-/// report (see `observability::crash::compose_report`). Parsing stops here —
-/// everything above is code-shaped, everything below is log content.
-const RING_SECTION_HEADER: &str = "observability ring";
-
-/// The code-shaped fields parsed out of an on-disk panic report.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PanicReportSummary {
-    /// Panic message (`message:` line). Placeholder when the report is
-    /// malformed, so a truncated file still produces a traceable event.
-    pub message: String,
-    /// `file:line:col` of the panic site, when recorded.
-    pub location: Option<String>,
-    /// Build version that crashed (`version:` line).
-    pub version: Option<String>,
-    /// RFC3339 timestamp of the crash (`time:` line).
-    pub time: Option<String>,
-    /// Backtrace section, capped at [`BACKTRACE_CAP_BYTES`].
-    pub backtrace: String,
-}
-
-/// Parse fields from a local crash report. None of these values leave the
-/// machine through crash telemetry.
-pub fn parse_panic_report(body: &str) -> PanicReportSummary {
-    // The parser serves local diagnostics only. Keep the ring separate from
-    // the crash fields; telemetry uses fixed categories instead of this text.
-    let shipped = body
-        .find(RING_SECTION_HEADER)
-        .map_or(body, |idx| &body[..idx]);
-
-    let field = |prefix: &str| -> Option<String> {
-        shipped.lines().find_map(|line| {
-            line.strip_prefix(prefix)
-                .map(str::trim)
-                .filter(|v| !v.is_empty() && *v != "<unknown>")
-                .map(str::to_string)
-        })
-    };
-
-    let backtrace = shipped
-        .split_once("backtrace\n---------\n")
-        .map(|(_, rest)| rest.trim_end())
-        .unwrap_or_default();
-    let backtrace = truncate_utf8(backtrace, BACKTRACE_CAP_BYTES).to_string();
-
-    PanicReportSummary {
-        message: field("message:").unwrap_or_else(|| "<unparseable crash report>".to_string()),
-        location: field("location:"),
-        version: field("version:"),
-        time: field("time:"),
-        backtrace,
-    }
-}
-
-/// Truncate to at most `cap` bytes on a UTF-8 boundary.
-fn truncate_utf8(s: &str, cap: usize) -> &str {
-    if s.len() <= cap {
-        return s;
-    }
-    let mut end = cap;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
 /// Whether the previous session's ledger row indicates a NATIVE crash — an
 /// unclean end with no panic report to explain it. Panic reports take
 /// precedence: when one exists, the unclean ledger row is the same incident,
@@ -147,12 +78,7 @@ pub fn startup_failure_recorded(start: Option<&StartSummary>) -> bool {
 ///
 /// `reports` is expected newest-first (the order `scan_and_warn` returns);
 /// only the newest [`MAX_REPORTS_PER_LAUNCH`] are promoted.
-#[cfg(feature = "sentry-telemetry")]
-pub fn report_crashes(reports: &[PathBuf], start: Option<&StartSummary>) -> usize {
-    report_crashes_with_log_tail(reports, start, None)
-}
-
-/// Compatibility entry point. The previous session's log tail stays local.
+/// The previous session's log tail stays local.
 #[cfg(feature = "sentry-telemetry")]
 pub fn report_crashes_with_log_tail(
     reports: &[PathBuf],
@@ -163,11 +89,6 @@ pub fn report_crashes_with_log_tail(
         return 0;
     }
     capture_events(reports, start)
-}
-
-#[cfg(not(feature = "sentry-telemetry"))]
-pub fn report_crashes(_reports: &[PathBuf], _start: Option<&StartSummary>) -> usize {
-    0
 }
 
 #[cfg(not(feature = "sentry-telemetry"))]

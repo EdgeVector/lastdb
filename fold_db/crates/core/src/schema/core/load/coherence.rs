@@ -47,6 +47,7 @@ impl SchemaCore {
             coherence_bindings(schema_name, &loaded, committed.chain(staged))
         };
         if bindings.is_empty() {
+            self.publish_coherence_memo(schema_name, bindings)?;
             return Ok(());
         }
 

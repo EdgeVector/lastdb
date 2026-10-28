@@ -33,26 +33,24 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 
 | Component | Current writer | Current reader |
 | --- | --- | --- |
-| Node marker | `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n` by default; explicit legacy uses `format=3\nhome=disk-run\ncas=disk-cas\n` | Both exact markers only |
+| Node marker | `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n` | The same exact marker only; a format 3 marker is refused |
 | Home descriptor | 64 bytes; magic `LDRHOME3`; descriptor version 1; home UUID; CRC32 | The same descriptor; `LDRHOME2` is refused |
 | `CURRENT` payload | Magic `LDRCUR2\0` inside one encrypted frame | `LDRCUR2\0`, or `LDRCUR1\0` without a base; the latter opens as tiered runs |
 | Run footer | 64 bytes; magic `LDRUN\x01\0\0`; version 1; run UUID; top-block position; counts; CRC32 | The same footer, with counts checked against the authenticated top block |
 | Encryption frame | Magic `LSF1`; version 2; raw or zstd flag; authenticated header; ciphertext; 16-byte tag | Version 2 with known flags only |
 | Stored value | Tag 0 for original bytes; tag 1 for compact JSON | Tags 0 and 1 only |
-| Logical key format | `7;typed-ranges=v1` in a new default home | Typed 7, or supported legacy 6 and `6;delete-replay-cutoff=v1`, as selected by the node marker |
-| Client backup profile | Profile 2 for typed ranges; profile 1 for legacy ranges | Both profiles, with the exact native identities, hashes, totals, and required features |
+| Logical key format | `7;typed-ranges=v1` | `7;typed-ranges=v1` only; `6` and `6;delete-replay-cutoff=v1` are refused |
+| Client backup profile | Profile 2 | Profile 2 only, with the exact native identities, hashes, totals, and required features; profile 1 is refused |
 
-Each marker is an exact byte contract. Its filename alone does not prove compatibility.
-The logical delete replay cutoff requires its corresponding stored cutoff record.
+The marker is an exact byte contract. Its filename alone does not prove compatibility.
+A missing delete replay cutoff record means cutoff 0.
 The node checks the logical format and account proof before ordinary access or writer cleanup.
 The [typed range contract](designs/typed-range-field-contract.md) defines the complete scalar and molecule profiles.
 
-A fresh default home uses blinded hashes and typed ordered ranges inside encrypted blocks.
-An explicit legacy home keeps its recorded key encodings and text order.
-Environment settings do not convert an existing home. Incompatible typed settings receive a refusal.
-An absent or empty home can initialize. Startup does not migrate an older home or resume an offline conversion.
-
-An explicit offline typed conversion remains separate from startup and does not restore the removed physical V1 engine.
+Every home uses blinded hashes and typed ordered ranges inside encrypted blocks.
+No environment setting selects another key encoding.
+An absent or empty home can initialize. Startup does not migrate or rewrite a home.
+An older home moves with one manual copy into a new home. The program has no conversion code.
 
 ## Record and encryption bytes
 

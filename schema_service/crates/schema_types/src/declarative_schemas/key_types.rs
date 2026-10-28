@@ -3,23 +3,13 @@ use crate::FieldValueType;
 use std::collections::BTreeMap;
 
 impl DeclarativeSchemaDefinition {
-    /// Temporal ranges require a typed home; temporal hashes remain unsupported.
+    /// Temporal ranges use their typed order; temporal hashes remain unsupported.
     pub fn validate_key_field_types(&self) -> Result<(), String> {
-        self.validate_temporal_keys(false)
-    }
-
-    /// A legacy home must never gain date semantics from its schema alone.
-    pub fn validate_legacy_key_field_types(&self) -> Result<(), String> {
-        self.validate_temporal_keys(true)
-    }
-
-    fn validate_temporal_keys(&self, include_range: bool) -> Result<(), String> {
-        for path in self.key.iter().flat_map(|key| {
-            key.hash_field
-                .iter()
-                .chain(key.range_field.iter().filter(|_| include_range))
-                .map(String::as_str)
-        }) {
+        for path in self
+            .key
+            .iter()
+            .flat_map(|key| key.hash_field.iter().map(String::as_str))
+        {
             let temporal = if let Some(field_type) = self.field_types.get(path) {
                 temporal_at_path(field_type, None)
             } else if let Some((root, child)) = path.split_once('.') {

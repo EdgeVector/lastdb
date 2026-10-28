@@ -26,6 +26,17 @@ class Automatic:
         self.operation, self.credentials, self.phrase = operation, credentials, phrase
         self.programs, self.baseline = operation.programs, operation.baseline
 
+    def dependencies(self, expected, accepted):
+        chosen = selection(expected, accepted)
+        report = self.programs.command(self.credentials, ["cloud", "backup-v2", "inspect-dependencies",
+            "--recovery-phrase-stdin", "--stream", chosen["stream_id"], "--generation", chosen["account_generation"],
+            "--commit", chosen["commit_id"], "--commit-sha256", chosen["commit_sha256"], "--json"], self.phrase)
+        require(report["accepted_hashes_verified"] is True and report["retained_points"] > 0
+                and report["closure_only"] is True and report["account_directory_frozen"] is False
+                and report["provider_deletion_authorized"] is False and report["provider_deletions"] == 0,
+                "accepted_dependency_inspection")
+        return report
+
     def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False):
         operation = self.operation
         operation.summary["stage"] = name
@@ -112,6 +123,8 @@ class Automatic:
         source.retired(restarted["request_id"])
         source.disable()
         source.node.stop()
+        dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
+                                  "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
         replay = {"base": snapshot["last_accepted_backup"], "through": log["mutation_log"]["head"]}
         base_restore = self.recover("base-recovery", self.baseline, snapshot["last_accepted_backup"],
                                     lifecycle=lifecycle, initial=True)
@@ -131,6 +144,7 @@ class Automatic:
                 "base_recovery": base_restore, "log_recovery": log_restore,
                 "later_snapshot_recovery": snapshot_restore,
                 "ttl_log_frontiers": first_ttl, "ttl_snapshot_frontiers": second_ttl,
+                "dependency_inspections": dependency_inspections,
                 "ci_stream_ownership": ownership,
                 "accepted_backups_retained": True, "provider_deletions": 0,
                 "previous_automatic_local_metadata_retired": True,

@@ -27,7 +27,7 @@ impl AtomStore {
     /// the planner is not inert: it fell to the `_` arm, took the O(field) full
     /// load, and — because only the singular `HashRangeKey` arm echoes the
     /// caller's API range back onto the response — the batch then compared
-    /// API-form keys against a molecule holding storage-form (OPE) ranges and
+    /// API-form keys against a molecule holding storage-form ranges and
     /// silently dropped every row written under the current encoding.
     /// List `mk:` keys of a HashRange molecule in Page order `(range, hash)`.
     ///

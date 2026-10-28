@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct QueryCursor {
     pub hash: Option<String>,
     pub range: Option<String>,
-    /// Missing only for an older client's legacy UTF-8 continuation.
+    /// Missing only in an older client's cursor; a schema read refuses it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comparison: Option<String>,
 }

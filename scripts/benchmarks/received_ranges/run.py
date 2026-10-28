@@ -99,13 +99,13 @@ def main():
                 "phases": "Current request ring; exact32/32 warm or1/1 fresh IDs; optional phase fields stay unreported",
                 "warm_requests_per_case": 32, "fresh_process_requests_per_case": 1,
                 "fresh_restarts_per_run": 8, "memory": "Per-cell process before/after; byte-buffer receipts exclude captured field maps"},
-            "modes": ["plain", "encrypted"], "automatic_maintenance": False,
+            "modes": ["typed"], "automatic_maintenance": False,
             "warm_budget": "Product default; identical complete keyed prefill before timing",
             "limits": "Each owned run1200s,10000request rows,1GiB raw/512MiB gzip,4MiB response,50000home entries/4GiB",
             "timing": "HTTP round trip through complete response bytes; decode/validation/gzip excluded",
             "scope": "Baseline broad503 is unavailable, never a fast result. Matched narrow ranges alone compare latency. OS cache uncontrolled; Python client overhead applies."}}
     save(manifest_path, manifest)
-    for mode in ("plain", "encrypted"):
+    for mode in ("typed",):
         for pair in range(2):
             order = ("baseline", "candidate") if pair == 0 else ("candidate", "baseline")
             values = {}

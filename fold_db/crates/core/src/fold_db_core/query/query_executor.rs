@@ -1,7 +1,5 @@
-//! Query Executor
-//!
-//! Main query execution logic extracted from FoldDB core, handling all query types
-//! including HashRange schemas with proper delegation to specialized processors.
+//! Captured query entry points. Reads and counts share schema preparation;
+//! each path keeps its namespace, window, and count-fallback decisions explicit.
 
 use crate::access::AccessContext;
 use crate::db_operations::DbOperations;
@@ -19,6 +17,7 @@ use super::hash_range_query::{
 
 mod count;
 mod current;
+mod prepare;
 mod rules;
 
 /// Main query executor that handles all query operations
@@ -147,7 +146,13 @@ impl QueryExecutor {
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
-        let future = Box::pin(self.query_internal_scoped(query, window, access_context));
+        let future = Box::pin(
+            crate::storage::disk_pack::logical_paths::field::query_scope(self.query_current(
+                query,
+                window,
+                access_context,
+            )),
+        );
         scope.run_result(future).await
     }
 }

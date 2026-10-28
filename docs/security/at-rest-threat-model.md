@@ -6,8 +6,8 @@ fkanban card per gap — see [Gaps → follow-up cards](#gaps--follow-up-cards).
 **Current V2 boundary (2026-10-26):** The current node uses compact V2 run files.
 Data, logical keys, and lookup blocks use compression followed by AES-256-GCM.
 Atom JSON is plain inside those encrypted blocks. Native cloud backup retains the same ciphertext.
-Typed homes replace OPE lookup ranges with canonical ordered scalar payloads inside those blocks.
-The explicit converter preserves a stopped V2 source and writes a separate target. The primary stays unchanged.
+Every home stores canonical ordered scalar range payloads inside those blocks. No range uses OPE.
+An older home moves with one manual copy into a new home. The program has no converter.
 See [the complete typed V2 contract](../designs/typed-range-field-contract.md) for profiles, key authority, recovery, and measured release limits.
 
 CAUTION: `identity.key` is a plaintext 32-byte seed with owner-only permissions.
@@ -85,9 +85,10 @@ their old contents.
 
 Target posture for Mini personal data (no plaintext fallbacks):
 
-1. **Father — molecules:** product default HashKey `blind_v1` + RangeKey `ope_v1`.
-   Storage `mk:` keys must not embed API plaintext hash/range segments; API still
-   accepts plaintext HashKey/RangeKey (Option I).
+1. **Father — molecules:** every home blinds the HashKey with `blind_v1`. A
+   RangeKey is the typed range payload inside the encrypted run blocks; no
+   range uses OPE. Storage `mk:` keys must not embed an API plaintext hash
+   segment; the API still accepts plaintext HashKey/RangeKey (Option I).
 2. **Son — atoms:** field `content` sealed under account E2E key (`ENC:…`).
    **Binary default (unset env) is dual-read** so legacy plain still opens during
    migrate. **Product primaries after reseal** must set durable
@@ -430,7 +431,7 @@ invented or expanded by agents:
 | Layer | What | Crypto |
 |---|---|---|
 | Hash key | molecule HashKey in storage | blind (`blind_v1`) |
-| Range key | molecule RangeKey in storage | OPE (`ope_v1`) |
+| Range key | molecule RangeKey in storage | typed range payload inside an AES-256-GCM run-file block |
 | Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
 | File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block (not in Search inbox batches) |
 
