@@ -59,7 +59,7 @@ class Control:
         self.key = None
 
     def post(self, route, extra):
-        require(self.key is not None and route in ("context", "register", "refresh", "usage"),
+        require(self.key is not None and route in ("context", "start", "register", "refresh", "usage"),
                 "ci_control_route")
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, "ci_control_deadline")
@@ -127,16 +127,16 @@ class Control:
         return {**counters, "available_bytes": available, "minimum_bytes": minimum,
                 "observation_only": True, "quota_changed": False}
 
-    def register(self, record):
+    def claim(self, record, route, schema):
         receipt = record["ownership"]
         stream = canonical_uuid(receipt["stream_id"])
-        require(receipt["account"] == ACCOUNT
+        require(receipt["schema"] == schema and receipt["account"] == ACCOUNT
                 and receipt["account_generation"] == self.scope["account_generation"]
                 and stream != self.baseline["stream_id"], "ci_register_owned_scope")
         archive = record["archive"]
         require(isinstance(archive, bytes) and 0 < len(archive) <= 32768,
                 "ci_register_archive_bound")
-        value = self.post("register", {"artifact_id": record["artifact_id"],
+        value = self.post(route, {"artifact_id": record["artifact_id"],
                           "archive_b64": base64.b64encode(archive).decode("ascii"),
                           "baseline": self.baseline})
         no_deletion(value)
@@ -144,6 +144,17 @@ class Control:
                 and value.get("artifact_id") == record["artifact_id"]
                 and value.get("receipt_sha256") == record["receipt_sha256"], "ci_register_identity")
         digest(value.get("registration_sha256"))
+        return value
+
+    def start(self, record):
+        value = self.claim(record, "start", "lastdb.cloud-ci-start.v1")
+        require(value.get("scope") == self.scope and value.get("state") == "startup_registered"
+                and value.get("admission_open") is True, "ci_start_admission")
+        return {"stream_id": value["stream_id"], "state": value["state"],
+                "registration_sha256": value["registration_sha256"]}
+
+    def register(self, record):
+        value = self.claim(record, "register", "lastdb.cloud-ci-stream.v1")
         completed = value.get("recovery_completed_ms")
         require((value.get("state") == "waiting_run" and completed is None)
                 or (value.get("state") == "completed" and decimal(completed) > 0),
@@ -152,7 +163,7 @@ class Control:
         if latest is not None:
             canonical_uuid(latest)
             require(latest != self.baseline["stream_id"], "ci_register_latest_scope")
-        return {"stream_id": stream, "state": value["state"],
+        return {"stream_id": value["stream_id"], "state": value["state"],
                 "registration_sha256": value["registration_sha256"]}
 
     def refresh(self):

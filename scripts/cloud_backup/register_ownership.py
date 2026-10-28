@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--artifact-id", required=True)
     parser.add_argument("--artifact-sha256", required=True)
+    parser.add_argument("--phase", choices=("startup", "complete"), default="complete")
     args = parser.parse_args()
     os.umask(0o077)
     control = None
@@ -59,13 +60,13 @@ def main():
                 (root / name).mkdir(mode=0o700)
             history = History(baseline, child_environment(root), token)
             del token
-            record = history.current(args.artifact_id, digest, args.source)
+            record = history.current(args.artifact_id, digest, args.source, startup=args.phase == "startup")
             control = Control(baseline, key)
             del key
             control.context()
-            registered = control.register(record)
+            registered = control.start(record) if args.phase == "startup" else control.register(record)
             result.update(result="passed", source=args.source, artifact_id=args.artifact_id,
-                          registration=registered, backup_service_requests=control.calls)
+                          phase=args.phase, registration=registered, backup_service_requests=control.calls)
     except OperationError as error:
         result["failure"] = str(error)
     except BaseException:

@@ -163,6 +163,15 @@ The default path uses its existing stream choice when this variable is absent.
 This changes local backup-job metadata only. It changes no native file format or encryption.
 The current workflow does not set this variable yet: trusted startup-artifact registration and admission remain required before activation.
 
+The startup receipt uses `lastdb.cloud-ci-start.v1` and only the existing owner, account, generation, and fresh stream identity.
+Its artifact is `cloud-ci-start-<run_id>-<run_attempt>` and contains only `ci-start.json`.
+`prepare_start.py` prepares that claim on protected main; `register_ownership.py --phase startup` verifies its actual GitHub archive and calls `ci/start`.
+The caller requires `startup_registered`, the exact claim/receipt identity, and open admission before the source can start.
+This claim makes no restore-success or provider-deletion assertion.
+The service must refuse adoption of any pre-existing stream without the exact prior claim.
+Full workflow activation remains blocked on the paired service and the pre-upload pending-request/cleanup stage.
+That stage must finish before startup registration, so an earlier frozen request can resume before any new effect.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
