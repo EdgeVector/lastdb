@@ -192,7 +192,8 @@ async fn build_state(cli: &Cli) -> Result<SchemaServiceState, String> {
             ddb_client,
             embeddings_table,
         )
-        .with_definition_namespace_from_env()?,
+        .with_definition_namespace_from_env()
+        .map_err(|error| error.to_string())?,
     );
     tracing::info!(
         bucket = %bucket,
