@@ -173,8 +173,11 @@ impl MutationLog {
             .index
             .as_mut()
             .ok_or_else(|| invalid("mutation log policy"))?;
-        index.enabled = enabled;
-        store::write(&self.root.join("index.json"), index)
+        let mut saved = index.clone();
+        saved.enabled = enabled;
+        store::write(&self.root.join("index.json"), &saved)?;
+        *index = saved;
+        Ok(())
     }
 
     /// The caller holds the native write gate across this anchor and the paired snapshot.
@@ -210,9 +213,11 @@ impl MutationLog {
         let directory = store::epoch(&self.root, &epoch);
         store::create(&directory)?;
         store::write(&directory.join("state.json"), &state)?;
-        index.epochs.push(epoch.clone());
-        index.active = Some(epoch);
-        store::write(&self.root.join("index.json"), index)?;
+        let mut saved = index.clone();
+        saved.epochs.push(epoch.clone());
+        saved.active = Some(epoch);
+        store::write(&self.root.join("index.json"), &saved)?;
+        *index = saved;
         Ok(Some(anchor))
     }
 

@@ -130,11 +130,14 @@ impl MutationLog {
         if index.active.as_ref() == Some(epoch) {
             return Err(invalid("active mutation log cannot be removed"));
         }
-        index.epochs.retain(|id| id != epoch);
-        if !index.cleanup.contains(epoch) {
-            index.cleanup.push(epoch.clone());
+        let mut saved = index.clone();
+        saved.epochs.retain(|id| id != epoch);
+        if !saved.cleanup.contains(epoch) {
+            saved.cleanup.push(epoch.clone());
         }
-        store::write(&self.root.join("index.json"), index)
+        store::write(&self.root.join("index.json"), &saved)?;
+        *index = saved;
+        Ok(())
     }
 
     fn remove_entry(&self, epoch: &Id, sequence: u64, incomplete: bool) -> StorageResult<()> {
@@ -187,8 +190,10 @@ impl MutationLog {
                 .index
                 .as_mut()
                 .ok_or_else(|| invalid("mutation log retired cleanup owner"))?;
-            index.cleanup.retain(|id| id != &epoch);
-            store::write(&self.root.join("index.json"), index)?;
+            let mut saved = index.clone();
+            saved.cleanup.retain(|id| id != &epoch);
+            store::write(&self.root.join("index.json"), &saved)?;
+            *index = saved;
         }
         Ok(())
     }

@@ -36,19 +36,23 @@ impl PackRuntime {
         }
         prepare_previous(&root, &begin.job.commit_id)?;
         let directory = root.join(begin.job.commit_id.as_str());
-        let mut state: FrozenLogCapture = match store::read(&directory.join("capture.json"))? {
-            Some(state) => state,
-            None => {
+        let mut state: FrozenLogCapture =
+            if let Some(state) = store::read(&directory.join("capture.json"))? {
+                state
+            } else {
                 if !directory.try_exists()? {
                     store::create(&directory)?;
                 }
                 let state = plan(self, begin, from)?;
                 store::write(&directory.join("capture.json"), &state)?;
                 state
-            }
-        };
+            };
         state.validate()?;
-        if state.begin != *begin || state.from != *from {
+        if state.begin != *begin
+            || state.from != *from
+            || state.anchor.main_home != self.mutation_log.main_home
+            || state.anchor.cas_home != self.mutation_log.cas_home
+        {
             return Err(invalid("mutation capture frozen identity changed"));
         }
         if !state.ready && state.terminal.is_none() && !state.local_cancelled {
