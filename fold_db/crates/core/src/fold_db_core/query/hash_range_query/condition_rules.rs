@@ -11,7 +11,6 @@ use std::collections::HashMap;
 
 pub(super) fn condition_fields(
     schema: &Schema,
-    blinded_hash: bool,
     predicates: &[FieldPredicate],
     value_filters: &[crate::schema::types::ValueFilter],
     order_by: Option<&QueryOrderBy>,
@@ -26,19 +25,15 @@ pub(super) fn condition_fields(
     if let Some(order_by) = order_by {
         fields.push(order_by.field.clone());
     }
-    // Candidate discovery already prefers the declared key molecule. Only
-    // blinded reads need its value in pass A to recover the API hash.
-    // Adding it on plain homes would disable the empty-spine fallback for
-    // sibling layouts whose shared fields establish their keys.
-    if blinded_hash {
-        if let Some(key_field) = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-        {
-            if schema.runtime_fields.contains_key(key_field.as_str()) {
-                fields.push(key_field.clone());
-            }
+    // Candidate discovery already prefers the declared key molecule. Every
+    // hash is blinded, so pass A needs its value to recover the API hash.
+    if let Some(key_field) = schema
+        .key
+        .as_ref()
+        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
+    {
+        if schema.runtime_fields.contains_key(key_field.as_str()) {
+            fields.push(key_field.clone());
         }
     }
     fields.sort();

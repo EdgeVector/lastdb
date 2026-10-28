@@ -36,5 +36,5 @@ pub mod reject;
 pub mod wire;
 
 pub use handlers::HostError;
-pub use host_node::{HostNode, ReadBusy, ReadPermit};
+pub use host_node::{HostNode, ReadBusy};
 pub use qos::{Lane, QosConfig, QosGate, QosPermit, QosSnapshot};

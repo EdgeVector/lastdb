@@ -37,18 +37,11 @@ impl MoleculeKeyStore {
     pub(crate) fn codec_for_molecule(
         &self,
         molecule: &str,
-        configured: &MoleculeKeyCodec,
     ) -> StorageResult<Option<MoleculeKeyCodec>> {
         let Some(contract) = self.cached_contract(molecule)? else {
             return Ok(None);
         };
-        Ok(Some(
-            contract
-                .bundle
-                .key_codec(configured)
-                .for_typed_home()
-                .with_range_profile(contract.range_profile),
-        ))
+        Ok(Some(contract.bundle.key_codec(contract.range_profile)))
     }
 
     pub(super) fn remember_contract(

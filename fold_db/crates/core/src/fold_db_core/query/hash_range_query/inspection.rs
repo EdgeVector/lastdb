@@ -295,14 +295,8 @@ impl HashRangeQueryProcessor {
             .as_ref()
             .and_then(|key| key.hash_field.as_deref())
             == Some(name);
-        let plain =
-            self.db_ops.atoms().key_codec().encoding() == crate::atom::HashKeyEncoding::Plain;
         if !declared {
-            return if plain {
-                Ok(Some(storage_key))
-            } else {
-                Err(SchemaError::InvalidData("administrative projection fallback cannot recover the API hash; query one hash or an exact key batch".into()))
-            };
+            return Err(SchemaError::InvalidData("administrative projection fallback cannot recover the API hash; query one hash or an exact key batch".into()));
         }
         let Some(hash) = scalar_key_coordinate(&value.value) else {
             return Ok(None);

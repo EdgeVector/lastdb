@@ -16,7 +16,7 @@ const HASH_OVERHEAD: usize = 1024;
 impl CoreKeyDomain {
     pub(crate) fn new_loading(
         identity: CoreKeyIdentity,
-        range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+        range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
         budget: Arc<CoreKeyBudget>,
     ) -> Result<Arc<Self>, CoreKeyError> {
         let bytes = identity
@@ -45,8 +45,7 @@ impl CoreKeyDomain {
     }
 
     pub(crate) fn accepts_stored_range(&self, range: &str) -> bool {
-        self.range_profile
-            .is_none_or(|profile| profile.decode_value(range).is_ok())
+        self.range_profile.decode_value(range).is_ok()
     }
 
     /// The caller owns the common publication lock for accepted write deltas.

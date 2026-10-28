@@ -11,11 +11,13 @@
 //!
 //! Free key builders take storage-form coordinates. API coordinates pass once
 //! through [`MoleculeKeyCodec::storage_hash`] and
-//! [`MoleculeKeyCodec::storage_range`], or through an `api_*` builder. The hash
-//! is byte-stuffed before the separator, so hash prefixes cannot overlap.
-//! The typed range profile of the molecule orders its range payloads.
+//! [`MoleculeKeyCodec::storage_range`], or through an `api_*` builder. Every
+//! non-empty hash is HMAC-blinded (`blind_v1`) with the molecule's blind key.
+//! The hash is byte-stuffed before the separator, so hash prefixes cannot
+//! overlap. The typed range profile of the molecule orders its range payloads.
 
 use crate::crypto::E2eKeys;
+use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
 mod profile;
 mod range_decode;
@@ -23,65 +25,40 @@ mod range_decode;
 /// Logical typed-range format; physical run blocks keep their existing format.
 pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
 
-/// Chokepoint: API HashKey/RangeKey → storage segments.
+/// Chokepoint: API HashKey/RangeKey → storage segments for one molecule.
 ///
 /// Free `hash_range_*` builders below take **storage-form** segments.
 #[derive(Clone)]
 pub struct MoleculeKeyCodec {
-    hash_encoding: HashKeyEncoding,
-    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
-    /// Required when hash encoding is blind.
-    index_key: Option<[u8; 32]>,
+    /// The molecule's HMAC key for blinded hash segments.
+    blind_key: [u8; 32],
+    range_profile: MoleculeRangeProfile,
 }
 
 impl std::fmt::Debug for MoleculeKeyCodec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MoleculeKeyCodec")
-            .field("hash_encoding", &self.hash_encoding)
             .field("range_profile", &self.range_profile)
             .finish_non_exhaustive()
     }
 }
 
-impl Default for MoleculeKeyCodec {
-    fn default() -> Self {
-        Self {
-            hash_encoding: HashKeyEncoding::Plain,
-            range_profile: None,
-            index_key: None,
-        }
-    }
-}
-
 impl MoleculeKeyCodec {
     #[must_use]
-    pub fn new(encoding: HashKeyEncoding, index_key: Option<[u8; 32]>) -> Self {
+    pub(crate) fn new(blind_key: [u8; 32], range_profile: MoleculeRangeProfile) -> Self {
         Self {
-            hash_encoding: encoding,
-            range_profile: None,
-            index_key,
+            blind_key,
+            range_profile,
         }
-    }
-
-    #[must_use]
-    pub fn plain() -> Self {
-        Self::default()
-    }
-
-    #[must_use]
-    pub fn encoding(&self) -> HashKeyEncoding {
-        self.hash_encoding
     }
 
     /// Public format identity only; no encryption key material enters a cursor.
+    ///
+    /// The `kc1:`/`qc1:` cursor identity hashes this text, so it must stay
+    /// byte-identical or open client cursors stop resolving.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {
-        match (self.range_profile.is_some(), self.hash_encoding) {
-            (true, HashKeyEncoding::Plain) => "plain/plain:typed-scalar-v1",
-            (true, HashKeyEncoding::BlindV1) => "blind-v1/plain:typed-scalar-v1",
-            (false, HashKeyEncoding::Plain) => "plain/plain:utf8-v1",
-            (false, HashKeyEncoding::BlindV1) => "blind-v1/plain:utf8-v1",
-        }
+        "blind-v1/plain:typed-scalar-v1"
     }
 
     /// Map API HashKey to storage-form hash segment.
@@ -95,31 +72,23 @@ impl MoleculeKeyCodec {
         if api_hash.is_empty() {
             return Ok(String::new());
         }
-        match self.hash_encoding {
-            HashKeyEncoding::Plain => Ok(api_hash.to_string()),
-            HashKeyEncoding::BlindV1 => {
-                let key = self
-                    .index_key
-                    .as_ref()
-                    .ok_or(MoleculeKeyCodecError::MissingIndexKey)?;
-                Ok(E2eKeys::blind_hash_key(key, molecule_uuid, api_hash))
-            }
-        }
+        Ok(E2eKeys::blind_hash_key(
+            &self.blind_key,
+            molecule_uuid,
+            api_hash,
+        ))
     }
 
     /// Map API RangeKey to storage-form range segment: the typed profile
-    /// payload, or the API value when no profile is selected.
+    /// payload.
     pub fn storage_range(
         &self,
         _molecule_uuid: &str,
         api_range: &str,
     ) -> Result<String, MoleculeKeyCodecError> {
-        match self.range_profile {
-            Some(profile) => profile
-                .encode_value(api_range)
-                .map_err(MoleculeKeyCodecError::InvalidRange),
-            None => Ok(api_range.to_owned()),
-        }
+        self.range_profile
+            .encode_value(api_range)
+            .map_err(MoleculeKeyCodecError::InvalidRange)
     }
 
     /// `mk:{M}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
@@ -150,19 +119,13 @@ impl MoleculeKeyCodec {
 /// Errors from [`MoleculeKeyCodec`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoleculeKeyCodecError {
-    /// Blind encoding requested but no E2E index key is configured.
-    MissingIndexKey,
-    /// An explicitly selected range profile rejects the coordinate or token.
+    /// The molecule's range profile rejects the coordinate or token.
     InvalidRange(String),
 }
 
 impl std::fmt::Display for MoleculeKeyCodecError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MissingIndexKey => write!(
-                f,
-                "hash_key_encoding requires E2E index_key (set encoding=plain or provide index key)"
-            ),
             Self::InvalidRange(reason) => write!(f, "invalid range key: {reason}"),
         }
     }
@@ -230,8 +193,6 @@ fn unescape_segment(escaped: &str) -> Option<String> {
     Some(out)
 }
 
-mod encoding;
-pub use encoding::*;
 mod generation_keys;
 pub use generation_keys::*;
 mod history_keys;

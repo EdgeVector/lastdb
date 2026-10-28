@@ -11,8 +11,8 @@
 //! enforces this in CI.
 //!
 //! This module used to live in `fold_db_node::endpoints`. The desktop node
-//! was removed in the Mini-only cutover. The profile loader and Mini daemon
-//! now use this crate directly.
+//! was removed in the Mini-only cutover. The Mini daemon uses this crate
+//! directly.
 //!
 //! The active environment is selected by `ENVIRONMENT` (the var CDK sets on
 //! deployed Lambdas), falling back to `EXEMEM_ENV` for local CLI use. The

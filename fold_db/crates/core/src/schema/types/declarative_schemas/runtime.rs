@@ -100,8 +100,8 @@ impl DeclarativeSchemaDefinition {
         //  - A field with a `FieldMapper` resolves to its mapper's *source*
         //    schema/field. This makes mapper resolution durable: the schema
         //    service wire JSON carries `field_mappers` but not
-        //    `field_molecule_uuids`, and `apply_field_mappers` only runs once,
-        //    during schema expansion. Without routing mapped fields to the
+        //    `field_molecule_uuids`, and the typed mapper pass runs only inside
+        //    `load_schema_internal`. Without routing mapped fields to the
         //    source molecule here, a reload of an already-expanded mapped
         //    schema (node restart re-sync, schema refresh) would fall back to
         //    this schema's own empty molecule and leave every mapped field
