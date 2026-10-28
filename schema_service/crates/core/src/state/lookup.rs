@@ -1,6 +1,7 @@
 //! Read-through lookup for schemas committed by another service instance.
 
 use super::*;
+use std::collections::hash_map::Entry;
 
 impl SchemaServiceState {
     /// A warm process can lack an identity that another instance acknowledged.
@@ -17,10 +18,19 @@ impl SchemaServiceState {
         if let Some(schema) = &schema {
             self.validate_loaded_schemas(&HashMap::from([(schema.name.clone(), schema.clone())]))
                 .await?;
-            write_lock(&self.schemas, "schemas")?
-                .entry(schema.name.clone())
-                .or_insert_with(|| schema.clone());
-            self.rebuild_descriptive_name_index();
+            let inserted = {
+                let mut schemas = write_lock(&self.schemas, "schemas")?;
+                if let Entry::Vacant(entry) = schemas.entry(schema.name.clone()) {
+                    entry.insert(schema.clone());
+                    self.bump_state_version();
+                    true
+                } else {
+                    false
+                }
+            };
+            if inserted {
+                self.rebuild_descriptive_name_index();
+            }
         }
         Ok(schema)
     }
