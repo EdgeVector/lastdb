@@ -25,11 +25,47 @@ pub(super) fn verify(
     scratch: &Path,
     version: u16,
 ) -> StorageResult<u64> {
-    let reserved = phase(Stage::Admission, reserve_cursor(main, cas))?;
+    let reserved = match phase(Stage::Admission, reserve_cursor(main, cas)) {
+        Ok(reserved) => reserved,
+        Err(error) if descriptor_pressure(&error) => {
+            drop(error);
+            return verify_once(main, cas, account_key, scratch, version, false);
+        }
+        Err(error) => return Err(error),
+    };
     let key_heads = reserved.is_some();
-    let (main, cas) = reserved
-        .as_ref()
-        .map_or((main, cas), |(main, cas)| (main, cas));
+    let result = {
+        let (read_main, read_cas) = reserved
+            .as_ref()
+            .map_or((main, cas), |(main, cas)| (main, cas));
+        verify_once(
+            read_main,
+            read_cas,
+            account_key,
+            scratch,
+            version,
+            key_heads,
+        )
+    };
+    // Every optional inventory cursor and fork must close before nested reads
+    // retry. The next attempt repeats exact scratch cleanup and its sync barrier
+    // before any account, schema, atom, directory or CAS validation.
+    drop(reserved);
+    if key_heads && result.as_ref().err().is_some_and(descriptor_pressure) {
+        drop(result);
+        return verify_once(main, cas, account_key, scratch, version, false);
+    }
+    result
+}
+
+fn verify_once(
+    main: &RunRead,
+    cas: &RunRead,
+    account_key: &[u8; 32],
+    scratch: &Path,
+    version: u16,
+    key_heads: bool,
+) -> StorageResult<u64> {
     let proof = Proof {
         main,
         cas,
@@ -46,6 +82,18 @@ pub(super) fn verify(
     let atoms = phase(Stage::Atoms, atoms::verify(&proof))?;
     phase(Stage::Tips, metadata::verify(&proof))?;
     Ok(atoms)
+}
+
+fn descriptor_pressure(error: &StorageError) -> bool {
+    let code = match error {
+        StorageError::IoError(io) => io.raw_os_error(),
+        StorageError::NativeProof {
+            cause: NativeProofCause::Io { os_code, .. },
+            ..
+        } => *os_code,
+        _ => None,
+    };
+    matches!(code, Some(code) if code == libc::EMFILE || code == libc::ENFILE)
 }
 
 fn reserve_cursor(main: &RunRead, cas: &RunRead) -> StorageResult<Option<(RunRead, RunRead)>> {
