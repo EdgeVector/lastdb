@@ -1,5 +1,27 @@
 # LastDB benchmarks in GitHub Actions
 
+## Historical 16-writer investigation
+
+`write-contention.yml` diagnoses the warning in run 40558556490. It downloads the exact two archived program pairs from that run.
+The SHA-256 bundle, source artifact identity, historical driver, program versions, and runtime dependencies must match.
+There is no diagnostic rebuild. The original artifact expires on 2026-11-10; an unavailable or expired artifact fails this historical operation.
+The ordinary required PR workflow still builds and measures its current source in CI.
+
+The operation uses one standard hosted runner and seven fresh generated homes with 100,000 records each.
+It compares one schema/one hash, one schema/16 hashes, and 16 schemas with distinct canonical field identities.
+Each client owns different keys. Cases include one writer, 16 writers, repeated writes, 16 socket workers, and 16-record mutation batches.
+Batch comparisons also keep 16 records in flight with 4 clients × 4 records and 1 client × 16 records. RPC latency is not divided by the batch size.
+The final shared home repeats executable A without another build. Every case verifies durable acknowledgements and the last values at known keys.
+Search is off; each home stops and is removed. Native logging is separate from the ordinary 16-writer cases.
+Native cases disable stdio log rotation so earlier numeric records survive; ordinary cases retain the default rotation policy.
+The focused homes do not replay the full nightly prehistory. These measurements diagnose causes; they do not establish a PR regression.
+
+CPU counters cover each whole case once for the daemon and Python client. Missing scheduler or host observations stay explicit.
+Native HTTP clocks must cover all instrumented write calls. Additional foreground scopes, such as author-clock metadata, remain explicit.
+Native phase averages cover all observed foreground storage work. Each physical commit is counted once, even when it serves multiple requests.
+Admission includes the global preparation gate and the sealed durable queue. Commit phases can overlap; do not add parents and children.
+The CI summary and verified artifacts retain the source identities, complete samples, CPU observations, native records, and cleanup evidence for 14 days.
+
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
 It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
