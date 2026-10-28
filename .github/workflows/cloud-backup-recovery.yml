@@ -1,12 +1,13 @@
 name: Cloud backup recovery
 
-# A real recovery from a fixed, accepted DEV backup. This never starts another
-# backup, allocates provider objects, enrolls an account, or accesses PROD.
+# Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
+# policy across restart, a changed snapshot interval, and source-free recovery.
 on:
   pull_request:
     paths: &cloud_paths
       - '.github/workflows/cloud-backup-recovery.yml'
       - 'scripts/cloud_backup/**'
+      - 'docs/cloud-backup-recovery-ci.md'
       - 'scripts/release/nightly_package.py'
       - 'lastdb_node/**'
       - 'lastdb_host/**'
@@ -56,12 +57,12 @@ jobs:
         run: python3 -m py_compile scripts/cloud_backup/*.py
 
   recover-dev:
-    name: Recover the accepted DEV backup
+    name: Automatic DEV backup and recovery
     needs: recipe-syntax
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
       actions: read
@@ -99,7 +100,6 @@ jobs:
           FOLDDB_BUILD_VERSION_OVERRIDE="$CLIENT_VERSION" \
             cargo build --locked --profile dev-release -p lastdb_node --bin lastdb --bin lastdbd
       - name: Package the exact client
-        id: client-package
         run: |
           set -euo pipefail
           python3 scripts/release/nightly_package.py \
@@ -116,7 +116,7 @@ jobs:
           path: ${{ runner.temp }}/cloud-backup-client
           if-no-files-found: error
           retention-days: 3
-      - name: Restore through R2 and B2, read the data, and restart
+      - name: Run automatic snapshots, mutation logs, restart and both recoveries
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
@@ -126,7 +126,7 @@ jobs:
           python3 scripts/cloud_backup/recover.py \
             --bin-dir "$CARGO_TARGET_DIR/dev-release" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
-            --mode restore --output "$RUNNER_TEMP/cloud-backup-recovery"
+            --output "$RUNNER_TEMP/cloud-backup-recovery"
       - name: Record client provenance
         if: always() && steps.client-artifact.outcome == 'success'
         env:
@@ -143,5 +143,5 @@ jobs:
             sha256sum "$RUNNER_TEMP/cloud-backup-client/lastdb-x86_64-unknown-linux-gnu.tar.gz"
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" \
               --jq '"Artifact expires: " + .expires_at'
-            printf '\nThe recovery uses DEV only. No new backup or provider object is created.\n'
+            printf '\nThe operation uses the existing DEV account. It retains accepted backups and makes no PROD or primary change.\n'
           } >> "$GITHUB_STEP_SUMMARY"

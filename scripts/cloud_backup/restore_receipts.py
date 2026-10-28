@@ -136,7 +136,32 @@ def inventory(home, root):
     return sorted(files, key=lambda item: item["path"])
 
 
-def restored(home: Path, report: dict, baseline: dict) -> dict:
+def replayed_inventory(home, root, replay, accepted):
+    plan = read_json(owned(root, "chain/plan.json"))
+    cursor = read_json(owned(root, "chain/cursor.json"))
+    require(plan["version"] == cursor["version"] == 1
+            and plan["head"] == cursor["head"] == accepted["commit_sha256"]
+            and plan["base"] == replay["base"] and 1 <= plan["links"] <= 8
+            and cursor["remaining"] == cursor["entry"] == cursor["part"] == 0
+            and cursor["previous"] == accepted and cursor["position"] == replay["through"],
+            "complete_selected_log_replay")
+    paths = ["laststore-pack-node-v1"]
+    for name in ("disk-run", "disk-cas"):
+        paths.extend(name + "/" + control for control in ("CURRENT", "laststore-run-home-v2"))
+        runs = owned(home, "data/" + name + "/runs/placeholder").parent
+        paths.extend(name + "/runs/" + filename for filename in sorted(names(runs)))
+    require(len(paths) <= MAX_FILES, "replayed_file_count")
+    files = []
+    for path in sorted(paths):
+        native_path(path)
+        file = owned(home, "data/" + path)
+        size = nonnegative(file.lstat().st_size)
+        files.append({"path": path, "native_bytes": size, "native_sha256": hash_file(file, size)})
+    closure(home, files)
+    return files
+
+
+def restored(home: Path, report: dict, baseline: dict, replay=None) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -160,12 +185,15 @@ def restored(home: Path, report: dict, baseline: dict) -> dict:
     require(not os.path.lexists(owned(home, "native-cloud-restore-receipt.json"))
             and not os.path.lexists(owned(home, "current-session.json"))
             and not os.path.lexists(owned(home, "data/folddb.sock")), "restore_before_normal_boot")
-    files = inventory(home, root)
+    files = (inventory(home, root) if replay is None
+             else replayed_inventory(home, root, replay, read_json(owned(root, "selection.json"))["accepted"]))
     require(len(files) == report["native_files"]
             and sum(item["native_bytes"] for item in files) == report["native_bytes"], "restore_native_totals")
     return {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
             "native_files": len(files), "native_bytes": report["native_bytes"], "files": files,
             "receipt_sha256": hash_file(receipt_path), "profile_version": 2, "node_format": 4,
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
-            "independent_native_file_hashes_verified": True, "native_file_closure_verified": True,
+            "independent_native_file_hashes_verified": replay is None,
+            "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,
+            "native_file_closure_verified": True,
             "before_first_normal_boot": True}

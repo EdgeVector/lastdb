@@ -161,9 +161,10 @@ def child_environment(root):
     return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C", "TZ": "UTC",
         "HOME": str(root / "os-home"), "TMPDIR": str(root / "tmp"),
-        "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev", "LASTDB_DISK_FORMAT": "2",
-        "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_NATIVE_BACKUP_ENABLED": "false",
+        "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev",
+        "LASTDB_BYTE_BACKUP_V2_ENABLED": "false",
         "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1", "RUST_MIN_STACK": "16777216",
+        "LASTDB_SELF_METRICS_TO_DB": "false",
         "RUST_LOG": "warn", "OBS_SENTRY_DSN": "", "POSTHOG_API_KEY": "",
         "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
         "EXEMEM_API_URL": "http://127.0.0.1:9",

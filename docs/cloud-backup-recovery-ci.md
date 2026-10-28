@@ -1,27 +1,50 @@
 # Cloud backup recovery CI
 
-The `Cloud backup recovery` workflow checks recovery from an accepted DEV backup through the ordinary product commands.
-It builds the exact accepted main client and records its source, program hashes, package checksum, download link, and artifact expiration.
-It then restores the fixed backup, checks its files and known records, and opens the restored home twice.
-Both daemon sessions must stop cleanly.
+The `Cloud backup recovery` workflow runs real DEV backup and restore operations with the exact accepted main client.
+It records the source, program hashes, package checksum, download link, and artifact expiration.
+The CI summary records the result. Database files, credentials, raw command replies, and daemon logs stay private on the runner.
 
-The recovery reads actual R2 and B2 objects.
-It selects one published backup by account generation, stream, commit ID, and accepted commit hash.
-It never selects the latest head as a replacement.
-The known data contains 16 records and one 8 MiB file.
-The expected record values, file length, and full file hash must match after both boots.
-
-PRs run the recipe syntax check without cloud credentials.
-Cloud-related pushes to main run the live recovery.
+PRs check the recipe syntax without cloud credentials.
+Cloud-related pushes to main run the live operation.
 A manual dispatch also requires main.
-Live operations use the protected `cloud-backup-dev` environment and one serialized workflow lane.
-The environment permits only the main branch.
+The protected `cloud-backup-dev` environment permits only main, and one workflow lane serializes all accepted-main operations.
 The job receives no AWS or provider administration credential.
+
+## Real operations
+
+The operation first restores the fixed accepted DEV backup through R2 and B2.
+It checks all native file hashes before the first boot, 16 known records, and one complete 8 MiB file.
+It reads the data after two boots. Both sessions must stop cleanly.
+
+That restored home then becomes the explicitly connected DEV source.
+The connection uses the existing account and performs no enrollment.
+Automatic backup uses a 60-second log interval and a separate 86400-second snapshot interval.
+The daemon must publish a new snapshot and release its retained source bytes.
+
+The source stores a new 64 KiB file through the ordinary file command.
+One batch updates 15 records to reference that file and deletes the other record.
+The automatic mutation log must publish those writes and cover the complete current journal head.
+Its accepted native file extents must route main files to R2, CAS files to B2, and client metadata to R2.
+The log must leave the daily snapshot time unchanged.
+The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
+
+The operation changes the snapshot interval to 60 seconds and requires a later automatic snapshot.
+It then restores the daily interval, disables automatic backup, and stops the source cleanly.
+Two separate absent destinations restore the exact selected mutation-log checkpoint and the later snapshot.
+Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
+The restored homes must contain no active backup credentials or automatic backup job.
+
+The log restore checks its frozen base, exact selected head, completed replay cursor, and expected journal position.
+It records hashes for the final native files and checks the product receipt and complete native file count and size.
+The snapshot restore also compares every file with the original authenticated per-file proof.
+These checks use the real product and DEV services. They use no service substitute or fixture system.
+
+## Protected inputs
 
 The environment contains three secrets:
 
 - `LASTDB_CLOUD_DEV_API_KEY`: access to the existing synthetic DEV account.
-- `LASTDB_CLOUD_DEV_RECOVERY_PHRASE`: the recovery phrase for that same account.
+- `LASTDB_CLOUD_DEV_RECOVERY_PHRASE`: the recovery phrase for that account.
 - `LASTDB_CLOUD_DEV_BASELINE`: the exact accepted backup selection and expected data.
 
 The baseline JSON contains these fields:
@@ -38,31 +61,27 @@ file_bytes
 file_sha256
 ```
 
-The account must be the allowlisted synthetic DEV account in the recipe.
+The account must match the allowlisted synthetic DEV account in the recipe.
 The endpoint comes from `folddb_profile/environments.json`.
 The baseline contains no file encryption key.
-A baseline update requires a published DEV backup, provider verification, and independent checks of its expected data.
-Keep the selected accepted backup while CI depends on it.
+A baseline update requires an accepted DEV backup, provider verification, and independent checks of its expected data.
+Keep that selected backup while CI depends on it. CI never replaces it with the latest head.
 
-The recipe keeps credentials in a separate private home.
-It passes the recovery phrase through stdin.
-The restored home starts with cloud backup off.
-The recipe uses fresh, owned runner directories and verifies the daemon process before each stop.
-It removes only its own stopped temporary homes.
-It uploads the executable package, not database files, credentials, raw command replies, or daemon logs.
-The GitHub summary records the recovery result.
+## Limits and cleanup
 
-The automatic operation performs no Connect, Start, Resume, enrollment, source capture, upload, or provider deletion.
-It creates no retained cloud objects or quota reservations.
-It makes no primary change and uses no primary copy.
-An error fails the workflow; it does not create another backup or select another baseline.
+The initial source must contain at most 24 MiB of native files.
+The operation limits its observed accepted checkpoints to eight and their total declared object bytes to 64 MiB.
+The service also enforces the account quota and reservation rules before an allocation.
+The recipe adds no cloud encryption or native format change.
+It accesses no primary, primary copy, archive, or PROD service.
 
-This lane proves that the accepted backup remains recoverable with the current client and service.
-Capture, upload interruption, new acceptance, and allocation changes still require the separate real DEV backup procedure before a deployment that changes those paths.
-The completed DEV procedure covers a fresh backup, the same-cut resume, source-free restore, both providers, native file hashes, restart, and allocation reconciliation.
+The current service retains accepted backups. Each successful CI operation adds its accepted DEV recovery points and small new files.
+The fixed base file can use existing object receipts. A quota or integrity block fails CI and requires account maintenance.
+CI does not create replacement accounts, increase quotas, or bypass a block.
+It does not use account deletion or bucket deletion as cleanup, because those operations do not reconcile V2 allocations.
+An accepted-backup retention operation remains separate work and must preserve every retained snapshot and log dependency.
 
-Automatic fresh backups need a supported retention operation first.
-The current V2 service retains accepted backups and has no accepted-backup deletion route.
-Repeated uploads or new accounts would consume more retained storage.
-Account deletion and bucket deletion rules do not reconcile V2 allocation records.
-Do not use them as CI cleanup.
+The recipe uses fresh private runner directories and checks the daemon identity before each stop.
+It removes only its own stopped temporary homes after a complete result.
+An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.
+It preserves accepted backups and uncertain provider obligations and reports the failure without raw product output.
