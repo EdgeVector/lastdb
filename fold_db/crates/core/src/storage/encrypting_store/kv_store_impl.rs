@@ -120,16 +120,6 @@ impl KvStore for EncryptingKvStore {
         })
     }
 
-    async fn max_key_u64_after_marker(
-        &self,
-        prefix: &[u8],
-        marker: &[u8],
-    ) -> StorageResult<Option<u64>> {
-        // Keys stay plaintext at this decorator. The fold needs no value
-        // hydration or decryption.
-        self.inner.max_key_u64_after_marker(prefix, marker).await
-    }
-
     async fn scan_range_physical_paged(
         &self,
         start: &[u8],
