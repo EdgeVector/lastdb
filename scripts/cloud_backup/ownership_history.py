@@ -31,7 +31,7 @@ def number(value):
 
 
 def point(value, stream):
-    require(isinstance(value, dict) and set(value) - {"recipe"} == {
+    require(isinstance(value, dict) and set(value) == {
         "stream_id", "commit_id", "commit_sha256"}, "ci_history_point_fields")
     require(value["stream_id"] == stream, "ci_history_point_stream")
     canonical_uuid(value["commit_id"])
@@ -42,7 +42,7 @@ def point(value, stream):
 
 def ownership(raw, run, baseline):
     value = decode_json(raw)
-    require(isinstance(value, dict) and set(value) == {
+    require(isinstance(value, dict) and set(value) - {"recipe"} == {
         "schema", "owner", "account", "account_generation", "stream_id",
         "observed_accepted_points", "verified_recovery_points", "source_stopped",
         "log_and_snapshot_recovery_passed", "complete_frozen_directory",

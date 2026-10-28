@@ -73,6 +73,9 @@ class Retirement:
                 and all(readback[name] == repeated[name] == state[name] for name in (
                     "confirmed_allocations", "released_bytes", "protected_uncertain_bytes")),
                 "ci_cleanup_repeat_changed_terminal_counts")
+        require(all(readback["headroom"][name] == repeated["headroom"][name] for name in (
+            "quota_bytes", "other_used_bytes", "reserved_bytes", "retained_bytes", "available_bytes")),
+            "ci_cleanup_repeat_changed_quota")
         # Unknown legacy bytes can stay protected. The final usage check still
         # refuses a new upload unless its actual 96 MiB allowance is available.
         return repeated
