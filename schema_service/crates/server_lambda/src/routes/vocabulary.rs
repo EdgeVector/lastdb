@@ -1,5 +1,8 @@
 //! Public standard vocabulary lookup. No separate vocabulary mutation route.
-use super::*;
+use crate::http::json_response;
+use lambda_http::{Body, Error, Response};
+use schema_service_server_shared::state::SchemaServiceState;
+use serde_json::json;
 
 pub(crate) async fn get(state: &SchemaServiceState) -> Result<Response<Body>, Error> {
     match state.canonical_vocabulary().await {

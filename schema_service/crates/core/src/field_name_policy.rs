@@ -1,6 +1,5 @@
 //! One name rule for canonical publication, declarations, schemas and imports.
 
-use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 use schema_types::{FoldDbError, FoldDbResult, Schema};
@@ -135,9 +134,8 @@ pub fn validate_schema_vocabulary(
 
 impl SchemaServiceState {
     pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
-        let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
-        fill_schema_field_defaults(schema, &vocabulary);
-        validate_schema_vocabulary(schema, &vocabulary)
+        *schema = self.normalized_schema_field_vocabulary(schema)?;
+        Ok(())
     }
 }
 

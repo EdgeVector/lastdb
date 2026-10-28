@@ -162,4 +162,23 @@ impl SchemaServiceState {
         }
         self.add_canonical_fields(&fields).await
     }
+
+    /// Called at schema persistence, after logical rejection and reuse guards.
+    pub(crate) async fn admit_schema_vocabularies(&self, schemas: &[Schema]) -> FoldDbResult<()> {
+        let mut fields = HashMap::new();
+        for schema in schemas {
+            schema.validate_definition().map_err(FoldDbError::Config)?;
+            let normalized = self.normalized_schema_field_vocabulary(schema)?;
+            for (name, field) in self.schema_vocabulary_candidates(&normalized)? {
+                if fields.get(&name).is_some_and(|stored| stored != &field) {
+                    return Err(FoldDbError::Config(format!(
+                        "canonical_field_conflict: '{name}' has conflicting definitions in the schema batch"
+                    )));
+                }
+                fields.insert(name, field);
+            }
+        }
+        self.add_canonical_fields(&fields.into_iter().collect::<Vec<_>>())
+            .await
+    }
 }

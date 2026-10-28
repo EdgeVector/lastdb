@@ -3,6 +3,8 @@ use super::*;
 impl SchemaServiceState {
     /// Persist a schema to the storage backend.
     pub(crate) async fn persist_schema(&self, schema: &Schema) -> FoldDbResult<()> {
+        self.admit_schema_vocabularies(std::slice::from_ref(schema))
+            .await?;
         match &self.storage {
             SchemaStorage::External(backend) => {
                 backend.save_schema(schema).await?;
@@ -23,6 +25,7 @@ impl SchemaServiceState {
         if schemas_to_persist.is_empty() {
             return Ok(());
         }
+        self.admit_schema_vocabularies(schemas_to_persist).await?;
         match &self.storage {
             SchemaStorage::External(backend) => {
                 backend.save_schemas(schemas_to_persist).await?;
