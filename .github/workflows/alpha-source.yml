@@ -1,0 +1,47 @@
+name: Alpha source
+
+# Move the alpha tag after a green main recovery, once the disk format marker
+# LegacyUtf8V1 is gone. A pull request only checks the script syntax.
+on:
+  workflow_run:
+    workflows: ["Cloud backup recovery", "Nightly LastDB release"]
+    types: [completed]
+  pull_request:
+    paths:
+      - '.github/workflows/alpha-source.yml'
+      - 'scripts/release/alpha_source.py'
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    name: Alpha source script syntax
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check the alpha source script
+        run: python3 -m py_compile scripts/release/alpha_source.py
+
+  move:
+    name: Move the alpha tag
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Move or refresh the alpha release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/alpha_source.py

@@ -144,7 +144,28 @@ class Source:
         self.expected.update(file_pointer=pointer, file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
         self.node.verify_records(self.expected)
 
+    def backup_time(self, secs):
+        require(type(secs) is int and 1_000_000_000 <= secs <= 4_000_000_000, "backup_status_time")
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(secs))
+
+    def owner_status(self, policy, automatic):
+        require(automatic in ("on", "off"), "backup_status_mode")
+        value = self.node.programs.command(self.node.home, ["status", "--json"])
+        line = value.get("v2_backup")
+        log = self.backup_time(policy["last_log_at"])
+        if automatic == "on":
+            nxt = policy["next_snapshot_at"]
+            require(type(nxt) is int and nxt >= 0, "backup_status_next")
+            nxt_text = "due now" if nxt == 0 else self.backup_time(nxt)
+        else:
+            nxt_text = "none"
+        expected = (f"V2 backup: automatic {automatic}; last accepted log {log}; "
+                    f"next snapshot {nxt_text}")
+        require(line == expected, "backup_status_names_acceptance")
+        require(ACCOUNT not in line and "a17dbac2-" not in line, "backup_status_redacted")
+
     def disable(self):
         value = self.cloud("disable-automatic")
         require(value["automatic_backup_enabled"] is False and not value["running"]
                 and value["retained_source_bytes"] == 0, "automatic_disabled_after_source_release")
+        return value

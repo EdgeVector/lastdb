@@ -217,7 +217,7 @@ New manual work requires the explicit environment opt-in or a valid source-bound
 `connect --existing --env dev|prod --api-key-stdin` verifies existing credentials on the owner daemon.
 It keeps automatic backup off and performs no account enrollment or backup start.
 Status and exact close operations remain available without the opt-in flag.
-The status path reads only the local V2 coordinator and distinguishes unknown freshness.
+The status path reads only the local V2 coordinator. `lastdb status` names automatic on or off, the last accepted log time, and the next snapshot time. A blocked job adds a fixed reason. The line does not print a key, a phrase, or an object name. The log time is not a claim that the current local head is fully backed up.
 A missing local receipt does not prove that an external coordinator backup is absent.
 
 Start, resume, status, and close use the owner-only local socket route.

@@ -139,6 +139,10 @@ pub(super) fn status_json(
         "socket": socket.display().to_string(),
         "running": running,
         "reachable": running,
+        "v2_backup": snapshot.as_ref().map_or_else(
+            || lastdb_node::self_metrics::DurabilityHealth::default().status_line(),
+            |item| item.durability.status_line(),
+        ),
         "daemon_status": lastdb_node::crash_attribution::daemon_status_line_with_health_error(
             home,
             running,
