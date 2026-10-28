@@ -38,7 +38,7 @@ see *why* something was wired the way it is.
 
 - Crate sources: `crates/observability/src/`
 - Init helpers: `crates/observability/src/init.rs`
-  (`init_node` / `init_lambda` / `init_cli`)
+  (`init_node` / `init_lambda`)
 - Layers: `crates/observability/src/layers/` (FMT, RELOAD, RING, WEB,
   ERROR/Sentry)
 - W3C propagation: `crates/observability/src/propagation.rs`

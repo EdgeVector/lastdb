@@ -38,7 +38,7 @@ channel are lost. A leading underscore silences the unused-variable
 lint without dropping the binding (`_` would drop immediately, killing
 the worker before the first request).
 
-## Why `init_node` rather than `init_lambda` / `init_cli`
+## Why `init_node` rather than `init_lambda`
 
 `init_node` is the only variant that:
 
