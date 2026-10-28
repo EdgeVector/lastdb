@@ -6,7 +6,6 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaState;
 
 mod cache;
-mod declare;
 mod field_mapping;
 mod load;
 mod locks;
@@ -17,7 +16,7 @@ mod state;
 /// Core schema management system that combines schema interpretation, validation, and management.
 ///
 /// SchemaCore is responsible for:
-/// - Loading and validating schemas from JSON
+/// - Loading and validating schemas
 /// - Managing schema storage and persistence
 /// - Handling schema field mappings
 /// - Providing schema access and validation services
