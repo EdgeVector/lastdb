@@ -47,8 +47,8 @@ pub use attribution_ledger::{
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use db_catalog_store::{
-    drop_prefixed_rows_for_instance, leftover_db_hash_prefix, referenced_instance_ids,
-    DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, referenced_instance_ids, DbCatalogEntry,
+    DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
     key_fingerprint, AtomDeleteLedgerEntry, ATOM_DELETE_LEDGER_PREFIX, LEDGER_VERB_DELETE,

@@ -238,19 +238,6 @@ async fn drop_scoped_source_rows(
     Ok(removed)
 }
 
-pub fn leftover_db_hash_prefix(key: &[u8]) -> Option<&str> {
-    let text = std::str::from_utf8(key).ok()?;
-    let (prefix, rest) = text.split_once(':')?;
-    if rest.is_empty() {
-        return None;
-    }
-    if prefix.len() == 64 && prefix.chars().all(|c| c.is_ascii_hexdigit()) {
-        Some(prefix)
-    } else {
-        None
-    }
-}
-
 fn validate_entry(entry: &DbCatalogEntry) -> StorageResult<()> {
     validate_identity(&entry.db_locator, &entry.schema_name)?;
     if entry.instance_id.as_deref().is_some_and(str::is_empty) {
