@@ -132,11 +132,12 @@ The physical value limit does not enlarge the logical atom limit.
 The read work limit does not define the logical warm-set size or the database record count.
 
 The current block targets are 16 KiB, with ten filter bits per key.
-A tiered merge becomes due at eight runs. One step reads at most 64 input runs.
+A tiered merge becomes due at eight runs. A tiered step reads at most 64 input runs.
 Base work starts at the configured tiered or stale-byte thresholds.
 Those targets, schedules, resource allowances, and disk-space reservations are policy, rather than a new file format.
 Any new output must still fit the hard limits of every supported reader.
 The 64 KiB stale-byte floor and 1 MiB tiered-byte floor remain separate.
+
 File bytes can temporarily exceed the settled size while writes, old reads, or backup holds retain files.
 Neither a settled size ratio nor one benchmark gives a universal peak size bound.
 
