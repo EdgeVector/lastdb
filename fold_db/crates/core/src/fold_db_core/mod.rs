@@ -34,8 +34,8 @@ pub use conflict_janitor_policy::{
 };
 pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
 pub use mutation_flush::{
-    mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,
-    DEFAULT_BACKGROUND_FLUSH_MS, MUTATION_SYNC_FLUSH_ENV,
+    BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV, DEFAULT_BACKGROUND_FLUSH_MS,
+    MUTATION_SYNC_FLUSH_ENV,
 };
 pub use mutation_manager::{MutationManager, PurgeStats};
 pub use protein_reaper::{
