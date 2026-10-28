@@ -76,13 +76,9 @@ fn idempotent_repost_response(
     }))
 }
 
-/// owner_app_id ↔ dev-cert gate (app_identity v3.1, Lane B2b; local-first
-/// app-namespacing). Un-namespaced submissions are accepted
-/// unconditionally. A namespaced submission is cert-free when it merely
-/// CLAIMS a local namespace (`offer_to_shared_discovery = false`, the
-/// default node/init path — the deterministic identity_hash is computed
-/// locally) and cert-gated only when it OFFERS the schema into the shared
-/// registry's discovery (`offer_to_shared_discovery = true`).
+/// New schemas and expansions require an Exemem developer cert, a signed
+/// schema payload, and the registered app owner. Local claims and shared
+/// offers use the same gate. Exact public reposts return before this gate.
 ///
 /// Also checks declared-field references and the schema mutation gate.
 fn authorize_add_schema(

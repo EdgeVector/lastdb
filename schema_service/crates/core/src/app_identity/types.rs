@@ -214,6 +214,8 @@ impl AppRegisterError {
 pub enum SchemaClaimError {
     /// `owner_app_id` set but the cert/signature headers are missing. 401.
     CertRequired,
+    /// Exemem cert lacks paid or developer access. 403.
+    NotAuthorizedPublisher,
     CertInvalid,
     CertExpired,
     EnvelopeInvalid,
@@ -239,6 +241,7 @@ impl SchemaClaimError {
     pub(super) fn metric_status(&self) -> &'static str {
         match self {
             Self::CertRequired => "cert_required",
+            Self::NotAuthorizedPublisher => "not_authorized_publisher",
             Self::CertInvalid => "cert_invalid",
             Self::CertExpired => "cert_expired",
             Self::EnvelopeInvalid => "envelope_invalid",
@@ -253,6 +256,7 @@ impl SchemaClaimError {
     pub fn to_http(&self) -> (u16, Value) {
         match self {
             Self::CertRequired => (401, json!({ "reason": "cert_required" })),
+            Self::NotAuthorizedPublisher => (403, json!({ "reason": "not_authorized_publisher" })),
             Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
             Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
             Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),

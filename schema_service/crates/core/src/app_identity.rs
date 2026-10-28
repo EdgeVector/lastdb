@@ -22,23 +22,19 @@
 //! [`verify_dev_cert`] for the cert and [`verify_envelope`] for the
 //! envelope.
 //!
-//! ## Namespacing, not gatekeeping
+//! ## Developer accounts for new registrations
 //!
-//! Submissions WITHOUT `owner_app_id` are un-namespaced user proposals:
-//! the registry accepts them unconditionally and canonicalizes
-//! (identity-hash dedup, descriptive-name correction, similarity dedup).
-//! Submissions WITH `owner_app_id` reserve a namespace and require a
-//! valid dev-cert + signature whose `dev_pubkey` matches the app's
-//! registered owner — apps cannot forge ownership of namespaces they
-//! don't control.
+//! New schemas, expansions and declared fields require an `owner_app_id`,
+//! an Exemem DevCert with publication access, and a signature from that
+//! registered app's owner. Local claims have no exemption. A public exact
+//! repost creates no definitions and may return before the account gate.
 //!
 //! Cert verification requires the exemem root public key baked into
 //! config (`APP_IDENTITY_ROOT_PUBKEYS`). When **no** trusted roots are
-//! configured, namespaced publishes fail loudly with
+//! configured, new registrations fail loudly with
 //! `app_identity_not_configured` so a misconfigured stage is visible at
 //! first publish (the 2026-05-30 fbrain dogfood false-green) rather than
-//! showing up days later in a snapshot diff. Un-namespaced publishes are
-//! unaffected by the active/inactive state. `POST /v1/apps` always
+//! showing up days later in a snapshot diff. `POST /v1/apps` always
 //! requires a trusted root (with none configured, every cert fails to
 //! match and the request is a 401).
 

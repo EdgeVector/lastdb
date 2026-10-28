@@ -107,8 +107,7 @@ async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
     // wired from the KMS GetPublicKey output of the
     // exemem-app-identity-root key by exemem-infra), deployment env,
     // and the offline dev-pubkey revocation denylist. With no roots
-    // configured, /v1/apps rejects every cert (401) and the
-    // /v1/schemas owner_app_id gate is a passthrough.
+    // configured, new app, schema and field registrations fail closed.
     state.configure_app_identity(schema_service_core::app_identity::AppIdentityConfig::from_env());
     state.configure_schema_mutation_gate_from_env();
 

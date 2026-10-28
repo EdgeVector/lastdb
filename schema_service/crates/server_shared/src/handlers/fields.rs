@@ -6,10 +6,8 @@ use super::*;
 /// identities (brain `design-lastdb-declared-fields`).
 ///
 /// **Always gated** by `X-Exemem-Dev-Cert` + `X-Signature` (purpose
-/// `field_declare`). Unlike a local schema claim — which is cert-free because
-/// the node computes a content-addressed `identity_hash` itself — declaring a
-/// field claims a slot other schemas' writes will fold into, on a service
-/// shared by everyone. No verified identity → no owned field.
+/// `field_declare`). The cert must permit publication and match the registered
+/// app owner. New schema registrations use the same developer-account gate.
 ///
 /// Idempotent: re-declaring the same `(owner_app_id, handle)` returns the same
 /// declaration id and byte-identical identities, so a client may call it on

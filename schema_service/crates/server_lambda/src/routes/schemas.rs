@@ -231,11 +231,9 @@ pub(crate) async fn post_schemas(
         return resp;
     }
 
-    // owner_app_id ↔ dev-cert gate. Un-namespaced submissions are
-    // accepted unconditionally; a namespaced submission is cert-free
-    // when it merely CLAIMS a local namespace and cert-gated only when
-    // it OFFERS the schema into shared discovery (see app_identity
-    // module docs + designs-local-first-app-namespacing).
+    // Every new registration requires an Exemem developer account and the
+    // registered app owner, including local claims and un-namespaced proposals.
+    // Exact public reposts above remain reads and create no definitions.
     if let Err(e) = state.authorize_schema_claim(
         schema.owner_app_id.as_deref(),
         header_str(event, "x-exemem-dev-cert"),
