@@ -246,10 +246,6 @@ impl KvStore for EncryptingKvStore {
         self.inner.batch_put(encrypted_items).await
     }
 
-    fn batch_put_has_durable_barrier(&self) -> bool {
-        self.inner.batch_put_has_durable_barrier()
-    }
-
     async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         let mut sealed = Vec::with_capacity(mutations.len());
         for mutation in mutations {
