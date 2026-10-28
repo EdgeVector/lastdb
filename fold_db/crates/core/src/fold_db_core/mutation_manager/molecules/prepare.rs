@@ -4,15 +4,21 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::MutationManager;
 use crate::atom::Atom;
-use crate::db_operations::ChangedKey;
+use crate::db_operations::{AtomStore, ChangedKey};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use tracing::warn;
 
 mod key_fields;
+mod key_rules;
 
-type PreparedAtomsAndKeys = (Vec<KeyValue>, Vec<(usize, String, Atom)>, Option<Vec<Atom>>);
+/// Atom preparation outputs retain the mutation position for every field.
+pub(in crate::fold_db_core::mutation_manager) struct PreparedAtoms {
+    pub mutation_key_values: Vec<KeyValue>,
+    pub atom_results: Vec<(usize, String, Atom)>,
+    pub deferred_atoms: Option<Vec<Atom>>,
+}
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn resolve_mutation_key_value(
@@ -81,8 +87,7 @@ impl MutationManager {
         schema_name: &str,
         schema: &Schema,
         schema_mutations: &mut [Mutation],
-        storage_prefix: Option<&str>,
-    ) -> Result<PreparedAtomsAndKeys, SchemaError> {
+    ) -> Result<PreparedAtoms, SchemaError> {
         let mut atoms_to_store: Vec<Atom> = Vec::new();
         let mut atom_results: Vec<(usize, String, Atom)> = Vec::new();
         let mut mutation_key_values = Vec::with_capacity(schema_mutations.len());
@@ -101,19 +106,31 @@ impl MutationManager {
             // (usually empty → zero atoms).
             let fields_to_write: &HashMap<String, serde_json::Value> = &mutation.fields_and_values;
             for (field_name, value) in fields_to_write {
-                let Some(atom) =
-                    Self::create_field_atom(schema_name, schema, mutation, field_name, value)?
-                else {
+                if !super::field_rules::validate_field_value(
+                    schema_name,
+                    schema,
+                    field_name,
+                    value,
+                )? {
                     continue;
-                };
+                }
+                let atom = AtomStore::create_atom(
+                    schema_name,
+                    value.clone(),
+                    mutation.source_file_name.clone(),
+                    mutation.metadata.clone(),
+                )?;
                 atoms_to_store.push(atom.clone());
                 atom_results.push((idx, field_name.clone(), atom));
             }
         }
 
         // The schema lane stores every atom body of the group in one batch.
-        let _ = storage_prefix;
-        Ok((mutation_key_values, atom_results, Some(atoms_to_store)))
+        Ok(PreparedAtoms {
+            mutation_key_values,
+            atom_results,
+            deferred_atoms: Some(atoms_to_store),
+        })
     }
 
     /// Build, per field this batch writes, the set of keys it will touch — the
@@ -132,8 +149,7 @@ impl MutationManager {
         for (mutation, key_value) in schema_mutations.iter().zip(mutation_key_values.iter()) {
             // Delete is hard-erased outside this path; only Create/Update
             // fields land here.
-            let field_names: Vec<&String> = mutation.fields_and_values.keys().collect();
-            for field_name in field_names {
+            for field_name in mutation.fields_and_values.keys() {
                 let Some(field) = schema.runtime_fields.get(field_name) else {
                     continue;
                 };

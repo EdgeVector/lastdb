@@ -3,7 +3,7 @@
 mod apply;
 pub(in crate::fold_db_core::mutation_manager) mod batch_rebase;
 mod delta;
-mod field_atom;
+mod field_rules;
 mod persist;
 mod prepare;
 mod prepared;
@@ -16,4 +16,5 @@ pub(in crate::fold_db_core::mutation_manager) use delta::PreparedSchemaDelta;
 pub(in crate::fold_db_core::mutation_manager) use persist::{
     DeferredLaneWriter, DeferredPersistJob, LanePersistJob, PurgeCompletion, PurgeEnvelope,
 };
+pub(in crate::fold_db_core::mutation_manager) use prepare::PreparedAtoms;
 pub(in crate::fold_db_core::mutation_manager) use prepared::{PreparedSiblingUpdates, SiblingMove};

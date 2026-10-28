@@ -28,92 +28,18 @@ impl MutationManager {
         *map.entry(key).or_insert(std::time::Duration::ZERO) += elapsed;
     }
 
-    /// Lift the per-step timing breakdown into the task-local request-phase
-    /// accumulator ([`crate::request_phases`]) as the apply / persist / flush
-    /// split the request-ops telemetry renders.
+    /// Report existing phase timers without timing the same work again.
     ///
-    /// This is the "don't re-time" seam: the breakdown map already measures
-    /// every step of `write_create_update_batch_async` (and was
-    /// previously discarded at debug log level), so phase reporting is a
-    /// bucketing of existing measurements, not a second set of timers.
+    /// The historical `Persist` bucket receives `create_atoms_batch`, which
+    /// now validates keys and builds atoms in memory. That bucket does not
+    /// prove a physical write. Keep its name and arithmetic stable for callers.
+    /// Molecule, schema, idempotency, restore, and other named timers retain
+    /// their separate request phases. Missing timers supply no measured work.
     ///
-    /// Bucketing:
-    /// - **persist** — the RESIDUAL of the durable-store bucket: the atom
-    ///   batch store inside `create_atoms_batch` (see
-    ///   `prepare_atoms_and_key_values`, which batch-stores atoms as a side
-    ///   effect), plus any future durable step added to this bucket without
-    ///   its own phase.
-    /// - **persist_molecules** / **persist_schema** / **persist_idempotency**
-    ///   — the molecule store (`write_molecules_batch`), the schema persist
-    ///   (`schema_store`), and the idempotency record store
-    ///   (`idempotency_store`), carved out of that bucket by name.
-    ///
-    ///   These three are split for the same reason the `apply` residual was
-    ///   carved up below. `persist` is routinely the single largest phase in
-    ///   the mutation path — 32% of wall time on the kanban board's schema and
-    ///   68% on `Card`, measured on the live primary 2026-08-17 — and as one
-    ///   name it could not answer the only question worth asking about it:
-    ///   whether that time is the irreducible cost of writing the atom bytes,
-    ///   or a molecule/catalog rewrite whose size tracks the molecule's
-    ///   cardinality rather than the write's. Those have different fixes; the
-    ///   `bc941dbc` vs `39a0424f` split above is not readable without them.
-    ///
-    ///   The timers already existed here and were reachable only through the
-    ///   `tracing::debug!` line below — which a running node cannot enable
-    ///   (`papercut-lastdb-no-runtime-log-level-toggle`), so on the one node
-    ///   whose numbers matter the decomposition was measured and unreadable.
-    /// - **flush** — the optional durability flush; ~0 unless
-    ///   `LASTDB_MUTATION_SYNC_FLUSH=1`, and a truncated-to-zero value stays
-    ///   unset so operator surfaces hide the column.
-    /// - **apply** — the RESIDUAL: everything the batch spent that no other
-    ///   named bucket claims. Every step this function measures into
-    ///   `timing_breakdown` now has its own phase (see below), so a non-zero
-    ///   `apply` today means UNTIMED work — which is precisely what the
-    ///   residual exists to keep visible.
-    ///
-    /// `apply` is deliberately computed as a RESIDUAL — `total` minus every
-    /// other named bucket below — rather than by summing named keys. Summing
-    /// made the phase totals a report on the timers that happened to exist:
-    /// any awaited region inside this function with no `add_timing` around it
-    /// simply VANISHED from the request-ops phase breakdown, showing up only
-    /// as an unexplained gap between a request's wall time and the sum of its
-    /// phases. That is not hypothetical — the Phase 3 molecule write-lock
-    /// acquisition and molecule restore were both awaited and both untimed at
-    /// the time, and on a cold node they accounted for the majority of a slow
-    /// mutation. As a residual, a future untimed region still lands in
-    /// `apply` (visible, if coarse) instead of disappearing, and the phases
-    /// now sum to this function's own wall clock by construction.
-    ///
-    /// `restore_molecules`, `schema_reload`, `protein_sibling_fold`,
-    /// `grouping`, `idempotency_check`, `sync_uuids`, `spawn_indexing`,
-    /// `apply_memory` and `schema_load` were each measured
-    /// into `timing_breakdown` (for the `tracing::debug!`-only log below) and
-    /// then silently folded into the `apply` residual by the `_ => {}` arm
-    /// here — measured, but not reported anywhere a live node's operator
-    /// could read without turning on debug logging. Naming them as their own
-    /// phases does not add a timer; it stops discarding one that already ran.
-    ///
-    /// The last three arrived later than the first seven, and the delay had a
-    /// cost worth recording. Measured on the primary 2026-08-18, `apply` was
-    /// 822.0 s of the node's slowest write key's 3022.2 s (27.2%) — its
-    /// single largest phase — and ~968 ms per write on `BoardCards`
-    /// (hash-range, many rows per partition) against ~1.6-2 ms per write on
-    /// every point-keyed schema on the same node. A ~500x spread inside the
-    /// largest bucket, with three already-running timers inside it that no
-    /// surface published. `apply_memory` is the first thing to read when that
-    /// spread is diagnosed: it is the only one of the three sized by the
-    /// molecules the batch touches rather than by the batch.
-    ///
-    /// `molecule_lock_wait` is passed in because it is reported separately as
-    /// [`RequestPhase::MoleculeGate`]; subtracting it keeps it out of `apply`
-    /// so the two do not double-count the same microseconds. It is NOT folded
-    /// into [`RequestPhase::LockWait`] — that phase is the pre-pipeline purge
-    /// barrier and CAS mutex, and summing a gate that fold #1104 narrowed with
-    /// two that it did not left the narrowing's effect unmeasurable on a
-    /// running node.
-    ///
-    /// Durations are summed per bucket BEFORE the microsecond conversion so
-    /// several sub-microsecond steps cannot each truncate to zero.
+    /// `Apply` is the residual after named buckets and molecule lock wait;
+    /// it is not a direct CPU or disk measurement. Molecule lock wait has its
+    /// own phase and is excluded here so it is not counted twice.
+    /// Durations sum before microsecond conversion to avoid repeated truncation.
     pub(in crate::fold_db_core::mutation_manager) fn report_phase_totals(
         timing_breakdown: &HashMap<&str, std::time::Duration>,
         total_time: std::time::Duration,
