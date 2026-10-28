@@ -142,7 +142,8 @@ impl SchemaCore {
         let Some(criteria) = PredecessorMatch::new(schema) else {
             return Ok(None);
         };
-        // Clone only the selected map, then release the cache lock before mutation.
+        // Clone only the selected definition, without materialized molecules,
+        // then release the cache lock before mutation and typed profile checks.
         let selected = {
             let schemas = read_map(&self.schemas, "schemas")?;
             criteria
@@ -150,12 +151,10 @@ impl SchemaCore {
                 .map(Schema::clone_for_read_shared)
         };
         if let Some(predecessor) = selected {
-            let molecules = predecessor
+            let adopted = predecessor
                 .field_molecule_uuids
                 .as_ref()
-                .cloned()
-                .unwrap_or_default();
-            let adopted = use_molecules(schema, &molecules);
+                .map_or(0, |molecules| use_molecules(schema, molecules));
             if adopted > 0 {
                 tracing::info!(
                     schema = %schema.name,
