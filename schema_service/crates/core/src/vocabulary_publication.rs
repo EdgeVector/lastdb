@@ -41,9 +41,7 @@ impl SchemaServiceState {
     /// Public definitions, never user record values or declaration permissions.
     pub async fn canonical_vocabulary(&self) -> schema_types::FoldDbResult<Value> {
         let fields = self.storage.backend().load_all_canonical_fields().await?;
-        for (name, field) in &fields {
-            crate::field_name_policy::validate_approved_field(name, field)?;
-        }
+        self.install_canonical_vocabulary(&fields)?;
         Ok(json!({"name_policy_version": NAME_POLICY_VERSION, "fields": fields}))
     }
 

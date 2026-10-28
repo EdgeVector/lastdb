@@ -13,10 +13,22 @@ impl SchemaServiceState {
         }
         Ok(())
     }
-    pub(super) fn validate_loaded_schemas(
+    pub(super) async fn validate_loaded_schemas(
         &self,
         schemas: &HashMap<String, Schema>,
     ) -> FoldDbResult<()> {
+        let mut names = Vec::new();
+        for schema in schemas.values() {
+            names.extend(
+                crate::field_name_policy::schema_field_names(schema)
+                    .into_iter()
+                    .map(String::as_str),
+            );
+            names.extend(crate::field_name_policy::schema_referenced_field_names(
+                schema,
+            ));
+        }
+        self.refresh_vocabulary_for_names(&names).await?;
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for schema in schemas.values() {
             crate::field_name_policy::validate_schema_vocabulary(schema, &fields)?;
@@ -90,14 +102,25 @@ impl SchemaServiceState {
             }
         }
         let loaded = self.storage.backend().load_all_canonical_fields().await?;
-        for (name, field) in &loaded {
+        self.install_canonical_vocabulary(&loaded)
+    }
+
+    pub(crate) fn install_canonical_vocabulary(
+        &self,
+        loaded: &HashMap<String, crate::types::CanonicalField>,
+    ) -> FoldDbResult<()> {
+        for (name, field) in loaded {
             crate::field_name_policy::validate_approved_field(name, field)?;
         }
         let mut fields = write_lock(&self.canonical_fields, "canonical_fields")?;
-        for (name, field) in &loaded {
+        for (name, field) in loaded {
             crate::field_name_policy::validate_canonical_insert(&fields, name, field)?;
         }
-        fields.extend(loaded);
+        for (name, field) in loaded {
+            if !fields.contains_key(name) {
+                fields.insert(name.clone(), field.clone());
+            }
+        }
         Ok(())
     }
 }

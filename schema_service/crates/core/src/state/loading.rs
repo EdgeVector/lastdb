@@ -348,7 +348,7 @@ impl SchemaServiceState {
     /// Load all schemas from storage
     pub async fn load_schemas(&self) -> FoldDbResult<()> {
         let loaded = self.storage.backend().load_all_schemas().await?;
-        self.validate_loaded_schemas(&loaded)?;
+        self.validate_loaded_schemas(&loaded).await?;
         let mut schemas = write_lock(&self.schemas, "schemas")?;
         schemas.clear();
         let count = loaded.len();
