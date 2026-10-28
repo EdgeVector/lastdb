@@ -27,6 +27,15 @@ pub struct MutationLogRoot {
 
 impl MutationLogRoot {
     pub fn validate_for(&self, begin: &Begin) -> Result<()> {
+        if let Some(dependencies) = &begin.recovery_dependencies {
+            let mut expected = vec![self.base.head()];
+            if self.previous != self.base {
+                expected.push(self.previous.head());
+            }
+            if *dependencies != expected {
+                return Err(LogCodecError("mutation log declared recovery dependencies"));
+            }
+        }
         context(
             self.version,
             &self.begin_sha256,

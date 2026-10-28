@@ -11,6 +11,9 @@ use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
 use std::io::Read;
 
+#[path = "offline/dependencies.rs"]
+mod dependencies;
+
 struct Selection {
     stream: Option<String>,
     generation: Option<u64>,
@@ -39,6 +42,31 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
             .await
             .map_err(|e| e.to_string())?;
         match action {
+            ByteBackupCommand::InspectDependencies {
+                stream,
+                generation,
+                commit,
+                commit_sha256,
+                json,
+                ..
+            } => {
+                let scope = generation_scope(context.scope, generation);
+                let stream = Stream {
+                    scope,
+                    stream_id: id(stream)?,
+                };
+                let selected = accepted(&client, stream, Some(id(commit)?)).await?;
+                if selected.commit_sha256.as_str() != commit_sha256 {
+                    return Err("selected dependency inspection hash differs".into());
+                }
+                let report = tokio::time::timeout(
+                    std::time::Duration::from_secs(90),
+                    dependencies::inspect(&client, selected),
+                )
+                .await
+                .map_err(|_| "dependency inspection exceeded its time limit")??;
+                print(&report, json)
+            }
             ByteBackupCommand::Discover {
                 generation,
                 cursor,
