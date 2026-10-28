@@ -2,11 +2,11 @@
 # Helper script for app release workflows to publish to /v2 registry
 #
 # This script wraps the lastdb CLI to publish an app release to the /v2
-# registry (DEV or PROD) and optionally update a channel.
+# registry (DEV only) and optionally update a channel.
 #
 # Required environment variables:
 #   LASTDB_API_KEY: Developer API key from https://exemem.com
-#   LASTDB_DEV_KEY_FILE: Path to Ed25519 private key file
+#   LASTDB_DEV_KEY_B64: Base64-encoded Ed25519 private key (32-byte secret)
 #   APP_ID: App identifier (e.g. brain, lastsecrets, lastseek)
 #   APP_UUID: Stable app UUID from manifest
 #   MANIFEST_PATH: Path to app manifest (e.g. brain/lastdb-app.json)
@@ -15,7 +15,7 @@
 #   SOURCE_COMMIT: Git commit SHA that produced the artifact
 #
 # Optional environment variables:
-#   REGISTRY_ENV: dev or prod (default: dev)
+#   REGISTRY_ENV: dev (default: dev; prod is refused for now)
 #   CHANNEL: Channel to update after publish (default: none)
 #   LASTDB_BIN: Path to lastdb binary (default: lastdb)
 #
@@ -23,7 +23,7 @@
 #   - name: Publish to /v2 registry
 #     env:
 #       LASTDB_API_KEY: ${{ secrets.LASTDB_API_KEY }}
-#       LASTDB_DEV_KEY_FILE: ${{ secrets.LASTDB_DEV_KEY_FILE }}
+#       LASTDB_DEV_KEY_B64: ${{ secrets.LASTDB_DEV_KEY_B64 }}
 #       APP_ID: brain
 #       APP_UUID: ${{ secrets.BRAIN_APP_UUID }}
 #       MANIFEST_PATH: brain/lastdb-app.json
@@ -38,7 +38,7 @@ set -euo pipefail
 
 # Required variables
 : "${LASTDB_API_KEY:?LASTDB_API_KEY not set}"
-: "${LASTDB_DEV_KEY_FILE:?LASTDB_DEV_KEY_FILE not set}"
+: "${LASTDB_DEV_KEY_B64:?LASTDB_DEV_KEY_B64 not set}"
 : "${APP_ID:?APP_ID not set}"
 : "${APP_UUID:?APP_UUID not set}"
 : "${MANIFEST_PATH:?MANIFEST_PATH not set}"
@@ -51,9 +51,15 @@ REGISTRY_ENV="${REGISTRY_ENV:-dev}"
 CHANNEL="${CHANNEL:-}"
 LASTDB_BIN="${LASTDB_BIN:-lastdb}"
 
+# Write dev key to temporary file with 0600 permissions
+DEV_KEY_FILE="$(mktemp)"
+trap 'rm -f "$DEV_KEY_FILE"' EXIT
+echo "$LASTDB_DEV_KEY_B64" > "$DEV_KEY_FILE"
+chmod 0600 "$DEV_KEY_FILE"
+
 # Validate inputs
-if [[ ! -f "$LASTDB_DEV_KEY_FILE" ]]; then
-  echo "❌ Dev key file not found: $LASTDB_DEV_KEY_FILE" >&2
+if [[ "$REGISTRY_ENV" != "dev" ]]; then
+  echo "❌ REGISTRY_ENV must be 'dev' (prod is not yet supported)" >&2
   exit 1
 fi
 
@@ -89,7 +95,7 @@ echo
 # Step 1: Publish release
 echo "--- Publishing release ---"
 RELEASE_RESULT_JSON="$(mktemp)"
-trap "rm -f '$RELEASE_RESULT_JSON'" EXIT
+trap 'rm -f "$RELEASE_RESULT_JSON" "$DEV_KEY_FILE"' EXIT
 
 set +e
 "$LASTDB_BIN" app release-publish \
@@ -99,7 +105,7 @@ set +e
   --artifact "$ARTIFACT_PATH" \
   --artifact-url "$ARTIFACT_URL" \
   --env "$REGISTRY_ENV" \
-  --key-file "$LASTDB_DEV_KEY_FILE" \
+  --key-file "$DEV_KEY_FILE" \
   --api-key "$LASTDB_API_KEY" \
   --json \
   | tee "$RELEASE_RESULT_JSON"
@@ -136,11 +142,11 @@ if [[ -n "$CHANNEL" ]]; then
   
   set +e
   "$LASTDB_BIN" app release-channel \
-    --app-id "$APP_ID" \
+    "$APP_ID" \
     --channel "$CHANNEL" \
     --release-id "$RELEASE_ID" \
     --env "$REGISTRY_ENV" \
-    --key-file "$LASTDB_DEV_KEY_FILE" \
+    --key-file "$DEV_KEY_FILE" \
     --api-key "$LASTDB_API_KEY" \
     --json
   CHANNEL_EXIT=$?

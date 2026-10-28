@@ -22,12 +22,12 @@ Each app repo needs these GitHub secrets:
 - Authorizes minting short-TTL DevCerts
 - Same key works for all apps owned by the same developer
 
-#### `LASTDB_DEV_KEY_FILE`
-- Ed25519 private key (64 bytes, base64-encoded)
+#### `LASTDB_DEV_KEY_B64`
+- Ed25519 private key (32 bytes, base64-encoded)
 - Generate: `dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64`
 - The verifying key **must** match the registered publisher for the app
 - Check with: `curl https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com/v2/apps/{app_id} | jq .owner_dev_pubkey`
-- Store the base64-encoded private key directly in the secret (NOT a file path)
+- Store the base64-encoded private key directly in the secret
 
 #### `{APP}_APP_UUID` (optional)
 - Stable app UUID from the manifest
@@ -90,7 +90,7 @@ In the app repo's GitHub settings:
 1. Navigate to **Settings → Secrets and variables → Actions**
 2. Add **Repository secrets**:
    - `LASTDB_API_KEY`: Your developer API key
-   - `LASTDB_DEV_KEY_FILE`: Base64-encoded Ed25519 private key
+   - `LASTDB_DEV_KEY_B64`: Base64-encoded Ed25519 private key (32 bytes)
    - `BRAIN_APP_UUID` (or `LASTSECRETS_APP_UUID`, etc.): Stable app UUID
 
 **Security note**: These secrets grant write access to your app's /v2 registry. Protect them accordingly.
@@ -142,12 +142,9 @@ jobs:
       - name: Publish to /v2 registry (DEV)
         env:
           LASTDB_API_KEY: ${{ secrets.LASTDB_API_KEY }}
-          LASTDB_DEV_KEY_FILE: ${{ secrets.LASTDB_DEV_KEY_FILE }}
+          LASTDB_DEV_KEY_B64: ${{ secrets.LASTDB_DEV_KEY_B64 }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/brain-v}"
-          
-          # Write dev key to temp file
-          echo "$LASTDB_DEV_KEY_FILE" > /tmp/dev-key.txt
           
           # Publish release
           lastdb app release-publish \
@@ -157,7 +154,7 @@ jobs:
             --artifact brain.tar.gz \
             --artifact-url "https://r2.folddb.com/brain/releases/brain-${VERSION}.tar.gz" \
             --env dev \
-            --key-file /tmp/dev-key.txt \
+            --key-file <(echo "$LASTDB_DEV_KEY_B64") \
             --api-key "$LASTDB_API_KEY" \
             --json | tee release-result.json
           
@@ -167,15 +164,12 @@ jobs:
           
           # Update nightly channel
           lastdb app release-channel \
-            --app-id brain \
+            brain \
             --channel nightly \
             --release-id "$RELEASE_ID" \
             --env dev \
-            --key-file /tmp/dev-key.txt \
+            --key-file <(echo "$LASTDB_DEV_KEY_B64") \
             --api-key "$LASTDB_API_KEY"
-          
-          # Clean up key
-          rm /tmp/dev-key.txt
       
       - name: Verify release
         run: |
@@ -194,7 +188,7 @@ Alternatively, use the provided helper script:
       - name: Publish to /v2 registry (DEV)
         env:
           LASTDB_API_KEY: ${{ secrets.LASTDB_API_KEY }}
-          LASTDB_DEV_KEY_FILE: ${{ secrets.LASTDB_DEV_KEY_FILE }}
+          LASTDB_DEV_KEY_B64: ${{ secrets.LASTDB_DEV_KEY_B64 }}
           APP_ID: brain
           APP_UUID: ${{ secrets.BRAIN_APP_UUID }}
           MANIFEST_PATH: brain/lastdb-app.json
@@ -204,15 +198,8 @@ Alternatively, use the provided helper script:
           REGISTRY_ENV: dev
           CHANNEL: nightly
         run: |
-          # Write dev key to temp file
-          echo "$LASTDB_DEV_KEY_FILE" > /tmp/dev-key.txt
-          export LASTDB_DEV_KEY_FILE=/tmp/dev-key.txt
-          
           # Download and run helper script
           curl -sL https://raw.githubusercontent.com/EdgeVector/lastdb/main/scripts/release/publish-app-release-v2.sh | bash
-          
-          # Clean up
-          rm /tmp/dev-key.txt
 ```
 
 ### Step 3: Update Lockfile Generation
@@ -267,27 +254,27 @@ git commit -m "Update schema lockfile"
       - name: Publish to /v2 registry
         env:
           LASTDB_API_KEY: ${{ secrets.LASTDB_API_KEY }}
-          LASTDB_DEV_KEY_FILE: ${{ secrets.LASTDB_DEV_KEY_FILE }}
-          # Use PROD secrets for tagged releases
+          LASTDB_DEV_KEY_B64: ${{ secrets.LASTDB_DEV_KEY_B64 }}
+          # Use PROD secrets for tagged releases (when prod is supported)
           # LASTDB_API_KEY_PROD: ${{ secrets.LASTDB_API_KEY_PROD }}
-          # LASTDB_DEV_KEY_FILE_PROD: ${{ secrets.LASTDB_DEV_KEY_FILE_PROD }}
+          # LASTDB_DEV_KEY_B64_PROD: ${{ secrets.LASTDB_DEV_KEY_B64_PROD }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            ENV=prod
-            API_KEY="$LASTDB_API_KEY_PROD"
-            KEY_FILE="$LASTDB_DEV_KEY_FILE_PROD"
-          else
-            ENV=dev
-            API_KEY="$LASTDB_API_KEY"
-            KEY_FILE="$LASTDB_DEV_KEY_FILE"
-          fi
+          # For now, only DEV is supported
+          ENV=dev
+          API_KEY="$LASTDB_API_KEY"
+          KEY_B64="$LASTDB_DEV_KEY_B64"
           
-          echo "$KEY_FILE" > /tmp/dev-key.txt
+          # Future: conditional prod publishing
+          # if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          #   ENV=prod
+          #   API_KEY="$LASTDB_API_KEY_PROD"
+          #   KEY_B64="$LASTDB_DEV_KEY_B64_PROD"
+          # fi
           
           lastdb app release-publish \
             --env "$ENV" \
             --api-key "$API_KEY" \
-            --key-file /tmp/dev-key.txt \
+            --key-file <(echo "$KEY_B64") \
             ...
 ```
 
@@ -347,7 +334,7 @@ After integrating /v2 publishing:
 
 ### Brain (EdgeVector/last-stack)
 
-- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_FILE`, `BRAIN_APP_UUID` secrets
+- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_B64`, `BRAIN_APP_UUID` secrets
 - [ ] Generate and commit `brain/lastdb-app.json.lock.json`
 - [ ] Update `.github/workflows/release.yml` with /v2 publishing step
 - [ ] Run workflow, verify release in DEV
@@ -355,7 +342,7 @@ After integrating /v2 publishing:
 
 ### LastSecrets (EdgeVector/lastsecrets)
 
-- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_FILE`, `LASTSECRETS_APP_UUID` secrets
+- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_B64`, `LASTSECRETS_APP_UUID` secrets
 - [ ] Generate and commit `lastsecrets.app.json.lock.json`
 - [ ] Update release workflow with /v2 publishing step
 - [ ] Run workflow, verify release in DEV
@@ -363,7 +350,7 @@ After integrating /v2 publishing:
 
 ### lastseek (EdgeVector/lastseek)
 
-- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_FILE`, `LASTSEEK_APP_UUID` secrets
+- [ ] Add `LASTDB_API_KEY`, `LASTDB_DEV_KEY_B64`, `LASTSEEK_APP_UUID` secrets
 - [ ] Generate and commit `lastseek.app.json.lock.json`
 - [ ] Update release workflow with /v2 publishing step
 - [ ] Run workflow, verify release in DEV

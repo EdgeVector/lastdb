@@ -16,8 +16,8 @@ Each app release workflow needs:
    - Obtain from: https://exemem.com (paid plan or developer_access grant)
    - Authorizes minting a short-TTL DevCert
 
-2. **Developer Ed25519 Signing Key** (`LASTDB_DEV_KEY_FILE` secret)
-   - 64-byte base64-encoded Ed25519 private key
+2. **Developer Ed25519 Signing Key** (`LASTDB_DEV_KEY_B64` secret)
+   - 32-byte base64-encoded Ed25519 private key
    - Generate: `dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64`
    - The verifying key must match the registered publisher for the app
 
@@ -142,11 +142,8 @@ Add to Brain's release workflow (e.g. `.github/workflows/release.yml`):
 - name: Publish to /v2 registry (DEV)
   env:
     LASTDB_API_KEY: ${{ secrets.LASTDB_API_KEY }}
-    LASTDB_DEV_KEY_FILE: ${{ secrets.LASTDB_DEV_KEY_FILE }}
+    LASTDB_DEV_KEY_B64: ${{ secrets.LASTDB_DEV_KEY_B64 }}
   run: |
-    # Write dev key to temporary file
-    echo "$LASTDB_DEV_KEY_FILE" > /tmp/dev-key.txt
-    
     # Publish release
     lastdb app release-publish \
       --manifest brain/lastdb-app.json \
@@ -155,7 +152,7 @@ Add to Brain's release workflow (e.g. `.github/workflows/release.yml`):
       --artifact brain.tar.gz \
       --artifact-url "https://r2.folddb.com/apps/brain/releases/brain-$VERSION.tar.gz" \
       --env dev \
-      --key-file /tmp/dev-key.txt \
+      --key-file <(echo "$LASTDB_DEV_KEY_B64") \
       --api-key "$LASTDB_API_KEY" \
       --json | tee release-result.json
     
@@ -164,15 +161,12 @@ Add to Brain's release workflow (e.g. `.github/workflows/release.yml`):
     
     # Update nightly channel
     lastdb app release-channel \
-      --app-id brain \
+      brain \
       --channel nightly \
       --release-id "$RELEASE_ID" \
       --env dev \
-      --key-file /tmp/dev-key.txt \
+      --key-file <(echo "$LASTDB_DEV_KEY_B64") \
       --api-key "$LASTDB_API_KEY"
-    
-    # Clean up key
-    rm /tmp/dev-key.txt
 ```
 
 ### LastSecrets (EdgeVector/lastsecrets)
