@@ -1,0 +1,109 @@
+name: Historical writer contention investigation
+
+# Focused real daemon operations; no benchmark-complete check or replacement gate.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/write-contention.yml'
+      - 'scripts/benchmarks/write_contention*.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: write-contention-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  investigate:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASELINE_SHA: d1d3cc98a9a0c163539b825b407585503831e350
+      CANDIDATE_SHA: 953a956c7607461947d24ecc11fcc2e21d2cbfaf
+      BUILD_CONTEXT: 1df04ca885d2d484814ae33fc2344c75fc51a3b8bb186fd225c8e3595ee3f9c5
+      BUNDLE_SHA256: 8efbb1c9e45ed50d627e50310139a3d8e910b6549d77a8a9c516b359a4591bd2
+    steps:
+      - name: Prepare external output and require hosted CI
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          result="$RUNNER_TEMP/write-contention-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$result"
+          echo "BENCH_OUTPUT=$result" >> "$GITHUB_ENV"
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: historical
+          persist-credentials: false
+      - name: Check the focused measurement source syntax
+        run: python3 -m py_compile controller/scripts/benchmarks/write_contention*.py
+      - name: Retain original artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12758648156" > "$BENCH_OUTPUT/source-artifact.json"
+      - name: Download the exact original CI programs without another build
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 12758648156
+          run-id: 40558556490
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/original-programs
+          merge-multiple: true
+      - name: Verify bundle, build recipe, executable identities and runtime dependencies
+        run: |
+          python3 historical/scripts/benchmarks/programs.py unpack \
+            --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/original-programs/programs.tar.gz"
+      - name: Require free space for generated v2 homes and diagnostic logs
+        run: python3 historical/scripts/benchmarks/disk.py --profile standard --phase measure --require
+      - name: Measure CPU, native waits, workers, schemas, hashes and mutation batches
+        id: measurement
+        run: |
+          timeout --signal=TERM --kill-after=120s 75m \
+            python3 controller/scripts/benchmarks/write_contention.py \
+              --driver "$GITHUB_WORKSPACE/historical" --programs "$BENCH_BINARY_ROOT" \
+              --source-metadata "$BENCH_OUTPUT/source-artifact.json" --output "$BENCH_OUTPUT/investigation"
+      - name: Publish the focused diagnostic summary
+        if: always()
+        run: python3 controller/scripts/benchmarks/write_contention_report.py --output "$BENCH_OUTPUT/investigation"
+      - name: Upload measurements and source records
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-write-contention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify the uploaded archive and record its download
+        if: always() && steps.upload.outcome == 'success'
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.CONTROLLER_SHA }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/write-contention-artifact.json"
+          python3 historical/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/write-contention-artifact.json" --output "$RUNNER_TEMP/write-contention-download"
+      - name: Retain the verified download receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-write-contention-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/write-contention-download/artifact.json
+          retention-days: 14
+          if-no-files-found: error
