@@ -2,7 +2,7 @@
 
 use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
-use schema_types::{FoldDbError, FoldDbResult, Schema};
+use schema_types::{FieldValueType, FoldDbError, FoldDbResult, Schema};
 use std::collections::HashMap;
 
 // App implementation abbreviations from the canonical-field inventory. Keep
@@ -94,13 +94,14 @@ impl SchemaServiceState {
     /// Grandfather only an unchanged field of the same stored schema family.
     /// A new app or descriptive name cannot reuse that exception, nor can a
     /// changed type, version, or description create another abbreviated field.
-    pub(super) fn validate_proposal_field_names(&self, schema: &Schema) -> FoldDbResult<()> {
+    pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
         let abbreviated: Vec<_> = schema
             .fields
             .as_deref()
             .unwrap_or_default()
             .iter()
             .filter(|name| uses_app_abbreviation(name))
+            .cloned()
             .collect();
         if abbreviated.is_empty() {
             return Ok(());
@@ -112,18 +113,24 @@ impl SchemaServiceState {
                 .iter()
                 .filter_map(|name| {
                     canonical
-                        .get(*name)
+                        .get(name)
                         .map(|field| (name.as_str(), field.field_type.clone()))
                 })
                 .collect()
         };
         let schemas = read_lock(&self.schemas, "schemas")?;
-        for name in abbreviated {
+        for name in &abbreviated {
+            // Normalize only legacy abbreviated fields before hashing. Keep
+            // explicit types and identities, and mirror the canonical Any skip.
+            if let Some(field_type) = legacy_types.get(name.as_str()) {
+                if *field_type != FieldValueType::Any {
+                    schema
+                        .field_types
+                        .entry(name.clone())
+                        .or_insert_with(|| field_type.clone());
+                }
+            }
             let identity = field_identity(schema, name);
-            let inherited_type = schema
-                .field_types
-                .get(name)
-                .or_else(|| legacy_types.get(name.as_str()));
             let unchanged = legacy_types.contains_key(name.as_str())
                 && schemas.values().any(|existing| {
                     existing.owner_app_id == schema.owner_app_id
@@ -133,8 +140,7 @@ impl SchemaServiceState {
                             .as_deref()
                             .unwrap_or_default()
                             .contains(name)
-                        && inherited_type
-                            .is_some_and(|field_type| existing.get_field_type(name) == field_type)
+                        && existing.get_field_type(name) == schema.get_field_type(name)
                         && existing.field_versions.get(name).copied().unwrap_or(1)
                             == schema.field_versions.get(name).copied().unwrap_or(1)
                         && existing.field_descriptions.get(name)

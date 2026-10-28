@@ -122,4 +122,16 @@ pub(super) fn merge_existing_metadata(schema: &mut Schema, existing: &Schema) {
             .entry(field.clone())
             .or_insert_with(|| ty.clone());
     }
+    for (field, version) in &existing.field_versions {
+        schema
+            .field_versions
+            .entry(field.clone())
+            .or_insert(*version);
+    }
+    for (field, identity) in &existing.field_hashes {
+        schema
+            .field_hashes
+            .entry(field.clone())
+            .or_insert_with(|| identity.clone());
+    }
 }

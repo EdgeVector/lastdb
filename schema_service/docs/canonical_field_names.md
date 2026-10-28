@@ -39,6 +39,8 @@ The app owner, schema descriptive name, field type, version, and description
 must match a stored definition. An existing field declaration can also retain
 its identity on a repeat declaration.
 The proposed field identity must also match the stored identity.
+The check inherits an omitted legacy type before it computes an identity.
+An expansion also retains the predecessor's field versions and identities.
 
 A new schema family or declaration cannot create an abbreviated field.
 An incompatible type or version change also requires an acceptable name.
