@@ -59,7 +59,7 @@ def selected(expected, request):
     return sorted(keys, key=lambda coordinate: (coordinate[1], coordinate[0]))[request.get("offset", 0):]
 
 
-def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False):
+def walk(node, expected, request, label, baseline=False):
     wanted, position, samples = selected(expected, request), 0, []
     cursor = request.get("cursor")
     maximum_pages = len(wanted) // max(1, request["limit"]) + 16
@@ -100,8 +100,7 @@ def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False)
             raise RuntimeError("A received range cursor does not advance past its last returned key")
         validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
-        request = {**request, "cursor": wire_cursor}
+        request = {**request, "cursor": following}
         request.pop("offset", None)
     else:
         raise RuntimeError("The received range cursor walk exceeds its finite page bound")

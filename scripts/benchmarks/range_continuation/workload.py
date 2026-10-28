@@ -3,7 +3,8 @@
 import hashlib
 import json
 
-from ranges import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, fields, key, latency, prefix, query, validate, walk
+from ranges import (COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, comparison_tag, fields, key, latency,
+                    prefix, query, validate, walk)
 from condition_values import COUNT as CONDITION_COUNT, HASH as CONDITION_HASH, EXTRA_FIELDS, marker
 from conditions import Conditions, capture_phases
 
@@ -44,7 +45,8 @@ class Workload:
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-            "fields": FIELDS + EXTRA_FIELDS, "field_descriptions": {
+            "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
+            "field_descriptions": {
                 name: "range continuation " + name for name in FIELDS + EXTRA_FIELDS}}})
         for first in range(0, COUNT, 128):
             self.mutate([("create", HASH, key(number), "seed") for number in range(first, first + 128)])
@@ -85,11 +87,12 @@ class Workload:
         offset = query(HASH, key(16000), key(16128), 17)
         offset["offset"] = 7
         after = query(HASH, key(16000), key(16128), 17)
-        after["cursor"] = {"hash": HASH, "range": key(16063)}
+        tag = comparison_tag(self.node, after)
+        after["cursor"] = {"hash": HASH, "range": key(16063), "comparison": tag}
         cases.extend([("offset-window", offset), ("exclusive-cursor", after)])
         for hashed in ("a", "z"):
             tie = query(HASH, key(16000), key(16128), 17)
-            tie["cursor"] = {"hash": hashed, "range": key(16063)}
+            tie["cursor"] = {"hash": hashed, "range": key(16063), "comparison": tag}
             cases.append(("cross-hash-tie-" + hashed, tie))
         projections = [("range-field-only", query(HASH, key(8180), key(8250), 17), ["id"]),
             ("range-without-range-field", query(HASH, key(8180), key(8250), 17), ["bucket", "title", "body"]),
@@ -116,7 +119,7 @@ class Workload:
             for ordinal in range(32):
                 first = ordinal * (COUNT - 128) // 31
                 value = walk(self.node, self.expected, query(HASH, key(first), key(first + 128), 64),
-                             "matched-narrow-" + str(ordinal), legacy_cursor=True)
+                             "matched-narrow-" + str(ordinal))
                 measured.extend(value["samples"])
         finally:
             self.node.capture_process = False

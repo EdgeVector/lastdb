@@ -55,9 +55,7 @@ class Node:
         self.deadline = time.monotonic() + 1200
         self.raw_bytes = 0
         self.raw = gzip.open(output / "requests.jsonl.gz", "xb")
-        self.settings = {"LASTDB_AUTO_MAINTENANCE": "0", "RUST_LOG": "warn",
-            "LASTDB_HASH_KEY_ENCODING": "plain" if mode == "plain" else "blind_v1",
-            "LASTDB_RANGE_KEY_ENCODING": "plain" if mode == "plain" else "ope_v1"}
+        self.settings = {"LASTDB_AUTO_MAINTENANCE": "0", "RUST_LOG": "warn"}
 
     def remember(self, value):
         raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
@@ -88,7 +86,14 @@ class Node:
             process_after = read_counters(self.process.pid) if process_before is not None else None
             if len(raw) > 4 * 1024 ** 2:
                 raise RuntimeError("A generated response exceeds fourMiB")
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except ValueError:
+                if response.status in expected:
+                    raise
+                # A refusal body can be plain text; report the node's message.
+                raise RuntimeError(path + " returned HTTP" + str(response.status) + ": "
+                                   + raw[:512].decode("utf-8", "replace")) from None
             receipt = response.getheader("x-lastdb-read-receipt")
             row = {"request_id": request_id, "path": path, "request": request, "response": result,
                 "http_status": response.status, "started_ns": started, "ended_ns": ended,

@@ -1,0 +1,78 @@
+name: Schema canonical properties
+
+# Tom requested this scoped suite on 2026-10-28. Other tests remain retired.
+# The process uses isolated memory stores. It has no service or AWS credentials.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-canonical-properties-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  properties:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select repository Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: schema-canonical-properties
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Run bounded schema properties
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/schema-canonical-properties"
+          mkdir -p "$output"
+          git rev-parse HEAD > "$output/source-revision.txt"
+          timeout 20m cargo test --locked -p schema_service_core \
+            --test canonical_properties -- --test-threads=1 --nocapture \
+            2>&1 | tee "$output/results.log"
+      - name: Record evidence checksums
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/schema-canonical-properties"
+          mkdir -p "$output"
+          git rev-parse HEAD > "$output/source-revision.txt"
+          if [ ! -f "$output/results.log" ]; then
+            printf '%s\n' 'The property command did not start.' > "$output/results.log"
+          fi
+          (cd "$output" && sha256sum source-revision.txt results.log > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: schema-canonical-properties-${{ github.sha }}
+          path: ${{ runner.temp }}/schema-canonical-properties/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish result links
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          {
+            echo '### Schema canonical properties'
+            echo "Source: $(git rev-parse HEAD)"
+            echo 'Storage: isolated process memory; no service requests.'
+            echo 'Result: the bounded property step determines the job status.'
+            echo 'Evidence: the artifact expires after seven days.'
+            echo "Download: $ARTIFACT_URL"
+            echo "Artifact SHA-256: $ARTIFACT_DIGEST"
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

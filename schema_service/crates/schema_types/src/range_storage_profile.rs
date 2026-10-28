@@ -1,8 +1,7 @@
 //! Versioned, reversible range order, independent of encryption.
 //!
-//! A profile describes one molecule, not each key. Selecting a field type must
-//! never reinterpret legacy bytes. Callers must explicitly convert the keys and
-//! publish the profile at an offline format boundary before readers use it.
+//! A profile describes one molecule, not each key. The molecule metadata row
+//! stores it when schema publication establishes the molecule.
 
 use crate::{key_comparison::ordered_type, FieldValueType};
 use serde::{Deserialize, Serialize};
@@ -14,7 +13,6 @@ mod ordered_scalar;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RangeStorageProfile {
-    LegacyUtf8V1,
     StringUtf8V1,
     IntegerI64V1,
     DateDaysV1,
@@ -23,8 +21,8 @@ pub enum RangeStorageProfile {
 }
 
 impl RangeStorageProfile {
-    /// Explicit opt-in only. Inference, schema admission and startup do not call
-    /// this constructor. A nullable declaration still requires a non-null key.
+    /// The profile of a declared range type. A nullable declaration still
+    /// requires a non-null key.
     pub fn typed(field_type: &FieldValueType) -> Result<Self, String> {
         match ordered_type(field_type)? {
             FieldValueType::String => Ok(Self::StringUtf8V1),
@@ -48,27 +46,10 @@ impl RangeStorageProfile {
         ordered_scalar::decode(self, stored)
     }
 
-    pub fn canonical_value(self, api: &str) -> Result<String, String> {
-        self.decode_value(&self.encode_value(api)?)
-    }
-
     pub fn require_text_prefix(self) -> Result<(), String> {
         match self {
-            Self::LegacyUtf8V1 | Self::StringUtf8V1 => Ok(()),
+            Self::StringUtf8V1 => Ok(()),
             _ => Err("a text prefix requires a String range storage profile".into()),
-        }
-    }
-
-    /// Payload bytes before the existing range encoding; no per-key type tag.
-    /// Strings have variable length and keep their exact bytes.
-    #[must_use]
-    pub const fn fixed_payload_bytes(self) -> Option<usize> {
-        match self {
-            Self::LegacyUtf8V1 | Self::StringUtf8V1 => None,
-            Self::IntegerI64V1 => Some(16),
-            Self::DateDaysV1 => Some(6),
-            Self::DateTimeNanosV1 => Some(18),
-            Self::BooleanV1 => Some(1),
         }
     }
 }

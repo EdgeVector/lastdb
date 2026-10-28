@@ -129,6 +129,7 @@ pub fn validate_schema_vocabulary(
     for name in schema_referenced_field_names(schema) {
         validate_vocabulary_reference(name, vocabulary)?;
     }
+    crate::field_identity_validation::validate_canonical_schema_hashes(schema, vocabulary)?;
     Ok(())
 }
 

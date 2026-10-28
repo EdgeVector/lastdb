@@ -1,64 +1,33 @@
-//! Field semantics and physical key order are separate, explicit contracts.
+//! Field semantics and the typed range order of a node home.
 //!
-//! Existing plain and OPE-v1 files both use LegacyUtf8V1. No typed storage
-//! profile is enabled here; a different order requires explicit conversion.
+//! Every node home stores typed ranges, so API coordinates compare in the
+//! scalar order of the declared range type.
 
 use crate::{field_value_type::temporal, FieldValueType};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::cmp::Ordering;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum KeyOrderVersion {
-    LegacyUtf8V1,
-    TypedScalarV1,
-}
 
 /// Captured once per schema read, never stored on each molecule key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RangeKeyComparison {
     pub field_type: FieldValueType,
-    pub order: KeyOrderVersion,
 }
 
 impl RangeKeyComparison {
-    #[must_use]
-    pub fn legacy(field_type: FieldValueType) -> Self {
-        Self {
-            field_type,
-            order: KeyOrderVersion::LegacyUtf8V1,
-        }
-    }
-
     pub fn typed(field_type: FieldValueType) -> Result<Self, String> {
         ordered_type(&field_type)?;
-        Ok(Self {
-            field_type,
-            order: KeyOrderVersion::TypedScalarV1,
-        })
+        Ok(Self { field_type })
     }
 
-    /// Compare API coordinates using the order promised by their disk format.
-    /// A declared Integer alone must not reinterpret existing UTF-8 files.
+    /// Compare API coordinates in the declared scalar order.
+    /// Invalid coordinates and ambiguous domains are refused, never coerced.
     pub fn compare(&self, left: &str, right: &str) -> Result<Ordering, String> {
-        match self.order {
-            KeyOrderVersion::LegacyUtf8V1 => Ok(left.cmp(right)),
-            KeyOrderVersion::TypedScalarV1 => self.compare_typed(left, right),
-        }
+        self.canonical_value(left)?
+            .compare(self.canonical_value(right)?)
     }
 
     pub fn validate_value(&self, text: &str) -> Result<(), String> {
-        match self.order {
-            KeyOrderVersion::LegacyUtf8V1 => Ok(()),
-            KeyOrderVersion::TypedScalarV1 => self.canonical_value(text).map(|_| ()),
-        }
-    }
-
-    /// Semantic comparison for a future reviewed typed storage profile.
-    /// Invalid coordinates and ambiguous domains are refused, never coerced.
-    pub fn compare_typed(&self, left: &str, right: &str) -> Result<Ordering, String> {
-        self.canonical_value(left)?
-            .compare(self.canonical_value(right)?)
+        self.canonical_value(text).map(|_| ())
     }
 
     pub fn canonical_value<'a>(&self, text: &'a str) -> Result<CanonicalRange<'a>, String> {
