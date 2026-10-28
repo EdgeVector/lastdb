@@ -68,8 +68,9 @@ class Automatic:
         source.node.start()
         first_ttl = lifecycle.await_expiry(2)
         source.write(self.baseline["schema"])
+        written = dict(source.cloud("status")["mutation_log"]["head"]["frontiers"])
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"],
-                               through=first_ttl)
+                               through=written)
         source.caught_up(log)
         routes = source.routes(log)
         source.retired(snapshot["request_id"])

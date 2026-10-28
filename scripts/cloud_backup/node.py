@@ -78,6 +78,7 @@ class OwnedNode:
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)],
             env=dict(self.programs.environment,
                      LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
+                     LASTDB_ISOLATED_COPY="1" if self.backup_source else "0",
                      LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0"),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
