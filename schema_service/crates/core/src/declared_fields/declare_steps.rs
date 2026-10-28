@@ -48,6 +48,25 @@ pub(super) fn validate_declare_request(
     Ok((owner, handle))
 }
 
+/// Existing identities can be re-declared, but not extended with abbreviations.
+pub(super) fn validate_new_field_names(
+    record: &DeclaredFieldRecord,
+    request: &DeclareFieldRequest,
+) -> Result<(), DeclaredFieldError> {
+    for field in &request.fields {
+        let unchanged = record.fields.iter().any(|existing| {
+            existing.name == field.name.trim()
+                && existing.field_type == field.field_type
+                && existing.version == field.version
+        });
+        if !unchanged {
+            crate::field_name_policy::validate_new_field_name(&field.name)
+                .map_err(DeclaredFieldError::InvalidField)?;
+        }
+    }
+    Ok(())
+}
+
 /// Insert or replace each requested field, keeping the record sorted by name.
 pub(super) fn merge_declared_fields(
     record: &mut DeclaredFieldRecord,

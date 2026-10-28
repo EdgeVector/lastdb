@@ -50,6 +50,7 @@ pub mod builtin_schemas;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
+mod field_name_policy;
 mod lock_helpers;
 pub mod memory_persistence;
 /// Same-product multi-key tip regeneration (background reindex job class).
