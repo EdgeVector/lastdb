@@ -8,6 +8,7 @@ import re
 from ci_control import decimal, digest
 from node import OwnedNode
 from ownership import REPOSITORY, WORKFLOW
+from recovery_recipe import ROLES, validate as validate_recipe
 from restore_receipts import restored
 from support import canonical_uuid, require
 
@@ -30,27 +31,29 @@ def selected(kept, baseline):
     for name in ("artifact_sha256", "registration_sha256", "receipt_sha256"):
         digest(kept.get(name))
     points = kept.get("verified_recovery_points")
-    # This supported receipt recipe verifies base snapshot, log, then full
-    # snapshot in that order. Never guess a log's replay recipe or another cut.
-    require(isinstance(points, list) and len(points) == 3, "ci_kept_supported_recipe")
-    ordinals = []
+    require(isinstance(points, list) and 3 <= len(points) <= 8, "ci_kept_supported_recipe")
+    ordinals = {}
+    verified = []
     for point in points:
         require(isinstance(point, dict) and set(point) == {
             "stream_id", "commit_id", "commit_sha256", "ordinal"}
             and point["stream_id"] == stream, "ci_kept_point_scope")
         require(canonical_uuid(point["commit_id"]).startswith("a17dbac2-"), "ci_kept_commit_id")
         digest(point["commit_sha256"])
-        ordinals.append(decimal(point["ordinal"]))
-    require(ordinals[0] < ordinals[1] < ordinals[2], "ci_kept_point_order")
+        require(point["commit_id"] not in ordinals, "ci_kept_distinct_point")
+        ordinals[point["commit_id"]] = decimal(point["ordinal"])
+        verified.append({name: point[name] for name in ("stream_id", "commit_id", "commit_sha256")})
+    recipe = validate_recipe(kept.get("recipe"), verified, owner["source"])
+    ordered = [ordinals[recipe[role]["commit_id"]] for role in ROLES]
+    require(ordered[0] < ordered[1] < ordered[2], "ci_kept_point_order")
     result = copy.deepcopy(baseline)
-    result.update({name: points[2][name] for name in ("stream_id", "commit_id", "commit_sha256")})
+    result.update(recipe["final_snapshot"])
     for number, record in enumerate(result["records"]):
         if number == len(result["records"]) - 1:
             result["records"][number] = {"id": record["id"], "deleted": True}
         else:
             record["note"] = "Automatic log update " + str(number)
-    payload = hashlib.shake_256(("Cloud automatic CI " + owner["source"]).encode()).digest(65536)
-    result.update(file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
+    result.update(file_bytes=int(recipe["live_file_bytes"]), file_sha256=recipe["live_file_sha256"])
     return result
 
 

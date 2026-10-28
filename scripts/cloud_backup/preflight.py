@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Reclaim only eligible CI DEV bytes before this run owns or uploads a stream."""
+
+import argparse
+import os
+from pathlib import Path
+import signal
+import sys
+
+sys.dont_write_bytecode = True
+
+from ci_control import Control
+from kept_recovery import recover as recover_kept
+from ownership import run_identity
+from ownership_history import History
+from recover import Operation
+from retirement import Retirement
+from support import OperationError, require
+
+
+class Preflight(Operation):
+    def __init__(self, args):
+        super().__init__(args)
+        self.summary = {"schema": "lastdb.cloud-ci-preflight.v1", "source": args.source,
+                        "version": args.version, "account": self.summary["account"],
+                        "result": "failed", "primary_access": False}
+
+    def prepare(self):
+        super().prepare(startup=False)
+        self.summary["owner"] = run_identity(self.args.source)
+
+    def execute(self):
+        credentials = self.credentials()
+        control = Control(self.baseline, self.api_key, budget_seconds=1500)
+        phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
+        try:
+            require(0 < len(phrase) <= 4096, "recovery_phrase")
+            self.summary["stage"] = "pending-ci-cleanup"
+            capabilities = control.context(require_open=False, startup=True)
+            require(capabilities.get("retirement") is True and capabilities.get("headroom") is True,
+                    "ci_retirement_capabilities")
+            retirement = Retirement(control, self.baseline)
+            active = retirement.pending()
+            if active is not None:
+                resumed = retirement.finish(active=active)
+                self.summary["resumed_request"] = {name: resumed[name] for name in (
+                    "request_id", "input_sha256", "plan_sha256", "released_bytes", "confirmed_allocations")}
+            control.context(startup=True)
+            self.summary["stage"] = "ci-ownership-history"
+            token = os.environ.pop("GH_TOKEN", "")
+            history = History(self.baseline, self.programs.environment, token)
+            records = history.collect(limit=4)
+            del token
+            self.summary["ci_ownership_history"] = {
+                "recent_successful_runs_limit": 4, "verified_streams": len(records),
+                "unknown_records": history.unknown_records, "invalid_records": history.invalid_records,
+                "complete_directory": False, "provider_deletion_authority": False}
+            self.summary["stage"] = "ci-ownership-registration"
+            # Earlier direct-PUT runs lack a durable recovery recipe and their
+            # uncertain uploads remain protected. Never adopt them for cleanup.
+            eligible = [record for record in records if record["ownership"].get("recipe") is not None]
+            registered = [control.register(record) for record in eligible]
+            self.summary["ci_ownership_registration"] = {
+                "registered": len(registered), "recipe_less_retained": len(records) - len(eligible),
+                "refresh": control.refresh(), "provider_deletions": 0}
+            self.summary["stage"] = "retire-old-ci-backups"
+            terminal = retirement.create(self.args.output)
+            complete = terminal["phase"] == "complete"
+            self.summary.update(retirement=terminal, terminal_repeat_checked=complete)
+            control.context(startup=True)
+            if complete and terminal["kept_latest"] is not None:
+                self.summary["stage"] = "kept-latest-recovery"
+                self.summary["kept_latest_recovery"] = recover_kept(
+                    self, terminal["kept_latest"], credentials, phrase)
+            self.summary["stage"] = "ci-quota-headroom"
+            self.summary["ci_quota"] = control.usage()
+            self.summary["backup_service_requests"] = control.calls
+            self.summary["result"] = "passed"
+        finally:
+            del phrase
+            control.close()
+            self.api_key = None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bin-dir", required=True, type=Path)
+    parser.add_argument("--source", required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    os.umask(0o077)
+    operation = Preflight(args)
+
+    def interrupted(_signal, _frame):
+        raise OperationError("operation_cancelled_or_deadline")
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
+        signal.signal(signum, interrupted)
+    signal.alarm(2700)
+    try:
+        operation.prepare()
+        operation.execute()
+    except OperationError as error:
+        operation.summary["failure"] = str(error)
+    except BaseException:
+        operation.summary["failure"] = "unexpected_ci_preflight_error"
+    finally:
+        signal.alarm(0)
+        try:
+            operation.cleanup()
+        except BaseException:
+            operation.summary.update(result="failed", cleanup="incomplete",
+                                     failure="owned_cleanup_failed", stage="cleanup")
+        if operation.summary["result"] == "passed":
+            operation.summary["stage"] = "complete"
+        operation.finish()
+    return 0 if operation.summary["result"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

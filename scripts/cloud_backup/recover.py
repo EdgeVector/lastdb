@@ -18,12 +18,14 @@ sys.dont_write_bytecode = True
 from node import OwnedNode
 from automatic import Automatic
 from ci_control import Control
-from ownership_history import History
+from ownership import run_identity
 from programs import Programs
+from retirement_status import Status
 from restore_receipts import restored
 from startup_proof import load as load_startup
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
                      dev_endpoint, private_directory, require, save_json)
+from support import read_json
 
 
 class Operation:
@@ -39,7 +41,7 @@ class Operation:
             "coverage": "pinned recovery, automatic snapshot/log, restart, changed snapshot interval, and fresh recovery",
         }
 
-    def prepare(self):
+    def prepare(self, startup=True):
         require(os.environ.get("GITHUB_ACTIONS") == "true", "github_ci_only")
         require(re.fullmatch(r"[0-9a-f]{40}", self.args.source), "source_revision")
         require(re.fullmatch(r"[A-Za-z0-9.+_-]{1,128}", self.args.version), "build_version")
@@ -59,13 +61,44 @@ class Operation:
         for name in ("credentials", "os-home", "tmp"):
             (self.root / name).mkdir(mode=0o700)
         self.baseline = baseline_from_environment()
-        self.ci_stream_id = load_startup(self.args.startup_proof,
-                                       self.args.startup_artifact, self.baseline, self.args.source)
-        self.terminal_r2 = True
+        if startup:
+            self.ci_stream_id = load_startup(self.args.startup_proof,
+                                           self.args.startup_artifact, self.baseline, self.args.source)
+            self.terminal_r2 = True
         self.summary["selection"] = {key: self.baseline[key] for key in (
             "stream_id", "account_generation", "commit_id", "commit_sha256")}
         self.programs = Programs(self.args.bin_dir, self.args.version, child_environment(self.root))
         self.summary["binaries"] = self.programs.identities
+        if startup:
+            self.preflight()
+
+    def preflight(self):
+        path = self.args.preflight
+        require(path.is_absolute() and path.parent.resolve() == Path(os.environ["RUNNER_TEMP"]).resolve(),
+                "ci_preflight_runner_path")
+        value = read_json(path / "summary.json", 32768)
+        require(value.get("schema") == "lastdb.cloud-ci-preflight.v1"
+                and value.get("result") == "passed" and value.get("stage") == "complete"
+                and value.get("owner") == run_identity(self.args.source)
+                and value.get("source") == self.args.source and value.get("version") == self.args.version
+                and value.get("selection") == self.summary["selection"]
+                and value.get("binaries") == self.programs.identities
+                and value.get("cleanup") == "owned runner data removed", "ci_preflight_identity")
+        scope = {"account_id": ACCOUNT, "account_generation": self.baseline["account_generation"]}
+        terminal = value.get("retirement")
+        require(isinstance(terminal, dict), "ci_preflight_retirement")
+        status = Status(scope, self.baseline).validate(terminal, terminal.get("input"))
+        bootstrap = status["phase"] == "bootstrap_headroom"
+        require((bootstrap and value.get("terminal_repeat_checked") is False) or (
+                status["phase"] == "complete" and value.get("terminal_repeat_checked") is True
+                and (status["kept_latest"] is None or (
+                    value.get("kept_latest_recovery", {}).get("restored_boots") == 2
+                    and value["kept_latest_recovery"].get("strict_clean_stops") == 2))),
+                "ci_preflight_finished")
+        self.summary["ci_preflight"] = {"request_id": status["request_id"],
+            "plan_sha256": status["plan_sha256"], "phase": status["phase"],
+            "released_bytes": status.get("released_bytes", 0),
+            "confirmed_allocations": status.get("confirmed_allocations", 0)}
 
     def credentials(self):
         key = os.environ.pop("LASTDB_CLOUD_DEV_API_KEY", "")
@@ -81,24 +114,10 @@ class Operation:
         return home
 
     def execute(self):
-        self.summary["stage"] = "ci-ownership-history"
-        token = os.environ.pop("GH_TOKEN", "")
-        history = History(self.baseline, self.programs.environment, token)
-        self.prior_ci_streams = history.collect(limit=4)
-        del token
-        self.summary["ci_ownership_history"] = {
-            "recent_successful_runs_limit": 4, "verified_streams": len(self.prior_ci_streams),
-            "unknown_records": history.unknown_records, "invalid_records": history.invalid_records,
-            "complete_directory": False, "provider_deletion_authority": False}
         credentials = self.credentials()
-        self.summary["stage"] = "ci-ownership-registration"
         control = Control(self.baseline, self.api_key)
         try:
             control.context(startup=True)
-            registered = [control.register(record) for record in self.prior_ci_streams]
-            self.summary["ci_ownership_registration"] = {
-                "registered": len(registered), "refresh": control.refresh(),
-                "provider_deletions": 0}
             self.summary["stage"] = "ci-quota-headroom"
             self.summary["ci_quota"] = control.usage()
         finally:
@@ -181,7 +200,9 @@ def step_summary(summary):
     path = Path(destination)
     runner = Path(os.environ["RUNNER_TEMP"]).resolve()
     require(path.is_absolute() and path.parent.resolve().is_relative_to(runner), "ci_summary_path")
-    text = "\n### DEV automatic backup and recovery\n\n```json\n"
+    title = ("DEV CI backup cleanup and admission" if summary["schema"] == "lastdb.cloud-ci-preflight.v1"
+             else "DEV automatic backup and recovery")
+    text = "\n### " + title + "\n\n```json\n"
     text += json.dumps(summary, sort_keys=True, indent=2) + "\n```\n"
     require(len(text.encode()) <= 65536, "ci_summary_size")
     descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
@@ -197,6 +218,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--startup-proof", required=True, type=Path)
     parser.add_argument("--startup-artifact", required=True, type=Path)
+    parser.add_argument("--preflight", required=True, type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     operation = Operation(args)

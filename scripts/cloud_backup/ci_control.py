@@ -37,7 +37,7 @@ def no_deletion(value):
 
 
 class Control:
-    def __init__(self, baseline, key):
+    def __init__(self, baseline, key, budget_seconds=300):
         require(baseline["account"] == ACCOUNT and isinstance(key, bytes)
                 and 0 < len(key) <= 4096 and all(32 <= byte <= 126 for byte in key),
                 "ci_control_credentials")
@@ -52,14 +52,16 @@ class Control:
         require(endpoint.scheme == "https" and endpoint.path == "" and endpoint.port is None,
                 "ci_control_dev_endpoint")
         self.host = endpoint.hostname
-        self.deadline = time.monotonic() + 300
+        require(type(budget_seconds) is int and 0 < budget_seconds <= 2400, "ci_control_time_budget")
+        self.deadline = time.monotonic() + budget_seconds
         self.calls = 0
 
     def close(self):
         self.key = None
 
     def post(self, route, extra):
-        require(self.key is not None and route in ("context", "start", "register", "refresh", "usage"),
+        require(self.key is not None and route in (
+            "context", "start", "register", "refresh", "usage", "pending", "plan", "execute", "status"),
                 "ci_control_route")
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, "ci_control_deadline")

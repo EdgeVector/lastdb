@@ -75,7 +75,9 @@ def main():
             if args.phase == "startup":
                 save_startup(args.startup_proof, record, registered, baseline, args.source)
             result.update(result="passed", source=args.source, artifact_id=args.artifact_id,
-                          phase=args.phase, registration=registered, backup_service_requests=control.calls)
+                          phase=args.phase, registration=registered, backup_service_requests=control.calls,
+                          artifact_url=record["artifact_url"], artifact_sha256=record["artifact_sha256"],
+                          artifact_expires_at=record["artifact_expires_at"])
     except OperationError as error:
         result["failure"] = str(error)
     except BaseException:

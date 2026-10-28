@@ -17,6 +17,7 @@ import zlib
 
 from ownership import REPOSITORY, WORKFLOW, run_identity
 from programs import execute
+from recovery_recipe import validate as validate_recipe
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, require
 
 MAX_RUNS = 100
@@ -30,7 +31,7 @@ def number(value):
 
 
 def point(value, stream):
-    require(isinstance(value, dict) and set(value) == {
+    require(isinstance(value, dict) and set(value) - {"recipe"} == {
         "stream_id", "commit_id", "commit_sha256"}, "ci_history_point_fields")
     require(value["stream_id"] == stream, "ci_history_point_stream")
     canonical_uuid(value["commit_id"])
@@ -64,6 +65,8 @@ def ownership(raw, run, baseline):
     require(len({item["commit_id"] for item in observed}) == len(observed)
             and len({item["commit_id"] for item in recovered}) == len(recovered)
             and all(item in observed for item in recovered), "ci_history_point_closure")
+    if "recipe" in value:
+        validate_recipe(value["recipe"], recovered, value["owner"]["source"])
     return value
 
 
