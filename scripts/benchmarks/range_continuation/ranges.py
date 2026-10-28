@@ -77,6 +77,20 @@ def validate_cursor(cursor, previous, coordinate):
         raise RuntimeError("The range comparison identifier changed during continuation")
 
 
+def comparison_tag(node, request):
+    """A typed range order refuses a cursor without its comparison identifier.
+
+    The identifier binds the filter, fields, and scope, not the cursor position
+    or the page limit, so a one-record first page of the same query names it.
+    """
+    probe = {name: value for name, value in request.items() if name not in ("cursor", "offset")}
+    result, _ = node.call("/api/query", {**probe, "limit": 1})
+    tag = (result.get("next_cursor") or {}).get("comparison")
+    if result.get("has_more") is not True or not isinstance(tag, str):
+        raise RuntimeError("A range query page lacks its cursor comparison identifier")
+    return tag
+
+
 def walk(node, expected, request, label, baseline=False, *, reopened=False):
     wanted = selected(expected, request)
     offset = request.get("offset", 0)
