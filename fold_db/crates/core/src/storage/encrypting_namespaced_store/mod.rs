@@ -40,11 +40,6 @@ impl EncryptingNamespacedStore {
     pub(crate) fn should_encrypt(&self, namespace: &str) -> bool {
         namespace == "cas_blobs"
     }
-
-    /// Whether new values in this namespace receive the storage envelope.
-    pub fn encrypts_namespace(&self, namespace: &str) -> bool {
-        self.should_encrypt(namespace)
-    }
 }
 
 mod store_impl;
