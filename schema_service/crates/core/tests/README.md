@@ -2,11 +2,13 @@
 
 Tom requested these scoped tests on 2026-10-28.
 The general test retirement remains in force outside this target.
-The initial source under review is `04a5a906c48b40028fa57b6c5b1bc94e19bc4407`.
-That revision is the DEV schema-service pin and the head of LastDB PR 622.
+The baseline source is `04a5a906c48b40028fa57b6c5b1bc94e19bc4407` from LastDB PR 622.
+PR 651 adds the corrections and the automatic checks to accepted main.
 
 ## Run boundary
 
+The required `ci-required` gate calls the reusable workflow on each PR.
+Relevant main pushes and manual dispatch also run the workflow.
 Run the target in GitHub Actions:
 
 ```sh
@@ -54,9 +56,24 @@ The identity tests state these rules explicitly; they do not infer them from fie
 | Schema publication | Repost, field order, definition conflict, supplied field hash | Does not execute HTTP identity, quota, or proof-of-work gates. |
 | Reload and import | Reload consistency and invalid snapshot rejection | Memory reload is not a process crash or disk recovery. |
 
-Safety assertions remain active when source review predicts a failure.
+All 29 test cases keep their safety assertions active.
 No ignored test or expected-failure wrapper converts an invariant violation into success.
-A failure needs a decision about the rule or a product correction before the suite can pass.
+
+## Corrected boundaries
+
+Semantic admission reads the durable vocabulary before each commit attempt.
+The backend verifies that image inside its memory lock or S3 conditional write.
+A changed image forces admission again, with ten attempts maximum.
+The stale-image checks require rejection without partial schema, declaration, or field publication.
+
+A supplied field hash must match its canonical definition or a verified declaration.
+A declared alias must retain the declared description, type, and version.
+Normal publication also requires permission to reference that declaration.
+The checks preserve valid declared identities through publication and reload.
+
+Shared wire validation rejects malformed field names before identity lookup.
+The established hash format stays unchanged for accepted names.
+The collision case checks direct validation and JSON deserialization.
 
 ## Separate operational work
 
@@ -71,6 +88,7 @@ The following checks need a separate execution surface:
 7. Joins between molecules that already belong to separate proteins.
 8. A canonical-name or version change with an explicit existing-data conversion.
 9. Actual FastEmbed paraphrases, distinct units and roles, model failure, and version changes.
+10. Raw schema owner/name framing beyond the field-name delimiter check.
 
 Use fresh isolated homes for node operations. Never copy the primary or open its archive.
 Service tests cannot establish a migration of existing data.
