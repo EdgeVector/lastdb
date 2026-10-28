@@ -73,6 +73,7 @@ pub(super) async fn download(
 }
 
 pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
+    let mut parents = std::collections::BTreeSet::new();
     for entry in &root.entries {
         for part in &entry.parts {
             let name = fold_db::storage::disk_pack::mutation_log::log_path(
@@ -90,10 +91,20 @@ pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Resul
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
+            parents.insert(
+                path.parent()
+                    .ok_or(RestoreError::Invalid("mutation source parent"))?
+                    .to_path_buf(),
+            );
             session
                 .remove_spool_file(&session.root.join("entries").join(native::path_key(&name)))?;
         }
     }
+    // The cursor can skip this checkpoint only after every nested unlink is durable.
+    for parent in parents {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    std::fs::File::open(session.root.join("entries"))?.sync_all()?;
     std::fs::File::open(session.root.join("replay-files"))?.sync_all()?;
     super::cache::clear(session)
 }
