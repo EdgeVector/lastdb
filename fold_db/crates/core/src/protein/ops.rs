@@ -24,7 +24,7 @@ struct ProteinTipScope<'a> {
 
 impl AtomStore {
     /// Create a new empty protein (UUID identity). Membership is empty until
-    /// [`Self::protein_add_member`].
+    /// [`Self::protein_add_member_in_scope`].
     pub async fn protein_create(&self) -> Result<Protein, SchemaError> {
         let uuid = Uuid::new_v4().to_string();
         let protein = Protein::new(uuid);
@@ -58,15 +58,7 @@ impl AtomStore {
     /// Idempotent when the same molecule is already a member with the same
     /// key layout. Errors if the molecule is already bound to a *different*
     /// protein.
-    pub async fn protein_add_member(
-        &self,
-        protein_uuid: &str,
-        member: ProteinMember,
-    ) -> Result<Protein, SchemaError> {
-        self.with_protein_membership(self.protein_add_member_in_scope(protein_uuid, member))
-            .await
-    }
-
+    ///
     /// The caller holds `with_protein_membership` across selection and both binds.
     pub(crate) async fn protein_add_member_in_scope(
         &self,

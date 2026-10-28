@@ -278,7 +278,7 @@ pub fn shared_field_identities(
 /// there is nothing to establish: return `Ok(None)` before touching the store
 /// again. Without it, a steady-state call still paid four more reads (two
 /// `protein_of_molecule` + two `protein_get`, inside the two idempotent
-/// `protein_add_member` calls) and — worse — one unconditional durable
+/// `protein_add_member_in_scope` calls) and — worse — one unconditional durable
 /// `put_item` of the `fldprot:` breadcrumb.
 ///
 /// That breadcrumb write is why the fast path matters rather than merely being
