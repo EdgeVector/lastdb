@@ -148,13 +148,12 @@ pub(crate) fn post_schemas_mutation_challenge(
     }
 }
 
-/// Cert-free echo of an already-published `owner_app_id` schema, if any.
+/// Cert-free echo of an exact existing schema, including an unnamespaced one.
 fn idempotent_repost_response(
     state: &SchemaServiceState,
     schema: &schema_types::Schema,
     mutation_mappers: &HashMap<String, String>,
 ) -> Option<Result<Response<Body>, Error>> {
-    schema.owner_app_id.as_deref().filter(|s| !s.is_empty())?;
     let existing = state.classify_idempotent_repost(schema, mutation_mappers)?;
     let system = state.is_system_schema(&existing.name);
     Some(json_response(

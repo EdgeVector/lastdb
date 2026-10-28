@@ -59,11 +59,6 @@ fn idempotent_repost_response(
     state: &SchemaServiceState,
     request: &AddSchemaRequest,
 ) -> Option<HttpResponse> {
-    request
-        .schema
-        .owner_app_id
-        .as_deref()
-        .filter(|s| !s.is_empty())?;
     let existing = state.classify_idempotent_repost(&request.schema, &request.mutation_mappers)?;
     let system = state.is_system_schema(&existing.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
