@@ -212,7 +212,12 @@ impl PackNamespacedStore {
         };
         let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let v2 = physical::V2Home::new(home, cas);
+        let mut v2 = physical::V2Home::new(home, cas);
+        if resume_merges {
+            v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
+        } else {
+            super::cas_delete::require_clear(&v2)?;
+        }
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(v2, root, initializing, space::policy_from_env()?);

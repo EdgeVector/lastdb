@@ -111,6 +111,22 @@ jobs:
           if [ -s "$RUNNER_TEMP/disk-v2-node-proof.md" ]; then
             cat "$RUNNER_TEMP/disk-v2-node-proof.md" >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Interrupt a real CAS deletion and require normal reopen recovery
+        shell: bash
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          python3 candidate/scripts/disk_v2/cas_interrupt.py \
+            --candidate "$RUNNER_TEMP/programs/candidate/lastdbd" --candidate-revision "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/cas-delete-interruption" | tee "$RUNNER_TEMP/cas-delete-interruption.md"
+          cat "$RUNNER_TEMP/cas-delete-interruption.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cas-delete-interruption-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cas-delete-interruption
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         if: always()
         with:

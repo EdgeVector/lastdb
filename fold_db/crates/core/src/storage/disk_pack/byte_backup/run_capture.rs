@@ -65,6 +65,7 @@ pub(super) async fn prepare(
     crate::storage::disk_pack::run_blocking(move || {
         runtime.require_initialized()?;
         runtime.require_restore_validated()?;
+        super::super::cas_delete::require_clear(&runtime.physical)?;
         if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
             return Err(invalid("run capture writer recovery"));
         }

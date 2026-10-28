@@ -24,6 +24,10 @@ impl PreparedCommit {
     pub(super) fn space(&self) -> &SpaceReservation {
         &self.space
     }
+
+    pub(super) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
+        cas_delete::key_bytes(&self.operations)
+    }
 }
 
 /// New operations and added space; the accepted prefix stays in the queue.
