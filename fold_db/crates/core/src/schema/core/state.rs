@@ -60,16 +60,9 @@ impl SchemaCore {
         self.catalog_ready.load(Ordering::Acquire)
     }
 
-    /// Mark the in-memory catalog ready for list/query (production path after
-    /// the initial store scan, and after a full reload_from_store completes).
+    /// Mark the in-memory catalog ready for list/query after the initial store scan.
     pub(crate) fn mark_catalog_ready(&self) {
         self.catalog_ready.store(true, Ordering::Release);
-    }
-
-    /// Production path: begin a catalog rehydrate (e.g. full reload). While
-    /// false, `GET /api/schemas` returns 503 not-ready.
-    pub(crate) fn mark_catalog_not_ready(&self) {
-        self.catalog_ready.store(false, Ordering::Release);
     }
 
     pub fn get_schema_states(
