@@ -223,18 +223,7 @@ pub(crate) async fn post_schemas(
     let observation =
         state.observe_schema_mutation_gate(&schema, &mutation_mappers, offer_to_shared_discovery);
 
-    // Idempotent re-POST short-circuit (cert-free). Mirrors the
-    // actix shared handler in `server_shared::add_schema` so the
-    // Lambda — which has its own hand-rolled router and does NOT
-    // call the shared handler — also lets a brand-new dev (no
-    // DevCert) re-POST an already-published owner_app_id schema
-    // to learn its canonical hash. Before this short-circuit the
-    // cert gate below 401'd every such request, deadlocking
-    // `fbrain init` for every user who is not the publishing
-    // developer. The canonical body returned here is already
-    // publicly readable via `GET /v1/schemas` so echoing it leaks
-    // nothing beyond enumeration; Add / Expand / Conflict outcomes
-    // still flow through the cert gate.
+    // Validation precedes the cert-free echo of a public existing schema.
     if let Some(resp) = idempotent_repost_response(state, &schema, &mutation_mappers) {
         return resp;
     }
