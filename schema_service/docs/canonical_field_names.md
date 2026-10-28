@@ -38,6 +38,7 @@ An unchanged field can remain in the same stored schema family during migration.
 The app owner, schema descriptive name, field type, version, and description
 must match a stored definition. An existing field declaration can also retain
 its identity on a repeat declaration.
+The proposed field identity must also match the stored identity.
 
 A new schema family or declaration cannot create an abbreviated field.
 An incompatible type or version change also requires an acceptable name.

@@ -75,6 +75,21 @@ pub(crate) fn validate_new_field_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Match the identity that `ensure_field_hashes` will retain or compute.
+fn field_identity(schema: &Schema, name: &str) -> String {
+    schema.field_hashes.get(name).cloned().unwrap_or_else(|| {
+        schema_types::compute_field_hash(
+            name,
+            schema
+                .field_descriptions
+                .get(name)
+                .map_or("", String::as_str),
+            schema.get_field_type(name),
+            schema.field_versions.get(name).copied().unwrap_or(1),
+        )
+    })
+}
+
 impl SchemaServiceState {
     /// Grandfather only an unchanged field of the same stored schema family.
     /// A new app or descriptive name cannot reuse that exception, nor can a
@@ -104,6 +119,7 @@ impl SchemaServiceState {
         };
         let schemas = read_lock(&self.schemas, "schemas")?;
         for name in abbreviated {
+            let identity = field_identity(schema, name);
             let inherited_type = schema
                 .field_types
                 .get(name)
@@ -123,9 +139,7 @@ impl SchemaServiceState {
                             == schema.field_versions.get(name).copied().unwrap_or(1)
                         && existing.field_descriptions.get(name)
                             == schema.field_descriptions.get(name)
-                        && schema.field_hashes.get(name).is_none_or(|identity| {
-                            existing.field_hashes.get(name) == Some(identity)
-                        })
+                        && field_identity(existing, name) == identity
                 });
             if !unchanged {
                 validate_new_field_name(name).map_err(FoldDbError::Config)?;
