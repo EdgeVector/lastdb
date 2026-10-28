@@ -171,6 +171,18 @@ jobs:
               --jq '"Ownership artifact expires: " + .expires_at'
             printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save durable CI ownership before this run ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+          ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.ci-stream-artifact.outputs.artifact-digest }}
+        run: |
+          python3 scripts/cloud_backup/register_ownership.py \
+            --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
+            --artifact-sha256 "$ARTIFACT_DIGEST"
       - name: Record client provenance
         if: always() && steps.client-artifact.outcome == 'success'
         env:

@@ -15,7 +15,7 @@ import time
 import zipfile
 import zlib
 
-from ownership import REPOSITORY, WORKFLOW
+from ownership import REPOSITORY, WORKFLOW, run_identity
 from programs import execute
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, require
 
@@ -110,14 +110,15 @@ class History:
         except OperationError as error:
             raise OperationError("ci_history_github_response_invalid") from error
 
-    def candidate(self, run):
+    def candidate(self, run, finished=True):
         number(run["id"])
         number(run["run_attempt"])
         require(run["repository"]["full_name"] == run["head_repository"]["full_name"] == REPOSITORY
                 and run["path"] == WORKFLOW and run["head_branch"] == "main"
                 and run["event"] in ("push", "workflow_dispatch")
-                and run["status"] == "completed" and run["conclusion"] == "success"
                 and re.fullmatch(r"[0-9a-f]{40}", run["head_sha"]), "ci_history_trusted_run")
+        require((run["status"] == "completed" and run["conclusion"] == "success") if finished
+                else run["status"] in ("queued", "in_progress", "completed"), "ci_history_run_state")
         expected = f"cloud-ci-stream-{run['id']}-{run['run_attempt']}"
         directory = self.api(f"actions/runs/{run['id']}/artifacts?per_page=100")
         require(type(directory["total_count"]) is int and 0 <= directory["total_count"] <= 100
@@ -136,11 +137,27 @@ class History:
                 "ci_history_artifact_hash")
         identifier = number(artifact["id"])
         raw = self.api(f"actions/artifacts/{identifier}/zip", binary=True)
-        receipt = ownership(unzip(raw, digest[7:]), run, self.baseline)
-        completed = self.completion(run)
+        receipt_raw = unzip(raw, digest[7:])
+        receipt = ownership(receipt_raw, run, self.baseline)
+        completed = self.completion(run) if finished else None
         return {"ownership": receipt, "artifact_id": str(identifier), "artifact_sha256": digest[7:],
+                "archive": raw, "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
                 "artifact_url": f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}/artifacts/{identifier}",
                 "artifact_expires_at": artifact["expires_at"], "completed_at": completed}
+
+    def current(self, identifier, digest, source):
+        try:
+            owner = run_identity(source)
+            run = self.api(f"actions/runs/{owner['run_id']}/attempts/{owner['run_attempt']}")
+            require(str(run["id"]) == owner["run_id"]
+                    and str(run["run_attempt"]) == owner["run_attempt"]
+                    and run["head_sha"] == source, "ci_current_run_identity")
+            record = self.candidate(run, finished=False)
+            require(record is not None and record["artifact_id"] == identifier
+                    and record["artifact_sha256"] == digest, "ci_current_artifact_identity")
+            return record
+        finally:
+            self.environment.pop("GH_TOKEN", None)
 
     def completion(self, run):
         directory = self.api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")

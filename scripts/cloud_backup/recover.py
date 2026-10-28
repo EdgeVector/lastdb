@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 
 from node import OwnedNode
 from automatic import Automatic
+from ci_control import Control
 from ownership_history import History
 from programs import Programs
 from restore_receipts import restored
@@ -85,6 +86,16 @@ class Operation:
             "unknown_records": history.unknown_records, "invalid_records": history.invalid_records,
             "complete_directory": False, "provider_deletion_authority": False}
         credentials = self.credentials()
+        self.summary["stage"] = "ci-ownership-registration"
+        control = Control(self.baseline, self.api_key)
+        try:
+            control.context()
+            registered = [control.register(record) for record in self.prior_ci_streams]
+            self.summary["ci_ownership_registration"] = {
+                "registered": len(registered), "refresh": control.refresh(),
+                "provider_deletions": 0}
+        finally:
+            control.close()
         destination = self.root / "restored"
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")

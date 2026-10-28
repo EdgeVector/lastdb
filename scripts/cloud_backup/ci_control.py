@@ -1,0 +1,144 @@
+"""Bounded, account-scoped ownership calls; no provider administration authority."""
+
+import base64
+import http.client
+import json
+import re
+import socket
+import ssl
+import time
+from urllib.parse import urlsplit
+
+from support import ACCOUNT, OperationError, canonical_uuid, decode_json, dev_endpoint, require
+
+
+def decimal(value):
+    require(isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,19}", value)
+            and int(value) < 2**64, "ci_control_decimal")
+    return int(value)
+
+
+def digest(value):
+    require(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value), "ci_control_digest")
+    return value
+
+
+def no_deletion(value):
+    require(value.get("provider_deletion_authorized") is False
+            and type(value.get("provider_deletions")) is int
+            and value["provider_deletions"] == 0, "ci_registration_no_deletion")
+
+
+class Control:
+    def __init__(self, baseline, key):
+        require(baseline["account"] == ACCOUNT and isinstance(key, bytes)
+                and 0 < len(key) <= 4096 and all(32 <= byte <= 126 for byte in key),
+                "ci_control_credentials")
+        self.key = key.decode("ascii")
+        self.scope = {"account_id": ACCOUNT, "account_generation": baseline["account_generation"]}
+        decimal(self.scope["account_generation"])
+        self.baseline = {name: baseline[name] for name in ("stream_id", "commit_id", "commit_sha256")}
+        canonical_uuid(self.baseline["stream_id"])
+        canonical_uuid(self.baseline["commit_id"])
+        digest(self.baseline["commit_sha256"])
+        endpoint = urlsplit(dev_endpoint())
+        require(endpoint.scheme == "https" and endpoint.path == "" and endpoint.port is None,
+                "ci_control_dev_endpoint")
+        self.host = endpoint.hostname
+        self.deadline = time.monotonic() + 300
+        self.calls = 0
+
+    def close(self):
+        self.key = None
+
+    def post(self, route, extra):
+        require(self.key is not None and route in ("context", "register", "refresh"),
+                "ci_control_route")
+        remaining = self.deadline - time.monotonic()
+        require(remaining > 0, "ci_control_deadline")
+        request = {"version": 2, "scope": self.scope, **extra}
+        if route == "context":
+            request = {"version": 2, "account_id": ACCOUNT, "required_destinations": []}
+        body = json.dumps(request, allow_nan=False, separators=(",", ":")).encode()
+        require(len(body) <= 65536, "ci_control_request_size")
+        connection = http.client.HTTPSConnection(self.host, timeout=min(30, remaining),
+                                                 context=ssl.create_default_context())
+        try:
+            self.calls += 1
+            connection.request("POST", "/api/cloud/backups/v2/ci/" + route, body,
+                               {"X-API-Key": self.key, "Content-Type": "application/json"})
+            response = connection.getresponse()
+            require(response.status == 200 and response.getheader("Location") is None,
+                    "ci_control_service_refused")
+            length = response.getheader("Content-Length")
+            require(length is None or (length.isdecimal() and int(length) <= 65536),
+                    "ci_control_response_size")
+            raw = response.read(65537)
+            require(len(raw) <= 65536 and time.monotonic() <= self.deadline,
+                    "ci_control_response_bound")
+            value = decode_json(raw)
+            require(isinstance(value, dict) and type(value.get("version")) is int
+                    and value["version"] == 2 and "code" not in value, "ci_control_response")
+            return value
+        except (OSError, socket.timeout, http.client.HTTPException) as error:
+            # The caller can repeat only the same registration; never infer success.
+            raise OperationError("ci_control_transport_unknown") from error
+        finally:
+            connection.close()
+
+    def context(self):
+        value = self.post("context", {})
+        require(value.get("scope") == self.scope and value.get("new_work_allowed") is True,
+                "ci_control_account_context")
+        capabilities = value.get("capabilities")
+        require(isinstance(capabilities, dict) and capabilities.get("registration") is True,
+                "ci_registration_capability")
+        return capabilities
+
+    def register(self, record):
+        receipt = record["ownership"]
+        stream = canonical_uuid(receipt["stream_id"])
+        require(receipt["account"] == ACCOUNT
+                and receipt["account_generation"] == self.scope["account_generation"]
+                and stream != self.baseline["stream_id"], "ci_register_owned_scope")
+        archive = record["archive"]
+        require(isinstance(archive, bytes) and 0 < len(archive) <= 32768,
+                "ci_register_archive_bound")
+        value = self.post("register", {"artifact_id": record["artifact_id"],
+                          "archive_b64": base64.b64encode(archive).decode("ascii"),
+                          "baseline": self.baseline})
+        no_deletion(value)
+        require(value.get("registered") is True and value.get("stream_id") == stream
+                and value.get("artifact_id") == record["artifact_id"]
+                and value.get("receipt_sha256") == record["receipt_sha256"], "ci_register_identity")
+        digest(value.get("registration_sha256"))
+        completed = value.get("recovery_completed_ms")
+        require((value.get("state") == "waiting_run" and completed is None)
+                or (value.get("state") == "completed" and decimal(completed) > 0),
+                "ci_register_completion")
+        latest = value.get("latest_successful_stream")
+        if latest is not None:
+            canonical_uuid(latest)
+            require(latest != self.baseline["stream_id"], "ci_register_latest_scope")
+        return {"stream_id": stream, "state": value["state"],
+                "registration_sha256": value["registration_sha256"]}
+
+    def refresh(self):
+        after, records, promoted = None, 0, 0
+        for _page in range(5001):
+            value = self.post("refresh", {"after": after})
+            no_deletion(value)
+            require(value.get("scope") == self.scope and "after" in value
+                    and type(value.get("refreshed")) is int
+                    and 0 <= value["refreshed"] <= 2 and type(value.get("promoted")) is int
+                    and 0 <= value["promoted"] <= value["refreshed"], "ci_refresh_counts")
+            records += value["refreshed"]
+            promoted += value["promoted"]
+            cursor = value.get("after")
+            if cursor is None:
+                return {"registrations": records, "promoted": promoted, "complete": True}
+            canonical_uuid(cursor)
+            require(value["refreshed"] > 0 and (after is None or cursor > after),
+                    "ci_refresh_cursor_progress")
+            after = cursor
+        raise OperationError("ci_refresh_page_bound")

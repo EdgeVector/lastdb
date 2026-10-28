@@ -132,6 +132,22 @@ Malformed, unsupported or unverifiable older records also remain unknown; they d
 GitHub transport and directory failures stop the operation before cloud access.
 This read-only step does not classify a complete directory or delete cloud files.
 
+Before a new restore or upload, CI requires the isolated DEV ownership capability.
+It registers each verified historical receipt through the existing account key.
+The service independently verifies the immutable GitHub artifact and accepted backup points.
+CI then refreshes every durable registration page before it proceeds.
+A partial refresh or a service error fails the operation; it grants no deletion authority.
+
+After the successful receipt upload, CI saves that exact archive in the durable service registry.
+This non-destructive step runs within the existing serialized workflow.
+The service saves the active workflow attempt as `waiting_run`; this state cannot retire a stream.
+A later pre-upload refresh verifies the exact completed successful attempt before promotion.
+This preserves ownership after archive expiration, and for reruns of an old workflow that falls outside the bounded history.
+CI supplies no provider administration credential, GitHub token, or recovery phrase to these routes.
+The adapter permits only the compiled DEV endpoint and the fixed CI account.
+It requires bounded HTTPS responses, checks the exact registration identity, and refuses redirects.
+Ownership registration and refresh make no provider deletions or quota changes.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
