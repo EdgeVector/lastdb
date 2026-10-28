@@ -29,6 +29,8 @@ mod memory;
 pub mod mutation_log;
 mod namespace_delete;
 pub(in crate::storage) mod native_routing;
+#[cfg(feature = "peer-sync-spike")]
+pub mod peer_sync_spike;
 mod physical;
 mod physical_v2;
 mod queue;

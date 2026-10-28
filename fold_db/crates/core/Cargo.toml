@@ -5,6 +5,17 @@ version = "0.3.0"
 edition.workspace = true
 publish = false
 
+[features]
+# Experimental logical peer protocol. No node startup or API enables it.
+peer-sync-spike = []
+
+[[example]]
+name = "peer_sync_spike"
+path = "examples/peer_sync_spike/main.rs"
+required-features = ["peer-sync-spike"]
+test = false
+bench = false
+
 [dependencies]
 # Cryptography
 env_flag = { workspace = true }

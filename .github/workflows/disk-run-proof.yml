@@ -18,6 +18,11 @@ on:
       - 'fold_db/crates/core/examples/disk_v2_node_proof/**'
       - '.github/workflows/disk-run-proof.yml'
   workflow_dispatch:
+    inputs:
+      peer_sync_spike:
+        description: Run the isolated shared snapshot and device log prototype
+        type: boolean
+        default: false
   schedule:
     # Match the nightly benchmark and node cleanup schedule (UTC).
     - cron: "27 9 * * *"
@@ -90,4 +95,104 @@ jobs:
             ${{ runner.temp }}/run-home-proof.txt
             ${{ runner.temp }}/node-v2-proof.txt
           if-no-files-found: ignore
+          retention-days: 14
+
+  peer-sync-spike:
+    name: Isolated shared snapshot and device log operation
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.peer_sync_spike &&
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CANDIDATE_SHA: ${{ github.sha }}
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TERM_COLOR: never
+      NO_COLOR: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+      - name: Prepare isolated output and require the exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          result="$(mktemp -d "$RUNNER_TEMP/lastdb-peer-sync-spike-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.XXXXXX")"
+          echo "PEER_SYNC_OUTPUT=$result" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/peer-sync-spike-target-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          printf '%s\n' "$CANDIDATE_SHA" > "$result/source-revision.txt"
+          printf '%s\n' 'ubuntu-24.04; isolated native V2 homes; synthetic device mutations; no service or primary access' > "$result/recipe.txt"
+      - name: Check the operational command source syntax
+        run: python3 -m py_compile scripts/peer_sync_spike/run.py
+      - name: Lint and build only the opt-in prototype example
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          cargo clippy --locked -p fold_db --features peer-sync-spike --example peer_sync_spike -- -D warnings
+          cargo build --locked --release -p fold_db --features peer-sync-spike --example peer_sync_spike
+          sha256sum "$CARGO_TARGET_DIR/release/examples/peer_sync_spike" > "$PEER_SYNC_OUTPUT/program-sha256.txt"
+      - name: Execute the isolated prototype commands
+        id: operation
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/peer_sync_spike/run.py \
+            --binary "$CARGO_TARGET_DIR/release/examples/peer_sync_spike" \
+            --revision "$CANDIDATE_SHA" --output "$PEER_SYNC_OUTPUT/operation"
+      - name: Publish the available operation summary
+        if: ${{ always() && env.PEER_SYNC_OUTPUT != '' }}
+        shell: bash
+        run: |
+          if [ -s "$PEER_SYNC_OUTPUT/operation/summary.md" ]; then
+            cat "$PEER_SYNC_OUTPUT/operation/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' '## Shared snapshot and device log operation incomplete' "Source: $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload results without native homes or programs
+        id: upload
+        if: ${{ always() && env.PEER_SYNC_OUTPUT != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: peer-sync-spike-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PEER_SYNC_OUTPUT }}/source-revision.txt
+            ${{ env.PEER_SYNC_OUTPUT }}/recipe.txt
+            ${{ env.PEER_SYNC_OUTPUT }}/program-sha256.txt
+            ${{ env.PEER_SYNC_OUTPUT }}/operation/summary.md
+            ${{ env.PEER_SYNC_OUTPUT }}/operation/results.json
+            ${{ env.PEER_SYNC_OUTPUT }}/operation/commands.jsonl
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify the result artifact source, checksum and expiration
+        id: receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/peer-sync-spike-artifact-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$metadata"
+          jq -e --arg source "$CANDIDATE_SHA" --argjson run "$GITHUB_RUN_ID" \
+            '.workflow_run.head_sha == $source and .workflow_run.id == $run' "$metadata"
+          python3 scripts/benchmarks/artifact.py --metadata "$metadata" \
+            --output "$RUNNER_TEMP/peer-sync-spike-receipt-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Retain the verified result download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: peer-sync-spike-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/peer-sync-spike-receipt-${{ github.run_id }}-${{ github.run_attempt }}/artifact.json
+          if-no-files-found: error
           retention-days: 14
