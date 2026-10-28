@@ -349,8 +349,8 @@ Quota admission adds the excluded metadata and temporary bytes separately.
 The service verifies the full reference tree and the separate authoritative ManifestIndex receipt.
 That check does not prove encrypted native semantics.
 The importer verifies the decrypted index, all page contexts, receipt membership, file hashes, extents, totals, and exact native inventory.
-It checks that the index job, native root, reference root, and recovery commitment equal the selected AcceptedBackup values.
-It calls validate_for_accepted only after byte-hash verification and authenticated decryption of that selected index object.
+It checks that the index job, native root, reference root, and recovery commitment equal the selected accepted backup values.
+That comparison runs only after byte-hash verification and authenticated decryption of that selected index object.
 
 Manifest encryption uses existing account envelope v1:
 one version byte, 12-byte random nonce, ciphertext, and 16-byte tag.
@@ -487,6 +487,7 @@ An authenticated request body never grants authority by itself.
 
 The crate does not include the v1 references/put messages. No caller remains.
 The crate does not include the v1 reference-page or transfer messages. The live inventory and transfer messages are the v2 types.
+The crate does not include the v1 job or publication messages. The live job and publication messages are the v2 types.
 The crate does not include the v1 source/read messages. No caller remains.
 The crate does not include the v1 context, usage, or discovery messages. No caller remains. The live messages are the v2 types.
 
