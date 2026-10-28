@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod blocking;
 pub mod byte_backup;
+mod cas_delete;
 mod cleanup;
 mod cloud_work;
 mod diagnostics;

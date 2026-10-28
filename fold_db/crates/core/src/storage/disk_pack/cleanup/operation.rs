@@ -59,6 +59,7 @@ impl PackRuntime {
 
     fn finish_cleanup(&self) -> StorageResult<NativeCleanupStatus> {
         self.require_cleanup_safe()?;
+        super::super::cas_delete::require_clear(&self.physical)?;
         self.adopt_merged_root();
         let mut status = self.cleanup_job.get();
         status.main = progress(&self.physical.home, status.main.removed_files);

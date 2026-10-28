@@ -38,14 +38,25 @@ impl PackRuntime {
         RunHome::check_mutations(&operations).map_err(map)?;
         let limit = self.batch_operation_limit();
         let batch_bytes = write::prefix_batch_bytes(previous, &operations, limit)?;
+        let intent_bytes = cas_delete::space(&operations)?
+            + previous
+                .map(write::PreparedCommit::cas_delete_space)
+                .transpose()?
+                .unwrap_or(0);
+        if intent_bytes > laststore::disk_run::home::MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
+            return Err(StorageError::WriteResourceLimit {
+                detail: "CAS intent prefix exceeds its byte bound".into(),
+            });
+        }
+        let reserved_bytes = batch_bytes.saturating_add(intent_bytes);
         // A run file holds about the batch bytes; a merge reuses the space
         // of the runs it replaces once their last read ends.
         let space = match previous {
             Some(previous) => previous
                 .space()
-                .reserve_extension(&self.space_policy, batch_bytes),
+                .reserve_extension(&self.space_policy, reserved_bytes),
             None => {
-                laststore::space::reserve_space(v2.home.path(), &self.space_policy, batch_bytes)
+                laststore::space::reserve_space(v2.home.path(), &self.space_policy, reserved_bytes)
             }
         }
         .map_err(map)?;
@@ -66,14 +77,19 @@ impl PackRuntime {
         (hidden_changes, key_changes): Changes<'_>,
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        let mut journal = self.mutation_log.begin(v2);
-        if let Err(error) = commit_split(v2, operations, journal.as_mut()) {
+        let result = (|| {
+            cas_delete::require_clear(v2)?;
+            let mut journal = self.mutation_log.begin(v2);
+            commit_split(v2, operations, journal.as_mut())?;
+            if let Some(journal) = journal {
+                journal.finish(v2);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
             self.failed.store(true, Ordering::Release);
             *self.failed_write.lock().expect("native failed write owner") = Some(space);
-            return Err(map(error));
-        }
-        if let Some(journal) = journal {
-            journal.finish(v2);
+            return Err(error);
         }
         // The current roots hold this commit; a merge root holds the same data.
         let root = v2.current_root();
@@ -131,9 +147,9 @@ fn commit_split(
     v2: &V2Home,
     operations: Vec<HomeMutation>,
     mut journal: Option<&mut mutation_log::Recording<'_>>,
-) -> laststore::Result<()> {
+) -> StorageResult<()> {
     if !operations.iter().any(|op| op.collection == CAS_COLLECTION) {
-        let committed = v2.home.commit(operations)?;
+        let committed = v2.home.commit(operations).map_err(map)?;
         if let Some(log) = journal.as_mut() {
             log.retain(mutation_log::CommitRole::Main, &committed);
         }
@@ -147,28 +163,27 @@ fn commit_split(
         last.insert(op.key.clone(), op);
     }
     let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
+    cas_delete::save(v2, !puts.is_empty(), !main.is_empty(), &deletes)?;
     for (home, batch, role) in [
         (&v2.cas, puts, mutation_log::CommitRole::CasAdd),
         (&v2.home, main, mutation_log::CommitRole::Main),
     ] {
         if !batch.is_empty() {
-            let committed = home.commit(batch)?;
+            let committed = home.commit(batch).map_err(map)?;
             if let Some(log) = journal.as_mut() {
                 log.retain(role, &committed);
             }
         }
     }
-    // The other records are durable now, so the commit has succeeded. A
-    // failed CAS delete leaves files that nothing references; a poisoned
-    // CAS home refuses the next CAS commit.
+    // Main publication is durable. A later failure is an uncertain commit,
+    // never a logical refusal. Fail the runtime and retain the authenticated
+    // intent; reopen finishes it before any reader or writer can reuse a key.
     if !deletes.is_empty() {
-        if let Err(error) = v2.cas.commit(deletes).map(|committed| {
-            if let Some(log) = journal.as_mut() {
-                log.retain(mutation_log::CommitRole::CasDelete, &committed);
-            }
-        }) {
-            tracing::warn!(%error, "disk run CAS delete failed after its commit; unreferenced CAS files remain");
+        let committed = v2.cas.commit(deletes).map_err(map)?;
+        if let Some(log) = journal.as_mut() {
+            log.retain(mutation_log::CommitRole::CasDelete, &committed);
         }
+        v2.home.clear_cas_delete_checkpoint().map_err(map)?;
     }
     Ok(())
 }

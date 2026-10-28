@@ -73,3 +73,22 @@ removal.
 These checks cover native CAS cleanup after logical deletion. Blob upload
 and dwell decisions remain separate. Nightly and manual runs use separate
 run IDs. PR updates cancel only older runs for the same PR.
+
+## Interrupted CAS deletion
+
+A compound native batch writes CAS additions, main records, then CAS deletions.
+Before either store changes, an authenticated local intent saves the deletion keys and both exact frontiers.
+Admission reserves its bounded disk space before the request enters the accepted queue.
+The intent contains no file body or encryption key.
+
+A failure after main publication stops the native runtime and reports an uncertain commit.
+The caller must not treat that error as a rejected mutation with no disk effect.
+The next normal open resolves the intent before any read, write, or merge worker starts.
+If main publication did not occur, it keeps the blobs.
+If main publication completed, it finishes the CAS deletion or recognizes its already-complete frontier.
+An unexpected home identity or frontier stops recovery without a guessed deletion.
+
+A stopped-home backup refuses an unresolved intent and changes neither store.
+A live capture and the cleanup completion check also refuse an unresolved intent.
+A recovered native frontier outside the complete mutation log requires a new snapshot through the existing gap rule.
+This recovery does not remove old cloud backups or repair unrelated historical CAS orphans.
