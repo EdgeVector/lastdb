@@ -490,6 +490,7 @@ The crate does not include the v1 reference-page or transfer messages. The live 
 The crate does not include the v1 job or publication messages. The live job and publication messages are the v2 types.
 The crate does not include the v1 source/read messages. No caller remains.
 The crate does not include the v1 context, usage, or discovery messages. No caller remains. The live messages are the v2 types.
+The crate does not include the v1 manifest page or manifest index messages. NativeRoot, object extents, and file dependencies stay. The live inventory messages are the v2 types.
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
