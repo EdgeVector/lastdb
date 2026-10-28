@@ -133,8 +133,7 @@ fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), 
                 [] => None,
                 _ => {
                     return Err(format!(
-                        "ambiguous catalog field for {}.{field}",
-                        binding_name
+                        "ambiguous catalog field for {binding_name}.{field}"
                     ))
                 }
             }
