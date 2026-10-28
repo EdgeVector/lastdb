@@ -7,17 +7,33 @@ impl DeclarativeSchemaDefinition {
         self.validate_key_field_types()
     }
 
-    /// Reject the removed internal record field in schemas and mutations.
+    /// Reject reserved names and characters that make field identities ambiguous.
+    ///
+    /// Schema identity separates field names with commas and key parts with
+    /// colons. Keep that established hash format while refusing names that
+    /// can escape those boundaries. Dotted paths and ordinary Unicode names
+    /// remain valid at this shared wire boundary.
     pub fn validate_field_name(name: &str) -> Result<(), String> {
         if matches!(name, "\u{1f}record" | "__record") {
             return Err(format!(
                 "field name {name:?} is reserved and is not supported"
             ));
         }
+        if name.is_empty()
+            || name.chars().any(|character| {
+                character.is_whitespace()
+                    || character.is_control()
+                    || matches!(character, ',' | ':')
+            })
+        {
+            return Err(format!(
+                "field name {name:?} must be nonempty and cannot contain whitespace, control characters, commas, or colons"
+            ));
+        }
         Ok(())
     }
 
-    /// Removed internal record fields cannot become ordinary field molecules.
+    /// Malformed field names cannot become ordinary field molecules.
     /// Validate programmatic definitions as well as their JSON wire form.
     pub fn validate_field_names(&self) -> Result<(), String> {
         let mut names = self

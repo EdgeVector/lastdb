@@ -1,6 +1,7 @@
 //! One conditional S3 image holds schemas, canonical fields and declarations.
 
 use super::*;
+use schema_service_core::CanonicalVocabularyWrite;
 
 const DEFINITIONS_KEY: &str = "definitions.json";
 const REGISTRY_ITEM: &str = "registry";
@@ -63,13 +64,18 @@ impl S3BlobPersistence {
         &self,
         schemas: &[Schema],
         fields: &[(String, CanonicalField)],
+        vocabulary: Option<&CanonicalVocabularyWrite>,
     ) -> FoldDbResult<()> {
         if schemas.is_empty() && fields.is_empty() {
             return Ok(());
         }
         let schemas = schemas.to_vec();
         let fields = fields.to_vec();
+        let vocabulary = vocabulary.cloned();
         self.update_definition_set(move |definitions| {
+            if let Some(vocabulary) = &vocabulary {
+                vocabulary.verify(&definitions.canonical_fields)?;
+            }
             definitions.canonical_fields =
                 schema_service_core::field_name_policy::canonical_fields_after_insert(
                     &definitions.canonical_fields,
@@ -90,11 +96,16 @@ impl S3BlobPersistence {
         record: &DeclaredFieldRecord,
         fields: &[(String, CanonicalField)],
         expected: Option<&DeclaredFieldRecord>,
+        vocabulary: Option<&CanonicalVocabularyWrite>,
     ) -> FoldDbResult<()> {
         let record = record.clone();
         let fields = fields.to_vec();
         let expected = expected.cloned();
+        let vocabulary = vocabulary.cloned();
         self.update_definition_set(move |definitions| {
+            if let Some(vocabulary) = &vocabulary {
+                vocabulary.verify(&definitions.canonical_fields)?;
+            }
             schema_service_core::declared_fields::validate_declaration_commit(
                 &definitions.declared_fields,
                 &record,
