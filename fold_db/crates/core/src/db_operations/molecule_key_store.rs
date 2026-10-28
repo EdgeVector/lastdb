@@ -31,8 +31,7 @@ mod metadata_batch;
 mod share;
 
 pub(crate) use frozen::{
-    node_bundle_storage_keys, open_frozen_node_bundle, typed_frozen_metadata,
-    verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
+    node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, CachedMoleculeContract>>>;
@@ -40,9 +39,9 @@ pub use bundle::MoleculeKeyBundle;
 
 #[derive(Clone)]
 pub(crate) struct CachedMoleculeContract {
-    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
     bundle: Option<MoleculeKeyBundle>,
-    conflict_identity: Option<ConflictKeyIdentity>,
+    conflict_identity: ConflictKeyIdentity,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -63,18 +62,6 @@ struct BundleMetadata {
     key_authority: Option<KeyAuthority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     conflict_identity: Option<ConflictKeyIdentity>,
-}
-
-impl BundleMetadata {
-    /// Current homes have no typed profile. Refuse a profile rather than ignore
-    /// it until the complete typed runtime and logical format are published.
-    fn is_legacy_for(&self, molecule: &str) -> bool {
-        self.version == BUNDLE_VERSION
-            && self.molecule_uuid == molecule
-            && self.range_profile.is_none()
-            && self.key_authority.is_none()
-            && self.conflict_identity.is_none()
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -128,12 +115,10 @@ impl MoleculeKeyStore {
         self.entries.inner().flush().await
     }
 
-    /// Establish every final field molecule's keys before schema publication.
+    /// Load every final field molecule's established keys. Only schema
+    /// publication mints keys.
     pub async fn ensure_schema(&self, schema: &Schema) -> StorageResult<()> {
-        if self.is_typed() {
-            return self.load_schema(schema).await;
-        }
-        self.establish_schema(schema).await
+        self.load_schema(schema).await
     }
 
     /// Only schema publication may mint new typed contracts. Existing fields
@@ -143,10 +128,8 @@ impl MoleculeKeyStore {
         schema: &Schema,
         existing: Option<&Schema>,
     ) -> StorageResult<()> {
-        if self.is_typed() {
-            if let Some(existing) = existing {
-                self.load_schema(existing).await?;
-            }
+        if let Some(existing) = existing {
+            self.load_schema(existing).await?;
         }
         self.establish_schema(schema).await
     }

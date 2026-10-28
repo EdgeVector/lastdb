@@ -49,7 +49,7 @@ An unexpected error or an incomplete candidate operation fails the workflow.
 
 Both variants receive a complete known-key prefill immediately before the latency sample, after the broad walks.
 The latency comparison uses 32 identical 128-key intervals with 64-record pages.
-Two matched pairs run for plain and encrypted key configurations.
+Two matched pairs run on format 4 homes: blinded hash keys and typed range keys.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.

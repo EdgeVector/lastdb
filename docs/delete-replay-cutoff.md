@@ -30,16 +30,9 @@ Offline recount uses a separate instance that reads disk and cannot use the serv
 Raw replay cannot write or delete either cutoff metadata record, even on an ordinary home.
 A snapshot restore opens a new process and validates its own restored floor.
 
-The CAS-only wrapper format uses the opt-in marker `6;delete-replay-cutoff=v1`.
-An ordinary CAS-only wrapper home keeps format `6`.
-Older serving programs refuse the new markers.
-A floor without the matching marker, or a marker without its floor, prevents startup.
-Startup does not rewrite an older wrapper format.
-
-The separate-target wrapper converter accepts ordinary format `4` and `5` sources.
-It explicitly refuses `5;delete-replay-cutoff=v1` before its first data change.
-That source needs a converter that preserves its replay floor.
-Do not remove its marker or floor to bypass the refusal.
+A format 4 home keeps the floor beside the logical key format `7;typed-ranges=v1`.
+A home without a floor record has cutoff 0. A malformed floor record prevents startup.
+Startup does not rewrite an older home. The program has no converter for an older home.
 
 ## TTL replay
 

@@ -1,8 +1,7 @@
 //! The explicit range contract of one molecule in the typed logical format.
 //!
 //! The physical run format and the encrypted key bundle have separate versions.
-//! This profile belongs in one molecule metadata row, never in each key. A
-//! missing profile is a legacy format, not permission to infer a field type.
+//! This profile belongs in one molecule metadata row, never in each key.
 
 use crate::{range_storage_profile::RangeStorageProfile, FieldValueType};
 use serde::{Deserialize, Serialize};
@@ -26,36 +25,22 @@ impl MoleculeRangeProfile {
         }
     }
 
-    /// The legacy payload cannot enter a typed-format metadata record.
-    pub fn validate(self) -> Result<(), String> {
-        match self {
-            Self::TypedV1 {
-                scalar: RangeStorageProfile::LegacyUtf8V1,
-            } => Err("a typed molecule requires an explicit scalar range profile".into()),
-            _ => Ok(()),
-        }
-    }
-
     /// Direct field reads use this domain without a second schema lookup.
-    pub fn comparison_type(self) -> Result<FieldValueType, String> {
-        self.validate()?;
+    #[must_use]
+    pub fn comparison_type(self) -> FieldValueType {
         match self {
-            Self::EmptyV1 => Ok(FieldValueType::String),
+            Self::EmptyV1 => FieldValueType::String,
             Self::TypedV1 { scalar } => match scalar {
-                RangeStorageProfile::StringUtf8V1 => Ok(FieldValueType::String),
-                RangeStorageProfile::IntegerI64V1 => Ok(FieldValueType::Integer),
-                RangeStorageProfile::DateDaysV1 => Ok(FieldValueType::Date),
-                RangeStorageProfile::DateTimeNanosV1 => Ok(FieldValueType::DateTime),
-                RangeStorageProfile::BooleanV1 => Ok(FieldValueType::Boolean),
-                RangeStorageProfile::LegacyUtf8V1 => {
-                    Err("a typed profile cannot use legacy order".into())
-                }
+                RangeStorageProfile::StringUtf8V1 => FieldValueType::String,
+                RangeStorageProfile::IntegerI64V1 => FieldValueType::Integer,
+                RangeStorageProfile::DateDaysV1 => FieldValueType::Date,
+                RangeStorageProfile::DateTimeNanosV1 => FieldValueType::DateTime,
+                RangeStorageProfile::BooleanV1 => FieldValueType::Boolean,
             },
         }
     }
 
     pub fn encode_value(self, api: &str) -> Result<String, String> {
-        self.validate()?;
         match self {
             Self::EmptyV1 => empty_slot(api),
             Self::TypedV1 { scalar } => scalar.encode_value(api),
@@ -63,7 +48,6 @@ impl MoleculeRangeProfile {
     }
 
     pub fn decode_value(self, stored: &str) -> Result<String, String> {
-        self.validate()?;
         match self {
             Self::EmptyV1 => empty_slot(stored),
             Self::TypedV1 { scalar } => scalar.decode_value(stored),
@@ -71,26 +55,24 @@ impl MoleculeRangeProfile {
     }
 
     pub fn require_text_prefix(self) -> Result<(), String> {
-        self.validate()?;
         match self {
             Self::EmptyV1 => Err("a molecule without a range field has no text prefix".into()),
             Self::TypedV1 { scalar } => scalar.require_text_prefix(),
         }
     }
 
-    pub fn format_id(self) -> Result<&'static str, String> {
-        self.validate()?;
-        Ok(match self {
+    #[must_use]
+    pub fn format_id(self) -> &'static str {
+        match self {
             Self::EmptyV1 => "empty-v1",
             Self::TypedV1 { scalar } => match scalar {
-                RangeStorageProfile::LegacyUtf8V1 => "legacy-utf8-v1",
                 RangeStorageProfile::StringUtf8V1 => "string-utf8-v1",
                 RangeStorageProfile::IntegerI64V1 => "integer-i64-v1",
                 RangeStorageProfile::DateDaysV1 => "date-days-v1",
                 RangeStorageProfile::DateTimeNanosV1 => "date-time-nanos-v1",
                 RangeStorageProfile::BooleanV1 => "boolean-v1",
             },
-        })
+        }
     }
 }
 

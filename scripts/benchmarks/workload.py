@@ -120,9 +120,6 @@ class Workload:
             save(self.output / "seed-native-status.json", self.node.call("/api/db/native-status")[0])
             save(self.output / "seed-version.json", json.loads((self.output / "version.json").read_text()))
         self.node.stop()
-        if self.recipe.get("typed_range_target"):
-            from typed_ranges import convert
-            convert(self.node)
         if self.upgrade_target:
             save(self.output / "seed-shutdown.json", json.loads((self.output / "shutdown.json").read_text()))
             save(self.output / "upgrade-source.json", {

@@ -47,39 +47,22 @@ impl MoleculeKeyStore {
             .bundle
             .as_ref()
             .map_or_else(|| configured.clone(), |bundle| bundle.key_codec(configured));
-        match (contract.range_profile, contract.conflict_identity) {
-            (None, None) => Ok(Some(codec)),
-            (Some(profile), Some(identity)) => codec
-                .for_typed_home()
-                .with_range_profile(profile)
-                .map(|codec| Some(codec.with_conflict_identity(identity)))
-                .map_err(|_| {
-                    StorageError::InvalidOperation("the molecule range profile is invalid".into())
-                }),
-            _ => Err(StorageError::InvalidOperation(
-                "the molecule history identity is missing".into(),
-            )),
-        }
+        codec
+            .for_typed_home()
+            .with_range_profile(contract.range_profile)
+            .map(|codec| Some(codec.with_conflict_identity(contract.conflict_identity)))
+            .map_err(|_| {
+                StorageError::InvalidOperation("the molecule range profile is invalid".into())
+            })
     }
 
     pub(super) fn remember_contract(
         &self,
         molecule: &str,
-        profile: Option<MoleculeRangeProfile>,
-        identity: Option<ConflictKeyIdentity>,
+        profile: MoleculeRangeProfile,
+        identity: ConflictKeyIdentity,
         bundle: Option<MoleculeKeyBundle>,
     ) -> StorageResult<()> {
-        if self.is_typed() != profile.is_some()
-            || profile.is_some() != identity.is_some()
-            || (profile.is_none() && bundle.is_none())
-        {
-            return Err(StorageError::InvalidOperation(
-                "invalid molecule memory contract".into(),
-            ));
-        }
-        if let Some(profile) = profile {
-            profile.validate().map_err(StorageError::InvalidOperation)?;
-        }
         let contract = CachedMoleculeContract {
             range_profile: profile,
             bundle,

@@ -180,23 +180,15 @@ pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
     run_layout_status_line(store_root).into_iter().collect()
 }
 
-/// The node marker of a disk format v2 home names its run homes.
-/// Format 3 keeps legacy range keys. Format 4 is the default typed range home.
+/// The node marker of a format 4 home (disk format v2, typed ranges) names its run homes.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
-    let line = match marker.as_slice() {
-        b"format=3\nhome=disk-run\ncas=disk-cas\n" => {
-            "Layout: disk format v2 run homes (disk-run for records, disk-cas for CAS files; \
-             one sorted run file per commit, merged in the background)"
-        }
-        b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n" => {
-            "Layout: disk format v2 typed range homes (disk-run for records, \
-             disk-cas for CAS files; typed range keys; one sorted run file per commit, \
-             merged in the background)"
-        }
-        _ => return None,
-    };
-    Some(line.to_string())
+    (marker.as_slice() == b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n").then(|| {
+        "Layout: disk format v2 typed range homes (disk-run for records, \
+         disk-cas for CAS files; typed range keys; one sorted run file per commit, \
+         merged in the background)"
+            .to_string()
+    })
 }
 
 #[path = "status_ops_cmds/ops_rollup.rs"]

@@ -32,23 +32,6 @@ pub fn refuse_primary(path: &Path) -> Result<(), String> {
     refuse_primary_under(&user_home()?, path)
 }
 
-/// The range-conversion inventory never accepts a primary or an archive,
-/// including through a symlink. It has no primary override.
-pub fn refuse_primary_or_archive(path: &Path) -> Result<(), String> {
-    refuse_primary(path).map_err(|_| {
-        "refusing a primary or legacy home; select a stopped development home".to_string()
-    })?;
-    let selected = canonicalize_lenient(path);
-    if selected.components().any(|part| {
-        part.as_os_str()
-            .to_string_lossy()
-            .starts_with(".primary-lastdb-archive-")
-    }) {
-        return Err("refusing an archived primary; select a stopped development home".into());
-    }
-    Ok(())
-}
-
 fn refuse_primary_under(user_home: &Path, path: &Path) -> Result<(), String> {
     let abs = canonicalize_lenient(path);
     for name in PRIMARY_HOME_DIR_NAMES {

@@ -2,6 +2,11 @@
 
 Canonical brief: brain `design-lastdb-rangekey-ope-v1`.
 
+Status: no node home uses OPE v1. A format 4 home stores the typed range
+profile payload as plain bytes inside encrypted run blocks
+(`docs/designs/typed-range-field-contract.md`). The codec keeps OPE v1 until a
+later codec cleanup.
+
 Sibling: `DESIGN_HASHKEY_BLIND_V1.md` / `design-lastdb-hashkey-blind-v1`.
 
 ## Summary
@@ -9,8 +14,7 @@ Sibling: `DESIGN_HASHKEY_BLIND_V1.md` / `design-lastdb-hashkey-blind-v1`.
 - Make RangeKey **not greppable** in storage ids (`mk:` / `mhr:`).
 - **Order leakage is accepted** (not ORE).
 - API / SDK still use **plaintext** RangeKey; OPE is internal storage encoding.
-- Product default (env unset): **`ope_v1`**. Explicit `plain` for tests/opt-out
-  (`LASTDB_RANGE_KEY_ENCODING=plain|ope_v1`).
+- No setting selects OPE v1 for a node home.
 
 ## Combined with HashKey blind
 
