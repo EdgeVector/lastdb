@@ -6,7 +6,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 pub(super) struct Ownership {
     _node: File,
-    node_identity: (u64, u64, u32, u64, i64, i64),
+    node_identity: (u64, u64, u32, u32, u64, u64, i64, i64),
     directories: Vec<(u64, u64, u32, u32)>,
     currents: [Digest; 2],
 }
@@ -188,12 +188,14 @@ impl Ownership {
     }
 }
 
-fn node_identity(info: &std::fs::Metadata) -> (u64, u64, u32, u64, i64, i64) {
+fn node_identity(info: &std::fs::Metadata) -> (u64, u64, u32, u32, u64, u64, i64, i64) {
     (
         info.dev(),
         info.ino(),
+        info.uid(),
         info.mode(),
         info.nlink(),
+        info.len(),
         info.mtime(),
         info.mtime_nsec(),
     )

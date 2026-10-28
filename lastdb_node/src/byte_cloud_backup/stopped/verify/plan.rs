@@ -36,7 +36,12 @@ pub(super) fn build(manifest: &manifest::Manifest, store: &Store) -> Result<Plan
     let mut metadata_bytes = 0u64;
     let mut descriptor_hash = Sha256::new();
     descriptor_hash.update(b"lastdb:stopped-byte-source-manifest:v1\0");
-    if manifest.objects == 0 || manifest.native_files == 0 {
+    if manifest.objects == 0
+        || manifest.native_files == 0
+        || manifest.objects
+            > (cloud_backup_protocol::v2::limits::MAX_PAGES
+                * cloud_backup_protocol::v2::limits::MAX_PAGE_ENTRIES) as u64
+    {
         return Err(BackupError::Invalid);
     }
     for index in 0..manifest.objects {

@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::durability::sync_dirty_file;
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 
 /// Every published home can enter read-only admission before a writer opens.
 pub(super) fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
