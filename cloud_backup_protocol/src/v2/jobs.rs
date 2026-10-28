@@ -148,4 +148,3 @@ impl JobCloseRequest {
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
-
