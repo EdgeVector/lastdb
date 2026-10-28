@@ -2,7 +2,7 @@
 
 Status: isolated implementation spike. Tom approved the concept and requested this prototype.
 The prototype implementation is prepared for review. Tom approved the manual CI job and run on 2026-10-28.
-Build and operational evidence remain pending.
+The Ubuntu prototype build and operation passed at `3a9a9eee04dceb3a775ea3fefe7decca501d0e6b`.
 The spike PR closes after review of that evidence; it does not merge into the product.
 
 ## Scope
@@ -134,7 +134,8 @@ adopt ROOT SNAPSHOT
 `get` returns a JSON string or null. `range` returns `items` and `next`; a dash starts the first page.
 Each returned cursor has an `after:` prefix and an encoded key. Pass that cursor unchanged to continue, including after a literal dash key.
 An empty range page can still return a cursor after retained Delete records.
-`batch` returns its native durable write time. Process time also includes command startup and reopen.
+`batch` reports the complete author-to-durable call, including signatures, validation, preparation, and commit.
+Process time also includes command startup and reopen.
 `export` returns `entries`, `bytes`, and `last_sequence`. Its file contains the encrypted packet.
 `dump` writes actual live Change records as JSON lines through bounded range pages.
 The CI script records Linux's largest completed child-process memory peak across the complete operation.
@@ -148,6 +149,17 @@ Results remain in CI artifacts for 14 days. Raw results do not enter Git.
 
 Tom approved this opt-in CI patch and its execution on 2026-10-28. The current disk proof jobs remain unchanged.
 Builds, clippy, and all prototype execution stay in CI. No local product command supplies substitute evidence.
+
+## CI conclusion
+
+The [Ubuntu operation](https://github.com/EdgeVector/lastdb/actions/runs/40789775178/job/123171809795) completed 72 commands on fresh encrypted V2 homes.
+Both peers returned the same 131 live records and source positions through keyed reads and paged ranges.
+Adoption preserved three uncovered events and the unpublished local value. Gap and duplicate delivery produced the expected results.
+CI verified the source, program checksum, uploaded result checksum, and artifact expiration. It also removed its temporary homes.
+
+This result supports the protocol direction and reuse of V2 without a new disk format.
+It establishes a bounded prototype result. It supplies no production integration, crash interruption, steady-state growth, or latency comparison.
+Keep the prototype branch as reference. The next production change should connect accepted logical events and positions to the existing mutation transaction.
 
 ## Remaining production work
 
