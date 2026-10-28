@@ -105,6 +105,7 @@ pub(crate) async fn load_app_single_catalog_binding(
 /// Keep the catalog hop: flattening its cross-key mapper bypasses the catalog's
 /// own ordered molecule and routes an app range read onto its hash-only sibling.
 fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), String> {
+    let binding_name = binding.name.clone();
     let Some(mappers) = binding.field_mappers.as_mut() else {
         return Ok(());
     };
@@ -129,7 +130,7 @@ fn anchor_binding_mappers(binding: &mut Schema, catalog: &Schema) -> Result<(), 
                 _ => {
                     return Err(format!(
                         "ambiguous catalog field for {}.{field}",
-                        binding.name
+                        binding_name
                     ))
                 }
             }
