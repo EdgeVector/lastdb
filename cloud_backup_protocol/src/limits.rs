@@ -33,8 +33,6 @@ pub const CONTROL_RECORD_KEY_MAX_BYTES: usize = 512;
 
 // Shared wire validators use u64 counts, as do the exact decimal wire fields.
 pub const MAX_OBJECT_BYTES: u64 = CLOUD_OBJECT_MAX_BYTES;
-pub const MAX_REFERENCE_PAGE_BYTES: u64 = MANIFEST_PAGE_PLAINTEXT_MAX_BYTES;
-pub const MAX_PAGE_ENTRIES: u64 = 512;
 
 /// Post-decode bound only. The HTTP adapter must bound raw bytes before decode.
 pub fn encoded_json_bytes<T: Serialize>(value: &T, maximum: u64) -> Result<u64, ProtocolError> {

@@ -331,9 +331,9 @@ Build the closure in this order:
 
 1. Obtain receipts for native files, metadata objects, and backup-owned blob parts.
 2. Save each exact encrypted manifest page, then obtain its receipt.
-3. Sort those content and page receipts into bounded public ReferencePages.
+3. Sort those content and page receipts into bounded public pages.
 4. Save their exact canonical bytes through references/put.
-5. Create and save a bounded ReferenceIndex over those pages.
+5. Create and save a bounded index over those pages.
 6. Compute ReferenceRoot from the exact canonical index and its checked totals.
 7. Put that root and the recovery commitment into the encrypted manifest index.
 8. Save its exact encrypted bytes and obtain its separate receipt.
@@ -486,6 +486,7 @@ An authenticated request body never grants authority by itself.
 | objects/read | ReadGrantRequest | ReadGrantResponse |
 
 The crate does not include the v1 references/put messages. No caller remains.
+The crate does not include the v1 reference-page or transfer messages. The live inventory and transfer messages are the v2 types.
 The crate does not include the v1 source/read messages. No caller remains.
 The crate does not include the v1 context, usage, or discovery messages. No caller remains. The live messages are the v2 types.
 
