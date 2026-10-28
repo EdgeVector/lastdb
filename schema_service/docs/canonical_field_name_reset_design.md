@@ -16,6 +16,7 @@ A prefix alone does not make a vague property precise.
 A new field supplies its description, explicit type, and positive identity version.
 One name retains one definition.
 A conflicting name fails before a field or schema write.
+The name needs lexical support from its description or an embedding score of at least 0.3 for that description.
 Field identity still includes the name, description, type, and version.
 The policy version records code validation and grants no authority.
 
@@ -26,7 +27,7 @@ The policy version records code validation and grants no authority.
 3. Compare normalized descriptions with the current vocabulary and the rest of the candidate batch.
 4. Compare likely duplicates through name tokens, description tokens, and description embeddings.
 5. Preserve different units and roles; require reuse when the candidate duplicates an existing concept.
-6. Write validated definitions through the conditional backend, then make them visible in memory.
+6. After logical schema rejection checks, write validated definitions at schema persistence and make them visible in memory.
 
 The semantic candidate needs name token overlap of at least 0.5 and description token overlap of at least 0.35.
 A type match and compatible qualifiers are also required.

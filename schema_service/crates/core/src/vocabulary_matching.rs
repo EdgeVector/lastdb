@@ -24,6 +24,28 @@ pub(crate) fn same_description(left: &str, right: &str) -> bool {
     words(left) == words(right)
 }
 
+pub(crate) fn name_has_definition_support(name: &str, description: &str) -> bool {
+    let description = words(description);
+    words(name).iter().any(|word| {
+        word.len() > 2
+            && !matches!(
+                word.as_str(),
+                "field"
+                    | "value"
+                    | "data"
+                    | "json"
+                    | "text"
+                    | "string"
+                    | "integer"
+                    | "number"
+                    | "object"
+                    | "array"
+                    | "type"
+            )
+            && description.contains(word)
+    })
+}
+
 fn overlap(left: &str, right: &str) -> f32 {
     let left: BTreeSet<_> = words(left).into_iter().collect();
     let right: BTreeSet<_> = words(right).into_iter().collect();

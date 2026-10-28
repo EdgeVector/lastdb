@@ -17,6 +17,7 @@ A new field requires a specific description, an explicit type, and a positive id
 The description contains at least three words and at most 4096 bytes.
 An existing name retains its description, type, and version.
 A different definition requires a different precise name.
+The name needs a meaningful word in its description or name/description embedding similarity of at least 0.3.
 The service assigns the name policy version as validation metadata.
 That version grants no caller permission.
 
@@ -35,6 +36,7 @@ Generic text container checks also run for existing names and seed fields.
 Model vectors use a process cache.
 When the model is unavailable, deterministic name, description, identity, and duplicate checks still run.
 The service infers no semantic equivalence without vector evidence.
+A name without lexical support fails when the model cannot confirm its meaning.
 Similarity scores have limits; precise names and immutable typed definitions remain required.
 
 ## Read and restore

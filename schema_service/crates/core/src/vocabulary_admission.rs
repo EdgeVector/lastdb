@@ -5,7 +5,7 @@ use crate::field_name_policy::{self, NAME_POLICY_VERSION};
 use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
-use crate::vocabulary_matching::{reuse_error, semantic_candidate};
+use crate::vocabulary_matching::{name_has_definition_support, reuse_error, semantic_candidate};
 use schema_types::{FoldDbError, FoldDbResult, Schema};
 use std::collections::HashMap;
 
@@ -40,10 +40,18 @@ impl SchemaServiceState {
     }
 
     fn check_field_meaning(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
-        if self
-            .vocabulary_embedding(&field.description)
-            .is_some_and(|vector| self.embedding_matches_anti_field(&vector))
-        {
+        let vector = self.vocabulary_embedding(&field.description);
+        if !name_has_definition_support(name, &field.description) {
+            let name_vector = self.vocabulary_embedding(&name.replace('_', " "));
+            if !matches!((&name_vector, &vector), (Some(name), Some(description))
+                if cosine_similarity(name, description) >= 0.3)
+            {
+                return Err(FoldDbError::Config(format!(
+                    "invalid_canonical_meaning: '{name}' needs a name that corresponds to its description"
+                )));
+            }
+        }
+        if vector.is_some_and(|vector| self.embedding_matches_anti_field(&vector)) {
             return Err(FoldDbError::Config(format!(
                 "invalid_canonical_description: '{name}' describes a generic text container"
             )));
