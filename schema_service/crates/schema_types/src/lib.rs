@@ -16,9 +16,7 @@ pub mod molecule_range_profile;
 pub mod range_storage_profile;
 pub mod schema_type;
 
-pub use data_classification::{
-    DataClassification, CONFIDENTIAL, HIGHLY_RESTRICTED, INTERNAL, MAX_SENSITIVITY_LEVEL, PUBLIC,
-};
+pub use data_classification::{DataClassification, MAX_SENSITIVITY_LEVEL};
 pub use declarative_schemas::{
     canonical_name_parts, compute_identity_hash_parts, derive_transform_metadata, hash_expression,
     parse_canonical_name, refuses_identity_downgrade, DeclarativeSchemaDefinition, FieldMapper,
