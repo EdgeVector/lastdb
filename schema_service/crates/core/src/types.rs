@@ -13,7 +13,7 @@ use crate::state_compositional::ComponentReuseAdvice;
 /// Carries description (for semantic matching), type (for enforcement),
 /// optional data classification (for sensitivity labeling), and optional
 /// interest category (for discovery/social features).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CanonicalField {
     pub description: String,
     pub field_type: FieldValueType,
@@ -21,6 +21,9 @@ pub struct CanonicalField {
     /// Defaults to 1 for legacy registry rows.
     #[serde(default = "default_field_version")]
     pub version: u32,
+    /// Operator approval under the active canonical-name policy. Never part of identity.
+    #[serde(default)]
+    pub name_policy_version: u32,
     /// Data classification label for this field. `None` for legacy fields
     /// that were registered before classification was required.
     #[serde(default, skip_serializing_if = "Option::is_none")]

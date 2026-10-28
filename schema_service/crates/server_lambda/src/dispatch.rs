@@ -53,6 +53,8 @@ fn root_listing() -> serde_json::Value {
             "GET /v1/schema/{name}": "Get specific schema",
             "POST /v1/schemas": "Add new schema",
             "POST /v1/schemas/mutation-challenge": "Issue a short-lived node-key proof-of-work challenge for shared schema mutation",
+            "GET /v1/fields/vocabulary": "Read the standard canonical vocabulary",
+            "POST /v1/fields/vocabulary": "Publish operator-approved canonical definitions",
             "POST /v1/apps": "Register an app namespace as sandbox (dev cert + signature)",
             "GET /v1/apps": "Browse promoted, non-revoked apps (public shelf)",
             "GET /v1/apps/{app_id}": "Read a registered app incl. tier (public; lookup-by-known-id)",
@@ -207,6 +209,8 @@ async fn dispatch_fields(
     p: &str,
 ) -> RouteResult {
     Some(match (m, p) {
+        ("GET", "/v1/fields/vocabulary") => routes::vocabulary::get(state),
+        ("POST", "/v1/fields/vocabulary") => routes::vocabulary::publish(state, event).await,
         ("POST", "/v1/fields/declare") => routes::fields::post_fields_declare(state, event).await,
         ("GET", _) if p.starts_with("/v1/fields/") => routes::fields::get_fields(state, p),
         _ => return None,

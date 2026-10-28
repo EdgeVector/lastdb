@@ -26,6 +26,25 @@ impl SchemaServiceState {
         envelope: SnapshotEnvelope,
     ) -> FoldDbResult<SnapshotImportReport> {
         self.check_snapshot_compatibility(&envelope)?;
+        for (name, field) in &envelope.canonical_fields {
+            crate::field_name_policy::validate_approved_field(name, field)?;
+        }
+        for schema in &envelope.schemas {
+            crate::field_name_policy::validate_schema_vocabulary(
+                schema,
+                &envelope.canonical_fields,
+            )?;
+        }
+        if envelope
+            .embeddings
+            .canonical_fields
+            .keys()
+            .any(|name| !envelope.canonical_fields.contains_key(name))
+        {
+            return Err(FoldDbError::Config(
+                "invalid canonical embedding reference in snapshot".to_owned(),
+            ));
+        }
         self.persist_snapshot_to_backend(&envelope)?;
 
         let SnapshotEnvelope {

@@ -1,93 +1,71 @@
 use super::*;
-// lint:file-size-ok moved verbatim from add_schema.rs
 
 impl SchemaServiceState {
-    /// Add a canonical field to the registry directly, without running
-    /// the LLM-backed classification pipeline.
-    ///
-    /// Used by `builtin_canonical_fields::seed` to pre-populate the
-    /// registry at service startup with a curated list of common
-    /// concepts (user_email, photo_caption, gps_latitude, …). Each
-    /// entry carries its own `description`, `field_type`,
-    /// `classification`, and `interest_category`, so the service can
-    /// skip LLM calls for the hot cases.
-    ///
-    /// Idempotent: if the field already exists in the registry, this
-    /// is a no-op and returns `Ok(())`. Otherwise the entry is inserted
-    /// into the in-memory registry, an embedding is computed for
-    /// semantic field matching, and the entry is persisted via the
-    /// active storage backend.
+    /// Trusted operator/seed entry point. HTTP callers must first verify the
+    /// operator signature. Ordinary schema publication cannot call this path.
     pub async fn add_canonical_field(
         &self,
         name: &str,
         canonical: crate::types::CanonicalField,
     ) -> FoldDbResult<()> {
-        // Early return if already present — lock-scoped so the check
-        // doesn't hold the write lock across the later embed + persist.
-        {
-            let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
-            if fields.contains_key(name) {
-                return Ok(());
-            }
-        }
+        self.add_canonical_fields(&[(name.to_owned(), canonical)])
+            .await
+    }
 
-        crate::field_name_policy::validate_new_field_name(name).map_err(FoldDbError::Config)?;
-
-        // Compute the embedding outside any lock. Best-effort: in
-        // environments where the embedding model isn't available
-        // (e.g. fastembed in Lambda), we still insert the field; only
-        // similarity matching is degraded, not exact lookups.
-        let embed_text = Self::build_embedding_text(&canonical.description);
-        let embedding = self.embedder.embed_text(&embed_text).ok();
-        if let Some(vector) = &embedding {
-            if self.embedding_matches_anti_field(vector) {
-                return Err(FoldDbError::Schema(format!(
-                    "field '{name}' was rejected: its description matches a non-semantic field pattern"
+    /// Validate the complete batch before the first persistence or cache write.
+    /// Persist first: a failed backend write must not grant in-memory approval.
+    pub async fn add_canonical_fields(
+        &self,
+        fields: &[(String, crate::types::CanonicalField)],
+    ) -> FoldDbResult<()> {
+        let mut approved = Vec::with_capacity(fields.len());
+        let mut seen = HashSet::new();
+        for (name, input) in fields {
+            if !seen.insert(name) {
+                return Err(FoldDbError::Config(format!(
+                    "duplicate canonical field '{name}'"
                 )));
             }
+            let mut field = input.clone();
+            field.name_policy_version = crate::field_name_policy::NAME_POLICY_VERSION;
+            crate::field_name_policy::validate_approved_field(name, &field)?;
+            approved.push((name.clone(), field));
         }
-
-        // Insert under the write locks. Re-check in case another task
-        // raced us into the registry.
         {
-            let mut fields = write_lock(&self.canonical_fields, "canonical_fields")?;
-            if fields.contains_key(name) {
-                return Ok(());
+            let existing = read_lock(&self.canonical_fields, "canonical_fields")?;
+            for (name, field) in &approved {
+                crate::field_name_policy::validate_canonical_insert(&existing, name, field)?;
             }
-            let mut embeddings = write_lock(
-                &self.canonical_field_embeddings,
-                "canonical_field_embeddings",
+        }
+        self.storage
+            .backend()
+            .save_canonical_fields(&approved)
+            .await?;
+        {
+            let mut cache = write_lock(&self.canonical_fields, "canonical_fields")?;
+            for (name, field) in approved {
+                cache.insert(name, field);
+            }
+        }
+        // Embeddings remain a derived cache. Operators warm them explicitly;
+        // a cold start never runs an embedding model for the seed vocabulary.
+        self.bump_state_version();
+        Ok(())
+    }
+
+    pub(crate) fn validate_declared_vocabulary(
+        &self,
+        fields: &[crate::declared_fields::DeclareFieldInput],
+    ) -> FoldDbResult<()> {
+        let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
+        for input in fields {
+            crate::field_name_policy::validate_declared_concept(
+                &vocabulary,
+                &input.name,
+                &input.field_type,
+                input.version,
             )?;
-            if let Some(ref vec) = embedding {
-                embeddings.insert(name.to_string(), vec.clone());
-            }
-            fields.insert(name.to_string(), canonical.clone());
         }
-
-        // Persist the field metadata first. If this fails, the
-        // embedding never makes it to S3 either — safer than the
-        // reverse ordering.
-        self.persist_canonical_field(name, &canonical).await?;
-
-        // Persist the embedding to the sibling blob. Best-effort: a
-        // failure here leaves the in-memory embeddings ahead of S3
-        // (fine — the blob is a cache), and the next
-        // `warm-embeddings` run will re-populate. Every backend
-        // implements the trait method; the in-memory dev backend keeps
-        // the vector in a map.
-        if let Some(vec) = embedding {
-            let backend = self.storage.backend();
-            if let Err(e) = backend.save_canonical_field_embedding(name, &vec).await {
-                tracing::warn!(
-                target: "schema_service::schema",
-                        "Failed to persist canonical field embedding for '{}': {} — \
-                         in-memory cache still populated, next warm-embeddings will recover",
-                        name,
-                        e
-                    );
-            }
-        }
-
         Ok(())
     }
 }

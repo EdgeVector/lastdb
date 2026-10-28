@@ -68,7 +68,7 @@ pub use validation::*;
 // ─── Config ───────────────────────────────────────────────────────────────
 
 /// App-identity verification config. Built once at startup (from env on
-/// the binaries, injected directly in tests) and read per request.
+/// the binaries) and read per request.
 #[derive(Clone)]
 pub struct AppIdentityConfig {
     /// Deployment environment the envelopes must be bound to.
@@ -86,7 +86,8 @@ pub struct AppIdentityConfig {
     pub revoked_dev_pubkeys: HashSet<String>,
     /// Verifier Ed25519 public key (base64) that is allowed to write
     /// compatibility rows. Only signatures from this key are accepted
-    /// on `POST /v2/releases/{release_id}/compat`. Set from
+    /// on `POST /v2/releases/{release_id}/compat` and canonical vocabulary
+    /// publication. App developer credentials cannot grant this authority. Set from
     /// `APP_REGISTRY_VERIFIER_PUBKEY` env var.
     pub verifier_pubkey: Option<String>,
 }

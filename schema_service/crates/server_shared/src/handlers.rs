@@ -109,9 +109,12 @@ mod apps;
 mod fields;
 mod resolve;
 mod schemas;
+mod vocabulary;
 pub use add_schema::*;
 pub use admin::*;
 pub use apps::*;
 pub use fields::*;
 pub use resolve::*;
 pub use schemas::*;
+
+pub use vocabulary::{get_canonical_vocabulary, publish_canonical_vocabulary};

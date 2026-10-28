@@ -1,156 +1,170 @@
-//! Forward-only canonical name policy. Loading old artifacts never renames them.
+//! One name rule for canonical publication, declarations, schemas and imports.
 
 use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
-use schema_types::{FieldValueType, FoldDbError, FoldDbResult, Schema};
+use crate::types::CanonicalField;
+use schema_types::{FoldDbError, FoldDbResult, Schema};
 use std::collections::HashMap;
 
-// App implementation abbreviations from the canonical-field inventory. Keep
-// standard domain acronyms (URL, JSON, GPS, ISO, ISBN, etc.) out of this list.
-// This is a deterministic rejection list, not an English-word recognizer.
+/// Administrative approval metadata; excluded from field identity hashes.
+pub const NAME_POLICY_VERSION: u32 = 1;
+
 const APP_ABBREVIATIONS: &[&str] = &[
     "bcl", "bes", "bfc", "bge", "bll", "bln", "blp", "btd", "bts", "clu", "ctd", "eph", "ie",
     "klh", "liv", "nh", "prk", "psi", "rle", "tmb",
 ];
 
-/// Delimiters, digits, and camel-case boundaries do not hide an abbreviation.
-fn app_abbreviation(name: &str) -> Option<&'static str> {
-    let mut tokens = Vec::new();
-    for word in name.split(|c: char| !c.is_ascii_alphabetic()) {
-        if APP_ABBREVIATIONS
-            .iter()
-            .any(|abbreviation| word.eq_ignore_ascii_case(abbreviation))
-        {
-            tokens.push(word);
-            continue;
-        }
-        let bytes = word.as_bytes();
-        let mut start = 0;
-        for end in 1..=bytes.len() {
-            let boundary = end == bytes.len()
-                || (bytes[end].is_ascii_uppercase()
-                    && (bytes[end - 1].is_ascii_lowercase()
-                        || bytes.get(end + 1).is_some_and(u8::is_ascii_lowercase)));
-            if boundary {
-                let token = word.get(start..end)?;
-                tokens.push(token);
-                start = end;
-            }
-        }
+/// Syntax is only the first gate. Only operator-approved vocabulary entries
+/// can pass schema publication; a long invented name grants no approval.
+pub fn validate_new_field_name(name: &str) -> Result<(), String> {
+    let words: Vec<_> = name.split('_').collect();
+    let reason = if name.len() > 96 || name.is_empty() {
+        Some("use 1 through 96 characters")
+    } else if words.iter().any(|word| {
+        word.is_empty()
+            || !word.as_bytes()[0].is_ascii_lowercase()
+            || !word
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    }) {
+        Some("use lowercase words separated by single underscores")
+    } else if words
+        .iter()
+        .filter(|word| {
+            !matches!(
+                **word,
+                "of" | "to" | "by" | "in" | "at" | "for" | "and" | "the"
+            )
+        })
+        .count()
+        < 2
+    {
+        Some("name both the subject and its property")
+    } else if words.iter().any(|word| word.len() == 1) {
+        Some("spell out each concept; a one-letter key role is not a concept")
+    } else if words.iter().enumerate().any(|(index, word)| {
+        APP_ABBREVIATIONS.contains(word)
+            && !(*word == "psi"
+                && index > 0
+                && words[index - 1] == "pressure"
+                && index + 1 == words.len())
+    }) {
+        Some("spell out app abbreviations")
+    } else if words
+        .iter()
+        .any(|word| matches!(*word, "generic" | "entity" | "item"))
+    {
+        Some("replace the generic subject with the actual concept")
+    } else {
+        None
+    };
+    match reason {
+        Some(reason) => Err(format!(
+            "invalid_canonical_name: '{name}': {reason}; for example 'file_size_bytes'"
+        )),
+        None => Ok(()),
     }
-    for (index, token) in tokens.iter().enumerate() {
-        // PSI is also a standard pressure unit. Its explicit unit suffix is
-        // not the PapercutStatusIndex app abbreviation.
-        if token.eq_ignore_ascii_case("psi")
-            && index + 1 == tokens.len()
-            && index > 0
-            && tokens[index - 1].eq_ignore_ascii_case("pressure")
-        {
-            continue;
-        }
-        if let Some(abbreviation) = APP_ABBREVIATIONS
-            .iter()
-            .copied()
-            .find(|abbreviation| token.eq_ignore_ascii_case(abbreviation))
-        {
-            return Some(abbreviation);
-        }
-    }
-    None
 }
 
-pub(crate) fn uses_app_abbreviation(name: &str) -> bool {
-    app_abbreviation(name).is_some()
+pub(crate) fn invalid_canonical_name(name: &str) -> bool {
+    validate_new_field_name(name).is_err()
 }
 
-/// A description or an owner namespace cannot justify an abbreviated name.
-pub(crate) fn validate_new_field_name(name: &str) -> Result<(), String> {
-    if let Some(abbreviation) = app_abbreviation(name) {
-        return Err(format!(
-            "Field name '{name}' uses the app abbreviation '{abbreviation}'. \
-             Spell out the concept and property, for example 'brain_record_list_hash_key'. \
-             An app namespace or description does not make an abbreviation acceptable."
-        ));
+pub fn validate_approved_field(name: &str, field: &CanonicalField) -> FoldDbResult<()> {
+    validate_new_field_name(name).map_err(FoldDbError::Config)?;
+    if field.name_policy_version != NAME_POLICY_VERSION {
+        return Err(FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}' requires operator approval for name policy {NAME_POLICY_VERSION}"
+        )));
+    }
+    if field.description.trim().is_empty() || field.version == 0 {
+        return Err(FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}' requires a description and a positive identity version"
+        )));
     }
     Ok(())
 }
 
-/// Match the identity that `ensure_field_hashes` will retain or compute.
-fn field_identity(schema: &Schema, name: &str) -> String {
-    schema.field_hashes.get(name).cloned().unwrap_or_else(|| {
-        schema_types::compute_field_hash(
-            name,
-            schema
-                .field_descriptions
-                .get(name)
-                .map_or("", String::as_str),
-            schema.get_field_type(name),
-            schema.field_versions.get(name).copied().unwrap_or(1),
-        )
-    })
+pub fn validate_schema_vocabulary(
+    schema: &Schema,
+    vocabulary: &HashMap<String, CanonicalField>,
+) -> FoldDbResult<()> {
+    for name in schema.fields.as_deref().unwrap_or_default() {
+        validate_new_field_name(name).map_err(FoldDbError::Config)?;
+        let field = vocabulary.get(name).ok_or_else(|| FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}'; reuse an approved concept or request operator publication"
+        )))?;
+        validate_approved_field(name, field)?;
+        if schema
+            .field_types
+            .get(name)
+            .is_some_and(|value| value != &field.field_type)
+            || schema.ref_fields.get(name).is_some_and(|target| {
+                field.field_type != schema_types::FieldValueType::SchemaRef(target.clone())
+            })
+            || schema.field_versions.get(name).copied().unwrap_or(1) != field.version
+        {
+            return Err(FoldDbError::Config(format!(
+                "unapproved_canonical_field: '{name}' must use the approved type and identity version"
+            )));
+        }
+    }
+    Ok(())
 }
 
 impl SchemaServiceState {
-    /// Grandfather only an unchanged field of the same stored schema family.
-    /// A new app or descriptive name cannot reuse that exception, nor can a
-    /// changed type, version, or description create another abbreviated field.
     pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
-        let abbreviated: Vec<_> = schema
-            .fields
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .filter(|name| uses_app_abbreviation(name))
-            .cloned()
-            .collect();
-        if abbreviated.is_empty() {
-            return Ok(());
-        }
-
-        let legacy_types: HashMap<_, _> = {
-            let canonical = read_lock(&self.canonical_fields, "canonical_fields")?;
-            abbreviated
-                .iter()
-                .filter_map(|name| {
-                    canonical
-                        .get(name)
-                        .map(|field| (name.as_str(), field.field_type.clone()))
-                })
-                .collect()
-        };
-        let schemas = read_lock(&self.schemas, "schemas")?;
-        for name in &abbreviated {
-            // Normalize only legacy abbreviated fields before hashing. Keep
-            // explicit types and identities, and mirror the canonical Any skip.
-            if let Some(field_type) = legacy_types.get(name.as_str()) {
-                if *field_type != FieldValueType::Any {
-                    schema
-                        .field_types
-                        .entry(name.clone())
-                        .or_insert_with(|| field_type.clone());
-                }
-            }
-            let identity = field_identity(schema, name);
-            let unchanged = legacy_types.contains_key(name.as_str())
-                && schemas.values().any(|existing| {
-                    existing.owner_app_id == schema.owner_app_id
-                        && existing.descriptive_name == schema.descriptive_name
-                        && existing
-                            .fields
-                            .as_deref()
-                            .unwrap_or_default()
-                            .contains(name)
-                        && existing.get_field_type(name) == schema.get_field_type(name)
-                        && existing.field_versions.get(name).copied().unwrap_or(1)
-                            == schema.field_versions.get(name).copied().unwrap_or(1)
-                        && existing.field_descriptions.get(name)
-                            == schema.field_descriptions.get(name)
-                        && field_identity(existing, name) == identity
-                });
-            if !unchanged {
-                validate_new_field_name(name).map_err(FoldDbError::Config)?;
+        let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
+        validate_schema_vocabulary(schema, &vocabulary)?;
+        for name in schema.fields.as_deref().unwrap_or_default() {
+            if let Some(field) = vocabulary.get(name) {
+                schema
+                    .field_types
+                    .entry(name.clone())
+                    .or_insert_with(|| field.field_type.clone());
+                schema
+                    .field_versions
+                    .entry(name.clone())
+                    .or_insert(field.version);
             }
         }
         Ok(())
     }
+}
+
+/// The same name denotes one approved type/version, including owned declarations.
+pub fn validate_declared_concept(
+    vocabulary: &HashMap<String, CanonicalField>,
+    name: &str,
+    field_type: &schema_types::FieldValueType,
+    version: u32,
+) -> FoldDbResult<()> {
+    validate_new_field_name(name).map_err(FoldDbError::Config)?;
+    let field = vocabulary.get(name).ok_or_else(|| {
+        FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}'; request operator publication first"
+        ))
+    })?;
+    validate_approved_field(name, field)?;
+    if field_type != &field.field_type || version != field.version {
+        return Err(FoldDbError::Config(format!(
+            "unapproved_canonical_field: '{name}' must use the approved type and identity version"
+        )));
+    }
+    Ok(())
+}
+
+/// Called inside the durable backend's conditional update, not only a warm cache.
+pub fn validate_canonical_insert(
+    existing: &HashMap<String, CanonicalField>,
+    name: &str,
+    field: &CanonicalField,
+) -> FoldDbResult<()> {
+    validate_approved_field(name, field)?;
+    if existing.get(name).is_some_and(|stored| stored != field) {
+        return Err(FoldDbError::Config(format!(
+            "canonical_field_conflict: '{name}' already has another definition; reset it explicitly before replacement"
+        )));
+    }
+    Ok(())
 }

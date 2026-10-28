@@ -50,7 +50,7 @@ impl SchemaServiceState {
         let mut best: Option<(&str, f32, Vec<f32>)> = None;
         for existing_field in existing_fields {
             if claimed.contains(existing_field)
-                || crate::field_name_policy::uses_app_abbreviation(existing_field)
+                || crate::field_name_policy::invalid_canonical_name(existing_field)
             {
                 continue;
             }

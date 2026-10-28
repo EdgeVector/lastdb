@@ -396,6 +396,8 @@ impl SchemaServiceState {
         request: &DeclareFieldRequest,
     ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
         self.record_schema_write();
+        self.validate_declared_vocabulary(&request.fields)
+            .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
         let record = {
             let mut registry = self
                 .declared_fields
