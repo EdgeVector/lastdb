@@ -12,8 +12,11 @@ use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
+#[path = "reader/probes.rs"]
+mod probes;
 #[path = "reader/stream.rs"]
 pub(super) mod stream;
+pub(super) use probes::Selected;
 
 /// One open run for the length of one call. It holds the file, the footer
 /// and the top block; index and data blocks are read when a lookup needs
