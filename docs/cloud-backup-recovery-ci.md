@@ -155,6 +155,14 @@ Insufficient space stops the operation before upload. CI does not increase or re
 This read supplies an observation, not a reservation; normal service admission still enforces quota for each allocation.
 The later retirement operation must reclaim only verified old CI data before this check.
 
+CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.
+The worker supports a preassigned `LASTDB_CLOUD_CI_STREAM_ID` for the exact dedicated CI account.
+It uses that ID only when it creates the first stream record.
+An existing saved stream must match the ID, source home, and account scope; a mismatch refuses work, including resume.
+The default path uses its existing stream choice when this variable is absent.
+This changes local backup-job metadata only. It changes no native file format or encryption.
+The current workflow does not set this variable yet: trusted startup-artifact registration and admission remain required before activation.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
