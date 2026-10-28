@@ -4668,7 +4668,6 @@ name = "schema_service_client"
 version = "0.1.0"
 dependencies = [
  "app_identity_crypto",
- "async-trait",
  "base64 0.22.1",
  "chrono",
  "observability",
