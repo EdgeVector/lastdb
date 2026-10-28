@@ -88,7 +88,7 @@ impl SchemaServiceState {
     pub fn normalized_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<Schema> {
         let mut proposal = schema.clone();
         let candidates = self.schema_vocabulary_candidates(schema)?;
-        let checked = self.checked_vocabulary_batch(&candidates)?;
+        let checked = self.provisional_vocabulary_batch(&candidates)?;
         let mut vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
         vocabulary.extend(checked);
         crate::field_name_policy::fill_schema_field_defaults(&mut proposal, &vocabulary);

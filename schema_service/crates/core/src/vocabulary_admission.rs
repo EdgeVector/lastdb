@@ -9,6 +9,8 @@ use crate::vocabulary_matching::{name_has_definition_support, reuse_error, seman
 use schema_types::{FoldDbError, FoldDbResult, Schema};
 use std::collections::HashMap;
 
+pub(crate) const EMBEDDING_CACHE_LIMIT: usize = 4096;
+
 impl SchemaServiceState {
     /// Validate a complete batch without a durable write or authority override.
     pub(crate) fn checked_vocabulary_batch(
@@ -16,12 +18,9 @@ impl SchemaServiceState {
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
         let mut candidates = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
-        let mut ordered = fields.to_vec();
-        ordered.sort_by(|left, right| left.0.cmp(&right.0));
+        let ordered = self.provisional_vocabulary_batch(fields)?;
         let mut vectors = HashMap::new();
-        for (name, field) in &mut ordered {
-            field.name_policy_version = NAME_POLICY_VERSION;
-            field_name_policy::validate_canonical_insert(&candidates, name, field)?;
+        for (name, field) in &ordered {
             self.check_field_meaning(name, field)?;
             if !candidates.contains_key(name) {
                 let mut possible: Vec<_> = candidates.iter().collect();
@@ -35,6 +34,23 @@ impl SchemaServiceState {
                 }
                 candidates.insert(name.clone(), field.clone());
             }
+        }
+        Ok(ordered)
+    }
+
+    /// Cheap request checks; safe before ordinary authentication and quotas.
+    /// This creates no definitions and performs no model inference or memo write.
+    pub(crate) fn provisional_vocabulary_batch(
+        &self,
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
+        let mut candidates = read_lock(&self.canonical_fields, "canonical_fields")?.clone();
+        let mut ordered = fields.to_vec();
+        ordered.sort_by(|left, right| left.0.cmp(&right.0));
+        for (name, field) in &mut ordered {
+            field.name_policy_version = NAME_POLICY_VERSION;
+            field_name_policy::validate_canonical_insert(&candidates, name, field)?;
+            candidates.insert(name.clone(), field.clone());
         }
         Ok(ordered)
     }
@@ -64,10 +80,10 @@ impl SchemaServiceState {
             return Some(vector.clone());
         }
         let vector = self.embedder.embed_text(text).ok()?;
-        self.native_resolve_embeddings
-            .write()
-            .ok()?
-            .insert(text.to_owned(), vector.clone());
+        let mut cache = self.native_resolve_embeddings.write().ok()?;
+        if cache.len() < EMBEDDING_CACHE_LIMIT {
+            cache.insert(text.to_owned(), vector.clone());
+        }
         Some(vector)
     }
 

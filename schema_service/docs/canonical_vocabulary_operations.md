@@ -33,7 +33,9 @@ Type and qualifier checks keep different units, time roles, and key roles separa
 The response names the existing concept; the service does not silently rename a new field.
 Generic text container checks also run for existing names and seed fields.
 
-Model vectors use a process cache.
+Model vectors use a process cache with at most 4096 entries.
+Cheap request checks precede ordinary authorization and quotas.
+Semantic admission runs only after those gates; a public repost check performs no inference.
 When the model is unavailable, deterministic name, description, identity, and duplicate checks still run.
 The service infers no semantic equivalence without vector evidence.
 A name without lexical support fails when the model cannot confirm its meaning.
