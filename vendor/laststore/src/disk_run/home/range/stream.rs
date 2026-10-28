@@ -114,12 +114,14 @@ impl<'a> BoundedRange<'a> {
                 self.upper.as_deref(),
                 self.exclusive,
                 retained,
-            )? {
-                Selection::Key(key, slot) => {
+            ) {
+                Ok(Selection::Key(key, slot)) => {
                     return storage_key(&self.collection, &key).map(|key| Some((key, Some(slot))));
                 }
-                Selection::Exhausted => return Ok(None),
-                Selection::Fallback => self.memo = None,
+                Ok(Selection::Exhausted) => return Ok(None),
+                Ok(Selection::Fallback) => self.memo = None,
+                Err(error) if descriptor_pressure(&error) => self.memo = None,
+                Err(error) => return Err(error),
             }
         }
         self.owner
@@ -143,10 +145,13 @@ impl<'a> BoundedRange<'a> {
     fn value(&mut self, key: &str, maximum: u64, slot: Option<usize>) -> Result<Option<Vec<u8>>> {
         let costs = self.owner.costs;
         let value = self.reserved_value(key, maximum, slot);
-        if matches!(value, Err(Error::ReadBudgetExceeded)) && self.memo.is_some() {
+        let retry = value.as_ref().err().is_some_and(|error| {
+            matches!(error, Error::ReadBudgetExceeded) || descriptor_pressure(error)
+        });
+        if retry && self.memo.is_some() {
             self.memo = None;
-            // An optional cache must not reject a row that the stateless path
-            // admits. The selected logical key still consumes one work slot.
+            // Drop optional memory and descriptors before retry. Restore only
+            // logical charges; physical read/open/decode costs stay cumulative.
             self.owner.costs.examined_keys = costs.examined_keys;
             self.owner.costs.budget_bytes = costs.budget_bytes;
             return self.reserved_value(key, maximum, None);
@@ -195,4 +200,14 @@ impl<'a> BoundedRange<'a> {
         }
         storage_key(&self.collection, &self.lower)
     }
+}
+
+fn descriptor_pressure(error: &Error) -> bool {
+    let Error::Io(error) = error else {
+        return false;
+    };
+    matches!(
+        rustix::io::Errno::from_io_error(error),
+        Some(rustix::io::Errno::MFILE | rustix::io::Errno::NFILE)
+    )
 }
