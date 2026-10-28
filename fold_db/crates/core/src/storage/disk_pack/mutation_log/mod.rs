@@ -275,14 +275,4 @@ impl PackRuntime {
     pub fn mutation_log_status(&self) -> StorageResult<MutationLogStatus> {
         self.mutation_log.status(&self.physical)
     }
-    pub fn mutation_log_entry(&self, epoch: &Id, sequence: u64) -> StorageResult<LogEntry> {
-        let entry: LogEntry = store::read(
-            &store::entry(&self.mutation_log.root, epoch, sequence)?.join("entry.json"),
-        )?
-        .ok_or_else(|| invalid("complete mutation log entry is absent"))?;
-        if entry.epoch != *epoch || entry.sequence != sequence {
-            return Err(invalid("mutation log entry identity"));
-        }
-        Ok(entry)
-    }
 }
