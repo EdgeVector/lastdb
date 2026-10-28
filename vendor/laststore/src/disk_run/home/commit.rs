@@ -4,7 +4,9 @@ use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::{RunHome, RunRoot};
 use crate::commit_timing as timing;
+use crate::disk_run::space::MergeSpace;
 use crate::disk_run::{merge_runs, value, RunReader, RunSummary, RunWriter};
+use crate::space::SpacePolicy;
 use crate::{Error, Result};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -217,14 +219,20 @@ impl RunHome {
     /// Commits continue during the merge; only the final publish waits for
     /// a commit's publish. Reads that hold an older CURRENT keep the input
     /// files until they end.
-    pub(super) fn merge_tiered(&self, level: usize, inputs: Vec<Arc<RunFile>>) -> Result<RunMerge> {
+    pub(super) fn merge_tiered(
+        &self,
+        level: usize,
+        inputs: Vec<Arc<RunFile>>,
+        policy: &SpacePolicy,
+    ) -> Result<RunMerge> {
         let _total = timing::stage("v2_tiered_merge_us");
         if level + 1 >= MAX_LEVELS {
             return Err(Error::WriteCapacity(
                 "disk run home: no level is left for a merge".into(),
             ));
         }
-        let output = self.write_merge(&inputs, true)?;
+        let space = MergeSpace::new(self.path(), policy)?;
+        let output = self.write_merge(&inputs, true, &space)?;
         let (records, run_bytes) = output
             .as_ref()
             .map_or((0, 0), |run| (run.records, run.file_bytes));
@@ -245,7 +253,6 @@ impl RunHome {
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
         let merged: HashSet<Uuid> = inputs.iter().map(|run| run.meta.run_id).collect();
         next.levels[level].retain(|run| !merged.contains(&run.meta.run_id));
-        let mut fresh = Vec::new();
         if let Some(run) = output {
             if next.levels.len() <= level + 1 {
                 next.levels.push(Vec::new());
@@ -257,12 +264,11 @@ impl RunHome {
                 file.set_hidden(hidden);
             }
             next.levels[level + 1].insert(0, Arc::clone(&file));
-            fresh.push(file);
         }
         while next.levels.last().is_some_and(|l| l.is_empty()) {
             next.levels.pop();
         }
-        let installed = self.install_or_discard(next, &fresh)?;
+        let installed = self.install_merge(next, &space)?;
         for run in &inputs {
             run.retire();
         }
@@ -284,13 +290,14 @@ impl RunHome {
         &self,
         inputs: &[Arc<RunFile>],
         keep_tombstones: bool,
+        space: &MergeSpace,
     ) -> Result<Option<RunMeta>> {
         let _total = timing::stage("v2_merge_run_build_us");
         let readers = inputs
             .iter()
             .map(|run| RunReader::open(&run.path, &self.key))
             .collect::<Result<Vec<_>>>()?;
-        let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
+        let mut writer = RunWriter::create_reserved(&self.runs, &self.key, self.options, space)?;
         let sources = readers.iter().map(|reader| reader.iter()).collect();
         match merge_runs(sources, &mut writer, keep_tombstones)? {
             0 => Ok(None),

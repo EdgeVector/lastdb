@@ -13,6 +13,7 @@
 
 mod bound;
 mod cleanup;
+mod compaction_space;
 mod crash;
 mod gen;
 mod value_gen;
@@ -115,6 +116,10 @@ fn run(scratch: &Path) -> Result<()> {
     );
     println!("| Overwrite-heavy | {overwrites} |");
     println!("| Explicit cleanup | {} |", cleanup::run(scratch, &key)?);
+    println!(
+        "| Compaction space | {} |",
+        compaction_space::run(scratch, &key)?
+    );
     println!("| Compact values (V1b) | {values_row} |");
     println!("| Read back | {checked} keys equal by key and by batch; {ranges} |");
     println!("| Held read across merges | {held_check} |");
