@@ -13,6 +13,9 @@
 > AES-256-GCM block encryption of each run file protects it at rest (Tom,
 > 2026-10-24, compact plain values). The code has no atom content seal. See
 > `docs/security/at-rest-threat-model.md` (Operation Trinity status).
+>
+> **2026-10-28 note:** The search helper `E2eKeys::blind_token` is not in
+> the code. Storage HashKeys use `E2eKeys::blind_hash_key`.
 
 ---
 
