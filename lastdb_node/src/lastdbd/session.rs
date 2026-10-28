@@ -31,10 +31,9 @@ pub(crate) fn record_start(home: &Path, pid: u32) -> Option<Ledger> {
             promote_previous_crash(home, Some(&summary));
             Some(ledger)
         }
-        Err(e) => {
+        Err(_) => {
             tracing::warn!(
                 target: "lastdbd::session_ledger",
-                error = %e,
                 "couldn't record session start; uptime ledger disabled for this run"
             );
             // Still surface panic reports even if the ledger write failed.
@@ -44,19 +43,19 @@ pub(crate) fn record_start(home: &Path, pid: u32) -> Option<Ledger> {
     }
 }
 
-/// Every fatal error after the ledger start exits the process through
-/// `main`'s `Err` return. That is a CONTROLLED exit, but it leaves the
+/// Every fatal error after the ledger start reaches the daemon's fixed-output
+/// error boundary. That is a CONTROLLED exit, but it leaves the
 /// session ledger line open, which the next boot reads as "no clean shutdown
-/// record" => a phantom native crash. Stamp the real reason on the way out.
+/// record" => a phantom native crash. Stamp the fixed category on the way out.
 pub(crate) fn note_fatal(ledger_present: bool, home: &Path, pid: u32, err: String) -> String {
-    if ledger_present {
-        if let Err(e) = lastdb_node::session_ledger::mark_startup_failed(home, pid, Some(&err)) {
-            tracing::warn!(
-                target: "lastdbd::session_ledger",
-                error = %e,
-                "couldn't record the startup failure in the session ledger"
-            );
-        }
+    if ledger_present
+        && lastdb_node::session_ledger::mark_startup_failed(home, pid, Some("startup_failed"))
+            .is_err()
+    {
+        tracing::warn!(
+            target: "lastdbd::session_ledger",
+            "couldn't record the startup failure in the session ledger"
+        );
     }
     err
 }

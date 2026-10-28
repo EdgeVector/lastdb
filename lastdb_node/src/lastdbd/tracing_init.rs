@@ -1,4 +1,4 @@
-//! Tracing subscriber setup: stderr fmt, reloadable filter, Sentry ERROR layer.
+//! Tracing setup: fixed-field stderr, reloadable filter, Sentry ERROR layer.
 
 pub(crate) fn init_tracing() -> Option<observability::layers::error::SentryGuard> {
     use observability::layers::error::build_error_layer;
@@ -33,7 +33,10 @@ pub(crate) fn init_tracing() -> Option<observability::layers::error::SentryGuard
     // `.with(env_filter)`: the reload layer is the same global filter, added
     // innermost, exactly as `observability::init_node` composes it.
     let (reload_layer, reload_handle) = build_reload_layer::<Registry>(env_filter);
-    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .event_format(super::private_diagnostics::PrivateFormat);
     let (error_layer, sentry_guard) = match build_error_layer() {
         Some((layer, guard)) => (Some(layer), Some(guard)),
         None => (None, None),
