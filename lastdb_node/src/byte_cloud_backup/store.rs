@@ -31,6 +31,19 @@ impl Store {
     pub fn base(home: &Path) -> PathBuf {
         home.join("data/cloud-byte-backup-v2")
     }
+    pub fn write_configuration<T: Serialize>(home: &Path, name: &str, value: &T) -> Result<()> {
+        let base = Self::base(home);
+        directory(&base)?;
+        // Policy/disable uses the reserved control allowance, including while a
+        // worker renames its separate checkpoints. No concurrent tree walk.
+        let path = base.join(name);
+        let bytes = AtomicU64::new(
+            size(&path)?
+                .checked_add(size(&path.with_extension("pending"))?)
+                .ok_or(BackupError::Limit)?,
+        );
+        write(&base.join(name), value, &bytes)
+    }
     pub fn active(home: &Path) -> Result<Option<Id>> {
         Self::active_at(&Self::base(home))
     }
@@ -244,7 +257,7 @@ fn write_bytes(path: &Path, bytes: &[u8], used: &AtomicU64) -> Result<()> {
     Ok(())
 }
 
-fn size(path: &Path) -> Result<u64> {
+pub(super) fn size(path: &Path) -> Result<u64> {
     match fs::symlink_metadata(path) {
         Ok(info) => {
             private_file(&info)?;
@@ -253,6 +266,16 @@ fn size(path: &Path) -> Result<u64> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => Err(error.into()),
     }
+}
+
+pub(super) fn remove_owned(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(info) => private_file(&info)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    fs::remove_file(path)?;
+    Ok(())
 }
 
 fn private_file(info: &fs::Metadata) -> Result<()> {

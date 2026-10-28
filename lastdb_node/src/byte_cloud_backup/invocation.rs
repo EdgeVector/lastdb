@@ -25,9 +25,13 @@ pub(super) fn run(
     let outcome = match result {
         Ok(()) => InvocationOutcome::Complete,
         Err(error) => {
+            let pause_state = error.pause_state();
             saved.blocked_reason = Some(error.to_string());
-            match store.reopen().and_then(|fresh| fresh.save(&saved)) {
-                Ok(()) => InvocationOutcome::Paused(error.pause_state()),
+            match store.reopen().and_then(|fresh| {
+                fresh.write("pause.json", &pause_state)?;
+                fresh.save(&saved)
+            }) {
+                Ok(()) => InvocationOutcome::Paused(pause_state),
                 Err(checkpoint) => InvocationOutcome::Paused(checkpoint.pause_state()),
             }
         }

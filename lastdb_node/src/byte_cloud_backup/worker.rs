@@ -267,6 +267,9 @@ fn finish(capture: &Capture, store: &Store, saved: &mut Saved, result: &JobResul
     store.write("terminal.json", result)?;
     if let JobStatus::Published { backup } = &result.status {
         store.write_base("accepted.json", backup)?;
+        let point = capture.recovery_point(backup)?;
+        store.write("recovery.json", &point)?;
+        store.write_base("recovery.json", &point)?;
     }
     capture.terminal(result)?;
     saved.phase = match result.status {

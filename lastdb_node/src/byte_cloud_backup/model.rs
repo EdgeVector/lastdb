@@ -13,10 +13,17 @@ pub(super) struct StreamRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ByteBackupRequest {
-    Start { request_id: Id },
+    Start {
+        request_id: Id,
+    },
     Resume,
     Status,
     Close,
+    EnableAutomatic {
+        log_interval_seconds: u64,
+        snapshot_interval_seconds: u64,
+    },
+    DisableAutomatic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +111,8 @@ pub struct ByteBackupStatus {
     pub backup_kind: &'static str,
     pub enabled: bool,
     pub automatic_backup_enabled: bool,
+    pub automatic_backup: Option<super::AutomaticBackupStatus>,
+    pub mutation_log: Option<fold_db::storage::disk_pack::mutation_log::MutationLogStatus>,
     pub manual_connection: Option<super::ManualConnectionStatus>,
     pub running: bool,
     pub request_id: Option<Id>,

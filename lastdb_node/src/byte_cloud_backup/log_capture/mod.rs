@@ -23,6 +23,18 @@ pub(super) struct LogCapture {
     plan: Plan,
 }
 impl LogCapture {
+    pub fn recovery_point(
+        &self,
+        accepted: &cloud_backup_protocol::v2::AcceptedBackup,
+    ) -> super::recovery::RecoveryPoint {
+        super::recovery::RecoveryPoint {
+            accepted: accepted.clone(),
+            base: self.plan.context.base.clone(),
+            anchor: Some(self.frozen.anchor.clone()),
+            through: Some(self.frozen.through.clone()),
+            frontiers: self.frozen.through.frontiers,
+        }
+    }
     pub fn prepare(
         core: MutationLogCapture,
         store: &Store,

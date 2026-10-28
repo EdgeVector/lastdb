@@ -48,7 +48,7 @@ impl MutationReplay {
             .parts
             .get(part_index)
             .ok_or_else(|| invalid("mutation replay part number"))?;
-        let mut before = entry.before.clone();
+        let mut before = entry.before;
         for old in &entry.parts[..part_index] {
             if old.role.is_cas() {
                 before.cas = old.frontier;
@@ -56,7 +56,7 @@ impl MutationReplay {
                 before.main = old.frontier;
             }
         }
-        let mut after = before.clone();
+        let mut after = before;
         let (home, from) = if part.role.is_cas() {
             after.cas = part.frontier;
             (&self.cas, before.cas)
