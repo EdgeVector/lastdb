@@ -63,7 +63,7 @@ impl Begin {
     pub fn dependencies(&self) -> &[Head] {
         self.recovery_dependencies
             .as_deref()
-            .unwrap_or_else(|| self.predecessor.as_slice())
+            .unwrap_or(self.predecessor.as_slice())
     }
     pub fn input_sha256(&self) -> Result<Digest, ProtocolError> {
         self.validate()?;
