@@ -144,3 +144,8 @@ Old writers cannot repopulate the new generation. The previous generation remain
 
 The seed manifest reviews all 151 former definitions. It retains or replaces 113 entries and removes 38 ambiguous entries.
 See [the seed manifest](canonical_field_seed_manifest.md) and [the operator procedure](canonical_vocabulary_operations.md).
+
+Approved canonical names retain their exact meaning during schema expansion.
+Heuristic similarity cannot rename one approved concept into another approved concept.
+Read-only resolution can still propose mappings from external names to the approved vocabulary.
+Explicit approval replaces the heuristic admission check for a known concept.

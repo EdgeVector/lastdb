@@ -110,6 +110,10 @@ impl SchemaServiceState {
         incoming_descriptions: &HashMap<String, String>,
         existing_descriptions: &HashMap<String, String>,
     ) -> HashMap<String, String> {
+        let approved: HashSet<String> = match self.canonical_fields.read() {
+            Ok(fields) => fields.keys().cloned().collect(),
+            Err(_) => return HashMap::new(),
+        };
         let ctx = EmbeddingContext {
             descriptive_name,
             incoming_descriptions,
@@ -122,7 +126,7 @@ impl SchemaServiceState {
 
         for incoming_field in incoming_fields {
             // Skip fields that already have a literal match
-            if existing_set.contains(incoming_field) {
+            if existing_set.contains(incoming_field) || approved.contains(incoming_field) {
                 continue;
             }
             let Some(incoming_emb) =
