@@ -14,7 +14,7 @@ def summarize(values, phase, label):
         row[name] = statistics.median(statistics.mean(sample["storage_read_receipt"][name]
             for sample in cell["samples"]) for cell in cells)
     row["read_bytes"] = statistics.median(statistics.mean(sum(sample["storage_read_receipt"][name]
-        for name in ("legacy_replay_bytes", "footer_bytes", "payload_bytes", "format_probe_bytes"))
+        for name in ("footer_bytes", "payload_bytes", "format_probe_bytes"))
         for sample in cell["samples"]) for cell in cells)
     return row
 

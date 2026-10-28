@@ -1,20 +1,21 @@
 # Disk V2 client backup
 
-Status, 2026-10-26: merged. Since decision D1, the client has no disk V1 profile. Restore refuses a backup of a disk format v1 home.
+Status: accepted client implementation. The client has no disk V1 profile.
+Restore refuses a backup of a disk format v1 home.
 
 The cloud V2 service is already independent of the local file format.
-The primary now uses disk V2. Its current client admits only disk V1 backups.
-This change adds the disk V2 client adapter and an explicit PROD connection.
-It changes no local file bytes, file format, encryption, or cloud service contract.
+The client captures and restores disk V2 files and supports an explicit PROD connection.
+It keeps the local file bytes, file format, encryption, and cloud service contract.
+The [completion design](cloud-v2-completion-plan.md) defines the release and operational checks.
 
 ## Scope
 
-- Add client metadata version 3 for a disk V2 file backup.
+- Use client metadata version 3 for a disk V2 file backup.
 - Keep the cloud descriptor null and require the R2 and B2 destinations.
 - Send the existing encrypted file bytes without another encryption or text conversion.
 - Send CAS run files to B2. Send all other captured files to R2.
-- Keep the current object size and memory configuration. Add no file size cap.
-- Keep legacy sync and automatic backup off.
+- Keep the current object size and memory configuration. Add no backup-only native file size cap.
+- Keep automatic backup off. The legacy sync engine is retired.
 
 ## One consistent source
 
@@ -48,6 +49,10 @@ Core keeps the public `ByteBackupCapture` operations.
 The disk V2 implementation uses captured file segments, not a stored-record conversion.
 Core owns the new `RunBackupProfile` and its validation.
 The shared cloud protocol receives no new native metadata type.
+Run profile 1 selects the earlier UTF-8 key order within disk V2.
+Run profile 2 selects typed ranges within the same physical disk V2 format.
+The client checks the node marker against that selected profile.
+Neither profile adds a cloud format field or changes a stored file.
 
 `RunBackupProfile` contains one main-home binding and one CAS-home binding.
 Each binding contains its home ID, generation, frontier, descriptor hash, CURRENT hash, file count, and byte count.
@@ -94,15 +99,12 @@ CURRENT and footer readers check expanded key and array sizes before allocation.
 The client uses the central backup memory allowance and transfer buffers.
 It keeps raw file bytes outside the client metadata JSON.
 
-The proof returns one logical record at a time and can read the same block more than once.
-The DEV and primary operations must check actual backup duration as well as completion.
-
-The existing local file-blob path stores one complete CAS value.
-Disk V2 currently caps that stored value at 33,554,431 bytes.
-This change keeps that local rule. It adds no cap to a complete native backup file.
-A previous DEV operation verified a 100 MiB transfer through cloud V2.
-The new disk V2 proof uses supported local file values and records its exact native file sizes.
-It must not describe total database bytes as proof of one large native file.
+The verifier keeps the selected key and value together across proof records.
+DEV and primary operations record actual backup duration as well as completion.
+Local file admission uses the current product policy.
+The backup adds no separate native file size cap.
+A proof records actual file sizes and distinguishes a file value from a native run file.
+An aggregate database size does not prove one large native file.
 
 ## Restore
 
@@ -128,7 +130,7 @@ The response must match that account, its current generation, both destinations,
 A rejected or wrong-account key causes no registration or credential publication.
 Account registration remains a separate explicit fallback with a durable device intent.
 
-Under the backup transition lock, connection refuses active work and active legacy credentials.
+Under the backup transition lock, connection refuses active work.
 It atomically writes the existing private paused credential format and a source-bound manual connection record.
 The record binds the account, native source, environment, endpoint, and credential hash.
 It does not copy an identity, reset data, create `.cloud_resume_required`, or enable automatic work.

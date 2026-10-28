@@ -210,8 +210,8 @@ fn connected(
             "cloud_sync_off": true, "local_store_opened": restored,
             "local_store_read_only": restored, "database_writer_opened": false,
             "registration_attempted": registered, "credentials_saved": true,
-            "api_key_output": false, "legacy_recipient_enrolled": false,
-            "restored_home": restored, "automatic_backup_enabled": false,
+            "api_key_output": false, "restored_home": restored,
+            "automatic_backup_enabled": false,
         }),
         json,
     )

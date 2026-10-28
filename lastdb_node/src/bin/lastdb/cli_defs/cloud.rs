@@ -1,4 +1,4 @@
-//! Explicit byte-backup and paused credential commands.
+//! Explicit byte-backup and credentials-only recovery-home commands.
 use super::*;
 
 #[path = "cloud/byte_backup.rs"]
@@ -63,12 +63,6 @@ pub(crate) enum CloudCommand {
         #[arg(long, required = true)]
         api_key_stdin: bool,
         /// Emit a value-free receipt.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Pause legacy credentials locally. This does not cancel an explicit backup.
-    #[command(alias = "pause")]
-    Off {
         #[arg(long)]
         json: bool,
     },

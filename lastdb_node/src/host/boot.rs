@@ -11,7 +11,7 @@ impl Host {
         }
         crate::session_ledger::clear_shutdown_flush_receipt(home)
             .map_err(|error| format!("could not clear prior shutdown proof: {error}"))?;
-        if crate::cloud::cloud_sync_file_state(home) == "off" {
+        if crate::cloud::cloud_credentials_path(home).exists() {
             crate::cloud::mark_cloud_resume_required(home)?;
         }
         let data_path = home.join("data");
@@ -63,7 +63,6 @@ impl Host {
         let config = DatabaseConfig {
             path: data_path.to_path_buf(),
             engine: StorageEngine::Laststore,
-            cloud_sync: None,
         };
         fold_db::fold_db_core::factory::create_fold_db_with_options(
             &config,

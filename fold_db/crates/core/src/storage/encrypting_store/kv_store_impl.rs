@@ -145,7 +145,6 @@ impl KvStore for EncryptingKvStore {
             next_cursor: page.next_cursor,
             row_handle: page.row_handle,
             handles_visited: page.handles_visited,
-            cold_shard_loads: page.cold_shard_loads,
         })
     }
 

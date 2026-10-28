@@ -3,7 +3,9 @@
 use super::*;
 
 /// Durable projection written to the `keep_small` collection under
-/// [`KEEP_SMALL_SNAPSHOT_KEY`] (in `metadata` before 2026-09-21).
+/// [`KEEP_SMALL_SNAPSHOT_KEY`]. The durable row is a small header; the
+/// per-schema maps live at [`KEEP_SMALL_SCHEMA_SHARD_PREFIX`] keys (and
+/// [`KEEP_SMALL_UNATTRIBUTED_SHARD_KEY`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct KeepSmallSnapshot {
     /// Version 2 stores aggregate state directly. Older snapshots require
@@ -33,20 +35,12 @@ pub struct KeepSmallSnapshot {
     /// `Some(false)`. So a `false` at hydrate means the previous process
     /// stopped without its shutdown flush, and metered writes after its last
     /// debounce tick are missing: the counters are a hint, not a measurement.
-    /// `None` on snapshots from builds before 2026-09-21: no verdict, hydrate
-    /// treats them as it always did. Soundness does not need a live epoch
-    /// after the restart, only that the last writer of this row is known.
-    #[serde(default)]
+    /// `None` is the empty-home absent state: no verdict. Soundness does not
+    /// need a live epoch after the restart, only that the last writer of this
+    /// row is known.
     pub clean_stop: Option<bool>,
     /// Independent provenance for global, schema, and molecule counters.
-    /// Missing on pre-PR2 snapshots, which deserialize as incomplete.
-    #[serde(default = "legacy_trust_payload")]
     pub trust: MeterTrustPayload,
-    /// When true, per-schema maps live at [`KEEP_SMALL_SCHEMA_SHARD_PREFIX`]
-    /// keys (and [`KEEP_SMALL_UNATTRIBUTED_SHARD_KEY`]) instead of in this
-    /// row. A whole-map blob from before this layout deserializes as false.
-    #[serde(default)]
-    pub sharded: bool,
 }
 
 /// One schema's durable meter slice. A persist writes only the schemas that
@@ -67,8 +61,8 @@ pub const KEEP_SMALL_SNAPSHOT_VERSION: u32 = 2;
 
 /// Metadata key for [`KeepSmallSnapshot`]. Point get/put — not a store walk.
 ///
-/// Since the sharded layout this row is a small header (totals, trust,
-/// clean-stop). Per-schema maps live at [`KEEP_SMALL_SCHEMA_SHARD_PREFIX`].
+/// This row is a small header (totals, trust, clean-stop). Per-schema maps
+/// live at [`KEEP_SMALL_SCHEMA_SHARD_PREFIX`].
 pub const KEEP_SMALL_SNAPSHOT_KEY: &str = "keep_small:meters";
 /// Prefix for one [`KeepSmallSchemaShard`] per measured schema.
 pub const KEEP_SMALL_SCHEMA_SHARD_PREFIX: &str = "keep_small:meters:schema:";

@@ -202,7 +202,7 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 | Run data and lookup blocks | Compression, then AES-256-GCM | Main and CAS use separate derived home keys. |
 | Atom content | Plain logical JSON inside encrypted V2 blocks | No extra atom envelope. |
 | Portable file blobs | Existing portable ciphertext and access bundles | The enclosing CAS run blocks also use V2 encryption. |
-| Schema records | Inside encrypted V2 blocks; historical `ENC:` records remain readable | Open recognized historical envelopes before JSON parsing. |
+| Schema records | Plain JSON inside encrypted V2 blocks | A native put refuses an `ENC:`, `ENZ:` or `ENB:` envelope in a catalog collection. The schema store reads plain JSON only. |
 | Local `identity.key` | A plaintext 32-byte seed with owner-only permissions | Possession of this seed permits data decryption. |
 
 The block encryption covers logical keys, metadata, atom headers, tips, counters, and control values together.

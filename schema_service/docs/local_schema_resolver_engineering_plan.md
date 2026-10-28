@@ -57,7 +57,7 @@ Important gaps in the current implementation:
 - there is no native resolver algorithm;
 - there is no concrete production object-store/HTTP fetch implementation for
   the consumer;
-- `load_latest` retains last-known-good files but does not load them when the
+- `load_latest_conditional` retains last-known-good files but does not load them when the
   latest fetch or verification fails;
 - there is no periodic refresh/atomic active-state owner;
 - `SchemaServiceClient::resolve_schemas` always calls the live endpoint and

@@ -35,18 +35,17 @@ pub use range::RunRange;
 pub use reader::RunReader;
 pub use writer::{RunSummary, RunWriter};
 
-/// Native schema writers maintain runtime record-R reverse edges. Version-2
-/// completeness is valid only after this bit is durably published in CURRENT.
+/// Native schema writers maintain runtime record-R reverse edges.
+///
+/// This bit and the two below are the fixed feature set of every disk format
+/// v2 home (`V2_FEATURES` in the node store). A v2 home stores no feature
+/// bits; only the byte backup manifest records the set.
 pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
 
-/// Native batches admit 16,384 ordered storage operations instead of 4,096.
-/// The initial CURRENT fences older readers before any larger stored batch.
+/// Native batches admit 16,384 ordered storage operations.
 pub const FEATURE_LARGE_BATCHES: u64 = 32;
 
 /// Every atom body is one record at `atom:{uuid}\0b` in the `atoms` collection.
-/// A home without this bit used the older flat, partition-prefix, or locator
-/// layouts, and a build that holds this bit refuses it. An older build refuses
-/// a home with this bit.
 pub const FEATURE_ATOM_RECORDS: u64 = 128;
 
 /// File name suffix of a complete run.

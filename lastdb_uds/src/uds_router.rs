@@ -55,7 +55,16 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `4` (2026-10-26) removes the two disk format v1 owner-socket routes
 /// `POST /api/db/compact` and `POST /api/db/native-backup`. No app-socket
 /// route and no request key changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 4;
+///
+/// `5` (2026-10-27) removes the legacy Cloud Sync owner-socket route
+/// `POST /api/sync/cloud-off`. No app-socket route and no request key
+/// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
+///
+/// `6` (2026-10-27) removes the two staged-delivery owner-socket routes
+/// `GET /api/sharing/deliveries` and `POST /api/sharing/deliveries/{id}/reject`.
+/// No app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 6;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

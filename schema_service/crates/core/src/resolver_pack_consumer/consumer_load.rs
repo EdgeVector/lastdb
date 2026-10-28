@@ -15,15 +15,9 @@ where
         }
     }
 
-    pub async fn load_latest(
-        &self,
-    ) -> Result<(ResolverPackLoadOutcome, Option<LoadedResolverPack>), ResolverPackConsumerError>
-    {
-        let (outcome, loaded, _etag) = self.load_latest_conditional(None).await?;
-        Ok((outcome, loaded))
-    }
-
-    /// Like [`load_latest`], but supports conditional GET via `If-None-Match`.
+    /// Load the latest resolver pack.
+    ///
+    /// `if_none_match` supports conditional GET via `If-None-Match`.
     ///
     /// On success with a newly fetched pack, the optional etag is returned for
     /// the next refresh. On last-known-good fallback the etag is cleared

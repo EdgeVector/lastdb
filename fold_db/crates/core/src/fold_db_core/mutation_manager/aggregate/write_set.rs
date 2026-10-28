@@ -1,5 +1,7 @@
 //! Public aggregate set write entry points and invalidation writes.
 
+use super::invalidation_rules::InvalidationTarget;
+use super::rules::summary_mutation;
 use super::*;
 
 struct InvalidationCandidate {
@@ -8,10 +10,8 @@ struct InvalidationCandidate {
     source_hash: String,
 }
 
-type InvalidationTarget = (AggregateGuard, AggregateWinner, String, String);
-
 impl MutationManager {
-    /// Commit one aggregate source mutation and its `AggregateSet` atomically.
+    /// Commit one aggregate source with guarded member and summary writes.
     pub async fn write_aggregate_set_with_access_receipt(
         &self,
         mut source: Mutation,
@@ -46,7 +46,7 @@ impl MutationManager {
         Ok(receipt)
     }
 
-    /// Add an atomic invalidation for every enrolled ordinary source write.
+    /// Invalidate enrolled targets durably before the ordinary source write.
     pub(in crate::fold_db_core::mutation_manager) async fn write_with_aggregate_invalidations(
         &self,
         mutations: Vec<Mutation>,
@@ -153,7 +153,7 @@ impl MutationManager {
             };
             guard.validate().map_err(SchemaError::InvalidData)?;
             let source = &mutations[candidate.mutation_index];
-            Self::check_enrolled_source(&guard, source, &candidate.source_hash)?;
+            invalidation_rules::check_enrolled_source(&guard, source, &candidate.source_hash)?;
             let winner = AggregateWinner {
                 logical_counter: source.logical_counter,
                 written_at: source.imported_written_at.unwrap_or(0),
@@ -167,51 +167,21 @@ impl MutationManager {
                 &target_key,
             );
             match by_target.get(&lock_key) {
-                Some((_, current, _, _)) if !winner.cmp_source(current).is_gt() => {}
+                Some(current) if !winner.cmp_source(&current.winner).is_gt() => {}
                 _ => {
                     by_target.insert(
                         lock_key,
-                        (guard, winner, source.uuid.clone(), source.pub_key.clone()),
+                        InvalidationTarget {
+                            guard,
+                            winner,
+                            token: source.uuid.clone(),
+                            pub_key: source.pub_key.clone(),
+                        },
                     );
                 }
             }
         }
         Ok(by_target)
-    }
-
-    /// Reject a source write that an enrolled aggregate guard cannot accept.
-    fn check_enrolled_source(
-        guard: &AggregateGuard,
-        source: &Mutation,
-        source_hash: &str,
-    ) -> Result<(), SchemaError> {
-        if guard.source_schema_name != source.schema_name
-            || guard.source_partition_hash != source_hash
-        {
-            return Err(SchemaError::InvalidData(
-                "aggregate guard identity does not match its storage key".into(),
-            ));
-        }
-        if matches!(
-            source.mutation_type,
-            MutationType::Delete | MutationType::Purge
-        ) {
-            return Err(SchemaError::InvalidData(
-                "enrolled aggregate sources reject Delete and Purge; write a live logical removal value with an explicit zero AggregateSet"
-                    .into(),
-            ));
-        }
-        if source
-            .fields_and_values
-            .values()
-            .any(crate::atom::is_tombstone_value)
-        {
-            return Err(SchemaError::InvalidData(
-                "enrolled aggregate sources reject field tombstones; write a live logical removal value with an explicit zero AggregateSet"
-                    .into(),
-            ));
-        }
-        Ok(())
     }
 
     /// Build one `valid=0` invalidation mutation per resolved aggregate target.
@@ -221,7 +191,13 @@ impl MutationManager {
     ) -> Result<(Vec<Mutation>, Vec<AggregateGuard>), SchemaError> {
         let mut invalidations = Vec::with_capacity(by_target.len());
         let mut invalidated_guards = Vec::with_capacity(by_target.len());
-        for (_, (guard, _, token, pub_key)) in by_target {
+        for (_, target) in by_target {
+            let InvalidationTarget {
+                guard,
+                token,
+                pub_key,
+                ..
+            } = target;
             // The reverse owner (if any) is informational only: a missing or
             // association-mismatched reverse row must never be read as "no
             // work". This forward guard is this source partition's reconciled,
@@ -238,29 +214,15 @@ impl MutationManager {
                         guard.target_schema_name
                     ))
                 })?;
-            for field in [AGGREGATE_VALID_FIELD, AGGREGATE_GUARD_TOKEN_FIELD] {
-                if !target_schema.runtime_fields.contains_key(field) {
-                    return Err(SchemaError::InvalidField(format!(
-                        "aggregate target schema '{}' must declare field '{field}'",
-                        guard.target_schema_name
-                    )));
-                }
-            }
-            let mut invalidation = Mutation::new(
+            invalidation_rules::check_target_fields(&target_schema, &guard.target_schema_name)?;
+            let invalidation = summary_mutation(
                 guard.target_schema_name.clone(),
-                HashMap::from([
-                    (AGGREGATE_VALID_FIELD.into(), serde_json::Value::from(0)),
-                    (
-                        AGGREGATE_GUARD_TOKEN_FIELD.into(),
-                        serde_json::Value::String(token),
-                    ),
-                ]),
                 KeyValue::from_storage_key(&guard.target_key)?,
+                HashMap::new(),
+                false,
+                token,
                 pub_key,
-                MutationType::Update,
             );
-            invalidation.aggregate_derived_internal = true;
-            invalidation.synchronous = Some(true);
             invalidations.push(invalidation);
             invalidated_guards.push(guard);
         }

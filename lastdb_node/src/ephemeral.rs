@@ -78,8 +78,7 @@ fn verify_dev_field_index_debug_home_with(
         ));
     }
 
-    let (cloud_config, paused_cloud_config) = crate::cloud::cloud_sync_paths(&canonical_home);
-    if cloud_config.exists() || paused_cloud_config.exists() {
+    if crate::cloud::cloud_credentials_path(&canonical_home).exists() {
         return Err("field-index raw debug home must not contain cloud configuration".to_string());
     }
     Ok(())

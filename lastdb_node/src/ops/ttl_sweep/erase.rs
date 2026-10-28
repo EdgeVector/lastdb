@@ -99,15 +99,16 @@ pub(super) async fn purge_round_robin(
 
 /// Keys in the next batch of a schema. The pace sets the size. A schema with
 /// many fields gets fewer keys, so the batch always fits in one native batch
-/// (16,384 operations; 4,096 on a home from an older build). One key at least.
+/// (16,384 operations). One key at least.
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
-    use fold_db::fold_db_core::purge::budget::{max_erase_keys, LEGACY_BATCH_OPERATIONS};
-    let limit = host
+    use fold_db::fold_db_core::purge::budget::max_erase_keys;
+    let fits = host
         .db
         .db_ops()
         .batch_operation_limit()
-        .unwrap_or(LEGACY_BATCH_OPERATIONS);
-    let fits = max_erase_keys(verb == SweepVerb::Delete, backlog.fields, limit);
+        .map_or(usize::MAX, |limit| {
+            max_erase_keys(verb == SweepVerb::Delete, backlog.fields, limit)
+        });
     pace_batch.min(fits).min(backlog.batch_cap()).max(1)
 }
 

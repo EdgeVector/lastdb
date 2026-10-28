@@ -37,8 +37,8 @@ pub const NON_OBJECT_PAYLOAD_MARKER: &str = "contract_violation";
 /// `ok` and `user_hash` are the envelope's assertion *about* the response, so a
 /// payload field of the same name is dropped rather than spread over them.
 /// Spreading the payload last — the original order — meant any handler could
-/// overwrite the success discriminator, and one already sets `"ok"` in its own
-/// payload (`POST /api/sync/cloud-off`). A handler that set `"ok": false` would
+/// overwrite the success discriminator by setting `"ok"` in its own payload.
+/// A handler that set `"ok": false` would
 /// have shipped a `200` whose envelope said the call failed, and every caller
 /// that branches on `ok` would have believed it.
 ///
@@ -142,12 +142,9 @@ pub fn status_reason(status: u16) -> &'static str {
 /// A status the handlers actually produce but this list omits is worse than
 /// useless: [`owner_or_content_free`] collapses it to a bare `500`, so the
 /// careful classification upstream never reaches the wire. That is what
-/// happened to `422` (file-blob verification) and `429` (permanent cloud
-/// quota) — the quota mapping added for the Sentry `7654526497` storm spared
-/// the ERROR log, because `render` branches on `HostError::status`, but the
-/// caller still read `500 Internal Server Error`. Keep this list in step with
-/// the statuses handlers return.
-const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 429, 503, 507];
+/// happened to `422` (file-blob verification): the caller read `500 Internal
+/// Server Error`. Keep this list in step with the statuses handlers return.
+const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 503, 507];
 
 /// Render an error: the OWNER caller gets `message` in the body (developer
 /// diagnostics like a schema-resolution failure), every non-owner caller gets

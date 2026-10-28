@@ -5,7 +5,7 @@
  * returns — there is no catch-all "request failed". The mapping is verified
  * against the on-`main` handlers:
  *
- * - Consent flow (`fold_db_node/src/server/routes/apps.rs`):
+ * - Consent flow (no current node serves these routes):
  *   - `request-consent`  → `404 {error, app_id}` (unknown app),
  *                          `403 {reason: "app_in_sandbox", app_id, error}`,
  *                          `400 {error}` (invalid scope).
@@ -14,8 +14,8 @@
  *                          `403 {status: "denied"}` / `403 {status: "revoked"}`,
  *                          `408 {status: "expired"}`,
  *                          `404 {status: "unknown"}`.
- * - Data path (`fold_db_node::dev_mode` `app_endpoints.rs`, production
- *   `fold_db_node` operation layer): `403 {kind: "permission_denied",
+ * - Data path (`lastdb_uds` routing, `lastdb_host` handlers):
+ *   `403 {kind: "permission_denied",
  *   error: "<discriminated reason>"}` where the reason text distinguishes
  *   namespace-denied / unverified-identity / write-denied / revoked, and
  *   `400 {kind, error}` for a request-shape / schema-state rejection.
@@ -516,9 +516,8 @@ export class RequestRejectedError extends FoldDbError {
 /**
  * Why the SDK decided the node is too old for this client.
  *
- * - `api_version_below_required`: the preflight read `GET /api/version` (or
- *   got a 404 from a node that predates the route, reported as `0`) and the
- *   number is below what the app declared.
+ * - `api_version_below_required`: the preflight read `GET /api/version` and
+ *   the number is below what the app declared.
  * - `unknown_key`: a data route answered `400 {kind:"unknown_key"}` — the node
  *   does not know a key this client sent. The key is never echoed by the node
  *   (its I4 rule), which is fine: the fix is the same either way.
@@ -530,7 +529,7 @@ export interface NodeTooOldDetail {
   reason: NodeTooOldReason;
   /** What the app declared it needs (`connect({ requireApiVersion })`). */
   required?: number;
-  /** What the node reported (`0` = predates the handshake; `null` = unknown). */
+  /** What the node reported (`null` = unknown). */
   reported: number | null;
   /** The node's baked build string when it reported one. */
   build: string | null;

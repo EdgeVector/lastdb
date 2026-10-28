@@ -11,7 +11,7 @@
 //! * `fold_db_core` - Core database functionality
 //! * `schema` - Schema definition, validation, and execution
 //! * `security` - Cryptographic key management and signing
-//! * `storage` - Storage backend abstraction (Last Store, with optional cloud sync)
+//! * `storage` - Storage backend abstraction (Last Store)
 //!
 //! ## Architecture
 //!
@@ -44,9 +44,9 @@ pub mod fold_db_core;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
-/// One accounted process memory budget — warm set + key cache + resident graph
-/// projected to RSS, with the deferred-write window derived from what is left
-/// under the node's RSS guard.
+/// One accounted process memory budget — the warm set limit projected to RSS,
+/// with the deferred-write window derived from what is left under the node's
+/// RSS guard.
 pub mod memory_budget;
 pub mod mini_cutover;
 #[cfg(unix)]
@@ -60,6 +60,7 @@ pub mod storage;
 pub mod sync;
 pub mod sync_conflict;
 pub mod user_context;
+mod write_preparation;
 
 // Re-export main types for convenience
 pub use error::{FoldDbError, FoldDbResult};

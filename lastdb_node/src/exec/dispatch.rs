@@ -79,11 +79,9 @@ where
     // apply/persist/flush lifted from fold_db core's timing breakdown) add
     // into this request's totals. Non-mutation routes add nothing, so their
     // samples keep an absent phase set by construction.
-    let ((resp, phase_totals, work_counts, tip_keys), read_receipt) =
-        fold_db::read_receipts::observe(Box::pin(
-            fold_db::request_phases::run_with_phases_and_keys(
-                fold_db::user_context::run_with_user(&user_hash, work),
-            ),
+    let (resp, phase_totals, work_counts, tip_keys) =
+        Box::pin(fold_db::request_phases::run_with_phases_and_keys(
+            fold_db::user_context::run_with_user(&user_hash, work),
         ))
         .await;
 
@@ -92,7 +90,6 @@ where
     // lastdb-status callers show up if they hammer the node.
     let duration_ms = started.elapsed().as_millis() as u64;
     let rows = crate::request_telemetry::rows_from_response_body(resp.status, &resp.body);
-    let cold_shard_loads = Some(read_receipt.group_opens);
     let path = Some(crate::request_telemetry::path_from_request(
         req.method.as_str(),
         req.target.as_str(),
@@ -112,7 +109,6 @@ where
         status: resp.status,
         rows,
         body_bytes,
-        cold_shard_loads,
         phases: phase_timings(queue_wait_us, &phase_totals),
         molecules_persisted: work_counts.molecules_persisted,
         molecule_store_commits: work_counts.molecule_store_commits,

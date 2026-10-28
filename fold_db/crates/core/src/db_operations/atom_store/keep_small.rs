@@ -59,22 +59,6 @@ impl AtomStore {
         self
     }
 
-    /// Load a previously persisted snapshot.
-    ///
-    /// A missing key is NOT proof of a fresh home — an existing home upgraded
-    /// from a build that never wrote the snapshot misses in exactly the same
-    /// way. The meters cannot tell those apart on their own, so a miss is
-    /// recorded rather than assumed benign
-    /// ([`crate::db_operations::KeepSmallMeters::mark_hydrate_missed`]) and the
-    /// read surfaces decide what to do with it. `GET /api/storage/app` refuses
-    /// to call such a report complete.
-    ///
-    /// Reads only the store handed to [`Self::with_keep_small_persist`]. There
-    /// is deliberately no fallback to the legacy `metadata/keep_small:meters`
-    /// key: on a home that lived through the 2026-09-21 flush storm that key
-    /// sits in a 39 GB hash group, and a point get of it is the whole-group
-    /// load that killed the primary. A home upgraded across the move hydrates
-    /// as a miss and rebuilds through the bootstrap path.
     /// One bounded row read: true when the main store holds no row at all.
     pub(super) async fn main_store_is_empty(&self) -> Result<bool, crate::schema::SchemaError> {
         let first = self
@@ -90,6 +74,15 @@ impl AtomStore {
         Ok(first.is_empty())
     }
 
+    /// Load a previously persisted snapshot.
+    ///
+    /// A missing key on a home that holds data is NOT proof of a fresh home.
+    /// A miss is recorded rather than assumed benign
+    /// ([`crate::db_operations::KeepSmallMeters::mark_hydrate_missed`]) and the
+    /// read surfaces decide what to do with it. `GET /api/storage/app` refuses
+    /// to call such a report complete.
+    ///
+    /// Reads only the store handed to [`Self::with_keep_small_persist`].
     pub async fn hydrate_keep_small(&self) -> Result<(), crate::schema::SchemaError> {
         let Some(store) = self.keep_small_persist.as_ref() else {
             return Ok(());
@@ -98,9 +91,8 @@ impl AtomStore {
         // memory. The caller can still enter the explicit repair constructor.
         self.keep_small.mark_incomplete("snapshot_read_failed");
         let snap = self.read_keep_small_snapshot(store).await?;
-        if let Some((snap, was_legacy_whole_map)) = snap {
-            self.hydrate_from_snapshot(store, snap, was_legacy_whole_map)
-                .await?;
+        if let Some(snap) = snap {
+            self.hydrate_from_snapshot(store, snap).await?;
         } else if self.main_store_is_empty().await?
             && store.inner().scan_prefix_paged(b"", 1).await?.is_empty()
         {
@@ -115,13 +107,11 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Read the header row and merge its per-schema shards. Returns the
-    /// snapshot and whether it was a legacy whole-map row.
+    /// Read the header row and merge its per-schema shards.
     async fn read_keep_small_snapshot(
         &self,
         store: &Arc<TypedKvStore<dyn KvStore>>,
-    ) -> Result<Option<(crate::db_operations::KeepSmallSnapshot, bool)>, crate::schema::SchemaError>
-    {
+    ) -> Result<Option<crate::db_operations::KeepSmallSnapshot>, crate::schema::SchemaError> {
         let snap = store
             .get_item::<crate::db_operations::KeepSmallSnapshot>(
                 crate::db_operations::KEEP_SMALL_SNAPSHOT_KEY,
@@ -133,14 +123,9 @@ impl AtomStore {
         let Some(mut snapshot) = snap else {
             return Ok(None);
         };
-        let was_legacy_whole_map =
-            !snapshot.sharded && (!snapshot.schemas.is_empty() || !snapshot.molecules.is_empty());
-        if !was_legacy_whole_map {
-            self.merge_keep_small_shards(store.as_ref(), &mut snapshot)
-                .await?;
-            snapshot.sharded = true;
-        }
-        Ok(Some((snapshot, was_legacy_whole_map)))
+        self.merge_keep_small_shards(store.as_ref(), &mut snapshot)
+            .await?;
+        Ok(Some(snapshot))
     }
 
     /// A snapshot exists: import its aggregate values directly, judge its
@@ -149,7 +134,6 @@ impl AtomStore {
         &self,
         store: &Arc<TypedKvStore<dyn KvStore>>,
         snap: crate::db_operations::KeepSmallSnapshot,
-        was_legacy_whole_map: bool,
     ) -> Result<(), crate::schema::SchemaError> {
         let clean_stop = snap.clean_stop;
         let supported = snap.version == crate::db_operations::KEEP_SMALL_SNAPSHOT_VERSION;
@@ -158,18 +142,14 @@ impl AtomStore {
                 .mark_incomplete(&format!("hydrate_import_failed: {e}"));
             crate::schema::SchemaError::InvalidData(format!("hydrate keep-small import: {e}"))
         })?;
-        if was_legacy_whole_map {
-            // Next persist splits the whole-map row into per-schema shards.
-            self.keep_small.mark_all_schemas_dirty();
-        }
         if !supported {
             self.keep_small
                 .mark_incomplete("unsupported_meter_snapshot_version");
             self.keep_small.mark_all_schemas_dirty();
         }
         // `Some(true)`: written by the shutdown flush, and no boot re-armed
-        // it since, so the meters cover every metered write. `None`: a
-        // pre-2026-09-21 snapshot, no verdict, as before. `Some(false)`:
+        // it since, so the meters cover every metered write. `None`: the
+        // empty-home absent state, which has no stop verdict. `Some(false)`:
         // the last writer was a runtime persist, so the process stopped
         // without its shutdown flush and metered writes after the last
         // debounce tick are missing. Keep the numbers as a hint; the
@@ -198,8 +178,7 @@ impl AtomStore {
         }
         // Re-arm: from here on the durable row must read "unclean" until
         // this process's own shutdown flush rewrites it. One header put
-        // per boot (plus a one-time shard split of a legacy whole-map
-        // row), before any product write can be metered. If it fails
+        // per boot, before any product write can be metered. If it fails
         // the next boot may read a clean stop that this process did not
         // make, so say so.
         self.write_keep_small_with_clean_stop(false)
@@ -226,8 +205,7 @@ impl AtomStore {
         // brand-new home "incomplete" until an operator ran the copy-only
         // liveness bootstrap
         // (papercut-fresh-home-logical-attribution-needs-copy-bootstrap-20260920).
-        // A home upgraded from a pre-snapshot build has tips, so it still
-        // misses.
+        // A home that holds data and has no snapshot still misses.
         self.keep_small.mark_empty_home_absent();
         tracing::info!(
             target: "fold_node::database",

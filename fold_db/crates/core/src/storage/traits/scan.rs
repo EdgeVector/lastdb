@@ -107,8 +107,6 @@ pub struct PhysicalScanPage {
     pub row_handle: Option<PhysicalScanCursor>,
     /// Physical handles resolved by this call.
     pub handles_visited: u64,
-    /// Cold shard loads observed during this call.
-    pub cold_shard_loads: u64,
 }
 
 /// One read of a range that names where the next read continues.
@@ -163,6 +161,5 @@ pub(super) async fn keyset_physical_page<S: KvStore + ?Sized>(
         rows,
         next_cursor,
         handles_visited: 1,
-        cold_shard_loads: 0,
     })
 }

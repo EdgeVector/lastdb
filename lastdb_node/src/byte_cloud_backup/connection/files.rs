@@ -53,14 +53,6 @@ impl Directory {
         Ok(())
     }
 
-    pub fn absent(&self, name: &str) -> Result<bool> {
-        match fs::statat(&self.file, name, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(_) => Ok(false),
-            Err(rustix::io::Errno::NOENT) => Ok(true),
-            Err(error) => Err(std::io::Error::from(error).into()),
-        }
-    }
-
     pub fn read(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
         self.check()?;
         let descriptor = match fs::openat(

@@ -49,7 +49,9 @@ impl SchemaServiceState {
     ) -> Option<(&'a str, f32, Vec<f32>)> {
         let mut best: Option<(&str, f32, Vec<f32>)> = None;
         for existing_field in existing_fields {
-            if claimed.contains(existing_field) {
+            if claimed.contains(existing_field)
+                || crate::field_name_policy::uses_app_abbreviation(existing_field)
+            {
                 continue;
             }
             let Some(existing_emb) = self.field_embedding(

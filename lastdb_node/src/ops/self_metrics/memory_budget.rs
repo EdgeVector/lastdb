@@ -1,9 +1,5 @@
 use super::*;
 
-/// Historical process projection input. Native pool charges are separate.
-pub const HASH_GROUP_WARM_BOUNDS: &str =
-    "conservative process reserve input; use native core pool counters";
-
 /// Retired graph wire fields; the native core has its own current counters.
 pub const RESIDENT_GRAPH_BOUNDS: &str = "retired graph fields; use core_model";
 
@@ -19,13 +15,6 @@ pub(super) fn logical_key_memory_limit_for(_budget: Option<u64>) -> String {
 /// Cheap runtime view of the memory budget declared at boot.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MemoryBudgetHealth {
-    /// Charged warm set bytes, the same value as `core_warm.used_bytes`.
-    /// `measured` leaves it 0; the status build copies it after the
-    /// native core read.
-    pub warm_resident_bytes: u64,
-    /// Historical process projection input (`LASTDB_HASH_GROUP_WARM_BYTES`).
-    /// It is not the warm set limit; that is `core_warm.limit_bytes`.
-    pub warm_budget_bytes: u64,
     pub resident_graph_bytes: u64,
     pub resident_graph_budget_bytes: u64,
     pub deferred_persist_bytes: u64,
@@ -101,11 +90,6 @@ pub struct MemoryBudgetHealth {
     pub peak_request_bytes: u64,
     #[serde(default)]
     pub slowest_request_ms: u64,
-    #[serde(default)]
-    pub effective_warm_budget_bytes: u64,
-    /// Collections `warm_budget_bytes` bounds. Empty on an older daemon payload.
-    #[serde(default)]
-    pub hash_group_warm_bounds: String,
     /// What `resident_graph_budget_bytes` bounds. Empty on an older daemon payload.
     #[serde(default)]
     pub resident_graph_bounds: String,
@@ -194,8 +178,6 @@ impl MemoryBudgetHealth {
         let charged_budget_bytes = budget.charged_bytes;
         let governor = crate::ops::footprint::governor_snapshot();
         Self {
-            warm_resident_bytes: 0,
-            warm_budget_bytes: budget.warm_bytes,
             resident_graph_bytes: resident.resident_bytes,
             resident_graph_budget_bytes: resident.budget_bytes,
             deferred_persist_bytes,
@@ -244,8 +226,6 @@ impl MemoryBudgetHealth {
             allocator_reserved_bytes: attribution.allocator.reserved_bytes,
             peak_request_bytes: attribution.peak_request_bytes,
             slowest_request_ms: attribution.slowest_request_ms,
-            effective_warm_budget_bytes: budget.warm_bytes,
-            hash_group_warm_bounds: HASH_GROUP_WARM_BOUNDS.to_string(),
             resident_graph_bounds: RESIDENT_GRAPH_BOUNDS.to_string(),
             logical_key_memory_limit: logical_key_memory_limit_for(
                 resident.resident_key_budget.as_wire_u64(),

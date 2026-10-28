@@ -176,11 +176,6 @@ pub struct RetentionSharing {
 }
 
 impl RetentionSharing {
-    /// True when no other schema and no other app is involved.
-    pub fn is_clear(&self) -> bool {
-        self.shared_with.is_empty() && self.foreign_owners.is_empty()
-    }
-
     /// The reason a manifest TTL must be refused, or `None` when it is safe.
     pub fn refusal(&self, binding: &str, anchor: &str, owner_app: &str) -> Option<String> {
         let mut reasons = Vec::new();

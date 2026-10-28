@@ -51,10 +51,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
 
     // Read cost is a property of the physical store, not of the encryption
     // seam.
-    fn cold_shard_loads(&self) -> Option<u64> {
-        self.inner.cold_shard_loads()
-    }
-
     fn walk_ids_visited(&self) -> Option<u64> {
         self.inner.walk_ids_visited()
     }

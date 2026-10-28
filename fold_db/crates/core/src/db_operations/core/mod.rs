@@ -23,7 +23,7 @@ pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, Unres
 
 /// Database operations with pluggable storage backend
 ///
-/// Uses the storage abstraction layer (Last Store locally, with optional cloud sync).
+/// Uses the storage abstraction layer (Last Store).
 ///
 /// All persistence is encapsulated in domain store structs whose
 /// namespace fields are private. External callers reach them through
@@ -139,12 +139,6 @@ impl DbOperations {
         self.store
             .disk_pack_runtime()
             .map(|runtime| runtime.batch_operation_limit())
-    }
-
-    /// Cold shard loads since open — one relaxed atomic load, safe to call on
-    /// the per-request telemetry path. `None` on backends without hash groups.
-    pub fn cold_shard_loads(&self) -> Option<u64> {
-        self.store.cold_shard_loads()
     }
 
     /// Ids stepped over by keys-only walks since open — the scan sensor.

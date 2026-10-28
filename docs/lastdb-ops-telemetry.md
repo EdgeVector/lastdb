@@ -34,8 +34,8 @@ including request IDs when clients provide `X-LastDB-Request-Id`.
 It also ranks **request body bytes by caller** (`Top by request body bytes`):
 for each `(client, kind, schema)` key the node sums the HTTP request body sizes
 it already records on every sample. That is the cheap answer to "who is stuffing
-the node" — write volume by caller — complementary to wall-time and cold-load
-rankings. It is **not** net disk growth (tips, indexes, and history amplify
+the node" — write volume by caller — complementary to the wall-time
+ranking. It is **not** net disk growth (tips, indexes, and history amplify
 beyond the request body). The table is omitted when every work key has a zero
 body sum. Compact `lastdb ops --by-app` appends `body_sum=` / `body_max=` on
 app/verb rows that recorded any body bytes.
@@ -57,7 +57,7 @@ offender tables the live view uses.
 
 Each row is one `(client, kind, schema)` bucket for one sample interval and
 carries interval **deltas** for `count`, `sum_ms`, `error_count`,
-`sum_cold_shard_loads`, `sum_body_bytes` (write volume), the per-phase mutation timing sums
+`sum_body_bytes` (write volume), the per-phase mutation timing sums
 (`sum_queue_wait_us`, `sum_admission_wait_us`, `sum_parse_us`,
 `sum_schema_resolve_us`, `sum_validate_us`, `sum_apply_us`, `sum_persist_us`,
 `sum_flush_us`, `sum_index_wait_us`) and `phase_count` (how many requests in
@@ -65,10 +65,16 @@ the interval reported a phase breakdown). `max_ms`, `max_body_bytes`, and
 `last_ts_ms` are copied cumulatively (running max / latest, not deltas). Phase fields are sums in microseconds precisely so intervals
 stay delta-able and merge by addition.
 
-Compatibility is append-only in both directions: the sampler upgrades the
+Compatibility is append-only in both directions, except for the removed
+`sum_cold_shard_loads` field: the sampler upgrades the
 rollup schema in place when it sees missing fields, and rows written before a
 field shipped read back as 0 — for phase fields that means "no phases
 reported", not a measurement of zero.
+
+The rollup schema no longer lists `sum_cold_shard_loads`. Its value was always
+`0` in disk format v2. An extra field does not start a schema upgrade, so a
+store that registered the field keeps it until a missing field starts the next
+upgrade. The sampler does not write the field, and `--since` does not read it.
 
 Known limitation: the sampler's delta baselines are kept for the life of the
 process and never pruned. If an aggregate bucket is evicted from the bounded
@@ -181,7 +187,7 @@ A queued request can also wait for disk when its reservation or typed coverage i
 The [cutover receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-clarity-20261018/RESULTS.md) preserve those actual observations.
 
 `lastdb status` prints `Logical keys:`, `Background purge work:`, and `Memory admission:` lines.
-The logical key line reports the record count cap. A byte allowance does not replace that count cap.
+The logical key line reports the logical record count. It has no count limit; the warm set byte limit bounds it.
 The background purge counters describe queued purge tasks; they do not establish completion of all native logical writes.
 The direct native accepted/completed frontiers describe that completion.
 
@@ -190,8 +196,8 @@ Its retired graph bytes, entry count, and revision fields do not measure current
 A zero historical graph budget does not mean native memory is unbounded.
 The sampled status can also lag a short operation. An unavailable field differs from a measured zero.
 
-`LASTDB_RESIDENT_BYTES` and `LASTDB_HASH_GROUP_WARM_BYTES` remain conservative process-reserve inputs.
-They do not size a native serving graph or a second logical cache.
+The warm set byte limit (`LASTDB_CORE_WARM_BYTES`) is the one conservative process-reserve input.
+It does not size a native serving graph or a second logical cache.
 `LASTDB_RESIDENT_MAX_DEFERRED_BYTES` controls the deferred write-body allowance.
 The native metadata, complete-key, and logical path limits remain separate.
 None of these counters defines a whole-process memory maximum.

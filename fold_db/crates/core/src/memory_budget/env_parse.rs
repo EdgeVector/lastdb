@@ -3,8 +3,7 @@
 use super::*;
 
 /// Byte knob → value, falling back to `default` on unset/invalid/zero. Zero is
-/// treated as unset to match `hash_group_warm_bytes_from_env`, which filters
-/// non-positive values back to the preset.
+/// treated as unset.
 #[must_use]
 pub fn parse_bytes(raw: Option<String>, default: u64) -> u64 {
     raw.and_then(|s| s.trim().parse::<u64>().ok())

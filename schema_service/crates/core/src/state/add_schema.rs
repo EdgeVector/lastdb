@@ -59,6 +59,7 @@ impl SchemaServiceState {
         mutation_mappers: &mut HashMap<String, String>,
     ) -> FoldDbResult<Result<Vec<crate::ComponentReuseAdvice>, SchemaAddOutcome>> {
         Self::validate_proposal_shape(schema)?;
+        self.validate_proposal_field_names(schema)?;
 
         // Snapshot version bump (app_identity v3.1, Lane B2a). add_schema
         // has many branches and outcomes (Added / AlreadyExisted /

@@ -65,16 +65,9 @@ impl FoldDB {
         }
     }
 
-    /// Log native memory admission.
-    pub(super) fn log_resident_policy() {
-        let resident_policy = crate::resident::ResidentPolicy::from_env();
-        info!(
-            target: "fold_node::database",
-            budget_bytes = resident_policy.budget_bytes,
-            "native memory admission policy"
-        );
-        // This remains conservative process headroom after the graph cache
-        // removal. Actual native pool charges have their own status counters.
+    /// Log the process memory budget. Actual native pool charges have their
+    /// own status counters.
+    pub(super) fn log_memory_budget() {
         crate::memory_budget::process_memory_budget().log_at_boot();
     }
 

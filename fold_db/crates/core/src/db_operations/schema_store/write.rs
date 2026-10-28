@@ -14,10 +14,10 @@ impl SchemaStore {
     /// (~354× historical copies measured on a daily-driver home).
     ///
     /// **Won't-undo:** the skip read must never be able to fail the write. An
-    /// undeserializable durable body (empty row, legacy `ENC:` value read
-    /// through a plain seam, truncated segment) used to propagate out of the
-    /// `get_item` and abort `store_schema` entirely, so the one write that
-    /// would have replaced the bad row was the one write that could not run.
+    /// undeserializable durable body (empty row, truncated segment) used to
+    /// propagate out of the `get_item` and abort `store_schema` entirely, so
+    /// the one write that would have replaced the bad row was the one write
+    /// that could not run.
     /// On Tom's primary that latched two kanban schemas into permanent
     /// `Serialization error: expected value at line 1 column 1` failures,
     /// which blinded the BoardCards projection and stalled the whole factory.

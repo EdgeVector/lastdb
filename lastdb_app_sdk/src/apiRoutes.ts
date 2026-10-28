@@ -5,7 +5,7 @@ export const LASTDB_API_ROUTES = {
     `/api/apps/consent-status/${encodeURIComponent(requestId)}`,
   list: '/api/list',
   query: '/api/query',
-  /** Several independent `/api/query` bodies in one request (node 2026-10-08+). */
+  /** Several independent `/api/query` bodies in one request. */
   queryBatch: '/api/queries/batch',
   mutation: '/api/mutation',
   appSearch: '/api/app/search',

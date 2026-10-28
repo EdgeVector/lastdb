@@ -28,9 +28,6 @@ pub(super) async fn dispatch_sync_deliver(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::SyncCloudOff => {
-            heap_route_ctx_host!(execute_sync_cloud_off_route, ctx, host).await
-        }
         DataRoute::SyncByteBackupV2 => {
             super::super::byte_backup_routes::execute(req, ctx, host).await
         }

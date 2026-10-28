@@ -38,8 +38,6 @@ pub(super) fn aggregate_from_row(row: &serde_json::Value) -> Option<(String, OpA
         max_ms: field_u64(fields, "max_ms").unwrap_or(0),
         last_ts_ms: field_u64(fields, "last_ts_ms").unwrap_or(0),
         error_count: field_u64(fields, "error_count").unwrap_or(0),
-        // Absent on rollup rows written before read-cost attribution shipped.
-        sum_cold_shard_loads: field_u64(fields, "sum_cold_shard_loads").unwrap_or(0),
         // Absent on rows written before write-volume attribution shipped.
         sum_body_bytes: field_u64(fields, "sum_body_bytes").unwrap_or(0),
         max_body_bytes: field_u64(fields, "max_body_bytes").unwrap_or(0),
@@ -78,9 +76,6 @@ pub(super) fn merge_aggregate(agg: &mut OpAggregate, other: &OpAggregate) {
     agg.max_ms = agg.max_ms.max(other.max_ms);
     agg.last_ts_ms = agg.last_ts_ms.max(other.last_ts_ms);
     agg.error_count = agg.error_count.saturating_add(other.error_count);
-    agg.sum_cold_shard_loads = agg
-        .sum_cold_shard_loads
-        .saturating_add(other.sum_cold_shard_loads);
     agg.sum_body_bytes = agg.sum_body_bytes.saturating_add(other.sum_body_bytes);
     agg.max_body_bytes = agg.max_body_bytes.max(other.max_body_bytes);
     // Interval SUMS merge by addition — same invariant the

@@ -17,11 +17,7 @@ use crate::schema::types::schema::DeclarativeSchemaType;
 pub enum SchemaState {
     /// Schema is installed and usable — can be queried, mutated, field-mapped,
     /// and have transforms run against it.
-    ///
-    /// The `Approved` alias lets on-disk states persisted before the
-    /// approved/available collapse deserialize transparently as `Available`.
     #[default]
-    #[serde(alias = "Approved")]
     Available,
     /// Schema blocked by the system (typically superseded during schema
     /// expansion): cannot be queried, but field-mapping and transforms still

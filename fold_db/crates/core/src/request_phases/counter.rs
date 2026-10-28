@@ -7,9 +7,8 @@
 /// phase already exists for the same work AND that phase is known to move
 /// more from node state than from the code being evaluated. Every variant is
 /// counted at the site that issues the work, so it is exact for the request
-/// rather than a store-wide gauge sampled around it (contrast
-/// `OpSample::cold_shard_loads`, which is store-wide and therefore charged
-/// for concurrent callers).
+/// rather than a store-wide gauge sampled around it, which would charge it
+/// for concurrent callers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestCounter {
     /// Field molecules this request handed to the durable store.

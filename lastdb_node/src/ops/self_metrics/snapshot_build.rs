@@ -32,7 +32,6 @@ pub(super) async fn build_snapshot(host: &Host, cpu: &mut CpuProbe) -> StatusSna
     let mut memory_budget =
         memory_budget_health(host, footprint, runtime_memory, &resident, &mut request_ops);
     memory_budget.core_warm = CoreWarmBytesHealth::from(&native.core_warm_bytes);
-    memory_budget.warm_resident_bytes = memory_budget.core_warm.used_bytes;
     StatusSnapshot {
         logs: daemon_log_streams(),
         sampled_at,

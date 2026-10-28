@@ -3,22 +3,13 @@
 //! Both the client and service consume this source. The service binding follows
 //! through its existing LastDB submodule after the canonical source lands.
 
-pub mod access;
 mod common;
-pub mod context;
 mod digest;
-pub mod discovery;
 mod error;
-pub mod jobs;
 pub mod limits;
 pub mod manifest;
 mod primitives;
-pub mod publication;
 pub mod recovery;
-pub mod references;
-pub mod source;
-pub mod transfer;
-pub mod usage;
 pub mod v2;
 
 pub use common::*;

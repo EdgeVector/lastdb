@@ -1,7 +1,7 @@
 """Human-readable isolated write stages and native storage checkpoint changes."""
 
 MIB = 1024 ** 2
-FAMILIES = ("request", "scope", "commit", "completion", "search_outbox", "merge_main", "merge_cas")
+FAMILIES = ("request", "scope", "prepare", "commit", "completion", "search_outbox", "merge_main", "merge_cas")
 COLLECTION_FIELDS = ("live_keys", "live_key_bytes", "live_stored_value_bytes", "deleted_keys", "deleted_key_bytes")
 
 
@@ -17,6 +17,7 @@ def timing_lines(report):
     lines = ["", "### Numeric timing captures", "",
              "Request, native scope, physical commit, group completion, search outbox, and background merge captures remain separate.",
              "Concurrent durations overlap. Nested stages overlap their parents. Do not add stage or layer totals.",
+             "Preparation covers work inside the native write gate. Its stage read counts include OS-cache reads and overlap nested stages.",
              "Completion and physical commit describe separate intervals at the commit-group level.",
              "Search outbox work is inside completion post-commit delivery. It also overlaps scope durable wait and the request span.",
              "Completion counts describe commit groups; search outbox counts describe SchemaBatch delivery attempts. Neither must equal the HTTP write count.",

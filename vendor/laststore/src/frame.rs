@@ -13,9 +13,8 @@ pub(crate) use stream::VerifiedFrameReader;
 
 /// Magic prefix for encrypted Last Store frames.
 pub const MAGIC: [u8; 4] = *b"LSF1";
-/// Frame format version written by this build.
+/// Frame format version. Readers accept only this version.
 pub const VERSION: u8 = 2;
-const LEGACY_VERSION: u8 = 1;
 const FLAG_ZSTD: u8 = 1;
 const KNOWN_FLAGS: u8 = FLAG_ZSTD;
 const ZSTD_LEVEL: i32 = 3;
@@ -148,7 +147,7 @@ pub fn decode_frame(data_key: &[u8; 32], frame: &[u8]) -> Result<DecodedFrame> {
 }
 
 /// A block reader supplies its physical format's tighter allocation limit.
-/// Legacy frame callers retain their existing uncompressed-record contract.
+/// [`decode_frame`] callers keep the full frame limit.
 pub(crate) fn decode_frame_bounded(
     data_key: &[u8; 32],
     frame: &[u8],
@@ -234,18 +233,9 @@ fn chunk_key(data_key: &[u8; 32], chunk_uuid: Uuid) -> Result<[u8; 32]> {
 }
 
 fn encode_header(header: FrameHeader, payload_len: u64, flags: u8) -> [u8; HEADER_SIZE] {
-    encode_header_version(header, payload_len, VERSION, flags)
-}
-
-fn encode_header_version(
-    header: FrameHeader,
-    payload_len: u64,
-    version: u8,
-    flags: u8,
-) -> [u8; HEADER_SIZE] {
     let mut out = [0u8; HEADER_SIZE];
     out[..4].copy_from_slice(&MAGIC);
-    out[4] = version;
+    out[4] = VERSION;
     out[5] = flags;
     out[6..8].copy_from_slice(&header.shard.to_le_bytes());
     out[8..16].copy_from_slice(&header.start_csn.to_le_bytes());
@@ -266,14 +256,11 @@ fn decode_header_prefix(bytes: &[u8]) -> Result<(FrameHeader, usize, u8)> {
     if bytes[..4] != MAGIC {
         return Err(Error::AeadAuthFail);
     }
-    let version = bytes[4];
-    if version != LEGACY_VERSION && version != VERSION {
+    if bytes[4] != VERSION {
         return Err(Error::AeadAuthFail);
     }
     let flags = bytes[5];
-    if (version == LEGACY_VERSION && flags != 0)
-        || (version == VERSION && flags & !KNOWN_FLAGS != 0)
-    {
+    if flags & !KNOWN_FLAGS != 0 {
         return Err(Error::AeadAuthFail);
     }
     let shard = u16::from_le_bytes(bytes[6..8].try_into().unwrap());

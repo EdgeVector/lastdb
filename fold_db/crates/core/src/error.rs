@@ -32,11 +32,6 @@ pub enum FoldDbError {
     /// Errors related to security operations
     SecurityError(String),
 
-    /// Cloud storage quota permanently exceeded (HTTP 429 / QUOTA_EXCEEDED).
-    /// Distinct from transient Network/S3 failures so handlers can return 429
-    /// and skip hot retries / ERROR-level Sentry storms.
-    QuotaExceeded(String),
-
     /// A bounded owner operation remains active and can be retried later.
     /// Socket handlers map this class to HTTP 503 instead of ERROR-level 500.
     InProgress(String),
@@ -55,7 +50,6 @@ impl fmt::Display for FoldDbError {
             Self::Io(err) => write!(f, "IO error: {err}"),
             Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
             Self::SecurityError(msg) => write!(f, "Security error: {msg}"),
-            Self::QuotaExceeded(msg) => write!(f, "quota exceeded: {msg}"),
             Self::InProgress(msg) => write!(f, "operation in progress: {msg}"),
             Self::Other(msg) => write!(f, "Error: {msg}"),
         }
