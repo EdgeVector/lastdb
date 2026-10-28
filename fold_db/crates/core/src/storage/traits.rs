@@ -10,7 +10,7 @@
 //! | [`PartitionedScan`] | Result of poison-aware scans (encrypting backends). |
 //!
 //! Scan variants on [`KvStore`] (`scan_prefix`, `_keys`, `_paged`, `scan_range`,
-//! `_lossy`, `_partition_undecryptable`) are **one family** with different
+//! `_partition_undecryptable`) are **one family** with different
 //! failure/pagination contracts — not parallel APIs. Defaults are correct but
 //! unbounded; ordered backends (Last Store) should override for lazy iterators.
 //!

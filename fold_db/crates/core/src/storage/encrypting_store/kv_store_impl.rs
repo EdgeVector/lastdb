@@ -138,56 +138,11 @@ impl KvStore for EncryptingKvStore {
         })
     }
 
-    // SECURITY (reviewer note): this lossy scan silently DROPS any undecryptable
-    // row. That is safe ONLY for DERIVED, re-derivable indices — the sole caller
-    // is the `emb:` embeddings index, rebuilt by re-embedding. Do NOT reuse it
-    // over a primary / security-critical namespace (consent, the revocation
-    // ledger, capabilities, ACLs): there a dropped row = selective record hiding
-    // (an unreadable revocation row would silently un-revoke a capability — fail
-    // OPEN). Those namespaces must fail CLOSED on an unreadable row instead (cf.
-    // `fold_db_node`'s `RevocationStore::read_all`). See the trait-level note on
-    // `KvStore::scan_prefix_lossy` for the allow-list rule.
-    async fn scan_prefix_lossy(&self, prefix: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
-        let results = self.inner.scan_prefix(prefix).await?;
-        let mut decrypted_results = Vec::with_capacity(results.len());
-        let mut skipped = 0usize;
-
-        for (key, stored) in results {
-            match self.open_value(&key, stored).await {
-                Ok(plaintext) => {
-                    decrypted_results.push((key, plaintext));
-                }
-                Err(e) => {
-                    // One undecryptable row must not fail the whole scan: this
-                    // path backs a derived index that can be rebuilt. Skip it
-                    // with a warning rather than wedging the caller (e.g. node
-                    // startup restoring the embedding index).
-                    skipped += 1;
-                    tracing::warn!(
-                        error = %e,
-                        "scan_prefix_lossy: skipping undecryptable row (derived index, will be re-derived on next index)"
-                    );
-                }
-            }
-        }
-
-        if skipped > 0 {
-            tracing::warn!(
-                skipped,
-                kept = decrypted_results.len(),
-                "scan_prefix_lossy: skipped {skipped} undecryptable row(s)"
-            );
-        }
-
-        Ok(decrypted_results)
-    }
-
     // Non-aborting, *reporting* scan: unlike `scan_prefix` (fails the whole
-    // scan on the first poison row) and `scan_prefix_lossy` (silently drops
-    // them), this returns the cleanly-decrypted rows AND the keys of every row
-    // it could not decrypt, so the caller can report them loudly (snapshot
-    // backup) or scrub them (maintenance delete). It never re-derives or
-    // withholds a good row — the partition is exact.
+    // scan on the first poison row), this returns the cleanly-decrypted rows
+    // and the keys of every row it could not decrypt. The caller can report
+    // them loudly (snapshot backup) or scrub them (maintenance delete). It
+    // never re-derives or withholds a good row. The partition is exact.
     async fn scan_prefix_partition_undecryptable(
         &self,
         prefix: &[u8],

@@ -9,8 +9,7 @@ use crate::storage::error::StorageResult;
 /// rows).
 ///
 /// Unlike [`KvStore::scan_prefix`] (which fails the whole scan on the first
-/// undecryptable row) and [`KvStore::scan_prefix_lossy`] (which silently drops
-/// them), this keeps the undecryptable keys so the caller can *report* them
+/// undecryptable row), this keeps the undecryptable keys so the caller can *report* them
 /// loudly — a snapshot backup that must not abort on a handful of unrecoverable
 /// poison rows — or *scrub* them (an explicit maintenance delete).
 #[derive(Debug, Default, Clone)]
