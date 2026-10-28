@@ -30,12 +30,18 @@ impl SchemaServiceState {
             .backend()
             .save_canonical_fields(&validated)
             .await?;
-        {
-            let mut cache = write_lock(&self.canonical_fields, "canonical_fields")?;
-            for (name, field) in validated {
-                cache.insert(name, field);
-            }
+        self.cache_committed_vocabulary(&validated)
+    }
+
+    pub(crate) fn cache_committed_vocabulary(
+        &self,
+        fields: &[(String, crate::types::CanonicalField)],
+    ) -> FoldDbResult<()> {
+        let mut cache = write_lock(&self.canonical_fields, "canonical_fields")?;
+        for (name, field) in fields {
+            cache.insert(name.clone(), field.clone());
         }
+        drop(cache);
         // Model vectors remain a derived cache, never an authority credential.
         self.bump_state_version();
         Ok(())

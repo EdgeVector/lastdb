@@ -29,7 +29,7 @@ The policy version records code validation and grants no authority.
 3. Compare normalized descriptions with the current vocabulary and the rest of the candidate batch.
 4. Compare likely duplicates through name tokens, description tokens, and description embeddings.
 5. Preserve different units and roles; require reuse when the candidate duplicates an existing concept.
-6. After logical schema rejection checks, write validated definitions at schema persistence and make them visible in memory.
+6. After logical rejection checks, commit the schemas and validated definitions together, then expose the vocabulary in memory.
 
 The semantic candidate needs name token overlap of at least 0.5 and description token overlap of at least 0.35.
 A type match and compatible qualifiers are also required.
@@ -53,7 +53,11 @@ They require no signed publication bundle.
 
 ## Storage and rollout
 
-The reset uses the existing `canonical-v1/` definition generation and its separate embedding store.
+The reset uses a fresh `canonical-v2/` definition generation and its separate embedding store.
+One `definitions.json` commit contains the schemas and canonical fields.
+A failed schema save cannot reserve new canonical names on its own.
+The service refuses an implicit conversion of nonempty legacy definition files.
+The earlier `canonical-v1/` generation remains available for recovery.
 App identities, permissions, credentials, and quotas remain in their common stores.
 Old definitions remain available for recovery and rollback.
 The primary home and its archive remain outside the operation.

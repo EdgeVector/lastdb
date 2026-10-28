@@ -56,9 +56,29 @@ impl InMemorySchemaPersistence {
 #[async_trait]
 impl ExternalSchemaPersistence for InMemorySchemaPersistence {
     async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        self.write()?
-            .schemas
-            .insert(schema.name.clone(), schema.clone());
+        self.save_schema_definitions(std::slice::from_ref(schema), &[])
+            .await
+    }
+
+    async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
+        self.save_schema_definitions(schemas, &[]).await
+    }
+
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        let mut canonical_fields = registry.canonical_fields.clone();
+        for (name, field) in fields {
+            crate::field_name_policy::validate_canonical_insert(&canonical_fields, name, field)?;
+            canonical_fields.insert(name.clone(), field.clone());
+        }
+        registry.canonical_fields = canonical_fields;
+        for schema in schemas {
+            registry.schemas.insert(schema.name.clone(), schema.clone());
+        }
         Ok(())
     }
 
@@ -72,20 +92,7 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        let mut registry = self.write()?;
-        for (name, field) in fields {
-            crate::field_name_policy::validate_canonical_insert(
-                &registry.canonical_fields,
-                name,
-                field,
-            )?;
-        }
-        for (name, field) in fields {
-            registry
-                .canonical_fields
-                .insert(name.clone(), field.clone());
-        }
-        Ok(())
+        self.save_schema_definitions(&[], fields).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {

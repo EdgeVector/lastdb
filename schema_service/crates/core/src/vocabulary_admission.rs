@@ -189,8 +189,11 @@ impl SchemaServiceState {
         self.add_canonical_fields(&fields).await
     }
 
-    /// Called at schema persistence, after logical rejection and reuse guards.
-    pub(crate) async fn admit_schema_vocabularies(&self, schemas: &[Schema]) -> FoldDbResult<()> {
+    /// Prepare admission after logical guards, without a persistence/cache write.
+    pub(crate) fn checked_schema_vocabulary(
+        &self,
+        schemas: &[Schema],
+    ) -> FoldDbResult<Vec<(String, CanonicalField)>> {
         let mut fields = HashMap::new();
         for schema in schemas {
             schema.validate_definition().map_err(FoldDbError::Config)?;
@@ -204,7 +207,6 @@ impl SchemaServiceState {
                 fields.insert(name, field);
             }
         }
-        self.add_canonical_fields(&fields.into_iter().collect::<Vec<_>>())
-            .await
+        self.checked_vocabulary_batch(&fields.into_iter().collect::<Vec<_>>())
     }
 }

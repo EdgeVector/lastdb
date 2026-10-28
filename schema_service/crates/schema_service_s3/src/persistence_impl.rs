@@ -5,34 +5,24 @@ use super::*;
 #[async_trait]
 impl ExternalSchemaPersistence for S3BlobPersistence {
     async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        let name = schema.name.clone();
-        let schema = schema.clone();
-        self.update_blob::<Schema, _>(SCHEMAS_KEY, move |blob| {
-            blob.items.insert(name.clone(), schema.clone());
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(std::slice::from_ref(schema), &[])
+            .await
     }
 
     async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        if schemas.is_empty() {
-            return Ok(());
-        }
-        // One GET-modify-PUT for the whole batch — the default trait impl
-        // would round-trip the entire schemas blob once per schema.
-        let schemas = schemas.to_vec();
-        self.update_blob::<Schema, _>(SCHEMAS_KEY, move |blob| {
-            for schema in &schemas {
-                blob.items.insert(schema.name.clone(), schema.clone());
-            }
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(schemas, &[]).await
+    }
+
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()> {
+        self.commit_schema_definitions(schemas, fields).await
     }
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
-        let (blob, _) = self.get_blob::<Schema>(SCHEMAS_KEY).await?;
-        Ok(blob.items)
+        Ok(self.load_definition_set().await?.schemas)
     }
 
     async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
@@ -41,32 +31,11 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        if fields.is_empty() {
-            return Ok(());
-        }
-        // One GET-modify-PUT for the whole batch (see `save_schemas`).
-        let fields = fields.to_vec();
-        self.update_blob::<CanonicalField, _>(CANONICAL_FIELDS_KEY, move |blob| {
-            for (name, field) in &fields {
-                schema_service_core::field_name_policy::validate_canonical_insert(
-                    &blob.items,
-                    name,
-                    field,
-                )?;
-            }
-            for (name, field) in &fields {
-                blob.items.insert(name.clone(), field.clone());
-            }
-            Ok(())
-        })
-        .await
+        self.commit_schema_definitions(&[], fields).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
-        let (blob, _) = self
-            .get_blob::<CanonicalField>(CANONICAL_FIELDS_KEY)
-            .await?;
-        Ok(blob.items)
+        Ok(self.load_definition_set().await?.canonical_fields)
     }
 
     async fn save_descriptive_name_embedding(

@@ -59,6 +59,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(())
     }
 
+    /// Commit schemas and their admitted canonical definitions atomically.
+    /// A failed commit must expose neither side. Backends must validate field
+    /// conflicts inside the same transaction/conditional write as the schemas.
+    async fn save_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()>;
+
     /// Load every schema from storage.
     ///
     /// Called once during schema service startup to populate the

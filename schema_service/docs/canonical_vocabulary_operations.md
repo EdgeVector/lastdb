@@ -27,6 +27,8 @@ The complete candidate batch passes validation before its first field write.
 Normalized text checks reject duplicate descriptions under different names.
 A conditional storage write repeats this check against current durable definitions.
 This catches a conflicting concurrent request.
+The backend commits a schema and its new field definitions in one operation.
+The process exposes the new vocabulary only after that commit succeeds.
 
 Name token overlap and description token overlap select possible semantic duplicates.
 The service compares their description embeddings when vectors are available.
@@ -59,7 +61,11 @@ Resolver artifacts retain the current format and policy checks.
 
 ## Rollout
 
-The DEV definition generation remains `canonical-v1/` with its separate embedding store.
+The DEV definition generation uses `canonical-v2/` with its separate embedding store.
+Its `definitions.json` contains schemas and canonical fields in one conditional cloud write.
+The memory backend uses one lock for the same operation.
+The service refuses an implicit conversion of a nonempty legacy definition store.
+The earlier `canonical-v1/` store stays intact for recovery.
 Old definitions stay available for recovery.
 App identities, permissions, credentials, and quotas keep their common stores.
 The primary home, archive, atoms, files, and daemon stay outside this rollout.
