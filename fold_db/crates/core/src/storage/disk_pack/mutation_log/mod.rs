@@ -6,7 +6,9 @@ mod retention;
 mod store;
 
 use super::{physical::V2Home, PackRuntime, StorageError, StorageResult};
-pub use capture::{FrozenLogCapture, FrozenLogFile, MutationLogCapture, MutationLogReader};
+pub use capture::{
+    log_path, FrozenLogCapture, FrozenLogFile, MutationLogCapture, MutationLogReader,
+};
 use cloud_backup_protocol::Id;
 pub use model::{CommitRole, Frontiers, LogAnchor, LogEntry, LogPart, LogPosition};
 use model::{EpochState, Index};

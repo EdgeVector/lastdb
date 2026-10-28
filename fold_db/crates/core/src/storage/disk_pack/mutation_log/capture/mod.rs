@@ -4,7 +4,7 @@ mod reader;
 mod terminal;
 use super::*;
 use cloud_backup_protocol::v2::Begin;
-pub use model::{FrozenLogCapture, FrozenLogFile};
+pub use model::{log_path, FrozenLogCapture, FrozenLogFile};
 pub use reader::MutationLogReader;
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
