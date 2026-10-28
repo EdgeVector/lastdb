@@ -47,16 +47,25 @@ pub struct DiskReadReceipt {
     pub read_nanos: u64,
     /// Sum of frame open, authentication, and decompression durations.
     pub decode_nanos: u64,
-    /// Read-side per-chunk key derivations and AES key schedules.
+    /// Per-chunk derivations and prepared Rust AES schedules. Native per-frame
+    /// context setup is included in frame_auth_nanos instead.
     pub frame_key_setups: u64,
     /// Key setup time, also included in decode_nanos.
     pub frame_key_setup_nanos: u64,
     /// Frame authentication time, also included in decode_nanos.
     pub frame_auth_nanos: u64,
+    /// Frame header, ciphertext and tag bytes submitted to authentication.
+    pub frame_authenticated_bytes: u64,
+    /// Large ordinary frames opened through the existing native GCM backend.
+    pub frame_native_opens: u64,
+    /// Authenticated frame bytes of those native opens.
+    pub frame_native_bytes: u64,
     /// Frame zstd time, also included in decode_nanos.
     pub frame_decompress_nanos: u64,
     /// Read-side decompressor contexts created; a lookup can share one.
     pub frame_decompressor_setups: u64,
+    /// Ordinary opens whose footer read also supplied the complete top frame.
+    pub coalesced_metadata_reads: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
     /// Sum of explicit file status durations.

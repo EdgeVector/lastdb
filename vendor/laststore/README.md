@@ -14,6 +14,19 @@ The block key comes from the home key and the run id.
 A reader reads the footer and the top block, then one index block and one data block for each lookup.
 A reader keeps nothing after its call.
 
+An ordinary open reads at most 512 tail bytes first.
+When those bytes contain the complete top frame, the footer and top need one file read.
+Larger top frames use a separate bounded read.
+The footer, frame authentication, run identity, counter, and size checks still execute.
+Bounded backup readers keep their exact footer read and existing memory admission.
+
+Ordinary encrypted payloads of at least 4096 bytes use the existing OpenSSL AES-256-GCM backend.
+Smaller payloads and bounded readers retain the prepared Rust cipher path.
+The native context ends after each frame. Plaintext stays private until the full tag check succeeds.
+The native path clears its plaintext on failure. The derived key clears when its reader ends.
+This changes no key derivation, nonce, authenticated header, frame format, or compression policy.
+Authentication time includes native context setup. Counter receipts also report native frame bytes and metadata read bytes.
+
 A home (`disk_run::home::RunHome`) is a directory:
 
 ```text
