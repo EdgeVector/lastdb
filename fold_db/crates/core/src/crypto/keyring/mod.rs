@@ -9,7 +9,6 @@
 //!
 //! The module is split by responsibility:
 //! - [`types`] owns the public data model and purpose wire tags.
-//! - [`mint`] owns DEK allocation and active-key rotation.
 //! - [`open`] owns the seal/open paths and current key-id lookup.
 //! - [`persist`] owns the `keyring.enc` wire format.
 //!
@@ -19,9 +18,8 @@
 //! extended to the keyring (threat model §5.6): **loading never mints**.
 //! [`Keyring::deserialize`] only unwraps what is on disk; resolving a
 //! key/purpose that is absent returns an error rather than fabricating
-//! one. Minting a DEK is always an explicit [`Keyring::mint_dek`] call.
+//! one.
 
-mod mint;
 mod open;
 mod persist;
 mod types;
