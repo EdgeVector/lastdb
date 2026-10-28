@@ -682,8 +682,6 @@ The measured runs used synthetic homes on a shared development host, so the load
 - A request that mixes writes with erasures runs the writes first. A delete and a write of the same key in one
   request leave the key deleted.
 - `GET /api/atom/{id}` can return the old body of a replaced atom for about 0.25 s after a `queued` acknowledgement.
-- The key listing `GET /api/list` returns a named 503 for pages of 800 or more over 2,400 interleaved rows that have
-  no at-rest envelope.
 - The pack of the storage maintenance copies every live record. Homes above 67,108,864 records cannot pack.
 - The monotonic clock of macOS stops while the host sleeps, so a blob dwell that was stamped during a sleep can end
   early after a restart by the length of the lag.

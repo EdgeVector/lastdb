@@ -17,23 +17,12 @@ enum MoleculePage {
 }
 
 impl MoleculePage {
-    /// The rows read, the rows the scan dropped, the point reads that dropped a
-    /// row, and the last key.
-    fn shape(&self) -> (usize, u64, u64, Option<Vec<u8>>) {
+    /// The rows read and the last key.
+    fn shape(&self) -> (usize, Option<Vec<u8>>) {
         match self {
-            Self::Headers(page) => (page.rows, page.scan_unsealed, 0, page.resume.clone()),
-            Self::Bindings(page) => (
-                page.rows,
-                page.scan_unsealed,
-                page.point_unsealed,
-                page.resume.clone(),
-            ),
-            Self::Records(page) => (
-                page.rows,
-                page.scan_unsealed,
-                page.point_unsealed,
-                page.resume.clone(),
-            ),
+            Self::Headers(page) => (page.rows, page.resume.clone()),
+            Self::Bindings(page) => (page.rows, page.resume.clone()),
+            Self::Records(page) => (page.rows, page.resume.clone()),
         }
     }
 }
@@ -66,10 +55,8 @@ impl AtomStore {
         };
         match read {
             Ok(page) => {
-                let (rows, scan_unsealed, point_unsealed, resume) = page.shape();
-                run.note_unsealed(scan_unsealed + point_unsealed);
-                run.walk
-                    .finish_yield(rows, scan_unsealed, resume.as_deref());
+                let (rows, resume) = page.shape();
+                run.walk.finish_yield(rows, resume.as_deref());
                 apply_page(run, watch, page);
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {

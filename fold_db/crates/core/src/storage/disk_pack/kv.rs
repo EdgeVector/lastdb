@@ -143,58 +143,6 @@ impl KvStore for PackKvStore {
         self.change(vec![KvMutation::put(key, value)]).await
     }
 
-    async fn compare_and_swap(
-        &self,
-        key: &[u8],
-        expected: &[u8],
-        new: Option<Vec<u8>>,
-    ) -> StorageResult<bool> {
-        transaction::scope(Some(Arc::clone(&self.runtime)), async {
-            if self.get(key).await?.as_deref() != Some(expected) {
-                return Ok(false);
-            }
-            let mutation = match new {
-                Some(value) => KvMutation::put(key, value),
-                None => KvMutation::delete(key),
-            };
-            self.change(vec![mutation]).await?;
-            Ok(true)
-        })
-        .await
-    }
-
-    /// One transaction: read every key, then delete the keys that match in one
-    /// commit. The compare and the delete sit in the same scope as the single
-    /// key compare-and-swap above.
-    async fn compare_and_delete_many(
-        &self,
-        items: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> StorageResult<Vec<bool>> {
-        if items.is_empty() {
-            return Ok(Vec::new());
-        }
-        transaction::scope(Some(Arc::clone(&self.runtime)), async {
-            let keys = items.iter().map(|(key, _)| key.clone()).collect();
-            let current = self.values(keys).await?;
-            let matched: Vec<bool> = items
-                .iter()
-                .zip(&current)
-                .map(|((_, expected), found)| found.as_deref() == Some(expected.as_slice()))
-                .collect();
-            let deletes: Vec<_> = items
-                .iter()
-                .zip(&matched)
-                .filter(|(_, matched)| **matched)
-                .map(|((key, _), _)| KvMutation::delete(key.clone()))
-                .collect();
-            if !deletes.is_empty() {
-                self.change(deletes).await?;
-            }
-            Ok(matched)
-        })
-        .await
-    }
-
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
         transaction::scope(Some(Arc::clone(&self.runtime)), async {
             if self.get(key).await?.is_none() {
@@ -295,13 +243,13 @@ impl KvStore for PackKvStore {
 /// and `get_all_schemas` aborted `open_existing_store`. Reject at the native
 /// put so a legacy replay envelope fails closed instead of poisoning the catalog.
 fn reject_enc_on_plaintext_catalog(collection: &str, value: &[u8]) -> StorageResult<()> {
-    // All at-rest envelopes are equally fatal on a catalog value: the
+    // Both at-rest envelopes are equally fatal on a catalog value: the
     // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
-    // and `ENZ:` / binary `ENB:` bodies would fail identically.
+    // and a binary `ENB:` body would fail identically.
     let enveloped = crate::crypto::is_sealed_at_rest(value);
     if enveloped && CATALOG_NAMESPACES.contains(&collection) {
         return Err(StorageError::InvalidOperation(format!(
-            "refusing to persist ENC:/ENZ:/ENB: envelope in catalog collection \
+            "refusing to persist ENC:/ENB: envelope in catalog collection \
              {collection:?} — schema/catalog rows must stay JSON so boot can \
              deserialize them"
         )));

@@ -27,8 +27,6 @@ pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;
 pub mod error;
-pub mod reap_unsealed;
-pub mod reseal_at_rest;
 pub mod traits;
 
 // Re-exports for convenience
@@ -36,9 +34,4 @@ pub use config::{DatabaseConfig, StorageEngine};
 pub use error::StorageError;
 
 pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};
-pub use reap_unsealed::{ReapUnsealedCheckpoint, ReapUnsealedOptions, ReapUnsealedReport};
-pub use reseal_at_rest::{
-    collection_is_allowed, ResealAtRestCheckpoint, ResealAtRestOptions, ResealAtRestReport,
-    ResealAtRestTarget, RESEAL_AT_REST_ALLOWLIST,
-};
 pub use traits::{KvMutation, KvStore, NamespacedStore, PartitionedScan, TypedKvStore};

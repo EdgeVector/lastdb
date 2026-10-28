@@ -390,7 +390,6 @@ release the kept conflict records of the slots they remove. See
 | `lastdb db delete-ledger` | `GET /api/db/delete-ledger` | live node | reads the durable audit trail of purges and deletes, oldest first; a row names the caller and holds counts, never content |
 | `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
 | `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
-| `lastdb db reap-unsealed` | `POST /api/db/reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
 | `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth |
 
 ### `lastdb db verify-refs`
@@ -445,7 +444,6 @@ Faults, by name:
 | `record_without_queue_entry` | no queue entry can be reached from a conflict record (the janitor never releases it) |
 | `queue_entry_without_directory` | a queue entry sits in a bucket that the directory does not list (the janitor, or the dwell pass, never finds it) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
-| `unsealed_rows` | a read dropped a row that has no at-rest envelope |
 | `blob_counter_missing` | an atom counter or a tip names a blob that has no counter |
 | `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
 | `blob_zero_without_dwell` | a blob counter holds zero, is not `suspect`, and has no `zero_since` |
@@ -488,17 +486,12 @@ empty write scope also counts as a writer for the pacing of the background tasks
   warning: a mistyped `--scope` reads nothing and finds no fault.
 - A record whose encryption does not verify ends the step with HTTP 500.
 
-**Rows without an at-rest envelope.** A row in an encrypted collection that carries no
-envelope reads as absent. The encrypting store drops it after the inner store applied
-the row limit, so a page of `limit` raw rows can open to fewer rows. The paged scans
-of the encrypting store read on from the key after the last raw row until the page is
-full or the range ends (`storage/encrypting_store/fill.rs`), so a short page from them
-is the end of the range. The bounded range walk (`atom_store/bounded_range.rs`) names
-the key where the next read goes on. The verifier reports dropped rows as
-`unsealed_rows`. The recount refuses to write while any read dropped such a row: run
-`lastdb db reap-unsealed --collection <name>` (dry run first), then recount again. A
-key listing (`GET /api/list`) reads one page in one call with a budget of 10,000
-keys, and a row without an envelope costs a key. A page that needs more fails with the
+**Rows without an at-rest envelope.** Only `cas_blobs` has an at-rest envelope, the
+binary `ENB:` form. A `cas_blobs` row without it does not open: the read returns an
+error. The encrypting store opens each row that the inner store returns, so a page has
+the same rows as the inner page. The bounded range walk (`atom_store/bounded_range.rs`)
+names the key where the next read goes on. A key listing (`GET /api/list`) reads one
+page in one call with a budget of 10,000 keys. A page that needs more fails with the
 named 503 `read_resource_limit`. Ask for a smaller page.
 
 ### `lastdb db recount`
@@ -521,8 +514,8 @@ tool holds `data/maintenance.lock`. It refuses the primary home unless
 
 The default is a dry run. `--execute` writes the changes in whole batches of at most
 400 operations. A stopped run leaves whole batches, and a second run changes only
-what is still wrong. It writes nothing while a tip or conflict row does not decode,
-and nothing while a read drops a row with no envelope. It recounts the personal scope;
+what is still wrong. It writes nothing while a tip or conflict row does not decode.
+It recounts the personal scope;
 `--scope PREFIX` (repeat) and `--all-scopes` add others. `--shards N` makes N passes and
 holds one Nth of the atoms in memory in each pass.
 
@@ -598,7 +591,6 @@ each one.
 | a queue bucket without directory row (outside the queue) | entries that no reader lists | the safety net, `verify-refs`, `recount --execute` |
 | a conflict record with no queue entry | a record that the janitor never releases | `verify-refs` finds it; `recount --execute` writes the entry |
 | a writer that bypassed the planner | a count that is wrong | `verify-refs`, then `recount --execute` |
-| a row without an at-rest envelope | the row reads as absent | `lastdb db reap-unsealed`, then `recount` |
 
 A leak and a loss do not come from a crash. They come from a defect in the planner or in a
 writer that skips it.

@@ -51,13 +51,12 @@ SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
 RUN_NODE = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 # The settings of the primary's launchd job that the node reads: the
-# envelope forms at rest (the KV seam compresses and writes binary
-# envelopes), the atom size limit, the memory budget, and the admin timeout.
+# compression of the at-rest envelopes, the atom size limit, the memory
+# budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
     "LASTDB_ENGINE": "laststore",
     "LASTDB_KV_AT_REST_COMPRESS": "1",
-    "LASTDB_KV_AT_REST_RAW": "1",
     "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
     "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",

@@ -235,7 +235,7 @@ fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
 }
 
 /// The fault kinds, in the order the report prints them.
-const KINDS: [&str; 36] = [
+const KINDS: [&str; 35] = [
     "counter_below_tips",
     "counter_above_tips",
     "body_without_counter",
@@ -249,7 +249,6 @@ const KINDS: [&str; 36] = [
     "unreadable_tip",
     "unreadable_record",
     "unreadable_counter",
-    "unsealed_rows",
     "blob_counter_missing",
     "blob_counter_below_refs",
     "blob_zero_without_dwell",

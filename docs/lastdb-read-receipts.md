@@ -45,7 +45,7 @@ scope can carry the partial receipt.
 | `temporary_bytes_peak` | Peak concurrent capacity of the transient byte buffers that the receipt measures. |
 | `read_nanos` | Sum of file read time, including failed calls and OS-cache reads. |
 | `decode_nanos` | Sum of frame open, authentication, and decompression time. |
-| `decrypt_nanos` | Sum of at-rest value envelope decode and inflate time in `open_or_discard`. |
+| `decrypt_nanos` | Sum of at-rest value envelope decode and inflate time in `EncryptingKvStore::open_value`. |
 | `lock_wait_nanos` | Sum of waits for the lock on the call's native read context. |
 | `blocking_queue_wait_nanos` | Sum of dispatch delay before an attached core blocking call starts. |
 | `socket_queue_wait_nanos` | Wait for the socket worker before this request starts. |

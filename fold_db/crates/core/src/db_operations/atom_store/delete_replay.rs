@@ -176,11 +176,6 @@ impl AtomStore {
         let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), 256);
         while !walk.done() {
             let page = self.walk_step(&mut walk).await.map_err(invalid)?;
-            if page.unsealed > 0 {
-                return Err(invalid(
-                    "a barrier read discarded storage records; the durable fence remains in force",
-                ));
-            }
             let mut deletes = Vec::new();
             for (key, value) in page.rows {
                 let barrier: DeleteBarrier = serde_json::from_slice(&value).map_err(invalid)?;

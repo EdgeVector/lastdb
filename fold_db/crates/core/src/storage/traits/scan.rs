@@ -2,7 +2,6 @@
 
 use super::KvStore;
 use crate::storage::error::StorageResult;
-use serde::{Deserialize, Serialize};
 
 /// The result of [`KvStore::scan_prefix_partition_undecryptable`]: rows that
 /// read (decrypt) cleanly, separated from the keys of rows whose at-rest value
@@ -73,26 +72,14 @@ impl KvMutation {
     }
 }
 
-/// Durable position for a resumable maintenance scan.
+/// Position of a resumable scan.
 ///
 /// `after_key` is exclusive. Disk format v2 has no physical shards or hash
 /// groups, and every page comes from the default
-/// [`KvStore::scan_range_physical_paged`], so this program leaves
-/// `collection`, `shard` and `group_id` at their defaults. The fields stay
-/// in the wire shape because reseal and reap reports and their checkpoint
-/// records carry this cursor.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+/// [`KvStore::scan_range_physical_paged`], so the cursor is the last key read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PhysicalScanCursor {
-    /// Physical collection, when a logical namespace spans more than one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub collection: Option<String>,
-    /// Physical shard that the next page starts in. This program writes 0.
-    pub shard: u16,
-    /// Hash group that the next page starts in. This program writes `None`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<u32>,
-    /// Last raw key consumed in this handle. The next page starts after it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Last raw key consumed. The next page starts after it.
     pub after_key: Option<Vec<u8>>,
 }
 
@@ -103,10 +90,6 @@ pub struct PhysicalScanPage {
     pub rows: Vec<(Vec<u8>, Vec<u8>)>,
     /// Resume position, or `None` when the current physical walk is complete.
     pub next_cursor: Option<PhysicalScanCursor>,
-    /// Physical handle that supplied `rows`, when the page returned rows.
-    pub row_handle: Option<PhysicalScanCursor>,
-    /// Physical handles resolved by this call.
-    pub handles_visited: u64,
 }
 
 /// One read of a range that names where the next read continues.
@@ -151,15 +134,8 @@ pub(super) async fn keyset_physical_page<S: KvStore + ?Sized>(
     }
     let more_remaining = rows.len() > limit;
     rows.truncate(limit);
-    let handle = PhysicalScanCursor::default();
     let next_cursor = more_remaining.then(|| PhysicalScanCursor {
         after_key: rows.last().map(|(key, _)| key.clone()),
-        ..handle.clone()
     });
-    Ok(PhysicalScanPage {
-        row_handle: (!rows.is_empty()).then_some(handle),
-        rows,
-        next_cursor,
-        handles_visited: 1,
-    })
+    Ok(PhysicalScanPage { rows, next_cursor })
 }

@@ -20,10 +20,7 @@
 //! error, so a range of any number of deleted keys, with live rows between them,
 //! is walked one read per budget, with no failed read and no cut. The read keeps
 //! the keys that the caller needs to read the counters and bodies of the rows it
-//! returns. The encrypting store takes the key from its raw rows, so a row
-//! with no at-rest envelope, which reads as absent, does not change where the
-//! walk goes on. The walk counts such rows (`count_unsealed_discards`) to report
-//! them.
+//! returns.
 //!
 //! A read can still fail with the read limit: the byte or page budget, or a
 //! live row that needs more than a call. The walk then asks for fewer rows, and
@@ -54,10 +51,6 @@ pub struct WalkStats {
     pub shrinks: u64,
     /// Times a key range was cut in two because fewer rows did not help.
     pub splits: u64,
-    /// Reads that dropped a row with no at-rest envelope. The row reads as
-    /// absent. Each such row counts once.
-    #[serde(default)]
-    pub unsealed_rows: u64,
     /// Reads that found no row and went on after the last key they examined: a
     /// run of deleted keys that used the key budget of the call.
     #[serde(default)]
@@ -70,7 +63,6 @@ impl WalkStats {
         self.calls += other.calls;
         self.shrinks += other.shrinks;
         self.splits += other.splits;
-        self.unsealed_rows += other.unsealed_rows;
         self.skips += other.skips;
     }
 }
@@ -81,7 +73,6 @@ pub(crate) struct WalkTotals {
     calls: AtomicU64,
     shrinks: AtomicU64,
     splits: AtomicU64,
-    unsealed_rows: AtomicU64,
     skips: AtomicU64,
 }
 
@@ -90,8 +81,6 @@ impl WalkTotals {
         self.calls.fetch_add(stats.calls, Ordering::Relaxed);
         self.shrinks.fetch_add(stats.shrinks, Ordering::Relaxed);
         self.splits.fetch_add(stats.splits, Ordering::Relaxed);
-        self.unsealed_rows
-            .fetch_add(stats.unsealed_rows, Ordering::Relaxed);
         self.skips.fetch_add(stats.skips, Ordering::Relaxed);
     }
 
@@ -101,7 +90,6 @@ impl WalkTotals {
             calls: self.calls.load(Ordering::Relaxed),
             shrinks: self.shrinks.load(Ordering::Relaxed),
             splits: self.splits.load(Ordering::Relaxed),
-            unsealed_rows: self.unsealed_rows.load(Ordering::Relaxed),
             skips: self.skips.load(Ordering::Relaxed),
         }
     }
@@ -115,7 +103,6 @@ impl WalkStats {
             calls: self.calls.saturating_sub(earlier.calls),
             shrinks: self.shrinks.saturating_sub(earlier.shrinks),
             splits: self.splits.saturating_sub(earlier.splits),
-            unsealed_rows: self.unsealed_rows.saturating_sub(earlier.unsealed_rows),
             skips: self.skips.saturating_sub(earlier.skips),
         }
     }
@@ -125,8 +112,6 @@ impl WalkStats {
 #[derive(Debug, Default)]
 pub(crate) struct Step {
     pub rows: Vec<(Vec<u8>, Vec<u8>)>,
-    /// Reads of this step that dropped a row with no at-rest envelope.
-    pub unsealed: u64,
 }
 
 /// The state of a bounded walk over `start..end`.
@@ -214,32 +199,22 @@ impl AtomStore {
     /// Read the next bounded piece of a walk, outside any captured read scope.
     ///
     /// The piece can hold no rows while the walk is not done: a span that held
-    /// only deleted keys. A caller loops until [`RangeWalk::done`]. `unsealed`
-    /// counts the reads that dropped a row with no at-rest envelope: such a row
-    /// reads as absent everywhere, and the walk does not take the short page
-    /// for the end of the range. A caller that must not act on a range with
-    /// such a row (the recount) checks the count.
+    /// only deleted keys. A caller loops until [`RangeWalk::done`].
     pub(crate) async fn walk_step(&self, walk: &mut RangeWalk) -> Result<Step, SchemaError> {
-        let mut unsealed = 0;
         loop {
             let Some((start, end, asked)) = walk.request() else {
                 return Ok(Step::default());
             };
-            let (result, dropped) = crate::crypto::count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, 0),
-            )
-            .await;
-            unsealed += dropped;
+            let result = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, 0)
+                .await;
             match result.map_err(SchemaError::from) {
                 Ok(scan) => {
-                    walk.finish_yield(scan.rows.len(), dropped, scan.resume.as_deref());
+                    walk.finish_yield(scan.rows.len(), scan.resume.as_deref());
                     self.range_walks.add(walk.take_stats());
-                    return Ok(Step {
-                        rows: scan.rows,
-                        unsealed,
-                    });
+                    return Ok(Step { rows: scan.rows });
                 }
                 Err(error @ SchemaError::ReadResourceLimit { .. }) => {
                     let cut = walk.read_too_big();

@@ -57,8 +57,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/gc-proteins", Scope::Owner, "POST", DataRoute::DbGcProteins),
     row("/api/db/unresolved-atoms", Scope::Owner, "GET", DataRoute::DbUnresolvedAtoms),
     row("/api/db/delete-ledger", Scope::Owner, "GET", DataRoute::DbDeleteLedger),
-    row("/api/db/reseal-at-rest", Scope::Owner, "POST", DataRoute::DbResealAtRest),
-    row("/api/db/reap-unsealed", Scope::Owner, "POST", DataRoute::DbReapUnsealed),
     row("/api/db/molecule-keys", Scope::Owner, "POST", DataRoute::DbMoleculeKeys),
     row("/api/db/schema-retention", Scope::Owner, "POST", DataRoute::DbSchemaRetention),
     row("/api/db/repair-schema-molecule-map", Scope::Owner, "POST", DataRoute::DbRepairSchemaMoleculeMap),

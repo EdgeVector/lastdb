@@ -75,9 +75,6 @@ pub(super) struct Paired {
     pub pairs: Vec<PairRead>,
     /// Keys under `atom:` that are neither a body nor a counter.
     pub foreign: u64,
-    /// Partner reads that dropped a row with no at-rest envelope. Such a row
-    /// reads as absent, so the pair shows a missing body or counter.
-    pub unsealed: u64,
 }
 
 /// Rows that did not decode.
@@ -270,13 +267,8 @@ impl AtomStore {
             at.iter().map(|slot| groups[*slot].atom.clone()).collect()
         };
         let (body_atoms, counter_atoms) = (named(&no_body), named(&no_counter));
-        let (partners, unsealed) = crate::crypto::count_unsealed_discards(async {
-            let bodies = self.read_body_flags(&body_atoms, scope).await?;
-            let counters = self.read_counter_bytes(&counter_atoms, scope).await?;
-            Ok::<_, SchemaError>((bodies, counters))
-        })
-        .await;
-        let (bodies, counters) = partners?;
+        let bodies = self.read_body_flags(&body_atoms, scope).await?;
+        let counters = self.read_counter_bytes(&counter_atoms, scope).await?;
         for (slot, found) in no_body.into_iter().zip(bodies) {
             groups[slot].body = found;
         }
@@ -291,10 +283,6 @@ impl AtomStore {
                 atom: group.atom,
             })
             .collect();
-        Ok(Paired {
-            pairs,
-            foreign,
-            unsealed,
-        })
+        Ok(Paired { pairs, foreign })
     }
 }

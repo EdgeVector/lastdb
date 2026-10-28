@@ -1,7 +1,7 @@
 use super::*;
 use base64::{engine::general_purpose::STANDARD, read::DecoderReader};
 
-/// Open original ENC/ENZ/ENB bytes into empty private scratch. The caller must
+/// Open original ENC/ENB bytes into empty private scratch. The caller must
 /// not expose any output before success, and must discard output on failure.
 pub fn open_at_rest_stream(
     key: &[u8; 32],
@@ -34,7 +34,7 @@ pub fn open_at_rest_stream(
                 .ok_or_else(|| invalid("binary stream length"))?;
             decode(key, input, length, flags[0] == 1, output, stored_sha256)
         }
-        b"ENC:" | b"ENZ:" => {
+        b"ENC:" => {
             let encoded = bytes
                 .checked_sub(4)
                 .filter(|n| *n >= 4 && *n % 4 == 0)
@@ -55,14 +55,7 @@ pub fn open_at_rest_stream(
                 .seek(SeekFrom::Start(4))
                 .map_err(|error| io_error(&error))?;
             let decoder = DecoderReader::new(input, &STANDARD);
-            decode(
-                key,
-                decoder,
-                length,
-                &prefix == b"ENZ:",
-                output,
-                stored_sha256,
-            )
+            decode(key, decoder, length, false, output, stored_sha256)
         }
         _ => Err(invalid("encrypted stream prefix required")),
     }

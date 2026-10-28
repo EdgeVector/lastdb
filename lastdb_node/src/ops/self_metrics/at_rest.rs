@@ -31,67 +31,11 @@ pub struct AtRestCompressionHealth {
     /// Whether the KV seam may compress new `cas_blobs` values
     /// (`LASTDB_KV_AT_REST_COMPRESS`).
     pub enabled: bool,
-    /// Rows read from an encrypted namespace with no at-rest envelope, and so
-    /// served as absent. `decision-2026-09-14-drop-dual-read-unsealed-is-gone`.
-    /// A non-zero value on a restored home means its restore did not seal its
-    /// mutation-log replay.
-    pub unsealed_discarded: u64,
-    /// Un-enveloped rows `lastdb db reap-unsealed --execute` deleted since
-    /// process start. Sits next to `unsealed_discarded` so one line shows how
-    /// many such rows reads have hidden and how many the reaper has removed.
-    #[serde(default)]
-    pub unsealed_reaped_rows: u64,
-    /// Stored value bytes those deletions returned since process start.
-    #[serde(default)]
-    pub unsealed_reaped_bytes: u64,
-}
-
-/// Codec policy: effective writer format and supported read formats.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CodecPolicyHealth {
-    /// The form the KV seam writes for new `cas_blobs` values: "ENC",
-    /// "ENC:deflate" (an `ENZ:` value), "ENB", or "ENB:deflate".
-    pub writer_policy: String,
-    /// Supported read formats in order: ENC, ENZ, ENB.
-    pub supported_read_formats: Vec<String>,
-}
-
-impl CodecPolicyHealth {
-    pub fn current(home: &Path) -> Self {
-        let writer_policy = determine_writer_policy();
-        let marker_path = home.join(crate::host::CODEC_FORMAT_REQUIREMENT_FILE);
-        let supported_read_formats = if marker_path.exists() {
-            vec!["ENC".to_string(), "ENZ".to_string(), "ENB".to_string()]
-        } else {
-            vec!["ENC".to_string()]
-        };
-        Self {
-            writer_policy,
-            supported_read_formats,
-        }
-    }
-}
-
-/// The KV seam writer form, from `LASTDB_KV_AT_REST_RAW` and
-/// `LASTDB_KV_AT_REST_COMPRESS`. No other seal reads a write switch.
-pub(super) fn determine_writer_policy() -> String {
-    let base_format = if fold_db::crypto::kv_at_rest_raw_enabled() {
-        "ENB"
-    } else {
-        "ENC"
-    };
-
-    if fold_db::crypto::kv_at_rest_compression_enabled() {
-        format!("{base_format}:deflate")
-    } else {
-        base_format.to_string()
-    }
 }
 
 impl AtRestCompressionHealth {
     pub(super) fn current() -> Self {
         let stats = fold_db::crypto::at_rest_compression_stats();
-        let (reaped_rows, reaped_bytes) = fold_db::crypto::unsealed_reaped_totals();
         Self {
             bytes_in: stats.bytes_in,
             bytes_out: stats.bytes_out,
@@ -105,9 +49,6 @@ impl AtRestCompressionHealth {
             skipped_output_not_smaller: stats.skipped_output_not_smaller,
             skipped_compression_disabled: stats.skipped_compression_disabled,
             enabled: fold_db::crypto::kv_at_rest_compression_enabled(),
-            unsealed_discarded: fold_db::crypto::unsealed_discarded_count(),
-            unsealed_reaped_rows: reaped_rows,
-            unsealed_reaped_bytes: reaped_bytes,
         }
     }
 

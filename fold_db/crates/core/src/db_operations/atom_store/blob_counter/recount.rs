@@ -192,13 +192,6 @@ impl AtomStore {
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         while !walk.done() {
             let step = self.walk_step(&mut walk).await?;
-            if step.unsealed > 0 && execute {
-                return Err(SchemaError::InvalidData(format!(
-                    "{} read(s) dropped a blob counter with no at-rest envelope; the blob step writes nothing. \
-                     Run `lastdb db reap-unsealed --collection atoms` (dry run first), then recount again",
-                    step.unsealed
-                )));
-            }
             let mut in_dwell: Vec<(String, u64)> = Vec::new();
             for (_, value) in &step.rows {
                 report.counters_read += 1;

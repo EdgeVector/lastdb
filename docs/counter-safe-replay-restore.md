@@ -28,7 +28,7 @@ Startup refuses an unreadable marker, a marker link, or a marker that exceeds it
 Keep an incomplete restore under a program that supports this validation marker.
 
 Validation discovers scopes from raw keys and reads their values through the correct encryption reader.
-It refuses a protected record that the encryption reader discards.
+It refuses a restored record that does not read back through that reader.
 It checks atom references, body/counter pairs, molecule counts, bindings, retained conflicts, and file holds.
 It counts file references across every restored scope before it compares the global file counts.
 The logical namespace reader also checks that each referenced file exists.

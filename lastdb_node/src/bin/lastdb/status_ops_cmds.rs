@@ -133,10 +133,6 @@ pub(super) fn status_json(
             .to_string()
     });
     let at_rest_compression = snapshot.as_ref().and_then(|s| s.at_rest_compression);
-    let codec_policy = snapshot
-        .as_ref()
-        .and_then(|s| s.codec_policy.as_ref())
-        .cloned();
     let (planes, plane_inventory) = safe_status_plane_fields();
     let payload = serde_json::json!({
         "home": home.display().to_string(),
@@ -156,7 +152,6 @@ pub(super) fn status_json(
         "cli_build": lastdb_node::crash_attribution::build_version(),
         "build_agreement": build_agreement,
         "at_rest_compression": at_rest_compression,
-        "codec_policy": codec_policy,
         "planes": planes,
         "plane_inventory": plane_inventory,
         "notes": [

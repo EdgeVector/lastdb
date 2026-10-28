@@ -8,8 +8,8 @@
 //! - **`keyring`** — KEK-wrapped per-purpose DEKs (`keyring.enc`)
 //! - **`keyring_store`** — on-disk lifecycle for `keyring.enc`
 //! - **`keyring_provider`** — `CryptoProvider` backed by the keyring (the seam adapter)
-//! - **`at_rest`** — shared synchronous `ENC:` / `ENZ:` / binary `ENB:` value
-//!   codec for stores that bypass the namespaced encryption seam
+//! - **`at_rest`** — shared synchronous `ENC:` / binary `ENB:` value codec for
+//!   stores that bypass the namespaced encryption seam
 
 pub mod at_rest;
 pub(crate) mod content_key_proof;
@@ -23,11 +23,9 @@ pub mod provider;
 pub mod stream;
 
 pub use at_rest::{
-    at_rest_compression_stats, count_unsealed_discards, is_sealed_at_rest,
-    kv_at_rest_compression_enabled, kv_at_rest_raw_enabled, open_at_rest, record_unsealed_discard,
-    record_unsealed_reap, seal_at_rest_raw, seal_at_rest_utf8, unsealed_discarded_count,
-    unsealed_reaped_totals, AtRestCompressionStats, AT_REST_ENC_BINARY_PREFIX,
-    AT_REST_ENC_DEFLATE_PREFIX, AT_REST_ENC_PREFIX,
+    at_rest_compression_stats, is_sealed_at_rest, kv_at_rest_compression_enabled, open_at_rest,
+    seal_at_rest_raw, seal_at_rest_utf8, AtRestCompressionStats, AT_REST_ENC_BINARY_PREFIX,
+    AT_REST_ENC_PREFIX,
 };
 pub use e2e::{at_rest_kek_from_seed, E2eKeys};
 pub use envelope::{

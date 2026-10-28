@@ -8,10 +8,6 @@ pub(crate) use db_cleanup_cmds::*;
 mod db_delete_marker_cmds;
 pub(crate) use db_delete_marker_cmds::*;
 
-#[path = "db_reap_unsealed_cmds.rs"]
-mod db_reap_unsealed_cmds;
-pub(crate) use db_reap_unsealed_cmds::*;
-
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
 pub(crate) use db_app_storage_cmds::*;
@@ -42,9 +38,6 @@ pub(crate) use db_verify_refs_cmds::*;
 #[path = "db_report_util_cmds.rs"]
 mod db_report_util_cmds;
 pub(crate) use db_report_util_cmds::*;
-#[path = "db_reseal_cmds.rs"]
-mod db_reseal_cmds;
-pub(crate) use db_reseal_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -62,7 +55,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         DbCommand::Inspect(action) => db_inspect_command(&socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
-        DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),
         DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
