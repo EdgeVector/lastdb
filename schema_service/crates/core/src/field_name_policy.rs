@@ -188,7 +188,7 @@ pub fn validate_canonical_insert(
 }
 
 /// Include transform outputs and metadata-only names; none can hide a new field.
-fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
+pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
     schema
         .fields
         .iter()

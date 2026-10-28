@@ -206,6 +206,9 @@ pub(crate) async fn post_schemas(
         }
     };
 
+    if let Err(error) = state.validate_schema_field_vocabulary(&schema).await {
+        return json_response(400, &json!({"error": error.to_string()}));
+    }
     let mutation_mappers = parse_mutation_mappers(&request);
 
     // Whether this is an OFFER into shared discovery (cert-gated) vs a

@@ -215,6 +215,12 @@ pub async fn add_schema(
         Ok(parsed) => parsed,
         Err(response) => return response,
     };
+    if let Err(error) = state
+        .validate_schema_field_vocabulary(&request.schema)
+        .await
+    {
+        return HttpResponse::BadRequest().json(json!({"error": error.to_string()}));
+    }
     let schema_name = request.schema.name.clone();
     let telemetry_source = request.schema_match_source.clone();
     let telemetry_reason = request.fallback_reason.clone();

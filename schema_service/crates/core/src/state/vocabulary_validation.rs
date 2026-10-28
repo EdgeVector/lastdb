@@ -59,4 +59,37 @@ impl SchemaServiceState {
         }
         Ok(())
     }
+    /// Refresh only for a new concept. Existing definitions are immutable;
+    /// approved publication must work across warm Lambda instances without a deploy.
+    pub async fn validate_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<()> {
+        let names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        self.refresh_vocabulary_for_names(&names).await?;
+        let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
+        crate::field_name_policy::validate_schema_vocabulary(schema, &fields)
+    }
+
+    pub(crate) async fn refresh_vocabulary_for_names(&self, names: &[&str]) -> FoldDbResult<()> {
+        for name in names {
+            crate::field_name_policy::validate_new_field_name(name).map_err(FoldDbError::Config)?;
+        }
+        {
+            let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
+            if names.iter().all(|name| fields.contains_key(*name)) {
+                return Ok(());
+            }
+        }
+        let loaded = self.storage.backend().load_all_canonical_fields().await?;
+        for (name, field) in &loaded {
+            crate::field_name_policy::validate_approved_field(name, field)?;
+        }
+        let mut fields = write_lock(&self.canonical_fields, "canonical_fields")?;
+        for (name, field) in &loaded {
+            crate::field_name_policy::validate_canonical_insert(&fields, name, field)?;
+        }
+        fields.extend(loaded);
+        Ok(())
+    }
 }
