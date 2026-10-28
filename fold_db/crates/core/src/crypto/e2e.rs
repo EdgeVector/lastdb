@@ -199,30 +199,3 @@ impl E2eKeys {
         String::from_utf8(bytes).ok()
     }
 }
-
-/// HKDF domain-separation salt for the at-rest keyring KEK (distinct from the
-/// `fold:e2e:v1` salt above, so the KEK never collides with any E2E key).
-const AT_REST_KEK_SALT: &[u8] = b"fold:at-rest-kek:v1";
-const AT_REST_KEK_INFO: &[u8] = b"fold:keyring-kek";
-
-/// Derive the at-rest keyring KEK from the node's 32-byte Ed25519 identity
-/// seed (`<home>/identity.key`) — the single-key-root path
-/// (`decision-local-security-loose-stance`, 2026-07-10).
-///
-/// The seed is the ONE local key root: node identity, E2E encryption root
-/// ([`E2eKeys::from_ed25519_seed`]), and — via this HKDF-SHA256 derivation
-/// under a dedicated salt/info pair — the KEK that wraps the per-purpose DEKs
-/// in `keyring.enc`. Deterministic: the same seed always derives the same KEK,
-/// so a node boots with zero prompts (key exists → up; no key → generate → up)
-/// while the data stays encrypted at rest under the DEK hierarchy.
-///
-/// Domain separation: the salt/info pair here is disjoint from every E2E
-/// derivation, so knowing the KEK never reveals an E2E key and vice versa
-/// (both still reduce to the seed, which is the explicit trust root).
-pub fn at_rest_kek_from_seed(seed: &[u8; 32]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(Some(AT_REST_KEK_SALT), seed);
-    let mut kek = [0u8; 32];
-    hk.expand(AT_REST_KEK_INFO, &mut kek)
-        .expect("32 bytes is a valid HKDF-SHA256 output length");
-    kek
-}

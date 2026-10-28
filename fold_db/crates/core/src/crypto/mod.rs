@@ -27,7 +27,7 @@ pub use at_rest::{
     seal_at_rest_raw, seal_at_rest_utf8, AtRestCompressionStats, AT_REST_ENC_BINARY_PREFIX,
     AT_REST_ENC_PREFIX,
 };
-pub use e2e::{at_rest_kek_from_seed, E2eKeys};
+pub use e2e::E2eKeys;
 pub use envelope::{
     decrypt_envelope, decrypt_envelope_v2, decrypt_envelope_with_context, encrypt_envelope,
     encrypt_envelope_v2, peek_envelope, EnvelopeHeader, KeyId,
