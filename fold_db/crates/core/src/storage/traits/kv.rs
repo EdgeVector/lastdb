@@ -273,12 +273,6 @@ pub trait KvStore: Send + Sync {
     /// Apply a batch of puts with the backend's documented failure and crash guarantees.
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()>;
 
-    /// Whether a successful `batch_put` has already flushed its writes to disk.
-    /// The default is conservative. Backends must report their stored write mode.
-    fn batch_put_has_durable_barrier(&self) -> bool {
-        false
-    }
-
     /// Apply ordered puts and deletes with one backend durability barrier.
     ///
     /// Each backend defines its operation-error rollback guarantee. No such
