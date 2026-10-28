@@ -76,7 +76,7 @@ impl MutationManager {
         let lane_key =
             crate::resident::PersistLaneKey::new(storage_prefix.unwrap_or(""), schema_name.clone());
         let reservation = self
-            .persist_lanes
+            .persist_lanes()
             .reserve(lane_key, purge_bytes)
             .map_err(|kind| SchemaError::PersistQueueFull {
                 schema: schema_name.clone(),
@@ -100,7 +100,7 @@ impl MutationManager {
         job.author_clock_barrier = author_clock_barrier;
         job.completion = Some(completion);
         let envelope = crate::resident::PersistEnvelope::new(
-            super::super::molecules::LanePersistJob::Purge {
+            super::super::molecules::LanePersistJob {
                 job: Box::new(job),
                 _pending_task: pending_task,
             },

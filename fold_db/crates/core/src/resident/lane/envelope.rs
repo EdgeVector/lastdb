@@ -44,11 +44,6 @@ pub struct PersistEnvelope<T> {
 /// ownership-return contract does not copy a payload.
 #[must_use]
 pub enum PersistBatchOutcome<T> {
-    /// The writer made every envelope durable.
-    ///
-    /// The envelopes are dropped inside `write_batch`. Use [`Self::Released`]
-    /// when a waiter must run after the lane drops the byte charge.
-    Complete,
     /// Every envelope is durable, and the lane still owns the waiters.
     ///
     /// The lane releases the byte charge, then runs `after_release` and sends

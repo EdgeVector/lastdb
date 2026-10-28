@@ -8,11 +8,6 @@ pub(in crate::fold_db_core::mutation_manager) struct DeferredLaneWriter {
     pub mm: super::super::super::MutationManager,
 }
 
-pub(super) enum LaneStep {
-    Done(Option<Box<dyn FnOnce() + Send>>),
-    Failed(SchemaError),
-}
-
 pub(super) fn purge_release_hook(job: &mut PurgeEnvelope) -> Option<Box<dyn FnOnce() + Send>> {
     let message = job.pending_completion.take()?;
     let tx = job.completion.take()?;
@@ -41,13 +36,17 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
                 };
             }
             // Erase the full dispatch layout before the async-trait lane boundary.
-            let step = self.run_envelope(&mut envelope).boxed().await;
-            match step {
-                LaneStep::Done(hook) => {
-                    envelope.after_release = hook;
+            let result = self
+                .mm
+                .run_purge_job(&mut envelope.payload.job)
+                .boxed()
+                .await;
+            match result {
+                Ok(()) => {
+                    envelope.after_release = purge_release_hook(&mut envelope.payload.job);
                     finished.push(envelope);
                 }
-                LaneStep::Failed(error) => {
+                Err(error) => {
                     // Name the job and its targets: a bare decode error on the
                     // lane ERROR line cannot identify the stuck envelope.
                     let described = format!(
@@ -126,9 +125,7 @@ impl DeferredLaneWriter {
         &self,
         envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
     ) -> Result<(), String> {
-        let author_clock_barrier = match &envelope.payload {
-            LanePersistJob::Purge { job, .. } => job.author_clock_barrier.as_ref(),
-        };
+        let author_clock_barrier = envelope.payload.job.author_clock_barrier.as_ref();
         if let Some(barrier) = author_clock_barrier {
             barrier
                 .wait()
@@ -136,21 +133,5 @@ impl DeferredLaneWriter {
                 .map_err(|error| format!("author clock durability wait failed: {error}"))?;
         }
         Ok(())
-    }
-
-    /// Run one envelope through the persist surface.
-    // Waiters stay on the envelope. The lane runs them after it drops
-    // the byte charge. A send here races the next reserve on a 1-byte
-    // lane (`LASTDB_RESIDENT_MAX_DEFERRED_BYTES=0`).
-    async fn run_envelope(
-        &self,
-        envelope: &mut crate::resident::PersistEnvelope<LanePersistJob>,
-    ) -> LaneStep {
-        match &mut envelope.payload {
-            LanePersistJob::Purge { job, .. } => match self.mm.run_purge_job(job).await {
-                Ok(()) => LaneStep::Done(purge_release_hook(job)),
-                Err(error) => LaneStep::Failed(error),
-            },
-        }
     }
 }

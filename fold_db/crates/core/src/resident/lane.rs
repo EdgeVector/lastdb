@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use async_trait::async_trait;
 use tokio::sync::Notify;
 
 use super::metrics::PersistLaneMetrics;
@@ -152,31 +151,6 @@ impl<T: Send + 'static> PersistLaneSet<T> {
             age_tracker: Arc::new(PersistLaneAgeTracker::default()),
             stopped: AtomicBool::new(false),
             breaker_cooldown: breaker_cooldown_from_env(),
-        }
-    }
-
-    /// Empty set that never spawns workers. Used by persist-surface clones
-    /// that only run an already-dequeued envelope.
-    pub fn disabled() -> Self {
-        struct Noop;
-        #[async_trait]
-        impl<U: Send + 'static> PersistLaneWriter<U> for Noop {
-            async fn write_batch(&self, _batch: Vec<PersistEnvelope<U>>) -> PersistBatchOutcome<U> {
-                PersistBatchOutcome::Complete
-            }
-        }
-        Self {
-            admission: RwLock::new(()),
-            lanes: Mutex::new(HashMap::new()),
-            max_entries: 1,
-            max_bytes: 1,
-            group_commit_max: 1,
-            writer: Arc::new(Noop),
-            metrics: Arc::new(PersistLaneCounters::default()),
-            shared_metrics: None,
-            age_tracker: Arc::new(PersistLaneAgeTracker::default()),
-            stopped: AtomicBool::new(true),
-            breaker_cooldown: BREAKER_COOLDOWN_DEFAULT,
         }
     }
 

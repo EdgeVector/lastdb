@@ -23,12 +23,10 @@ pub(crate) fn is_deterministic_decode_error(error: &SchemaError) -> bool {
 }
 
 pub(super) fn lane_job_schema(job: &LanePersistJob) -> &str {
-    match job {
-        LanePersistJob::Purge { job, .. } => job
-            .erasures
-            .first()
-            .map_or("", |mutation| mutation.schema_name.as_str()),
-    }
+    job.job
+        .erasures
+        .first()
+        .map_or("", |mutation| mutation.schema_name.as_str())
 }
 
 /// Short job kind plus target keys for lane log lines.
@@ -36,29 +34,26 @@ pub(super) fn describe_lane_job(
     envelope: &crate::resident::PersistEnvelope<LanePersistJob>,
 ) -> String {
     const MAX_KEYS: usize = 8;
-    match &envelope.payload {
-        LanePersistJob::Purge { job, .. } => {
-            let keys: Vec<String> = job
-                .erasures
-                .iter()
-                .take(MAX_KEYS)
-                .map(|mutation| {
-                    format!(
-                        "hash={} range={}",
-                        mutation.key_value.hash.as_deref().unwrap_or("-"),
-                        mutation.key_value.range.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect();
+    let job = &envelope.payload.job;
+    let keys: Vec<String> = job
+        .erasures
+        .iter()
+        .take(MAX_KEYS)
+        .map(|mutation| {
             format!(
-                "purge job verb={:?} schema={} keys={} [{}]",
-                job.verb,
-                lane_job_schema(&envelope.payload),
-                job.erasures.len(),
-                keys.join(", ")
+                "hash={} range={}",
+                mutation.key_value.hash.as_deref().unwrap_or("-"),
+                mutation.key_value.range.as_deref().unwrap_or("-")
             )
-        }
-    }
+        })
+        .collect();
+    format!(
+        "purge job verb={:?} schema={} keys={} [{}]",
+        job.verb,
+        lane_job_schema(&envelope.payload),
+        job.erasures.len(),
+        keys.join(", ")
+    )
 }
 
 /// Durable description of a quarantined envelope.
@@ -68,15 +63,14 @@ pub(super) fn quarantine_record(
     envelope: &crate::resident::PersistEnvelope<LanePersistJob>,
     error: &str,
 ) -> serde_json::Value {
-    let job = match &envelope.payload {
-        LanePersistJob::Purge { job, .. } => serde_json::json!({
-            "kind": "purge",
-            "schema": lane_job_schema(&envelope.payload),
-            "verb": format!("{:?}", job.verb),
-            "storage_prefix": job.storage_prefix,
-            "erasures": job.erasures,
-        }),
-    };
+    let purge = &envelope.payload.job;
+    let job = serde_json::json!({
+        "kind": "purge",
+        "schema": lane_job_schema(&envelope.payload),
+        "verb": format!("{:?}", purge.verb),
+        "storage_prefix": purge.storage_prefix,
+        "erasures": purge.erasures,
+    });
     serde_json::json!({
         "quarantined_at": chrono::Utc::now().to_rfc3339(),
         "commit_id": envelope.commit_id,

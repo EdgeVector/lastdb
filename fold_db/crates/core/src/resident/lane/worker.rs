@@ -70,7 +70,6 @@ pub(super) async fn run_lane_worker<T: Send + 'static>(
             bytes: envelope_bytes(&batch),
         };
         match worker.writer.write_batch(batch).await {
-            PersistBatchOutcome::Complete => worker.record_success(attempt),
             PersistBatchOutcome::Released(envelopes) => {
                 worker.record_success(attempt);
                 notify_released(envelopes);

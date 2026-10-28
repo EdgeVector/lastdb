@@ -152,7 +152,8 @@ pub struct MutationManager {
         std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
     >,
     /// Per-schema FIFO lanes for durable purge work.
-    persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>,
+    persist_lanes:
+        Option<std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>>,
 }
 
 impl MutationManager {
@@ -171,28 +172,6 @@ impl MutationManager {
         ));
         let purge_stats = Arc::new(PurgeLedger::default());
         let capture_router = Arc::new(std::sync::RwLock::new(None));
-        let writer = Arc::new(molecules::DeferredLaneWriter {
-            mm: Self::persist_surface(
-                Arc::clone(&db_ops),
-                Arc::clone(&schema_manager),
-                Arc::clone(&signer),
-                Arc::clone(&pending_tasks),
-                search_outbox_inbox.clone(),
-                Arc::clone(&defer_gauge),
-                Arc::clone(&purge_stats),
-                Arc::clone(&capture_router),
-            ),
-        });
-        let lane_fair_share = crate::memory_budget::lane_fair_share_bytes(
-            defer_gauge.cap_bytes(),
-            crate::memory_budget::lane_fair_share_percent(),
-        );
-        let persist_lanes = Arc::new(crate::resident::PersistLaneSet::new(
-            policy.max_deferred_persists.max(1),
-            lane_fair_share.max(1),
-            writer,
-            Some(Arc::clone(db_ops.persist_metrics())),
-        ));
         let author_clock_state_key = crate::schema::types::author_clock::mutation_author_clock_key(
             &signer.public_key_base64(),
         );
@@ -202,7 +181,7 @@ impl MutationManager {
             author_clock_state,
             Arc::clone(&pending_tasks),
         );
-        Self {
+        let mut manager = Self {
             db_ops,
             schema_manager,
             signer,
@@ -214,59 +193,61 @@ impl MutationManager {
             author_clock_persist: Some(author_clock_persist),
             purge_stats,
             capture_router,
-            persist_lanes,
-        }
+            persist_lanes: None,
+        };
+        let writer = Arc::new(molecules::DeferredLaneWriter {
+            mm: manager.persist_surface(),
+        });
+        let lane_fair_share = crate::memory_budget::lane_fair_share_bytes(
+            manager.defer_gauge.cap_bytes(),
+            crate::memory_budget::lane_fair_share_percent(),
+        );
+        manager.persist_lanes = Some(Arc::new(crate::resident::PersistLaneSet::new(
+            policy.max_deferred_persists.max(1),
+            lane_fair_share.max(1),
+            writer,
+            Some(Arc::clone(manager.db_ops.persist_metrics())),
+        )));
+        manager
     }
 
-    /// Persist-only manager surface: empty lock maps, disabled lanes.
+    /// Persist-only manager surface: empty lock maps, no lane set.
     /// Lane workers use this so they do not re-enter the live lane set.
     ///
     /// `capture_router` is the serving manager's slot. Deferred persist
     /// must raise that router's suppress depth: task-local suppress from
     /// the request does not follow the persist-lane task or `spawn_blocking`.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn persist_surface(
-        db_ops: Arc<DbOperations>,
-        schema_manager: Arc<SchemaCore>,
-        signer: Arc<crate::security::Ed25519KeyPair>,
-        pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
-        search_outbox_inbox: Option<PathBuf>,
-        defer_gauge: Arc<DeferredPersistGauge>,
-        purge_stats: Arc<PurgeLedger>,
-        capture_router: std::sync::Arc<
-            std::sync::RwLock<
-                Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>,
-            >,
-        >,
-    ) -> Self {
+    pub(crate) fn persist_surface(&self) -> Self {
         Self {
-            db_ops,
-            schema_manager,
-            signer,
-            pending_tasks,
-            search_outbox_inbox,
-            defer_gauge,
+            db_ops: Arc::clone(&self.db_ops),
+            schema_manager: Arc::clone(&self.schema_manager),
+            signer: Arc::clone(&self.signer),
+            pending_tasks: Arc::clone(&self.pending_tasks),
+            search_outbox_inbox: self.search_outbox_inbox.clone(),
+            defer_gauge: Arc::clone(&self.defer_gauge),
             aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(
                 crate::schema::types::MutationAuthorClockState::default(),
             ),
             author_clock_persist: None,
-            purge_stats,
-            capture_router,
-            persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
+            purge_stats: Arc::clone(&self.purge_stats),
+            capture_router: Arc::clone(&self.capture_router),
+            persist_lanes: None,
         }
     }
 
     pub(crate) fn persist_lanes(
         &self,
     ) -> &Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>> {
-        &self.persist_lanes
+        self.persist_lanes
+            .as_ref()
+            .expect("serving manager owns purge lanes")
     }
 
     /// Persist-lane occupancy and refusal counters for `lastdb status` / ops.
     #[must_use]
     pub fn persist_lane_pressure(&self) -> crate::resident::PersistLanePressure {
-        self.persist_lanes.pressure()
+        self.persist_lanes().pressure()
     }
 
     pub(crate) fn set_capture_router(
