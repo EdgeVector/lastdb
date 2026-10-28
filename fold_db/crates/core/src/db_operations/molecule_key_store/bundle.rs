@@ -11,6 +11,7 @@ pub struct MoleculeKeyBundle {
     /// a disk format v2 atom row is plain JSON.
     content_dek: [u8; 32],
     blind_key: [u8; 32],
+    /// Kept only for the three-key wire form. No range is OPE encoded.
     ope_key: [u8; 32],
 }
 
@@ -34,11 +35,6 @@ impl MoleculeKeyBundle {
     }
 
     pub(crate) fn key_codec(&self, configured: &MoleculeKeyCodec) -> MoleculeKeyCodec {
-        MoleculeKeyCodec::with_encodings(
-            configured.encoding(),
-            configured.range_encoding(),
-            Some(self.blind_key),
-            Some(self.ope_key),
-        )
+        MoleculeKeyCodec::new(configured.encoding(), Some(self.blind_key))
     }
 }

@@ -19,7 +19,7 @@ pub(crate) fn node_bundle_storage_keys(molecule_uuid: &str) -> StorageResult<[St
 }
 
 /// Verify a typed schema's existing molecule contract at a held root.
-/// This reads no cache, creates no key, and never turns node keys into a bundle.
+/// This reads no cache and creates no key.
 pub(crate) fn verify_frozen_typed_profile(
     molecule: &str,
     expected: MoleculeRangeProfile,
@@ -33,20 +33,13 @@ pub(crate) fn verify_frozen_typed_profile(
     if metadata.version != super::contracts::TYPED_METADATA_VERSION
         || metadata.molecule_uuid != molecule
         || metadata.range_profile != Some(expected)
-        || metadata.conflict_identity.is_none()
+        || metadata.conflict_identity != Some(super::ConflictKeyIdentity::StoredV1)
+        || metadata.key_authority != Some(super::KeyAuthority::Bundle)
     {
         return Err(invalid("typed molecule metadata differs from its schema"));
     }
-    match (metadata.key_authority, wrap) {
-        (Some(super::KeyAuthority::Node), None) => Ok(()),
-        (Some(super::KeyAuthority::Bundle), Some(bytes)) => {
-            let wrap: BundleWrap = decode(bytes)?;
-            open_wrap(&wrap, molecule, NODE_DOMAIN, account_key).map(drop)
-        }
-        _ => Err(invalid(
-            "typed molecule key authority differs from its node wrap",
-        )),
-    }
+    let wrap: BundleWrap = decode(wrap.ok_or_else(|| invalid("typed molecule wrap is absent"))?)?;
+    open_wrap(&wrap, molecule, NODE_DOMAIN, account_key).map(drop)
 }
 
 /// The native molecule_keys namespace stores metadata and wrapped keys as

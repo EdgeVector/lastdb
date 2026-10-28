@@ -86,11 +86,6 @@ impl<'a> HashTipSelection<'a> {
                 .is_some_and(|prefix| !selection.range_start.starts_with(prefix.as_str()));
         Ok(Some(selection))
     }
-
-    /// Empty OPE ranges use their own physical key outside the nonempty lane.
-    pub(crate) fn accepts_empty(&self) -> bool {
-        !self.empty && self.range_start.is_empty() && self.after.is_none()
-    }
 }
 
 fn codec_error(error: impl std::fmt::Display) -> SchemaError {

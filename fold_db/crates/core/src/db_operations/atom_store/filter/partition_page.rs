@@ -80,26 +80,16 @@ fn codec_err(e: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("partition page codec: {e}"))
 }
 
-/// Each current molecule has one fixed OPE key. Its first encoded word
-/// identifies the ordered nonempty range stream; empty ranges stay separate.
+/// Each hash prefix holds one ordered range stream, including the empty range.
 fn hash_tip_lanes(
-    codec: &molecule_key_codec::MoleculeKeyCodec,
     prefixes: &[String],
     selection: &HashTipSelection<'_>,
 ) -> Result<Vec<TipLane>, SchemaError> {
     prefixes
         .iter()
         .map(|prefix| {
-            let lane = if codec.range_encoding().writes_ope() {
-                let uid = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
-                    .expect("codec molecule prefix");
-                let first = codec.storage_range(uid, "\0").map_err(codec_err)?;
-                format!("{prefix}{}", &first[..6])
-            } else {
-                prefix.clone()
-            };
-            let lane_end = FilterUtils::create_prefix_end(&lane)?;
-            let start = lane.max(format!("{prefix}{}", selection.range_start));
+            let lane_end = FilterUtils::create_prefix_end(prefix)?;
+            let start = format!("{prefix}{}", selection.range_start);
             let end = match &selection.range_end {
                 Some(end) => format!("{prefix}{end}"),
                 None => FilterUtils::create_prefix_end(&format!(
@@ -148,7 +138,7 @@ impl AtomStore {
         // pages without repeatedly decoding them, while bounding offset walks
         // and large internal callers to at most 1,024 tips per stream.
         let batch_limit = limit.clamp(128, 1024);
-        let lanes = hash_tip_lanes(&codec, &prefixes, &selection)?;
+        let lanes = hash_tip_lanes(&prefixes, &selection)?;
         let mut page = TipPageCursor {
             skip: selection.skip,
             after: selection.after.clone(),
@@ -162,13 +152,6 @@ impl AtomStore {
                 .saturating_add(limit - page.output.len())
                 .clamp(1, batch_limit);
             let mut union = BTreeMap::new();
-            if page.after.is_none()
-                && selection.accepts_empty()
-                && codec.range_encoding().writes_ope()
-            {
-                self.seed_empty_range_rows(&prefixes, storage_prefix, &mut union)
-                    .await?;
-            }
             let mut frontier: Option<String> = None;
             for lane in &lanes {
                 let last = self
@@ -193,21 +176,6 @@ impl AtomStore {
         Ok(Some(page.output))
     }
 
-    /// Empty ranges are intentionally not OPE encoded, so no lane sees them.
-    async fn seed_empty_range_rows(
-        &self,
-        prefixes: &[String],
-        storage_prefix: Option<&str>,
-        union: &mut BTreeMap<String, TipRow>,
-    ) -> Result<(), SchemaError> {
-        for prefix in prefixes {
-            if let Some(row) = self.get_per_key(prefix, storage_prefix).await? {
-                union.entry(String::new()).or_insert(row);
-            }
-        }
-        Ok(())
-    }
-
     /// Read one page of one lane into `union`. Returns the last range of the
     /// page when the page was full, so the caller can bound the safe frontier.
     async fn merge_lane_page(
@@ -219,11 +187,9 @@ impl AtomStore {
         want: usize,
         union: &mut BTreeMap<String, TipRow>,
     ) -> Result<Option<String>, SchemaError> {
-        let writes_ope = codec.range_encoding().writes_ope();
         let uid = molecule_key_codec::molecule_uuid_from_storage_key(&lane.prefix)
             .expect("codec molecule prefix");
         let cursor = after
-            .filter(|range| !range.is_empty() || !writes_ope)
             .map(|range| {
                 codec
                     .storage_range(uid, range)

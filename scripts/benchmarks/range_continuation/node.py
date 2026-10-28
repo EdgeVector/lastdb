@@ -86,7 +86,14 @@ class Node:
             process_after = read_counters(self.process.pid) if process_before is not None else None
             if len(raw) > 4 * 1024 ** 2:
                 raise RuntimeError("A generated response exceeds fourMiB")
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except ValueError:
+                if response.status in expected:
+                    raise
+                # A refusal body can be plain text; report the node's message.
+                raise RuntimeError(path + " returned HTTP" + str(response.status) + ": "
+                                   + raw[:512].decode("utf-8", "replace")) from None
             receipt = response.getheader("x-lastdb-read-receipt")
             row = {"request_id": request_id, "path": path, "request": request, "response": result,
                 "http_status": response.status, "started_ns": started, "ended_ns": ended,

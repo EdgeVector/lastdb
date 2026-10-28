@@ -114,7 +114,7 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              {mnemonic}\n\
              ===========================================================\n\
              This phrase is your account root: identity, content encryption, \
-             HashKey blind, and RangeKey OPE. Enabling cloud later reuses it — \
+             and HashKey blinding. Enabling cloud later reuses it — \
              no re-encryption of molecule keys.\n"
         )
     } else {

@@ -14,14 +14,15 @@ impl MoleculeKeyStore {
         &self,
         molecule: &str,
         metadata: &BundleMetadata,
-    ) -> StorageResult<(MoleculeRangeProfile, KeyAuthority, ConflictKeyIdentity)> {
-        if metadata.version != TYPED_METADATA_VERSION || metadata.molecule_uuid != molecule {
+    ) -> StorageResult<MoleculeRangeProfile> {
+        if metadata.version != TYPED_METADATA_VERSION
+            || metadata.molecule_uuid != molecule
+            || metadata.key_authority != Some(KeyAuthority::Bundle)
+            || metadata.conflict_identity != Some(ConflictKeyIdentity::StoredV1)
+        {
             return Err(invalid());
         }
-        let profile = metadata.range_profile.ok_or_else(invalid)?;
-        let authority = metadata.key_authority.ok_or_else(invalid)?;
-        let identity = metadata.conflict_identity.ok_or_else(invalid)?;
-        Ok((profile, authority, identity))
+        metadata.range_profile.ok_or_else(invalid)
     }
 
     pub(super) fn validate_metadata(

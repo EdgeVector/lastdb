@@ -56,11 +56,11 @@ impl FieldVariant {
             .refresh_for_read(db_ops, &effective_filter, include_tombstones)
             .await?;
 
-        // In-memory apply uses string compare on molecule range slots. Under
-        // OPE those slots stay storage-form (see load_filtered_molecule), so
-        // API plaintext prefixes like "todo#" must be rewritten to OPE space
-        // first — otherwise HashRangePrefix drops every match after a correct
-        // storage scan.
+        // In-memory apply uses string compare on molecule range slots. Typed
+        // range slots stay storage-form (see load_filtered_molecule), so API
+        // range bounds must be rewritten to the stored payload first —
+        // otherwise HashRangePrefix drops every match after a correct storage
+        // scan.
         let results = match self.common().molecule_uuid().map(String::as_str) {
             Some(mol_uuid) => {
                 let codec = db_ops.atoms().key_codec_for_molecule(mol_uuid)?;

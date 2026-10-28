@@ -106,12 +106,7 @@ impl MoleculeKeyStore {
         self.entries.inner().batch_mutate(rows).await?;
         self.entries.inner().flush().await?;
         for (molecule, bundle) in bundles {
-            self.remember_contract(
-                &molecule,
-                profile,
-                ConflictKeyIdentity::StoredV1,
-                Some(bundle),
-            )?;
+            self.remember_contract(&molecule, profile, bundle)?;
         }
         Ok(())
     }

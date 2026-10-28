@@ -2,18 +2,19 @@
 
 Canonical North Star: brain `project-operation-trinity`.
 
-Sibling designs: `DESIGN_HASHKEY_BLIND_V1.md`, `DESIGN_RANGEKEY_OPE_V1.md`.
+Sibling design: `DESIGN_HASHKEY_BLIND_V1.md`.
 
 Status (2026-10-26): the Son atom content seal is retired. A disk format v2
 atom row is plain JSON with no content seal. The block encryption of each run
 file protects it at rest (see `docs/designs/native-element-encryption-v1.md`).
 This program has no atom content seal, no `ATB:` binary atom row, and no atom
-content open or row format switch.
+content open or row format switch. No range uses OPE: a format 4 home stores
+the typed range payload inside the encrypted run-file blocks.
 
 ## Goal
 
 Ship LastDB with **no plaintext fallbacks**: HashKey always blinded, RangeKey
-always OPE, atom rows (and the file KDK inside them) always inside encrypted
+and atom rows (and the file KDK inside them) always inside encrypted
 run-file blocks, and file blobs always encrypted under that file KDK (cloud
 **and** durable local CAS).
 
@@ -51,7 +52,6 @@ never returned as API keys.
 
 - `mord:` / update_order may still store API-form hash/range strings
 - Structural atom fields (uuid, schema name, timestamps) stay plain
-- OPE is order-preserving (order leakage accepted; not full confidentiality)
 - Frame AEAD packaging is optional defense-in-depth, not required for Trinity
 
 ## Primary promote

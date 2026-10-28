@@ -218,7 +218,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 **Agent rules:**
 
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
-2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE. Legacy conflict identifiers can retain their source codec.
+2. Read the persisted home and molecule contracts. Typed lookup keys use no OPE.
 3. Preserve the V2 plain atom representation inside encrypted blocks. Do not add an atom envelope or a second ordered lookup.
 4. See `docs/designs/typed-range-field-contract.md` for the complete contract and release limits. Trinity describes the older record-encryption design.
 
