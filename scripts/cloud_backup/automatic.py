@@ -78,6 +78,7 @@ class Automatic:
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"],
                                through=written)
         source.caught_up(log)
+        source.owner_status(log["automatic_backup"], "on")
         routes = source.routes(log)
         source.retired(snapshot["request_id"])
         timer = snapshot["automatic_backup"]
@@ -110,7 +111,8 @@ class Automatic:
         operation.summary["stage"] = "automatic-disable"
         source.configure()
         source.retired(restarted["request_id"])
-        source.disable()
+        disabled = source.disable()
+        source.owner_status(disabled["automatic_backup"], "off")
         source.node.stop()
         replay = {"base": snapshot["last_accepted_backup"], "through": log["mutation_log"]["head"]}
         base_restore = self.recover("base-recovery", self.baseline, snapshot["last_accepted_backup"],

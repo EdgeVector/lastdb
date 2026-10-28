@@ -24,6 +24,9 @@ The daemon must publish a new snapshot and release its retained source bytes.
 The source stores a new 64 KiB file through the ordinary file command.
 One batch updates 15 records to reference that file and deletes the other record.
 The automatic mutation log must publish those writes and cover the complete current journal head.
+`lastdb status` must then name automatic on, that log's acceptance time, and the saved next snapshot time.
+The line must not contain the account, a request id, a phrase, or an object name.
+After disable, the same line must name automatic off, the last accepted log time, and no next snapshot.
 Its accepted native file extents must route main files to R2, CAS files to B2, and client metadata to R2.
 The log must leave both the last snapshot time and the next daily snapshot time unchanged.
 The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
