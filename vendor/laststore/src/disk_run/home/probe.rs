@@ -5,13 +5,17 @@ use crate::disk_run::reader::Selected;
 
 /// Read the primary value, then check the fallback key only when it is absent.
 pub struct ReadProbe {
+    /// Collection and key of the required value.
     pub primary: (String, String),
+    /// Collection and key whose presence matters only for an absent primary.
     pub fallback: (String, String),
 }
 
 /// A present primary leaves `fallback_present` false.
 pub struct ProbedValue {
+    /// Decoded primary value; a tombstone or missing key returns None.
     pub value: Option<Vec<u8>>,
+    /// True only for an absent primary and a validated present fallback value.
     pub fallback_present: bool,
 }
 
@@ -107,7 +111,7 @@ impl RunRead {
             let open: Vec<_> = (0..wanted.len())
                 .filter(|&at| found[at].is_none())
                 .filter(|&at| {
-                    at % 2 == 0
+                    at.is_multiple_of(2)
                         || !matches!(&found[at - 1], Some(Selected::Record(Found::Value(_))))
                 })
                 .filter(|&at| self.runs[slot].0.meta.covers(&wanted[at]))
@@ -116,14 +120,14 @@ impl RunRead {
                 continue;
             }
             let keys: Vec<_> = open.iter().map(|&at| wanted[at].as_slice()).collect();
-            let presence: Vec<_> = open.iter().map(|at| at % 2 == 1).collect();
+            let presence: Vec<_> = open.iter().map(|at| !at.is_multiple_of(2)).collect();
             let parents: Vec<_> = open
                 .iter()
                 .enumerate()
                 .map(|(local, &at)| {
                     local
                         .checked_sub(1)
-                        .filter(|&parent| at % 2 == 1 && open[parent] == at - 1)
+                        .filter(|&parent| !at.is_multiple_of(2) && open[parent] == at - 1)
                 })
                 .collect();
             let hits = self.reader(slot)?.select_many(&keys, &presence, &parents)?;
