@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import subprocess
 
+from revisions import measurement_baseline
+
 
 DOCUMENT_FILES = {".gitignore", ".gitattributes", ".github/CODEOWNERS", ".last-stack/pr-venue"}
 
@@ -47,6 +49,7 @@ def main():
         # The event payload can lag the base used to create refs/pull/N/merge.
         # Compare against the base actually present in that candidate tree.
         baseline = revision(parents[1])
+    baseline = revision(measurement_baseline(baseline))
     if baseline == candidate:
         raise ValueError("Baseline and candidate revisions must differ; preserve the fresh candidate program")
     merge_base = git("merge-base", baseline, candidate).decode().strip()

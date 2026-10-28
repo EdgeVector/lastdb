@@ -67,6 +67,7 @@ jobs:
           if [ -z "$baseline_sha" ]; then
             baseline_sha="$(git rev-parse HEAD^)"
           fi
+          baseline_sha="$(python3 scripts/benchmarks/revisions.py "$baseline_sha")"
           [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$baseline_sha" =~ ^[0-9a-f]{40}$ ]]
           echo "candidate=$candidate_sha" >> "$GITHUB_OUTPUT"

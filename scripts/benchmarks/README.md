@@ -489,3 +489,14 @@ Content verification reads files before timing, so this is logical-record-cold,
 not physical-device-cold. The standard startup-tail recipe stays unchanged.
 The snapshot and its generated credentials are never uploaded; only fingerprints,
 request receipts, validation results, and timings enter the verified CI artifact.
+
+## Known broken baseline
+
+Main commit `5e1856059cefc9a3ba719964a9914e23ca0c4c37` cannot compile.
+Its schema mapper calls Option methods after the profile becomes concrete.
+[Required CI](https://github.com/EdgeVector/lastdb/actions/runs/40764592569) records both errors.
+Only this exact baseline uses its immediate predecessor,
+`558926c35ee278f5fff0e2e59d60a821905bab01`, as the measured control.
+The summary states the exact measured revisions. The standard plan retains the requested baseline.
+All candidate build checks, real measurements, upload verification, and the 1.5× disk limit remain required.
+No automatic search for an older baseline is permitted.
