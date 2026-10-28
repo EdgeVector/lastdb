@@ -12,6 +12,11 @@ pub struct Begin {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_destinations: Vec<Destination>,
     pub predecessor: Option<Head>,
+    /// Exact recovery dependencies, separate from publication order. None is
+    /// legacy and conservatively protects the predecessor chain. Some([])
+    /// declares an independent recovery base. Emit only after capability admission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_dependencies: Option<Vec<Head>>,
 }
 impl Begin {
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -24,7 +29,41 @@ impl Begin {
                 return Err(ProtocolError::invalid("v2.begin.predecessor"));
             }
         }
+        self.validate_dependencies()?;
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
+    }
+
+    fn validate_dependencies(&self) -> Result<(), ProtocolError> {
+        let Some(dependencies) = &self.recovery_dependencies else {
+            return Ok(());
+        };
+        if dependencies.len() > 2 {
+            return Err(ProtocolError::limit("v2.begin.recovery_dependencies"));
+        }
+        for (offset, dependency) in dependencies.iter().enumerate() {
+            dependency.validate()?;
+            if dependency.commit_id == self.job.commit_id
+                || self
+                    .predecessor
+                    .as_ref()
+                    .is_none_or(|head| dependency.ordinal > head.ordinal)
+                || dependencies[..offset]
+                    .iter()
+                    .any(|prior| prior.commit_id == dependency.commit_id)
+                || (offset > 0 && dependencies[offset - 1].ordinal >= dependency.ordinal)
+            {
+                return Err(ProtocolError::invalid("v2.begin.recovery_dependencies"));
+            }
+        }
+        Ok(())
+    }
+
+    /// A retention planner must keep these exact accepted points recursively.
+    /// Legacy omission never means an independent snapshot.
+    pub fn dependencies(&self) -> &[Head] {
+        self.recovery_dependencies
+            .as_deref()
+            .unwrap_or_else(|| self.predecessor.as_slice())
     }
     pub fn input_sha256(&self) -> Result<Digest, ProtocolError> {
         self.validate()?;

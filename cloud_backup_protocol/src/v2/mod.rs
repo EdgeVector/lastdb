@@ -9,6 +9,7 @@ pub mod inventory;
 pub mod jobs;
 pub mod limits;
 pub mod publication;
+pub mod retention;
 pub mod transfer;
 pub mod usage;
 mod version;

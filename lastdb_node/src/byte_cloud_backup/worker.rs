@@ -157,6 +157,9 @@ async fn setup(
         descriptor: ClientDescriptor::empty(),
         required_destinations: vec![Destination::R2, Destination::B2],
         predecessor,
+        // The current service does not advertise accepted-backup retirement.
+        // Preserve the legacy hash and conservative dependency rule until it does.
+        recovery_dependencies: None,
     };
     begin.validate()?;
     saved.begin = Some(begin);
