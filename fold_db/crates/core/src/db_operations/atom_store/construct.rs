@@ -3,23 +3,6 @@
 use super::*;
 
 impl AtomStore {
-    /// Open only the atom operation surface over an existing store stack.
-    ///
-    /// Admin proofs and audit workers use this constructor when they must not
-    /// hydrate the complete [`crate::FoldDB`] schema and resident graph.
-    pub async fn from_namespaced_store(
-        store: Arc<dyn NamespacedStore>,
-    ) -> Result<Self, crate::schema::SchemaError> {
-        let main_store = Arc::new(TypedKvStore::new(
-            store.open_namespace("main").await.map_err(|error| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "open atom main namespace: {error}"
-                ))
-            })?,
-        ));
-        Ok(Self::new(main_store).with_namespaced_store(store))
-    }
-
     pub(crate) fn new(main_store: Arc<TypedKvStore<dyn KvStore>>) -> Self {
         Self::new_with_content_key(main_store, None)
     }
@@ -28,25 +11,12 @@ impl AtomStore {
         main_store: Arc<TypedKvStore<dyn KvStore>>,
         content_key: Option<[u8; 32]>,
     ) -> Self {
-        Self::new_with_content_and_hash_key_codec(
-            main_store,
-            content_key,
-            crate::atom::MoleculeKeyCodec::plain(),
-        )
-    }
-
-    pub(crate) fn new_with_content_and_hash_key_codec(
-        main_store: Arc<TypedKvStore<dyn KvStore>>,
-        content_key: Option<[u8; 32]>,
-        key_codec: crate::atom::MoleculeKeyCodec,
-    ) -> Self {
         Self {
             main_store,
             serving_replay_cutoff: Arc::default(),
             namespaced_store: None,
             protein_membership_gate: Arc::default(),
             content_key,
-            key_codec,
             molecule_keys: None,
             molecule_commit_locks: Arc::default(),
             generation_cleanup_locks: Arc::default(),
@@ -85,10 +55,9 @@ impl AtomStore {
         self
     }
 
-    /// Attach the owner namespace store and select the typed molecule key codec.
+    /// Attach the owner namespace store.
     #[must_use]
     pub(crate) fn with_namespaced_store(mut self, store: Arc<dyn NamespacedStore>) -> Self {
-        self.key_codec = self.key_codec.for_typed_home();
         self.namespaced_store = Some(store);
         self
     }

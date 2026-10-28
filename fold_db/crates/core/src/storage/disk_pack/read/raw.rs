@@ -80,7 +80,8 @@ impl PackRuntime {
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
-        for (slot, (collection, key)) in coordinates.iter().enumerate() {
+        for (slot, coordinate) in coordinates.iter().enumerate() {
+            let (collection, key) = coordinate;
             if let Some(record) = context.overlay_record(pending, collection, key) {
                 context.account_memory_record(
                     call,
@@ -88,6 +89,8 @@ impl PackRuntime {
                     record.body.as_ref().map_or(0, Vec::len),
                 )?;
                 out[slot] = record.body.clone();
+            } else if let Some(value) = context.reuse_disk_value(call, coordinate)? {
+                out[slot] = value;
             } else {
                 misses.push(slot);
             }
@@ -100,7 +103,9 @@ impl PackRuntime {
             .get_many(&addresses)
             .map_err(|error| call_error(error, call))?;
         for (slot, result) in misses.into_iter().zip(results) {
-            out[slot] = result.map_err(|error| call_error(error, call))?;
+            let value = result.map_err(|error| call_error(error, call))?;
+            context.remember_disk_value(&coordinates[slot], value.as_deref())?;
+            out[slot] = value;
         }
         Ok(out)
     }

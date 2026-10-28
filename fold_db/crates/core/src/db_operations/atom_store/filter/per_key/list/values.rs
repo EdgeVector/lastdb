@@ -102,10 +102,7 @@ fn listed_hash(
         {
             return Ok(None);
         }
-        if request.hash.is_none()
-            && codec.encoding() == crate::atom::HashKeyEncoding::BlindV1
-            && recovered.is_none()
-        {
+        if request.hash.is_none() && recovered.is_none() {
             return Err(SchemaError::InvalidField(
                 "schema key list cannot recover a blinded API hash; provide a hash filter".into(),
             ));

@@ -11,6 +11,7 @@ mod preload;
 mod probes;
 mod raw;
 pub(crate) mod snapshots;
+mod write_reads;
 
 pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<PhysicalRead>>,
@@ -24,6 +25,7 @@ pub(super) struct ReadContext {
     pub(super) revision: u64,
     current: PhysicalRoot,
     write_owner: Option<Arc<transaction::PendingBatch>>,
+    write_reads: Option<Arc<write_reads::WriteReads>>,
     _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
     // Fields drop in declaration order. Drop captured model/source owners
     // before the final holds owner trims paths, so dead call allocations do
@@ -92,6 +94,9 @@ impl ReadContext {
         let revision = view.revision;
         let current = view.current.clone();
         drop(view);
+        let write_reads = write_owner
+            .as_ref()
+            .map(|_| Arc::new(write_reads::WriteReads::default()));
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
@@ -104,6 +109,7 @@ impl ReadContext {
             failure: Arc::new(Mutex::new(None)),
             core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
             write_owner,
+            write_reads,
             _preload_charge: None,
         }))
     }
@@ -130,6 +136,7 @@ impl ReadContext {
                     revision: context.revision,
                     current: context.current.clone(),
                     write_owner: context.write_owner.clone(),
+                    write_reads: context.write_reads.clone(),
                     _preload_charge: context._preload_charge.clone(),
                 }));
             }
@@ -266,6 +273,7 @@ pub(super) async fn write_scope<T>(
         super::run_blocking(move || ReadContext::capture(&runtime, Some(pending))).await?;
     let scope = PackReadScope { context };
     let result = scope.run(future).await;
+    scope.context.report_write_reads();
     if let Some(error) = scope.context.error() {
         return Err(error);
     }

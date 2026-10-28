@@ -21,9 +21,8 @@ impl AtomStore {
         rows: &[(String, PerKeyRecord)],
     ) -> Result<Vec<Option<ListedValue>>, SchemaError> {
         let schema = matches!(request.membership, Membership::Schema(_));
-        let needs_bodies = schema
-            || (request.hash.is_none()
-                && codec.encoding() == crate::atom::HashKeyEncoding::BlindV1);
+        // A blinded hash needs the key value to recover its API coordinate.
+        let needs_bodies = schema || request.hash.is_none();
         let mut values: Vec<_> = (0..rows.len()).map(|_| None).collect();
         if !needs_bodies {
             return Ok(values);

@@ -289,7 +289,8 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    bug that writes plaintext) is invisible.
 3. **Search blind tokens are not a production path.** The unused search
    helper `E2eKeys::blind_token` is removed. Storage HashKeys use
-   `E2eKeys::blind_hash_key` with `index_key()`. The native index is
+   `E2eKeys::blind_hash_key` with the `blind_key` of each molecule's key
+   bundle; no node path reads `index_key()`. The native index is
    embedding-based and stored plaintext.
 4. **No rotation story.** One static master key, one static E2E key
    derived from a never-rotating identity seed, and an envelope format
