@@ -9,7 +9,7 @@ mod leases;
 pub(crate) mod publication;
 mod request;
 mod resources;
-pub(crate) use effects::{stage_core_memory, stage_paths};
+pub(crate) use effects::{prepared_core_memory, stage_core_memory, stage_paths};
 pub(crate) use leases::lease;
 pub(crate) use request::{background_scope, request_scope};
 pub(crate) use resources::with_resource;

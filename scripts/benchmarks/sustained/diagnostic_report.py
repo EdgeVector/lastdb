@@ -64,6 +64,13 @@ def timing_lines(report):
 
 
 def search_lines(report):
+    if report.get("skipped_checkpoints"):
+        return ["", "### Checkpoints skipped after an incomplete seed", "",
+                "The seed stops before the Search-state and storage checkpoints.",
+                "Load, idle, reopen, and crash-recovery phases do not run.",
+                "Numeric capture completeness still requires every expected write event.",
+                "Seed workload completeness and captured timing completeness are separate results.",
+                f"Skipped checkpoints: `{report['skipped_checkpoints']}`."]
     mode = report.get("search_enabled")
     lines = ["", "### Search delivery mode", "",
              f"Seed checkpoint enable state: **{mode if mode is not None else 'unreported'}**.",

@@ -10,6 +10,9 @@ impl SchemaStore {
     /// and logged — never returned as a serde error, which would become HTTP
     /// 400 `expected value at line 1 column 1` and blind `kanban list`.
     pub async fn get_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
+        if let Some(snapshot) = self.prepared_snapshot(schema_name)? {
+            return Ok(snapshot.schema.clone());
+        }
         let Some(bytes) = self
             .schemas_store
             .inner()

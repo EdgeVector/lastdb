@@ -11,6 +11,17 @@ impl PackRuntime {
     }
 }
 
+impl super::ReadContext {
+    pub(in crate::storage::disk_pack) fn require_prepared_view(
+        &self,
+        pending: &Arc<super::super::transaction::PendingBatch>,
+    ) -> StorageResult<()> {
+        self.validate_owner(Some(pending))?;
+        let call = crate::read_receipts::lock(&self.call);
+        self.require_room(&call, 0, 0)
+    }
+}
+
 /// The exact physical dependency of one core definition record.
 pub(crate) fn core_memory_sources(namespace: &str, key: &[u8]) -> Vec<CoreMemorySource> {
     let (collection, key) = kv::coordinate(namespace, key);

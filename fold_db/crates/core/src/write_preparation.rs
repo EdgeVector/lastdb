@@ -57,6 +57,10 @@ pub(crate) async fn measure<F: Future>(name: &'static str, work: F) -> F::Output
             ("reads", reads.read_operations),
             ("payload_bytes", reads.payload_bytes),
             ("decode_us", reads.decode_nanos / 1000),
+            ("key_setups", reads.frame_key_setups),
+            ("key_setup_us", reads.frame_key_setup_nanos / 1000),
+            ("auth_us", reads.frame_auth_nanos / 1000),
+            ("decompress_us", reads.frame_decompress_nanos / 1000),
             ("lock_us", reads.lock_wait_nanos / 1000),
             ("worker_wait_us", reads.queue_wait_nanos / 1000),
         ] {

@@ -5,7 +5,7 @@ use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::{ReaderRef, RunRange};
 use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
-use crate::frame::{decode_frame_bounded, min_encoded_len};
+use crate::frame::{decode_frame_bounded, min_encoded_len, PreparedFrameKey};
 use crate::read_receipt_io::{self as measured, MeasuredFile, ReadClass};
 use crate::Result;
 use std::ops::Bound;
@@ -27,6 +27,7 @@ pub struct RunReader {
     reserved_memory: u64,
     file: MeasuredFile,
     data_key: [u8; 32],
+    frame_key: Option<Box<PreparedFrameKey>>,
     footer: Footer,
     top: Top,
 }
@@ -106,6 +107,12 @@ impl RunReader {
             reserved_memory: reserved,
             file,
             data_key: *data_key,
+            // Bounded backup readers retain their original allocation path.
+            frame_key: if bytes.is_none() {
+                Some(Box::new(PreparedFrameKey::new(data_key, footer.run_id)?))
+            } else {
+                None
+            },
             footer,
             top: Top {
                 records: 0,
@@ -169,7 +176,10 @@ impl RunReader {
         }
         let mut frame = vec![0u8; len as usize];
         measured::read_exact_at(&self.file, &mut frame, offset)?;
-        let decoded = decode_frame_bounded(&self.data_key, &frame, max)?;
+        let decoded = match &self.frame_key {
+            Some(key) => key.decode(&self.data_key, &frame, max),
+            None => decode_frame_bounded(&self.data_key, &frame, max),
+        }?;
         if decoded.header.chunk_uuid != self.footer.run_id || decoded.header.counter != counter {
             return Err(corrupt("block belongs to another place"));
         }

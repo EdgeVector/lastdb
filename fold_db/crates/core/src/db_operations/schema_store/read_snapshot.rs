@@ -4,6 +4,7 @@ use super::*;
 
 mod names;
 
+#[derive(Clone)]
 pub(crate) struct SchemaReadSnapshot {
     pub(crate) schema: Option<Schema>,
     pub(crate) state: SchemaState,
@@ -16,6 +17,9 @@ impl SchemaStore {
         &self,
         name: &str,
     ) -> Result<SchemaReadSnapshot, SchemaError> {
+        if let Some(snapshot) = self.prepared_snapshot(name)? {
+            return Ok((**snapshot).clone());
+        }
         let (schema, state) = tokio::try_join!(
             self.schemas_store.inner().get(name.as_bytes()),
             self.snapshot_state_bytes(name),
