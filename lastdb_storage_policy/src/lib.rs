@@ -4,12 +4,9 @@
 //! size requires a versioned format and compatible reader/publication changes.
 //! Resource sizes bound buffers and metadata, never a user file's total bytes.
 
-/// Fixed sizes used to address existing native V1 files.
+/// Bounds that live code still reads from the removed native V1 format.
 pub mod native_v1 {
-    pub const PAGE_BYTES: usize = 16_384;
     pub const BLOCK_BYTES: usize = 4_096;
-    pub const PAGES_PER_PART: u64 = 512;
-    pub const PART_BYTES: u64 = PAGE_BYTES as u64 * PAGES_PER_PART;
     pub const MAX_DEPENDENCY_PARTS: usize = 65_536;
     pub const MAX_BACKUP_FILES: usize = MAX_DEPENDENCY_PARTS + 16;
     pub const RECORD_BODY_MAX_BYTES: u64 = u32::MAX as u64;

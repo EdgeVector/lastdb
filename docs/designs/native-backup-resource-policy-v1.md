@@ -12,15 +12,12 @@ They are not environment settings or optional memory targets.
 
 | Item | Native V1 value |
 | --- | ---: |
-| Page | 16 KiB |
 | Decoded block | 4 KiB |
-| Pages per physical part | 512 |
-| Physical part | 8 MiB |
 | Native record body | At most `u32::MAX` bytes |
 | Native backup files | At most 65,552 |
 
-A record body can span many native parts.
-An eight MiB part does not limit a user file to eight MiB.
+The crate does not include the unused page size, pages-per-part count, or physical part size.
+A record body can span many parts. Part size does not limit a user file.
 No disk format v1 reader remains, so these values no longer define a readable file format.
 
 ## Editable source resource values
