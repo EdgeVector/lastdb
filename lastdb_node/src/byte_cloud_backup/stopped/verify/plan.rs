@@ -112,6 +112,11 @@ pub(super) fn build(manifest: &manifest::Manifest, store: &Store) -> Result<Plan
     {
         return Err(BackupError::Identity);
     }
+    check_spans(&plan, &receipts)?;
+    Ok(plan)
+}
+
+fn check_spans(plan: &Plan, receipts: &BTreeMap<Digest, ObjectReceipt>) -> Result<()> {
     for (id, spans) in &plan.spans {
         let receipt = receipts.get(id).ok_or(BackupError::Missing)?;
         for span in spans {
@@ -125,5 +130,5 @@ pub(super) fn build(manifest: &manifest::Manifest, store: &Store) -> Result<Plan
             }
         }
     }
-    Ok(plan)
+    Ok(())
 }
