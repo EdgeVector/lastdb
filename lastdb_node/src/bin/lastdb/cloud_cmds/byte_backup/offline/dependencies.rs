@@ -93,18 +93,19 @@ pub(super) async fn inspect(
             pending.push(backup);
         }
     }
-    report(root, records.into_values().collect(), bytes)
+    let directory: Vec<_> = records.into_values().collect();
+    report(&root, &directory, bytes)
 }
 
 fn report(
-    root: RecoveryPoint,
-    directory: Vec<AcceptedBackup>,
+    root: &RecoveryPoint,
+    directory: &[AcceptedBackup],
     bytes: usize,
 ) -> Result<serde_json::Value, String> {
     let closure = recovery_closure(
         &root.job.stream.scope,
-        &directory,
-        std::slice::from_ref(&root),
+        directory,
+        std::slice::from_ref(root),
     )
     .map_err(|e| e.to_string())?;
     if !closure.candidates.is_empty() {
