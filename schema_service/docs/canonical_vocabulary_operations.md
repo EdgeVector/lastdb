@@ -21,7 +21,8 @@ The body contains these properties:
 Each definition contains `description`, `field_type`, `version`, and optional classification metadata.
 The server assigns the active name policy version. App requests cannot assign approval.
 The request requires `X-Canonical-Signature`: a base64 Ed25519 signature over the canonical JSON body.
-The configured `APP_REGISTRY_VERIFIER_PUBKEY` defines operator authority. An app developer certificate does not grant this authority.
+The configured `CANONICAL_FIELD_PUBLISHER_PUBKEY` defines operator authority.
+Compatibility verifier keys and app developer certificates do not grant this authority.
 The operation and environment form part of the signed body.
 A repeated identical batch is safe. A conflicting definition requires an explicit reset before replacement.
 The complete batch passes validation before the first write.
@@ -29,7 +30,7 @@ The complete batch passes validation before the first write.
 Use `schema_service/scripts/canonical-vocabulary` for real operator work.
 Install its Python dependencies, `cryptography` and `rfc8785`, before use.
 The `get` command returns the approved vocabulary.
-The `publish` command accepts a definition file, an environment, and a LastSecrets locator for the operator Ed25519 seed.
+The `publish` command accepts a definition file, an environment, and a LastSecrets locator for the dedicated operator Ed25519 seed.
 The command retrieves the seed at the point of use. It does not print or save the seed.
 It accepts HTTPS service URLs only.
 

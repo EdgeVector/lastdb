@@ -136,7 +136,7 @@ Seed counts use source revision `88cd15cfcbba781b8ed0aea6071757a8080c0d1f`.
 
 ## Implementation simplifications
 
-The existing registry verifier key controls canonical publication. App owner keys cannot approve vocabulary.
+A dedicated operator key controls canonical publication. Compatibility verifier and app owner keys cannot approve vocabulary.
 The seed uses one source vocabulary file and one batch write. Cold start does not compute seed embeddings.
 The service assigns policy metadata outside field identity. No extra approval database is required.
 The reset uses an isolated registry generation during the standard deployment canary.

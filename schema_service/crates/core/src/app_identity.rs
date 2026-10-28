@@ -86,8 +86,7 @@ pub struct AppIdentityConfig {
     pub revoked_dev_pubkeys: HashSet<String>,
     /// Verifier Ed25519 public key (base64) that is allowed to write
     /// compatibility rows. Only signatures from this key are accepted
-    /// on `POST /v2/releases/{release_id}/compat` and canonical vocabulary
-    /// publication. App developer credentials cannot grant this authority. Set from
+    /// on `POST /v2/releases/{release_id}/compat`. Set from
     /// `APP_REGISTRY_VERIFIER_PUBKEY` env var.
     pub verifier_pubkey: Option<String>,
 }

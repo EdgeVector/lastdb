@@ -1,7 +1,7 @@
 //! Operator-only extension of the standard field vocabulary.
 //!
-//! The configured registry verifier key also controls canonical approval.
-//! App owner certificates do not grant this permission. The signed operation
+//! A dedicated canonical publisher key controls approval. Compatibility
+//! verifier keys and app owner certificates do not grant this permission. The signed operation
 //! and environment prevent a compatibility-row or cross-environment replay.
 
 use crate::app_identity::env_label;
@@ -53,11 +53,11 @@ impl SchemaServiceState {
         body: &Value,
     ) -> Result<usize, VocabularyPublishError> {
         let config = self.app_identity_config();
-        let key = config.verifier_pubkey.as_deref().ok_or_else(|| {
+        let key = std::env::var("CANONICAL_FIELD_PUBLISHER_PUBKEY").map_err(|_| {
             failure(
                 503,
                 "canonical_publisher_not_configured",
-                "registry verifier key is required",
+                "dedicated canonical publisher key is required",
             )
         })?;
         let request: PublishRequest = serde_json::from_value(body.clone())
@@ -71,7 +71,7 @@ impl SchemaServiceState {
             return Err(failure(400, "invalid_canonical_publication",
                 "require canonical_fields.publish, this environment, the active policy and 1..512 fields"));
         }
-        verify_operator_signature(key, signature, body)?;
+        verify_operator_signature(&key, signature, body)?;
         let count = request.fields.len();
         let fields: Vec<_> = request.fields.into_iter().collect();
         self.add_canonical_fields(&fields).await.map_err(|error| {
@@ -112,7 +112,7 @@ fn verify_operator_signature(
         failure(
             503,
             "canonical_publisher_not_configured",
-            "invalid registry verifier key",
+            "invalid canonical publisher key",
         )
     })?;
     let bytes = BASE64
