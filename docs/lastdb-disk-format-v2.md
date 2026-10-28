@@ -106,6 +106,11 @@ Each step reserves space before an output frame, footer, or `CURRENT` write.
 The shared ledger covers filesystem capacity across both homes and checks each configured home cap.
 Written bytes replace the unwritten reservation. The step retains its publication allowance through the required file and directory barriers.
 
+Normal writes retain 64 MiB of free filesystem space plus a 64 MiB replacement allowance.
+Compaction can use that replacement allowance, but retains the 64 MiB free-space floor and the configured hard home cap.
+The allowance does not guarantee enough space for every large step.
+A refused step can require more free space or a larger configured cap before it can complete.
+
 An admission refusal leaves the previous `CURRENT` readable. Output owners attempt to remove unpublished files; reopen removes any unnamed leftovers.
 An uncertain publication retains the required files and stops that run-home writer until reopen.
 Old reads keep their exact files until the last holder releases them.

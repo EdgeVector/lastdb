@@ -60,6 +60,9 @@ A refused write gets a no-space error alone. It does not fail a commit.
 
 Compaction reserves its output bytes before each file write and retains publication space through the required barriers.
 The shared filesystem allowance covers both run homes. The configured disk cap applies to `disk-run`; `disk-cas` keeps its default uncapped policy.
+Compaction can use the 64 MiB replacement allowance, but retains 64 MiB of free filesystem space and the hard home cap.
+A large step can still require more free space or a larger configured cap.
+
 An admission refusal preserves the previous readable root. Output owners attempt to remove unpublished files; reopen removes any unnamed leftovers.
 
 ## Home fence

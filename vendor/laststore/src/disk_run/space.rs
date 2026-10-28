@@ -22,9 +22,14 @@ struct Pending {
 
 impl MergeSpace {
     pub(crate) fn new(root: &Path, policy: &SpacePolicy) -> Result<Self> {
-        let ticket = reserve_space(root, policy, PUBLICATION_BYTES)?;
+        let mut policy = policy.clone();
+        // Foreground writes protect replacement headroom for compaction to use.
+        // Requiring that reserve again would strand a capped home before reclaim.
+        // The hard cap and free-space floor still cover every replacement byte.
+        policy.replacement_reserve_bytes = 0;
+        let ticket = reserve_space(root, &policy, PUBLICATION_BYTES)?;
         Ok(Self(Arc::new(Mutex::new(Pending {
-            policy: policy.clone(),
+            policy,
             ticket,
             outputs: Vec::new(),
             keep_outputs: false,

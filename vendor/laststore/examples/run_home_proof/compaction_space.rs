@@ -39,6 +39,7 @@ pub fn run(scratch: &Path, key: &[u8; 32]) -> Result<String> {
     for operation in [Operation::Tiered, Operation::Base, Operation::Cleanup] {
         results.push(one_operation(scratch, key, operation)?);
     }
+    results.push(near_cap_reclaim(scratch, key)?);
     Ok(results.join("; "))
 }
 
@@ -80,7 +81,7 @@ fn one_operation(scratch: &Path, key: &[u8; 32], operation: Operation) -> Result
     let policy = SpacePolicy::default();
     let bytes = dir_bytes(&dir)?;
     let mut limited = policy.clone();
-    limited.disk_cap_bytes = bytes + policy.replacement_reserve_bytes;
+    limited.disk_cap_bytes = bytes;
     refuse(&home, operation, &limited, &model)?;
     let partial = !matches!(operation, Operation::Cleanup);
     if partial {
@@ -231,4 +232,58 @@ fn shared_filesystem_reservation(
     equal(home, model)?;
     fs::remove_dir(&other)?;
     Ok(1)
+}
+
+fn near_cap_reclaim(scratch: &Path, key: &[u8; 32]) -> Result<String> {
+    let dir = scratch.join("compaction-space-near-cap");
+    let (home, mut model) = seed(&dir, key, Operation::Base)?;
+    let deletes: Vec<_> = (0..2048)
+        .map(|number| HomeMutation {
+            collection: "tips".into(),
+            key: format!("{PREFIX}{number:08}"),
+            body: None,
+        })
+        .collect();
+    apply(&mut model, &deletes);
+    home.commit(deletes)?;
+    let before = dir_bytes(&dir)?;
+    let initial = home.status();
+    let mut policy = SpacePolicy::default();
+    policy.disk_cap_bytes = before + policy.replacement_reserve_bytes;
+    match reserve_space(home.path(), &policy, 1) {
+        Err(laststore::Error::Io(error))
+            if error.raw_os_error() == Some(rustix::io::Errno::NOSPC.raw_os_error()) => {}
+        Err(error) => return Err(format!("near-cap foreground refusal returned {error}").into()),
+        Ok(_) => return Err("near-cap foreground write consumed replacement headroom".into()),
+    }
+    let mut steps = 0;
+    while home.merge_step_with_space(&policy)?.is_some() {
+        steps += 1;
+        if steps > 512 {
+            return Err("near-cap reclaim exceeded its step budget".into());
+        }
+    }
+    let after = dir_bytes(&dir)?;
+    let complete = home.status();
+    if steps == 0
+        || after >= before
+        || after > policy.disk_cap_bytes
+        || complete.frontier != initial.frontier
+        || complete.generation <= initial.generation
+    {
+        return Err("near-cap compaction did not reclaim within replacement headroom".into());
+    }
+    equal(&home, &model)?;
+    // The reclaimed bytes admit foreground work under the original policy.
+    drop(reserve_space(home.path(), &policy, 1)?);
+    drop(home);
+    let reopened = RunHome::open(&dir, key)?;
+    let records = equal(&reopened, &model)?;
+    if reopened.status().frontier != initial.frontier {
+        return Err("near-cap reclaim frontier differs after reopen".into());
+    }
+    Ok(format!(
+        "near-cap reclaim: foreground refused, {steps} merge steps spent replacement headroom, disk {before}->{after} B, foreground admitted afterward, {records} keys and one paged range equal after reopen, frontier {} unchanged",
+        initial.frontier
+    ))
 }
