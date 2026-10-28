@@ -51,6 +51,21 @@ pub(crate) enum ByteBackupCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Back up the final flushed cut without a daemon, copy, or database boot.
+    StartStopped {
+        /// Preserve this UUID across retries of the same stopped session.
+        #[arg(long)]
+        request_id: String,
+        #[arg(long)]
+        expected_user_hash: String,
+        /// Exact PID from the clean session and its shutdown flush receipt.
+        #[arg(long)]
+        stopped_pid: u32,
+        #[arg(long)]
+        stopped_start_ts: u64,
+        #[arg(long)]
+        json: bool,
+    },
     /// Resume the exact saved capture and transfer identities.
     Resume {
         #[arg(long)]

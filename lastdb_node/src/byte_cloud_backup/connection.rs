@@ -158,13 +158,22 @@ pub(super) fn client_for_host(host: &crate::host::Host) -> Result<ByteBackupClie
 }
 
 fn load(host: &crate::host::Host) -> Result<Option<(ManualConnectionRecord, ByteBackupClient)>> {
-    let directory = files::Directory::open(&host.home)?;
+    let (account, source) = identity(host)?;
+    load_identity(&host.home, &account, &source)
+}
+
+fn load_identity(
+    home: &std::path::Path,
+    account: &AccountId,
+    source: &Id,
+) -> Result<Option<(ManualConnectionRecord, ByteBackupClient)>> {
+    let directory = files::Directory::open(home)?;
     let Some(bytes) = directory.read(RECORD)? else {
         return Ok(None);
     };
     let record: ManualConnectionRecord =
         serde_json::from_slice(&bytes).map_err(|_| BackupError::Invalid)?;
-    record.validate(host)?;
+    record.validate(account, source)?;
     let bytes = directory
         .read(crate::cloud::CLOUD_SYNC_PAUSED_FILE)?
         .ok_or(BackupError::Identity)?;
@@ -183,6 +192,27 @@ fn load(host: &crate::host::Host) -> Result<Option<(ManualConnectionRecord, Byte
     }
     directory.check()?;
     Ok(Some((record, client)))
+}
+
+pub(super) fn client_for_stopped(
+    home: &std::path::Path,
+    account: &AccountId,
+    source: &Id,
+) -> Result<ByteBackupClient> {
+    load_identity(home, account, source)?
+        .map(|(_, client)| client)
+        .ok_or(BackupError::Disabled)
+}
+
+pub(super) fn identity_seed(home: &std::path::Path) -> Result<Zeroizing<[u8; 32]>> {
+    let bytes = files::Directory::open(home)?
+        .read("identity.key")?
+        .ok_or(BackupError::Identity)?;
+    let seed: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| BackupError::Identity)?;
+    Ok(Zeroizing::new(seed))
 }
 
 fn identity(host: &crate::host::Host) -> Result<(AccountId, Id)> {
