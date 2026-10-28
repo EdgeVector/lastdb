@@ -4,16 +4,13 @@ use super::*;
 use std::collections::hash_map::Entry;
 
 impl SchemaServiceState {
-    /// An exact public repost stays a read when another instance registered it.
-    /// Classify durable state on a miss, including expansions absent from cache.
+    /// Resolve public reposts against durable definitions, including expansions.
+    /// A cached predecessor cannot establish which canonical is current.
     pub async fn lookup_idempotent_repost(
         &self,
         schema: &Schema,
-        mutation_mappers: &HashMap<String, String>,
+        _mutation_mappers: &HashMap<String, String>,
     ) -> FoldDbResult<Option<Schema>> {
-        if let Some(existing) = self.classify_idempotent_repost(schema, mutation_mappers) {
-            return Ok(Some(existing));
-        }
         let Some(description) = schema
             .descriptive_name
             .as_deref()
@@ -26,10 +23,7 @@ impl SchemaServiceState {
         probe.dedup_fields();
         probe.compute_identity_hash();
         let existing = match probe.get_identity_hash().and_then(|id| stored.get(id)) {
-            Some(existing) => Some(
-                self.resolve_active_schema(existing, &existing.name, &stored)
-                    .map_or_else(|| existing.clone(), |(active, _)| active),
-            ),
+            Some(existing) => Some(durable_active_schema(&stored, existing)?.clone()),
             None => Self::stored_schema_by_description(
                 &stored,
                 &descriptive_name_key(schema.owner_app_id.as_deref(), description),
@@ -97,4 +91,34 @@ impl SchemaServiceState {
         }
         Ok(schema)
     }
+}
+
+/// Resolve only links in this snapshot; reject broken or cyclic chains.
+fn durable_active_schema<'a>(
+    stored: &'a HashMap<String, Schema>,
+    original: &'a Schema,
+) -> FoldDbResult<&'a Schema> {
+    let mut current = original;
+    let mut visited = HashSet::new();
+    while let Some(next) = &current.superseded_by {
+        if !visited.insert(current.name.as_str()) {
+            return Err(FoldDbError::Config(
+                "stored schema supersession cycle".into(),
+            ));
+        }
+        let successor = stored
+            .get(next)
+            .ok_or_else(|| FoldDbError::Config("stored schema successor is missing".into()))?;
+        if current.owner_app_id != successor.owner_app_id
+            || current.descriptive_name != successor.descriptive_name
+            || crate::state_expansion::is_cross_key_layout(current, successor)
+            || crate::state_expansion::is_cross_schema_type_expansion(current, successor)
+        {
+            return Err(FoldDbError::Config(
+                "stored schema successor changes namespace or key layout".into(),
+            ));
+        }
+        current = successor;
+    }
+    Ok(current)
 }

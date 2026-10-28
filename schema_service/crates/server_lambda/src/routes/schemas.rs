@@ -10,6 +10,9 @@ use schema_service_server_shared::types::{
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+mod repost;
+use repost::idempotent_repost_response;
+
 pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
     event: &Request,
@@ -146,36 +149,6 @@ pub(crate) fn post_schemas_mutation_challenge(
             json_response(status, &body)
         }
     }
-}
-
-/// Cert-free echo of an exact existing schema, including an unnamespaced one.
-async fn idempotent_repost_response(
-    state: &SchemaServiceState,
-    schema: &schema_types::Schema,
-    mutation_mappers: &HashMap<String, String>,
-) -> Option<Result<Response<Body>, Error>> {
-    let existing = match state
-        .lookup_idempotent_repost(schema, mutation_mappers)
-        .await
-    {
-        Ok(Some(existing)) => existing,
-        Ok(None) => return None,
-        Err(error) => {
-            return Some(json_response(
-                500,
-                &json!({"error": format!("Failed to read existing schema: {error}")}),
-            ));
-        }
-    };
-    let system = state.is_system_schema(&existing.name);
-    Some(json_response(
-        200,
-        &json!({
-            "schema": existing,
-            "mutation_mappers": mutation_mappers,
-            "system": system,
-        }),
-    ))
 }
 
 /// Optional `mutation_mappers` map; a malformed value is logged and ignored.
