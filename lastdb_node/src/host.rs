@@ -402,10 +402,6 @@ impl lastdb_host::HostNode for Host {
         self.keypair.public_key_base64()
     }
 
-    fn owner_user_hash(&self) -> String {
-        self.user_hash.clone()
-    }
-
     async fn acquire_op_permit(
         &self,
         lane: lastdb_host::Lane,

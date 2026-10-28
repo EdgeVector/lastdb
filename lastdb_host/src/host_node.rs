@@ -66,12 +66,6 @@ pub trait HostNode: Send + Sync {
     /// never echoed into a caller-visible error.
     fn public_key(&self) -> String;
 
-    /// The node owner's derived user hash (`sha256(pubkey)[..16]` hex). Echoed
-    /// back in every success envelope as `user_hash` — both hosts must derive
-    /// it identically or socket clients would resolve a different owner per
-    /// binary.
-    fn owner_user_hash(&self) -> String;
-
     /// Acquire a QoS admission slot for `lane`, queueing up to the host's
     /// per-lane deadline.
     ///
