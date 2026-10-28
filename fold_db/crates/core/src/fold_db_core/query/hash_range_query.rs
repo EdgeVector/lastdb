@@ -19,7 +19,7 @@ use crate::db_operations::ChangeFeedEvent;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
-use crate::schema::types::operations::{FieldPredicate, QueryOrderBy, SortOrder};
+use crate::schema::types::operations::{FieldPredicate, QueryOrderBy};
 use crate::schema::{Schema, SchemaError};
 use chrono::{DateTime, Utc};
 use futures::{stream, FutureExt, StreamExt};
@@ -31,6 +31,7 @@ use tokio::sync::broadcast;
 mod cokey;
 mod cokey_primary;
 mod cokey_secondary;
+mod condition_rules;
 mod count;
 mod fields;
 mod filter;
@@ -47,8 +48,8 @@ mod shares;
 mod watch;
 
 use cokey::CokeySelection;
+use condition_rules::*;
 pub use filter::FieldQueryOptions;
-use predicates::*;
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
 

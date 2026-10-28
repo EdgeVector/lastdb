@@ -18,8 +18,9 @@ use super::hash_range_query::{
     FieldQueryOptions, HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds,
 };
 
+mod count;
 mod current;
-mod run;
+mod rules;
 
 /// Main query executor that handles all query operations
 pub struct QueryExecutor {
@@ -138,139 +139,6 @@ impl QueryExecutor {
             Some(access_context),
         )
         .await
-    }
-
-    /// Count live keys for the same supported keyed query and projection.
-    /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
-    /// also require the declared hash-field values to distinguish their keys.
-    /// See
-    /// [`HashRangeQueryProcessor::count_rows`](super::hash_range_query::HashRangeQueryProcessor::count_rows).
-    ///
-    /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
-    /// the caller uses the regular captured query and counts its selected keys.
-    ///
-    /// The required key filter scopes `total_count` to the requested keys.
-    /// Unsupported layouts and filters receive the same refusal as reads.
-    /// Conditions, value ordering, predicate limits and tombstone reads decline
-    /// this route rather than report an unfiltered count.
-    pub async fn count_query_rows(
-        &self,
-        query: &Query,
-        access_context: &AccessContext,
-    ) -> Result<Option<usize>, SchemaError> {
-        let scope = self.db_ops.read_scope().await?;
-        let future = Box::pin(self.count_query_rows_scoped(query, access_context));
-        scope.run_result(future).await
-    }
-
-    async fn count_query_rows_scoped(
-        &self,
-        query: &Query,
-        access_context: &AccessContext,
-    ) -> Result<Option<usize>, SchemaError> {
-        // App reads are unrestricted once the app is approved
-        // (decision-2026-07-10-apps-read-all-write-own-namespace): no per-read
-        // namespace gate. Multi-DB storage_prefix still scopes the count.
-        let storage_prefix = self
-            .db_ops
-            .db_catalog()
-            .resolve_storage_prefix(
-                access_context.db_locator.as_deref(),
-                &query.schema_name,
-                access_context.storage_prefix.as_deref(),
-            )
-            .await?;
-
-        match self
-            .schema_manager
-            // Hot list-count path: take the molecule-stripped read clone, exactly
-            // as `query_internal` does. `count_rows` re-hydrates every counted
-            // field from storage (`resolve_value`, and `cloned_without_molecule`
-            // for shared namespaces), so the registry's hydrated molecule would
-            // only be discarded before use — cloning it per count was the same
-            // O(field cardinality) deep clone the read variant avoids (#905).
-            .get_schema_following_supersession_for_read(&query.schema_name)
-            .await?
-        {
-            Some(mut schema) => {
-                self.schema_manager.require_queryable_schema(&schema.name)?;
-                crate::schema::require_logical_layout(&schema.schema_type)?;
-                crate::schema::require_logical_filter(query.filter.as_ref())?;
-                crate::schema::require_logical_query_controls(query)?;
-                self.db_ops
-                    .molecule_keys()
-                    .load_schema(&schema)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!(
-                            "load molecule key bundles for schema '{}': {error}",
-                            schema.name
-                        ))
-                    })?;
-                Self::reject_unknown_projection(&schema, &query.fields)?;
-                if query.requires_post_key_work() || query.include_tombstones {
-                    return Ok(None);
-                }
-                if let Some(prefix) = storage_prefix.as_deref() {
-                    for field in schema.runtime_fields.values_mut() {
-                        field
-                            .common_mut()
-                            .set_storage_prefix(Some(prefix.to_string()));
-                    }
-                }
-                if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
-                    runtime
-                        .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
-                        .await?;
-                }
-                let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
-                let count = self
-                    .hash_range_processor
-                    .count_rows(&mut schema, &query.fields, count_filter)
-                    .await?;
-                Ok(Some(count))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Reject a projection naming a field the schema does not declare.
-    ///
-    /// Previously an unknown name was dropped on the floor: every consumer
-    /// looks fields up with `runtime_fields.get(name)` and `continue`s past a
-    /// miss, so a typo'd projection produced a byte-identical response to the
-    /// correct one. Measured on the live primary against fkanban `Milestone`:
-    ///
-    /// ```text
-    /// fields = ["slug"]                              -> 3 rows, total_count 14,191
-    /// fields = ["slug","actor_that_does_not_exist"]  -> 3 rows, total_count 14,191
-    /// ```
-    ///
-    /// Silence is the wrong answer twice over. A caller that misspells a field
-    /// gets a plausible result set with that column missing and no way to tell
-    /// the difference from a field that is legitimately empty — and a caller
-    /// debugging a row set that came back short cannot rule the projection out.
-    /// `SchemaError::InvalidField` renders as a `400`, which is what a
-    /// malformed request should have been all along.
-    ///
-    /// An EMPTY projection stays legal: it means "every field", and every
-    /// caller relying on that is asking for a set the schema does define.
-    fn reject_unknown_projection(schema: &Schema, fields: &[String]) -> Result<(), SchemaError> {
-        let mut unknown: Vec<&str> = fields
-            .iter()
-            .filter(|name| !schema.runtime_fields.contains_key(*name))
-            .map(String::as_str)
-            .collect();
-        if unknown.is_empty() {
-            return Ok(());
-        }
-        unknown.sort_unstable();
-        unknown.dedup();
-        Err(SchemaError::InvalidField(format!(
-            "schema '{}' has no field(s): {}",
-            schema.name,
-            unknown.join(", ")
-        )))
     }
 
     async fn query_internal(
