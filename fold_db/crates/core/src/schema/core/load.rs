@@ -277,8 +277,8 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
-        self.resolve_typed_field_mappers(&mut schema, existing.as_ref())
+        let predecessor = self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
+        self.resolve_typed_field_mappers(&mut schema, existing.as_ref().or(predecessor.as_ref()))
             .await?;
         schema.sync_molecule_uuids();
         // Cache definitions only: retained UUIDs drive per-key molecule fetches.
