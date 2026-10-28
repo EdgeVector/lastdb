@@ -37,7 +37,7 @@ pub fn definitions() -> FoldDbResult<Vec<(String, CanonicalField)>> {
                 classification: Some(classification),
                 interest_category: entry.interest_category,
             };
-            crate::field_name_policy::validate_approved_field(&entry.name, &field)?;
+            crate::field_name_policy::validate_canonical_field(&entry.name, &field)?;
             Ok((entry.name, field))
         })
         .collect()

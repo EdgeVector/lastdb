@@ -44,6 +44,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 mod declare_steps;
+mod persistence;
+mod service;
+
+pub use persistence::validate_declaration_commit;
 
 use schema_types::{
     compute_declared_field_identity, FieldValueType, DECLARED_FIELD_IDENTITY_ALGO_VERSION,
@@ -196,19 +200,12 @@ impl DeclaredFieldError {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeclareFieldInput {
     pub name: String,
-    /// Defaults to `Any` when omitted — `FieldValueType` has no `Default`
-    /// impl, and inventing one crate-wide to serve this field would change
-    /// behaviour elsewhere.
-    #[serde(default = "default_field_type")]
+    /// Every declaration supplies its type; omission cannot introduce `Any`.
     pub field_type: FieldValueType,
     #[serde(default)]
     pub description: String,
     #[serde(default = "default_field_version")]
     pub version: u32,
-}
-
-fn default_field_type() -> FieldValueType {
-    FieldValueType::Any
 }
 
 const fn default_field_version() -> u32 {
@@ -375,109 +372,4 @@ impl DeclaredFieldRegistry {
 #[must_use]
 pub fn mint_declaration_id() -> String {
     format!("{DECLARATION_ID_PREFIX}{}", uuid::Uuid::new_v4().simple())
-}
-
-// ===========================================================================
-// Service wiring
-// ===========================================================================
-
-use crate::state::{SchemaServiceState, SchemaStorage};
-
-impl SchemaServiceState {
-    /// Declare (or re-declare) a field handle and persist the result.
-    ///
-    /// The caller must already have passed
-    /// [`SchemaServiceState::authorize_field_declare`] — this method trusts
-    /// `request.owner_app_id` and does not re-verify the cert. Keeping the two
-    /// separate is deliberate: the HTTP layer owns credential extraction, and
-    /// this owns the registry invariants.
-    pub async fn declare_field(
-        &self,
-        request: &DeclareFieldRequest,
-    ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
-        let names: Vec<_> = request
-            .fields
-            .iter()
-            .map(|field| field.name.as_str())
-            .collect();
-        self.refresh_vocabulary_for_names(&names)
-            .await
-            .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
-        self.record_schema_write();
-        self.validate_declared_vocabulary(&request.fields)
-            .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
-        let record = {
-            let mut registry = self
-                .declared_fields
-                .write()
-                .map_err(|e| DeclaredFieldError::Internal(e.to_string()))?;
-            let mut record = registry.declare(request, mint_declaration_id)?;
-            if record.declared_at.is_empty() {
-                record.declared_at =
-                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-                // Re-insert so the stamped timestamp is what we persist and
-                // what a later read returns.
-                registry.load(vec![record.clone()]);
-            }
-            record
-        };
-
-        match &self.storage {
-            SchemaStorage::External(backend) => {
-                backend
-                    .save_declared_field(&record)
-                    .await
-                    .map_err(|e| DeclaredFieldError::Internal(e.to_string()))?;
-            }
-        }
-        self.bump_state_version();
-        tracing::info!(
-            target: "schema_service::declared_fields",
-            declaration_id = %record.declaration_id,
-            handle = %record.handle,
-            owner_app_id = %record.owner_app_id,
-            fields = record.fields.len(),
-            "declared field handle",
-        );
-        Ok(record)
-    }
-
-    /// Look up one declaration.
-    pub fn get_declared_field(
-        &self,
-        declaration_id: &str,
-    ) -> Result<DeclaredFieldRecord, DeclaredFieldError> {
-        let registry = self
-            .declared_fields
-            .read()
-            .map_err(|e| DeclaredFieldError::Internal(e.to_string()))?;
-        registry
-            .get(declaration_id)
-            .cloned()
-            .ok_or_else(|| DeclaredFieldError::UnknownDeclaration(declaration_id.to_string()))
-    }
-
-    /// Refuse a schema registration that stamps a declared identity the
-    /// submitting app has no permission to reference.
-    ///
-    /// Called from `add_schema`. Identities belonging to no declaration pass
-    /// straight through — every one of the 1,141 live schemas carries
-    /// locally-minted v1 field hashes, and this feature is forward-only.
-    pub fn authorize_declared_field_references(
-        &self,
-        owner_app_id: Option<&str>,
-        field_hashes: &HashMap<String, String>,
-    ) -> Result<(), DeclaredFieldError> {
-        if field_hashes.is_empty() {
-            return Ok(());
-        }
-        let registry = self
-            .declared_fields
-            .read()
-            .map_err(|e| DeclaredFieldError::Internal(e.to_string()))?;
-        if registry.is_empty() {
-            return Ok(());
-        }
-        registry.authorize_references(owner_app_id, field_hashes.values().map(String::as_str))
-    }
 }

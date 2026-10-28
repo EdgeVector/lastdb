@@ -38,7 +38,7 @@ impl SchemaServiceState {
     pub(super) fn classify_idempotent_repost_with_descriptive_name(
         &self,
         schema: &Schema,
-        mutation_mappers: &HashMap<String, String>,
+        _mutation_mappers: &HashMap<String, String>,
         descriptive_name_override: Option<&str>,
     ) -> Option<Schema> {
         let mut probe = schema.clone();
@@ -50,7 +50,6 @@ impl SchemaServiceState {
         let incoming_dn = probe.descriptive_name.clone().unwrap_or_default();
 
         validate_repost_probe(&probe, &incoming_owner, &incoming_dn)?;
-        self.canonicalize_repost_probe(&mut probe, mutation_mappers)?;
         probe.dedup_fields();
         probe.compute_identity_hash();
         let identity_hash = probe.get_identity_hash()?.clone();
@@ -82,29 +81,6 @@ impl SchemaServiceState {
             "classify_idempotent_repost: hit",
         );
         Some(active)
-    }
-
-    /// Apply the same field canonicalization the writer would so the
-    /// computed identity hash matches the registry's slot.
-    /// `canonicalize_fields` is read-only against `self` (mutates only the
-    /// local rename map / mutation_mappers clone).
-    fn canonicalize_repost_probe(
-        &self,
-        probe: &mut Schema,
-        mutation_mappers: &HashMap<String, String>,
-    ) -> Option<()> {
-        if let Some(fields) = probe.fields.clone() {
-            let mut mappers = mutation_mappers.clone();
-            // A reject is not a repost hit. The write path returns the error.
-            let rename_map = self
-                .canonicalize_fields(&fields, probe, &mut mappers)
-                .ok()?;
-            if !rename_map.is_empty() {
-                Self::apply_field_renames(probe, &rename_map, &mut mappers);
-                probe.identity_hash = None;
-            }
-        }
-        Some(())
     }
 
     /// Locate the registered schema the probe would resolve to: the identity

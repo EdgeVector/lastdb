@@ -67,6 +67,19 @@ pub(crate) async fn measure<F: Future>(name: &'static str, work: F) -> F::Output
         ] {
             *report.counts.entry(format!("{name}_{field}")).or_default() += value;
         }
+        if name == "atom_counters_us" {
+            for (field, value) in [
+                ("footer_bytes", reads.footer_bytes),
+                ("read_us", reads.read_nanos / 1000),
+                ("open_us", reads.open_nanos / 1000),
+                ("auth_bytes", reads.frame_authenticated_bytes),
+                ("native_opens", reads.frame_native_opens),
+                ("native_bytes", reads.frame_native_bytes),
+                ("coalesced_metadata_reads", reads.coalesced_metadata_reads),
+            ] {
+                *report.counts.entry(format!("{name}_{field}")).or_default() += value;
+            }
+        }
     });
     result
 }

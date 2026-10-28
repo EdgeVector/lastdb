@@ -117,4 +117,4 @@ pub use fields::*;
 pub use resolve::*;
 pub use schemas::*;
 
-pub use vocabulary::{get_canonical_vocabulary, publish_canonical_vocabulary};
+pub use vocabulary::get_canonical_vocabulary;

@@ -87,7 +87,7 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
                          Check that the bucket exists, the Lambda's IAM role has \
                          s3:GetObject and s3:PutObject on it (or the configured \
                          R2 token can read/write the bucket), and the domain blobs \
-                         (schemas.json, canonical_fields.json, apps.json, near_misses.json) \
+                         (definitions.json, apps.json, near_misses.json) \
                          are either absent or valid JSON."
                 ))
             })?;
