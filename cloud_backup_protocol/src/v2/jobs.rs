@@ -148,6 +148,3 @@ impl JobCloseRequest {
         limits::encoded(self, limits::CONTROL_JSON_MAX_BYTES)
     }
 }
-pub type JobBeginResult = JobResult;
-pub type JobStatusResult = JobResult;
-pub type JobCloseResult = JobResult;
