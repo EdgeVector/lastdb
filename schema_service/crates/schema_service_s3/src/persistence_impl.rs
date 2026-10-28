@@ -36,13 +36,8 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
-        let name = name.to_string();
-        let field = field.clone();
-        self.update_blob::<CanonicalField, _>(CANONICAL_FIELDS_KEY, move |blob| {
-            blob.items.insert(name.clone(), field.clone());
-            Ok(())
-        })
-        .await
+        self.save_canonical_fields(&[(name.to_owned(), field.clone())])
+            .await
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
@@ -52,6 +47,13 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         // One GET-modify-PUT for the whole batch (see `save_schemas`).
         let fields = fields.to_vec();
         self.update_blob::<CanonicalField, _>(CANONICAL_FIELDS_KEY, move |blob| {
+            for (name, field) in &fields {
+                schema_service_core::field_name_policy::validate_canonical_insert(
+                    &blob.items,
+                    name,
+                    field,
+                )?;
+            }
             for (name, field) in &fields {
                 blob.items.insert(name.clone(), field.clone());
             }

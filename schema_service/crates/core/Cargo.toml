@@ -7,7 +7,7 @@ publish.workspace = true
 description = "Schema service registry brain — schema dedup, canonical fields, views, transforms. Embedder injected by callers (no fastembed/ONNX dep)."
 
 [features]
-# Offline generators + dump-parse tests only. The Lambda crate must not
+# Offline generators only. The Lambda crate must not
 # enable this: include_str! of the Schema.org JSON-LD and classification
 # overlay is several MiB in the bootstrap zip.
 schema-org-seed-data = []
@@ -35,7 +35,7 @@ sha2 = { workspace = true }
 async-trait = { workspace = true }
 # `time` — backoff sleeps + reconciler interval; `sync` — the in-process
 # cross-env mirror queue (mpsc). `rt`/`macros` come from the binaries that
-# spawn the worker + reconciler loops (and from dev-deps for tests).
+# spawn the worker and reconciler loops.
 # `rt` — ResolverRuntime::spawn_refresh_task + kill-switch clear.
 tokio = { workspace = true, features = ["time", "sync", "rt"] }
 

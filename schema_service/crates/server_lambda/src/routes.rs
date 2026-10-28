@@ -7,3 +7,5 @@ pub(crate) mod apps;
 pub(crate) mod fields;
 pub(crate) mod schemas;
 pub(crate) mod v2;
+
+pub(crate) mod vocabulary;

@@ -103,9 +103,11 @@ impl SchemaServiceState {
             let resolved = self
                 .get_schema_by_name(identity)
                 .map_err(|e| ReleaseError::Internal(e.to_string()))?;
-            if resolved.is_none() {
-                return Err(ReleaseError::UnresolvedSchema(name.clone()));
-            }
+            let schema = resolved.ok_or_else(|| ReleaseError::UnresolvedSchema(name.clone()))?;
+            let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")
+                .map_err(|error| ReleaseError::Internal(error.to_string()))?;
+            crate::field_name_policy::validate_schema_vocabulary(&schema, &vocabulary)
+                .map_err(|error| ReleaseError::InvalidManifest(error.to_string()))?;
         }
 
         // The id is the digest of the manifest the developer signed, not of

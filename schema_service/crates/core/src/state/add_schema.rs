@@ -18,6 +18,7 @@ impl SchemaServiceState {
         schema: Schema,
         mutation_mappers: HashMap<String, String>,
     ) -> FoldDbResult<SchemaAddOutcome> {
+        self.validate_schema_field_vocabulary(&schema).await?;
         self.record_schema_write();
         let input_owner_app_id = schema
             .owner_app_id

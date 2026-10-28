@@ -28,8 +28,7 @@ pub const DEFAULT_DEV_SCHEMA_PORT: u16 = 9102;
 
 /// Configure the actix `/v1/*` route table on an existing `App`.
 ///
-/// Pulled out so integration tests can spin up an in-process server
-/// without re-declaring routes and risking drift.
+/// Shared by the dev server and embeddings worker.
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     let v1 = web::scope("/v1").route("/health", web::get().to(handlers::health_check));
     let v1 = v1_schema_routes(v1);
@@ -122,6 +121,14 @@ fn v1_field_and_registry_routes(scope: actix_web::Scope) -> actix_web::Scope {
         // the id is not a secret, and a node needs to resolve one it
         // already holds. Registered BEFORE the dynamic `/fields/{id}`
         // resource so the literal `/fields/declare` path matches first.
+        .route(
+            "/fields/vocabulary",
+            web::get().to(handlers::get_canonical_vocabulary),
+        )
+        .route(
+            "/fields/vocabulary",
+            web::post().to(handlers::publish_canonical_vocabulary),
+        )
         .route("/fields/declare", web::post().to(handlers::declare_field))
         .route(
             "/fields/{declaration_id}",
