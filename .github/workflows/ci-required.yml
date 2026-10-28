@@ -234,7 +234,12 @@ jobs:
 
   schema_canonical_properties:
     name: Canonical schema properties
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/schema-canonical-properties.yml
+    with:
+      reuse_push_result: true
 
   ci-required:
     name: ci-required

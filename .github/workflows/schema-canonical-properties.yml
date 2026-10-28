@@ -3,33 +3,53 @@ name: Schema canonical properties
 # Tom requested this scoped suite on 2026-10-28. Other tests remain retired.
 # The process uses isolated memory stores. It has no service or AWS credentials.
 on:
+  push:
+    branches: ['**']
   workflow_call:
+    inputs:
+      reuse_push_result:
+        description: Reuse the exact branch-push result when the tested code is identical.
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: schema-canonical-properties-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: schema-canonical-properties-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   properties:
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: ${{ inputs.reuse_push_result && 35 || 25 }}
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_TERM_COLOR: never
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Reuse the identical branch-push result
+        id: reuse
+        if: inputs.reuse_push_result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/reuse-schema-canonical-push.py
       - name: Select repository Rust toolchain
+        if: steps.reuse.outputs.reused != 'true'
         run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
+        if: steps.reuse.outputs.reused != 'true'
         with:
           shared-key: schema-canonical-properties
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run bounded schema properties
+        if: steps.reuse.outputs.reused != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -40,7 +60,7 @@ jobs:
             --test canonical_properties -- --test-threads=1 --nocapture \
             2>&1 | tee "$output/results.log"
       - name: Record evidence checksums
-        if: always()
+        if: always() && (steps.reuse.outcome == 'skipped' || (steps.reuse.outcome == 'success' && steps.reuse.outputs.reused == 'false'))
         shell: bash
         run: |
           set -euo pipefail
@@ -51,16 +71,17 @@ jobs:
             printf '%s\n' 'The property command did not start.' > "$output/results.log"
           fi
           (cd "$output" && sha256sum source-revision.txt results.log > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - name: Upload schema evidence
+        uses: actions/upload-artifact@v4
         id: evidence
-        if: always()
+        if: always() && (steps.reuse.outcome == 'skipped' || (steps.reuse.outcome == 'success' && steps.reuse.outputs.reused == 'false'))
         with:
           name: schema-canonical-properties-${{ github.sha }}
           path: ${{ runner.temp }}/schema-canonical-properties/
           retention-days: 7
           if-no-files-found: error
       - name: Publish result links
-        if: always()
+        if: always() && (steps.reuse.outcome == 'skipped' || (steps.reuse.outcome == 'success' && steps.reuse.outputs.reused == 'false'))
         env:
           ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
           ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
