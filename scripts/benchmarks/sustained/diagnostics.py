@@ -227,8 +227,10 @@ class Diagnostics:
             except (KeyError, TypeError, ValueError) as error:
                 self.error(f"checkpoint {name}/home_files: {error}")
 
-    def interval(self, name, start_us, end_us, expected_requests=None):
+    def interval(self, name, start_us, end_us, expected_requests=None, workload_complete=True):
         self._bounds(name, start_us, end_us)
+        if type(workload_complete) is not bool or (not workload_complete and name != "seed"):
+            raise ValueError("Only a seed interval can report an incomplete workload")
         if expected_requests is not None:
             integer(expected_requests)
         if len(self.windows) >= MAX_WINDOWS or any(w["name"] == name for w in self.windows):
@@ -236,7 +238,8 @@ class Diagnostics:
         if any(start_us < w["ended_us"] and end_us > w["started_us"] for w in self.windows):
             raise ValueError("Diagnostic phase intervals overlap")
         self.windows.append({"name": name, "started_us": start_us, "ended_us": end_us,
-                             "expected_requests": expected_requests, "families": {}, "crossing": {}})
+                             "expected_requests": expected_requests, "workload_complete": workload_complete,
+                             "families": {}, "crossing": {}})
 
     def exclude_bytes(self, name, start_offset, end_offset):
         self._bounds(name, start_offset, end_offset)
@@ -310,7 +313,16 @@ class Diagnostics:
                 return True
         return False
 
+    def _seed_checkpoint_skipped(self):
+        return (not self.checkpoints and len(self.windows) == 1
+                and self.windows[0]["name"] == "seed"
+                and self.windows[0].get("workload_complete") is False)
+
     def _search_enabled(self):
+        if self._seed_checkpoint_skipped():
+            # The driver stops before audits after an incomplete initial seed.
+            # Numeric request coverage is still required independently below.
+            return None
         seed = next((c for c in self.checkpoints if c["name"] == "seed"), {})
         selected = (seed.get("search") or {}).get("enabled")
         if type(selected) is not bool:
@@ -361,11 +373,15 @@ class Diagnostics:
                   "log_lines": self.lines, "events": self.events, "intervals": windows,
                   "crossing_events": self.crossing, "unassigned_events": self.unassigned,
                   "checkpoints": self.checkpoints, "log_exclusions": self.exclusions,
-                  "search_enabled": search_enabled}
+                  "search_enabled": search_enabled,
+                  "skipped_checkpoints": [
+                      {"name": name, "reason": "seed workload incomplete"}
+                      for name in ("seed", "load", "idle", "reopen")
+                  ] if self._seed_checkpoint_skipped() else []}
         self.output.mkdir(parents=True, exist_ok=True)
         (self.output / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         (self.output / "diagnostic-summary.md").write_text(render(report))
-        return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events", "search_enabled")} | {
+        return {k: report[k] for k in ("complete", "errors", "events", "crossing_events", "unassigned_events", "search_enabled", "skipped_checkpoints")} | {
             "intervals": len(windows), "checkpoints": len(self.checkpoints),
             "log_exclusions": self.exclusions,
             "request_coverage": [{"interval": w["name"], "expected": w["expected_requests"],

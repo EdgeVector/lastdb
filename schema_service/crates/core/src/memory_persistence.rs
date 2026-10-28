@@ -67,9 +67,24 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
     }
 
     async fn save_canonical_field(&self, name: &str, field: &CanonicalField) -> FoldDbResult<()> {
-        self.write()?
-            .canonical_fields
-            .insert(name.to_string(), field.clone());
+        self.save_canonical_fields(&[(name.to_owned(), field.clone())])
+            .await
+    }
+
+    async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        for (name, field) in fields {
+            crate::field_name_policy::validate_canonical_insert(
+                &registry.canonical_fields,
+                name,
+                field,
+            )?;
+        }
+        for (name, field) in fields {
+            registry
+                .canonical_fields
+                .insert(name.clone(), field.clone());
+        }
         Ok(())
     }
 

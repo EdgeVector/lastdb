@@ -22,8 +22,8 @@ A batch file is plain JSON outside the encrypted run files. A Search reader can 
 An upsert carries only the searchable fields of its schema.
 A searchable field has the `word` classification and no `secret`, `no_index`, or `no-index` classification.
 A schema with no field classifications has no allowlist, so its batches carry every field.
-A batch carries no file key and no file bytes. A `$lastdb_file` pointer or a legacy `$file` value keeps only `name` and `media_type`.
-The writers remove the `dek`, the hashes, the blob address, the thumbnail, `content_b64`, and a legacy `$blob_ref`. A convergent file key derives from the plaintext hash.
+A batch carries no file key and no file bytes. A `$lastdb_file` pointer keeps only `name` and `media_type`.
+The writers remove the `dek`, the hashes, the blob address, and the thumbnail. The plaintext hash confirms the file content.
 The live writes and `lastdb search-rebuild` use the same rules (`search_index/inbox_fields.rs`).
 
 CAUTION: Batch files that an earlier LastDB wrote can still hold every field and file keys.

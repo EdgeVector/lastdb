@@ -6,7 +6,7 @@ use fold_db::storage::disk_pack::byte_backup::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) struct Coverage {
+pub(in crate::byte_cloud_restore) struct Coverage {
     metadata: BTreeSet<[u8; 32]>,
     data: BTreeMap<[u8; 32], Object>,
 }
@@ -16,8 +16,16 @@ struct Object {
 }
 
 impl Coverage {
-    pub(super) fn new(
+    pub(in crate::byte_cloud_restore) fn new(
         root: &ClientRoot,
+        session: &RestoreSession,
+        inventory: &mut Inventory,
+    ) -> Result<Self> {
+        Self::new_pages(&root.pages, session, inventory)
+    }
+
+    pub(in crate::byte_cloud_restore) fn new_pages(
+        pages: &[fold_db::storage::disk_pack::byte_backup::ClientPageReference],
         session: &RestoreSession,
         inventory: &mut Inventory,
     ) -> Result<Self> {
@@ -26,7 +34,7 @@ impl Coverage {
             data: BTreeMap::new(),
         };
         value.metadata(&session.accepted().root_receipt_id, inventory)?;
-        for page in &root.pages {
+        for page in pages {
             let receipt = inventory.receipt(&page.receipt_id)?;
             if receipt.object.sha256 != page.sha256 || receipt.object.bytes != page.bytes {
                 return Err(RestoreError::Invalid("run page receipt"));
@@ -47,14 +55,25 @@ impl Coverage {
         Ok(())
     }
 
-    pub(super) fn page(
+    pub(in crate::byte_cloud_restore) fn page(
         &mut self,
         files: &[ClientNativeFile],
         inventory: &mut Inventory,
     ) -> Result<()> {
+        self.page_with(files, inventory, |file| {
+            run_backup_destination(file.path.as_str())
+                .map_err(|_| RestoreError::Invalid("run native path"))
+        })
+    }
+
+    pub(in crate::byte_cloud_restore) fn page_with(
+        &mut self,
+        files: &[ClientNativeFile],
+        inventory: &mut Inventory,
+        destination: impl Fn(&ClientNativeFile) -> Result<Destination>,
+    ) -> Result<()> {
         for file in files {
-            let destination = run_backup_destination(file.path.as_str())
-                .map_err(|_| RestoreError::Invalid("run native path"))?;
+            let destination = destination(file)?;
             for extent in &file.extents {
                 let receipt = inventory.receipt(&extent.receipt_id)?;
                 let id = digest(&extent.receipt_id)?;
@@ -91,7 +110,7 @@ impl Coverage {
         Ok(())
     }
 
-    pub(super) fn finish(&self) -> Result<()> {
+    pub(in crate::byte_cloud_restore) fn finish(&self) -> Result<()> {
         for object in self.data.values() {
             let mut cursor = 0;
             for (&start, &end) in &object.ranges {

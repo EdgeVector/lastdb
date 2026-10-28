@@ -30,10 +30,14 @@ impl Default for DurabilityHealth {
 
 impl From<crate::byte_cloud_backup::ByteBackupStatus> for DurabilityHealth {
     fn from(status: crate::byte_cloud_backup::ByteBackupStatus) -> Self {
-        let blocked = status.blocked_reason.is_some();
+        let blocked = status.blocked_reason.is_some()
+            || status
+                .automatic_backup
+                .as_ref()
+                .is_some_and(|s| s.paused.is_some());
         Self {
             observed: true,
-            automatic_enabled: false,
+            automatic_enabled: status.automatic_backup_enabled,
             running: status.running,
             phase: status.phase,
             accepted_backup_recorded: status.last_accepted_backup.is_some(),
@@ -62,6 +66,6 @@ impl DurabilityHealth {
         } else {
             "no receipt in this node; check any external coordinator separately"
         };
-        format!("Manual V2 backup: {state}")
+        format!("V2 backup: {state}")
     }
 }

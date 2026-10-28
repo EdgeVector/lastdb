@@ -30,6 +30,15 @@ pub struct ByteBackupObject {
     pub input: TransferInput,
     pub receipt: Option<ObjectReceipt>,
 }
+
+/// Original opaque object and complete native-file extents, before release.
+/// This contains no account key, temporary grant, or decoded user record.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ByteBackupObjectManifest {
+    pub input: TransferInput,
+    pub native_files: Vec<ClientNativeFile>,
+}
 #[derive(Clone, Debug)]
 pub struct ByteBackupCaptureStatus {
     pub ready: bool,
@@ -56,6 +65,15 @@ struct Inner {
     _admission: super::NativeCloudWorkGuard,
 }
 impl ByteBackupCapture {
+    pub fn run_profile(&self) -> StorageResult<RunBackupProfile> {
+        self.lock()?
+            .run
+            .clone()
+            .ok_or_else(|| invalid("native snapshot run profile is absent"))
+    }
+    pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
+        Ok(self.lock()?.journal_anchor.clone())
+    }
     /// A run file read holds no lookup buffer, so every stream of the central
     /// backup allowance is available.
     pub fn recommended_parallelism(&self) -> StorageResult<usize> {
@@ -99,6 +117,16 @@ impl ByteBackupCapture {
         Ok(ByteBackupObject {
             input: object.input,
             receipt: object.receipt,
+        })
+    }
+
+    pub fn object_manifest(&self, index: u64) -> StorageResult<ByteBackupObjectManifest> {
+        let state = self.lock()?;
+        self.require_export(&state)?;
+        let object = self.inner.object(&state, index)?;
+        Ok(ByteBackupObjectManifest {
+            input: object.input,
+            native_files: object.native_files,
         })
     }
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> StorageResult<()> {

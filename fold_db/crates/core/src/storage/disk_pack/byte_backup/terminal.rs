@@ -49,6 +49,15 @@ impl ByteBackupCapture {
         }
         self.inner.require_idle()?;
         if !state.released {
+            if let Some(anchor) = &state.journal_anchor {
+                if state
+                    .terminal
+                    .as_ref()
+                    .is_some_and(|result| matches!(result.status, JobStatus::Published { .. }))
+                {
+                    self.inner.runtime.mutation_log.snapshot_accepted(anchor)?;
+                }
+            }
             let root = super::run_capture::held_root(&self.inner.runtime, state.reference_id);
             super::run_source::RunSource::release_saved(&root)?;
             self.inner.store.remove("run-intent.json")?;

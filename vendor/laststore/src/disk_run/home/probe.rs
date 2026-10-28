@@ -107,6 +107,7 @@ impl RunRead {
 
     fn probe_records(&mut self, wanted: &[Vec<u8>]) -> Result<Vec<Option<Selected>>> {
         let mut found: Vec<Option<Selected>> = wanted.iter().map(|_| None).collect();
+        let mut scratch = crate::frame::DecodeScratch::default();
         for slot in 0..self.runs.len() {
             let open: Vec<_> = (0..wanted.len())
                 .filter(|&at| found[at].is_none())
@@ -130,7 +131,9 @@ impl RunRead {
                         .filter(|&parent| at % 2 == 1 && open[parent] == at - 1)
                 })
                 .collect();
-            let hits = self.reader(slot)?.select_many(&keys, &presence, &parents)?;
+            let hits = self
+                .reader(slot)?
+                .select_many(&keys, &presence, &parents, &mut scratch)?;
             for (at, hit) in open.into_iter().zip(hits) {
                 found[at] = hit;
             }

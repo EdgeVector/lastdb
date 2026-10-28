@@ -100,6 +100,10 @@ The separate recovered-key check still requires the last acknowledged version.
 
 The Actions summary shows the results. `diagnostics.json` retains all numeric
 stages, counts, checkpoint totals, coverage checks, and capture errors.
+An incomplete initial seed skips all later checkpoints and load phases.
+Its interval records `workload_complete=false`, and the report names the skipped checkpoints.
+Numeric capture still requires every expected write event. A missing Search checkpoint after that stop does not mean lost write timings.
+The workflow still fails when the initial corpus misses its target. Capture completeness does not establish corpus completeness.
 Logical bytes precede block compression. Do not subtract them from file bytes.
 Normal nodes perform no inventory or numeric log capture without both existing
 isolation and timing flags.

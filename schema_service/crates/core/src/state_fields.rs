@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::embedder::cosine_similarity;
-use crate::lock_helpers::{read_lock, write_lock};
+use crate::lock_helpers::read_lock;
 use schema_types::FieldValueType;
 use schema_types::FoldDbError;
 use schema_types::FoldDbResult;
 use schema_types::Schema;
-use schema_types::{DataClassification, INTERNAL};
 
 use super::state::SchemaServiceState;
 use super::state_matching::FIELD_SIMILARITY_THRESHOLD;
@@ -52,133 +51,6 @@ impl SchemaServiceState {
         }
     }
 
-    /// Infer the FieldValueType for a field from schema metadata.
-    /// Uses ref_fields for schema references, field_types if declared,
-    /// and falls back to Any.
-    fn infer_field_type(field_name: &str, schema: &Schema) -> FieldValueType {
-        // If the schema already has a declared type, use it
-        if let Some(ft) = schema.field_types.get(field_name) {
-            return ft.clone();
-        }
-
-        // If it's a ref_field, type is SchemaRef
-        if let Some(ref_schema) = schema.ref_fields.get(field_name) {
-            return FieldValueType::SchemaRef(ref_schema.clone());
-        }
-
-        // No type info available
-        FieldValueType::Any
-    }
-
-    /// Register new fields from a schema as canonical.
-    /// Only adds fields that don't already exist in the registry.
-    ///
-    /// Classification is **not** LLM-inferred. For each new field:
-    /// 1. Use caller-provided `field_data_classifications` if present
-    /// 2. Otherwise default to internal/general (`sensitivity=1`, `general`)
-    ///
-    /// Interest categories are only carried when already present on the
-    /// schema declaration / overlay; they are never auto-inferred.
-    pub(super) async fn register_canonical_fields(&self, schema: &Schema) -> FoldDbResult<()> {
-        let field_names = schema.fields.as_deref().unwrap_or(&[]);
-
-        // Phase 1: Identify new fields (read lock only)
-        let new_fields: Vec<String> = {
-            let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
-            field_names
-                .iter()
-                .filter(|f| !fields.contains_key(*f))
-                .cloned()
-                .collect()
-        };
-
-        if new_fields.is_empty() {
-            return Ok(());
-        }
-        for name in &new_fields {
-            crate::field_name_policy::validate_new_field_name(name).map_err(FoldDbError::Config)?;
-        }
-
-        // Phase 2: resolve classification without LLM; build entries.
-        let field_meta: Vec<(String, String, FieldValueType)> = new_fields
-            .iter()
-            .map(|f| {
-                let desc = Self::build_field_description(f, schema);
-                let ft = Self::infer_field_type(f, schema);
-                (f.clone(), desc, ft)
-            })
-            .collect();
-
-        let mut entries: Vec<(String, CanonicalField, Option<Vec<f32>>)> = Vec::new();
-
-        for (field_name, desc, field_type) in &field_meta {
-            let classification = schema
-                .field_data_classifications
-                .get(field_name)
-                .cloned()
-                .unwrap_or_else(|| {
-                    DataClassification::new(INTERNAL, "general")
-                        .expect("default internal/general classification is valid")
-                });
-            // Interest category: only if the schema declaration already carries one
-            // (e.g. Schema.org overlay / explicit publish metadata). Never LLM-filled.
-            let interest_category = schema.field_interest_categories.get(field_name).cloned();
-
-            let embed_text = Self::build_embedding_text(desc);
-            let embedding = self.embedder.embed_text(&embed_text).ok();
-            if let Some(vector) = &embedding {
-                if self.embedding_matches_anti_field(vector) {
-                    return Err(FoldDbError::Schema(format!(
-                        "field '{field_name}' was rejected: its description matches a non-semantic field pattern"
-                    )));
-                }
-            }
-
-            entries.push((
-                field_name.clone(),
-                CanonicalField {
-                    description: desc.clone(),
-                    field_type: field_type.clone(),
-                    version: 1,
-                    classification: Some(classification),
-                    interest_category,
-                },
-                embedding,
-            ));
-        }
-
-        // Phase 3: Store under write locks. We collect the set that
-        // needs to be persisted in the backend, drop the sync locks,
-        // then await persistence — holding std::sync::RwLockWriteGuard
-        // across an .await is unsound and also deadlocks the external
-        // backend path.
-        let to_persist: Vec<(String, CanonicalField)> = {
-            let mut fields = write_lock(&self.canonical_fields, "canonical_fields")?;
-            let mut embeddings = write_lock(
-                &self.canonical_field_embeddings,
-                "canonical_field_embeddings",
-            )?;
-
-            let mut collected = Vec::new();
-            for (field_name, canonical, embedding) in entries {
-                // Re-check in case another thread registered it between phase 1 and 3
-                if fields.contains_key(&field_name) {
-                    continue;
-                }
-                if let Some(vec) = embedding {
-                    embeddings.insert(field_name.clone(), vec);
-                }
-                collected.push((field_name.clone(), canonical.clone()));
-                fields.insert(field_name, canonical);
-            }
-            collected
-        };
-
-        self.persist_canonical_fields(&to_persist).await?;
-
-        Ok(())
-    }
-
     /// Canonicalize incoming field names against the global canonical field registry.
     /// Returns a rename map: incoming_field -> canonical_field.
     /// A description that matches an anti-field sentence is rejected.
@@ -221,7 +93,7 @@ impl SchemaServiceState {
             // Find best canonical match
             let mut best: Option<(&str, f32)> = None;
             for (canon_name, canon_vec) in embeddings.iter() {
-                if crate::field_name_policy::uses_app_abbreviation(canon_name) {
+                if crate::field_name_policy::invalid_canonical_name(canon_name) {
                     continue;
                 }
                 let sim = cosine_similarity(&incoming_embedding, canon_vec);
@@ -275,31 +147,6 @@ impl SchemaServiceState {
         }
 
         Ok(rename_map)
-    }
-
-    /// Persist a canonical field to the active storage backend.
-    pub(super) async fn persist_canonical_field(
-        &self,
-        name: &str,
-        canonical: &CanonicalField,
-    ) -> FoldDbResult<()> {
-        self.storage
-            .backend()
-            .save_canonical_field(name, canonical)
-            .await
-    }
-
-    /// Persist many canonical fields to the active storage backend in one
-    /// batch: one batched call (one blob RMW on the S3 backend) instead of
-    /// one full round-trip per field on every schema add.
-    pub(super) async fn persist_canonical_fields(
-        &self,
-        fields: &[(String, CanonicalField)],
-    ) -> FoldDbResult<()> {
-        if fields.is_empty() {
-            return Ok(());
-        }
-        self.storage.backend().save_canonical_fields(fields).await
     }
 
     /// Propagate one piece of canonical-registry metadata into a schema's

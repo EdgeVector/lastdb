@@ -63,9 +63,8 @@ Another account produces a different key and address.
 A shared atom supplies its original file key, so a recipient needs no sender account secret.
 Repair reproduces the original envelope from that file key and verifies its address before any write.
 
-Readers keep the old plaintext-addressed suites.
-New writes use a distinct account-v2 suite and a new encrypted-byte address.
-They cannot overwrite the older ciphertext at its original plaintext address.
+Files use the account-v2 suite and an encrypted-byte address.
+Readers accept only that suite.
 An authentication failure does not authorize replacement with a different key.
 
 The final encrypted-byte CAS address cannot serve as the key-derivation input.

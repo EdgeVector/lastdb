@@ -1,23 +1,19 @@
 use super::*;
+use crate::sharing::blob_cas;
 
 /// Resolve raw file bytes for a field value that is a `$lastdb_file` pointer.
 ///
-/// Operation Trinity: local CAS rows sealed under the file KDK open with the
-/// DEK from pointer access metadata (never stored in plain on the CAS row).
+/// Local CAS rows are sealed under the file KDK and open with the DEK from the
+/// pointer access metadata (never stored in plain on the CAS row). A value
+/// without that metadata resolves to `None`.
 pub async fn resolve_file_bytes(
     db: &FoldDB,
     field_value: &Value,
 ) -> Result<Option<Vec<u8>>, FoldDbError> {
-    let Some(blob_ref) = blob_ref_from_atom_value(field_value) else {
-        // Try legacy embedded form.
-        return Ok(extract_embedded_file(field_value)?.map(|f| f.bytes));
-    };
-    if let Some(access) = file_blob_access_from_atom_value(field_value)? {
-        if !access.dek.is_empty() {
-            return resolve_local_blob_bytes(db, &access).await;
-        }
+    match file_blob_access_from_atom_value(field_value)? {
+        Some(access) => resolve_local_blob_bytes(db, &access).await,
+        None => Ok(None),
     }
-    blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
 }
 
 /// A CAS row authenticates its own address; the atom also binds the plaintext hash.

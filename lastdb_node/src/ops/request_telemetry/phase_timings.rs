@@ -24,6 +24,12 @@ macro_rules! phase_timings {
             /// rollup fields are `sum_<name>_us`. Keep names and order stable.
             pub const PHASE_NAMES: [&'static str; PHASE_COUNT] = [$($name),*];
 
+            /// Read durable interval sums; absent or non-u64 fields mean no measurement.
+            pub fn from_rollup_fields(fields: &serde_json::Value) -> Self {
+                Self { $($field: fields.get(concat!("sum_", $name, "_us"))
+                    .and_then(serde_json::Value::as_u64).unwrap_or(0)),* }
+            }
+
             pub(super) fn as_array(&self) -> [u64; PHASE_COUNT] {
                 [$(self.$field),*]
             }

@@ -254,8 +254,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbFetchFileBlob
         | DataRoute::DbPutBlobLocal
         | DataRoute::DeliverSnapshot
-        | DataRoute::DeliverList
-        | DataRoute::DeliverReject
         | DataRoute::LocalWatch
         | DataRoute::AppChanges
         | DataRoute::ProteinGet

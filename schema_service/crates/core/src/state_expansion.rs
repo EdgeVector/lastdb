@@ -237,10 +237,6 @@ impl SchemaServiceState {
 
         self.persist_expansion(schema, old_name, desc_name).await?;
 
-        // Register new fields as canonical for future schema proposals.
-        // Fails if classification cannot be determined (no ANTHROPIC_API_KEY for new fields).
-        self.register_canonical_fields(schema).await?;
-
         // Propagate classifications and interest categories for the new fields.
         self.apply_canonical_classifications(schema);
         self.apply_canonical_interest_categories(schema);

@@ -11,6 +11,8 @@ mod body;
 mod diagnostic;
 #[path = "stream/diagnostic_io.rs"]
 mod diagnostic_io;
+#[path = "stream/import.rs"]
+mod import;
 use body::copy_exact;
 pub(crate) use body::StreamBody;
 pub(crate) use diagnostic::SummaryCursor;

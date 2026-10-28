@@ -1,80 +1,11 @@
 use std::collections::HashMap;
 
-use super::locks::{lock_map, lock_set, read_map, write_map};
+use super::locks::{lock_map, read_map};
 use super::SchemaCore;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::{SchemaListEntry, SchemaState, SchemaWithState};
 
 impl SchemaCore {
-    /// Reload schemas from the persistent store.
-    ///
-    /// Refreshes the in-memory cache from disk for both new and changed
-    /// schemas — needed because sync replay writes directly to the
-    /// persistent store and the cache must follow. Existing entries are
-    /// overwritten only when the disk copy differs from the cached copy.
-    ///
-    /// Returns the number of schemas that were added or refreshed.
-    pub async fn reload_from_store(&self) -> Result<usize, SchemaError> {
-        // If the in-memory catalog is still empty, list readers must not see
-        // empty-ok while this full scan runs — flip not-ready until we finish.
-        let was_empty = read_map(&self.schemas, "schemas")?.is_empty();
-        if was_empty {
-            self.mark_catalog_not_ready();
-        }
-
-        let stored_schemas = self.db_ops.get_all_schemas().await?;
-        let stored_states = self.db_ops.get_all_schema_states().await?;
-        // Name claims live in the same node-local namespace and are written by
-        // the same paths sync replay drives, so they follow the store here for
-        // the same reason the state map does.
-        let stored_retired_claims = self.db_ops.list_retired_name_claims().await?;
-
-        let mut changed = 0usize;
-
-        {
-            let mut schemas = write_map(&self.schemas, "schemas")?;
-            let mut states = lock_map(&self.schema_states, "schema_states")?;
-
-            for (name, mut schema) in stored_schemas {
-                // Ensure runtime_fields are populated — schemas coming from
-                // sync replay won't have them (runtime_fields is #[serde(skip)]).
-                if schema.runtime_fields.is_empty() {
-                    schema.populate_runtime_fields()?;
-                }
-
-                let schema_changed = schemas.get(&name) != Some(&schema);
-                if schema_changed {
-                    schemas.insert(name.clone(), schema);
-                    changed += 1;
-                }
-
-                if let Some(disk_state) = stored_states.get(&name).copied() {
-                    states.insert(name.clone(), disk_state);
-                } else {
-                    states.entry(name.clone()).or_default();
-                }
-            }
-        }
-
-        {
-            let mut retired = lock_set(&self.retired_name_claims, "retired_name_claims")?;
-            *retired = stored_retired_claims.into_iter().collect();
-        }
-
-        // Always mark ready after a successful reload — even if the store is
-        // genuinely empty (empty brain is a finished state, not hydrating).
-        self.mark_catalog_ready();
-
-        if changed > 0 {
-            tracing::info!(
-                "reload_from_store: refreshed {} schema(s) in cache",
-                changed
-            );
-        }
-
-        Ok(changed)
-    }
-
     pub fn get_schemas(&self) -> Result<HashMap<String, Schema>, SchemaError> {
         let mut schemas = read_map(&self.schemas, "schemas")?.clone();
         for (name, staged) in self.staged_schemas()? {

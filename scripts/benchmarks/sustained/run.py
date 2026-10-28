@@ -149,7 +149,8 @@ def corpus(args, size):
         telemetry.start()
         seed_started = unix_us()
         report["seed"] = data.seed(node, settings, telemetry)
-        checkpoints.interval("seed", seed_started, report["seed"]["mutation_requests"])
+        checkpoints.interval("seed", seed_started, report["seed"]["mutation_requests"],
+                             workload_complete=report["seed"]["complete"])
         save(output / "seed.json", report["seed"])
         if report["seed"].get("measurement_failed") or report["seed"].get("errors"):
             raise RuntimeError(f"Seed requests failed: {report['seed'].get('errors')}")

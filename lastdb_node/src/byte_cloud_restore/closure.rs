@@ -17,6 +17,46 @@ pub(super) async fn restore(
     client: &ByteBackupClient,
     keys: &RecoveryKeys,
 ) -> Result<RestoreReport> {
+    let (inventory, bytes) = load(session, client).await?;
+    let version = ClientRoot::version_of(&bytes, keys.content_key())
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    if version == crate::byte_cloud_log::VERSION {
+        let root = crate::byte_cloud_log::MutationLogRoot::decode(
+            &bytes,
+            keys.content_key(),
+            &session.accepted().begin,
+        )
+        .map_err(|_| RestoreError::Invalid("client mutation log root"))?;
+        drop(inventory);
+        return super::logs::restore(session, client, keys, root).await;
+    }
+    if version != CLIENT_VERSION {
+        return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
+    }
+    let accepted = session.accepted();
+    let root = ClientRoot::decode(&bytes, keys.content_key(), &accepted.begin)
+        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
+    root.recovery.validate_for(&accepted.job().stream.scope)?;
+    keys.validate_account(&root.recovery.account_public_key)?;
+    let context = VerifiedNativeContext {
+        root: &session.root,
+        destination: &session.selection.destination,
+        session_id: session.selection.session_id,
+        commit_sha256: &accepted.commit_sha256,
+        native_root: &root.native_root,
+        receipt_name: "byte-cloud-restore-receipt.json",
+        receipt_version: 2,
+    };
+    if let Some(report) = context.published()? {
+        return Ok(report);
+    }
+    super::runs::restore(session, client, keys, &root, inventory).await
+}
+
+pub(super) async fn load(
+    session: &RestoreSession,
+    client: &ByteBackupClient,
+) -> Result<(Inventory, Vec<u8>)> {
     let accepted = session.accepted();
     if !accepted.descriptor().as_value().is_null() {
         return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
@@ -36,15 +76,6 @@ pub(super) async fn restore(
     }
     let path = download::fetch(session, client, &grant, true).await?;
     let bytes = crate::native_cloud_restore::bounded_bytes(&path, CODEC_ENVELOPE_MAX_BYTES)?;
-    let version = ClientRoot::version_of(&bytes, keys.content_key())
-        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
-    if version != CLIENT_VERSION {
-        return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
-    }
-    let root = ClientRoot::decode(&bytes, keys.content_key(), &accepted.begin)
-        .map_err(|_| RestoreError::Invalid("client native metadata"))?;
-    root.recovery.validate_for(&accepted.job().stream.scope)?;
-    keys.validate_account(&root.recovery.account_public_key)?;
     if inventory
         .receipt(&accepted.root_receipt_id)?
         .object
@@ -53,17 +84,5 @@ pub(super) async fn restore(
     {
         return Err(RestoreError::Invalid("client root destination"));
     }
-    let context = VerifiedNativeContext {
-        root: &session.root,
-        destination: &session.selection.destination,
-        session_id: session.selection.session_id,
-        commit_sha256: &accepted.commit_sha256,
-        native_root: &root.native_root,
-        receipt_name: "byte-cloud-restore-receipt.json",
-        receipt_version: 2,
-    };
-    if let Some(report) = context.published()? {
-        return Ok(report);
-    }
-    super::runs::restore(session, client, keys, &root, inventory).await
+    Ok((inventory, bytes))
 }

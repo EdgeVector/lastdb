@@ -5,8 +5,10 @@
 //!
 //! The live write is [`put_blob_sealed_with_access_dedup_in_ops`]. It stores a
 //! sealed row and skips a second copy when an intact row is already there.
+//! Every row is sealed under its file KDK; a reader opens it with
+//! [`decode_blob_bytes_with_dek`].
 
-use super::delivery_wire::{decode_blob_bytes, decode_blob_bytes_with_dek, ContentAddressedBlob};
+use super::delivery_wire::{decode_blob_bytes_with_dek, ContentAddressedBlob};
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
 use crate::storage::KvStore;
@@ -39,22 +41,6 @@ pub async fn get_blob_in_ops(
             }
             Ok(Some(blob))
         }
-        None => Ok(None),
-    }
-}
-
-/// Decode raw file bytes for a stored blob_ref.
-///
-/// Sealed rows fail closed here. Open them with `decode_blob_bytes_with_dek`.
-pub async fn get_blob_bytes_in_ops(
-    ops: &DbOperations,
-    blob_ref: &str,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    match get_blob_in_ops(ops, blob_ref).await? {
-        Some(blob) if blob.local_cipher_suite.is_some() => Err(FoldDbError::SecurityError(
-            format!("cas_blobs entry {blob_ref} is sealed under file KDK; open with DEK"),
-        )),
-        Some(blob) => Ok(Some(decode_blob_bytes(&blob)?)),
         None => Ok(None),
     }
 }

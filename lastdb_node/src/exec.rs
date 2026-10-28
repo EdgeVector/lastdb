@@ -155,30 +155,6 @@ macro_rules! heap_route_ctx_host {
     }};
 }
 
-macro_rules! heap_delivery {
-    ($action:literal, $f:path, $req:ident, $ctx:ident, $host:ident) => {{
-        #[inline(never)]
-        fn start<'a>(
-            req: &'a UdsRequest,
-            ctx: &'a AccessContext,
-            host: &'a Host,
-        ) -> ErasedRoute<'a> {
-            Box::pin(async move {
-                match crate::deliver::parse_delivery_action(
-                    req.target
-                        .split(['?', '#'])
-                        .next()
-                        .unwrap_or(req.target.as_str()),
-                ) {
-                    Some((id, $action)) => $f(id, ctx, host).await,
-                    _ => error_response(400, "missing delivery id", ctx),
-                }
-            })
-        }
-        start($req, $ctx, $host)
-    }};
-}
-
 mod admin_routes;
 mod aggregate_routes;
 mod app_routes;

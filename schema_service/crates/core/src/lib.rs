@@ -50,7 +50,7 @@ pub mod builtin_schemas;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
-mod field_name_policy;
+pub mod field_name_policy;
 mod lock_helpers;
 pub mod memory_persistence;
 /// Same-product multi-key tip regeneration (background reindex job class).
@@ -62,6 +62,7 @@ pub mod registry_index;
 pub mod resolver_config;
 pub mod resolver_pack;
 pub mod resolver_pack_consumer;
+mod resolver_pack_vocabulary;
 pub mod resolver_runtime;
 pub mod schema_embedding_artifact;
 pub mod schema_mutation_gate;
@@ -88,6 +89,7 @@ pub use state_native_resolve::{
     FieldMatchProbeRequest, FieldMatchProbeResponse,
 };
 pub mod types;
+pub mod vocabulary_publication;
 
 pub use app_identity::{
     env_label, AppIdentityConfig, AppPromoteError, AppPromoteOutcome, AppRegisterError,

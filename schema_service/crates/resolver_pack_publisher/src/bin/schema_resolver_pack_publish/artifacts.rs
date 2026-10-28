@@ -60,6 +60,17 @@ pub(crate) fn build_artifacts_from_snapshot(
 pub(crate) fn build_schema_snapshot_artifact(
     snapshot: &SnapshotEnvelope,
 ) -> Result<SchemaSnapshotArtifact, String> {
+    for (name, field) in &snapshot.canonical_fields {
+        schema_service_core::field_name_policy::validate_approved_field(name, field)
+            .map_err(|error| error.to_string())?;
+    }
+    for schema in &snapshot.schemas {
+        schema_service_core::field_name_policy::validate_schema_vocabulary(
+            schema,
+            &snapshot.canonical_fields,
+        )
+        .map_err(|error| error.to_string())?;
+    }
     let mut schemas = Vec::new();
     for schema in snapshot
         .schemas
@@ -124,6 +135,7 @@ pub(crate) fn build_schema_snapshot_artifact(
 
     Ok(SchemaSnapshotArtifact {
         format_version: RESOLVER_PACK_SCHEMA_SNAPSHOT_FORMAT_VERSION,
+        name_policy_version: schema_service_core::field_name_policy::NAME_POLICY_VERSION,
         captured_at: snapshot.captured_at.clone(),
         source_snapshot_format_version: snapshot.format_version,
         schemas,

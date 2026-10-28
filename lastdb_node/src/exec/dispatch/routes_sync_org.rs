@@ -20,7 +20,7 @@ pub(super) async fn dispatch_org_catalog(
     })
 }
 
-/// Explicit byte backup and local slice export/outbox operations.
+/// Explicit byte backup and local slice export operations.
 pub(super) async fn dispatch_sync_deliver(
     route: DataRoute,
     req: &UdsRequest,
@@ -36,19 +36,6 @@ pub(super) async fn dispatch_sync_deliver(
         }
         DataRoute::DeliverSnapshot => {
             heap_route!(crate::deliver::execute_publish_snapshot, req, ctx, host).await
-        }
-        DataRoute::DeliverList => {
-            heap_route_ctx_host!(crate::deliver::execute_list_deliveries, ctx, host).await
-        }
-        DataRoute::DeliverReject => {
-            heap_delivery!(
-                "reject",
-                crate::deliver::execute_reject_delivery,
-                req,
-                ctx,
-                host
-            )
-            .await
         }
         _ => return None,
     })

@@ -1,3 +1,4 @@
+use super::capture::Capture;
 use super::{model::Saved, retry, store::Store, transfer, wait, BackupError, Phase, Result};
 use cloud_backup_protocol::v2::access::{
     InventoryMetadata, InventoryPutRequest, InventoryPutResult,
@@ -5,13 +6,12 @@ use cloud_backup_protocol::v2::access::{
 use cloud_backup_protocol::v2::inventory::{InventoryIndex, InventoryPage, InventoryVerifier};
 use cloud_backup_protocol::v2::publication::{CommitResponse, CommitStatusRequest};
 use cloud_backup_protocol::v2::{AcceptedBackup, Commit, Version};
-use fold_db::storage::disk_pack::byte_backup::ByteBackupCapture;
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
 
 pub(super) async fn publish(
-    capture: &ByteBackupCapture,
+    capture: &Capture,
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,
@@ -37,6 +37,7 @@ pub(super) async fn publish(
         return Err(BackupError::Identity);
     }
     saved.commit = Some(commit.clone());
+    capture.seal_commit(&commit)?;
     saved.phase = Phase::Inventory;
     budget(capture, store)?;
     store.save(saved)?;
@@ -71,7 +72,7 @@ pub(super) async fn publish(
     accepted(client, store, saved, response, pause).await
 }
 
-fn budget(capture: &ByteBackupCapture, store: &Store) -> Result<()> {
+fn budget(capture: &Capture, store: &Store) -> Result<()> {
     let quote = store
         .bytes()
         .checked_add(lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES)
@@ -80,10 +81,7 @@ fn budget(capture: &ByteBackupCapture, store: &Store) -> Result<()> {
     Ok(())
 }
 
-fn inventory(
-    capture: &ByteBackupCapture,
-    saved: &Saved,
-) -> Result<(InventoryIndex, Vec<InventoryPage>)> {
+fn inventory(capture: &Capture, saved: &Saved) -> Result<(InventoryIndex, Vec<InventoryPage>)> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let mut receipts = BTreeMap::new();
     for index in 0..capture.object_count()? {

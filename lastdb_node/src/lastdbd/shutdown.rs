@@ -40,17 +40,23 @@ pub(crate) fn drain_background(
     host: &Arc<Host>,
     sampler_task: tokio::task::JoinHandle<()>,
     home_fold_task: tokio::task::JoinHandle<()>,
+    automatic_backup_task: tokio::task::JoinHandle<()>,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
         let drain = async {
-            let (sampler, fold, byte_backup) = tokio::join!(
+            let (sampler, fold, automatic, byte_backup) = tokio::join!(
                 sampler_task,
                 home_fold_task,
+                automatic_backup_task,
                 host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
-            for (name, result) in [("self-metrics", sampler), ("home conflict", fold)] {
+            for (name, result) in [
+                ("self-metrics", sampler),
+                ("home conflict", fold),
+                ("automatic backup", automatic),
+            ] {
                 if let Err(error) = result {
                     errors.push(format!("{name} task failed: {error}"));
                 }

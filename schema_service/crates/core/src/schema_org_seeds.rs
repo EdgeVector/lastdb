@@ -6,7 +6,7 @@
 //!
 //! The JSON snapshots stay in git. They are compiled into this crate
 //! only with the `schema-org-seed-data` feature (offline generators and
-//! dump-parse tests). The Lambda crate must not enable that feature.
+//! offline tools). The Lambda crate must not enable that feature.
 //!
 //! Historically, [`seed`] loaded two pre-validated JSON snapshots
 //! (`data/schema_org/validated_canonical_fields.json` and
@@ -186,6 +186,7 @@ pub async fn seed_canonical_fields(
             description,
             field_type,
             version: 1,
+            name_policy_version: crate::field_name_policy::NAME_POLICY_VERSION,
             classification: Some(classification),
             interest_category,
         };

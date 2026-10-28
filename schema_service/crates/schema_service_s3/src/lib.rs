@@ -26,6 +26,7 @@
 //! sole arbiter of who wins a race. See the design doc for the full
 //! discussion.
 
+mod definition_namespace;
 mod per_record;
 mod persistence_impl;
 mod quota_store;
@@ -128,6 +129,7 @@ pub struct S3BlobPersistence {
     bucket: String,
     ddb: DdbClient,
     embeddings_table: String,
+    definition_namespace: Option<String>,
 }
 
 impl S3BlobPersistence {
@@ -137,6 +139,7 @@ impl S3BlobPersistence {
             bucket,
             ddb,
             embeddings_table,
+            definition_namespace: None,
         }
     }
 
@@ -272,7 +275,7 @@ impl S3BlobPersistence {
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(self.definition_key(key).as_ref())
             .send()
             .await;
 
@@ -323,7 +326,7 @@ impl S3BlobPersistence {
                 .client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.definition_key(key).as_ref())
                 .body(ByteStream::from(body))
                 .content_type("application/json");
 

@@ -1,6 +1,9 @@
 //! The add-schema route.
 
 use super::*;
+
+mod cover;
+use cover::full_component_cover_response;
 use schema_service_core::types::SchemaRegistrationComposition;
 
 fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
@@ -70,46 +73,6 @@ fn idempotent_repost_response(
         system,
         composed: false,
         composition: None,
-    }))
-}
-
-/// A registration whose every field is covered by existing components needs
-/// no new canonical: answer with the matched shared schema, or with the
-/// proposal itself marked `composed`. `None` when residue fields remain.
-fn full_component_cover_response(
-    state: &SchemaServiceState,
-    request: &AddSchemaRequest,
-    composition: &SchemaRegistrationComposition,
-) -> Option<HttpResponse> {
-    if !composition.residue_fields.is_empty() {
-        return None;
-    }
-    state.record_schema_match_outcome("component_cover", &request.schema_match_source, None);
-    if let Some(hash) = composition.matched_shared_schema_hash.as_deref() {
-        match state.get_schema_by_name(hash) {
-            Ok(Some(schema)) => {
-                let system = state.is_system_schema(&schema.name);
-                return Some(HttpResponse::Ok().json(AddSchemaResponse {
-                    schema,
-                    mutation_mappers: request.mutation_mappers.clone(),
-                    replaced_schema: None,
-                    system,
-                    composed: false,
-                    composition: Some(composition.clone()),
-                }));
-            }
-            Ok(None) => {}
-            Err(e) => return Some(internal_error("Failed to fetch covered schema", e)),
-        }
-    }
-    let system = state.is_system_schema(&request.schema.name);
-    Some(HttpResponse::Ok().json(AddSchemaResponse {
-        schema: request.schema.clone(),
-        mutation_mappers: request.mutation_mappers.clone(),
-        replaced_schema: None,
-        system,
-        composed: true,
-        composition: Some(composition.clone()),
     }))
 }
 
@@ -215,6 +178,12 @@ pub async fn add_schema(
         Ok(parsed) => parsed,
         Err(response) => return response,
     };
+    if let Err(error) = state
+        .validate_schema_field_vocabulary(&request.schema)
+        .await
+    {
+        return HttpResponse::BadRequest().json(json!({"error": error.to_string()}));
+    }
     let schema_name = request.schema.name.clone();
     let telemetry_source = request.schema_match_source.clone();
     let telemetry_reason = request.fallback_reason.clone();

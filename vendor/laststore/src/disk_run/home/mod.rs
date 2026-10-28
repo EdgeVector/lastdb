@@ -35,6 +35,7 @@ mod cleanup;
 mod cleanup_checkpoint;
 mod cleanup_files;
 mod commit;
+mod commit_log;
 mod create;
 mod diagnostic;
 mod diagnostic_cursor;
@@ -45,6 +46,7 @@ mod keys;
 mod maintenance;
 mod manifest;
 mod mutation_counts;
+mod owner;
 mod plan;
 mod publication;
 mod range;
@@ -70,9 +72,8 @@ use crate::{Error, Result};
 use create::build_empty;
 use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -205,26 +206,27 @@ impl RunHome {
     /// Open an existing home, take its owner lock, and remove what a crash
     /// left: temporary files and runs that CURRENT does not name.
     pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
+        Self::open_owned(root, key, true)
+    }
+
+    /// Own an existing complete home for backup without creation or crash
+    /// cleanup. The caller must not submit writes or merges on this owner.
+    pub fn open_existing_for_backup(root: &Path, key: &[u8; 32]) -> Result<Self> {
+        if root.canonicalize()? != root {
+            return Err(Error::Config("backup home path is not canonical".into()));
+        }
+        Self::open_owned(root, key, false)
+    }
+
+    fn open_owned(root: &Path, key: &[u8; 32], cleanup: bool) -> Result<Self> {
         let root = root.canonicalize()?;
         let identity = read_descriptor(&root)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .open(root.join("LOCK"))?;
-        match rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => {}
-            Err(error) if error == rustix::io::Errno::WOULDBLOCK => {
-                return Err(Error::Config(
-                    "disk run home: another owner holds the home".into(),
-                ))
-            }
-            Err(error) => return Err(std::io::Error::from(error).into()),
-        }
+        let lock = owner::open(&root, cleanup)?;
         let manifest = Manifest::load(&root, key, identity)?;
         let runs = root.join(RUNS);
-        remove_leftovers(&root, &runs, &manifest)?;
+        if cleanup {
+            remove_leftovers(&root, &runs, &manifest)?;
+        }
         Ok(Self {
             root,
             runs,

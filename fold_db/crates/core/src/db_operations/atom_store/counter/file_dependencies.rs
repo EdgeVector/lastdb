@@ -6,7 +6,7 @@ use crate::storage::disk_pack::file_dependencies::{directory_key, expected, File
 use crate::storage::KvMutation;
 
 pub(super) fn create(scope: Option<&str>, atom: &Atom) -> Result<Vec<KvMutation>, SchemaError> {
-    // An unsupported legacy pointer remains a valid local write. Its missing
+    // An unsupported pointer remains a valid local write. Its missing
     // directory certificate causes explicit backup refusal, never false coverage.
     let Ok(dependencies) = expected(atom) else {
         return Ok(Vec::new());

@@ -60,11 +60,16 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/sync/cloud-off`. No app-socket route and no request key
 /// changed; `MIN_SUPPORTED_API_VERSION` stays `1`.
 ///
-/// `6` (2026-10-27) removes the two at-rest migration owner-socket routes
+/// `6` (2026-10-27) removes the two staged-delivery owner-socket routes
+/// `GET /api/sharing/deliveries` and `POST /api/sharing/deliveries/{id}/reject`.
+/// No app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+///
+/// `7` (2026-10-28) removes the two at-rest migration owner-socket routes
 /// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
 /// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 6;
+pub const API_VERSION: u32 = 7;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -315,14 +320,6 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
 /// the "write everything, resolve in history" read surface: concurrent-write
 /// branches, conflict winners AND losers, become readable instead of orphaned.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
-    if let Some(rest) = path.strip_prefix("/api/sharing/deliveries/") {
-        let mut parts = rest.split('/');
-        let route = match (parts.next(), parts.next(), parts.next()) {
-            (Some(id), Some("reject"), None) if !id.is_empty() => DataRoute::DeliverReject,
-            _ => return None,
-        };
-        return Some(single_method(method, "POST", ControlRoute::Data(route)));
-    }
     if one_segment(path, "/api/history/").is_some() {
         return Some(single_method(
             method,

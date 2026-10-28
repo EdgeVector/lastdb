@@ -13,7 +13,17 @@ impl PackRuntime {
         key: &[u8; 32],
         recovery: cloud_backup_protocol::RecoveryDescriptor,
     ) -> StorageResult<ByteBackupCapture> {
-        super::run_capture::prepare(self, begin, key, recovery).await
+        super::run_capture::prepare(self, begin, key, recovery, false).await
+    }
+    /// The coordinator holds its owner lock and proves begin_submitted=false.
+    /// Only an intent with no held files or saved source state can renew its cut.
+    pub async fn prepare_unsubmitted_record_backup_capture(
+        self: &Arc<Self>,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: cloud_backup_protocol::RecoveryDescriptor,
+    ) -> StorageResult<ByteBackupCapture> {
+        super::run_capture::prepare(self, begin, key, recovery, true).await
     }
     /// Resume only the saved cut. A missing source still permits exact close.
     pub async fn resume_byte_backup_capture(

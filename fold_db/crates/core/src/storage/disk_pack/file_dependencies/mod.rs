@@ -37,7 +37,7 @@ pub struct FileDependencyRecord {
     pub logical_pointer_sha256: Digest,
     pub kind: FileDependencyKind,
     pub blob_ref: String,
-    /// Ciphertext digest for account-v2; plaintext digest for old file suites.
+    /// Ciphertext digest of the stored file.
     /// This record is nonsecret and can enter the local capture spool.
     pub file_hash: Digest,
     pub owner_scope: Option<String>,

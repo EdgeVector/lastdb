@@ -3,7 +3,6 @@ use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{AccountId, Digest, Id, RecoveryDescriptor};
 use fold_db::crypto::E2eKeys;
-use fold_db::storage::disk_pack::byte_backup::ByteBackupCapture;
 use fold_db::storage::disk_pack::PackRuntime;
 use std::sync::Arc;
 use zeroize::Zeroizing;
@@ -14,6 +13,7 @@ pub(super) struct Source {
     pub source_home: Id,
     pub recovery: RecoveryDescriptor,
     pub key: Zeroizing<[u8; 32]>,
+    pub retain_source_manifest: bool,
 }
 impl Source {
     pub fn from_host(host: &crate::host::Host) -> Result<Self> {
@@ -36,12 +36,38 @@ impl Source {
             },
             runtime,
             key: Zeroizing::new(keys.encryption_key()),
+            retain_source_manifest: false,
+        })
+    }
+
+    pub fn from_stopped(
+        runtime: Arc<PackRuntime>,
+        keypair: &fold_db::security::Ed25519KeyPair,
+        account: AccountId,
+    ) -> Result<Self> {
+        let seed = Zeroizing::new(keypair.secret_key_bytes());
+        let keys = E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
+        Ok(Self {
+            source_home: Id::try_from(runtime.native_home_id().to_string())?,
+            runtime,
+            account,
+            recovery: RecoveryDescriptor {
+                profile: RecoveryProfile::MiniPortableV1,
+                account_public_key: Digest::try_from(fold_db::hex::hex_lower(
+                    keypair.public_key_bytes(),
+                ))?,
+            },
+            key: Zeroizing::new(keys.encryption_key()),
+            retain_source_manifest: true,
         })
     }
     pub fn saved(&self, request_id: Id, endpoint: String) -> Saved {
         Saved {
             format: 2,
             request_id,
+            work: super::work::Work::default(),
+            automatic_revision: None,
+            local_action: None,
             endpoint,
             account: self.account.clone(),
             source_home: self.source_home.clone(),
@@ -77,20 +103,101 @@ impl Source {
     }
     pub async fn prepare(
         &self,
-        begin: cloud_backup_protocol::v2::Begin,
-    ) -> Result<ByteBackupCapture> {
-        Ok(self
-            .runtime
-            .prepare_record_backup_capture(begin, &self.key, self.recovery.clone())
-            .await?)
+        saved: &Saved,
+        store: &super::store::Store,
+    ) -> Result<super::capture::Capture> {
+        use super::{capture::Capture, work::Work};
+        let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+        saved.work.validate(Some(begin))?;
+        match &saved.work {
+            Work::Snapshot { minimum } => {
+                let capture = if saved.begin_submitted {
+                    self.runtime
+                        .prepare_record_backup_capture(
+                            begin.clone(),
+                            &self.key,
+                            self.recovery.clone(),
+                        )
+                        .await?
+                } else {
+                    self.runtime
+                        .prepare_unsubmitted_record_backup_capture(
+                            begin.clone(),
+                            &self.key,
+                            self.recovery.clone(),
+                        )
+                        .await?
+                };
+                let profile = capture.run_profile()?;
+                if minimum.as_ref().is_some_and(|min| {
+                    profile.main.frontier.get() < min.main || profile.cas.frontier.get() < min.cas
+                }) {
+                    return Err(BackupError::Identity);
+                }
+                Ok(Capture::Snapshot(capture))
+            }
+            Work::MutationLog { context } => {
+                let core = self
+                    .runtime
+                    .prepare_mutation_log_capture(begin, &context.from)?;
+                Ok(Capture::Log(Box::new(
+                    super::log_capture::LogCapture::prepare(
+                        core,
+                        store,
+                        context,
+                        &self.recovery,
+                        &self.key,
+                    )?,
+                )))
+            }
+        }
     }
-    pub async fn resume(&self) -> Result<ByteBackupCapture> {
-        Ok(self.runtime.resume_byte_backup_capture(&self.key).await?)
+    pub async fn resume(
+        &self,
+        saved: &Saved,
+        store: &super::store::Store,
+    ) -> Result<super::capture::Capture> {
+        match &saved.work {
+            super::work::Work::Snapshot { .. } => Ok(super::capture::Capture::Snapshot(
+                self.runtime.resume_byte_backup_capture(&self.key).await?,
+            )),
+            super::work::Work::MutationLog { context } => {
+                let core = self
+                    .runtime
+                    .resume_mutation_log_capture(&saved.request_id)?;
+                Ok(super::capture::Capture::Log(Box::new(
+                    super::log_capture::LogCapture::prepare(
+                        core,
+                        store,
+                        context,
+                        &self.recovery,
+                        &self.key,
+                    )?,
+                )))
+            }
+        }
     }
-    pub async fn cancel(&self, begin: &cloud_backup_protocol::v2::Begin) -> Result<()> {
+    pub async fn cancel(&self, saved: &Saved) -> Result<()> {
+        let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
+        match &saved.work {
+            super::work::Work::Snapshot { .. } => {
+                self.runtime
+                    .cancel_unsubmitted_byte_backup_capture(begin, &self.key)
+                    .await?;
+            }
+            super::work::Work::MutationLog { .. } => self
+                .runtime
+                .cancel_unsubmitted_mutation_log_capture(begin)?,
+        }
+        Ok(())
+    }
+    pub fn cancel_replacement(&self, saved: &Saved) -> Result<()> {
+        self.validate(saved)?;
+        if saved.local_action != Some(super::model::LocalAction::ReplaceWithSnapshot) {
+            return Err(BackupError::Invalid);
+        }
         self.runtime
-            .cancel_unsubmitted_byte_backup_capture(begin, &self.key)
-            .await?;
+            .cancel_unmaterialized_mutation_log_capture(&saved.request_id)?;
         Ok(())
     }
 }

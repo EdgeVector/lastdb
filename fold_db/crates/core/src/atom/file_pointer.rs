@@ -14,16 +14,13 @@ use serde_json::Value;
 /// JSON object key for a portable file pointer stored as an atom value.
 pub const LASTDB_FILE_KEY: &str = "$lastdb_file";
 
-/// If `value` is a file pointer or legacy embedded file, return its blob_ref
-/// when present (legacy `$file` has no blob_ref until re-packed).
+/// If `value` is a `$lastdb_file` pointer, return its blob_ref when present.
 pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
-    if let Some(obj) = value.get(LASTDB_FILE_KEY).and_then(|v| v.as_object()) {
-        return obj.get("blob_ref").and_then(|v| v.as_str());
-    }
-    if let Some(s) = value.get("$blob_ref").and_then(|v| v.as_str()) {
-        return Some(s);
-    }
-    None
+    value
+        .get(LASTDB_FILE_KEY)
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("blob_ref"))
+        .and_then(|v| v.as_str())
 }
 
 /// Every blob ref an atom names — content pointer plus metadata

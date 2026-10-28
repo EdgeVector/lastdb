@@ -9,7 +9,6 @@
 use crate::hex::hex_lower;
 use crate::sharing::delivery_wire::{
     file_blob_cipher_suite_supported, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
-    FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1,
 };
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
@@ -55,7 +54,7 @@ impl From<FileBlobSealError> for crate::error::FoldDbError {
 
 /// Metadata that authorizes opening one content-addressed file blob.
 ///
-/// `file_hash` is the plaintext SHA-256. New `blob_ref`s name ciphertext SHA-256.
+/// `file_hash` is the plaintext SHA-256. `blob_ref` names the ciphertext SHA-256.
 /// `dek` is the raw 32-byte blob key, hex encoded for storage in the DB pointer
 /// or delivery metadata. Sharing this metadata is what grants access to the
 /// ciphertext; the account sync key is not involved in blob decryption.
@@ -122,17 +121,6 @@ fn file_blob_nonce(dek: &[u8; 32]) -> Result<[u8; 12], FileBlobSealError> {
     Ok(nonce)
 }
 
-fn legacy_convergent_nonce(file_hash: &str) -> Result<[u8; 12], FileBlobSealError> {
-    let hash = decode_hex_32(file_hash)?;
-    let hk = Hkdf::<Sha256>::new(Some(b"lastdb-file-blob-convergent-v1"), &hash);
-    // HKDF fully overwrites this output buffer before success. Keep its origin
-    // data-derived so static analysis does not mistake allocation for a fixed IV.
-    let mut nonce: [u8; 12] = std::array::from_fn(|i| hash[i]);
-    hk.expand(b"nonce", &mut nonce)
-        .map_err(|error| FileBlobSealError::new(error.to_string()))?;
-    Ok(nonce)
-}
-
 /// Seal under a fixed nonce using the same v1 envelope wire format as
 /// [`crate::crypto::envelope::encrypt_envelope`] so
 /// `LocalCryptoProvider::decrypt` can open the result.
@@ -188,7 +176,7 @@ fn file_blob_ref(file_hash: String, dek: &[u8; 32], ciphertext: &[u8]) -> FileBl
     }
 }
 
-/// The public storage digest. This is not the plaintext digest for v2 files.
+/// The public storage digest: the ciphertext SHA-256, not the plaintext digest.
 pub fn file_blob_storage_hash(blob_ref: &str) -> Result<&str, FileBlobSealError> {
     blob_ref
         .strip_prefix("sha256:")
@@ -210,12 +198,7 @@ pub fn verify_file_blob_identity(
             "file blob plaintext identity differs".into(),
         ));
     }
-    let expected = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
-        ciphertext_sha256
-    } else {
-        plaintext_sha256
-    };
-    if file_blob_storage_hash(&access.blob_ref)? != expected {
+    if file_blob_storage_hash(&access.blob_ref)? != ciphertext_sha256 {
         return Err(FileBlobSealError::new(
             "file blob storage identity differs".into(),
         ));
@@ -223,26 +206,21 @@ pub fn verify_file_blob_identity(
     Ok(())
 }
 
-/// Reproduce a v2 envelope exactly. Older pointers keep their supplied key.
+/// Reproduce a [`FILE_BLOB_CIPHER_SUITE`] envelope exactly from the pointer key.
 pub fn seal_file_blob_for_access(
     plaintext: &[u8],
     access: &FileBlobAccess,
 ) -> Result<Vec<u8>, FileBlobSealError> {
+    if !file_blob_cipher_suite_supported(&access.cipher_suite) {
+        return Err(FileBlobSealError::new(format!(
+            "unsupported file blob cipher suite '{}'",
+            access.cipher_suite
+        )));
+    }
     let plaintext_sha256 = hex_lower(Sha256::digest(plaintext));
-    let encrypted = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
-        let key = decode_hex_32(&access.dek)?;
-        let nonce = file_blob_nonce(&key)?;
-        encrypt_envelope_with_nonce(&key, &nonce, plaintext)?
-    } else if access.cipher_suite == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1 {
-        encrypt_envelope_with_nonce(
-            &decode_hex_32(&access.dek)?,
-            &legacy_convergent_nonce(&plaintext_sha256)?,
-            plaintext,
-        )?
-    } else {
-        crate::crypto::envelope::encrypt_envelope(&decode_hex_32(&access.dek)?, plaintext)
-            .map_err(|error| FileBlobSealError::new(error.to_string()))?
-    };
+    let key = decode_hex_32(&access.dek)?;
+    let nonce = file_blob_nonce(&key)?;
+    let encrypted = encrypt_envelope_with_nonce(&key, &nonce, plaintext)?;
     verify_file_blob_identity(
         access,
         &plaintext_sha256,

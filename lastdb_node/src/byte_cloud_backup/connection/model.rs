@@ -1,4 +1,4 @@
-use super::{identity, BackupError, Result};
+use super::{BackupError, Result};
 use cloud_backup_protocol::{AccountId, Digest, Id};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -46,11 +46,10 @@ pub(super) struct ManualConnectionRecord {
 }
 
 impl ManualConnectionRecord {
-    pub fn validate(&self, host: &crate::host::Host) -> Result<()> {
-        let (account, source) = identity(host)?;
+    pub fn validate(&self, account: &AccountId, source: &Id) -> Result<()> {
         if self.version != 1
-            || self.account_id != account
-            || self.source_home != source
+            || &self.account_id != account
+            || &self.source_home != source
             || self.origin != "imported"
             || self.registration_attempted
             || self.automatic_backup_enabled

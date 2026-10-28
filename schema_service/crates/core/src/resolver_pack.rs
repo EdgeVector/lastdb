@@ -1,4 +1,4 @@
-//! Signed schema resolver pack artifact contract (format_version 2).
+//! Signed schema resolver pack artifact contract (format_version 3).
 //!
 //! Resolver packs are immutable bundles published to R2: a declarative
 //! `resolver_config.json`, a schema snapshot, and a registry embedding
@@ -19,8 +19,8 @@ use crate::resolver_config::{
     AlgorithmSelector, ResolverConfig, ResolverConfigError, RESOLVER_CONFIG_FORMAT_VERSION,
 };
 
-pub const RESOLVER_PACK_FORMAT_VERSION: u32 = 2;
-pub const RESOLVER_PACK_SCHEMA_SNAPSHOT_FORMAT_VERSION: u32 = 1;
+pub const RESOLVER_PACK_FORMAT_VERSION: u32 = 3;
+pub const RESOLVER_PACK_SCHEMA_SNAPSHOT_FORMAT_VERSION: u32 = 2;
 pub const RESOLVER_PACK_EMBEDDING_ARTIFACT_FORMAT_VERSION: u32 = 1;
 /// Supported native resolver input/output contract version.
 pub const SUPPORTED_RESOLVER_CONTRACT_VERSION: u32 = 1;
@@ -84,6 +84,8 @@ pub struct ResolverPackArtifactSizes {
 #[serde(deny_unknown_fields)]
 pub struct SchemaSnapshotArtifact {
     pub format_version: u32,
+    #[serde(default)]
+    pub name_policy_version: u32,
     pub captured_at: String,
     pub source_snapshot_format_version: u32,
     pub schemas: Vec<ResolverSchemaRecord>,
@@ -219,7 +221,9 @@ pub fn parse_manifest(bytes: &[u8]) -> Result<ResolverPackManifest, serde_json::
 pub fn parse_schema_snapshot_artifact(
     bytes: &[u8],
 ) -> Result<SchemaSnapshotArtifact, serde_json::Error> {
-    serde_json::from_slice(bytes)
+    let snapshot = serde_json::from_slice(bytes)?;
+    crate::resolver_pack_vocabulary::validate(&snapshot).map_err(serde::de::Error::custom)?;
+    Ok(snapshot)
 }
 
 pub fn parse_embedding_artifact(bytes: &[u8]) -> Result<EmbeddingArtifact, serde_json::Error> {

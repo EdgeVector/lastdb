@@ -27,7 +27,7 @@ pub(super) fn aggregate_from_row(row: &serde_json::Value) -> Option<(String, OpA
         schema.as_deref().unwrap_or(""),
         route.as_deref().unwrap_or("")
     );
-    let phase_sums = phase_sums_from_fields(fields);
+    let phase_sums = PhaseTimings::from_rollup_fields(fields);
     let agg = OpAggregate {
         client,
         kind,
@@ -157,74 +157,5 @@ pub(super) fn rank_aggregates(
         row_count,
         since_ms,
         until_ms,
-    }
-}
-
-// Rows written before phase persistence shipped lack these fields
-// entirely; `unwrap_or(0)` reads them as an absent phase set — the
-// "no phases reported" state, not a measurement of zero. The struct
-// literal is deliberate: adding another phase to the model breaks
-// this build until the merge learns to read it.
-fn phase_sums_from_fields(fields: &serde_json::Value) -> PhaseTimings {
-    PhaseTimings {
-        queue_wait_us: field_u64(fields, "sum_queue_wait_us").unwrap_or(0),
-        admission_wait_us: field_u64(fields, "sum_admission_wait_us").unwrap_or(0),
-        parse_us: field_u64(fields, "sum_parse_us").unwrap_or(0),
-        schema_resolve_us: field_u64(fields, "sum_schema_resolve_us").unwrap_or(0),
-        validate_us: field_u64(fields, "sum_validate_us").unwrap_or(0),
-        lock_wait_us: field_u64(fields, "sum_lock_wait_us").unwrap_or(0),
-        purge_barrier_us: field_u64(fields, "sum_purge_barrier_us").unwrap_or(0),
-        purge_plan_us: field_u64(fields, "sum_purge_plan_us").unwrap_or(0),
-        purge_commit_us: field_u64(fields, "sum_purge_commit_us").unwrap_or(0),
-        purge_materialize_us: field_u64(fields, "sum_purge_materialize_us").unwrap_or(0),
-        purge_trace_us: field_u64(fields, "sum_purge_trace_us").unwrap_or(0),
-        purge_retention_guard_us: field_u64(fields, "sum_purge_retention_guard_us").unwrap_or(0),
-        purge_delete_us: field_u64(fields, "sum_purge_delete_us").unwrap_or(0),
-        purge_finalize_us: field_u64(fields, "sum_purge_finalize_us").unwrap_or(0),
-        molecule_gate_us: field_u64(fields, "sum_molecule_gate_us").unwrap_or(0),
-        cas_precondition_us: field_u64(fields, "sum_cas_precondition_us").unwrap_or(0),
-        count_us: field_u64(fields, "sum_count_us").unwrap_or(0),
-        hydrate_us: field_u64(fields, "sum_hydrate_us").unwrap_or(0),
-        hydrate_atoms_us: field_u64(fields, "sum_hydrate_atoms_us").unwrap_or(0),
-        hydrate_format_us: field_u64(fields, "sum_hydrate_format_us").unwrap_or(0),
-        hydrate_sort_us: field_u64(fields, "sum_hydrate_sort_us").unwrap_or(0),
-        hydrate_filter_us: field_u64(fields, "sum_hydrate_filter_us").unwrap_or(0),
-        annotate_us: field_u64(fields, "sum_annotate_us").unwrap_or(0),
-        apply_us: field_u64(fields, "sum_apply_us").unwrap_or(0),
-        // Rows written before the apply residual was carved carry the
-        // whole bucket in `sum_apply_us` and nothing in these fields, so
-        // `apply` appears to drop at the upgrade boundary rather than
-        // the work having moved. Same additive-migration shape as the
-        // persist and hydrate splits.
-        apply_memory_us: field_u64(fields, "sum_apply_memory_us").unwrap_or(0),
-        schema_load_us: field_u64(fields, "sum_schema_load_us").unwrap_or(0),
-        idempotency_check_us: field_u64(fields, "sum_idempotency_check_us").unwrap_or(0),
-        grouping_us: field_u64(fields, "sum_grouping_us").unwrap_or(0),
-        restore_molecules_us: field_u64(fields, "sum_restore_molecules_us").unwrap_or(0),
-        protein_sibling_fold_us: field_u64(fields, "sum_protein_sibling_fold_us").unwrap_or(0),
-        spawn_indexing_us: field_u64(fields, "sum_spawn_indexing_us").unwrap_or(0),
-        sync_uuids_us: field_u64(fields, "sum_sync_uuids_us").unwrap_or(0),
-        schema_reload_us: field_u64(fields, "sum_schema_reload_us").unwrap_or(0),
-        persist_us: field_u64(fields, "sum_persist_us").unwrap_or(0),
-        // Rows written before the durable-store bucket was split carry
-        // the whole bucket in `sum_persist_us` and nothing in these
-        // three, so `persist` appears to drop at the upgrade boundary
-        // while the sub-steps appear from nothing. That is the split
-        // showing up in history, not a regression cured — the same
-        // reading the change-feed split needs on `sum_change_record_us`.
-        persist_molecules_us: field_u64(fields, "sum_persist_molecules_us").unwrap_or(0),
-        persist_schema_us: field_u64(fields, "sum_persist_schema_us").unwrap_or(0),
-        persist_idempotency_us: field_u64(fields, "sum_persist_idempotency_us").unwrap_or(0),
-        flush_us: field_u64(fields, "sum_flush_us").unwrap_or(0),
-        index_wait_us: field_u64(fields, "sum_index_wait_us").unwrap_or(0),
-        change_record_us: field_u64(fields, "sum_change_record_us").unwrap_or(0),
-        change_record_lock_wait_us: field_u64(fields, "sum_change_record_lock_wait_us")
-            .unwrap_or(0),
-        change_record_write_us: field_u64(fields, "sum_change_record_write_us").unwrap_or(0),
-        response_envelope_us: field_u64(fields, "sum_response_envelope_us").unwrap_or(0),
-        status_backup_us: field_u64(fields, "sum_status_backup_us").unwrap_or(0),
-        status_durability_us: field_u64(fields, "sum_status_durability_us").unwrap_or(0),
-        status_data_dir_us: field_u64(fields, "sum_status_data_dir_us").unwrap_or(0),
-        status_request_ops_us: field_u64(fields, "sum_status_request_ops_us").unwrap_or(0),
     }
 }

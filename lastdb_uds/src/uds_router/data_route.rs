@@ -324,12 +324,6 @@ pub enum DataRoute {
     /// blob (no messaging append; object-store publishers overwrite by key).
     /// OWNER socket only.
     DeliverSnapshot,
-    /// `GET /api/sharing/deliveries` — list staged deliveries awaiting approve.
-    /// OWNER socket only.
-    DeliverList,
-    /// `POST /api/sharing/deliveries/{id}/reject` — discard staged delivery.
-    /// OWNER socket only.
-    DeliverReject,
     /// `GET /api/local-watch` — short-TTL local mutation doorbell poll/long-poll.
     /// Not product truth; clients still keyed-read tables after wake.
     LocalWatch,

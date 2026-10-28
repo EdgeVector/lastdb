@@ -11,6 +11,7 @@ pub mod app_storage;
 pub mod backup_access;
 pub mod backup_runtime;
 pub mod byte_cloud_backup;
+pub mod byte_cloud_log;
 pub mod byte_cloud_restore;
 mod change_feed_queue;
 pub mod cloud;

@@ -185,10 +185,10 @@ Thumbnail selects thumbnail with kind image. Poster selects thumbnail with kind 
 Both nested forms select their own blob_ref and access.dek / access.cipher_suite.
 Backup capture and restore use the existing pointer validator and compare the selected suite with the dependency.
 There is no second key-reference digest. The existing encrypted pointer retains the key material.
-Legacy $blob_ref or metadata-only file references require certified native coverage or explicit refusal.
+Metadata-only file references require certified native coverage or explicit refusal.
 Backup capture cannot silently omit them.
 Large blob streams use ordered extents over objects of at most 64 MiB.
-The first profile supports the existing convergent and legacy DEK file suites.
+The first profile supports only the account-v2 file suite (`lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256`).
 The account content key does not replace a per-file DEK.
 A persistent restore dependency map resolves original file identities through the backup extents without a native-root rewrite.
 
