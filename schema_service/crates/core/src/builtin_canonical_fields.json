@@ -42,7 +42,7 @@
   {"name": "camera_make", "description": "the manufacturer of a camera that captured a photograph", "field_type": "String", "sensitivity": 0, "domain": "media", "interest_category": "Photography"},
   {"name": "camera_model", "description": "the model of a camera that captured a photograph", "field_type": "String", "sensitivity": 0, "domain": "media", "interest_category": "Photography"},
   {"name": "camera_iso_sensitivity", "description": "the ISO sensitivity setting used when capturing a photograph", "field_type": "Number", "sensitivity": 0, "domain": "media", "interest_category": "Photography"},
-  {"name": "camera_aperture_f_number", "description": "the aperture f-number used when capturing a photograph", "field_type": "Number", "sensitivity": 0, "domain": "media", "interest_category": "Photography"},
+  {"name": "camera_aperture_ratio", "description": "the aperture f-number used when capturing a photograph", "field_type": "Number", "sensitivity": 0, "domain": "media", "interest_category": "Photography"},
   {"name": "message_id", "description": "a unique identifier for a message", "field_type": "String", "sensitivity": 1, "domain": "communication", "interest_category": null},
   {"name": "email_subject", "description": "the subject line of an email or message", "field_type": "String", "sensitivity": 2, "domain": "communication", "interest_category": null},
   {"name": "message_sender", "description": "the sender of a message", "field_type": "String", "sensitivity": 3, "domain": "communication", "interest_category": null},

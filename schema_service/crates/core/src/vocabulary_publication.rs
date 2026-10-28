@@ -30,11 +30,11 @@ pub struct VocabularyPublishError {
     pub detail: String,
 }
 
-fn failure(status: u16, reason: &'static str, detail: impl ToString) -> VocabularyPublishError {
+fn failure(status: u16, reason: &'static str, detail: impl Into<String>) -> VocabularyPublishError {
     VocabularyPublishError {
         status,
         reason,
-        detail: detail.to_string(),
+        detail: detail.into(),
     }
 }
 
@@ -59,7 +59,7 @@ impl SchemaServiceState {
             )
         })?;
         let request: PublishRequest = serde_json::from_value(body.clone())
-            .map_err(|error| failure(400, "invalid_canonical_publication", error))?;
+            .map_err(|error| failure(400, "invalid_canonical_publication", error.to_string()))?;
         if request.operation != "canonical_fields.publish"
             || request.environment != env_label(config.deployment_env)
             || request.name_policy_version != NAME_POLICY_VERSION

@@ -76,7 +76,7 @@ Money and container fields stay absent until their value contracts are explicit.
 | camera_make | Keep | camera_make | String | The subject and property are explicit. |
 | camera_model | Keep | camera_model | String | The subject and property are explicit. |
 | iso_speed | Replace | camera_iso_sensitivity | Number | Use the specific subject and property. |
-| aperture | Replace | camera_aperture_f_number | Number | Use the specific subject and property. |
+| aperture | Replace | camera_aperture_ratio | Number | Use the specific subject and property. |
 | shutter_speed | Remove | — | — | The current text contract does not define a unit or representation. |
 | message_id | Keep | message_id | String | The subject and property are explicit. |
 | subject | Remove | — | — | The record or event subject is unspecified. |

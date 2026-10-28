@@ -4,7 +4,7 @@ use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 use schema_types::{FoldDbError, FoldDbResult, Schema};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Administrative approval metadata; excluded from field identity hashes.
 pub const NAME_POLICY_VERSION: u32 = 1;
@@ -89,7 +89,7 @@ pub fn validate_schema_vocabulary(
     schema: &Schema,
     vocabulary: &HashMap<String, CanonicalField>,
 ) -> FoldDbResult<()> {
-    for name in schema.fields.as_deref().unwrap_or_default() {
+    for name in schema_field_names(schema) {
         validate_new_field_name(name).map_err(FoldDbError::Config)?;
         let field = vocabulary.get(name).ok_or_else(|| FoldDbError::Config(format!(
             "unapproved_canonical_field: '{name}'; reuse an approved concept or request operator publication"
@@ -116,7 +116,8 @@ impl SchemaServiceState {
     pub(super) fn validate_proposal_field_names(&self, schema: &mut Schema) -> FoldDbResult<()> {
         let vocabulary = read_lock(&self.canonical_fields, "canonical_fields")?;
         validate_schema_vocabulary(schema, &vocabulary)?;
-        for name in schema.fields.as_deref().unwrap_or_default() {
+        let names: Vec<_> = schema_field_names(schema).into_iter().cloned().collect();
+        for name in &names {
             if let Some(field) = vocabulary.get(name) {
                 schema
                     .field_types
@@ -167,4 +168,30 @@ pub fn validate_canonical_insert(
         )));
     }
     Ok(())
+}
+
+/// Include transform outputs and metadata-only names; none can hide a new field.
+fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
+    schema
+        .fields
+        .iter()
+        .flatten()
+        .chain(schema.transform_fields.iter().flat_map(|map| map.keys()))
+        .chain(schema.field_types.keys())
+        .chain(schema.ref_fields.keys())
+        .chain(schema.field_descriptions.keys())
+        .chain(schema.field_classifications.keys())
+        .chain(schema.field_data_classifications.keys())
+        .chain(schema.field_interest_categories.keys())
+        .chain(schema.field_hashes.keys())
+        .chain(schema.field_versions.keys())
+        .chain(schema.field_declarations.keys())
+        .chain(schema.field_mappers.iter().flat_map(|map| map.keys()))
+        .chain(
+            schema
+                .field_molecule_uuids
+                .iter()
+                .flat_map(|map| map.keys()),
+        )
+        .collect()
 }
