@@ -2,7 +2,7 @@ use super::*;
 use cloud_backup_protocol::v2::transfer::ObjectReceipt;
 use cloud_backup_protocol::Digest;
 use fold_db::storage::disk_pack::byte_backup::run_backup_destination;
-use sha2::{Digest as _, Sha256};
+use sha2::Sha256;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct FileHash {

@@ -46,6 +46,7 @@ mod keys;
 mod maintenance;
 mod manifest;
 mod mutation_counts;
+mod owner;
 mod plan;
 mod publication;
 mod range;
@@ -71,9 +72,8 @@ use crate::{Error, Result};
 use create::build_empty;
 use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Read;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -221,41 +221,7 @@ impl RunHome {
     fn open_owned(root: &Path, key: &[u8; 32], cleanup: bool) -> Result<Self> {
         let root = root.canonicalize()?;
         let identity = read_descriptor(&root)?;
-        let mut options = OpenOptions::new();
-        options
-            .create(cleanup)
-            .truncate(false)
-            .write(true)
-            .mode(0o600);
-        if !cleanup {
-            options.custom_flags(
-                rustix::fs::OFlags::NOFOLLOW.bits() as i32
-                    | rustix::fs::OFlags::NONBLOCK.bits() as i32,
-            );
-        }
-        let lock = options.open(root.join("LOCK"))?;
-        if !cleanup {
-            let info = lock.metadata()?;
-            if !info.is_file()
-                || info.uid() != rustix::process::geteuid().as_raw()
-                || info.mode() & 0o077 != 0
-                || info.len() != 0
-                || info.nlink() != 1
-            {
-                return Err(Error::Config(
-                    "backup owner lock is not an existing private file".into(),
-                ));
-            }
-        }
-        match rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => {}
-            Err(error) if error == rustix::io::Errno::WOULDBLOCK => {
-                return Err(Error::Config(
-                    "disk run home: another owner holds the home".into(),
-                ))
-            }
-            Err(error) => return Err(std::io::Error::from(error).into()),
-        }
+        let lock = owner::open(&root, cleanup)?;
         let manifest = Manifest::load(&root, key, identity)?;
         let runs = root.join(RUNS);
         if cleanup {
