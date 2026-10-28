@@ -56,6 +56,7 @@ pub(crate) async fn load_app_single_catalog_binding(
         return Err(refusal);
     }
     let mut binding = app_single_catalog_binding(declare, catalog_hash, field_mappers)?;
+    prepare_catalog_for_load(host, &mut binding).await?;
     if let Some(mut catalog) = host
         .db
         .schema_manager()

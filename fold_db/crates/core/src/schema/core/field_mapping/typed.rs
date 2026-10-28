@@ -27,6 +27,7 @@ impl SchemaCore {
         // reload it unchanged; do not walk all mapper chains on that hot path.
         if stored.is_some_and(|old| {
             schema.field_mappers == old.field_mappers
+                && schema.owner_app_id == old.owner_app_id
                 && schema.key == old.key
                 && schema.field_types == old.field_types
                 && schema.field_hashes == old.field_hashes
