@@ -13,6 +13,7 @@ import re
 import shutil
 import time
 import zipfile
+import zlib
 
 from ownership import REPOSITORY, WORKFLOW
 from programs import execute
@@ -102,7 +103,12 @@ class History:
                           timeout=min(30, remaining))
         except OperationError as error:
             raise OperationError("ci_history_github_read_failed") from error
-        return raw if binary else decode_json(raw)
+        if binary:
+            return raw
+        try:
+            return decode_json(raw)
+        except OperationError as error:
+            raise OperationError("ci_history_github_response_invalid") from error
 
     def candidate(self, run):
         number(run["id"])
@@ -151,16 +157,19 @@ class History:
         datetime.strptime(job["completed_at"], "%Y-%m-%dT%H:%M:%SZ")
         return job["completed_at"]
 
-    def runs(self, known_attempts, limit):
+    def runs(self, known_attempts, limit, event):
         require(len(known_attempts) <= 10000 and all(isinstance(value, str)
                 and re.fullmatch(r"[1-9][0-9]{0,19}/[1-9][0-9]{0,19}", value)
                 for value in known_attempts), "ci_history_known_attempt_bound")
         require(type(limit) is int and 1 <= limit <= MAX_RUNS, "ci_history_requested_run_bound")
+        require(event in (None, "push", "workflow_dispatch"), "ci_history_event")
         runs, seen = [], set()
         page_size = min(50, limit)
         for page in range(1, (limit + page_size - 1) // page_size + 1):
-            value = self.api(f"actions/workflows/cloud-backup-recovery.yml/runs"
-                             f"?branch=main&status=success&per_page={page_size}&page={page}")
+            suffix = f"?branch=main&status=success&per_page={page_size}&page={page}"
+            if event is not None:
+                suffix += "&event=" + event
+            value = self.api("actions/workflows/cloud-backup-recovery.yml/runs" + suffix)
             entries = value["workflow_runs"]
             require(isinstance(entries, list) and len(entries) <= page_size, "ci_history_run_page")
             for run in entries[:limit - len(seen)]:
@@ -168,18 +177,35 @@ class History:
                 attempt = number(run["run_attempt"])
                 require(identifier not in seen, "ci_history_duplicate_run")
                 seen.add(identifier)
-                if f"{identifier}/{attempt}" not in known_attempts:
+                if (run["event"] in ("push", "workflow_dispatch")
+                        and f"{identifier}/{attempt}" not in known_attempts):
                     runs.append(run)
             require(len(seen) <= limit, "ci_history_run_bound")
             if len(seen) == limit or len(entries) < page_size:
                 break
         return runs
 
-    def collect(self, known_attempts=(), limit=100):
+    def candidate_or_unknown(self, run):
         try:
-            runs = self.runs(known_attempts, limit)
+            return self.candidate(run), False
+        except OperationError as error:
+            if str(error) in ("ci_history_github_read_failed", "ci_history_deadline",
+                              "ci_history_github_response_invalid"):
+                raise
+            return None, True
+        except (KeyError, TypeError, ValueError, OverflowError, RuntimeError,
+                NotImplementedError, zipfile.BadZipFile, zlib.error):
+            # Unverifiable history never grants ownership or deletion authority.
+            return None, True
+
+    def collect(self, known_attempts=(), limit=100, event=None):
+        try:
+            runs = self.runs(known_attempts, limit, event)
             with ThreadPoolExecutor(max_workers=4) as pool:
-                values = list(pool.map(self.candidate, runs))
-            return [value for value in values if value is not None]
+                values = list(pool.map(self.candidate_or_unknown, runs))
+            records = [value for value, _invalid in values if value is not None]
+            self.unknown_records = len(values) - len(records)
+            self.invalid_records = sum(invalid for _value, invalid in values)
+            return records
         finally:
             self.environment.pop("GH_TOKEN", None)

@@ -9,6 +9,8 @@ Cloud-related pushes to main run the live operation.
 A manual dispatch also requires main.
 The protected `cloud-backup-dev` environment permits only main, and one workflow lane serializes all accepted-main operations.
 The job receives no AWS or provider administration credential.
+PRs also read actual ownership archives with a read-only GitHub token and no cloud credentials.
+This operation uses the same archive reader as the protected main operation.
 
 ## Real operations
 
@@ -62,6 +64,10 @@ The environment contains three secrets:
 - `LASTDB_CLOUD_DEV_API_KEY`: access to the existing synthetic DEV account.
 - `LASTDB_CLOUD_DEV_RECOVERY_PHRASE`: the recovery phrase for that account.
 - `LASTDB_CLOUD_DEV_BASELINE`: the exact accepted backup selection and expected data.
+
+The non-secret repository variable `LASTDB_CLOUD_DEV_BASELINE_SCOPE` contains only the fixed account, generation, and baseline stream.
+It gives the public metadata operation an independent baseline exclusion without a cloud credential or expected record contents.
+The protected main operation requires those fields to equal its secret baseline before cloud access.
 
 The baseline JSON contains these fields:
 
@@ -122,7 +128,14 @@ Before cloud access, CI reads at most four recent successful main workflow runs.
 It verifies each available ownership archive against GitHub's digest, exact source, workflow, run, attempt, account, and generation.
 The exact attempt's successful recovery-job completion time orders reruns correctly.
 Missing or expired ownership records grant no cleanup authority.
+Malformed, unsupported or unverifiable older records also remain unknown; they do not block a valid newer ownership record.
+GitHub transport and directory failures stop the operation before cloud access.
 This read-only step does not classify a complete directory or delete cloud files.
+
+The PR readback checks at most two recent successful pushes and two successful manual runs.
+It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
+The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
+If archives exist but none can be verified, the readback fails with a fixed code.
 
 The client also supports an explicit terminal R2 upload contract for later CI activation.
 `LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS=1` sets the hash-bound `Begin.r2_multipart` field to true for a new request.

@@ -77,10 +77,12 @@ class Operation:
     def execute(self):
         self.summary["stage"] = "ci-ownership-history"
         token = os.environ.pop("GH_TOKEN", "")
-        self.prior_ci_streams = History(self.baseline, self.programs.environment, token).collect(limit=4)
+        history = History(self.baseline, self.programs.environment, token)
+        self.prior_ci_streams = history.collect(limit=4)
         del token
         self.summary["ci_ownership_history"] = {
             "recent_successful_runs_limit": 4, "verified_streams": len(self.prior_ci_streams),
+            "unknown_records": history.unknown_records, "invalid_records": history.invalid_records,
             "complete_directory": False, "provider_deletion_authority": False}
         credentials = self.credentials()
         destination = self.root / "restored"
