@@ -61,9 +61,7 @@ impl MutationLogRoot {
             .anchor
             .position()
             .map_err(|_| LogCodecError("mutation log anchor"))?;
-        if (self.from.sequence == 0 && self.from != anchor)
-            || (self.previous == self.base && self.from != anchor)
-        {
+        if (self.from.sequence == 0 || self.previous == self.base) && self.from != anchor {
             return Err(LogCodecError("mutation log snapshot boundary"));
         }
         let mut position = self.from.clone();
@@ -135,7 +133,7 @@ impl MutationLogRoot {
         Err(LogCodecError("mutation log unexpected native path"))
     }
 
-    pub fn validate_previous(&self, previous: &MutationLogRoot) -> Result<()> {
+    pub fn validate_previous(&self, previous: &Self) -> Result<()> {
         if self.base != previous.base
             || self.anchor != previous.anchor
             || self.from != previous.through

@@ -1,16 +1,14 @@
-use super::super::{local, native, NativeFileProof, NativeInventory, RecoveryKeys};
-use super::super::{RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext};
+use super::super::{local, native, NativeFileProof, RecoveryKeys};
+use super::super::{RestoreError, RestoreSession, Result};
 use fold_db::storage::disk_pack::{byte_backup::ClientRoot, run_restore};
 use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
 
-pub(super) fn finish(
+pub(super) fn verify(
     session: &RestoreSession,
     keys: &RecoveryKeys,
     root: &ClientRoot,
-    context: &VerifiedNativeContext<'_>,
-    totals: NativeInventory,
-) -> Result<RestoreReport> {
+) -> Result<run_restore::RunRestoreGuard> {
     let data = session.root.join("home/data");
     for name in ["disk-run", "disk-cas"] {
         let home = data.join(name);
@@ -72,5 +70,5 @@ pub(super) fn finish(
             file.bytes,
         )?;
     }
-    context.finish_run(keys, totals, &proof)
+    Ok(proof)
 }

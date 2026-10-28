@@ -1,5 +1,5 @@
 //! Restore the exact paired disk V2 files before any normal writer opens them.
-mod coverage;
+pub(super) mod coverage;
 mod install;
 
 use super::{download, inventory::Inventory, native};
@@ -13,8 +13,29 @@ pub(super) async fn restore(
     client: &ByteBackupClient,
     keys: &RecoveryKeys,
     root: &ClientRoot,
-    mut inventory: Inventory,
+    inventory: Inventory,
 ) -> Result<RestoreReport> {
+    let total = stage(session, client, keys, root, inventory).await?;
+    let context = VerifiedNativeContext {
+        root: &session.root,
+        destination: &session.selection.destination,
+        session_id: session.selection.session_id,
+        commit_sha256: &session.accepted().commit_sha256,
+        native_root: &root.native_root,
+        receipt_name: "byte-cloud-restore-receipt.json",
+        receipt_version: 2,
+    };
+    let proof = verify_stage(session, keys, root)?;
+    context.finish_run(keys, total, &proof)
+}
+
+pub(super) async fn stage(
+    session: &RestoreSession,
+    client: &ByteBackupClient,
+    keys: &RecoveryKeys,
+    root: &ClientRoot,
+    mut inventory: Inventory,
+) -> Result<NativeInventory> {
     let mut coverage = coverage::Coverage::new(root, session, &mut inventory)?;
     let mut total = NativeInventory {
         files: 0,
@@ -66,16 +87,15 @@ pub(super) async fn restore(
     inventory.finish()?;
     drop(coverage);
     drop(inventory);
-    let context = VerifiedNativeContext {
-        root: &session.root,
-        destination: &session.selection.destination,
-        session_id: session.selection.session_id,
-        commit_sha256: &session.accepted().commit_sha256,
-        native_root: &root.native_root,
-        receipt_name: "byte-cloud-restore-receipt.json",
-        receipt_version: 2,
-    };
-    install::finish(session, keys, root, &context, total)
+    Ok(total)
+}
+
+pub(super) fn verify_stage(
+    session: &RestoreSession,
+    keys: &RecoveryKeys,
+    root: &ClientRoot,
+) -> Result<fold_db::storage::disk_pack::run_restore::RunRestoreGuard> {
+    install::verify(session, keys, root)
 }
 
 fn add_totals(total: &mut NativeInventory, page: &ClientPage, root: &ClientRoot) -> Result<()> {

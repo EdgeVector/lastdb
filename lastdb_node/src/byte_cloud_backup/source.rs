@@ -102,13 +102,15 @@ impl Source {
                 let core = self
                     .runtime
                     .prepare_mutation_log_capture(begin, &context.from)?;
-                Ok(Capture::Log(super::log_capture::LogCapture::prepare(
-                    core,
-                    store,
-                    context,
-                    &self.recovery,
-                    &self.key,
-                )?))
+                Ok(Capture::Log(Box::new(
+                    super::log_capture::LogCapture::prepare(
+                        core,
+                        store,
+                        context,
+                        &self.recovery,
+                        &self.key,
+                    )?,
+                )))
             }
         }
     }
@@ -125,7 +127,7 @@ impl Source {
                 let core = self
                     .runtime
                     .resume_mutation_log_capture(&saved.request_id)?;
-                Ok(super::capture::Capture::Log(
+                Ok(super::capture::Capture::Log(Box::new(
                     super::log_capture::LogCapture::prepare(
                         core,
                         store,
@@ -133,7 +135,7 @@ impl Source {
                         &self.recovery,
                         &self.key,
                     )?,
-                ))
+                )))
             }
         }
     }
@@ -143,7 +145,7 @@ impl Source {
             super::work::Work::Snapshot { .. } => {
                 self.runtime
                     .cancel_unsubmitted_byte_backup_capture(begin, &self.key)
-                    .await?
+                    .await?;
             }
             super::work::Work::MutationLog { .. } => self
                 .runtime

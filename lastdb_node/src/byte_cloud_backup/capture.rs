@@ -9,7 +9,7 @@ use std::io::Read;
 
 pub(super) enum Capture {
     Snapshot(ByteBackupCapture),
-    Log(LogCapture),
+    Log(Box<LogCapture>),
 }
 impl Capture {
     pub fn begin(&self) -> Result<Begin> {

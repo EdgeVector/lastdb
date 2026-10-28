@@ -4,6 +4,7 @@ mod closure;
 mod download;
 mod inventory;
 mod local;
+mod logs;
 mod native;
 mod runs;
 mod session;
