@@ -13,6 +13,7 @@ pub(super) struct Source {
     pub source_home: Id,
     pub recovery: RecoveryDescriptor,
     pub key: Zeroizing<[u8; 32]>,
+    pub retain_source_manifest: bool,
 }
 impl Source {
     pub fn from_host(host: &crate::host::Host) -> Result<Self> {
@@ -35,6 +36,29 @@ impl Source {
             },
             runtime,
             key: Zeroizing::new(keys.encryption_key()),
+            retain_source_manifest: false,
+        })
+    }
+
+    pub fn from_stopped(
+        runtime: Arc<PackRuntime>,
+        keypair: &fold_db::security::Ed25519KeyPair,
+        account: AccountId,
+    ) -> Result<Self> {
+        let seed = Zeroizing::new(keypair.secret_key_bytes());
+        let keys = E2eKeys::from_ed25519_seed(&seed).map_err(|_| BackupError::Identity)?;
+        Ok(Self {
+            source_home: Id::try_from(runtime.native_home_id().to_string())?,
+            runtime,
+            account,
+            recovery: RecoveryDescriptor {
+                profile: RecoveryProfile::MiniPortableV1,
+                account_public_key: Digest::try_from(fold_db::hex::hex_lower(
+                    keypair.public_key_bytes(),
+                ))?,
+            },
+            key: Zeroizing::new(keys.encryption_key()),
+            retain_source_manifest: true,
         })
     }
     pub fn saved(&self, request_id: Id, endpoint: String) -> Saved {

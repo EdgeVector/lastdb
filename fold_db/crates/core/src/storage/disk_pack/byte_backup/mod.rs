@@ -30,6 +30,15 @@ pub struct ByteBackupObject {
     pub input: TransferInput,
     pub receipt: Option<ObjectReceipt>,
 }
+
+/// Original opaque object and complete native-file extents, before release.
+/// This contains no account key, temporary grant, or decoded user record.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ByteBackupObjectManifest {
+    pub input: TransferInput,
+    pub native_files: Vec<ClientNativeFile>,
+}
 #[derive(Clone, Debug)]
 pub struct ByteBackupCaptureStatus {
     pub ready: bool,
@@ -108,6 +117,16 @@ impl ByteBackupCapture {
         Ok(ByteBackupObject {
             input: object.input,
             receipt: object.receipt,
+        })
+    }
+
+    pub fn object_manifest(&self, index: u64) -> StorageResult<ByteBackupObjectManifest> {
+        let state = self.lock()?;
+        self.require_export(&state)?;
+        let object = self.inner.object(&state, index)?;
+        Ok(ByteBackupObjectManifest {
+            input: object.input,
+            native_files: object.native_files,
         })
     }
     pub fn confirm(&self, index: u64, receipt: &ObjectReceipt) -> StorageResult<()> {

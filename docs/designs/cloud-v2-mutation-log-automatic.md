@@ -131,6 +131,22 @@ After replay, the client verifies the complete native closure, account key proof
 Only the complete valid destination becomes available as a restored home.
 The restored home starts with automatic backup off.
 
+## Final recovery point for a program upgrade
+
+A clean stop writes the storage totals after the live snapshot.
+The stopped native files can therefore differ from that snapshot.
+The upgrade first requires a complete live backup, then a clean stop with its exact session and flush receipt.
+Before it selects the new program pair, the same V2 worker takes a final snapshot from the stopped home.
+This step starts no database, copies no primary home, and changes no native format or encryption.
+It starts no merge worker and removes no native files.
+
+The final snapshot keeps all source, account, counter, file, provider, quota, and reservation checks.
+The client saves the original file extents before normal source release.
+It then reads each accepted object from its provider and verifies every complete native file hash.
+Both native CURRENT files must remain unchanged throughout this step.
+The upgrade requires this exact accepted stopped cut before it selects the new pair.
+An error retains the exact backup request and its obligations, and the upgrade restores the old program pair.
+
 ## Work and acceptance
 
 1. Add the optional native journal and bounded commit-file retention. Keep it off by default.

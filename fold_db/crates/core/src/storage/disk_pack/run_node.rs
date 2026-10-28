@@ -208,15 +208,30 @@ impl PackNamespacedStore {
     }
 
     pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
+        Self::open_run_with_merges(path, node_key, true)
+    }
+
+    pub(super) fn open_run_with_merges(
+        path: &Path,
+        node_key: Option<&[u8; 32]>,
+        resume_merges: bool,
+    ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         let range_order = super::run_admission::admit(path, node_key)?;
-        let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
-        let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
+        let open = if resume_merges {
+            RunHome::open
+        } else {
+            RunHome::open_existing_for_backup
+        };
+        let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
+        let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let v2 = physical::V2Home::new(home, cas, range_order);
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(v2, root, initializing, space::policy_from_env()?);
-        store.runtime.resume_merges();
+        if resume_merges {
+            store.runtime.resume_merges();
+        }
         Ok(store)
     }
 }

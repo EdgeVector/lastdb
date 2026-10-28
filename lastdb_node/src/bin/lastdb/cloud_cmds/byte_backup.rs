@@ -13,6 +13,35 @@ pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let (request, json) = match action {
+        ByteBackupCommand::StartStopped {
+            request_id,
+            expected_user_hash,
+            stopped_pid,
+            stopped_start_ts,
+            json,
+        } => {
+            let request = lastdb_node::byte_cloud_backup::StoppedBackupRequest {
+                request_id: Id::try_from(request_id)
+                    .map_err(|_| "invalid stopped V2 request ID")?,
+                account_id: cloud_backup_protocol::AccountId::try_from(expected_user_hash)
+                    .map_err(|_| "invalid stopped V2 account")?,
+                stopped_pid,
+                stopped_start_ts,
+            };
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| "cannot construct stopped V2 backup runtime")?;
+            let report = runtime
+                .block_on(lastdb_node::byte_cloud_backup::backup_stopped(
+                    home, request,
+                ))
+                .map_err(|error| error.to_string())?;
+            return print(
+                &serde_json::to_value(report).map_err(|_| "cannot encode stopped V2 report")?,
+                json,
+            );
+        }
         ByteBackupCommand::Start { request_id, json } => {
             let request_id =
                 Id::try_from(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))

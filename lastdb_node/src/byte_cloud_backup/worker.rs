@@ -45,6 +45,9 @@ pub(super) async fn run(
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?.clone();
     let capture = source.prepare(saved, store).await?;
     refresh(&capture, store, saved)?;
+    if source.retain_source_manifest {
+        super::stopped::retain_manifest(&capture, store)?;
+    }
     source.validate(saved)?;
     let result = drive(source, &capture, store, saved, client, pause).await;
     source.validate(saved)?;

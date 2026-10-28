@@ -145,6 +145,20 @@ impl PackNamespacedStore {
     /// key-format proofs. It never creates a home or finishes a creation;
     /// the node does those when it starts.
     pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+        Self::open_complete_existing(path, node_key, true)
+    }
+
+    /// A stopped-home backup owns both native homes without a logical database
+    /// boot or merge worker. Capture may write only its normal backup metadata.
+    pub fn open_existing_for_backup(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+        Self::open_complete_existing(path, node_key, false)
+    }
+
+    fn open_complete_existing(
+        path: &Path,
+        node_key: &[u8; 32],
+        resume_merges: bool,
+    ) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         if !path.join(NODE_MARKER).try_exists()? || run_node::creation_pending(path)? {
             return Err(StorageError::InvalidOperation(format!(
@@ -156,7 +170,7 @@ impl PackNamespacedStore {
         if !run_node::is_run_node(path)? {
             return Err(run_node::not_v2(path));
         }
-        Self::open_run(path, Some(node_key))
+        Self::open_run_with_merges(path, Some(node_key), resume_merges)
     }
 
     /// One runtime over an opened physical home and its published root.

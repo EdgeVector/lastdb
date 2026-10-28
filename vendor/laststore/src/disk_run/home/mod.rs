@@ -73,7 +73,7 @@ use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -206,14 +206,47 @@ impl RunHome {
     /// Open an existing home, take its owner lock, and remove what a crash
     /// left: temporary files and runs that CURRENT does not name.
     pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
+        Self::open_owned(root, key, true)
+    }
+
+    /// Own an existing complete home for backup without creation or crash
+    /// cleanup. The caller must not submit writes or merges on this owner.
+    pub fn open_existing_for_backup(root: &Path, key: &[u8; 32]) -> Result<Self> {
+        if root.canonicalize()? != root {
+            return Err(Error::Config("backup home path is not canonical".into()));
+        }
+        Self::open_owned(root, key, false)
+    }
+
+    fn open_owned(root: &Path, key: &[u8; 32], cleanup: bool) -> Result<Self> {
         let root = root.canonicalize()?;
         let identity = read_descriptor(&root)?;
-        let lock = OpenOptions::new()
-            .create(true)
+        let mut options = OpenOptions::new();
+        options
+            .create(cleanup)
             .truncate(false)
             .write(true)
-            .mode(0o600)
-            .open(root.join("LOCK"))?;
+            .mode(0o600);
+        if !cleanup {
+            options.custom_flags(
+                rustix::fs::OFlags::NOFOLLOW.bits() as i32
+                    | rustix::fs::OFlags::NONBLOCK.bits() as i32,
+            );
+        }
+        let lock = options.open(root.join("LOCK"))?;
+        if !cleanup {
+            let info = lock.metadata()?;
+            if !info.is_file()
+                || info.uid() != rustix::process::geteuid().as_raw()
+                || info.mode() & 0o077 != 0
+                || info.len() != 0
+                || info.nlink() != 1
+            {
+                return Err(Error::Config(
+                    "backup owner lock is not an existing private file".into(),
+                ));
+            }
+        }
         match rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
             Ok(()) => {}
             Err(error) if error == rustix::io::Errno::WOULDBLOCK => {
@@ -225,7 +258,9 @@ impl RunHome {
         }
         let manifest = Manifest::load(&root, key, identity)?;
         let runs = root.join(RUNS);
-        remove_leftovers(&root, &runs, &manifest)?;
+        if cleanup {
+            remove_leftovers(&root, &runs, &manifest)?;
+        }
         Ok(Self {
             root,
             runs,
