@@ -28,7 +28,7 @@ impl Host {
         let (seed, freshly_generated) = load_or_generate_seed_with_meta(home)?;
         if freshly_generated {
             // Same BIP39 path as `lastdbd connect` invite: phrase ↔ identity.key
-            // ↔ E2E content/index keys. Print once so cloud enroll later is
+            // ↔ the E2E content key. Print once so cloud enroll later is
             // restore-from-phrase, not a second local encode dance.
             match bip39::Mnemonic::from_entropy(&seed) {
                 Ok(mnemonic) => {

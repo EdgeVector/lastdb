@@ -13,7 +13,7 @@ const CONTENT_KEY_INFO: &[u8] = b"fold:content-key";
 /// `encryption_key`, the AES-256-GCM account content key. HashKey tokens use
 /// each molecule bundle's own blind key, not a key derived here.
 ///
-/// All fields are zeroized when the struct (or any clone of it) is dropped, so
+/// The key is zeroized when the struct (or any clone of it) is dropped, so
 /// the derived key bytes do not linger in freed memory (at-rest threat model
 /// Gap G3, `docs/security/at-rest-threat-model.md`). The by-value accessors
 /// below still hand out short-lived stack copies — those are consumed
@@ -24,7 +24,7 @@ pub struct E2eKeys {
 }
 
 impl E2eKeys {
-    /// Derive E2E keys from a 32-byte secret using HKDF-SHA256.
+    /// Derive the E2E key from a 32-byte secret using HKDF-SHA256.
     pub fn from_secret(secret: &[u8; 32]) -> Self {
         let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), secret);
 
@@ -35,7 +35,7 @@ impl E2eKeys {
         Self { encryption_key }
     }
 
-    /// Derive E2E keys from an Ed25519 private key seed.
+    /// Derive the E2E key from an Ed25519 private key seed.
     ///
     /// Converts the Ed25519 seed to an X25519 secret key, then derives
     /// the encryption key via HKDF. This allows a single Ed25519
@@ -53,7 +53,7 @@ impl E2eKeys {
         Ok(Self::from_secret(&secret))
     }
 
-    /// AES-256-GCM key for atom content encryption.
+    /// AES-256-GCM content key. The disk home and the cloud backup use it.
     pub fn encryption_key(&self) -> [u8; 32] {
         self.encryption_key
     }
