@@ -37,6 +37,7 @@ def interrupt(node):
                 node.log = None
                 return {"signal": "SIGKILL", "owned_pid": process.pid,
                         "intent_present_after_stop": intent.exists(),
+                        "intent_sha256_after_stop": file_hash(intent) if intent.exists() else None,
                         "wait_seconds": round(time.monotonic() - started, 3)}
         except FileNotFoundError:
             pass
@@ -77,12 +78,24 @@ def attempt(args, number):
                     and recovered["intent_keys"] > 0 and recovered["intent_released"] is True
                     and recovered["cas_frontier_after"] == recovered["cas_frontier_before"] + 1,
                     "normal open did not complete the exact pending CAS deletion")
-        require(not (node.home / "data/disk-run/CAS_DELETE").exists(), "reopen retained the deletion intent")
+        intent = node.home / "data/disk-run/CAS_DELETE"
+        if result["interruption"]["intent_present_after_stop"]:
+            require(recovered is not None and recovered["intent_released"] is True,
+                    "normal open did not release the saved intent")
+            # Other due dwell chunks resume after normal open. A new intent
+            # has a fresh authenticated frame id; it must not be the saved one.
+            try:
+                current_intent = file_hash(intent)
+            except FileNotFoundError:
+                current_intent = None
+            require(current_intent != result["interruption"]["intent_sha256_after_stop"],
+                    "reopen retained the original deletion intent")
         records(node, pointers, True)
         files_after_recovery(node, pointers)
         result["counters"] = counters(node)
         receipt = request_and_wait(node)
         node.stop()
+        require(not intent.exists(), "completed cleanup retained a deletion intent")
         stops = [json.loads((output / "shutdown.json").read_text())]
         node.start()
         require(node.call("/api/db/native-status")[0]["native_disk"]["cas_delete_recovery"] is None,
@@ -94,7 +107,9 @@ def attempt(args, number):
                       deleted_blobs=COUNT, live_records=2, live_blobs=1,
                       live_file_bytes=FILE_BYTES, live_file_sha256=pointers[-1]["sha256"],
                       cleanup=receipt, complete_cleanup=True, normal_reopened_boots=2, no_forged_state=True)
+        result["intent_absent_after_cleanup"] = True
         node.stop()
+        require(not intent.exists(), "second clean boot retained a deletion intent")
         stops.append(json.loads((output / "shutdown.json").read_text()))
         result["clean_shutdowns"] = stops
         complete = True
