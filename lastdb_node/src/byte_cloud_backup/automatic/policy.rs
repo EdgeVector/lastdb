@@ -189,6 +189,7 @@ pub(in crate::byte_cloud_backup) fn configure(
     policy.state.paused = None;
     if let Some(pending) = &policy.pending {
         Store::open(&host.home, &pending.id)?.write("pause.json", &Option::<PauseState>::None)?;
+        host.byte_backup.acknowledge_completion(&pending.id);
     }
     policy.save(host)?;
     native(host)?.configure_mutation_log(true)?;

@@ -149,6 +149,17 @@ fn pending_job(
         if saved.terminal() {
             return complete(host, policy, &saved, now);
         }
+        if let Some(completion) = host.byte_backup.snapshot().last_completion {
+            if completion.invocation.request_id == pending.id {
+                if let crate::backup_runtime::InvocationOutcome::Paused(pause) = completion.outcome
+                {
+                    if pause.disposition == Disposition::Attention {
+                        policy.state.paused = Some(pause);
+                        return policy.save(host);
+                    }
+                }
+            }
+        }
         let pause = store::read::<Option<PauseState>>(
             &Store::base(&host.home)
                 .join("jobs")

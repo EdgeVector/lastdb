@@ -99,6 +99,19 @@ impl BackupRuntime {
         self.changed
             .send_modify(|state| state.wake_revision = state.wake_revision.wrapping_add(1));
     }
+    /// Explicit owner re-enable acknowledges this request's previous pause.
+    /// The caller holds the transition lock; an active invocation stays active.
+    pub(crate) fn acknowledge_completion(&self, request: &Id) {
+        self.changed.send_modify(|state| {
+            if state
+                .last_completion
+                .as_ref()
+                .is_some_and(|done| &done.invocation.request_id == request)
+            {
+                state.last_completion = None;
+            }
+        });
+    }
     /// Called while the owner transition lock protects consent and admission.
     pub(crate) fn check_admission(&self) -> Result<()> {
         if self.changed.borrow().shutting_down {
