@@ -33,6 +33,9 @@ class OwnedNode:
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
         self.backup_source, self.pointer = backup_source, None
+        # A restore must prove the selected bytes before any TTL worker can
+        # erase an expired key and conceal a missing journal deletion.
+        self.ttl_sweep = False
         require(len(str(home / "data/folddb-full.sock").encode()) < 104, "socket_path_size")
 
     def call(self, path, body=None, binary=False):
@@ -74,7 +77,8 @@ class OwnedNode:
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)],
             env=dict(self.programs.environment,
-                     LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false"),
+                     LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
+                     LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0"),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         deadline = time.monotonic() + 120
