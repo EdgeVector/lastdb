@@ -42,6 +42,18 @@ impl MutationReplay {
             cas: self.cas.current_root().frontier(),
         }
     }
+    /// Only after the caller durably advances beyond every part in a checkpoint.
+    /// Physical native compaction bounds replay files without changing frontiers.
+    pub fn settle(&self) -> StorageResult<()> {
+        let before = self.frontiers();
+        for home in [&self.main, &self.cas] {
+            while home.merge_step().map_err(map)?.is_some() {}
+        }
+        if self.frontiers() != before {
+            return Err(invalid("mutation replay compaction changed frontier"));
+        }
+        Ok(())
+    }
     /// A durable caller cursor precedes the next part. An exact repeated part is allowed.
     pub fn part(&self, entry: &LogEntry, part_index: usize, source: &Path) -> StorageResult<()> {
         let part = entry

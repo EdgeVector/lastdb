@@ -8,7 +8,10 @@ This design replaces automatic full snapshots as the frequent backup path.
 The daemon uploads new mutation-log batches without a manual request.
 It uploads a full snapshot once per day by default.
 The owner can configure the snapshot interval separately from the log upload interval.
-The proposed defaults are 86400 seconds for snapshots and 60 seconds for log uploads.
+The defaults are 86400 seconds for snapshots and 60 seconds for log uploads.
+The command is `lastdb cloud backup-v2 enable-automatic --log-interval-seconds 60 --snapshot-interval-seconds 86400`.
+Both intervals accept 60 through 604800 seconds.
+The owner uses `disable-automatic` to stop new requests and retries.
 An initial full snapshot establishes the recovery base when automatic backup starts.
 
 LastDB owns the mutation log, its order, native formats, encryption, capture, and replay.
@@ -110,6 +113,12 @@ It restores the base snapshot into an absent private destination through the cur
 It then replays complete journal entries in order through the native file-import path.
 Each entry must match the preceding entry hash and both expected native frontiers.
 A missing, repeated, reordered, wrong-account, or corrupt entry prevents publication.
+
+The client saves its replay position after each original native part.
+An exact repeated part is safe after a crash.
+After a complete checkpoint and a durable cursor, native compaction can remove replaced runs.
+Compaction changes no logical frontier and keeps the replay file count bounded.
+The restore starts no TTL, conflict, dwell, or daemon worker before the final proof.
 
 Replay preserves the original stored mutations and encryption keys.
 It creates fresh process locks and does not use the source database.

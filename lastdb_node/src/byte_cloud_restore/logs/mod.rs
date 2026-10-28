@@ -101,6 +101,16 @@ pub(super) async fn restore(
     if cursor.previous != *session.accepted() || cursor.position != latest.through {
         return Err(RestoreError::Invalid("mutation complete selected prefix"));
     }
+    let replay = run_restore::MutationReplay::open(
+        &session.root.join("home/data"),
+        keys.content_key(),
+        &latest.anchor,
+    )
+    .map_err(|_| RestoreError::Invalid("final native replay admission"))?;
+    replay
+        .settle()
+        .map_err(|_| RestoreError::Invalid("final native replay compaction"))?;
+    drop(replay);
     let proof = run_restore::verify_replayed(
         &session.root.join("home/data"),
         &latest.anchor,
@@ -194,13 +204,16 @@ async fn replay_checkpoint(
     if replay.frontiers() != root.through.frontiers || cursor.position != root.through {
         return Err(RestoreError::Invalid("complete checkpoint frontier"));
     }
-    drop(replay);
     checkpoint::release(session, &root)?;
     cursor.remaining -= 1;
     cursor.previous = accepted;
     cursor.entry = 0;
     cursor.part = 0;
-    plan::save(session, &session.root.join("chain/cursor.json"), cursor)
+    plan::save(session, &session.root.join("chain/cursor.json"), cursor)?;
+    replay
+        .settle()
+        .map_err(|_| RestoreError::Invalid("complete checkpoint native compaction"))?;
+    Ok(())
 }
 
 fn context<'a>(
