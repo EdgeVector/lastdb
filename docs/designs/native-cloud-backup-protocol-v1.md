@@ -473,9 +473,9 @@ An authenticated request body never grants authority by itself.
 
 | Route | Request | Successful or operation result |
 | --- | --- | --- |
-| jobs/begin | JobBeginRequest | JobBeginResult |
-| jobs/status | JobStatusRequest | JobStatusResult |
-| jobs/close | JobCloseRequest | JobCloseResult |
+| jobs/begin | JobBeginRequest | JobResult |
+| jobs/status | JobStatusRequest | JobResult |
+| jobs/close | JobCloseRequest | JobResult |
 | transfers/prepare | TransferPrepareRequest | TransferBatchResponse |
 | transfers/status | TransferStatusRequest | TransferBatchResponse |
 | transfers/resume | TransferResumeRequest | TransferResumeResult |
