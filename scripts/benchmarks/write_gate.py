@@ -52,7 +52,8 @@ def measure_home(args, label, pair):
     binary = getattr(args, label)
     directory = args.output / f"pair-{pair}-{label}"
     directory.mkdir()
-    node = Node(binary, revision, directory, environment={"LASTDB_SEARCH_ENABLED": "0"})
+    node = Node(binary, revision, directory, environment={"LASTDB_SEARCH_ENABLED": "0",
+                "LASTDBD_STDIO_LOG_ROTATION": "1"})
     home = {"label": label, "pair": pair, "revision": revision,
             "directory": directory.name, "complete": False, "cases": []}
     try:
