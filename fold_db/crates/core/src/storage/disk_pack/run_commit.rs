@@ -38,16 +38,12 @@ impl PackRuntime {
         RunHome::check_mutations(&operations).map_err(map)?;
         let limit = self.batch_operation_limit();
         let batch_bytes = write::prefix_batch_bytes(previous, &operations, limit)?;
-        let intent_bytes = cas_delete::space(&operations)?
+        let intent_keys = cas_delete::key_bytes(&operations)?
             + previous
-                .map(write::PreparedCommit::cas_delete_space)
+                .map(write::PreparedCommit::cas_delete_key_bytes)
                 .transpose()?
                 .unwrap_or(0);
-        if intent_bytes > laststore::disk_run::home::MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
-            return Err(StorageError::WriteResourceLimit {
-                detail: "CAS intent prefix exceeds its byte bound".into(),
-            });
-        }
+        let intent_bytes = cas_delete::space(intent_keys)?;
         let reserved_bytes = batch_bytes.saturating_add(intent_bytes);
         // A run file holds about the batch bytes; a merge reuses the space
         // of the runs it replaces once their last read ends.

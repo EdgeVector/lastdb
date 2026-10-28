@@ -22,24 +22,31 @@ struct Intent {
     keys: Vec<String>,
 }
 
-/// Conservative encoded size; admission reserves this before accepting a batch.
-pub(super) fn space(operations: &[HomeMutation]) -> StorageResult<u64> {
-    let bytes = operations
+/// Variable encoded bytes only; the accepted prefix adds fixed overhead once.
+pub(super) fn key_bytes(operations: &[HomeMutation]) -> StorageResult<u64> {
+    operations
         .iter()
         .filter(|op| op.collection == CAS_COLLECTION && op.body.is_none())
         .try_fold(0u64, |bytes, op| {
             bytes.checked_add((op.key.len() as u64).saturating_mul(6) + 4)
         })
-        .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
+        .ok_or_else(|| invalid("CAS deletion intent size overflow"))
+}
+
+/// Conservative encoded size; admission reserves this before accepting a batch.
+pub(super) fn space(bytes: u64) -> StorageResult<u64> {
     if bytes == 0 {
         return Ok(0);
     }
-    if bytes + 1024 > laststore::disk_run::home::MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
+    let reserved = bytes
+        .checked_add(8192)
+        .ok_or_else(|| invalid("CAS deletion intent size overflow"))?;
+    if reserved > laststore::disk_run::home::MAX_CAS_DELETE_CHECKPOINT_BYTES as u64 {
         return Err(StorageError::WriteResourceLimit {
             detail: "CAS deletion intent exceeds its byte bound".into(),
         });
     }
-    Ok(bytes + 8192)
+    Ok(reserved)
 }
 
 pub(super) fn save(

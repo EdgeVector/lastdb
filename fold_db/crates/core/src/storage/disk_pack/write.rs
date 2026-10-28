@@ -25,8 +25,8 @@ impl PreparedCommit {
         &self.space
     }
 
-    pub(super) fn cas_delete_space(&self) -> StorageResult<u64> {
-        cas_delete::space(&self.operations)
+    pub(super) fn cas_delete_key_bytes(&self) -> StorageResult<u64> {
+        cas_delete::key_bytes(&self.operations)
     }
 }
 
