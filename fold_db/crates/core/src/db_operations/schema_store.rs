@@ -38,7 +38,6 @@ mod retention_recheck;
 mod retention_sharing;
 mod write;
 
-pub(crate) use catalog_keys::SchemaRetentionAnchor;
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
 

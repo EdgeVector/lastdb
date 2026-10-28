@@ -80,7 +80,7 @@ pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{
-    record_digest, slot_dir_prefix, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
+    record_digest, Lane, QueueValue, RecordSlot, RetentionCursor, StepOutcome,
 };
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
