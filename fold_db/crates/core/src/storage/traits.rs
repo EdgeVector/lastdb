@@ -17,6 +17,9 @@
 //! See the parent [`crate::storage`] module docs for the layering diagram
 //! (traits → laststore/inmemory → encrypting wrappers).
 
+// `traits/typed.rs` takes these names through `use super::*`.
+use super::error::{StorageError, StorageResult};
+
 mod scan;
 mod typed;
 
