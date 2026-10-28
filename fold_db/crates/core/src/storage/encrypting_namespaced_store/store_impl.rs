@@ -33,10 +33,4 @@ impl NamespacedStore for EncryptingNamespacedStore {
     async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
         self.inner.delete_namespace(name).await
     }
-
-    // Read cost is a property of the physical store, not of the encryption
-    // seam.
-    fn walk_ids_visited(&self) -> Option<u64> {
-        self.inner.walk_ids_visited()
-    }
 }

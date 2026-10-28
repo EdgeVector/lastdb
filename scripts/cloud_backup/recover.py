@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Restore one pinned DEV backup with the actual CI-built Mini pair."""
+"""Run real DEV automatic backup and recovery with the exact CI-built Mini pair."""
 
 import argparse
 import hashlib
@@ -16,6 +16,7 @@ import time
 sys.dont_write_bytecode = True
 
 from node import OwnedNode
+from automatic import Automatic
 from programs import Programs
 from restore_receipts import restored
 from support import (ACCOUNT, OperationError, baseline_from_environment, child_environment,
@@ -28,10 +29,10 @@ class Operation:
         self.root_identity, self.preserve = None, False
         self.output_owned = False
         self.summary = {
-            "schema": "lastdb.cloud-dev-restore.v1", "mode": "restore", "source": args.source,
+            "schema": "lastdb.cloud-dev-automatic.v1", "source": args.source,
             "version": args.version, "account": ACCOUNT, "result": "failed",
-            "remote_read_only": True, "new_backup_requests": 0, "primary_access": False,
-            "coverage": "pinned accepted format-4 restore; upload and acceptance are not covered",
+            "primary_access": False, "provider_deletions": 0,
+            "coverage": "pinned recovery, automatic snapshot/log, restart, changed snapshot interval, and fresh recovery",
         }
 
     def prepare(self):
@@ -66,6 +67,7 @@ class Operation:
                 "dev_api_key")
         home = self.root / "credentials"
         save_json(home / "cloud_sync.json.paused", {"api_url": dev_endpoint(), "api_key": key})
+        self.api_key = key.encode()
         require(set(path.name for path in home.iterdir()) == {"cloud_sync.json.paused"},
                 "credential_only_home")
         del key
@@ -77,12 +79,9 @@ class Operation:
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         require(0 < len(phrase) <= 4096, "recovery_phrase")
         started = time.monotonic()
-        try:
-            report = self.programs.restore(credentials, destination, self.baseline, phrase)
-        finally:
-            del phrase
-            (credentials / "cloud_sync.json.paused").unlink()
-        require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 1024**3,
+        self.summary["stage"] = "pinned-restore"
+        report = self.programs.restore(credentials, destination, self.baseline, phrase)
+        require(type(report.get("native_bytes")) is int and 0 < report["native_bytes"] <= 24 * 1024**2,
                 "pinned_ci_native_size")
         native = restored(destination, report, self.baseline)
         # The per-file names and all product controls remain private in memory.
@@ -91,6 +90,7 @@ class Operation:
         self.summary["restore"] = native
         self.summary["restore_seconds"] = round(time.monotonic() - started, 3)
         self.node = OwnedNode(destination, self.programs)
+        self.summary["stage"] = "pinned-restart"
         boots = []
         for _number in range(2):
             self.node.start()
@@ -101,6 +101,16 @@ class Operation:
                 self.preserve = True
                 raise
         require(self.node.clean_stops == 2, "two_clean_restarts")
+        try:
+            self.summary["automatic"] = Automatic(self, credentials, phrase).run()
+        except BaseException:
+            # Keep uncertain captures private; never delete cloud allocations.
+            self.preserve = True
+            raise
+        finally:
+            del phrase
+            self.api_key = None
+            (credentials / "cloud_sync.json.paused").unlink()
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
                             keyed_reads=boots, file_bytes=self.baseline["file_bytes"],
                             file_sha256=self.baseline["file_sha256"])
@@ -120,7 +130,7 @@ class Operation:
                 and self.root.name.startswith("ldb-cb-"), "cleanup_root_identity")
         require(self.node is None or self.node.process is None, "cleanup_no_daemon")
         if self.preserve:
-            self.summary["cleanup"] = "private runner data retained after a strict stop failure"
+            self.summary["cleanup"] = "private runner data retained after an uncertain operation or strict stop failure"
             self.summary["private_recovery_path"] = str(self.root)
         else:
             shutil.rmtree(self.root)
@@ -131,7 +141,8 @@ class Operation:
             save_json(self.args.output / "summary.json", self.summary)
             step_summary(self.summary)
         # Only this fixed summary can enter the Actions log or summary.
-        print(json.dumps({"result": self.summary["result"], "mode": "restore",
+        print(json.dumps({"result": self.summary["result"],
+                          "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
                           "source": self.args.source, "primary_access": False}, sort_keys=True))
 
 
@@ -142,7 +153,7 @@ def step_summary(summary):
     path = Path(destination)
     runner = Path(os.environ["RUNNER_TEMP"]).resolve()
     require(path.is_absolute() and path.parent.resolve().is_relative_to(runner), "ci_summary_path")
-    text = "\n### DEV backup recovery\n\n```json\n"
+    text = "\n### DEV automatic backup and recovery\n\n```json\n"
     text += json.dumps(summary, sort_keys=True, indent=2) + "\n```\n"
     require(len(text.encode()) <= 65536, "ci_summary_size")
     descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
@@ -155,7 +166,6 @@ def main():
     parser.add_argument("--bin-dir", required=True, type=Path)
     parser.add_argument("--source", required=True)
     parser.add_argument("--version", required=True)
-    parser.add_argument("--mode", required=True, choices=["restore"])
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     os.umask(0o077)
@@ -164,7 +174,7 @@ def main():
         raise OperationError("operation_cancelled_or_deadline")
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(1800)
+    signal.alarm(2700)
     try:
         operation.prepare()
         operation.execute()
@@ -179,7 +189,9 @@ def main():
             operation.cleanup()
         except BaseException:
             operation.summary.update(result="failed", cleanup="incomplete",
-                                     failure="owned_cleanup_failed")
+                                     failure="owned_cleanup_failed", stage="cleanup")
+        if operation.summary["result"] == "passed":
+            operation.summary["stage"] = "complete"
         operation.finish()
     return 0 if operation.summary["result"] == "passed" else 1
 

@@ -1,13 +1,10 @@
-//! Query selection, admission, keyed pages, and captured-context row order.
-
-use std::cmp::Ordering;
+//! Query selection, admission, and keyed-page rules.
 
 use fold_db::access::AccessContext;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::key_comparison::{KeyComparisonContext, RangeKeyComparison};
-use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
-use fold_db::schema::types::{KeyValue, QueryCursor, SchemaError};
-use serde_json::Value;
+use fold_db::schema::types::key_comparison::KeyComparisonContext;
+use fold_db::schema::types::operations::{Query, SortOrder};
+use fold_db::schema::types::{KeyValue, QueryCursor};
 
 use crate::qos::Lane;
 use crate::HostError;
@@ -21,7 +18,12 @@ pub(super) fn validate_query_options(query: &Query, has_cursor: bool) -> Result<
             "expected_total_count requires a keyed query with no post-key filters".to_string(),
         ));
     }
-    if has_cursor && !is_key_restricted_filter(query.filter.as_ref()) {
+    if has_cursor
+        && !query
+            .filter
+            .as_ref()
+            .is_some_and(HashRangeFilter::is_key_restricted)
+    {
         return Err(HostError::new(
             400,
             "Cross-hash query cursors are unsupported; use an offset or query one hash with a cursor"
@@ -155,93 +157,6 @@ pub(super) fn keyed_window(
     Ok(Some(window))
 }
 
-/// Sort with the caller's captured range rule, without ambient request state.
-/// Validate even a one-row response before any comparator can see a bad range.
-pub(super) fn sort_rows(
-    rows: &mut [Value],
-    sort_order: Option<&SortOrder>,
-    order_by: Option<&QueryOrderBy>,
-    range_comparison: Option<&RangeKeyComparison>,
-) -> Result<(), HostError> {
-    if let Some(comparison) = range_comparison {
-        for row in rows.iter() {
-            comparison
-                .validate_value(row["key"]["range"].as_str().unwrap_or(""))
-                .map_err(SchemaError::InvalidData)?;
-        }
-    }
-    let mut error = None;
-    rows.sort_by(|left, right| {
-        match compare_rows(left, right, sort_order, order_by, range_comparison) {
-            Ok(order) => order,
-            Err(detail) => {
-                error.get_or_insert(detail);
-                Ordering::Equal
-            }
-        }
-    });
-    match error {
-        Some(error) => Err(error.into()),
-        None => Ok(()),
-    }
-}
-
-/// Compare response rows using only the supplied values and range rule.
-/// Field ordering uses the core's JSON order; otherwise the range is primary.
-/// Equal primary values use ascending range and then ascending hash ties, even
-/// when the caller requests descending order.
-fn compare_rows(
-    a: &Value,
-    b: &Value,
-    sort_order: Option<&SortOrder>,
-    order_by: Option<&QueryOrderBy>,
-    range_comparison: Option<&RangeKeyComparison>,
-) -> Result<Ordering, SchemaError> {
-    let a_range = a["key"]["range"].as_str().unwrap_or("");
-    let b_range = b["key"]["range"].as_str().unwrap_or("");
-    let range_order = match range_comparison {
-        Some(comparison) => comparison
-            .compare(a_range, b_range)
-            .map_err(SchemaError::InvalidData)?,
-        None => a_range.cmp(b_range),
-    };
-    let primary = if let Some(order_by) = order_by {
-        let af = a
-            .get("fields")
-            .and_then(|fields| fields.get(&order_by.field));
-        let bf = b
-            .get("fields")
-            .and_then(|fields| fields.get(&order_by.field));
-        let ordering = fold_db::json_order::compare_json_values(af, bf);
-        match order_by.order.as_ref() {
-            Some(SortOrder::Desc) => ordering.reverse(),
-            _ => ordering,
-        }
-    } else {
-        match sort_order {
-            Some(SortOrder::Desc) => range_order.reverse(),
-            _ => range_order,
-        }
-    };
-    Ok(primary.then(range_order).then_with(|| {
-        let a_hash = a["key"]["hash"].as_str().unwrap_or("");
-        let b_hash = b["key"]["hash"].as_str().unwrap_or("");
-        a_hash.cmp(b_hash)
-    }))
-}
-
-/// Key/partition filters that do **not** require a full-schema product scan.
-/// `Page` / `PageAfter` / `SampleN` alone still walk the schema and are treated
-/// as unfiltered product scans for the deprecation gate.
-///
-/// The predicate itself lives on [`HashRangeFilter`] because the count path
-/// keys off the same distinction: a key-restricted read counts and pages its
-/// partition, an unfiltered one the whole schema. Two copies drifting apart is
-/// what let a key-restricted read pass the scan gate but miss the push-down.
-pub(super) fn is_key_restricted_filter(filter: Option<&HashRangeFilter>) -> bool {
-    filter.is_some_and(HashRangeFilter::is_key_restricted)
-}
-
 /// An unfiltered administrative query needs no post-key stage.
 pub(super) fn can_push_down(query: &Query) -> bool {
     query.filter.is_none() && !query.requires_post_key_work()
@@ -258,7 +173,11 @@ pub(super) fn can_push_down(query: &Query) -> bool {
 /// its input if a window were taken first. Those shapes keep the
 /// materialize-then-slice fallback.
 pub(super) fn can_push_down_key_restricted(query: &Query) -> bool {
-    is_key_restricted_filter(query.filter.as_ref()) && !query.requires_post_key_work()
+    query
+        .filter
+        .as_ref()
+        .is_some_and(HashRangeFilter::is_key_restricted)
+        && !query.requires_post_key_work()
 }
 
 /// Reversing one ascending key window also reverses its hash ties.
@@ -297,7 +216,7 @@ pub(super) fn caller_supplied_page(query: &Query) -> Option<(usize, usize)> {
 /// [`HashRangeFilter::Page`] that selects it, honouring `sort_order`. Records are
 /// stored/sliced in ascending `(range, hash)` order; a descending page counts
 /// from the high end, so map it to the matching ascending window (the fetched
-/// page is then re-ordered descending by [`super::rows::format_rows`]).
+/// page is then re-ordered descending by [`super::row_rules::sort_rows`]).
 pub(super) fn page_filter_for(
     sort_order: Option<&SortOrder>,
     total: usize,
@@ -321,7 +240,11 @@ pub(super) fn page_filter_for(
 /// Unkeyed administrative reads always use Bulk; other shapes retain the
 /// existing page-size policy.
 pub(super) fn lane_for_unknown_cardinality(query: &Query) -> Lane {
-    if !is_key_restricted_filter(query.filter.as_ref()) {
+    if !query
+        .filter
+        .as_ref()
+        .is_some_and(HashRangeFilter::is_key_restricted)
+    {
         // Administrative inspection may need to reject many other-layout
         // candidates before it can return even one logical record.
         return Lane::Bulk;

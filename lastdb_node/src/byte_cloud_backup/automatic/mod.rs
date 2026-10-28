@@ -70,7 +70,10 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
     policy.require_connection(host)?;
     let now = fold_db::clock::unix_secs();
     if let Some(id) = policy.cleanup.clone() {
-        if Store::active(&host.home)?.as_ref() != Some(&id) {
+        if !reserved(&id) {
+            policy.cleanup = None;
+            policy.save(host)?;
+        } else if Store::active(&host.home)?.as_ref() != Some(&id) {
             cleanup::retire(host, &id)?;
             policy.cleanup = None;
             policy.save(host)?;

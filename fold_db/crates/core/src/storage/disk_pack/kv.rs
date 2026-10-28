@@ -215,10 +215,6 @@ impl KvStore for PackKvStore {
         .await
     }
 
-    fn batch_put_has_durable_barrier(&self) -> bool {
-        transaction::PendingBatch::current(&self.runtime).is_none()
-    }
-
     async fn batch_mutate(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {
         self.change(mutations).await
     }

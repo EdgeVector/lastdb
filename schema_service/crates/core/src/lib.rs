@@ -50,6 +50,7 @@ pub mod builtin_schemas;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
+mod field_identity_validation;
 pub mod field_name_policy;
 mod lock_helpers;
 pub mod memory_persistence;
@@ -90,7 +91,9 @@ pub use state_native_resolve::{
 };
 pub mod types;
 mod vocabulary_admission;
+mod vocabulary_commit;
 mod vocabulary_matching;
+pub use vocabulary_commit::CanonicalVocabularyWrite;
 
 pub use app_identity::{
     env_label, AppIdentityConfig, AppPromoteError, AppPromoteOutcome, AppRegisterError,
@@ -147,9 +150,8 @@ pub use schema_resolver_enforce_gate::{
 };
 pub use shared_surface::{
     classify_legacy_schema_caller, classify_registration, include_in_shared_only_projection,
-    inventory_registrations, observe_legacy_schema_caller, project_shared_only_schemas,
-    validate_shared_surface_request, validate_surface_metadata, LegacySchemaCallerKind,
-    RegistrationClass, RegistrationInventory, SharedSurfaceAttachment, SharedSurfaceCompatibility,
+    observe_legacy_schema_caller, validate_shared_surface_request, validate_surface_metadata,
+    LegacySchemaCallerKind, RegistrationClass, SharedSurfaceAttachment, SharedSurfaceCompatibility,
     SharedSurfaceMetadata, SharedSurfaceProposal, SharedSurfaceProvenance,
     SharedSurfacePublishAttachRequest, SharedSurfacePurpose, SharedSurfaceValidationError,
     SharedSurfaceVisibility,

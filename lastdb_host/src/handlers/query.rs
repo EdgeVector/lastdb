@@ -8,11 +8,12 @@ mod rows;
 pub(in crate::handlers) use self::rows::*;
 mod conflicts;
 pub(in crate::handlers) use self::conflicts::*;
-mod paging;
-pub(in crate::handlers) use self::paging::*;
+mod response;
+pub(in crate::handlers) use self::response::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
 mod execute;
+mod row_rules;
 mod rules;
 
 /// Execute `POST /api/query`: resolve the schema, check request rules, and
@@ -94,7 +95,12 @@ async fn execute_query_scoped<H: HostNode>(
     // a secondary machine field. Key/partition filters (HashKey / HashRange*)
     // are allowed; bare list-all (including Page/PageAfter/SampleN alone)
     // requires an explicit admin/offline opt-in.
-    if !allow_full_scan && !rules::is_key_restricted_filter(query.filter.as_ref()) {
+    if !allow_full_scan
+        && !query
+            .filter
+            .as_ref()
+            .is_some_and(HashRangeFilter::is_key_restricted)
+    {
         let schema = host
             .fold_db()
             .schema_manager()
@@ -172,7 +178,11 @@ pub(super) async fn count_rows<H: HostNode>(
     ctx: &AccessContext,
 ) -> Result<Option<usize>, HostError> {
     let started = std::time::Instant::now();
-    let _permit = if rules::is_key_restricted_filter(query.filter.as_ref()) {
+    let _permit = if query
+        .filter
+        .as_ref()
+        .is_some_and(HashRangeFilter::is_key_restricted)
+    {
         None
     } else {
         Some(acquire_read_permit(host, Lane::Bulk).await?)

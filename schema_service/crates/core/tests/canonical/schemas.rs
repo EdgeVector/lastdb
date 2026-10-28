@@ -132,7 +132,74 @@ fn forged_field_hash_cannot_replace_the_canonical_identity() {
                 );
             }
         }
+        assert_declared_hash_cases(state, backend).await;
     });
+}
+
+async fn assert_declared_hash_cases(
+    state: schema_service_core::SchemaServiceState,
+    backend: Arc<InMemorySchemaPersistence>,
+) {
+    let record = state
+        .declare_field(&declaration("parcel-app", "delivery"))
+        .await
+        .expect("declaration");
+    let identity = record.fields[0].identity.clone();
+    let mut proposal = schema("parcel-app", false);
+    proposal
+        .field_hashes
+        .insert("parcel_delivery_status".into(), identity.clone());
+    proposal.field_declarations.insert(
+        "parcel_delivery_status".into(),
+        record.declaration_id.clone(),
+    );
+    let stored = accepted(
+        state
+            .add_schema(proposal.clone(), HashMap::new())
+            .await
+            .expect("verified declaration"),
+    );
+    assert_eq!(stored.field_hashes["parcel_delivery_status"], identity);
+    let reloaded = super::support::state(backend.clone()).await;
+    assert_eq!(
+        reloaded
+            .get_schema_by_name(&stored.name)
+            .expect("lookup")
+            .expect("stored schema")
+            .field_hashes["parcel_delivery_status"],
+        identity
+    );
+
+    let mut forged_hash = proposal.clone();
+    forged_hash
+        .field_hashes
+        .insert("parcel_delivery_status".into(), "00".repeat(32));
+    let mut unknown_declaration = proposal.clone();
+    unknown_declaration
+        .field_declarations
+        .insert("parcel_delivery_status".into(), "fd_unknown".into());
+    let mut different_meaning = proposal.clone();
+    different_meaning
+        .field_declarations
+        .insert("parcel_identifier".into(), record.declaration_id);
+    different_meaning
+        .field_hashes
+        .insert("parcel_identifier".into(), identity);
+    let mut unpermitted_app = proposal;
+    unpermitted_app.owner_app_id = Some("warehouse-app".into());
+    for invalid in [
+        forged_hash,
+        unknown_declaration,
+        different_meaning,
+        unpermitted_app,
+    ] {
+        let error = reloaded
+            .add_schema(invalid, HashMap::new())
+            .await
+            .expect_err("forged declaration reference");
+        assert!(error.to_string().contains("invalid_field_hash"), "{error}");
+    }
+    assert_eq!(backend.load_all_schemas().await.expect("schemas").len(), 1);
 }
 
 #[test]

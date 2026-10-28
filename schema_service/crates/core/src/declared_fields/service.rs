@@ -42,12 +42,15 @@ impl SchemaServiceState {
                 chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         }
         self.record_schema_write();
-        backend
-            .save_declared_field_definitions(&record, &fields, expected.as_ref())
-            .await
-            .map_err(|error| DeclaredFieldError::Internal(error.to_string()))?;
-        self.cache_committed_vocabulary(&fields)
-            .map_err(|error| DeclaredFieldError::Internal(error.to_string()))?;
+        self.commit_vocabulary(
+            &fields,
+            crate::vocabulary_commit::VocabularyCommit::Declaration {
+                record: &record,
+                expected: expected.as_ref(),
+            },
+        )
+        .await
+        .map_err(|error| DeclaredFieldError::Internal(error.to_string()))?;
         self.declared_fields
             .write()
             .map_err(|error| DeclaredFieldError::Internal(error.to_string()))?

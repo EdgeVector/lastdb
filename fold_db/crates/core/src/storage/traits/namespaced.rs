@@ -37,14 +37,4 @@ pub trait NamespacedStore: Send + Sync {
         }
         Ok(())
     }
-
-    /// Ids stepped over by keys-only walks since open, if this backend tracks
-    /// them. `None` on backends with no walk path.
-    ///
-    /// **Cheap by contract: one relaxed atomic load, no lock.** This is the
-    /// scan sensor: a read path that claims to be scan-free must leave this
-    /// counter unchanged. Wrapper stores delegate to their inner store.
-    fn walk_ids_visited(&self) -> Option<u64> {
-        None
-    }
 }

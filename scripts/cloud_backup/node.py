@@ -27,11 +27,15 @@ class Connection(http.client.HTTPConnection):
 
 
 class OwnedNode:
-    def __init__(self, home, programs):
+    def __init__(self, home, programs, backup_source=False):
         self.home, self.programs = home, programs
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
+        self.backup_source = backup_source
+        # A restore must prove the selected bytes before any TTL worker can
+        # erase an expired key and conceal a missing journal deletion.
+        self.ttl_sweep = False
         require(len(str(home / "data/folddb-full.sock").encode()) < 104, "socket_path_size")
 
     def call(self, path, body=None, binary=False):
@@ -56,6 +60,8 @@ class OwnedNode:
                 connection.close()
 
     def offline(self):
+        if self.backup_source:
+            return
         for name in ("cloud_sync.json", "cloud_sync.json.paused", "native_cloud_backup",
                      "cloud-byte-backup-v2-manual.json"):
             require(not os.path.lexists(self.home / name), "restored_home_cloud_off")
@@ -70,7 +76,11 @@ class OwnedNode:
         self.programs.verify()
         self.process = subprocess.Popen(
             [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)],
-            env=self.programs.environment, stdin=subprocess.DEVNULL,
+            env=dict(self.programs.environment,
+                     LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
+                     LASTDB_ISOLATED_COPY="1" if self.backup_source else "0",
+                     LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0"),
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
@@ -115,8 +125,9 @@ class OwnedNode:
         require(measured["integrity"]["unresolved_distinct_capped"] is False
                 and native["native_disk"]["writer_failed"] is False, "daemon_native_health")
         durability = measured["durability"]
-        require(durability["automatic_enabled"] is False and durability["running"] is False,
-                "daemon_backup_off")
+        if not self.backup_source:
+            require(durability["automatic_enabled"] is False and durability["running"] is False,
+                    "daemon_backup_off")
         self.offline()
         if readiness and durability["observed"] is False:
             return False
@@ -167,11 +178,17 @@ class OwnedNode:
                     "filter": {"HashKey": record["id"]}, "limit": 2, "offset": 0}
                    for record in baseline["records"]]
         reply = self.call("/api/queries/batch", {"queries": queries})
-        require(isinstance(reply.get("results"), list) and len(reply["results"]) == 16,
+        require(isinstance(reply.get("results"), list) and len(reply["results"]) == len(queries),
                 "record_batch_count")
         pointer = None
         for item, expected in zip(reply["results"], baseline["records"]):
             result = item["response"]
+            if expected.get("deleted") is True:
+                require(item["status"] == 200 and result["ok"] is True
+                        and result["returned_count"] == 0 and result["results"] == []
+                        and not result.get("has_more", False)
+                        and result.get("unresolved_rows", 0) == 0, "deleted_key_stays_absent")
+                continue
             require(item["status"] == 200 and result["ok"] is True
                     and result["returned_count"] == 1 and len(result["results"]) == 1
                     and not result.get("has_more", False)
@@ -186,9 +203,13 @@ class OwnedNode:
             if pointer is None:
                 pointer = fields["file"]
             require(fields["file"] == pointer, "shared_file_pointer")
+        require(pointer is not None and pointer == baseline.get("file_pointer", pointer),
+                "expected_file_pointer")
         self.verify_file(pointer, baseline)
         self.health()
-        return {"records": 16, "file_bytes": baseline["file_bytes"],
+        return {"records": sum(not record.get("deleted", False) for record in baseline["records"]),
+                "deleted_records": sum(record.get("deleted", False) for record in baseline["records"]),
+                "file_bytes": baseline["file_bytes"],
                 "file_sha256": baseline["file_sha256"], "exact_values": True,
                 "health_checked": True}
 

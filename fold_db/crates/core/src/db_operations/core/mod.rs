@@ -133,14 +133,6 @@ impl DbOperations {
             .map(|runtime| runtime.batch_operation_limit())
     }
 
-    /// Ids stepped over by keys-only walks since open — the scan sensor.
-    ///
-    /// One relaxed atomic load. A read path that claims to be scan-free can be
-    /// pinned by asserting this counter does not move across the call.
-    pub fn walk_ids_visited(&self) -> Option<u64> {
-        self.store.walk_ids_visited()
-    }
-
     /// Open a side namespace on the primary storage backend.
     pub async fn open_namespace(
         &self,

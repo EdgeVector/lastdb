@@ -4,6 +4,7 @@
 //! still decide logical deletion. Normal background merge policy is unchanged.
 
 use super::{RunHome, RunMerge, MAX_MERGE_INPUTS};
+use crate::space::SpacePolicy;
 use crate::Result;
 
 impl RunHome {
@@ -21,6 +22,11 @@ impl RunHome {
     /// unlinks can retain bytes independently. It also makes no cross-home
     /// completion claim for the node's main and CAS homes.
     pub fn cleanup_step(&self) -> Result<Option<RunMerge>> {
+        self.cleanup_step_with_space(&SpacePolicy::default())
+    }
+
+    /// Explicit cleanup uses the same replacement admission as automatic merges.
+    pub fn cleanup_step_with_space(&self, policy: &SpacePolicy) -> Result<Option<RunMerge>> {
         self.refuse_if_poisoned()?;
         let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
         let held = self.held();
@@ -36,6 +42,6 @@ impl RunHome {
         } else {
             None
         };
-        self.base_step(start).map(Some)
+        self.base_step(start, policy).map(Some)
     }
 }

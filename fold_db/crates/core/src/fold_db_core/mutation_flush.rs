@@ -98,12 +98,6 @@ pub fn parse_background_flush_interval(raw: Option<String>) -> Option<Duration> 
     }
 }
 
-/// Whether `finalize_batch` should block on a full storage flush.
-#[must_use]
-pub fn mutation_sync_flush_enabled() -> bool {
-    parse_mutation_sync_flush(std::env::var(MUTATION_SYNC_FLUSH_ENV).ok())
-}
-
 /// Handle for the optional periodic flusher task.
 ///
 /// Aborted and awaited by [`FoldDB::shutdown`](super::FoldDB::shutdown) before

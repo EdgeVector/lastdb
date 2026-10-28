@@ -73,3 +73,42 @@ removal.
 These checks cover native CAS cleanup after logical deletion. Blob upload
 and dwell decisions remain separate. Nightly and manual runs use separate
 run IDs. PR updates cancel only older runs for the same PR.
+
+## Interrupted CAS deletion
+
+A compound native batch writes CAS additions, main records, then CAS deletions.
+Before either store changes, an authenticated local intent saves the deletion keys and both exact frontiers.
+Admission reserves its bounded disk space before the request enters the accepted queue.
+The intent contains no file body or encryption key.
+
+A failure after main publication stops the native runtime and reports an uncertain commit.
+The caller must not treat that error as a rejected mutation with no disk effect.
+The next normal open resolves the intent before any read, write, or merge worker starts.
+If main publication did not occur, it keeps the blobs.
+If main publication completed, it finishes the CAS deletion or recognizes its already-complete frontier.
+An unexpected home identity or frontier stops recovery without a guessed deletion.
+
+A stopped-home backup refuses an unresolved intent and changes neither store.
+A live capture and the cleanup completion check also refuse an unresolved intent.
+A recovered native frontier outside the complete mutation log requires a new snapshot through the existing gap rule.
+This recovery does not remove old cloud backups or repair unrelated historical CAS orphans.
+
+The native status includes the recovery result for the current boot.
+It reports the observed outcome, intent key count, and exact main and CAS frontiers.
+It includes no blob keys or content.
+An ordinary second boot reports no repeated intent recovery.
+
+Tom approved a CI-only interruption operation on October 28.
+The existing Linux and macOS node workflow runs it on fresh generated homes.
+It uploads 257 distinct files and writes 258 records, then purges 256 records.
+Two live records share the remaining file and field value.
+The normal 120-second blob dwell remains in force.
+An external observer stops only its owned process after it observes real intent and main publication files.
+It never writes native control state or substitutes a commit result.
+The authenticated production recovery report must confirm the actual interrupted cut.
+Modification times alone do not prove that cut because a merge can also replace CURRENT.
+The operation permits four bounded attempts and fails if none captures a main-published, CAS-pending cut.
+Normal reopen must complete the pending deletion, keep every live value and file, and remove all 256 deleted files.
+Exact counter verification and native cleanup must complete.
+A second boot must preserve the result and perform no repeated intent recovery.
+This operation does not claim proof of every possible interruption cut or malformed-intent refusal.

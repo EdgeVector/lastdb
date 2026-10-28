@@ -17,8 +17,8 @@ Clear file identities, lengths, positions, object counts, and request times rema
 The June and Trinity sections below describe the older design. They do not override this V2 representation.
 
 **Update 2026-07-13 (Mini / identity.key):** LastDB Mini's shipping key root is
-the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed` + optional
-`at_rest_kek_from_seed` for keyring wrap). The Argon2id **passphrase root**
+the 32-byte `identity.key` seed (`E2eKeys::from_ed25519_seed`). Mini does not
+derive a separate keyring wrap key. The Argon2id **passphrase root**
 (`passphrase.params`, `PassphraseRoot`, `FOLDDB_PASSPHRASE*`) was removed from
 `fold_db` core — password unlock and in-place legacy-root migration were
 cancelled in favor of identity.key + cloud restore. Sections below that still
@@ -286,11 +286,10 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    namespace is silently accepted forever. There is no "migration
    finished, refuse plaintext" switch, which means a downgrade (or a
    bug that writes plaintext) is invisible.
-3. **Stale claim in code:** the comment on `ENCRYPTED_NAMESPACES` says
-   "Index terms use HMAC-SHA256 blind tokens (see `E2eKeys::blind_token`)"
-   — but `blind_token` and `index_key()` have **no production callers**.
-   The native index is embedding-based and stored plaintext. The blind
-   index exists only as a primitive.
+3. **Search blind tokens are not a production path.** The unused search
+   helper `E2eKeys::blind_token` is removed. Storage HashKeys use
+   `E2eKeys::blind_hash_key` with `index_key()`. The native index is
+   embedding-based and stored plaintext.
 4. **No rotation story.** One static master key, one static E2E key
    derived from a never-rotating identity seed, and an envelope format
    with no key-id. Rotation today means trial-decrypting everything.
@@ -551,7 +550,7 @@ defense-in-depth.** Concretely:
   doesn't fit, e.g. the sync-aware trees).
 - Accept the plaintext local-store-key leak explicitly for now (medium
   sensitivity: schema names + UUIDs, not content), and note HMAC'd key
-  names (the existing `blind_token` primitive) as a possible later
+  names as a possible later
   hardening for `scan_prefix`-compatible key blinding.
 - Perf: AES-256-GCM runs at multiple GB/s with AES-NI; values dominate
   stored row size; keys (and therefore iteration/scan order) are

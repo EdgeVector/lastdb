@@ -1,6 +1,7 @@
 use super::support::*;
 use schema_service_core::{
-    EmbedError, Embedder, ExternalSchemaPersistence, InMemorySchemaPersistence, SchemaServiceState,
+    CanonicalVocabularyWrite, DeclaredFieldRegistry, EmbedError, Embedder,
+    ExternalSchemaPersistence, InMemorySchemaPersistence, SchemaServiceState,
 };
 use schema_types::FieldValueType;
 use std::{
@@ -196,6 +197,7 @@ impl Embedder for ParcelEmbedder {
 #[test]
 fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
     run(async {
+        stale_admission_images_cannot_publish_definitions().await;
         let backend = Arc::new(InMemorySchemaPersistence::default());
         let first =
             SchemaServiceState::new_with_external(backend.clone(), Arc::new(ParcelEmbedder))
@@ -237,4 +239,82 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
                 .keys()
         );
     });
+}
+
+/// Force a write between admission and commit. A mere refresh before an
+/// unguarded write passes the stale-cache scenario but fails this boundary.
+async fn stale_admission_images_cannot_publish_definitions() {
+    let backend = Arc::new(InMemorySchemaPersistence::default());
+    let vocabulary = CanonicalVocabularyWrite {
+        expected: backend
+            .load_all_canonical_fields()
+            .await
+            .expect("admission image"),
+        fields: vec![(
+            "parcel_delivery_status".into(),
+            field(
+                "Parcel delivery status code from the carrier",
+                FieldValueType::String,
+            ),
+        )],
+    };
+    let writer = state(backend.clone()).await;
+    writer
+        .add_canonical_field(
+            "parcel_current_location",
+            field(
+                "Parcel current location from the carrier",
+                FieldValueType::String,
+            ),
+        )
+        .await
+        .expect("concurrent durable vocabulary change");
+    let committed = backend
+        .load_all_canonical_fields()
+        .await
+        .expect("committed image");
+    let error = backend
+        .save_schema_definitions_if_vocabulary(&[schema("parcel-app", false)], &vocabulary)
+        .await
+        .expect_err("a stale admission image cannot publish a schema");
+    assert!(
+        error
+            .to_string()
+            .contains("canonical_vocabulary_write_conflict"),
+        "{error}"
+    );
+    assert!(backend
+        .load_all_schemas()
+        .await
+        .expect("schemas")
+        .is_empty());
+    assert_eq!(
+        backend.load_all_canonical_fields().await.expect("fields"),
+        committed
+    );
+
+    let record = DeclaredFieldRegistry::new()
+        .declare(&declaration("parcel-app", "delivery"), || {
+            "fd_stale_image".into()
+        })
+        .expect("staged declaration");
+    let error = backend
+        .save_declared_field_definitions_if_vocabulary(&record, &vocabulary, None)
+        .await
+        .expect_err("a stale admission image cannot publish a declaration");
+    assert!(
+        error
+            .to_string()
+            .contains("canonical_vocabulary_write_conflict"),
+        "{error}"
+    );
+    assert!(backend
+        .load_all_declared_fields()
+        .await
+        .expect("declarations")
+        .is_empty());
+    assert_eq!(
+        backend.load_all_canonical_fields().await.expect("fields"),
+        committed
+    );
 }

@@ -87,19 +87,6 @@ impl E2eKeys {
         self.ope_key
     }
 
-    /// Compute a blind index token: HMAC-SHA256(index_key, term), truncated to
-    /// 16 bytes and base64url-encoded (no padding).
-    ///
-    /// Used for **search keyword** blinding. For storage HashKey partitions use
-    /// [`Self::blind_hash_key`] (domain-separated; bound to molecule uuid).
-    pub fn blind_token(index_key: &[u8; 32], term: &str) -> String {
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(index_key).expect("HMAC accepts any key length");
-        mac.update(term.as_bytes());
-        let result = mac.finalize().into_bytes();
-        URL_SAFE_NO_PAD.encode(&result[..16])
-    }
-
     /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
     ///
     /// MAC input (exact bytes):
@@ -107,9 +94,9 @@ impl E2eKeys {
     /// hk|v1\0{molecule_uuid}\0{plaintext_hash}
     /// ```
     ///
-    /// Domain tag `hk|v1` never collides with search [`Self::blind_token`] terms.
-    /// Output encoding matches `blind_token` (HMAC-SHA256 → first 16 bytes →
-    /// base64url no pad) so `escape_segment` remains safe.
+    /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
+    /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
+    /// `escape_segment` remains safe.
     pub fn blind_hash_key(
         index_key: &[u8; 32],
         molecule_uuid: &str,
@@ -198,31 +185,4 @@ impl E2eKeys {
         }
         String::from_utf8(bytes).ok()
     }
-}
-
-/// HKDF domain-separation salt for the at-rest keyring KEK (distinct from the
-/// `fold:e2e:v1` salt above, so the KEK never collides with any E2E key).
-const AT_REST_KEK_SALT: &[u8] = b"fold:at-rest-kek:v1";
-const AT_REST_KEK_INFO: &[u8] = b"fold:keyring-kek";
-
-/// Derive the at-rest keyring KEK from the node's 32-byte Ed25519 identity
-/// seed (`<home>/identity.key`) — the single-key-root path
-/// (`decision-local-security-loose-stance`, 2026-07-10).
-///
-/// The seed is the ONE local key root: node identity, E2E encryption root
-/// ([`E2eKeys::from_ed25519_seed`]), and — via this HKDF-SHA256 derivation
-/// under a dedicated salt/info pair — the KEK that wraps the per-purpose DEKs
-/// in `keyring.enc`. Deterministic: the same seed always derives the same KEK,
-/// so a node boots with zero prompts (key exists → up; no key → generate → up)
-/// while the data stays encrypted at rest under the DEK hierarchy.
-///
-/// Domain separation: the salt/info pair here is disjoint from every E2E
-/// derivation, so knowing the KEK never reveals an E2E key and vice versa
-/// (both still reduce to the seed, which is the explicit trust root).
-pub fn at_rest_kek_from_seed(seed: &[u8; 32]) -> [u8; 32] {
-    let hk = Hkdf::<Sha256>::new(Some(AT_REST_KEK_SALT), seed);
-    let mut kek = [0u8; 32];
-    hk.expand(AT_REST_KEK_INFO, &mut kek)
-        .expect("32 bytes is a valid HKDF-SHA256 output length");
-    kek
 }

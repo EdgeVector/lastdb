@@ -3,8 +3,8 @@
 use super::support::*;
 use async_trait::async_trait;
 use schema_service_core::{
-    types::CanonicalField, DeclaredFieldRecord, ExternalSchemaPersistence,
-    InMemorySchemaPersistence,
+    types::CanonicalField, CanonicalVocabularyWrite, DeclaredFieldRecord,
+    ExternalSchemaPersistence, InMemorySchemaPersistence,
 };
 use schema_types::{FieldValueType, FoldDbError, FoldDbResult, Schema};
 use std::{collections::HashMap, sync::Arc};
@@ -35,6 +35,14 @@ impl ExternalSchemaPersistence for FailedCommit {
         &self,
         _schemas: &[Schema],
         _fields: &[(String, CanonicalField)],
+    ) -> FoldDbResult<()> {
+        unavailable()
+    }
+
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        _schemas: &[Schema],
+        _vocabulary: &CanonicalVocabularyWrite,
     ) -> FoldDbResult<()> {
         unavailable()
     }
@@ -78,6 +86,15 @@ impl ExternalSchemaPersistence for FailedCommit {
         &self,
         _record: &DeclaredFieldRecord,
         _fields: &[(String, CanonicalField)],
+        _expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        unavailable()
+    }
+
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        _record: &DeclaredFieldRecord,
+        _vocabulary: &CanonicalVocabularyWrite,
         _expected: Option<&DeclaredFieldRecord>,
     ) -> FoldDbResult<()> {
         unavailable()

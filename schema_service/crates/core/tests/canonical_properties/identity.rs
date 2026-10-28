@@ -284,9 +284,28 @@ fn a_newer_identity_algorithm_survives_an_older_binary() {
 
 #[test]
 fn distinct_wire_field_sets_require_distinct_schema_identities() {
-    // The service name policy rejects commas. Direct wire/programmatic schema
-    // validation currently admits them, so this checks that lower boundary.
-    let mut combined = schema(&["parcel_mass,parcel_unit"]);
+    // Refuse malformed raw names before identity-based lookup. Distinct
+    // accepted field sets must retain distinct identities without a format
+    // migration for existing names.
+    for malformed in [
+        "parcel_mass,parcel_unit",
+        "parcel_mass:parcel_unit",
+        "",
+        " parcel_mass",
+        "parcel_mass\n",
+        "parcel\0mass",
+        "parcel\u{0085}mass",
+        "parcel\u{2003}mass",
+    ] {
+        let definition = schema(&[malformed]);
+        assert!(
+            definition.validate_definition().is_err(),
+            "admitted {malformed:?}"
+        );
+        let wire = serde_json::to_value(&definition).unwrap();
+        assert!(serde_json::from_value::<Schema>(wire).is_err());
+    }
+    let mut combined = schema(&["parcel_mass_parcel_unit"]);
     let mut separate = schema(&["parcel_mass", "parcel_unit"]);
     assert!(combined.validate_definition().is_ok());
     assert!(separate.validate_definition().is_ok());
@@ -298,6 +317,9 @@ fn distinct_wire_field_sets_require_distinct_schema_identities() {
     separate.compute_identity_hash();
     assert_ne!(
         combined.identity_hash, separate.identity_hash,
-        "two admitted wire field sets share an ambiguous comma-delimited identity preimage"
+        "two admitted wire field sets share a schema identity"
     );
+    for valid in ["parcel_mass", "parcel.mass", "parcel-mass", "parcel_重量"] {
+        assert!(schema(&[valid]).validate_definition().is_ok());
+    }
 }

@@ -18,6 +18,7 @@ use crate::lock_helpers::{read_lock, write_lock};
 use crate::near_miss::NearMissRecord;
 use crate::snapshot::AppRecord;
 use crate::types::CanonicalField;
+use crate::CanonicalVocabularyWrite;
 use schema_types::{FoldDbResult, Schema};
 
 #[derive(Default)]
@@ -51,6 +52,54 @@ impl InMemorySchemaPersistence {
     fn write(&self) -> FoldDbResult<RwLockWriteGuard<'_, Registry>> {
         write_lock(&self.registry, "in-memory registry")
     }
+
+    fn commit_schema_definitions(
+        &self,
+        schemas: &[Schema],
+        fields: &[(String, CanonicalField)],
+        vocabulary: Option<&CanonicalVocabularyWrite>,
+    ) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        if let Some(vocabulary) = vocabulary {
+            vocabulary.verify(&registry.canonical_fields)?;
+        }
+        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
+            &registry.canonical_fields,
+            fields,
+        )?;
+        registry.canonical_fields = canonical_fields;
+        for schema in schemas {
+            registry.schemas.insert(schema.name.clone(), schema.clone());
+        }
+        Ok(())
+    }
+
+    fn commit_declaration_definitions(
+        &self,
+        record: &DeclaredFieldRecord,
+        fields: &[(String, CanonicalField)],
+        expected: Option<&DeclaredFieldRecord>,
+        vocabulary: Option<&CanonicalVocabularyWrite>,
+    ) -> FoldDbResult<()> {
+        let mut registry = self.write()?;
+        if let Some(vocabulary) = vocabulary {
+            vocabulary.verify(&registry.canonical_fields)?;
+        }
+        crate::declared_fields::validate_declaration_commit(
+            &registry.declared_fields,
+            record,
+            expected,
+        )?;
+        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
+            &registry.canonical_fields,
+            fields,
+        )?;
+        registry.canonical_fields = canonical_fields;
+        registry
+            .declared_fields
+            .insert(record.declaration_id.clone(), record.clone());
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -69,16 +118,15 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
         schemas: &[Schema],
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<()> {
-        let mut registry = self.write()?;
-        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
-            &registry.canonical_fields,
-            fields,
-        )?;
-        registry.canonical_fields = canonical_fields;
-        for schema in schemas {
-            registry.schemas.insert(schema.name.clone(), schema.clone());
-        }
-        Ok(())
+        self.commit_schema_definitions(schemas, fields, None)
+    }
+
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        schemas: &[Schema],
+        vocabulary: &CanonicalVocabularyWrite,
+    ) -> FoldDbResult<()> {
+        self.commit_schema_definitions(schemas, &vocabulary.fields, Some(vocabulary))
     }
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
@@ -187,21 +235,16 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
         fields: &[(String, CanonicalField)],
         expected: Option<&DeclaredFieldRecord>,
     ) -> FoldDbResult<()> {
-        let mut registry = self.write()?;
-        crate::declared_fields::validate_declaration_commit(
-            &registry.declared_fields,
-            record,
-            expected,
-        )?;
-        let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
-            &registry.canonical_fields,
-            fields,
-        )?;
-        registry.canonical_fields = canonical_fields;
-        registry
-            .declared_fields
-            .insert(record.declaration_id.clone(), record.clone());
-        Ok(())
+        self.commit_declaration_definitions(record, fields, expected, None)
+    }
+
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        record: &DeclaredFieldRecord,
+        vocabulary: &CanonicalVocabularyWrite,
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        self.commit_declaration_definitions(record, &vocabulary.fields, expected, Some(vocabulary))
     }
 
     async fn load_all_declared_fields(&self) -> FoldDbResult<Vec<DeclaredFieldRecord>> {

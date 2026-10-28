@@ -25,12 +25,11 @@ impl SchemaServiceState {
                 )));
             }
         }
-        let validated = self.checked_vocabulary_batch(fields)?;
-        self.storage
-            .backend()
-            .save_canonical_fields(&validated)
-            .await?;
-        self.cache_committed_vocabulary(&validated)
+        self.commit_vocabulary(
+            fields,
+            crate::vocabulary_commit::VocabularyCommit::Schemas(&[]),
+        )
+        .await
     }
 
     pub(crate) fn cache_committed_vocabulary(
