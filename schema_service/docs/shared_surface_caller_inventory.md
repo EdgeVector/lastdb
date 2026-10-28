@@ -19,8 +19,7 @@ governance concern; registration itself applies to every schema.
 | `system_owned` | SystemSeed / StarterSeed / `is_system_schema` | Yes |
 | `unknown` | Unowned user schema, or offer-without-metadata | No |
 
-Superseded rows are counted under `deprecated_or_superseded` and always
-excluded from the projection.
+Superseded rows are always excluded from the projection.
 
 ## Known callers (code inventory)
 
@@ -49,13 +48,13 @@ metric=schema_shared_surface_legacy_caller_total
 caller_kind=local_claim|shared_offer_without_surface|unowned_registration|explicit_shared_surface
 ```
 
-Registry sweep (operator / tests):
+Registry projection:
 
 ```rust
-let inventory = state.inventory_shared_surface_registrations()?;
-// inventory.{shared, private_legacy_bootstrap, system_owned, unknown, ...}
-let projected = state.shared_only_projection_schemas()?;
+include_in_shared_only_projection(schema, is_system(schema), &attachment)
 ```
+
+`project_snapshot_shared_only` applies that rule to a snapshot.
 
 ## Exit criteria for this inventory
 

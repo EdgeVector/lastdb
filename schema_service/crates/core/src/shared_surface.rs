@@ -346,50 +346,6 @@ pub fn classify_registration(
     RegistrationClass::Unknown
 }
 
-/// Counts from an inventory sweep.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RegistrationInventory {
-    pub total: usize,
-    pub shared: usize,
-    pub private_legacy_bootstrap: usize,
-    pub system_owned: usize,
-    pub unknown: usize,
-    pub deprecated_or_superseded: usize,
-}
-
-impl RegistrationInventory {
-    pub fn record(&mut self, class: RegistrationClass, superseded: bool) {
-        self.total += 1;
-        if superseded {
-            self.deprecated_or_superseded += 1;
-        }
-        match class {
-            RegistrationClass::Shared => self.shared += 1,
-            RegistrationClass::PrivateLegacyBootstrap => self.private_legacy_bootstrap += 1,
-            RegistrationClass::SystemOwned => self.system_owned += 1,
-            RegistrationClass::Unknown => self.unknown += 1,
-        }
-    }
-}
-
-/// Build inventory counts over a schema set.
-pub fn inventory_registrations<'a, I, F>(schemas: I, mut is_system: F) -> RegistrationInventory
-where
-    I: IntoIterator<Item = (&'a Schema, SharedSurfaceAttachment)>,
-    F: FnMut(&Schema) -> bool,
-{
-    let mut inv = RegistrationInventory::default();
-    for (schema, attachment) in schemas {
-        let class = classify_registration(schema, is_system(schema), &attachment);
-        let superseded = schema
-            .superseded_by
-            .as_deref()
-            .is_some_and(|s| !s.trim().is_empty());
-        inv.record(class, superseded);
-    }
-    inv
-}
-
 /// Decide whether a registered schema belongs in the shared-only resolver
 /// projection (snapshot / embeddings input).
 ///
@@ -411,21 +367,6 @@ pub fn include_in_shared_only_projection(
     }
     let class = classify_registration(schema, is_system_schema, attachment);
     class.allowed_in_shared_projection()
-}
-
-/// Filter a schema list down to the shared-only projection.
-pub fn project_shared_only_schemas<'a, I, F>(schemas: I, mut is_system: F) -> Vec<&'a Schema>
-where
-    I: IntoIterator<Item = (&'a Schema, SharedSurfaceAttachment)>,
-    F: FnMut(&Schema) -> bool,
-{
-    schemas
-        .into_iter()
-        .filter(|(schema, attachment)| {
-            include_in_shared_only_projection(schema, is_system(schema), attachment)
-        })
-        .map(|(schema, _)| schema)
-        .collect()
 }
 
 /// Observe-mode classification for legacy `POST /v1/schemas` traffic.

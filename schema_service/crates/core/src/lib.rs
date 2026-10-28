@@ -146,9 +146,8 @@ pub use schema_resolver_enforce_gate::{
 };
 pub use shared_surface::{
     classify_legacy_schema_caller, classify_registration, include_in_shared_only_projection,
-    inventory_registrations, observe_legacy_schema_caller, project_shared_only_schemas,
-    validate_shared_surface_request, validate_surface_metadata, LegacySchemaCallerKind,
-    RegistrationClass, RegistrationInventory, SharedSurfaceAttachment, SharedSurfaceCompatibility,
+    observe_legacy_schema_caller, validate_shared_surface_request, validate_surface_metadata,
+    LegacySchemaCallerKind, RegistrationClass, SharedSurfaceAttachment, SharedSurfaceCompatibility,
     SharedSurfaceMetadata, SharedSurfaceProposal, SharedSurfaceProvenance,
     SharedSurfacePublishAttachRequest, SharedSurfacePurpose, SharedSurfaceValidationError,
     SharedSurfaceVisibility,
