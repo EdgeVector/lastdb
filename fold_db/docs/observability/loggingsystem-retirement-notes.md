@@ -16,8 +16,8 @@ call sites and rewired the dashboard endpoints, this PR is the cleanup.
   because user context is a request property, not a logging detail; carrying
   it under `logging::` was incidental to the legacy bridge.
 - `tracing_log::LogTracer::init()` install moved BEFORE the
-  `set_global_default(...)` call in `init_node` / `init_lambda` /
-  `init_cli` (was previously called immediately after, in
+  `set_global_default(...)` call in `init_node` / `init_lambda`
+  (was previously called immediately after, in
   `install_globals`). Same effective behavior in steady state, but it now
   also bridges `log::*` calls emitted between subscriber install and the
   current line — including any `log::*!` from third-party crates that fire

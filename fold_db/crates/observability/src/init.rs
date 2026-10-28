@@ -1,4 +1,4 @@
-//! Initialization helpers for each runtime target (node / Lambda / CLI).
+//! Initialization helpers for each runtime target (node / Lambda).
 //!
 //! Each helper composes the FMT + RELOAD + RING layers into a `Registry`,
 //! installs a no-op [`opentelemetry_sdk::trace::TracerProvider`] so every
@@ -16,15 +16,6 @@
 //! |-------------------------|--------------------------|--------|------|--------|
 //! | [`init_node`]           | `OBS_FILE_PATH` ▸ `<node-home>/observability.jsonl` (honor-both: `LASTDB_HOME` ▸ `FOLDDB_HOME` ▸ existing `~/.lastdb` ▸ existing `~/.folddb` ▸ new `~/.lastdb`) | yes | yes | env-gated |
 //! | [`init_lambda`]         | stdout                   | yes    | no   | env-gated |
-//! | [`init_cli`]            | stderr                   | no     | no   | no     |
-//!
-//! ## CLI is intentionally bare
-//!
-//! The Sentry transport amortizes its per-batch cost over many events. CLI
-//! processes are short-lived one-shots: setup cost dominates and the
-//! transport's batched flushes would not fire before the process exits. We
-//! deliberately omit the Sentry layer from [`init_cli`] rather than ship
-//! events that never flush.
 //!
 //! ## Single-init invariant
 //!
@@ -106,7 +97,7 @@ static SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
 /// - the [`RingHandle`] for in-process `/api/logs` queries (when RING is
 ///   wired — currently only the [`init_node`] full path),
 /// - the [`ReloadHandle`] for runtime `EnvFilter` updates (when RELOAD is
-///   wired — every helper except [`init_cli`]),
+///   wired — [`init_node`] and [`init_lambda`]),
 /// - the [`CloudShutdown`] bag holding the Sentry guard. `Drop` runs the
 ///   guard's flush so the binary's exit path drains any in-flight events.
 ///   Always present in shape; the inner field is `None` when the matching
@@ -130,10 +121,6 @@ struct CloudShutdown {
 }
 
 impl CloudShutdown {
-    fn empty() -> Self {
-        Self { sentry_guard: None }
-    }
-
     fn is_engaged(&self) -> bool {
         self.sentry_guard.is_some()
     }
@@ -309,42 +296,6 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
         ring: None,
         reload: Some(reload),
         cloud_shutdown: Some(CloudShutdown { sentry_guard }),
-    })
-}
-
-/// Initialize observability for a short-lived CLI binary.
-///
-/// Layers: redacting JSON FMT to stderr only. No RELOAD (CLIs run to
-/// completion — runtime filter swaps add no value), no RING (no in-process
-/// reader on the other end), no file appender (no daemon to flush).
-/// stderr is chosen so the CLI can keep stdout reserved for its own
-/// program output.
-///
-/// The Sentry layer is intentionally omitted. CLI processes are short-lived:
-/// the Sentry transport's batched flushes amortize over many events, but a
-/// CLI exits before the pipeline reaches its first flush — shipping it would
-/// add startup cost with no observable benefit. Long-lived CLIs that need
-/// remote error capture should use [`init_node`] instead.
-pub fn init_cli(service_name: &'static str, _version: &str) -> Result<ObsGuard, ObsError> {
-    assert_service_name(service_name);
-    try_claim_init(&INIT_ONCE)?;
-    install_log_tracer();
-
-    let (writer, fmt_guard) = build_fmt_writer(FmtTarget::Stderr)?;
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .event_format(RedactingFormat::from_env())
-        .with_writer(writer);
-
-    let subscriber = Registry::default().with(fmt_layer);
-    install_subscriber(subscriber)?;
-    install_globals();
-    record_service_name(service_name);
-
-    Ok(ObsGuard {
-        fmt_guard: Some(fmt_guard),
-        ring: None,
-        reload: None,
-        cloud_shutdown: Some(CloudShutdown::empty()),
     })
 }
 
