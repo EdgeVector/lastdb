@@ -8,9 +8,6 @@ impl MoleculeKeyCodec {
         &self,
         profile: MoleculeRangeProfile,
     ) -> Result<Self, MoleculeKeyCodecError> {
-        profile
-            .validate()
-            .map_err(MoleculeKeyCodecError::InvalidRange)?;
         if self.range_encoding != RangeKeyEncoding::Plain {
             return Err(MoleculeKeyCodecError::InvalidRange(
                 "a typed molecule range requires the plain payload representation".into(),
@@ -52,14 +49,6 @@ impl MoleculeKeyCodec {
         Self {
             hash_encoding: HashKeyEncoding::BlindV1,
             range_encoding: RangeKeyEncoding::Plain,
-            range_profile: None,
-            ..self.clone()
-        }
-    }
-
-    /// Supplied-key conversion selects its scalar profile separately.
-    pub(super) fn without_range_profile(&self) -> Self {
-        Self {
             range_profile: None,
             ..self.clone()
         }

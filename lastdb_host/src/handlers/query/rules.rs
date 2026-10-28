@@ -84,10 +84,10 @@ pub(super) fn prepare_comparison(
                     "cursor comparison context changed; restart from the first page",
                 ));
             }
-            None if comparison.is_some_and(|comparison| !comparison.accepts_legacy_cursor()) => {
+            None if comparison.is_some() => {
                 return Err(HostError::new(
                     409,
-                    "legacy cursor cannot continue this key order; restart from the first page",
+                    "a cursor without its comparison tag cannot continue; restart from the first page",
                 ));
             }
             _ => {}

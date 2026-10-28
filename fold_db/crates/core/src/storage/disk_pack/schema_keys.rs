@@ -222,7 +222,7 @@ fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, Sc
             codec
                 .storage_hash(molecule, "schema-preload-identity")
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
-            profile.format_id().map_err(SchemaError::InvalidData)?,
+            profile.format_id(),
         ));
     }
     // Sentinel outputs identify the fixed molecule key pair without

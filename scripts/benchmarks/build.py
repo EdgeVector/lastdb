@@ -72,7 +72,7 @@ def verify(directory, revision, fingerprint):
         raise ValueError("The cached executable reports another revision")
     cli_version = subprocess.check_output([str(cli), "--version"], text=True, timeout=10).strip()
     if f"bench-{revision}" not in cli_version or metadata["cli_version"] != cli_version:
-        raise ValueError("The cached conversion CLI reports another revision")
+        raise ValueError("The cached CLI reports another revision")
     return metadata
 
 

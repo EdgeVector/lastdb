@@ -13,7 +13,7 @@ const NANOS_PER_SECOND: i128 = 1_000_000_000;
 pub(super) fn encode(profile: RangeStorageProfile, api: &str) -> Result<String, String> {
     use RangeStorageProfile as P;
     match profile {
-        P::LegacyUtf8V1 | P::StringUtf8V1 => Ok(api.to_owned()),
+        P::StringUtf8V1 => Ok(api.to_owned()),
         P::IntegerI64V1 => {
             let value = api
                 .parse::<i64>()
@@ -40,7 +40,7 @@ pub(super) fn encode(profile: RangeStorageProfile, api: &str) -> Result<String, 
 pub(super) fn decode(profile: RangeStorageProfile, stored: &str) -> Result<String, String> {
     use RangeStorageProfile as P;
     match profile {
-        P::LegacyUtf8V1 | P::StringUtf8V1 => Ok(stored.to_owned()),
+        P::StringUtf8V1 => Ok(stored.to_owned()),
         P::IntegerI64V1 => {
             let value = hex(stored, 16)? as u64;
             Ok(((value ^ (1_u64 << 63)) as i64).to_string())

@@ -32,8 +32,8 @@ never returned as API keys.
 
 | Knob | Binary default (unset env) | Trinity product primary | Escape (tests / migrate only) |
 |------|----------------------------|-------------------------|--------------------------------|
-| `LASTDB_HASH_KEY_ENCODING` | unset → `blind_v1` | same | `plain` |
-| `LASTDB_RANGE_KEY_ENCODING` | unset → `ope_v1` | same | `plain` |
+| Hash key encoding | `blind_v1` (no setting) | same | none |
+| Range key encoding | typed profile payload as plain bytes, format 4 (no setting) | same | none |
 | Local CAS write | sealed dedup put | same | none |
 
 ## Code anchors

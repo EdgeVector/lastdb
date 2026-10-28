@@ -7,8 +7,8 @@ Canonical brief: brain `design-lastdb-hashkey-blind-v1`.
 - Blind **HashKey only** (HMAC-SHA256, domain `hk|v1`, bound to molecule uuid).
 - **RangeKey stays plaintext** (order-preserving).
 - API / SDK still use **plaintext** HashKey; storage keys use `storage_hash`.
-- Product default (env unset): **`blind_v1`**. Explicit `plain` for tests/opt-out
-  (`LASTDB_HASH_KEY_ENCODING=plain|blind_v1`).
+- Every node home uses **`blind_v1`**. No setting selects `plain`; only library
+  `plain()` codecs stay unencoded.
 
 ## Crypto
 

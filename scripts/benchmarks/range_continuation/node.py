@@ -55,9 +55,7 @@ class Node:
         self.deadline = time.monotonic() + 1200
         self.raw_bytes = 0
         self.raw = gzip.open(output / "requests.jsonl.gz", "xb")
-        self.settings = {"LASTDB_AUTO_MAINTENANCE": "0", "RUST_LOG": "warn",
-            "LASTDB_HASH_KEY_ENCODING": "plain" if mode == "plain" else "blind_v1",
-            "LASTDB_RANGE_KEY_ENCODING": "plain" if mode == "plain" else "ope_v1"}
+        self.settings = {"LASTDB_AUTO_MAINTENANCE": "0", "RUST_LOG": "warn"}
 
     def remember(self, value):
         raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"

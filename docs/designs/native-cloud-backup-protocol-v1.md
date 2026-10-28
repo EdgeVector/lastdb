@@ -141,7 +141,7 @@ home identity and digest, full CURRENT digest, native generation, frontier, and 
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
 The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
-The logical marker `layout:v3:keys` requires direct ASCII value `6` or `6;delete-replay-cutoff=v1` for the UTF-8 key order, and `7;typed-ranges=v1` for a home with typed ranges.
+The logical marker `layout:v3:keys` requires direct ASCII value `7;typed-ranges=v1`: a format 4 home with typed ranges.
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
 File bytes retain their existing encryption.

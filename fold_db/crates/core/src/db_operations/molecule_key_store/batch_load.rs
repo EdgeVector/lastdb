@@ -23,11 +23,10 @@ impl MoleculeKeyStore {
         let metadata = self.metadata_batch_from_memory(&missing).await?;
         let mut present = Vec::new();
         for (molecule, metadata) in missing.into_iter().zip(metadata) {
-            if let Some(metadata) = metadata {
-                present.push((molecule, Some(self.metadata_contract(molecule, &metadata)?)));
-            } else if self.is_typed() {
-                present.push((molecule, None));
-            }
+            let contract = metadata
+                .map(|metadata| self.metadata_contract(molecule, &metadata))
+                .transpose()?;
+            present.push((molecule, contract));
         }
         if present.is_empty() {
             return Ok(());

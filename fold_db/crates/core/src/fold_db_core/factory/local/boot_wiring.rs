@@ -9,28 +9,10 @@ pub(super) async fn open_db_operations(
     store: Arc<dyn crate::storage::traits::NamespacedStore>,
     e2e_keys: &E2eKeys,
 ) -> FoldDbResult<DbOperations> {
-    let typed = store.disk_pack_runtime().is_some_and(|runtime| {
-        runtime.range_order() == schema_types::key_comparison::KeyOrderVersion::TypedScalarV1
-    });
-    let (hash_key_encoding, range_key_encoding) = if typed {
-        (
-            crate::atom::HashKeyEncoding::BlindV1,
-            crate::atom::RangeKeyEncoding::Plain,
-        )
-    } else {
-        (
-            crate::atom::HashKeyEncoding::from_env_or_default(),
-            crate::atom::RangeKeyEncoding::from_env_or_default(),
-        )
-    };
-    tracing::info!(
-        ?hash_key_encoding,
-        ?range_key_encoding,
-        "molecule key storage encoding selected by the node home"
-    );
+    // A typed home blinds every hash; the molecule contract orders ranges.
     let hash_key_codec = crate::atom::MoleculeKeyCodec::with_encodings(
-        hash_key_encoding,
-        range_key_encoding,
+        crate::atom::HashKeyEncoding::BlindV1,
+        crate::atom::RangeKeyEncoding::Plain,
         Some(e2e_keys.index_key()),
         Some(e2e_keys.ope_key()),
     );

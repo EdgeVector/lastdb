@@ -1,7 +1,7 @@
 //! A node home in disk format v2: the node marker and two run homes.
 //!
 //! ```text
-//! <node>/laststore-pack-node-v1   typed format 4, or explicit legacy format 3
+//! <node>/laststore-pack-node-v1   format 4: typed ranges
 //! <node>/disk-run/                the run home for every collection except CAS
 //! <node>/disk-cas/                the run home for the CAS files (`cas_blobs`)
 //! ```
@@ -20,9 +20,8 @@
 //! the node folder serializes creators, and a creator holds it until its
 //! runtime is open, so the partial state of a live creator is never removed.
 //!
-//! A new typed home commits its key-format and account proofs before the
-//! node marker appears. Its intent remains until logical construction checks
-//! them. Explicit legacy creation retains its original first-batch fence.
+//! A new home commits its key-format and account proofs before the node
+//! marker appears. Its intent remains until logical construction checks them.
 //!
 //! Each run home key derives from the node encryption key with its own label
 //! and is never written to a file.
@@ -33,10 +32,6 @@ use std::io::Write;
 
 mod creation;
 
-pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\ncas=disk-cas\n";
-/// The marker of a v2 home from before the CAS run home. No such home has
-/// user data; it is refused with a clear message.
-pub(super) const EARLY_RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\n";
 pub(super) const RUN_DIR: &str = "disk-run";
 pub(super) const CAS_DIR: &str = "disk-cas";
 const INTENT: &str = "laststore-run-initializing";
@@ -44,22 +39,13 @@ const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
-/// True when `path` holds a v2 node marker.
+/// True when `path` holds the format 4 node marker.
 pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
-    let marker = match std::fs::read(path.join(NODE_MARKER)) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    if marker.as_deref() == Some(EARLY_RUN_NODE_BYTES) {
-        return Err(StorageError::InvalidOperation(
-            "this format v2 home is from before the CAS run home (disk-cas); create it again"
-                .into(),
-        ));
+    match std::fs::read(path.join(NODE_MARKER)) {
+        Ok(bytes) => Ok(bytes == super::run_admission::TYPED_NODE_BYTES),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
     }
-    Ok(marker.as_deref().is_some_and(|bytes| {
-        bytes == RUN_NODE_BYTES || bytes == super::run_admission::TYPED_NODE_BYTES
-    }))
 }
 
 /// True when `path` is absent or empty: a new node home, which is v2.
@@ -145,11 +131,13 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-/// The refusal for a node home that is not disk format v2, such as a format
-/// v1 home. This program has no reader and no converter for another format.
+/// The refusal for a node home that is not format 4, such as a format 3 home
+/// or a disk format v1 home. This program has no reader and no converter for
+/// another format.
 pub(super) fn not_v2(path: &Path) -> StorageError {
     StorageError::InvalidOperation(format!(
-        "{} is not a disk format v2 node home; this program opens only format v2",
+        "{} is not a format 4 node home (disk format v2 with typed ranges); this program \
+         opens only format 4",
         path.display()
     ))
 }
@@ -167,7 +155,6 @@ impl PackNamespacedStore {
     /// be absent, empty, or a creation that stopped before its node marker;
     /// this creation replaces the partial run homes of a stopped creation.
     pub fn create_run(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
-        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         std::fs::create_dir_all(path)?;
         // The folder handle is the creation lock and the directory barrier.
         let folder = std::fs::File::open(path)?;
@@ -217,7 +204,7 @@ impl PackNamespacedStore {
         resume_merges: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        let range_order = super::run_admission::admit(path, node_key)?;
+        super::run_admission::admit(path, node_key)?;
         let open = if resume_merges {
             RunHome::open
         } else {
@@ -225,7 +212,7 @@ impl PackNamespacedStore {
         };
         let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let v2 = physical::V2Home::new(home, cas, range_order);
+        let v2 = physical::V2Home::new(home, cas);
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(v2, root, initializing, space::policy_from_env()?);

@@ -24,17 +24,10 @@ impl KeyComparisonContext {
         let Some(profile) = profile else {
             return future.await;
         };
-        let range = RangeKeyComparison::typed(
-            profile
-                .comparison_type()
-                .map_err(SchemaError::InvalidData)?,
-        )
-        .map_err(SchemaError::InvalidData)?;
+        let range = RangeKeyComparison::typed(profile.comparison_type())
+            .map_err(SchemaError::InvalidData)?;
         Arc::new(Self {
-            identity: format!(
-                "field-comparison:{}",
-                profile.format_id().map_err(SchemaError::InvalidData)?
-            ),
+            identity: format!("field-comparison:{}", profile.format_id()),
             range,
             failure: OnceLock::new(),
             profile: Some(profile),

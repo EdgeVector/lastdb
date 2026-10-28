@@ -26,8 +26,6 @@ pub mod log_rotation;
 pub mod maintenance_write_gate;
 pub mod native_cloud_restore;
 pub mod offline_home;
-pub mod offline_range_conversion;
-pub mod offline_range_inventory;
 pub mod offline_recount;
 pub mod ops;
 pub mod retention_audit;

@@ -66,7 +66,7 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
-                self.db_ops.molecule_keys().schema_profile(schema)?,
+                Some(self.db_ops.molecule_keys().schema_profile(schema)?),
             )? {
                 mutation
                     .fields_and_values
@@ -93,7 +93,7 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
-                self.db_ops.molecule_keys().schema_profile(schema)?,
+                Some(self.db_ops.molecule_keys().schema_profile(schema)?),
             )?;
         }
         Ok(())

@@ -21,7 +21,6 @@ mod conflict_identity;
 pub use conflict_identity::ConflictKeyIdentity;
 mod profile;
 mod range_decode;
-pub mod storage_profile;
 
 /// Logical typed-range format; physical run blocks keep their existing format.
 pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
@@ -112,22 +111,6 @@ impl MoleculeKeyCodec {
         self.range_encoding
     }
 
-    /// Select a range representation without changing hash encoding or keys.
-    pub fn with_range_encoding(
-        &self,
-        range_encoding: RangeKeyEncoding,
-    ) -> Result<Self, MoleculeKeyCodecError> {
-        if self.range_profile.is_some() && range_encoding != RangeKeyEncoding::Plain {
-            return Err(MoleculeKeyCodecError::InvalidRange(
-                "a typed molecule range cannot use OPE".into(),
-            ));
-        }
-        Ok(Self {
-            range_encoding,
-            ..self.clone()
-        })
-    }
-
     /// Public format identity only; no encryption key material enters a cursor.
     #[must_use]
     pub fn comparison_format(&self) -> &'static str {
@@ -142,18 +125,6 @@ impl MoleculeKeyCodec {
             (HashKeyEncoding::Plain, RangeKeyEncoding::OpeV1) => "plain/ope-v1:utf8-v1",
             (HashKeyEncoding::BlindV1, RangeKeyEncoding::Plain) => "blind-v1/plain:utf8-v1",
             (HashKeyEncoding::BlindV1, RangeKeyEncoding::OpeV1) => "blind-v1/ope-v1:utf8-v1",
-        }
-    }
-
-    #[must_use]
-    pub fn key_order(&self) -> schema_types::key_comparison::KeyOrderVersion {
-        if self.range_profile.is_some() {
-            return schema_types::key_comparison::KeyOrderVersion::TypedScalarV1;
-        }
-        match self.range_encoding {
-            RangeKeyEncoding::Plain | RangeKeyEncoding::OpeV1 => {
-                schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1
-            }
         }
     }
 
@@ -242,8 +213,6 @@ pub enum MoleculeKeyCodecError {
     MissingOpeKey,
     /// An explicitly selected range profile rejects the coordinate or token.
     InvalidRange(String),
-    /// A conversion must respect the caller's physical key byte limit.
-    RangeKeyTooLarge,
 }
 
 impl std::fmt::Display for MoleculeKeyCodecError {
@@ -258,7 +227,6 @@ impl std::fmt::Display for MoleculeKeyCodecError {
                 "range_key_encoding requires E2E ope_key (set encoding=plain or provide ope key)"
             ),
             Self::InvalidRange(reason) => write!(f, "invalid range key: {reason}"),
-            Self::RangeKeyTooLarge => write!(f, "range key exceeds the conversion byte limit"),
         }
     }
 }

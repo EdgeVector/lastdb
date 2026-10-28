@@ -1,5 +1,5 @@
 use super::{invalid, RunRestoreFile, StorageResult};
-use crate::storage::disk_pack::{byte_backup::RunBackupHome, run_node, NODE_MARKER};
+use crate::storage::disk_pack::{byte_backup::RunBackupHome, NODE_MARKER};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
 use laststore::disk_run::home::{RunRead, RUN_HOME_MARKER};
 use sha2::{Digest as _, Sha256};
@@ -92,11 +92,7 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
-    Ok(match bytes.as_slice() {
-        run_node::RUN_NODE_BYTES => Some(1),
-        super::super::run_admission::TYPED_NODE_BYTES => Some(2),
-        _ => None,
-    })
+    Ok((bytes == super::super::run_admission::TYPED_NODE_BYTES).then_some(2))
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {

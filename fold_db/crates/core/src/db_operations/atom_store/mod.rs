@@ -69,7 +69,6 @@ pub use counter::{
     VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
-pub(crate) use key_format::CURRENT_NATIVE_INITIALIZATION_KEYS;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub(crate) use molecule_drain::{
@@ -159,7 +158,6 @@ pub struct AtomStore {
     /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
     /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
-    typed_ranges: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
@@ -319,16 +317,11 @@ impl AtomStore {
             .map(|store| store.codec_for_molecule(molecule_uuid, &self.key_codec))
             .transpose()?
             .flatten();
-        if self.typed_ranges && codec.is_none() {
-            return Err(crate::schema::SchemaError::InvalidData(
+        codec.ok_or_else(|| {
+            crate::schema::SchemaError::InvalidData(
                 "the typed molecule has no admitted range profile".into(),
-            ));
-        }
-        let codec = codec.unwrap_or_else(|| self.key_codec.clone());
-        crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
-            codec.key_order(),
-        )?;
-        Ok(codec)
+            )
+        })
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for

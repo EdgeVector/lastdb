@@ -195,11 +195,10 @@ Two markers keep one build from opening a home with another counter model.
   `V2_FEATURES` (`disk_pack/physical_v2.rs`), so every v2 home has it: every
   atom body is one record at `atom:{uuid}\0b` in `atoms`. The bit reaches disk
   only in the byte backup manifest, and restore refuses a manifest with other bits.
-- The logical key format marker is `layout:v3:keys` with the value `6`
-  (`atom_store/key_format.rs`). A home with a delete-replay cutoff holds
-  `6;delete-replay-cutoff=v1`, and a home with typed ranges holds
-  `7;typed-ranges=v1`. The node refuses every other value, including `4` and
-  `5`, before it serves.
+- The logical key format marker is `layout:v3:keys` with the value
+  `7;typed-ranges=v1` (`atom_store/key_format.rs`). The delete-replay cutoff
+  floor is a separate record. The node refuses every other value, including
+  `4`, `5` and `6`, before it serves.
 
 Earlier counter layouts remain refused. Startup converts no existing atom, CAS
 record, or run file. See [the element encryption policy](designs/native-element-encryption-v1.md).
