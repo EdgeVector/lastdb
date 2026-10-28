@@ -59,20 +59,23 @@ class Control:
         self.key = None
 
     def post(self, route, extra):
-        require(self.key is not None and route in ("context", "register", "refresh"),
+        require(self.key is not None and route in ("context", "register", "refresh", "usage"),
                 "ci_control_route")
         remaining = self.deadline - time.monotonic()
         require(remaining > 0, "ci_control_deadline")
         request = {"version": 2, "scope": self.scope, **extra}
         if route == "context":
             request = {"version": 2, "account_id": ACCOUNT, "required_destinations": []}
+        elif route == "usage":
+            request = {"version": 2, "account_id": ACCOUNT}
         body = json.dumps(request, allow_nan=False, separators=(",", ":")).encode()
         require(len(body) <= 65536, "ci_control_request_size")
         connection = http.client.HTTPSConnection(self.host, timeout=min(30, remaining),
                                                  context=ssl.create_default_context())
         try:
             self.calls += 1
-            connection.request("POST", "/api/cloud/backups/v2/ci/" + route, body,
+            suffix = "usage/read" if route == "usage" else "ci/" + route
+            connection.request("POST", "/api/cloud/backups/v2/" + suffix, body,
                                {"X-API-Key": self.key, "Content-Type": "application/json"})
             response = connection.getresponse()
             require(not 300 <= response.status < 400 and response.getheader("Location") is None,
@@ -109,6 +112,20 @@ class Control:
         require(isinstance(capabilities, dict) and capabilities.get("registration") is True,
                 "ci_registration_capability")
         return capabilities
+
+    def usage(self):
+        value = self.post("usage", {})
+        require(value.get("account_id") == ACCOUNT, "ci_usage_dev_account")
+        counters = {name: decimal(value.get(name)) for name in (
+            "other_used_bytes", "reserved_bytes", "retained_bytes", "quota_bytes")}
+        used = sum(counters[name] for name in ("other_used_bytes", "reserved_bytes", "retained_bytes"))
+        require(used < 2**64, "ci_usage_total_bound")
+        available = max(0, counters["quota_bytes"] - used)
+        # This is an observation, not a reservation. Service admission stays authoritative.
+        minimum = 96 * 1024**2
+        require(available >= minimum, "ci_usage_insufficient_headroom_before_upload")
+        return {**counters, "available_bytes": available, "minimum_bytes": minimum,
+                "observation_only": True, "quota_changed": False}
 
     def register(self, record):
         receipt = record["ownership"]

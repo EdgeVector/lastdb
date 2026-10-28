@@ -148,6 +148,13 @@ The adapter permits only the compiled DEV endpoint and the fixed CI account.
 It requires bounded HTTPS responses, checks the exact registration identity, and refuses redirects.
 Ownership registration and refresh make no provider deletions or quota changes.
 
+Before a new upload, CI reads the ordinary account usage ledger.
+It checks reserved bytes, retained bytes, other used bytes, and the current quota.
+CI requires at least 96 MiB of observed free quota for its bounded 64 MiB checkpoint allowance and control overhead.
+Insufficient space stops the operation before upload. CI does not increase or reset quota.
+This read supplies an observation, not a reservation; normal service admission still enforces quota for each allocation.
+The later retirement operation must reclaim only verified old CI data before this check.
+
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.

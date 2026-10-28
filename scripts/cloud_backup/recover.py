@@ -94,6 +94,8 @@ class Operation:
             self.summary["ci_ownership_registration"] = {
                 "registered": len(registered), "refresh": control.refresh(),
                 "provider_deletions": 0}
+            self.summary["stage"] = "ci-quota-headroom"
+            self.summary["ci_quota"] = control.usage()
         finally:
             control.close()
         destination = self.root / "restored"
