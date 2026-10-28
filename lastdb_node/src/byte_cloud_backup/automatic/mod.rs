@@ -70,9 +70,11 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
     policy.require_connection(host)?;
     let now = fold_db::clock::unix_secs();
     if let Some(id) = policy.cleanup.clone() {
-        cleanup::retire(host, &id)?;
-        policy.cleanup = None;
-        policy.save(host)?;
+        if Store::active(&host.home)?.as_ref() != Some(&id) {
+            cleanup::retire(host, &id)?;
+            policy.cleanup = None;
+            policy.save(host)?;
+        }
     }
     if let Some(pending) = policy.pending.clone() {
         return pending_job(host, policy, &pending, now);
@@ -128,7 +130,7 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
         }
     };
     let pending = Pending {
-        id: Id::try_from(uuid::Uuid::new_v4().to_string())?,
+        id: Id::try_from(format!("auto-v2-{}", uuid::Uuid::new_v4()))?,
         revision: policy.state.revision,
         work,
     };
@@ -184,6 +186,7 @@ fn pending_job(
 }
 fn complete(host: &crate::host::Host, policy: &mut Policy, saved: &Saved, now: u64) -> Result<()> {
     if saved.phase != Phase::Published {
+        policy.cleanup = Some(saved.request_id.clone());
         policy.pending = None;
         policy.state.pending_request_id = None;
         policy.state.attempts = 0;

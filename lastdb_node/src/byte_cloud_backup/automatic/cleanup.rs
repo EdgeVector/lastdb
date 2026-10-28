@@ -4,7 +4,12 @@ use std::fs::{self, File};
 
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
     let root = Store::base(&host.home).join("jobs").join(id.as_str());
-    let saved = store::state(&host.home, id)?.ok_or(BackupError::Missing)?;
+    let previous = store::state(&host.home, id)?;
+    let expires = id.as_str().starts_with("auto-v2-");
+    if previous.is_none() && expires && Store::active(&host.home)?.as_ref() != Some(id) {
+        return remove_directory(&root);
+    }
+    let saved = previous.ok_or(BackupError::Missing)?;
     if saved.automatic_revision.is_none()
         || !saved.terminal()
         || Store::active(&host.home)?.as_ref() == Some(id)
@@ -28,11 +33,27 @@ pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
         }
         files.push(entry.path());
     }
-    // Keep the small exact terminal record: a repeated old request remains terminal.
+    // Legacy UUID jobs retain their terminal; new reserved IDs expire locally.
     for path in files {
         super::super::store::remove_owned(&path)?;
     }
     File::open(&root)?.sync_all()?;
+    if expires {
+        store::remove_owned(&root.join("terminal.json"))?;
+        File::open(&root)?.sync_all()?;
+        store::remove_owned(&root.join("state.json"))?;
+        File::open(&root)?.sync_all()?;
+        remove_directory(&root)?;
+    }
+    Ok(())
+}
+fn remove_directory(root: &std::path::Path) -> Result<()> {
+    match fs::remove_dir(root) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    File::open(root.parent().ok_or(BackupError::Invalid)?)?.sync_all()?;
     Ok(())
 }
 fn allowed(name: &str) -> bool {

@@ -79,6 +79,13 @@ fn request_locked(
         }
     };
     let previous = store::state(&host.home, &id)?;
+    // Expired automatic IDs can never become fresh manual publications.
+    if id.as_str().starts_with("auto-v2-")
+        && previous.is_none()
+        && matches!(origin, RunOrigin::Manual)
+    {
+        return Err(BackupError::Missing);
+    }
     if previous.as_ref().is_some_and(Saved::terminal) {
         return status_for(host, Some(id));
     }
