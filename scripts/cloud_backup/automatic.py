@@ -26,6 +26,7 @@ class Automatic:
 
     def recover(self, name, expected, accepted, replay=None):
         operation = self.operation
+        operation.summary["stage"] = name
         require(operation.node.process is None, "source_stays_stopped_for_restore")
         parent = operation.root / name
         parent.mkdir(mode=0o700)
@@ -47,36 +48,46 @@ class Automatic:
 
     def run(self):
         operation = self.operation
+        operation.summary["stage"] = "automatic-connect"
         source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True),
                         self.baseline, operation.args.source)
         operation.node = source.node
         source.node.start()
         source.connect(operation.api_key)
+        operation.summary["stage"] = "automatic-snapshot"
         source.configure()
         snapshot = source.published("snapshot")
         source.caught_up(snapshot)
+        operation.summary["stage"] = "mutation-log"
         source.write(self.baseline["schema"])
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"])
         source.caught_up(log)
         routes = source.routes(log)
         source.retired(snapshot["request_id"])
-        require(log["automatic_backup"]["last_snapshot_at"] == snapshot["automatic_backup"]["last_snapshot_at"],
-                "log_did_not_replace_daily_snapshot")
+        timer = snapshot["automatic_backup"]
+        require(all(log["automatic_backup"][name] == timer[name]
+                    for name in ("last_snapshot_at", "next_snapshot_at")),
+                "log_did_not_move_daily_snapshot_timer")
         revision = log["automatic_backup"]["revision"]
+        operation.summary["stage"] = "automatic-restart"
         source.node.stop()
         source.node.start()
         policy = source.policy(source.cloud("status"))
         require(policy["revision"] == revision, "automatic_policy_survives_daemon_restart")
+        require(policy["next_snapshot_at"] == timer["next_snapshot_at"],
+                "saved_snapshot_deadline_survives_restart")
         # A clean stop can add its normal native housekeeping to the journal.
         # Give the unchanged minute schedule time to publish that complete cut.
         time.sleep(65)
         restarted = source.published("mutation_log")
         source.caught_up(restarted)
         source.node.verify_records(source.expected)
+        operation.summary["stage"] = "snapshot-interval"
         source.configure(snapshot=60)
         later = source.published("snapshot", snapshot["last_accepted_backup"]["commit_sha256"], snapshot=60)
         require(later["automatic_backup"]["last_snapshot_at"] > snapshot["automatic_backup"]["last_snapshot_at"],
                 "changed_interval_produced_a_later_snapshot")
+        operation.summary["stage"] = "automatic-disable"
         source.configure()
         source.retired(restarted["request_id"])
         source.disable()

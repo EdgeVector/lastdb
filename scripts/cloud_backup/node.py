@@ -32,7 +32,7 @@ class OwnedNode:
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
-        self.backup_source, self.pointer = backup_source, None
+        self.backup_source = backup_source
         require(len(str(home / "data/folddb-full.sock").encode()) < 104, "socket_path_size")
 
     def call(self, path, body=None, binary=False):
@@ -200,7 +200,6 @@ class OwnedNode:
             require(fields["file"] == pointer, "shared_file_pointer")
         require(pointer is not None and pointer == baseline.get("file_pointer", pointer),
                 "expected_file_pointer")
-        self.pointer = pointer
         self.verify_file(pointer, baseline)
         self.health()
         return {"records": sum(not record.get("deleted", False) for record in baseline["records"]),

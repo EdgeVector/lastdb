@@ -25,8 +25,9 @@ The source stores a new 64 KiB file through the ordinary file command.
 One batch updates 15 records to reference that file and deletes the other record.
 The automatic mutation log must publish those writes and cover the complete current journal head.
 Its accepted native file extents must route main files to R2, CAS files to B2, and client metadata to R2.
-The log must leave the daily snapshot time unchanged.
+The log must leave both the last snapshot time and the next daily snapshot time unchanged.
 The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
+Its next snapshot time must also remain unchanged after the restart.
 
 The operation changes the snapshot interval to 60 seconds and requires a later automatic snapshot.
 It then restores the daily interval, disables automatic backup, and stops the source cleanly.
@@ -85,3 +86,4 @@ The recipe uses fresh private runner directories and checks the daemon identity 
 It removes only its own stopped temporary homes after a complete result.
 An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.
 It preserves accepted backups and uncertain provider obligations and reports the failure without raw product output.
+The Actions log reports a fixed stage name and failure code. Product replies and credentials stay private.
