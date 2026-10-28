@@ -33,6 +33,7 @@ mod cokey_primary;
 mod cokey_secondary;
 mod condition_rules;
 mod count;
+mod field_rules;
 mod fields;
 mod filter;
 mod inspection;

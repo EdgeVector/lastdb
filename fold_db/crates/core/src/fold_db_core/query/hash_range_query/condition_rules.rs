@@ -137,15 +137,7 @@ pub(super) fn exact_key_selected_fields(
     fields: &[String],
     order_by: Option<&QueryOrderBy>,
 ) -> Vec<String> {
-    let mut selected: Vec<String> = if fields.is_empty() {
-        schema.runtime_field_names()
-    } else {
-        fields
-            .iter()
-            .filter(|f| schema.runtime_fields.contains_key(f.as_str()))
-            .cloned()
-            .collect()
-    };
+    let mut selected = super::field_rules::selected_fields(schema, fields);
     // Pass B formats records from the field maps it hydrates. Carry the key
     // field so a kept row with none of the projected values still has an
     // identity map entry and cannot disappear after satisfying `Absent`.
