@@ -1,8 +1,8 @@
-//! Compress-before-seal decision and bounded inflate for the deflated `ENZ:`
-//! and `ENB:` forms.
+//! Compress-before-seal decision and bounded inflate for the deflated `ENB:`
+//! form of the KV seam.
 
 use super::config::at_rest_max_inflated_bytes;
-use super::stats::{current_thread_cpu_ns, AtRestCompressionCounters, COMPRESS_COUNTERS};
+use super::stats::{current_thread_cpu_ns, COMPRESS_COUNTERS};
 use crate::crypto::error::{CryptoError, CryptoResult};
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
@@ -61,9 +61,9 @@ fn deflate_if_smaller(plaintext: &[u8]) -> Option<Vec<u8>> {
 /// between `min_bytes` and [`at_rest_max_inflated_bytes`], and the deflated
 /// form is at most [`AT_REST_DEFLATE_MAX_PLAINTEXT_PERCENT`] of the plaintext;
 /// otherwise `None`, meaning "seal this verbatim".
-/// Every seal site that can emit `ENZ:` goes through here, so the counters
-/// describe the whole `ENZ:` population rather than one codec's share of it —
-/// the single audit point this module exists to be. Callers must count each
+/// The KV seam, the only seal site that can deflate, goes through here, so the
+/// counters describe every deflated `ENB:` value — the single audit point this
+/// module exists to be. Callers must count each
 /// value exactly once.
 ///
 /// **`max_bytes` is the read side's ceiling, not a second policy.** A value
@@ -73,7 +73,7 @@ fn deflate_if_smaller(plaintext: &[u8]) -> Option<Vec<u8>> {
 /// compressed would write a row this same binary could never read back. Every
 /// caller passes [`at_rest_max_inflated_bytes`]; it is an argument, like
 /// `min_bytes` and `enabled`, so the decision stays a pure function of its
-/// inputs and the tests need no process-global env var.
+/// inputs.
 #[must_use]
 pub(crate) fn compress_for_seal(
     plaintext: &[u8],
@@ -81,22 +81,7 @@ pub(crate) fn compress_for_seal(
     max_bytes: u64,
     enabled: bool,
 ) -> Option<Vec<u8>> {
-    compress_for_seal_with_counters(plaintext, min_bytes, max_bytes, enabled, &COMPRESS_COUNTERS)
-}
-
-/// Decide whether to compress `plaintext` and record the result in `counters`.
-///
-/// Production calls route through [`compress_for_seal`] and the process-wide
-/// counters. The separate state makes an exact counter-partition test immune
-/// to concurrent codec tests that correctly update those process-wide values.
-#[must_use]
-fn compress_for_seal_with_counters(
-    plaintext: &[u8],
-    min_bytes: usize,
-    max_bytes: u64,
-    enabled: bool,
-    counters: &AtRestCompressionCounters,
-) -> Option<Vec<u8>> {
+    let counters = &COMPRESS_COUNTERS;
     counters
         .bytes_in
         .fetch_add(plaintext.len() as u64, Ordering::Relaxed);
@@ -154,7 +139,7 @@ fn compress_for_seal_with_counters(
     Some(compressed)
 }
 
-/// Inflate an `ENZ:` payload under the [`at_rest_max_inflated_bytes`] cap.
+/// Inflate a deflated `ENB:` payload under the [`at_rest_max_inflated_bytes`] cap.
 ///
 /// Shared with the namespaced KV seam so there is exactly one bounded
 /// decompressor in the product, not one per seal site.
@@ -166,8 +151,7 @@ pub(crate) fn inflate_at_rest(compressed: &[u8]) -> CryptoResult<Vec<u8>> {
 ///
 /// The ceiling arrives as an argument, read once by the public entry point,
 /// for the same reason the compression config does: this stays a pure function
-/// of its inputs, so a test can drive a small ceiling without mutating a
-/// process-global env var that every concurrent read would then see.
+/// of its inputs.
 ///
 /// The error names the knob that lifts the ceiling, because the only rows that
 /// can trip it now are rows sealed by a binary that had no write-side ceiling,

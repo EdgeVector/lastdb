@@ -10,7 +10,7 @@
 //! (`retention/repair.rs`). The pass writes no counter, no body and no tip.
 
 use super::report::RecountReport;
-use super::{unsealed_refusal, TALLY_PAGE_ROWS};
+use super::TALLY_PAGE_ROWS;
 use crate::db_operations::atom_store::conflict_record::is_counted_record_key;
 use crate::db_operations::atom_store::counter::scan::{family_range, Family};
 use crate::db_operations::atom_store::retention::RepairWindow;
@@ -87,9 +87,6 @@ impl AtomStore {
             let mut walk = RangeWalk::new(&start, &end, TALLY_PAGE_ROWS);
             while !walk.done() {
                 let step = self.walk_step(&mut walk).await?;
-                if step.unsealed > 0 && execute {
-                    return Err(unsealed_refusal(step.unsealed));
-                }
                 for (key, _) in &step.rows {
                     let key = String::from_utf8_lossy(key);
                     if !is_counted_record_key(&key) {

@@ -11,8 +11,7 @@
 /// points for 50% more compression calls on the write path. 256 is the knee.
 pub const AT_REST_COMPRESS_MIN_BYTES_DEFAULT: usize = 256;
 
-/// Default ceiling on the plaintext an `ENZ:`/`ENB:`-deflated payload may
-/// inflate to.
+/// Default ceiling on the plaintext a deflated `ENB:` payload may inflate to.
 ///
 /// The payload is AES-GCM authenticated, so only a holder of the key could
 /// have produced it and this is not an untrusted-input defence. It bounds the
@@ -71,9 +70,8 @@ pub fn at_rest_compress_min_bytes() -> usize {
 /// The KV seam is the only seal that compresses, and it wraps only the local
 /// CAS blob records (`cas_blobs`). The raw-key `at_rest` seals of values
 /// inside records and fields never compress. Reads never consult this
-/// switch — `EncryptingKvStore` decodes `ENZ:` whatever it says. The
-/// `lastdb status` labels `codec_policy.writer_policy` and
-/// `at_rest_compression.enabled` report it.
+/// switch — `EncryptingKvStore` inflates a deflated `ENB:` value whatever it
+/// says. The `lastdb status` label `at_rest_compression.enabled` reports it.
 #[must_use]
 pub fn kv_at_rest_compression_enabled() -> bool {
     matches!(
@@ -92,14 +90,4 @@ pub fn kv_at_rest_compression_enabled() -> bool {
 pub fn kv_at_rest_compress_min_bytes() -> usize {
     env_flag::var_parsed::<usize>("LASTDB_KV_AT_REST_COMPRESS_MIN_BYTES")
         .unwrap_or_else(at_rest_compress_min_bytes)
-}
-
-/// Whether the KV seam writes new values as binary `ENB:` envelopes
-/// (`LASTDB_KV_AT_REST_RAW=1`) rather than base64 `ENC:` or `ENZ:`. It
-/// defaults off. Each raw-key seal call site picks its own form
-/// (`seal_at_rest_utf8` or `seal_at_rest_raw`), and reads accept every form.
-/// The `codec_policy.writer_policy` status label reports it.
-#[must_use]
-pub fn kv_at_rest_raw_enabled() -> bool {
-    matches!(env_flag::var_parse("LASTDB_KV_AT_REST_RAW"), Some(true))
 }

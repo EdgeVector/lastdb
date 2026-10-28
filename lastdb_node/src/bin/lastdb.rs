@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use base64::Engine as _;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;

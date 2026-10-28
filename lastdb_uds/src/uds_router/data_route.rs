@@ -297,16 +297,6 @@ pub enum DataRoute {
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,
-    /// `POST /api/db/reseal-at-rest` — rewrite existing `ENC:` values in one
-    /// sealed plane to `ENB:` (+ deflate ≥256 B) under the same key.
-    /// OWNER only. Body: `{ collection, dry_run?: bool, max_rows?: usize,
-    /// max_secs?: u64, progress_only?: bool, restart?: bool }` (dry_run default true).
-    DbResealAtRest,
-    /// `POST /api/db/reap-unsealed` — remove un-enveloped rows from one
-    /// encrypted plane; they already read as absent. OWNER only. Body:
-    /// `{ collection, dry_run?: bool, max_rows?: usize, max_secs?: u64,
-    /// progress_only?: bool, restart?: bool }` (dry_run default true).
-    DbReapUnsealed,
     /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` storage
     /// keys (decoded hash/range + collision flag). Read-only.
     DbMoleculeKeys,

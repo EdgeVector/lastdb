@@ -29,64 +29,6 @@ pub(super) fn db_repair_command(socket: &Path, action: DbRepairCommand) -> Resul
     }
 }
 
-/// Dispatch the at-rest sealing and partition re-key verbs.
-pub(super) fn db_seal_command(socket: &Path, action: DbSealCommand) -> Result<(), String> {
-    match action {
-        DbSealCommand::ResealAtRest {
-            collection,
-            target,
-            execute,
-            max_rows,
-            max_secs,
-            progress,
-            restart,
-            json,
-            out,
-            timeout,
-        } => db_reseal_at_rest(
-            socket,
-            &ResealAtRestCliOpts {
-                collection: collection.as_str(),
-                target,
-                execute,
-                max_rows,
-                max_secs,
-                progress_only: progress,
-                restart,
-                json_only: json,
-                out: out.as_deref(),
-                timeout_secs: timeout,
-            },
-        ),
-        DbSealCommand::ReapUnsealed {
-            collection,
-            execute,
-            max_rows,
-            max_secs,
-            progress,
-            restart,
-            all,
-            json,
-            out,
-            timeout,
-        } => db_reap_unsealed(
-            socket,
-            &ReapUnsealedCliOpts {
-                collection: collection.as_str(),
-                execute,
-                max_rows,
-                max_secs,
-                progress_only: progress,
-                restart,
-                all,
-                json_only: json,
-                out: out.as_deref(),
-                timeout_secs: timeout,
-            },
-        ),
-    }
-}
-
 /// Dispatch the file-blob transfer verbs.
 pub(super) fn db_blob_command(socket: &Path, action: DbBlobCommand) -> Result<(), String> {
     match action {

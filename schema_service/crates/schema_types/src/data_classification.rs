@@ -1,13 +1,7 @@
 use serde::Serialize;
 
-/// Standard sensitivity levels for data classification.
-/// Higher values indicate greater sensitivity.
-pub const PUBLIC: u8 = 0;
-pub const INTERNAL: u8 = 1;
-pub const CONFIDENTIAL: u8 = 2;
-pub const HIGHLY_RESTRICTED: u8 = 4;
-
 /// Maximum allowed sensitivity level.
+/// 0 is Public and 4 is Highly Restricted.
 pub const MAX_SENSITIVITY_LEVEL: u8 = 4;
 
 /// Two-dimensional data classification label for a field.
@@ -96,30 +90,6 @@ impl DataClassification {
             3 => "Restricted",
             4 => "Highly Restricted",
             _ => "Unknown",
-        }
-    }
-
-    /// Convenience constructor for Low (Public, general domain).
-    pub fn low() -> Self {
-        Self {
-            sensitivity_level: PUBLIC,
-            data_domain: "general".to_string(),
-        }
-    }
-
-    /// Convenience constructor for Medium (Confidential, general domain).
-    pub fn medium() -> Self {
-        Self {
-            sensitivity_level: CONFIDENTIAL,
-            data_domain: "general".to_string(),
-        }
-    }
-
-    /// Convenience constructor for High (Highly Restricted, general domain).
-    pub fn high() -> Self {
-        Self {
-            sensitivity_level: HIGHLY_RESTRICTED,
-            data_domain: "general".to_string(),
         }
     }
 }

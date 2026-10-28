@@ -57,11 +57,6 @@ fold_db/crates/core/src/protein/ops.rs|put_protein|-|protein records and member 
 
 fold_db/crates/core/src/schema/field_hash_coherence.rs|bind_cross_key_field_protein_in_scope|-|field-to-protein index rows
 
-fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|clear_reap_checkpoint|-|maintenance checkpoints
-fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|clear_reseal_checkpoint|-|maintenance checkpoints
-fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reap_checkpoint|-|maintenance checkpoints
-fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reseal_checkpoint|-|maintenance checkpoints
-
 fold_db/crates/core/src/storage/encrypting_store/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
 
 

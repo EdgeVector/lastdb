@@ -107,9 +107,7 @@ impl AtomStore {
 
 /// Judge a page of the suspects phase: each record on it has no queue entry.
 pub(super) fn apply_suspects(run: &mut Run, page: &SuspectsPage) {
-    run.note_unsealed(page.scan_unsealed);
-    run.walk
-        .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+    run.walk.finish_yield(page.rows, page.resume.as_deref());
     run.report.pages += 1;
     for key in &page.keys {
         run.note_fault(

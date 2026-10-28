@@ -3,7 +3,6 @@
 //! committed root. Nothing here takes the write gate and nothing here writes.
 
 use super::pages::{Request, VERIFY_KEYS_PER_ROW};
-use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::{AtomStore, MoleculeBindings};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
@@ -27,7 +26,6 @@ pub(super) struct HeadersPage {
     pub rows: usize,
     /// The last key the read examined, or `None` when the range ended.
     pub resume: Option<Vec<u8>>,
-    pub scan_unsealed: u64,
     pub headers: Vec<HeaderRow>,
 }
 
@@ -44,8 +42,6 @@ pub(super) struct BindingsPage {
     pub rows: usize,
     /// The last key the read examined, or `None` when the range ended.
     pub resume: Option<Vec<u8>>,
-    pub scan_unsealed: u64,
-    pub point_unsealed: u64,
     pub counters: Vec<CounterRow>,
 }
 
@@ -54,8 +50,6 @@ pub(super) struct BindingRecordsPage {
     pub rows: usize,
     /// The last key the read examined, or `None` when the range ended.
     pub resume: Option<Vec<u8>>,
-    pub scan_unsealed: u64,
-    pub point_unsealed: u64,
     /// The molecule tokens of the page that have no `bindings` counter.
     pub without_counter: Vec<String>,
 }
@@ -72,13 +66,12 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<HeadersPage, SchemaError> {
         self.atom_read_scope(async {
-            let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
-            )
-            .await;
-            let scan = scan.map_err(SchemaError::from)?;
+            let scan = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
+                .await
+                .map_err(SchemaError::from)?;
             let (rows, resume) = (scan.rows, scan.resume);
             let mut headers = Vec::with_capacity(rows.len());
             for (key, value) in &rows {
@@ -95,7 +88,6 @@ impl AtomStore {
             Ok(HeadersPage {
                 rows: rows.len(),
                 resume,
-                scan_unsealed,
                 headers,
             })
         })
@@ -111,16 +103,14 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingsPage, SchemaError> {
         self.atom_read_scope(async {
-            let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
-            )
-            .await;
-            let scan = scan.map_err(SchemaError::from)?;
+            let scan = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
+                .await
+                .map_err(SchemaError::from)?;
             let (rows, resume) = (scan.rows, scan.resume);
             let mut counters = Vec::with_capacity(rows.len());
-            let mut point_unsealed = 0;
             for (key, value) in &rows {
                 let key = String::from_utf8_lossy(key);
                 let Some(token) = after(&key, "mref:v1:n:") else {
@@ -136,13 +126,11 @@ impl AtomStore {
                     .min(MAX_RECORD_READ);
                 let prefix = build_storage_key(scope, &format!("mref:v1:e:{token}\0"));
                 let upper = FilterUtils::create_prefix_end(&prefix)?;
-                let (found, unsealed) = count_unsealed_discards(
-                    self.raw()
-                        .inner()
-                        .scan_range_paged(prefix.as_bytes(), upper.as_bytes(), ask),
-                )
-                .await;
-                point_unsealed += unsealed;
+                let found = self
+                    .raw()
+                    .inner()
+                    .scan_range_paged(prefix.as_bytes(), upper.as_bytes(), ask)
+                    .await;
                 counters.push(CounterRow {
                     molecule_token: token.to_string(),
                     record,
@@ -152,8 +140,6 @@ impl AtomStore {
             Ok(BindingsPage {
                 rows: rows.len(),
                 resume,
-                scan_unsealed,
-                point_unsealed,
                 counters,
             })
         })
@@ -168,13 +154,12 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingRecordsPage, SchemaError> {
         self.atom_read_scope(async {
-            let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
-            )
-            .await;
-            let scan = scan.map_err(SchemaError::from)?;
+            let scan = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
+                .await
+                .map_err(SchemaError::from)?;
             let (rows, resume) = (scan.rows, scan.resume);
             let tokens: BTreeSet<String> = rows
                 .iter()
@@ -189,8 +174,7 @@ impl AtomStore {
                 .iter()
                 .map(|token| build_storage_key(scope, &format!("mref:v1:n:{token}")).into_bytes())
                 .collect();
-            let (counters, point_unsealed) =
-                count_unsealed_discards(self.raw().inner().exists_many(keys)).await;
+            let counters = self.raw().inner().exists_many(keys).await;
             let without_counter = tokens
                 .into_iter()
                 .zip(counters.map_err(SchemaError::from)?)
@@ -200,8 +184,6 @@ impl AtomStore {
             Ok(BindingRecordsPage {
                 rows: rows.len(),
                 resume,
-                scan_unsealed,
-                point_unsealed,
                 without_counter,
             })
         })

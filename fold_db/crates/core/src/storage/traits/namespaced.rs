@@ -1,6 +1,6 @@
 //! Namespace and physical-store capability surface.
 use super::*;
-use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::error::StorageResult;
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -46,39 +46,5 @@ pub trait NamespacedStore: Send + Sync {
     /// counter unchanged. Wrapper stores delegate to their inner store.
     fn walk_ids_visited(&self) -> Option<u64> {
         None
-    }
-
-    /// Owner maintenance: rewrite existing `ENC:` values in one collection to
-    /// `ENB:` (+ deflate at the 256 B floor) under the same key.
-    ///
-    /// Default is unsupported. The encrypting wrapper implements it. The
-    /// physical store has no crypto.
-    async fn reseal_at_rest(
-        &self,
-        options: crate::storage::reseal_at_rest::ResealAtRestOptions,
-    ) -> StorageResult<crate::storage::reseal_at_rest::ResealAtRestReport> {
-        let _ = options;
-        Err(StorageError::BackendError(
-            "reseal-at-rest is not supported by this storage backend".to_string(),
-        ))
-    }
-
-    /// Owner maintenance: remove un-enveloped rows from one encrypted
-    /// collection. Such rows already read as absent
-    /// (`decision-2026-09-14-drop-dual-read-unsealed-is-gone`); this returns
-    /// their bytes.
-    ///
-    /// Default is unsupported. The encrypting wrapper implements it, because
-    /// only the seam knows which namespaces it seals. The physical store has
-    /// no crypto and so cannot tell an unsealed row from a plaintext-by-policy
-    /// one.
-    async fn reap_unsealed(
-        &self,
-        options: crate::storage::reap_unsealed::ReapUnsealedOptions,
-    ) -> StorageResult<crate::storage::reap_unsealed::ReapUnsealedReport> {
-        let _ = options;
-        Err(StorageError::BackendError(
-            "reap-unsealed is not supported by this storage backend".to_string(),
-        ))
     }
 }

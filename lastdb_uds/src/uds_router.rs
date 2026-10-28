@@ -64,7 +64,12 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `GET /api/sharing/deliveries` and `POST /api/sharing/deliveries/{id}/reject`.
 /// No app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 6;
+///
+/// `7` (2026-10-28) removes the two at-rest migration owner-socket routes
+/// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
+/// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
+/// stays `1`.
+pub const API_VERSION: u32 = 7;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

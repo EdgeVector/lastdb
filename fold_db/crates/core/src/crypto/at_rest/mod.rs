@@ -15,45 +15,27 @@
 //! same [`encrypt_envelope`]/[`decrypt_envelope`] AES-256-GCM primitive the
 //! rest of the crate uses (no second crypto implementation).
 //!
-//! **Legacy wire format:** `ENC:` ++ base64(envelope) — identical to the
-//! [`EncryptingNamespacedStore`](crate::storage::EncryptingNamespacedStore) seam, so a value sealed here reads
-//! exactly like a value sealed there and the stored bytes stay valid UTF-8.
-//! A value without one of the markers below is not sealed, and
-//! [`open_at_rest`] rejects it. The plaintext dual-read for rows written
-//! before their store was sealed went with disk format v1.
-//!
-//! **Second legacy wire format — `ENZ:` ++
-//! base64(envelope(deflate(plaintext))).**
-//! Ciphertext is incompressible, so a payload that is sealed and never
-//! compressed can never be shrunk again by any downstream plane: compaction,
-//! the backup chunk store, and the cloud bill all carry the full size
-//! forever. The deflated forms therefore compress *before* sealing —
-//! the order Tom locked in `preference-lastdb-storage-compress-atoms-and-blobs`
-//! (plaintext -> compress -> encrypt, never encrypt first).
+//! **Text wire format — `ENC:` ++ base64(envelope).** The stored bytes stay
+//! valid UTF-8, for a storage boundary that requires a JSON string
+//! ([`seal_at_rest_utf8`]).
 //!
 //! **Binary wire format — `ENB:` ++ flags ++ envelope.** The low bit of the
 //! one-byte flags field records whether the plaintext was deflated before it
-//! was sealed. This format removes the base64 storage tax while one marker
-//! still covers both compressed and uncompressed ciphertext.
+//! was sealed. The raw-key seal ([`seal_at_rest_raw`]) never deflates, and
+//! [`open_at_rest`] refuses a deflated value.
 //!
-//! All prefixes are 4 bytes and end in `:`, which is outside the base64
-//! alphabet, so none can be confused with another, with a base64 body, or
-//! with JSON (`{`/`[`). [`is_sealed_at_rest`] accepts all three — a caller that
-//! gates on "is this sealed?" (Operation Trinity strict open, idempotent
-//! reseal) must never see `ENZ:` as unsealed.
-//!
-//! **Reads never depend on a write-side switch.** [`open_at_rest`] always
-//! understands `ENZ:`, so a row that an older build wrote compressed stays
-//! readable.
+//! Both prefixes are 4 bytes and end in `:`, which is outside the base64
+//! alphabet, so neither can be confused with the other, with a base64 body,
+//! or with JSON (`{`/`[`). A value without one of them is not sealed, and
+//! [`open_at_rest`] rejects it.
 //!
 //! **The compression half serves the KV seam.** The namespaced
 //! `EncryptingKvStore`, which wraps only the local CAS blob records
 //! (`cas_blobs`), seals through the async
-//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key. It uses
-//! the compress-or-skip decision (`compress_for_seal`), the bounded inflate
-//! (`inflate_at_rest`), and these counters. It is the only seal site that
-//! compresses; the raw-key seals here never deflate, and [`open_at_rest`]
-//! still reads an `ENZ:` value.
+//! [`CryptoProvider`](super::CryptoProvider) rather than a raw key. It writes
+//! `ENB:` only, and it uses the compress-or-skip decision
+//! (`compress_for_seal`), the bounded inflate (`inflate_at_rest`), and these
+//! counters. It is the only seal site that compresses.
 
 mod compress;
 mod config;
@@ -86,17 +68,14 @@ pub const AT_REST_ENC_BINARY_PREFIX: &str = "ENB:";
 const AT_REST_BINARY_FLAG_DEFLATED: u8 = 0x01;
 const AT_REST_BINARY_KNOWN_FLAGS: u8 = AT_REST_BINARY_FLAG_DEFLATED;
 
-/// True when `value` carries an at-rest envelope marker (`ENC:`, `ENZ:`, or
-/// `ENB:`). All current markers must match: an encrypted atom read rejects
-/// anything unencrypted, including a compressed value with an unknown marker.
+/// True when `value` carries an at-rest envelope marker (`ENC:` or `ENB:`).
 #[must_use]
 pub fn is_sealed_at_rest(value: &[u8]) -> bool {
     value.starts_with(AT_REST_ENC_PREFIX.as_bytes())
-        || value.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes())
         || value.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes())
 }
 
-/// Seal `plaintext` as legacy UTF-8 `ENC:` + base64(envelope).
+/// Seal `plaintext` as UTF-8 `ENC:` + base64(envelope).
 ///
 /// Use this only at a storage boundary that requires a JSON/string value.
 /// Byte-oriented stores should use [`seal_at_rest_raw`], which carries no
@@ -144,23 +123,11 @@ pub(crate) fn decode_binary_ciphertext(stored: &[u8]) -> CryptoResult<Option<(bo
     )))
 }
 
-/// Prefix marker for at-rest values that were **compressed before sealing**.
-/// A sealed value is `ENZ:` ++ base64(envelope(deflate(plaintext))).
-///
-/// Same shape and same guarantees as [`AT_REST_ENC_PREFIX`]: 4 bytes ending in
-/// `:`, which is not in the base64 alphabet, so it can never collide with a
-/// base64 body or with JSON.
-pub const AT_REST_ENC_DEFLATE_PREFIX: &str = "ENZ:";
-
-/// Open a sealed value. `ENC:`- and `ENZ:`-prefixed values are
-/// base64-decoded and decrypted under `key`, and `ENB:` values read the raw
-/// envelope after the flags byte. Compressed forms are additionally
-/// inflated. A value without a sealed prefix is an error.
-///
-/// `ENZ:` is decoded unconditionally — no write-side switch gates it, so a
-/// row already on disk stays readable.
+/// Open a sealed value. An `ENC:` value is base64-decoded and decrypted
+/// under `key`. An `ENB:` value reads the raw envelope after the flags byte.
+/// A value without a sealed prefix, or a deflated `ENB:` value, is an error.
 pub fn open_at_rest(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
-    open_at_rest_with_ceiling(key, stored, at_rest_max_inflated_bytes)
+    open_sealed(key, stored)
 }
 
 /// Open a sealed value with a caller-owned bound, independent of environment.
@@ -175,7 +142,7 @@ pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoRe
             "bounded encrypted value required".into(),
         ));
     }
-    let plain = open_at_rest_with_ceiling(key, stored, || max)?;
+    let plain = open_sealed(key, stored)?;
     if plain.len() as u64 > max {
         return Err(CryptoError::InvalidFormat(
             "decoded value exceeds explicit bound".into(),
@@ -184,38 +151,22 @@ pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoRe
     Ok(plain)
 }
 
-// Only compressed reads fetch the current inflate ceiling, once for each
-// open, and enforce it after authenticated decryption.
-fn open_at_rest_with_ceiling<F>(
-    key: &[u8; 32],
-    stored: &[u8],
-    max_bytes: F,
-) -> CryptoResult<Vec<u8>>
-where
-    F: FnOnce() -> u64,
-{
+fn open_sealed(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
     if let Some((deflated, ciphertext)) = decode_binary_ciphertext(stored)? {
-        let plaintext = decrypt_envelope(key, ciphertext)?;
-        return if deflated {
-            inflate_bounded(&plaintext, max_bytes())
-        } else {
-            Ok(plaintext)
-        };
+        if deflated {
+            return Err(CryptoError::InvalidFormat(
+                "a raw-key ENB envelope is never deflated".into(),
+            ));
+        }
+        return decrypt_envelope(key, ciphertext);
     }
-    let deflated = stored.starts_with(AT_REST_ENC_DEFLATE_PREFIX.as_bytes());
-    if !deflated && !stored.starts_with(AT_REST_ENC_PREFIX.as_bytes()) {
+    let Some(encoded) = stored.strip_prefix(AT_REST_ENC_PREFIX.as_bytes()) else {
         return Err(CryptoError::InvalidFormat(
-            "at-rest value has no ENC:, ENZ:, or ENB: marker".into(),
+            "at-rest value has no ENC: or ENB: marker".into(),
         ));
-    }
-    // Both markers are the same width, so one slice serves both.
-    let b64_part = &stored[AT_REST_ENC_PREFIX.len()..];
+    };
     let ciphertext = B64
-        .decode(b64_part)
+        .decode(encoded)
         .map_err(|e| CryptoError::InvalidFormat(format!("at-rest base64 decode failed: {e}")))?;
-    let plaintext = decrypt_envelope(key, &ciphertext)?;
-    if deflated {
-        return inflate_bounded(&plaintext, max_bytes());
-    }
-    Ok(plaintext)
+    decrypt_envelope(key, &ciphertext)
 }

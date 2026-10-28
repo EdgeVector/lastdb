@@ -1,14 +1,19 @@
 //! The `KvStore` trait implementation for `EncryptingKvStore`.
 
-use super::fill::PagedSource;
 use super::*;
+use crate::storage::disk_pack::WHOLE_COLLECTION_END;
 use crate::storage::traits::YieldedScan;
+
+/// Rows one page of a whole-namespace walk reads.
+const WALK_PAGE_ROWS: usize = 256;
+/// Physical handles one page of a whole-namespace walk resolves.
+const WALK_PAGE_HANDLES: usize = 1;
 
 #[async_trait]
 impl KvStore for EncryptingKvStore {
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         match self.inner.get(key).await? {
-            Some(stored) => self.open_or_discard(key, stored).await,
+            Some(stored) => self.open_value(key, stored).await.map(Some),
             None => Ok(None),
         }
     }
@@ -19,8 +24,8 @@ impl KvStore for EncryptingKvStore {
         let mut values = Vec::with_capacity(keys.len());
         for (key, stored) in keys.into_iter().zip(stored) {
             let opened = match stored {
-                Some(stored) => match self.open_or_discard(&key, stored).await {
-                    Ok(opened) => opened,
+                Some(stored) => match self.open_value(&key, stored).await {
+                    Ok(opened) => Some(opened),
                     Err(error) if Self::lossy_derived_key(&key) => {
                         tracing::warn!(error = %error, "get_many: skipping undecryptable derived-index row");
                         None
@@ -35,7 +40,7 @@ impl KvStore for EncryptingKvStore {
     }
 
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
-        let sealed = self.protect_value(key, value).await?;
+        let sealed = self.seal_value(key, &value).await?;
         self.inner.put(key, sealed).await
     }
 
@@ -70,10 +75,9 @@ impl KvStore for EncryptingKvStore {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // prefix bound applies before decryption. Forward to the inner store's
         // paged scan so its native lazy bound holds — we then decrypt only
-        // the page's rows, not the whole prefix. A row with no envelope is
-        // dropped and the page is refilled, so a short page is the range end.
-        self.scan_paged_filled(PagedSource::Prefix(prefix), limit)
-            .await
+        // the page's rows, not the whole prefix.
+        let rows = self.inner.scan_prefix_paged(prefix, limit).await?;
+        self.decrypt_rows(rows).await
     }
 
     async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -92,14 +96,12 @@ impl KvStore for EncryptingKvStore {
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // range bound applies before decryption. Forward to the inner store's
-        // paged range scan so native lazy bounds hold. A row with no envelope
-        // is dropped and the page is refilled, so a short page is the range end.
-        self.scan_paged_filled(PagedSource::Range(start, end), limit)
-            .await
+        // paged range scan so native lazy bounds hold.
+        let rows = self.inner.scan_range_paged(start, end, limit).await?;
+        self.decrypt_rows(rows).await
     }
 
-    /// The inner store names where the next read continues, from its raw rows,
-    /// so a row dropped for want of an envelope does not change it.
+    /// The inner store names where the next read continues, from its raw rows.
     async fn scan_range_yielding(
         &self,
         start: &[u8],
@@ -143,8 +145,6 @@ impl KvStore for EncryptingKvStore {
         Ok(PhysicalScanPage {
             rows: self.decrypt_rows(page.rows).await?,
             next_cursor: page.next_cursor,
-            row_handle: page.row_handle,
-            handles_visited: page.handles_visited,
         })
     }
 
@@ -163,12 +163,10 @@ impl KvStore for EncryptingKvStore {
         let mut skipped = 0usize;
 
         for (key, stored) in results {
-            match self.open_or_discard(&key, stored).await {
-                Ok(Some(plaintext)) => {
+            match self.open_value(&key, stored).await {
+                Ok(plaintext) => {
                     decrypted_results.push((key, plaintext));
                 }
-                // No envelope: absent, already counted and warned once.
-                Ok(None) => {}
                 Err(e) => {
                     // One undecryptable row must not fail the whole scan: this
                     // path backs a derived index that can be rebuilt. Skip it
@@ -215,10 +213,10 @@ impl KvStore for EncryptingKvStore {
                     .inner
                     .scan_range_physical_paged(
                         &[],
-                        RESEAL_COLLECTION_END,
+                        WHOLE_COLLECTION_END,
                         cursor.as_ref(),
-                        RESEAL_PAGE_ROWS,
-                        RESEAL_PAGE_HANDLES,
+                        WALK_PAGE_ROWS,
+                        WALK_PAGE_HANDLES,
                     )
                     .await?;
                 rows.extend(page.rows);
@@ -235,13 +233,10 @@ impl KvStore for EncryptingKvStore {
         let mut undecryptable = Vec::new();
 
         for (key, stored) in results {
-            match self.open_or_discard(&key, stored).await {
-                Ok(Some(plaintext)) => {
+            match self.open_value(&key, stored).await {
+                Ok(plaintext) => {
                     rows.push((key, plaintext));
                 }
-                // An un-enveloped row is absent, not undecryptable: it is not a
-                // wrong-key row awaiting repair, so it is not reported for one.
-                Ok(None) => {}
                 Err(_) => undecryptable.push(key),
             }
         }
@@ -255,7 +250,7 @@ impl KvStore for EncryptingKvStore {
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         let mut encrypted_items = Vec::with_capacity(items.len());
         for (key, value) in items {
-            let sealed = self.protect_value(&key, value).await?;
+            let sealed = self.seal_value(&key, &value).await?;
             encrypted_items.push((key, sealed));
         }
         self.inner.batch_put(encrypted_items).await
@@ -270,7 +265,7 @@ impl KvStore for EncryptingKvStore {
         for mutation in mutations {
             sealed.push(match mutation {
                 KvMutation::Put { key, value } => {
-                    let value = self.protect_value(&key, value).await?;
+                    let value = self.seal_value(&key, &value).await?;
                     KvMutation::Put { key, value }
                 }
                 KvMutation::Delete { key } => KvMutation::Delete { key },
@@ -283,7 +278,7 @@ impl KvStore for EncryptingKvStore {
         let mut encrypted_items = Vec::with_capacity(items.len());
 
         for (key, value) in items {
-            let sealed = self.protect_value(&key, value).await?;
+            let sealed = self.seal_value(&key, &value).await?;
             encrypted_items.push((key, sealed));
         }
 

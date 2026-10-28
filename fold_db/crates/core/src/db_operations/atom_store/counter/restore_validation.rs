@@ -106,7 +106,7 @@ async fn restored_scopes(
         }
         if !keys.is_empty() && logical.get_many(keys).await?.iter().any(Option::is_none) {
             return Err(invalid(
-                "a restored lifecycle record was discarded by the encryption reader",
+                "a restored lifecycle record does not read back from the logical store",
             ));
         }
         let Some(next) = page.next_cursor else {

@@ -4,7 +4,6 @@
 
 use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
 use super::pages::{Request, VERIFY_KEYS_PER_ROW};
-use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{
     blob_counter_key, blob_counter_key_of_id, BlobRead,
 };
@@ -64,13 +63,12 @@ impl AtomStore {
     ) -> Result<BlobsPage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
-            )
-            .await;
-            let scan = scan.map_err(SchemaError::from)?;
+            let scan = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
+                .await
+                .map_err(SchemaError::from)?;
             let (rows, resume) = (scan.rows, scan.resume);
             let counters: Vec<BlobRead> = rows
                 .iter()
@@ -85,18 +83,16 @@ impl AtomStore {
                     _ => None,
                 })
                 .collect();
-            let (found, point_unsealed) = count_unsealed_discards(async {
-                if queue_keys.is_empty() {
-                    return Ok(Vec::new());
-                }
+            let found = if queue_keys.is_empty() {
+                Vec::new()
+            } else {
                 self.raw()
                     .inner()
                     .exists_many(queue_keys)
                     .await
-                    .map_err(SchemaError::from)
-            })
-            .await;
-            let mut found = found?.into_iter();
+                    .map_err(SchemaError::from)?
+            };
+            let mut found = found.into_iter();
             // The rows of the blobs that hold references, read in the same scope.
             let referenced: Vec<String> = counters
                 .iter()
@@ -138,8 +134,6 @@ impl AtomStore {
             Ok(BlobsPage {
                 rows: rows.len(),
                 resume,
-                scan_unsealed,
-                point_unsealed,
                 entries,
             })
         })
@@ -153,13 +147,12 @@ impl AtomStore {
     ) -> Result<QueuePage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw()
-                    .inner()
-                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
-            )
-            .await;
-            let scan = scan.map_err(SchemaError::from)?;
+            let scan = self
+                .raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
+                .await
+                .map_err(SchemaError::from)?;
             let (rows, resume) = (scan.rows, scan.resume);
             // The buckets of the page against the directory, at the same root.
             let mut buckets: BTreeMap<u64, (u64, String)> = BTreeMap::new();
@@ -201,9 +194,7 @@ impl AtomStore {
                 .iter()
                 .map(|(_, id)| blob_counter_key_of_id(id).into_bytes())
                 .collect();
-            let (bytes, point_unsealed) =
-                count_unsealed_discards(self.read_blob_counter_bytes(keys)).await;
-            let bytes = bytes?;
+            let bytes = self.read_blob_counter_bytes(keys).await?;
             let entries = parsed
                 .into_iter()
                 .zip(bytes)
@@ -216,8 +207,6 @@ impl AtomStore {
             Ok(QueuePage {
                 rows: rows.len(),
                 resume,
-                scan_unsealed,
-                point_unsealed,
                 entries,
                 unlisted,
             })

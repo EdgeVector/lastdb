@@ -21,16 +21,12 @@ impl AtomStore {
             .expect("a walk that is not done has a read");
         let outcome = if run.phase == Phase::Blobs {
             self.read_blobs_page(request).await.map(|page| {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                run.walk
-                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_blobs(run, page);
             })
         } else {
             self.read_queue_page(request).await.map(|page| {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                run.walk
-                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_queue(run, page);
             })
         };
