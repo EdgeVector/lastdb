@@ -13,9 +13,10 @@ pub(super) fn publish(root: &Path) -> StorageResult<()> {
         .create_new(true)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
-        .open(root.join("pair-ready"))?;
+        .open(root.join("pair-ready.pending"))?;
     file.write_all(READY)?;
     file.sync_all()?;
+    fs::rename(root.join("pair-ready.pending"), root.join("pair-ready"))?;
     File::open(root)?.sync_all()?;
     Ok(())
 }
@@ -40,7 +41,7 @@ pub(super) fn complete(root: &Path) -> StorageResult<bool> {
     }
     let mut bytes = [0u8; 9];
     file.read_exact(&mut bytes)?;
-    if bytes != READY {
+    if bytes.as_slice() != READY {
         return Err(invalid("run paired completion marker"));
     }
     Ok(true)
