@@ -8,6 +8,11 @@
 > notes only — Mini does not host native embeddings. Catalog scrub:
 > `backup_manifest`, `sync/policy`.
 >
+> **2026-10-28 note:** The node does not derive the index key (`fold:index-key`).
+> Each molecule key bundle holds a random blind key for HashKey tokens
+> (`DESIGN_HASHKEY_BLIND_V1.md`). Sections below that use the index key are
+> historical.
+>
 > **2026-10-26 note:** Atom content encryption (goal item 1 and section 3) is
 > **retired**. Disk format v2 stores each atom row as plain JSON, and the
 > AES-256-GCM block encryption of each run file protects it at rest (Tom,

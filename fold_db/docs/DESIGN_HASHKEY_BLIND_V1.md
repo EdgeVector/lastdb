@@ -13,11 +13,11 @@ Canonical brief: brain `design-lastdb-hashkey-blind-v1`.
 ## Crypto
 
 ```text
-blind_hash_key(index_key, molecule_uuid, plaintext_hash) =
-  base64url_nopad(HMAC-SHA256(index_key, "hk|v1\0" || M || "\0" || hash)[..16])
+blind_hash_key(blind_key, molecule_uuid, plaintext_hash) =
+  base64url_nopad(HMAC-SHA256(blind_key, "hk|v1\0" || M || "\0" || hash)[..16])
 ```
 
-Index key = the `blind_key` of the molecule's key bundle (random per molecule,
+`blind_key` = the blind key of the molecule's key bundle (random per molecule,
 wrapped under the node key). `MoleculeKeyCodec::new` requires the key, so no
 codec exists without one.
 
