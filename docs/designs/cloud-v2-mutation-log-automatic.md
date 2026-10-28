@@ -93,7 +93,7 @@ The controller uses one active request and the existing backup runtime.
 A temporary failure or restart resumes the same request, files, transfer inputs, and provider obligations.
 Quota, credential, identity, integrity, and unsupported-format errors stop automatic retries and appear in status.
 An unfinished manual request is never adopted or replaced.
-Automatic requests use a reserved ID prefix.
+Automatic requests use a reserved UUID prefix and 90 random bits.
 After source release, the next request removes the previous automatic request's local transfer and terminal files.
 An expired automatic ID returns absent and cannot start a new manual backup.
 The cloud keeps the accepted backup and its receipts.

@@ -5,7 +5,7 @@ use std::fs::{self, File};
 pub(super) fn retire(host: &crate::host::Host, id: &Id) -> Result<()> {
     let root = Store::base(&host.home).join("jobs").join(id.as_str());
     let previous = store::state(&host.home, id)?;
-    let expires = id.as_str().starts_with("auto-v2-");
+    let expires = super::reserved(id);
     if previous.is_none() && expires && Store::active(&host.home)?.as_ref() != Some(id) {
         return remove_directory(&root);
     }

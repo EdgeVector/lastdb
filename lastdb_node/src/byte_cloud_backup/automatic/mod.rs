@@ -130,7 +130,7 @@ fn advance(host: &crate::host::Host, policy: &mut Policy) -> Result<()> {
         }
     };
     let pending = Pending {
-        id: Id::try_from(format!("auto-v2-{}", uuid::Uuid::new_v4()))?,
+        id: request_id()?,
         revision: policy.state.revision,
         work,
     };
@@ -270,4 +270,14 @@ fn native(host: &crate::host::Host) -> Result<Arc<fold_db::storage::disk_pack::P
         return Err(BackupError::Source);
     }
     Ok(runtime)
+}
+
+pub(super) fn reserved(id: &Id) -> bool {
+    id.as_str().starts_with("a17dbac2-")
+}
+
+fn request_id() -> Result<Id> {
+    let mut bytes = *uuid::Uuid::new_v4().as_bytes();
+    bytes[..4].copy_from_slice(&[0xa1, 0x7d, 0xba, 0xc2]);
+    Ok(Id::try_from(uuid::Uuid::from_bytes(bytes).to_string())?)
 }

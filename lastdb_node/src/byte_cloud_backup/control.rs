@@ -80,9 +80,7 @@ fn request_locked(
     };
     let previous = store::state(&host.home, &id)?;
     // Expired automatic IDs can never become fresh manual publications.
-    if id.as_str().starts_with("auto-v2-")
-        && previous.is_none()
-        && matches!(origin, RunOrigin::Manual)
+    if super::automatic::reserved(&id) && previous.is_none() && matches!(origin, RunOrigin::Manual)
     {
         return Err(BackupError::Missing);
     }
