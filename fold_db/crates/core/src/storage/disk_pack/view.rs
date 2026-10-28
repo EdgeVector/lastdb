@@ -13,6 +13,7 @@ pub struct NativeDiskStatus {
     pub accepted_sequence: u64,
     pub completed_sequence: u64,
     pub writer_failed: bool,
+    pub cas_delete_recovery: Option<CasDeleteRecovery>,
     pub warm_records: usize,
     /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
     pub warm_record_limit: usize,
@@ -108,6 +109,7 @@ impl PackRuntime {
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.requires_recovery(),
+            cas_delete_recovery: self.physical.cas_delete_recovery,
             warm_records: core.paths,
             warm_record_limit: 0,
             core_warm_paths: core.paths,

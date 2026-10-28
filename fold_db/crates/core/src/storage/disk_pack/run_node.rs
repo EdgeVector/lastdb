@@ -225,9 +225,9 @@ impl PackNamespacedStore {
         };
         let home = Arc::new(open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let cas = Arc::new(open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
-        let v2 = physical::V2Home::new(home, cas, range_order);
+        let mut v2 = physical::V2Home::new(home, cas, range_order);
         if resume_merges {
-            super::cas_delete::recover(&v2)?;
+            v2.cas_delete_recovery = super::cas_delete::recover(&v2)?;
         } else {
             super::cas_delete::require_clear(&v2)?;
         }

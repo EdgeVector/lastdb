@@ -9,6 +9,25 @@ use super::physical::{V2Home, CAS_COLLECTION};
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// Recovery performed by the normal open during this boot. No blob keys enter it.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct CasDeleteRecovery {
+    pub outcome: CasDeleteRecoveryOutcome,
+    pub intent_keys: u64,
+    pub main_frontier: u64,
+    pub cas_frontier_before: u64,
+    pub cas_frontier_after: u64,
+    pub intent_released: bool,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CasDeleteRecoveryOutcome {
+    MainNotPublished,
+    Completed,
+    AlreadyComplete,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Intent {
@@ -93,9 +112,9 @@ pub(super) fn require_clear(v2: &V2Home) -> StorageResult<()> {
 
 /// Caller owns both homes before any reader, writer or worker can start.
 /// A frontier outside the exact intent is refused, never guessed or replayed.
-pub(super) fn recover(v2: &V2Home) -> StorageResult<bool> {
+pub(super) fn recover(v2: &V2Home) -> StorageResult<Option<CasDeleteRecovery>> {
     let Some(bytes) = v2.home.load_cas_delete_checkpoint().map_err(map)? else {
-        return Ok(false);
+        return Ok(None);
     };
     let intent: Intent =
         serde_json::from_slice(&bytes).map_err(|_| invalid("CAS deletion intent encoding"))?;
@@ -124,7 +143,12 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<bool> {
     // No main publication: retain every blob. No accepted reference was removed.
     // A CAS-only batch whose additions did not commit is also incomplete.
     let committed = main == intent.main_after && cas >= intent.cas_after_add;
-    let mut changed = false;
+    let intent_keys = intent.keys.len() as u64;
+    let mut outcome = if committed {
+        CasDeleteRecoveryOutcome::AlreadyComplete
+    } else {
+        CasDeleteRecoveryOutcome::MainNotPublished
+    };
     if committed && cas != deleted {
         let operations = intent
             .keys
@@ -136,10 +160,17 @@ pub(super) fn recover(v2: &V2Home) -> StorageResult<bool> {
             })
             .collect();
         v2.cas.commit(operations).map_err(map)?;
-        changed = true;
+        outcome = CasDeleteRecoveryOutcome::Completed;
     }
     v2.home.clear_cas_delete_checkpoint().map_err(map)?;
-    Ok(changed)
+    Ok(Some(CasDeleteRecovery {
+        outcome,
+        intent_keys,
+        main_frontier: main,
+        cas_frontier_before: cas,
+        cas_frontier_after: v2.cas.current_root().frontier(),
+        intent_released: true,
+    }))
 }
 
 fn invalid(message: &str) -> StorageError {
