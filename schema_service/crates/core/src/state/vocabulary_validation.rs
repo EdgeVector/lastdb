@@ -35,6 +35,7 @@ impl SchemaServiceState {
                     &fields,
                     &field.name,
                     &field.field_type,
+                    &field.description,
                     field.version,
                 )?;
             }

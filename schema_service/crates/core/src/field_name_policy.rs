@@ -96,6 +96,15 @@ pub fn validate_schema_vocabulary(
         )))?;
         validate_approved_field(name, field)?;
         if schema
+            .field_descriptions
+            .get(name)
+            .is_some_and(|description| description.trim() != field.description.trim())
+        {
+            return Err(FoldDbError::Config(format!(
+                "unapproved_canonical_field: '{name}' must use the approved description"
+            )));
+        }
+        if schema
             .field_types
             .get(name)
             .is_some_and(|value| value != &field.field_type)
@@ -120,6 +129,10 @@ impl SchemaServiceState {
         for name in &names {
             if let Some(field) = vocabulary.get(name) {
                 schema
+                    .field_descriptions
+                    .entry(name.clone())
+                    .or_insert_with(|| field.description.clone());
+                schema
                     .field_types
                     .entry(name.clone())
                     .or_insert_with(|| field.field_type.clone());
@@ -138,6 +151,7 @@ pub fn validate_declared_concept(
     vocabulary: &HashMap<String, CanonicalField>,
     name: &str,
     field_type: &schema_types::FieldValueType,
+    description: &str,
     version: u32,
 ) -> FoldDbResult<()> {
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
@@ -147,9 +161,12 @@ pub fn validate_declared_concept(
         ))
     })?;
     validate_approved_field(name, field)?;
-    if field_type != &field.field_type || version != field.version {
+    if field_type != &field.field_type
+        || version != field.version
+        || description.trim() != field.description.trim()
+    {
         return Err(FoldDbError::Config(format!(
-            "unapproved_canonical_field: '{name}' must use the approved type and identity version"
+            "unapproved_canonical_field: '{name}' must use the approved description, type and identity version"
         )));
     }
     Ok(())

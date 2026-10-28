@@ -63,6 +63,7 @@ impl SchemaServiceState {
                 &vocabulary,
                 &input.name,
                 &input.field_type,
+                &input.description,
                 input.version,
             )?;
         }

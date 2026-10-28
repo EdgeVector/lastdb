@@ -76,6 +76,8 @@ impl SchemaServiceState {
             let detail = error.to_string();
             let reason = if detail.contains("invalid_canonical_name:") {
                 "invalid_canonical_name"
+            } else if detail.contains("unapproved_canonical_field:") {
+                "unapproved_canonical_field"
             } else if detail.contains("canonical_field_conflict:") {
                 "canonical_field_conflict"
             } else {
