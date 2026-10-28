@@ -35,6 +35,26 @@ impl SchemaServiceState {
         self.classify_idempotent_repost_with_descriptive_name(schema, mutation_mappers, None)
     }
 
+    /// Check a durable candidate without replacing a newer local cache entry.
+    pub(super) fn classify_repost_candidate(
+        &self,
+        schema: &Schema,
+        active: &Schema,
+    ) -> Option<Schema> {
+        let mut probe = schema.clone();
+        let owner = probe.owner_app_id.clone().unwrap_or_default();
+        let description = probe.descriptive_name.clone().unwrap_or_default();
+        validate_repost_probe(&probe, &owner, &description)?;
+        probe.dedup_fields();
+        probe.compute_identity_hash();
+        let identity = probe.get_identity_hash()?;
+        if crate::state_expansion::is_cross_key_layout(&probe, active) {
+            return None;
+        }
+        verify_repost_matches_active(&probe, active, identity, &owner, &description)?;
+        Some(active.clone())
+    }
+
     pub(super) fn classify_idempotent_repost_with_descriptive_name(
         &self,
         schema: &Schema,

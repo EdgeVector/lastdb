@@ -243,13 +243,16 @@ pub(crate) async fn post_schemas(
     // Every new registration requires an Exemem developer account and the
     // registered app owner, including local claims and un-namespaced proposals.
     // Exact public reposts above remain reads and create no definitions.
-    if let Err(e) = state.authorize_schema_claim(
-        schema.owner_app_id.as_deref(),
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-        &schema_value,
-        offer_to_shared_discovery,
-    ) {
+    if let Err(e) = state
+        .authorize_schema_claim(
+            schema.owner_app_id.as_deref(),
+            header_str(event, "x-exemem-dev-cert"),
+            header_str(event, "x-signature"),
+            &schema_value,
+            offer_to_shared_discovery,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return json_response(status, &body);
     }

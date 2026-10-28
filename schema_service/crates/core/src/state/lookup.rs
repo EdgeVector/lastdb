@@ -5,7 +5,7 @@ use std::collections::hash_map::Entry;
 
 impl SchemaServiceState {
     /// An exact public repost stays a read when another instance registered it.
-    /// Refresh a missing owner/name entry before deciding credentials are needed.
+    /// Classify durable state on a miss, including expansions absent from cache.
     pub async fn lookup_idempotent_repost(
         &self,
         schema: &Schema,
@@ -21,11 +21,28 @@ impl SchemaServiceState {
         else {
             return Ok(None);
         };
-        let name = descriptive_name_key(schema.owner_app_id.as_deref(), description);
-        self.lookup_schema_by_name(&name).await?;
-        // A durable lookup only fills the cache. The existing classifier still
-        // checks owner, descriptive name, key layout, type and field membership.
-        Ok(self.classify_idempotent_repost(schema, mutation_mappers))
+        let stored = self.storage.backend().load_all_schemas().await?;
+        let mut probe = schema.clone();
+        probe.dedup_fields();
+        probe.compute_identity_hash();
+        let existing = match probe.get_identity_hash().and_then(|id| stored.get(id)) {
+            Some(existing) => Some(
+                self.resolve_active_schema(existing, &existing.name, &stored)
+                    .map_or_else(|| existing.clone(), |(active, _)| active),
+            ),
+            None => Self::stored_schema_by_description(
+                &stored,
+                &descriptive_name_key(schema.owner_app_id.as_deref(), description),
+            )?,
+        };
+        let Some(existing) = existing else {
+            return Ok(None);
+        };
+        self.validate_loaded_schemas(&HashMap::from([(existing.name.clone(), existing.clone())]))
+            .await?;
+        // Do not overwrite concurrent cache entries with a snapshot read. The
+        // same read-only checks decide against this fresh durable candidate.
+        Ok(self.classify_repost_candidate(schema, &existing))
     }
 
     /// A warm process can lack an identity that another instance acknowledged.

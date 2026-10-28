@@ -37,12 +37,15 @@ pub async fn declare_field(
     // owner, handle, and field list are all covered by the signature.
     let cert = header_value(&req, "X-Exemem-Dev-Cert");
     let sig = header_value(&req, "X-Signature");
-    if let Err(e) = state.authorize_field_declare(
-        &request.owner_app_id,
-        cert.as_deref(),
-        sig.as_deref(),
-        &body,
-    ) {
+    if let Err(e) = state
+        .authorize_field_declare(
+            &request.owner_app_id,
+            cert.as_deref(),
+            sig.as_deref(),
+            &body,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return json_status(status, body);
     }

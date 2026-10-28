@@ -47,7 +47,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::lock_helpers::read_lock;
 use crate::snapshot::{AppArtifact, AppCodeSignature, AppMetadata, AppRecord, AppTier};
 use crate::state::SchemaServiceState;
 use app_identity_crypto::{

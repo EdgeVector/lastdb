@@ -87,7 +87,7 @@ async fn idempotent_repost_response(
 /// offers use the same gate. Exact public reposts return before this gate.
 ///
 /// Also checks declared-field references and the schema mutation gate.
-fn authorize_add_schema(
+async fn authorize_add_schema(
     state: &SchemaServiceState,
     req: &HttpRequest,
     request: &AddSchemaRequest,
@@ -96,13 +96,16 @@ fn authorize_add_schema(
 ) -> Result<(), HttpResponse> {
     let cert = header_value(req, "X-Exemem-Dev-Cert");
     let sig = header_value(req, "X-Signature");
-    if let Err(e) = state.authorize_schema_claim(
-        request.schema.owner_app_id.as_deref(),
-        cert.as_deref(),
-        sig.as_deref(),
-        schema_value,
-        request.offer_to_shared_discovery,
-    ) {
+    if let Err(e) = state
+        .authorize_schema_claim(
+            request.schema.owner_app_id.as_deref(),
+            cert.as_deref(),
+            sig.as_deref(),
+            schema_value,
+            request.offer_to_shared_discovery,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return Err(json_status(status, body));
     }
@@ -214,7 +217,8 @@ pub async fn add_schema(
         }
     }
 
-    if let Err(response) = authorize_add_schema(&state, &req, &request, &schema_value, &observation)
+    if let Err(response) =
+        authorize_add_schema(&state, &req, &request, &schema_value, &observation).await
     {
         return response;
     }
