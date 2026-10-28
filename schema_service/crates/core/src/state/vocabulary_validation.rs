@@ -10,6 +10,7 @@ impl SchemaServiceState {
         let schemas = read_lock(&self.schemas, "schemas")?;
         for schema in schemas.values() {
             crate::field_name_policy::validate_schema_vocabulary(schema, &fields)?;
+            self.validate_schema_declared_identities(schema, false)?;
         }
         Ok(())
     }
@@ -29,9 +30,12 @@ impl SchemaServiceState {
             ));
         }
         self.refresh_vocabulary_for_names(&names).await?;
+        self.refresh_schema_declarations(&schemas.values().collect::<Vec<_>>())
+            .await?;
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for schema in schemas.values() {
             crate::field_name_policy::validate_schema_vocabulary(schema, &fields)?;
+            self.validate_schema_declared_identities(schema, false)?;
         }
         Ok(())
     }
@@ -42,6 +46,7 @@ impl SchemaServiceState {
     ) -> FoldDbResult<()> {
         let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         for record in records {
+            crate::field_identity_validation::validate_declaration_identities(record)?;
             for field in &record.fields {
                 crate::field_name_policy::validate_declared_concept(
                     &fields,
@@ -82,6 +87,7 @@ impl SchemaServiceState {
             schema,
         ));
         self.refresh_vocabulary_for_names(&names).await?;
+        self.refresh_schema_declarations(&[schema]).await?;
         self.normalized_schema_field_vocabulary(schema).map(|_| ())
     }
 
@@ -93,6 +99,7 @@ impl SchemaServiceState {
         vocabulary.extend(checked);
         crate::field_name_policy::fill_schema_field_defaults(&mut proposal, &vocabulary);
         crate::field_name_policy::validate_schema_vocabulary(&proposal, &vocabulary)?;
+        self.validate_schema_declared_identities(&proposal, true)?;
         Ok(proposal)
     }
 

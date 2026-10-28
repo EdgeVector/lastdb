@@ -20,6 +20,7 @@ impl SchemaServiceState {
                 schema,
                 &envelope.canonical_fields,
             )?;
+            self.validate_schema_declared_identities(schema, false)?;
         }
         let declarations = read_lock(&self.declared_fields, "declared_fields")?;
         for declaration in declarations.all() {

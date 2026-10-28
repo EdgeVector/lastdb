@@ -1,6 +1,6 @@
 //! Persistence and metadata-merge helpers for schema expansion.
 
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use crate::lock_helpers::write_lock;
 use schema_types::FoldDbResult;
@@ -71,6 +71,7 @@ impl SchemaServiceState {
 /// Merge classifications, ref_fields, descriptions and types from the
 /// predecessor into the expanded schema (keep incoming entries, add
 /// existing-only ones).
+/// Inherited declared hashes retain their declaration provenance.
 ///
 /// Without the description/type merge the existing-only fields (which get
 /// added to `schema.fields`) carry no entry in these maps after expansion
@@ -129,9 +130,16 @@ pub(super) fn merge_existing_metadata(schema: &mut Schema, existing: &Schema) {
             .or_insert(*version);
     }
     for (field, identity) in &existing.field_hashes {
-        schema
-            .field_hashes
-            .entry(field.clone())
-            .or_insert_with(|| identity.clone());
+        if let Entry::Vacant(entry) = schema.field_hashes.entry(field.clone()) {
+            entry.insert(identity.clone());
+            // Provenance travels with an inherited identity. An incoming
+            // verified hash already carries its own canonical/declared claim.
+            if let Some(declaration) = existing.field_declarations.get(field) {
+                schema
+                    .field_declarations
+                    .entry(field.clone())
+                    .or_insert_with(|| declaration.clone());
+            }
+        }
     }
 }

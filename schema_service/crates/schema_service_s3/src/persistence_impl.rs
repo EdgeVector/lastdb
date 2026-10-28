@@ -1,16 +1,17 @@
 //! `ExternalSchemaPersistence` implementation for [`S3BlobPersistence`].
 
 use super::*;
+use schema_service_core::CanonicalVocabularyWrite;
 
 #[async_trait]
 impl ExternalSchemaPersistence for S3BlobPersistence {
     async fn save_schema(&self, schema: &Schema) -> FoldDbResult<()> {
-        self.commit_schema_definitions(std::slice::from_ref(schema), &[])
+        self.commit_schema_definitions(std::slice::from_ref(schema), &[], None)
             .await
     }
 
     async fn save_schemas(&self, schemas: &[Schema]) -> FoldDbResult<()> {
-        self.commit_schema_definitions(schemas, &[]).await
+        self.commit_schema_definitions(schemas, &[], None).await
     }
 
     async fn save_schema_definitions(
@@ -18,7 +19,16 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         schemas: &[Schema],
         fields: &[(String, CanonicalField)],
     ) -> FoldDbResult<()> {
-        self.commit_schema_definitions(schemas, fields).await
+        self.commit_schema_definitions(schemas, fields, None).await
+    }
+
+    async fn save_schema_definitions_if_vocabulary(
+        &self,
+        schemas: &[Schema],
+        vocabulary: &CanonicalVocabularyWrite,
+    ) -> FoldDbResult<()> {
+        self.commit_schema_definitions(schemas, &vocabulary.fields, Some(vocabulary))
+            .await
     }
 
     async fn load_all_schemas(&self) -> FoldDbResult<HashMap<String, Schema>> {
@@ -31,7 +41,7 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
     }
 
     async fn save_canonical_fields(&self, fields: &[(String, CanonicalField)]) -> FoldDbResult<()> {
-        self.commit_schema_definitions(&[], fields).await
+        self.commit_schema_definitions(&[], fields, None).await
     }
 
     async fn load_all_canonical_fields(&self) -> FoldDbResult<HashMap<String, CanonicalField>> {
@@ -185,7 +195,17 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         fields: &[(String, CanonicalField)],
         expected: Option<&DeclaredFieldRecord>,
     ) -> FoldDbResult<()> {
-        self.commit_declaration_definitions(record, fields, expected)
+        self.commit_declaration_definitions(record, fields, expected, None)
+            .await
+    }
+
+    async fn save_declared_field_definitions_if_vocabulary(
+        &self,
+        record: &DeclaredFieldRecord,
+        vocabulary: &CanonicalVocabularyWrite,
+        expected: Option<&DeclaredFieldRecord>,
+    ) -> FoldDbResult<()> {
+        self.commit_declaration_definitions(record, &vocabulary.fields, expected, Some(vocabulary))
             .await
     }
 

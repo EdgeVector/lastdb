@@ -122,9 +122,10 @@ pub fn scan_previous_crashes(home: &Path) -> Vec<PathBuf> {
 }
 
 /// Promote previous-session crash evidence into Sentry: one event per surfaced
-/// panic report, plus a single `unclean_exit` event (carrying the log tail)
+/// panic report, plus a single `unclean_exit` event with a fixed category
 /// when the previous session ended uncleanly with no panic report to explain
-/// it. No-op when no Sentry client is bound. Returns the number of events sent.
+/// it. Log tails and free-form fault text stay local. No-op when no Sentry
+/// client is bound. Returns the number of events sent.
 pub fn promote_previous_crash_evidence(
     reports: &[PathBuf],
     start: Option<&StartSummary>,
