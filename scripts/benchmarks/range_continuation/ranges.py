@@ -77,7 +77,7 @@ def validate_cursor(cursor, previous, coordinate):
         raise RuntimeError("The range comparison identifier changed during continuation")
 
 
-def walk(node, expected, request, label, baseline=False, *, reopened=False, legacy_cursor=False):
+def walk(node, expected, request, label, baseline=False, *, reopened=False):
     wanted = selected(expected, request)
     offset = request.get("offset", 0)
     cursor = request.get("cursor")
@@ -123,10 +123,9 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False, lega
             raise RuntimeError("The exclusive range cursor cannot advance")
         validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        # Matched latency uses the same supported legacy request on both binaries.
-        # Broad operations echo the full cursor, including its comparison identity.
-        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
-        request = {**request, "cursor": wire_cursor}
+        # A typed range order refuses a cursor without its comparison identity,
+        # so every walk echoes the full cursor.
+        request = {**request, "cursor": following}
         request.pop("offset", None)
     else:
         raise RuntimeError("The generated cursor walk exceeds its finite page bound")
