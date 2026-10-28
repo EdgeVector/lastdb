@@ -22,7 +22,7 @@ def main():
     publish = actions.add_parser('publish', help='Publish an approved definition batch')
     publish.add_argument('--fields', type=Path, required=True, help='JSON object of name to definition')
     publish.add_argument('--environment', choices=['dev', 'prod'], required=True)
-    publish.add_argument('--signing-key-locator', required=True, help='LastSecrets locator for the verifier Ed25519 seed (base64)')
+    publish.add_argument('--signing-key-locator', required=True, help='LastSecrets locator for the dedicated canonical publisher Ed25519 seed (base64)')
     args = parser.parse_args()
     url = urllib.parse.urlsplit(args.url)
     if url.scheme != 'https' or not url.netloc or url.username or url.password:

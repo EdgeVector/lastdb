@@ -29,8 +29,8 @@ pub struct CanonicalField {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classification: Option<DataClassification>,
     /// Interest category for discovery (e.g. "Photography", "Cooking", "Running").
-    /// Assigned by LLM at field registration time. `None` for fields that don't
-    /// map to a user interest (e.g. content_hash, source, id fields).
+    /// Supplied by the approved definition. `None` for concepts without
+    /// a user-interest category.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interest_category: Option<String>,
 }
