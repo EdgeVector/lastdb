@@ -30,6 +30,7 @@ class Operation:
         self.args, self.root, self.node = args, None, None
         self.root_identity, self.preserve = None, False
         self.output_owned = False
+        self.ci_stream_id, self.terminal_r2 = None, False
         self.summary = {
             "schema": "lastdb.cloud-dev-automatic.v1", "source": args.source,
             "version": args.version, "account": ACCOUNT, "result": "failed",

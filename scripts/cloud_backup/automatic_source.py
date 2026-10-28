@@ -58,6 +58,11 @@ class Source:
                         "daemon_initiated_request")
                 require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == ACCOUNT,
                         "accepted_dev_scope")
+                if self.node.ci_stream_id is not None:
+                    require(accepted["begin"]["job"]["stream"]["stream_id"] == self.node.ci_stream_id,
+                            "accepted_owned_ci_stream")
+                if self.node.terminal_r2:
+                    require(accepted["begin"].get("r2_multipart") is True, "accepted_terminal_r2_mode")
                 if request not in self.completed:
                     self.completed[request] = accepted
                     self.declared_bytes += int(accepted["inventory_root"]["stored_bytes"])
