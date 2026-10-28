@@ -1,7 +1,5 @@
 use super::*;
-use crate::sharing::delivery_wire::{
-    FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1, FILE_BLOB_CIPHER_SUITE_LEGACY,
-};
+use crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE;
 use laststore::space::SpacePolicy;
 use std::path::Path;
 
@@ -34,17 +32,5 @@ pub fn verify_native_cas(
 }
 
 fn compatible_local_suite(local: &str, pointer: &str) -> bool {
-    // Older constructors used the v1 convergent label for supplied legacy
-    // keys. Account-v2 never crosses that legacy compatibility boundary.
-    (local == pointer
-        && matches!(
-            local,
-            FILE_BLOB_CIPHER_SUITE
-                | FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
-                | FILE_BLOB_CIPHER_SUITE_LEGACY
-        ))
-        || (local == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
-            && pointer == FILE_BLOB_CIPHER_SUITE_LEGACY)
-        || (local == FILE_BLOB_CIPHER_SUITE_LEGACY
-            && pointer == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1)
+    local == FILE_BLOB_CIPHER_SUITE && pointer == FILE_BLOB_CIPHER_SUITE
 }

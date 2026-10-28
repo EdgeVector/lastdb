@@ -1,5 +1,5 @@
-//! Local encrypted snapshot export and passive staged-record list/reject.
-//! No recipient enrollment, messaging sender or new delivery stage is available.
+//! Local encrypted snapshot export.
+//! No recipient enrollment, messaging sender or delivery stage is available.
 
 use crate::host::Host;
 use crate::seal::seal_and_encrypt_message;
@@ -12,9 +12,6 @@ use fold_db::sharing::delivery_wire::{
     encrypt_signed_slice_jwe, sign_slice_payload, JweEnvelope, LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use fold_db::sharing::query_slice::{materialize_query_slice, QuerySliceLeg};
-use fold_db::sharing::store::{
-    get_pending_delivery_in_ops, list_pending_deliveries_in_ops, remove_pending_delivery_in_ops,
-};
 use fold_db::sharing::types::{DeliveryArtifactDescriptor, DeliveryMode};
 use lastdb_host::envelope::{content_free, envelope, json_ok};
 use lastdb_host::handlers::render;
@@ -59,11 +56,9 @@ pub struct DeliverySlicePayload {
 
 mod filters;
 mod legs;
-mod pending;
 mod publish;
 mod types;
 
-pub use pending::{execute_list_deliveries, execute_reject_delivery};
 pub use publish::execute_publish_snapshot;
 
 fn error_json(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
@@ -72,19 +67,6 @@ fn error_json(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
 
 fn ok_json(value: &serde_json::Value, ctx: &AccessContext) -> UdsResponse {
     json_ok(&envelope(value, ctx.user_id.as_str()))
-}
-
-/// Parse the local rejection path of an existing staged record.
-pub fn parse_delivery_action(path: &str) -> Option<(&str, &str)> {
-    let rest = path.strip_prefix("/api/sharing/deliveries/")?;
-    let (id, action) = rest.split_once('/')?;
-    if id.is_empty() {
-        return None;
-    }
-    match action {
-        "reject" => Some((id, action)),
-        _ => None,
-    }
 }
 
 /// Content-free 404 helper re-export for routing fallthrough.

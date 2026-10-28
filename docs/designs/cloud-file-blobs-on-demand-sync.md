@@ -59,8 +59,8 @@ fetch verifies the blob hash and caches the bytes in the local `cas_blobs` tree.
 When an app attaches a personal file, the durable outcome is:
 
 1. Compute the plaintext SHA-256.
-2. Seal the plaintext with a random per-blob DEK using
-   `lastdb-file-blob-dek-v1:aes-256-gcm`.
+2. Seal the plaintext with the account-v2 suite. The per-blob DEK comes
+   from the account key and the plaintext hash.
 3. PUT the ciphertext to B2 CAS at the content-addressed file object.
 4. Best-effort confirm the upload for metering.
 5. Store a `$lastdb_file` pointer and its `FileBlobAccess` metadata in the DB.
@@ -134,9 +134,9 @@ prints the pointer.
   Shared memory and disk admission still control the write.
   The exact owner-only raw file route can exceed the general socket body allowance.
   App requests and JSON requests retain the general socket allowance.
-- The row is sealed under the convergent key (the DEK is derived from the
-  plaintext hash), so identical bytes give an identical `blob_ref`, DEK and
-  pointer. Without `name` and `media_type` the pointer is identical too, so a
+- The row is sealed under the account-v2 key (the DEK comes from the account
+  key and the plaintext hash), so identical bytes in one account give an
+  identical `blob_ref`, DEK and pointer. Without `name` and `media_type` the pointer is identical too, so a
   second record that holds it adds one tip and no atom.
 - The route syncs the group that holds the row before it answers. It does not
   flush the whole node: the sync names only that group, so other dirty groups
@@ -150,9 +150,8 @@ prints the pointer.
   request as the row (`docs/lastdb-blob-counter.md`). A blob at zero starts its
   dwell again, so a retried push keeps its blob between the put and the pointer
   write. A repeat put of the same bytes writes no second copy of an intact row.
-- A legacy plain row (written by the photo migration, which reads it without a
-  key) stays plain. The put keeps an intact one and never seals it. A row that
-  does not hash to its key is replaced by a sealed row.
+- A row that does not open under its DEK and hash to its key is replaced by a
+  sealed row.
 - A full disk on the row write is `507 storage_full`, and capture backpressure
   is `503`, as for every other write route.
 - `POST /api/db/fetch-file-blob` reads the local row first. With no sync engine

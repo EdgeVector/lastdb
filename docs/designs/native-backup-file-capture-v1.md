@@ -77,10 +77,8 @@ Compressed data also requires its complete deflate end marker and no trailing by
 Private output cannot become a successful proof before those checks finish.
 
 The directory suite remains exactly the original pointer suite.
-The local constructor labels its shared at-rest codec with the convergent suite, even for a legacy pointer DEK.
-The verifier permits that specific legacy-pointer/current-local-label pair.
-The label alone does not prove how the key was derived.
-Legacy local CAS records without per-file encryption remain uncertified.
+The pointer suite and the local CAS label must both be the account-v2 suite.
+The verifier refuses every other suite.
 
 ## Backup-owned external bytes
 

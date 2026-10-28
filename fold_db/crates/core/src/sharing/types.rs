@@ -1,7 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use crate::schema::types::operations::Query;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ShareScope {
@@ -67,68 +64,12 @@ pub struct ShareAccessGrant {
     pub signature: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliveryRecord {
-    pub schema_name: String,
-    pub record_key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fields: Option<Vec<String>>,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
     #[default]
     Snapshot,
     Live,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum DeliverySpec {
-    /// Materialize the exact output of a schema query.
-    Query { query: Query },
-    /// A named saved query plus its resolved query body. The name is retained
-    /// for preview/provenance; the resolved query is the executable contract.
-    SavedQuery { name: String, query: Query },
-    /// Historical compatibility for serialized delivery specs that named a
-    /// computed output. Live code does not produce new values of this variant.
-    TransformOutput {
-        view_name: String,
-        fields: Vec<String>,
-    },
-    /// Back-compat with the pre-query deliver endpoint.
-    Scope { scope: ShareScope },
-}
-
-impl DeliverySpec {
-    pub fn label(&self) -> String {
-        match self {
-            Self::Query { query } => format!("query: {}", query.schema_name),
-            Self::SavedQuery { name, .. } => format!("saved query: {name}"),
-            Self::TransformOutput { view_name, .. } => format!("transform output: {view_name}"),
-            Self::Scope { scope } => match scope {
-                ShareScope::AllSchemas => "scope: all schemas".to_string(),
-                ShareScope::Schema(schema) => format!("scope: schema {schema}"),
-                ShareScope::SchemaField(schema, field) => format!("scope: field {schema}.{field}"),
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliverySampleRecord {
-    pub schema_name: String,
-    pub record_key: String,
-    pub fields: std::collections::BTreeMap<String, Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeliveryPreview {
-    pub query_label: String,
-    pub fields: Vec<String>,
-    pub record_count: usize,
-    pub sample: Vec<DeliverySampleRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,39 +80,4 @@ pub struct DeliveryArtifactDescriptor {
     pub envelope_format: String,
     pub envelope_alg: String,
     pub envelope_enc: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingDelivery {
-    pub delivery_id: String,
-    pub recipient_pubkey: String,
-    pub recipient_display_name: String,
-    pub spec: DeliverySpec,
-    pub mode: DeliveryMode,
-    /// Deprecated compatibility field for older clients. New callers should
-    /// read `spec` and `preview.fields`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<ShareScope>,
-    pub records: Vec<DeliveryRecord>,
-    pub preview: DeliveryPreview,
-    pub artifact: DeliveryArtifactDescriptor,
-    pub status: String,
-    pub created_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decided_at: Option<u64>,
-    /// Recipient X25519 messaging public key (base64). Required on Mini for
-    /// approve-send without a contact book (e.g. admin kanban-consumer).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub messaging_public_key: Option<String>,
-    /// Recipient messaging pseudonym (UUID). Target for bulletin/messaging
-    /// connect. Required on Mini when `messaging_public_key` is set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub messaging_pseudonym: Option<String>,
-    /// Non-secret recipient generation and stable nonce, fixed at staging.
-    /// Missing means a legacy generation-zero delivery; approval cannot rebind it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloud_delivery_binding: Option<Value>,
-    /// Exact sealed payload retained before send, so a nonce never changes bytes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloud_delivery_ciphertext: Option<String>,
 }

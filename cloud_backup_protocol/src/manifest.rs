@@ -102,12 +102,8 @@ impl ExternalFileDependency {
             || self.stored_source_bytes.get() > BACKUP_STORED_BYTES_MAX
             || self.extents.is_empty()
             || self.extents.len() > MANIFEST_PAGE_ENTRIES_MAX
-            || !matches!(
-                self.encryption_suite.as_str(),
-                "lastdb-file-blob-convergent-v1:aes-256-gcm"
-                    | "lastdb-file-blob-dek-v1:aes-256-gcm"
-                    | "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256"
-            )
+            || self.encryption_suite.as_str()
+                != "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256"
         {
             return Err(ProtocolError::invalid("file_dependency"));
         }

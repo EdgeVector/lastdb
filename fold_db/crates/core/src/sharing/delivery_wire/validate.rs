@@ -4,7 +4,7 @@ use super::blob::decode_blob_bytes;
 use super::pointer::{file_blob_access_from_atom_value, file_thumbnail_ref_from_atom_value};
 use super::types::{ContentAddressedBlob, FileBlobAccess, FileThumbnailRef, LastDbSlicePayload};
 use super::{
-    blob_ref_from_atom_value, file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE,
+    blob_ref_from_atom_value, file_blob_cipher_suite_supported,
     FILE_THUMBNAIL_MAX_ENCRYPTED_SIZE_BYTES, FILE_THUMBNAIL_TIER, LASTDB_FILE_KEY,
     LASTDB_FILE_THUMBNAIL_KEY,
 };
@@ -12,7 +12,7 @@ use crate::error::FoldDbError;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Ensure every `$lastdb_file` / `$blob_ref` atom has a matching `blobs[]` entry.
+/// Ensure every `$lastdb_file` atom has a matching `blobs[]` entry.
 pub fn validate_blob_refs(payload: &LastDbSlicePayload) -> Result<(), FoldDbError> {
     let known: BTreeMap<&str, &ContentAddressedBlob> = payload
         .blobs
@@ -160,12 +160,6 @@ pub fn validate_file_blob_access_for_ref(
         ));
     }
     crate::sharing::file_blob_seal::file_blob_storage_hash(blob_ref)?;
-    let expected_ref = format!("sha256:{}", access.file_hash);
-    if access.cipher_suite != FILE_BLOB_CIPHER_SUITE && expected_ref != blob_ref {
-        return Err(FoldDbError::SecurityError(format!(
-            "file blob access hash mismatch: expected {blob_ref}, got {expected_ref}",
-        )));
-    }
     if let Some(owner_scope) = &access.owner_scope {
         if owner_scope.is_empty()
             || owner_scope.contains('/')

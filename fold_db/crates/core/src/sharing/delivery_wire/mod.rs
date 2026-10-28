@@ -8,8 +8,9 @@
 //!
 //! **Files vs field values:** structured field values live in `atoms[]` (JSON
 //! CAS). Binary file bytes live in `blobs[]` (raw content CAS, base64 on the
-//! JSON wire). File fields on records point at blobs via
-//! [`lastdb_file_pointer`] values — they do **not** embed file bytes.
+//! JSON wire). File fields on records point at blobs via `$lastdb_file`
+//! values ([`lastdb_file_pointer_with_access_and_thumbnail`]) — they do
+//! **not** embed file bytes.
 
 mod blob;
 mod jwe;
@@ -37,27 +38,16 @@ pub const JWE_ZIP_GZIP: &str = "gzip";
 pub use crate::atom::file_pointer::{blob_ref_from_atom_value, LASTDB_FILE_KEY};
 /// Optional key for a reference-only generated thumbnail/poster inside a file pointer.
 pub const LASTDB_FILE_THUMBNAIL_KEY: &str = "thumbnail";
-/// Legacy spike key that embedded base64 content inside the atom (deprecated).
-pub const LEGACY_FILE_KEY: &str = "$file";
 /// Account-derived file encryption addressed by SHA-256 of its binary ciphertext.
 /// The plaintext digest and derived key stay inside the encrypted atom pointer.
+/// This is the only file-blob cipher suite.
 pub const FILE_BLOB_CIPHER_SUITE: &str =
     "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
-/// Older convergent files used the plaintext digest as their storage identity.
-pub const FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1: &str = "lastdb-file-blob-convergent-v1:aes-256-gcm";
-/// Pre-migration random-DEK suite. Open paths must keep accepting this so
-/// existing pointers can decrypt objects that were never re-sealed.
-pub const FILE_BLOB_CIPHER_SUITE_LEGACY: &str = "lastdb-file-blob-dek-v1:aes-256-gcm";
 
-/// True when `suite` is a known file-blob cipher suite (current or legacy).
+/// True when `suite` is [`FILE_BLOB_CIPHER_SUITE`].
 #[must_use]
 pub fn file_blob_cipher_suite_supported(suite: &str) -> bool {
-    matches!(
-        suite,
-        FILE_BLOB_CIPHER_SUITE
-            | FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
-            | FILE_BLOB_CIPHER_SUITE_LEGACY
-    )
+    suite == FILE_BLOB_CIPHER_SUITE
 }
 /// Remote storage tier used for generated thumbnail/poster objects.
 pub const FILE_THUMBNAIL_TIER: &str = "r2-thumbs";

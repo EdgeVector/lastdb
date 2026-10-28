@@ -1,8 +1,8 @@
 //! Content-addressed atoms and blobs: construction, sealing and verified decode.
 
-use super::types::{ContentAddressedAtom, ContentAddressedBlob, ExtractedFile, FileBlobAccess};
+use super::types::{ContentAddressedAtom, ContentAddressedBlob, FileBlobAccess};
 use super::validate::validate_file_blob_access_for_ref;
-use super::{file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE, LEGACY_FILE_KEY};
+use super::FILE_BLOB_CIPHER_SUITE;
 use crate::error::FoldDbError;
 use crate::hex::hex_lower;
 use base64::{engine::general_purpose::STANDARD as B64_STD, Engine as _};
@@ -19,15 +19,6 @@ pub fn content_addressed_atom(value: Value) -> Result<ContentAddressedAtom, Fold
     })
 }
 
-/// Build a first-class content-addressed blob from raw file bytes.
-pub fn content_addressed_blob(
-    raw_bytes: &[u8],
-    media_type: Option<String>,
-    name: Option<String>,
-) -> ContentAddressedBlob {
-    content_addressed_blob_with_access(raw_bytes, media_type, name, None)
-}
-
 /// Build a first-class content-addressed blob and attach share access metadata.
 pub fn content_addressed_blob_with_access(
     raw_bytes: &[u8],
@@ -36,13 +27,10 @@ pub fn content_addressed_blob_with_access(
     access: Option<FileBlobAccess>,
 ) -> ContentAddressedBlob {
     let content_sha256 = hex_lower(Sha256::digest(raw_bytes));
-    let blob_ref = access
-        .as_ref()
-        .filter(|access| access.cipher_suite == FILE_BLOB_CIPHER_SUITE)
-        .map_or_else(
-            || format!("sha256:{content_sha256}"),
-            |access| access.blob_ref.clone(),
-        );
+    let blob_ref = access.as_ref().map_or_else(
+        || format!("sha256:{content_sha256}"),
+        |access| access.blob_ref.clone(),
+    );
     ContentAddressedBlob {
         blob_ref,
         content_sha256,
@@ -79,17 +67,12 @@ pub fn content_addressed_blob_from_envelope(
     }
     let digest = hex_lower(Sha256::digest(envelope));
     crate::sharing::file_blob_seal::verify_file_blob_identity(access, &access.file_hash, &digest)?;
-    let stored_hash = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
-        digest
-    } else {
-        access.file_hash.clone()
-    };
     let mut bytes_b64 = String::with_capacity(4 + envelope.len().div_ceil(3) * 4);
     bytes_b64.push_str("ENC:");
     B64_STD.encode_string(envelope, &mut bytes_b64);
     Ok(ContentAddressedBlob {
         blob_ref: access.blob_ref.clone(),
-        content_sha256: stored_hash,
+        content_sha256: digest,
         bytes_b64,
         media_type,
         name,
@@ -129,46 +112,41 @@ pub fn decode_blob_bytes(blob: &ContentAddressedBlob) -> Result<Vec<u8>, FoldDbE
     Ok(raw)
 }
 
-/// Open a Trinity sealed local CAS blob under the file KDK.
+/// Open a sealed local CAS blob under the file KDK.
+///
+/// The row must carry [`FILE_BLOB_CIPHER_SUITE`]. A row without a suite holds
+/// plaintext, and LastDB writes no such row, so it fails closed here.
 pub fn decode_blob_bytes_with_dek(
     blob: &ContentAddressedBlob,
     dek_hex: &str,
 ) -> Result<Vec<u8>, FoldDbError> {
-    match blob.local_cipher_suite.as_deref() {
-        None => return decode_blob_bytes(blob),
-        Some(suite) if file_blob_cipher_suite_supported(suite) => {}
-        other => {
-            return Err(FoldDbError::SecurityError(format!(
-                "unsupported local CAS cipher suite {other:?}"
-            )));
-        }
+    if blob.local_cipher_suite.as_deref() != Some(FILE_BLOB_CIPHER_SUITE) {
+        return Err(FoldDbError::SecurityError(format!(
+            "unsupported local CAS cipher suite {:?}",
+            blob.local_cipher_suite
+        )));
     }
     let dek = decode_hex_32_key(dek_hex)?;
-    let sealed = blob.bytes_b64.as_bytes();
-    if !crate::crypto::is_sealed_at_rest(sealed) {
+    if !crate::crypto::is_sealed_at_rest(blob.bytes_b64.as_bytes()) {
         return Err(FoldDbError::SecurityError(
             "local CAS claims sealed suite but bytes are not ENC:…".into(),
         ));
     }
-    let raw = if blob.local_cipher_suite.as_deref() == Some(FILE_BLOB_CIPHER_SUITE) {
-        let encoded = blob
-            .bytes_b64
-            .strip_prefix("ENC:")
-            .ok_or_else(|| FoldDbError::SecurityError("v2 local CAS requires ENC text".into()))?;
-        let envelope = B64_STD
-            .decode(encoded)
-            .map_err(|error| FoldDbError::SecurityError(error.to_string()))?;
-        let digest = hex_lower(Sha256::digest(&envelope));
-        if blob.content_sha256 != digest || blob.blob_ref != format!("sha256:{digest}") {
-            return Err(FoldDbError::SecurityError(
-                "local CAS ciphertext identity differs".into(),
-            ));
-        }
-        crate::crypto::envelope::decrypt_envelope(&dek, &envelope)
-    } else {
-        crate::crypto::open_at_rest(&dek, sealed)
+    let encoded = blob
+        .bytes_b64
+        .strip_prefix("ENC:")
+        .ok_or_else(|| FoldDbError::SecurityError("v2 local CAS requires ENC text".into()))?;
+    let envelope = B64_STD
+        .decode(encoded)
+        .map_err(|error| FoldDbError::SecurityError(error.to_string()))?;
+    let digest = hex_lower(Sha256::digest(&envelope));
+    if blob.content_sha256 != digest || blob.blob_ref != format!("sha256:{digest}") {
+        return Err(FoldDbError::SecurityError(
+            "local CAS ciphertext identity differs".into(),
+        ));
     }
-    .map_err(|e| FoldDbError::SecurityError(format!("open local CAS under file KDK: {e}")))?;
+    let raw = crate::crypto::envelope::decrypt_envelope(&dek, &envelope)
+        .map_err(|e| FoldDbError::SecurityError(format!("open local CAS under file KDK: {e}")))?;
     verify_blob_plaintext(blob, &raw)?;
     Ok(raw)
 }
@@ -189,11 +167,7 @@ fn verify_blob_plaintext(blob: &ContentAddressedBlob, raw: &[u8]) -> Result<(), 
             blob.content_sha256
         )));
     }
-    if let Some(access) = blob
-        .access
-        .as_ref()
-        .filter(|access| access.cipher_suite == FILE_BLOB_CIPHER_SUITE)
-    {
+    if let Some(access) = &blob.access {
         crate::sharing::file_blob_seal::seal_file_blob_for_access(raw, access)?;
         return Ok(());
     }
@@ -205,30 +179,4 @@ fn verify_blob_plaintext(blob: &ContentAddressedBlob, raw: &[u8]) -> Result<(), 
         )));
     }
     Ok(())
-}
-
-/// Extract raw bytes + metadata from a field value that carries file content.
-///
-/// Recognizes:
-/// - `$lastdb_file` with only a pointer → needs companion blob (returns None for bytes)
-/// - legacy `$file` with `content_b64` → returns decoded bytes
-pub fn extract_embedded_file(value: &Value) -> Result<Option<ExtractedFile>, FoldDbError> {
-    if let Some(obj) = value.get(LEGACY_FILE_KEY).and_then(|v| v.as_object()) {
-        let b64 = obj
-            .get("content_b64")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| FoldDbError::Other("legacy $file missing content_b64".into()))?;
-        let raw = B64_STD
-            .decode(b64)
-            .map_err(|e| FoldDbError::Other(format!("legacy $file content_b64: {e}")))?;
-        return Ok(Some(ExtractedFile {
-            bytes: raw,
-            name: obj.get("name").and_then(|v| v.as_str()).map(str::to_string),
-            media_type: obj
-                .get("media_type")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-        }));
-    }
-    Ok(None)
 }

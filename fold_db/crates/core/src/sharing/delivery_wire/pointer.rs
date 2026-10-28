@@ -6,23 +6,9 @@ use super::{LASTDB_FILE_KEY, LASTDB_FILE_THUMBNAIL_KEY};
 use crate::error::FoldDbError;
 use serde_json::Value;
 
-/// Atom value that points at a first-class blob (no embedded file bytes).
-pub fn lastdb_file_pointer(blob_ref: &str, name: Option<&str>, media_type: Option<&str>) -> Value {
-    lastdb_file_pointer_with_access(blob_ref, name, media_type, None)
-}
-
-/// Atom value that points at a first-class blob and carries access metadata.
-pub fn lastdb_file_pointer_with_access(
-    blob_ref: &str,
-    name: Option<&str>,
-    media_type: Option<&str>,
-    access: Option<&FileBlobAccess>,
-) -> Value {
-    lastdb_file_pointer_with_access_and_thumbnail(blob_ref, name, media_type, access, None)
-}
-
-/// Atom value that points at a first-class blob, carries access metadata, and
-/// optionally references a generated thumbnail/poster object.
+/// Atom value that points at a first-class blob (no embedded file bytes),
+/// carries access metadata, and optionally references a generated
+/// thumbnail/poster object.
 pub fn lastdb_file_pointer_with_access_and_thumbnail(
     blob_ref: &str,
     name: Option<&str>,
