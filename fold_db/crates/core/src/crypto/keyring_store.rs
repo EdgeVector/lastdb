@@ -69,7 +69,7 @@ pub fn load(home: &Path, kek: &[u8; 32]) -> CryptoResult<Option<Keyring>> {
 
 /// Atomically persist `keyring` to `keyring.enc`, wrapping every DEK
 /// under `kek`. Writing under a *different* KEK than the one the keyring
-/// was loaded with is exactly a KEK rotation — see [`rewrap`].
+/// was loaded with is exactly a KEK rotation.
 ///
 /// The write is crash-safe (tmpfile in the same directory, fsync, then
 /// rename over the destination) so a partially written keyring can never
@@ -141,22 +141,4 @@ pub fn load_or_init(
     }
     persist(home, &keyring, kek)?;
     Ok((keyring, true))
-}
-
-/// Rotate the KEK: re-wrap the on-disk keyring from `old_kek` to
-/// `new_kek`. Cheap by construction — only the handful of wrapped DEKs
-/// are re-sealed; no data is re-encrypted (the DEKs, and therefore every
-/// envelope sealed under them, are untouched).
-///
-/// Errors loudly if there is no keyring to rotate (`Ok(None)` from
-/// [`load`] becomes an error here) or if `old_kek` cannot unwrap it —
-/// rotation must never silently create a new keyring.
-pub fn rewrap(home: &Path, old_kek: &[u8; 32], new_kek: &[u8; 32]) -> CryptoResult<()> {
-    let keyring = load(home, old_kek)?.ok_or_else(|| {
-        CryptoError::KeyError(format!(
-            "no {KEYRING_FILENAME} to rotate at {}",
-            home.display()
-        ))
-    })?;
-    persist(home, &keyring, new_kek)
 }
