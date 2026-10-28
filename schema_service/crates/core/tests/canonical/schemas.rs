@@ -200,6 +200,103 @@ async fn assert_declared_hash_cases(
         assert!(error.to_string().contains("invalid_field_hash"), "{error}");
     }
     assert_eq!(backend.load_all_schemas().await.expect("schemas").len(), 1);
+    assert_declared_expansion(reloaded, backend, stored).await;
+}
+
+async fn assert_declared_expansion(
+    state: schema_service_core::SchemaServiceState,
+    backend: Arc<InMemorySchemaPersistence>,
+    predecessor: schema_types::Schema,
+) {
+    // The proposal omits the predecessor's declared field. Expansion must
+    // inherit both the identity and the declaration that authorizes it.
+    let mut incoming = schema("parcel-app", false);
+    incoming.fields = Some(vec![
+        "parcel_identifier".into(),
+        "parcel_weight_grams".into(),
+    ]);
+    incoming.field_descriptions.remove("parcel_delivery_status");
+    incoming.field_types.remove("parcel_delivery_status");
+    incoming.field_descriptions.insert(
+        "parcel_weight_grams".into(),
+        "Parcel weight measured in grams".into(),
+    );
+    incoming
+        .field_types
+        .insert("parcel_weight_grams".into(), FieldValueType::Integer);
+    let expanded = match state
+        .add_schema(incoming, HashMap::new())
+        .await
+        .expect("inherit declared field")
+    {
+        SchemaAddOutcome::Expanded(old, expanded, _) => {
+            assert_eq!(old, predecessor.name);
+            expanded
+        }
+        other => panic!("expected expansion, got {other:?}"),
+    };
+    assert_eq!(
+        expanded.field_hashes["parcel_delivery_status"],
+        predecessor.field_hashes["parcel_delivery_status"]
+    );
+    assert_eq!(
+        expanded.field_declarations["parcel_delivery_status"],
+        predecessor.field_declarations["parcel_delivery_status"]
+    );
+    let reloaded = super::support::state(backend.clone()).await;
+    assert_eq!(
+        reloaded
+            .get_schema_by_name(&expanded.name)
+            .expect("lookup")
+            .expect("expanded schema")
+            .field_declarations,
+        expanded.field_declarations
+    );
+
+    // An explicit verified canonical hash must not inherit the predecessor's
+    // declaration label. The app intentionally changes this field's claim.
+    let mut incoming = expanded.clone();
+    incoming
+        .fields
+        .as_mut()
+        .expect("fields")
+        .push("parcel_height_millimeters".into());
+    incoming.field_descriptions.insert(
+        "parcel_height_millimeters".into(),
+        "Parcel height measured in millimeters".into(),
+    );
+    incoming
+        .field_types
+        .insert("parcel_height_millimeters".into(), FieldValueType::Integer);
+    incoming.field_declarations.remove("parcel_delivery_status");
+    let canonical = schema_types::compute_field_hash(
+        "parcel_delivery_status",
+        &incoming.field_descriptions["parcel_delivery_status"],
+        &FieldValueType::String,
+        1,
+    );
+    incoming
+        .field_hashes
+        .insert("parcel_delivery_status".into(), canonical.clone());
+    let previous_name = expanded.name;
+    let replaced = match reloaded
+        .add_schema(incoming, HashMap::new())
+        .await
+        .expect("preserve incoming canonical identity")
+    {
+        SchemaAddOutcome::Expanded(old, expanded, _) => {
+            assert_eq!(old, previous_name);
+            expanded
+        }
+        other => panic!("expected second expansion, got {other:?}"),
+    };
+    assert_eq!(replaced.field_hashes["parcel_delivery_status"], canonical);
+    assert!(!replaced
+        .field_declarations
+        .contains_key("parcel_delivery_status"));
+    let final_state = super::support::state(backend.clone()).await;
+    assert_eq!(final_state.get_schema_count(), 3);
+    assert_eq!(backend.load_all_schemas().await.expect("schemas").len(), 3);
 }
 
 #[test]

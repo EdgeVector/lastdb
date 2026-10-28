@@ -4,22 +4,13 @@ name: Schema canonical properties
 # The process uses isolated memory stores. It has no service or AWS credentials.
 on:
   workflow_call:
-  push:
-    branches: [main]
-    paths:
-      - 'schema_service/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain.toml'
-      - '.github/workflows/schema-canonical-properties.yml'
-      - '.github/workflows/ci-required.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: schema-canonical-properties-${{ github.event_name }}-${{ github.ref }}
+  group: schema-canonical-properties-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
