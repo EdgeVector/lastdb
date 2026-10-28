@@ -112,6 +112,7 @@ async fn complete_one(
     match resumed {
         TransferResumeResult::Grant { response } => {
             context.check()?;
+            context.check_upload(input, &response.grant)?;
             // An HTTP outcome, including a timeout, never proves stored bytes.
             // Complete resolves this same transfer through service authority.
             let _observation = client.upload(input, &response, reader).await;

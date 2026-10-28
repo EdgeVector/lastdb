@@ -156,6 +156,7 @@ async fn setup(
         },
         descriptor: ClientDescriptor::empty(),
         required_destinations: vec![Destination::R2, Destination::B2],
+        r2_multipart: env_flag::var_truthy("LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS").then_some(true),
         predecessor,
         // The current service does not advertise accepted-backup retirement.
         // Preserve the legacy hash and conservative dependency rule until it does.
