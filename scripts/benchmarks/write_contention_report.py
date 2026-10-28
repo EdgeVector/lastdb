@@ -26,17 +26,23 @@ def native_events(directory, cases):
     events = []
     with path.open() as source:
         for line in source:
-            if "LASTDB_SNAPSHOT_TIMING " in line:
-                events.append(json.loads(line.split("LASTDB_SNAPSHOT_TIMING ", 1)[1]))
+            for marker in ("LASTDB_SNAPSHOT_TIMING ", "LASTDB_WRITE_REQUEST_TIMING "):
+                if marker in line:
+                    events.append(json.loads(line.split(marker, 1)[1]))
     for case in cases:
         if not case["native_timing"]:
             continue
         first, last = case["case_started_unix_us"], case["case_ended_unix_us"]
         selected = [e for e in events if first <= e["started_us"] <= e["ended_us"] <= last]
+        requests = [e for e in selected if e["kind"] == "request"]
+        if len(requests) != case["requests"] or any(e["status"] != 200 for e in requests):
+            raise ValueError("Native HTTP request clocks do not cover all successful measured calls")
         scopes = [e for e in selected if e["kind"] == "scope" and e["background"] is False]
         sequences = sorted(e["sequence"] for e in scopes)
-        if len(scopes) != case["requests"] or len(set(sequences)) != len(sequences):
-            raise ValueError("Native scopes do not cover all actual measured write requests")
+        # Author-clock persistence can open additional foreground scopes. Do not
+        # identify those metadata scopes as HTTP mutations or discard their cost.
+        if len(scopes) < case["requests"] or len(set(sequences)) != len(sequences):
+            raise ValueError("Observed foreground storage scopes are incomplete or duplicated")
         commits = []
         for event in selected:
             if event["kind"] != "commit" or not event["ok"]:
@@ -46,7 +52,11 @@ def native_events(directory, cases):
                 commits.append(event)
         if any(sum(c["first_sequence"] <= seq <= c["sequence"] for c in commits) != 1 for seq in sequences):
             raise ValueError("A write scope lacks one distinct durable publication")
-        case["native"] = {"scopes": len(scopes), "commits": len(commits),
+        case["native"] = {"http_requests": len(requests), "request_phases": summarize(requests),
+                          "socket_queue_mean_us": mean(e["queue_wait_us"] for e in requests),
+                          "scopes": len(scopes), "extra_foreground_scopes": len(scopes)-len(requests),
+                          "scope_population": "All observed foreground storage work, including author-clock metadata",
+                          "commits": len(commits),
                           "requests_per_commit": mean(c["requests"] for c in commits),
                           "scope_phases": summarize(scopes), "commit_phases": summarize(commits),
                           "commit_mean_us": mean(c["total_us"] for c in commits),
@@ -73,9 +83,11 @@ def render(output):
              "These focused homes do not replay the full nightly history. Native logging can affect timings.",
              "CPU counters describe one whole case, without adding overlapping per-request CPU intervals.",
              "Native admission includes the global preparation gate and waits on a sealed durable queue.",
+             "Native phase averages describe all foreground storage scopes, including extra author-clock metadata scopes; they are not per-HTTP costs.",
+             "The HTTP request-clock count must equal the actual successful request count. Extra storage scopes remain explicit.",
              "Missing native phases or disabled kernel scheduler counters remain unreported. Host pressure is correlation only.", "",
-             "| Home / case | Workers | Clients / batch | p95 ms | Records/s | Daemon CPU cores | Client CPU cores | Native admission ms | Logical preparation ms | Durable wait ms | Requests/commit |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+             "| Home / case | Workers | Clients / batch | p95 ms | Records/s | Daemon CPU cores | Client CPU cores | Socket queue ms | Native admission ms | Logical preparation ms | Durable wait ms | HTTP / storage scopes | Requests/commit |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     physical = ["", "| Home / case | Commits | Commit mean ms | Largest physical phases ms |", "|---|---:|---:|---|"]
     for home in data["homes"]:
         directory = output / home["directory"]
@@ -90,11 +102,14 @@ def render(output):
             label = f"{home['directory']} / {case['name']}"
             request_count = native.get("requests_per_commit")
             group_size = f"{request_count:.2f}" if request_count is not None else "unreported"
+            queue = f"{native['socket_queue_mean_us']/1000:.3f}" if native else "unreported"
+            scopes = f"{native['http_requests']} / {native['scopes']}" if native else "unreported"
             lines.append(f"| {label} | {case['workers']} | {case['clients']} / {case['batch_records']} | "
                          f"{metrics['p95_ms']:.3f} | {metrics['records_per_second']:.2f} | "
                          f"{process['daemon']['average_cpu_cores']:.3f} | {process['client']['average_cpu_cores']:.3f} | "
+                         f"{queue} | "
                          f"{milliseconds(phases, 'admission_us')} | {milliseconds(phases, 'logical_prepare_us')} | "
-                         f"{milliseconds(phases, 'durable_wait_us')} | {group_size} |")
+                         f"{milliseconds(phases, 'durable_wait_us')} | {scopes} | {group_size} |")
             if native:
                 largest = sorted(native["commit_phases"].items(), key=lambda pair: pair[1]["mean_us"], reverse=True)[:6]
                 details = ", ".join(f"{n}={v['mean_us']/1000:.3f}" for n, v in largest)

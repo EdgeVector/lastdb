@@ -15,7 +15,8 @@ Search is off; each home stops and is removed. Native logging is separate from t
 The focused homes do not replay the full nightly prehistory. These measurements diagnose causes; they do not establish a PR regression.
 
 CPU counters cover each whole case once for the daemon and Python client. Missing scheduler or host observations stay explicit.
-Native scope records cover all instrumented write calls. Each physical commit is counted once, even when it serves multiple requests.
+Native HTTP clocks must cover all instrumented write calls. Additional foreground scopes, such as author-clock metadata, remain explicit.
+Native phase averages cover all observed foreground storage work. Each physical commit is counted once, even when it serves multiple requests.
 Admission includes the global preparation gate and the sealed durable queue. Commit phases can overlap; do not add parents and children.
 The CI summary and verified artifacts retain the source identities, complete samples, CPU observations, native records, and cleanup evidence for 14 days.
 
