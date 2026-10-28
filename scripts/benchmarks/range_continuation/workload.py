@@ -44,7 +44,8 @@ class Workload:
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-            "fields": FIELDS + EXTRA_FIELDS, "field_descriptions": {
+            "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
+            "field_descriptions": {
                 name: "range continuation " + name for name in FIELDS + EXTRA_FIELDS}}})
         for first in range(0, COUNT, 128):
             self.mutate([("create", HASH, key(number), "seed") for number in range(first, first + 128)])

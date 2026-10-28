@@ -220,6 +220,7 @@ def operations(node):
     node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "HashRange",
         "key": {"hash_field": "bucket", "range_field": "id"}, "fields": FIELDS,
+        "field_types": {"bucket": "String", "id": "String"},
         "field_descriptions": {field: f"generated nightly release {field}" for field in FIELDS}}})
     write(node, range(8), create=True)
     read(node, set())
