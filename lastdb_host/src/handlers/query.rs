@@ -208,7 +208,7 @@ pub(super) async fn count_rows<H: HostNode>(
 pub(super) async fn acquire_read_permit<H: HostNode>(
     host: &H,
     lane: Lane,
-) -> Result<Box<dyn crate::host_node::ReadPermit>, ReadBusy> {
+) -> Result<H::OpPermit, ReadBusy> {
     let started = std::time::Instant::now();
     let permit = host.acquire_op_permit(lane).await;
     request_phases::add_phase(RequestPhase::AdmissionWait, started.elapsed());
