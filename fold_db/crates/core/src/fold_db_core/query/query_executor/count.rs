@@ -5,14 +5,14 @@ use std::sync::Arc;
 use crate::access::AccessContext;
 use crate::schema::{types::Query, SchemaError};
 
-use super::{rules, HashRangeQueryProcessor, QueryExecutor};
+use super::{rules, QueryExecutor};
 
 impl QueryExecutor {
     /// Count live keys for the same supported keyed query and projection.
     /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
     /// also require the declared hash-field values to distinguish their keys.
     /// See
-    /// [`HashRangeQueryProcessor::count_rows`].
+    /// [`super::HashRangeQueryProcessor::count_rows`].
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
     /// the caller uses the regular captured query and counts its selected keys.
