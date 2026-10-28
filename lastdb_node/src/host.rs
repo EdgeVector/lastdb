@@ -21,7 +21,7 @@ use std::sync::{Arc, OnceLock};
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
-use fold_db::storage::config::{DatabaseConfig, StorageEngine};
+use fold_db::storage::config::DatabaseConfig;
 
 /// File name of the identity seed under the node home (32 raw bytes, `0o600`).
 /// Canonical definition lives in `lastdb_identity`, the identity crate shared

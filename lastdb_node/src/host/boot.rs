@@ -62,7 +62,6 @@ impl Host {
     ) -> Result<Arc<FoldDB>, String> {
         let config = DatabaseConfig {
             path: data_path.to_path_buf(),
-            engine: StorageEngine::Laststore,
         };
         fold_db::fold_db_core::factory::create_fold_db_with_options(
             &config,

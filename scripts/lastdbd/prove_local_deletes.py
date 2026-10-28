@@ -92,8 +92,7 @@ def fixture(kind):
 def child_environment(home):
     return {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'LANG': 'C', 'LC_ALL': 'C',
             'HOME': str(home), 'TMPDIR': '/tmp', 'LASTDB_SUPPRESS_RECOVERY_PHRASE': '1',
-            'FOLDDB_DISABLE_KEYCHAIN': '1', 'LASTDBD_STDIO_LOG_ROTATION': '0',
-            'LASTDB_ENGINE': 'laststore'}
+            'FOLDDB_DISABLE_KEYCHAIN': '1', 'LASTDBD_STDIO_LOG_ROTATION': '0'}
 
 
 class CatalogHandler(BaseHTTPRequestHandler):

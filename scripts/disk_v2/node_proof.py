@@ -55,7 +55,6 @@ RUN_NODE = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 # budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
-    "LASTDB_ENGINE": "laststore",
     "LASTDB_KV_AT_REST_COMPRESS": "1",
     "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
