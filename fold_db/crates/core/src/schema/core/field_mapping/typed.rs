@@ -15,14 +15,8 @@ impl SchemaCore {
         schema: &mut Schema,
         stored: Option<&Schema>,
     ) -> Result<(), SchemaError> {
-        if self
-            .db_ops
-            .molecule_keys()
-            .schema_profile(schema)?
-            .is_none()
-        {
-            return Ok(());
-        }
+        // Refuse an invalid key profile before any mapper resolution.
+        self.db_ops.molecule_keys().schema_profile(schema)?;
         // Only this process's completed publication can establish the fast
         // path. An older binary may have stored a collapsed cross-key map.
         if self.coherence_memo(&schema.name)?.is_some()
