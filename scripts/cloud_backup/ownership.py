@@ -43,15 +43,16 @@ def accepted_point(accepted, baseline):
     return {"stream_id": stream_id, "commit_id": commit_id, "commit_sha256": digest}
 
 
-def complete(operation, source, log, snapshot):
-    require(source.node.process is None and source.node.clean_stops == 2 and not source.node.forced,
+def complete(operation, source, recovered):
+    require(source.node.process is None and source.node.clean_stops >= 2 and not source.node.forced,
             "ci_ownership_source_stopped")
     observed = [accepted_point(value, operation.baseline) for value in source.completed.values()]
     require(2 <= len(observed) <= 8
             and len({point["stream_id"] for point in observed}) == 1,
             "ci_ownership_single_bounded_stream")
-    selected = [accepted_point(value, operation.baseline) for value in (log, snapshot)]
-    require(all(point in observed for point in selected), "ci_ownership_restored_points_observed")
+    selected = [accepted_point(value, operation.baseline) for value in recovered]
+    require(2 <= len(selected) <= 8 and all(point in observed for point in selected),
+            "ci_ownership_restored_points_observed")
     receipt = {
         "schema": "lastdb.cloud-ci-stream.v1", "owner": run_identity(operation.args.source),
         "account": ACCOUNT, "account_generation": operation.baseline["account_generation"],
