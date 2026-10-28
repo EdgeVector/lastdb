@@ -83,7 +83,6 @@ pub fn startup_failure_recorded(start: Option<&StartSummary>) -> bool {
 pub fn report_crashes_with_log_tail(
     reports: &[PathBuf],
     start: Option<&StartSummary>,
-    _prev_log_tail: Option<&str>,
 ) -> usize {
     if sentry::Hub::current().client().is_none() {
         return 0;
@@ -95,7 +94,6 @@ pub fn report_crashes_with_log_tail(
 pub fn report_crashes_with_log_tail(
     _reports: &[PathBuf],
     _start: Option<&StartSummary>,
-    _prev_log_tail: Option<&str>,
 ) -> usize {
     0
 }

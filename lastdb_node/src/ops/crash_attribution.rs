@@ -129,9 +129,8 @@ pub fn scan_previous_crashes(home: &Path) -> Vec<PathBuf> {
 pub fn promote_previous_crash_evidence(
     reports: &[PathBuf],
     start: Option<&StartSummary>,
-    prev_log_tail: Option<&str>,
 ) -> usize {
-    let sent = crate::crash_telemetry::report_crashes_with_log_tail(reports, start, prev_log_tail);
+    let sent = crate::crash_telemetry::report_crashes_with_log_tail(reports, start);
     if sent > 0 {
         tracing::info!(
             target: "lastdbd::crash_attribution",
