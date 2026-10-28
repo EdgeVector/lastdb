@@ -33,7 +33,7 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 
 | Component | Current writer | Current reader |
 | --- | --- | --- |
-| Node marker | `format=4`, `home=disk-run`, `cas=disk-cas`, `ranges=typed-v1`, each followed by LF | That exact typed marker, or the exact legacy `format=3`, `home=disk-run`, `cas=disk-cas` marker |
+| Node marker | `format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n` by default; explicit legacy uses `format=3\nhome=disk-run\ncas=disk-cas\n` | Both exact markers only |
 | Home descriptor | 64 bytes; magic `LDRHOME3`; descriptor version 1; home UUID; CRC32 | The same descriptor; `LDRHOME2` is refused |
 | `CURRENT` payload | Magic `LDRCUR2\0` inside one encrypted frame | `LDRCUR2\0`, or `LDRCUR1\0` without a base; the latter opens as tiered runs |
 | Run footer | 64 bytes; magic `LDRUN\x01\0\0`; version 1; run UUID; top-block position; counts; CRC32 | The same footer, with counts checked against the authenticated top block |
