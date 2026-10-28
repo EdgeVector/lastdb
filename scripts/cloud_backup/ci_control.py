@@ -11,6 +11,13 @@ from urllib.parse import urlsplit
 
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, dev_endpoint, require
 
+ERROR_CODES = frozenset((
+    "invalid_input", "unsupported_version", "unsupported_capability", "unsupported_format",
+    "unsupported_key_mode", "unauthorized", "not_found", "generation_conflict",
+    "stream_authority_conflict", "job_closed", "identity_conflict", "predecessor_conflict",
+    "resource_limit", "quota_exceeded", "missing_dependency", "integrity_mismatch",
+    "recovery_key_mismatch", "source_unavailable", "provider_pending", "outcome_unknown", "retry_later"))
+
 
 def decimal(value):
     require(isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,19}", value)
@@ -68,15 +75,23 @@ class Control:
             connection.request("POST", "/api/cloud/backups/v2/ci/" + route, body,
                                {"X-API-Key": self.key, "Content-Type": "application/json"})
             response = connection.getresponse()
-            require(response.status == 200 and response.getheader("Location") is None,
-                    "ci_control_service_refused")
+            require(not 300 <= response.status < 400 and response.getheader("Location") is None,
+                    "ci_control_redirect_refused")
             length = response.getheader("Content-Length")
             require(length is None or (length.isdecimal() and int(length) <= 65536),
                     "ci_control_response_size")
             raw = response.read(65537)
             require(len(raw) <= 65536 and time.monotonic() <= self.deadline,
                     "ci_control_response_bound")
-            value = decode_json(raw)
+            try:
+                value = decode_json(raw)
+            except OperationError:
+                raise OperationError("ci_control_http_" + str(response.status)) from None
+            code = value.get("code") if isinstance(value, dict) else None
+            if isinstance(code, str) and code in ERROR_CODES:
+                # Protocol codes are fixed public names; never print the raw field or reply.
+                raise OperationError("ci_control_service_" + code)
+            require(response.status == 200, "ci_control_http_" + str(response.status))
             require(isinstance(value, dict) and type(value.get("version")) is int
                     and value["version"] == 2 and "code" not in value, "ci_control_response")
             return value
