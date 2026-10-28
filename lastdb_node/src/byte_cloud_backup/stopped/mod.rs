@@ -13,6 +13,7 @@ use std::sync::atomic::AtomicBool;
 
 mod guard;
 mod manifest;
+mod marker;
 mod verify;
 pub(super) use manifest::retain_manifest;
 

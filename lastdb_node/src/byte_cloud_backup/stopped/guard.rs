@@ -6,7 +6,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 pub(super) struct Ownership {
     _node: File,
-    node_identity: (u64, u64, u32, u32, u64, u64, i64, i64),
+    node_identity: (u64, u64, u32, u32, u64, i64, i64),
     directories: Vec<(u64, u64, u32, u32)>,
     currents: [Digest; 2],
 }
@@ -50,7 +50,7 @@ pub(super) fn admit(home: &Path, request: &StoppedBackupRequest) -> Result<Owner
     if !metadata.is_file()
         || metadata.uid() != unsafe { libc::geteuid() }
         || metadata.mode() & 0o022 != 0
-        || metadata.nlink() != 1
+        || !(1..=2).contains(&metadata.nlink())
         || metadata.len() > 128
     {
         return Err(BackupError::Identity);
@@ -130,6 +130,7 @@ fn currents(home: &Path) -> Result<[Digest; 2]> {
 impl Ownership {
     pub fn check(&self, home: &Path, request: &StoppedBackupRequest) -> Result<()> {
         check_session(home, request)?;
+        super::marker::check(home, request, &self._node.metadata()?)?;
         for (path, identity) in [home.to_owned(), home.join("data")]
             .iter()
             .zip(&self.directories)
@@ -188,13 +189,12 @@ impl Ownership {
     }
 }
 
-fn node_identity(info: &std::fs::Metadata) -> (u64, u64, u32, u32, u64, u64, i64, i64) {
+fn node_identity(info: &std::fs::Metadata) -> (u64, u64, u32, u32, u64, i64, i64) {
     (
         info.dev(),
         info.ino(),
         info.uid(),
         info.mode(),
-        info.nlink(),
         info.len(),
         info.mtime(),
         info.mtime_nsec(),
