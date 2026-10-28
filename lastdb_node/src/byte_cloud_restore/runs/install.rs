@@ -52,7 +52,7 @@ pub(super) fn verify(
         keys.content_key(),
         &scratch,
     )
-    .map_err(|_| RestoreError::Invalid("complete run native proof"))?;
+    .map_err(RestoreError::native_proof)?;
     for file in proof.files() {
         let entry: NativeFileProof = local::read_json(
             &session

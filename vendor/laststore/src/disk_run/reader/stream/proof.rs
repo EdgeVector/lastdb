@@ -4,12 +4,16 @@ mod load;
 #[path = "proof/records.rs"]
 mod records;
 
-use super::{corrupt, RunReader};
+use super::RunReader;
 use crate::disk_run::value;
 use crate::{Error, Result};
 use std::fs::{File, Metadata};
 use std::ops::Range;
 use std::os::unix::fs::MetadataExt;
+
+fn corrupt(code: &'static str) -> Error {
+    Error::NativeProof(code)
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ProofBounds<'a> {

@@ -1,6 +1,5 @@
-use super::{records, ProofBlock, ProofBounds, ProofHead, RunReader};
+use super::{corrupt, records, ProofBlock, ProofBounds, ProofHead, RunReader};
 use crate::disk_run::bloom::Filter;
-use crate::disk_run::codec::corrupt;
 use crate::disk_run::footer::BlockRef;
 use crate::disk_run::MAX_RUN_KEY_BYTES;
 use crate::frame::VerifiedFrameReader;

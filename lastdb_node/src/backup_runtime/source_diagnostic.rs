@@ -4,7 +4,13 @@ use fold_db::storage::StorageError;
 mod run_v2;
 
 pub(super) fn report(error: &StorageError) {
+    if let StorageError::NativeProof { stage, cause } = error {
+        tracing::warn!(source_class = "native_proof", source_stage = %stage,
+            source_reason = %cause, "native backup source refused");
+        return;
+    }
     let (class, detail) = match error {
+        StorageError::NativeProof { .. } => ("native_proof", None),
         StorageError::SerializationError(detail) => ("serialization", Some(detail.as_str())),
         StorageError::BackendError(detail) => ("backend", Some(detail.as_str())),
         StorageError::ReadResourceLimit { detail } => {

@@ -6,7 +6,9 @@ mod native;
 mod ranges;
 mod rows;
 
-use crate::storage::disk_pack::{file_dependencies as files, map};
+use super::{map, phase, Stage};
+use crate::storage::disk_pack::file_dependencies as files;
+use crate::storage::error::NativeProofCause;
 use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use lastdb_storage_policy::backup_decode as budget;
@@ -23,7 +25,7 @@ pub(super) fn verify(
     scratch: &Path,
     version: u16,
 ) -> StorageResult<u64> {
-    let reserved = reserve_cursor(main, cas)?;
+    let reserved = phase(Stage::Admission, reserve_cursor(main, cas))?;
     let key_heads = reserved.is_some();
     let (main, cas) = reserved
         .as_ref()
@@ -35,11 +37,14 @@ pub(super) fn verify(
         scratch,
         key_heads,
     };
-    native::prepare(scratch)?;
-    verify_account(main, account_key, version)?;
-    ranges::verify(main, account_key, version, key_heads)?;
-    let atoms = atoms::verify(&proof)?;
-    metadata::verify(&proof)?;
+    phase(Stage::Scratch, native::prepare(scratch))?;
+    phase(Stage::Account, verify_account(main, account_key, version))?;
+    phase(
+        Stage::Schemas,
+        ranges::verify(main, account_key, version, key_heads),
+    )?;
+    let atoms = phase(Stage::Atoms, atoms::verify(&proof))?;
+    phase(Stage::Tips, metadata::verify(&proof))?;
     Ok(atoms)
 }
 
@@ -102,6 +107,9 @@ fn read_budget(bytes: u64, keys: u64) -> ReadBudget {
     }
 }
 
-fn invalid(detail: &str) -> StorageError {
-    StorageError::InvalidOperation(detail.into())
+fn invalid(detail: &'static str) -> StorageError {
+    StorageError::NativeProof {
+        stage: Stage::Validation,
+        cause: NativeProofCause::Static(detail),
+    }
 }

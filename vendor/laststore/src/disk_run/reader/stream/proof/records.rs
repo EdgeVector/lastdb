@@ -1,6 +1,6 @@
 //! One validation pass and one forward pass over an authenticated block.
+use super::corrupt;
 use crate::disk_run::bloom::{key_hash, Filter};
-use crate::disk_run::codec::corrupt;
 use crate::disk_run::{MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES};
 use crate::{Error, Result};
 use std::ops::Range;
