@@ -13,8 +13,10 @@ pub(in crate::handlers) use self::response::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
 mod execute;
+mod output;
 mod row_rules;
 mod rules;
+pub use output::QueryResponseFormat;
 
 /// Execute `POST /api/query`: resolve the schema, check request rules, and
 /// select the bounded read before rendering the page response. Ordinary

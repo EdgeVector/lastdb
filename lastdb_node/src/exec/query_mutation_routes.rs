@@ -18,6 +18,7 @@ pub(super) async fn execute_query_route(
         limit,
         offset,
         cursor,
+        response_format,
     } = match body_object(req).and_then(parse_query_body) {
         Ok(query) => query,
         Err(resp) => return resp,
@@ -36,7 +37,15 @@ pub(super) async fn execute_query_route(
     super::query_read_receipt::render_query(
         req,
         ctx,
-        handlers::execute_query(host, query, limit, offset, cursor, ctx, allow_full_scan),
+        response_format.run(handlers::execute_query(
+            host,
+            query,
+            limit,
+            offset,
+            cursor,
+            ctx,
+            allow_full_scan,
+        )),
     )
     .await
 }

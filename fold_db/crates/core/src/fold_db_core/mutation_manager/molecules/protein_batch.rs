@@ -82,6 +82,19 @@ pub(super) async fn load_protein_fold_metadata(
             .map(String::as_str)
     }));
     let proteins = store.protein_get_many(&protein_uuids).await?;
-    let proteins_by_uuid = protein_uuids.into_iter().zip(proteins).collect();
+    let proteins_by_uuid: HashMap<_, _> = protein_uuids.into_iter().zip(proteins).collect();
+    // Sibling tip preparation needs these codecs before move planning. Load
+    // established source and peer contracts together, including unchanged fields.
+    if proteins_by_uuid.values().any(Option::is_some) {
+        let contracts = distinct_in_order(member_uuids.iter().copied().chain(
+            proteins_by_uuid.values().flatten().flat_map(|protein| {
+                protein
+                    .members
+                    .iter()
+                    .map(|member| member.molecule_uuid.as_str())
+            }),
+        ));
+        store.load_molecule_key_bundles(&contracts).await?;
+    }
     Ok((owners_by_molecule, proteins_by_uuid))
 }
