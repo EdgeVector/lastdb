@@ -3,6 +3,11 @@
 The schema service enforces one field policy for every caller.
 No special vocabulary key, operator signature, or vocabulary write endpoint exists.
 New fields enter through normal schema publication or field declaration.
+New schemas, schema expansions, and field declarations require an Exemem developer account.
+The environment-bound developer certificate must permit publication and match the registered app owner.
+The developer signs the schema or declaration with its distinct request purpose.
+Local namespace claims have no account exemption.
+Exact public schema reposts remain reads and create no definitions.
 The existing app identity, permission, mutation, and quota checks remain active.
 
 ## Field validation
