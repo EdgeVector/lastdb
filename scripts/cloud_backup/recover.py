@@ -193,7 +193,22 @@ class Operation:
                  "source": self.args.source, "primary_access": False}
         if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
             value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
+        if self.summary["schema"] == "lastdb.cloud-ci-preflight.v1":
+            value["ci_cleanup"] = cleanup_observation(self.summary)
         print(json.dumps(value, sort_keys=True))
+
+
+def cleanup_observation(summary):
+    terminal = summary.get("retirement", {})
+    quota = summary.get("ci_quota", {})
+    # These fields already passed the status/usage validators. Never copy a
+    # raw service reply, input, archive, recovery recipe or provider grant.
+    return {"retirement": {name: terminal.get(name) for name in (
+                "request_id", "phase", "plan_sha256", "eligible_allocations", "confirmed_allocations",
+                "protected_allocations", "protected_uncertain_bytes", "released_bytes")},
+            "quota": {name: quota.get(name) for name in (
+                "quota_bytes", "reserved_bytes", "retained_bytes", "available_bytes", "minimum_bytes")},
+            "terminal_repeat_checked": summary.get("terminal_repeat_checked")}
 
 
 def step_summary(summary):
