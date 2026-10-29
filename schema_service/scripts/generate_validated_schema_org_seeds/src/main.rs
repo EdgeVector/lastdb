@@ -62,7 +62,7 @@ use schema_service_core::{
     builtin_canonical_fields, schema_org_seeds, Embedder, SchemaConfig, SchemaServiceState,
 };
 use schema_service_server_shared::{
-    DedicatedThreadRuntime, FoldDbFastEmbedder, SchemaConfigEnv, SystemClock,
+    DedicatedThreadRuntime, FoldDbFastEmbedder, SchemaConfigEnv, SystemClock, SystemIds,
 };
 use schema_types::{FieldValueType, KeyConfig, Schema, SchemaSource, SchemaType};
 use serde::Serialize;
@@ -121,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SchemaConfig::from_env(),
         Arc::new(SystemClock),
         Arc::new(DedicatedThreadRuntime),
+        Arc::new(SystemIds),
     )?;
 
     eprintln!("==> Seeding curated canonical fields (the 151 hand-reviewed entries) …");

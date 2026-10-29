@@ -43,6 +43,10 @@
 //! approval succeeds the artifact is frozen; any subsequent change is
 //! a distinct artifact registration with its own hash.
 
+// Time, env, filesystem, threads, runtimes, and randomness stay in the shell.
+// The ban list is `clippy.toml` in this crate, so it does not apply to the workspace.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 pub mod app_identity;
 pub mod app_release;
 pub mod blocking_runtime;
@@ -54,6 +58,7 @@ pub mod embedder;
 pub mod external_persistence;
 mod field_identity_validation;
 pub mod field_name_policy;
+pub mod ids;
 mod lock_helpers;
 pub mod memory_persistence;
 /// Same-product multi-key tip regeneration (background reindex job class).
@@ -112,6 +117,7 @@ pub use declared_fields::{
 };
 pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
 pub use external_persistence::ExternalSchemaPersistence;
+pub use ids::IdGen;
 pub use memory_persistence::InMemorySchemaPersistence;
 pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeResolverInput};
 pub use near_miss::{NearMissDecision, NearMissRecord};

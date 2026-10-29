@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use crate::embedder::cosine_similarity;
 use schema_types::FoldDbError;
 use schema_types::FoldDbResult;
@@ -18,18 +16,33 @@ const ANTI_FIELD_DESCRIPTIONS: &[&str] = &[
 
 impl SchemaServiceState {
     fn anti_field_embeddings(&self) -> Vec<Vec<f32>> {
-        static CACHE: OnceLock<Vec<Vec<f32>>> = OnceLock::new();
-        if let Some(cached) = CACHE.get() {
-            return cached.clone();
+        if let Some(cached) = self.cached_anti_field_embeddings() {
+            return cached;
         }
         let built: Vec<Vec<f32>> = ANTI_FIELD_DESCRIPTIONS
             .iter()
             .filter_map(|text| self.embedder.embed_text(text).ok())
             .collect();
         if built.len() == ANTI_FIELD_DESCRIPTIONS.len() {
-            let _ = CACHE.set(built.clone());
+            self.store_anti_field_embeddings(&built);
         }
         built
+    }
+
+    fn cached_anti_field_embeddings(&self) -> Option<Vec<Vec<f32>>> {
+        self.anti_field_embedding_cache
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    fn store_anti_field_embeddings(&self, built: &[Vec<f32>]) {
+        let Ok(mut slot) = self.anti_field_embedding_cache.write() else {
+            return;
+        };
+        if slot.is_none() {
+            *slot = Some(built.to_vec());
+        }
     }
 
     pub(super) fn embedding_matches_anti_field(&self, embedding: &[f32]) -> bool {

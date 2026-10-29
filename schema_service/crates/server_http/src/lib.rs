@@ -18,7 +18,7 @@ use schema_service_client::SchemaServiceClient;
 use schema_service_core::snapshot::SnapshotImportReport;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::{BlockingRuntime, SchemaConfig};
-use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv, SystemClock};
+use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv, SystemClock, SystemIds};
 
 use crate::middleware::otel::W3CParentContext;
 
@@ -228,6 +228,7 @@ impl SchemaServiceServer {
             SchemaConfig::from_env(),
             Arc::new(SystemClock),
             runtime,
+            Arc::new(SystemIds),
         )?;
         Ok(Self {
             state: web::Data::new(state),

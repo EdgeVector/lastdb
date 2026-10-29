@@ -21,7 +21,6 @@ use schema_types::{Schema, SchemaSource};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 use crate::lock_helpers::{read_lock, write_lock};
 use crate::state::SchemaServiceState;

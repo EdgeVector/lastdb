@@ -22,9 +22,10 @@ impl SchemaServiceState {
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
         runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+        ids: Arc<dyn crate::ids::IdGen>,
     ) -> FoldDbResult<Self> {
         let backend = Arc::new(InMemorySchemaPersistence::default());
-        Self::new_from_backend_blocking(backend, embedder, config, clock, runtime)
+        Self::new_from_backend_blocking(backend, embedder, config, clock, runtime, ids)
     }
 
     fn new_from_backend_blocking(
@@ -33,6 +34,7 @@ impl SchemaServiceState {
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
         runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+        ids: Arc<dyn crate::ids::IdGen>,
     ) -> FoldDbResult<Self> {
         let init = Arc::clone(&runtime);
         let boxed = crate::blocking_runtime::drive(
@@ -43,7 +45,7 @@ impl SchemaServiceState {
             "schema state init thread ended without a result",
             Box::pin(async move {
                 let state =
-                    Self::new_with_external(backend, embedder, config, clock, runtime).await?;
+                    Self::new_with_external(backend, embedder, config, clock, runtime, ids).await?;
                 Ok(Box::new(state) as crate::blocking_runtime::BlockingOutput)
             }),
         )?;
@@ -66,6 +68,7 @@ impl SchemaServiceState {
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
         runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+        ids: Arc<dyn crate::ids::IdGen>,
     ) -> FoldDbResult<Self> {
         Self::new_with_external_and_schema_mutation_gate_store(
             backend,
@@ -74,6 +77,7 @@ impl SchemaServiceState {
             config,
             clock,
             runtime,
+            ids,
         )
         .await
     }
@@ -88,6 +92,7 @@ impl SchemaServiceState {
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
         runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+        ids: Arc<dyn crate::ids::IdGen>,
     ) -> FoldDbResult<Self> {
         let collection_name_anchors = Self::compute_anchor_embeddings(embedder.as_ref());
 
@@ -100,6 +105,7 @@ impl SchemaServiceState {
             canonical_field_embeddings: Arc::new(RwLock::new(HashMap::new())),
             native_resolve_embeddings: Arc::new(RwLock::new(HashMap::new())),
             embedder,
+            anti_field_embedding_cache: Arc::new(RwLock::new(None)),
             storage: SchemaStorage::External(backend),
             system_schema_hashes: Arc::new(RwLock::new(HashSet::new())),
             seeding_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -121,6 +127,7 @@ impl SchemaServiceState {
             schema_config: Arc::new(config),
             clock,
             runtime,
+            ids,
         };
 
         state.load_all_from_external().await?;

@@ -36,7 +36,8 @@ impl SchemaServiceState {
         let fields = self
             .checked_declared_vocabulary(&request.fields)
             .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
-        let mut record = staged.declare(request, mint_declaration_id)?;
+        let ids = std::sync::Arc::clone(&self.ids);
+        let mut record = staged.declare(request, move || mint_declaration_id(ids.as_ref()))?;
         if record.declared_at.is_empty() {
             record.declared_at = self.clock.rfc3339_secs();
         }

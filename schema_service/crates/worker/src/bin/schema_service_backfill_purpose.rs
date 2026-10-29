@@ -41,7 +41,9 @@ use schema_service_s3::store_config::{
     env_var_trimmed, schema_store_s3_config_builder, schema_store_s3_credentials_from_env,
     SCHEMA_STORE_R2_ENDPOINT_ENV,
 };
-use schema_service_server_shared::{DedicatedThreadRuntime, SchemaConfigEnv, SystemClock};
+use schema_service_server_shared::{
+    DedicatedThreadRuntime, SchemaConfigEnv, SystemClock, SystemIds,
+};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Backend {
@@ -207,6 +209,7 @@ async fn build_state(cli: &Cli) -> Result<SchemaServiceState, String> {
         SchemaConfig::from_env(),
         Arc::new(SystemClock),
         Arc::new(DedicatedThreadRuntime),
+        Arc::new(SystemIds),
     )
     .await
     .map_err(|e| format!("S3-compatible state init failed (bucket={bucket}): {e}"))

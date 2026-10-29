@@ -93,6 +93,12 @@ jobs:
           CLIPPY_FAMILY: ${{ steps.required-clippy-plan.outputs.family }}
           CLIPPY_MODE: ${{ steps.required-clippy-plan.outputs.mode }}
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (${CLIPPY_MODE}:${CLIPPY_FAMILY})" -- ruby scripts/ci/required-clippy-plan.rb --run "$CLIPPY_FAMILY"
+      - name: cargo clippy (schema_service_core functional core)
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: bash scripts/ci/mini-gate-step.sh "cargo clippy (schema_service_core)" -- cargo clippy --locked -p schema_service_core --lib --features schema-org-seed-data -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types
+      - name: Schema core statics gate
+        run: bash scripts/ci/mini-gate-step.sh "Schema core statics gate" -- bash scripts/lints/lint-schema-core-statics.sh
       - name: Assert fastembed is NOT compiled in the Mini gate lane
         run: |
           bash scripts/ci/mini-gate-step.sh "Assert fastembed is NOT compiled in the Mini gate lane" -- bash -euo pipefail -c '
