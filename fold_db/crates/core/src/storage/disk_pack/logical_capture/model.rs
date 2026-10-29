@@ -1,5 +1,4 @@
 use super::*;
-use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -117,7 +116,7 @@ impl CaptureEvent {
         let signing = entry.signing_bytes()?;
         entry.sha256 = hex(&Sha256::digest(&signing));
         entry.signature = identity.sign(&signing);
-        // Leave the two array delimiters available to a one-entry export page.
+        // Leave two bytes for the JSON array delimiters around one event.
         bounded::serialized_size(&entry)?;
         Ok(entry)
     }
@@ -132,42 +131,6 @@ impl CaptureEvent {
             &self.mutation_ids,
             &self.outcomes,
         ))
-    }
-
-    pub fn verify(&self) -> StorageResult<()> {
-        if self.version != 1
-            || self.sequence == 0
-            || self.mutation_ids.is_empty()
-            || self.mutation_ids.len() > MAX_MUTATIONS
-            || self
-                .mutation_ids
-                .iter()
-                .any(|id| id.is_empty() || id.len() > 128)
-        {
-            return Err(invalid("logical capture event exceeds its format limits"));
-        }
-        bounded::serialized_size(self)?;
-        unhex::<32>(&self.previous_sha256)?;
-        let (public, generation) = self
-            .origin
-            .split_once(':')
-            .ok_or_else(|| invalid("logical capture origin lacks its generation"))?;
-        let parsed = uuid::Uuid::parse_str(generation)
-            .map_err(|_| invalid("logical capture origin generation differs"))?;
-        if parsed.is_nil() || parsed.to_string() != generation {
-            return Err(invalid("logical capture origin is not canonical"));
-        }
-        let bytes = self.signing_bytes()?;
-        if self.sha256 != hex(&Sha256::digest(&bytes)) {
-            return Err(invalid("logical capture event hash differs"));
-        }
-        VerifyingKey::from_bytes(&unhex::<32>(public)?)
-            .map_err(|_| invalid("logical capture public key differs"))?
-            .verify_strict(
-                &bytes,
-                &Signature::from_bytes(&unhex::<64>(&self.signature)?),
-            )
-            .map_err(|_| invalid("logical capture event signature differs"))
     }
 
     pub(super) fn position(&self) -> Position {

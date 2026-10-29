@@ -48,60 +48,6 @@ impl PackRuntime {
         .await
     }
 
-    /// An explicit export is bounded by four entries and one MiB of encoded events.
-    pub async fn logical_capture_export(
-        self: &Arc<Self>,
-        after: u64,
-        limit: usize,
-    ) -> StorageResult<Vec<CaptureEvent>> {
-        if !self.logical_capture_enabled() {
-            return Err(invalid("logical capture is disabled"));
-        }
-        if limit == 0 || limit > EXPORT_ENTRIES {
-            return Err(invalid("logical capture export requires 1..=4 entries"));
-        }
-        let context = read::ReadContext::current(self).await?;
-        let runtime = Arc::clone(self);
-        run_blocking(move || {
-            let head = runtime.capture_head(&context)?;
-            let count = head
-                .position
-                .sequence
-                .saturating_sub(after)
-                .min(limit as u64);
-            let coordinates: Vec<_> = (1..=count)
-                .map(|offset| (COLLECTION.to_string(), key("e", after + offset)))
-                .collect();
-            let values = runtime.raw_many(&context, &coordinates, None)?;
-            let mut bytes = 2usize;
-            let mut entries = Vec::new();
-            for (offset, value) in values.into_iter().enumerate() {
-                let value =
-                    value.ok_or_else(|| invalid("logical capture original event is absent"))?;
-                let next = bytes
-                    .saturating_add(value.len())
-                    .saturating_add(usize::from(!entries.is_empty()));
-                if next > MAX_EVENT_BYTES {
-                    if entries.is_empty() {
-                        return Err(invalid("logical capture event exceeds its export page"));
-                    }
-                    break;
-                }
-                let entry: CaptureEvent = decode(&value)?;
-                entry.verify()?;
-                if entry.sequence != after + offset as u64 + 1
-                    || entry.origin != head.position.origin
-                {
-                    return Err(invalid("logical capture event identity differs"));
-                }
-                bytes = next;
-                entries.push(entry);
-            }
-            Ok(entries)
-        })
-        .await
-    }
-
     fn capture_head(&self, context: &Arc<read::ReadContext>) -> StorageResult<Head> {
         let capture = self
             .logical_capture
