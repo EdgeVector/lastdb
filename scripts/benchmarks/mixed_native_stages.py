@@ -44,13 +44,14 @@ def read_events(output):
                 if marker.encode() not in line:
                     continue
                 event = json.loads(line.split(marker.encode(), 1)[1])
-                # Read counters have an interval but deliberately no duration.
-                fields = ("started_us", "ended_us")
-                if isinstance(event, dict) and event.get("kind") != "write_reads":
-                    fields += ("total_us",)
+                # The request read inventory is counters plus an interval,
+                # not a measured native duration. Preserve it without a total.
+                clocks = ("started_us", "ended_us")
+                if event.get("kind") != "write_reads":
+                    clocks += ("total_us",)
                 if (not isinstance(event, dict) or len(events) >= 100_000
                         or any(type(event.get(k)) is not int or event[k] < 0
-                               for k in fields)
+                               for k in clocks)
                         or event["started_us"] > event["ended_us"]):
                     raise ValueError("Invalid or excessive native timing events")
                 events.append(event)

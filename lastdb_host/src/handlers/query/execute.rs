@@ -15,6 +15,9 @@ pub(super) struct QueryRun<'a, H: HostNode> {
 impl<H: HostNode> QueryRun<'_, H> {
     /// Choose and execute the existing query paths in their rejection order.
     pub(super) async fn execute(self, query: Query) -> Result<Value, HostError> {
+        if QueryResponseFormat::current() == QueryResponseFormat::Count {
+            return self.count_only(query).await;
+        }
         if let Some(payload) = self.caller_supplied_page(&query).await? {
             return Ok(payload);
         }
@@ -27,6 +30,35 @@ impl<H: HostNode> QueryRun<'_, H> {
             }
         }
         self.bounded_fallback(query).await
+    }
+
+    /// Count under the same keyed scope without a probe row or reply metadata.
+    async fn count_only(&self, query: Query) -> Result<Value, HostError> {
+        if !rules::can_push_down_key_restricted(&query)
+            || query.include_tombstones
+            || self.cursor.is_some()
+            || self.offset != 0
+        {
+            return Err(HostError::new(400, "count replies require keyed live reads without conditions, value ordering, or continuation"));
+        }
+        let _permit = acquire_read_permit(self.host, Lane::Bulk).await?;
+        let (count, drops) = fold_db::db_operations::with_query_row_drop_tally(count_rows(
+            self.host, &query, self.ctx,
+        ))
+        .await;
+        let count =
+            count?.ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
+        if query
+            .expected_total_count
+            .is_some_and(|expected| expected != count)
+        {
+            return Err(HostError::new(
+                409,
+                "expected_total_count differs from the exact keyed count",
+            ));
+        }
+        Ok(serde_json::json!({"total_count": count, "exact": true,
+            "unresolved_rows": drops.unresolved, "tombstoned_rows": drops.tombstoned}))
     }
 
     /// A caller-supplied bare `Page` filter is already the requested bounded

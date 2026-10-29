@@ -165,6 +165,12 @@ Every read checks the current private changes and the accepted prefix before the
 Each reuse still charges the complete call's key and returned-byte allowance before it copies a value.
 Errors never become saved absences. Ordinary queries do not allocate this result store.
 The result store ends with the write preparation. It holds no decoded storage blocks and creates no shared file or block cache.
+Ordinary create/update writes keep the registered schema definition and field
+molecule identities. They publish changed tips, values and molecule headers through
+the native transaction without storing or reloading the schema catalog. Schema
+declaration and definition updates retain their catalog publication boundary.
+Record writes retain the existing best-effort relationship-binding retry; that
+check does not store or reload the unchanged catalog definition.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
 Concurrent schema declarations cannot create competing proteins for the same unbound molecule.

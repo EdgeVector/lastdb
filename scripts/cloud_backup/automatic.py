@@ -66,7 +66,8 @@ class Automatic:
     def run(self):
         operation = self.operation
         operation.summary["stage"] = "automatic-connect"
-        source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True),
+        source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True,
+                                 ci_stream_id=operation.ci_stream_id, terminal_r2=operation.terminal_r2),
                         self.baseline, operation.args.source, operation.summary)
         operation.node = source.node
         source.node.start()

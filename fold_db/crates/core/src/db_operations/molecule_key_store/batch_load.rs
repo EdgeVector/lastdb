@@ -6,7 +6,7 @@ use super::{
 };
 
 impl MoleculeKeyStore {
-    pub(super) async fn load_existing(&self, molecules: &[String]) -> StorageResult<()> {
+    pub(crate) async fn load_existing(&self, molecules: &[String]) -> StorageResult<()> {
         let mut missing = Vec::new();
         for molecule in molecules {
             validate_identity(molecule, NODE_DOMAIN)?;

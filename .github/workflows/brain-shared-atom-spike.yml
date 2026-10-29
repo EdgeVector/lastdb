@@ -1,0 +1,137 @@
+name: Brain shared atom spike
+
+on:
+  workflow_dispatch:
+    inputs:
+      brain_baseline:
+        description: Exact accepted Brain source
+        required: true
+        default: 4e1ae9df117f27bb7ce0a97eefc2d88acbce7850
+      brain_candidate:
+        description: Exact candidate Brain source
+        required: true
+      lastdb_baseline:
+        description: Exact accepted LastDB source
+        required: true
+        default: 4898273d73b70c50fa7210d17116f7394dd3c129
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/bench-build.yml
+    with:
+      baseline: ${{ inputs.lastdb_baseline }}
+      candidate: ${{ github.sha }}
+      driver: ${{ github.sha }}
+
+  measure:
+    name: brain-${{ matrix.kind }}-${{ matrix.records }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {kind: read, records: 1000}
+          - {kind: read, records: 10000}
+          - {kind: storage, records: 1024}
+    env:
+      BASELINE_SHA: ${{ inputs.lastdb_baseline }}
+      CANDIDATE_SHA: ${{ github.sha }}
+      BUILD_CONTEXT: ${{ needs.build.outputs.context }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+      BRAIN_BASELINE: ${{ inputs.brain_baseline }}
+      BRAIN_CANDIDATE: ${{ inputs.brain_candidate }}
+    steps:
+      - name: Select runner-owned output directories
+        run: |
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/programs" >> "$GITHUB_ENV"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/brain-results" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: EdgeVector/brain
+          ref: ${{ inputs.brain_candidate }}
+          path: brain
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: EdgeVector/brain
+          ref: ${{ inputs.brain_baseline }}
+          path: brain-baseline
+          persist-credentials: false
+      - name: Require exact Brain source identities
+        run: |
+          set -euo pipefail
+          [[ "$BRAIN_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BRAIN_CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git -C brain rev-parse HEAD)" = "$BRAIN_CANDIDATE"
+          test "$(git -C brain-baseline rev-parse HEAD)" = "$BRAIN_BASELINE"
+          mkdir "$BENCH_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/build
+          merge-multiple: true
+      - name: Verify both exact CI programs
+        run: >-
+          python3 driver/scripts/benchmarks/programs.py unpack
+          --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/build/programs.tar.gz"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - run: bun install --frozen-lockfile
+        working-directory: brain
+      - run: bun run typecheck
+        working-directory: brain
+      - name: Share only source dependencies with the retained baseline
+        run: ln -s "$GITHUB_WORKSPACE/brain/node_modules" brain-baseline/node_modules
+      - name: Compare generated data with both engines and both Brain layouts
+        working-directory: brain
+        run: >-
+          python3 scripts/brain_shared_spike.py
+          --kind ${{ matrix.kind }} --records ${{ matrix.records }}
+          --baseline-source "$GITHUB_WORKSPACE/brain-baseline"
+          --baseline-revision "$BRAIN_BASELINE"
+          --baseline-daemon "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd"
+          --candidate-daemon "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd"
+          --baseline-core "$BASELINE_SHA" --candidate-core "$CANDIDATE_SHA"
+          --output "$BENCH_OUTPUT/measurements" --repeats 3 --samples 5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        id: upload
+        with:
+          name: brain-shared-${{ matrix.kind }}-${{ matrix.records }}-${{ github.sha }}
+          path: ${{ runner.temp }}/brain-results
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify uploaded archive identity and retention
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/archive-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/archive-metadata.json" --output "$RUNNER_TEMP/download-receipt"
+
+  brain-spike-complete:
+    if: always()
+    needs: [build, measure]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all comparisons, space gates, and verified uploads
+        env:
+          BUILD: ${{ needs.build.result }}
+          MEASURE: ${{ needs.measure.result }}
+        run: |
+          test "$BUILD" = success
+          test "$MEASURE" = success

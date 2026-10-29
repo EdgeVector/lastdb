@@ -2,12 +2,17 @@
 
 This receipt supplies provenance, not provider deletion authority. A retirement
 service must still freeze and validate the complete stream and shared objects.
+The v1 recipe's verified points are base snapshot, mutation log, full snapshot.
+Its 16 baseline keys become 15 numbered notes and one deletion. Its new file
+is 65536 SHAKE256 bytes seeded by 'Cloud automatic CI ' plus owner.source.
+Change the recipe version before changing those kept-recovery expectations.
 """
 
 import os
 import re
 
 from support import ACCOUNT, canonical_uuid, require, save_json
+from recovery_recipe import create as create_recipe
 
 
 WORKFLOW = ".github/workflows/cloud-backup-recovery.yml"
@@ -51,10 +56,11 @@ def complete(operation, source, recovered):
             and len({point["stream_id"] for point in observed}) == 1,
             "ci_ownership_single_bounded_stream")
     selected = [accepted_point(value, operation.baseline) for value in recovered]
-    require(2 <= len(selected) <= 8 and all(point in observed for point in selected),
+    require(len(selected) == 3 and all(point in observed for point in selected),
             "ci_ownership_restored_points_observed")
     receipt = {
         "schema": "lastdb.cloud-ci-stream.v1", "owner": run_identity(operation.args.source),
+        "recipe": create_recipe(selected, operation.args.source, source.expected),
         "account": ACCOUNT, "account_generation": operation.baseline["account_generation"],
         "stream_id": observed[0]["stream_id"], "observed_accepted_points": observed,
         "verified_recovery_points": selected, "source_stopped": True,
