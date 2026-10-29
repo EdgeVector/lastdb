@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import uuid
 
-from identity_snapshot_files import copy_account, materialize, owned, tree_digest
+from identity_snapshot_files import copy_account, materialize, mode_snapshot, owned, tree_digest
 from logical_capture import Node, file_hash, require, save, write
 from logical_peer_support import add_model, author, check_values, export, ingest, item, own_head, request
 from logical_snapshot import snapshot
@@ -162,6 +162,7 @@ class Operation:
         value = candidate(capture)
         before = tree_digest(self.b)
         result.update(transport=transport, source_before=before, stage="prepare")
+        result["directory_modes"] = {"source": mode_snapshot(self.b), "target": mode_snapshot(target)}
         result["prepare"] = command(self.cli, self.b, target, value, name, "prepare", allowed)
         require(tree_digest(self.b) == before, "prepare changed the stopped source")
         if not allowed:

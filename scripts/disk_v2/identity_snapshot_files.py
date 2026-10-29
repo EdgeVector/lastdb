@@ -35,6 +35,20 @@ def owned(node):
             "generated home is not private")
 
 
+def mode_snapshot(node):
+    paths = (".", "identity.key", "data", "data/disk-run", "data/disk-run/runs", "data/disk-run/LOCK",
+             "data/disk-cas", "data/disk-cas/runs", "data/laststore-pack-node-v1", "data/logical-device-capture-v1")
+    result = {}
+    for name in paths:
+        try:
+            info = (node.home / name).lstat()
+            result[name] = {"mode": oct(stat.S_IMODE(info.st_mode)), "owned": info.st_uid == os.getuid(),
+                            "directory": stat.S_ISDIR(info.st_mode), "regular": stat.S_ISREG(info.st_mode)}
+        except FileNotFoundError:
+            result[name] = {"exists": False}
+    return result
+
+
 def regular(path, root, maximum, private=False):
     info = path.lstat()
     require(path.resolve(strict=True).is_relative_to(root.resolve(strict=True))

@@ -8,13 +8,15 @@ use crate::storage::disk_pack::{
     physical, run_node, transaction, NativeCloudWorkGuard, NODE_MARKER,
 };
 use laststore::disk_run::home::{ReadBudget, RunRead, RunReadOwner};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 const WORK_BYTES: u64 = 1024 * 1024;
 
 struct SourceLocks {
     root: PathBuf,
+    parent: File,
     directory: File,
     marker: File,
     control: File,
@@ -24,6 +26,8 @@ struct SourceLocks {
 
 impl SourceLocks {
     fn check(&self) -> StorageResult<()> {
+        files::directory(source_parent(&self.root)?)?;
+        files::same_entry(&self.parent, source_parent(&self.root)?)?;
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
         files::same_entry(&self.control, &self.root.join(logical::CONTROL_FILE))?;
@@ -141,8 +145,9 @@ fn read_source(
     root: &Path,
     key: &[u8; 32],
 ) -> StorageResult<(logical::SourceIdentity, SourceLocks)> {
-    let directory = files::directory(root)?;
-    let marker = files::regular(&root.join(NODE_MARKER), true)?;
+    let parent = files::directory(source_parent(root)?)?;
+    let directory = source_entry(root, true)?;
+    let marker = source_entry(&root.join(NODE_MARKER), false)?;
     marker
         .try_lock()
         .map_err(|_| invalid("snapshot identity source is owned"))?;
@@ -185,6 +190,7 @@ fn read_source(
         source,
         SourceLocks {
             root: root.to_path_buf(),
+            parent,
             directory,
             marker,
             control,
@@ -199,7 +205,7 @@ fn source_bindings(root: &Path) -> StorageResult<Vec<(PathBuf, File)>> {
     for name in [run_node::RUN_DIR, run_node::CAS_DIR] {
         for child in ["", "runs"] {
             let path = root.join(name).join(child);
-            let file = files::directory(&path)?;
+            let file = source_entry(&path, true)?;
             bindings.push((path, file));
         }
         for child in [
@@ -244,10 +250,43 @@ fn separate_paths(source: &Path, target: &Path, scratch: &Path) -> StorageResult
             "snapshot identity homes and scratch must be separate",
         ));
     }
-    files::directory(source)?;
+    files::directory(source_parent(source)?)?;
+    source_entry(source, true)?;
     files::directory(target)?;
     files::directory(scratch)?;
     Ok(())
+}
+
+fn source_parent(root: &Path) -> StorageResult<&Path> {
+    root.parent()
+        .ok_or_else(|| invalid("snapshot identity source needs a private parent home"))
+}
+
+/// Normal node creation uses 0755 child directories and a 0644 marker under
+/// its private home. Their owner alone may write them. Restore targets keep
+/// the stricter independent 0700/0600 closure; source admission changes no mode.
+fn source_entry(path: &Path, directory: bool) -> StorageResult<File> {
+    if !path.is_absolute() || path.canonicalize()? != path {
+        return Err(invalid("snapshot identity source path alias"));
+    }
+    let flags = libc::O_NOFOLLOW | libc::O_NONBLOCK | if directory { libc::O_DIRECTORY } else { 0 };
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(flags)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if meta.is_dir() != directory
+        || (!directory && !meta.is_file())
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.mode() & 0o022 != 0
+        || (!directory && meta.nlink() != 1)
+    {
+        return Err(invalid(
+            "snapshot identity source entry ownership or mode differs",
+        ));
+    }
+    files::same_entry(&file, path)?;
+    Ok(file)
 }
 
 fn read_budget() -> ReadBudget {
