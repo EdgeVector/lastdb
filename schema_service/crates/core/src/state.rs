@@ -161,6 +161,11 @@ pub struct SchemaServiceState {
     pub native_resolve_embeddings: Arc<RwLock<HashMap<String, Vec<f32>>>>,
     /// Text embedding model for semantic descriptive name matching
     pub embedder: Arc<dyn Embedder>,
+    /// Embeddings of the anti-field descriptions for this state's embedder.
+    ///
+    /// Empty until every description embeds. A failure is not stored, so the
+    /// next check tries again. The memo is per state, with the embedder.
+    pub(crate) anti_field_embedding_cache: Arc<RwLock<Option<Vec<Vec<f32>>>>>,
     pub storage: SchemaStorage,
     /// Identity hashes of schemas classified as system/infrastructure
     /// (the Phase 1 fingerprint built-ins: Fingerprint, Edge, Identity,

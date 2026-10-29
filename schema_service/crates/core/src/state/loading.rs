@@ -100,6 +100,7 @@ impl SchemaServiceState {
             canonical_field_embeddings: Arc::new(RwLock::new(HashMap::new())),
             native_resolve_embeddings: Arc::new(RwLock::new(HashMap::new())),
             embedder,
+            anti_field_embedding_cache: Arc::new(RwLock::new(None)),
             storage: SchemaStorage::External(backend),
             system_schema_hashes: Arc::new(RwLock::new(HashSet::new())),
             seeding_in_progress: Arc::new(std::sync::atomic::AtomicBool::new(false)),

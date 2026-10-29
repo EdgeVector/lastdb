@@ -53,20 +53,30 @@ def leaf_family(path)
   nil
 end
 
+def schema_core_path?(path)
+  path.start_with?("schema_service/crates/core/")
+end
+
 def plan(paths)
   paths = paths.map(&:strip).reject(&:empty?).uniq
-  return { mode: "broad", family: "broad", reason: "no changed paths detected; failing closed" } if paths.empty?
-  return { mode: "docs", family: "none", reason: "documentation-only change" } if paths.all? { |path| docs_path?(path) }
-
-  code_paths = paths.reject { |path| docs_path?(path) }
-  families = code_paths.map { |path| leaf_family(path) }
-  if families.none?(&:nil?) && families.uniq.length == 1
-    family = families.first
-    return { mode: "family", family: family, reason: "leaf crate family selected by #{code_paths.first}" }
+  # Unknown diffs fail closed: lint the functional core as well as the broad lane.
+  schema_core = paths.empty? || paths.any? { |path| schema_core_path?(path) }
+  selected = if paths.empty?
+    { mode: "broad", family: "broad", reason: "no changed paths detected; failing closed" }
+  elsif paths.all? { |path| docs_path?(path) }
+    { mode: "docs", family: "none", reason: "documentation-only change" }
+  else
+    code_paths = paths.reject { |path| docs_path?(path) }
+    families = code_paths.map { |path| leaf_family(path) }
+    if families.none?(&:nil?) && families.uniq.length == 1
+      family = families.first
+      { mode: "family", family: family, reason: "leaf crate family selected by #{code_paths.first}" }
+    else
+      trigger = code_paths.find { |path| leaf_family(path).nil? } || code_paths.first
+      { mode: "broad", family: "broad", reason: "shared, mixed-family, or unmapped path: #{trigger}" }
+    end
   end
-
-  trigger = code_paths.find { |path| leaf_family(path).nil? } || code_paths.first
-  { mode: "broad", family: "broad", reason: "shared, mixed-family, or unmapped path: #{trigger}" }
+  selected.merge(schema_core: schema_core)
 end
 
 def command_for(family)
@@ -99,6 +109,7 @@ else
     "mode" => result.fetch(:mode),
     "family" => result.fetch(:family),
     "run_clippy" => result.fetch(:mode) != "docs",
+    "schema_core" => result.fetch(:schema_core).to_s,
     "reason" => result.fetch(:reason),
   }
   if options[:github_output] && !options[:github_output].empty?

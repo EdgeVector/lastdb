@@ -32,8 +32,6 @@
 
 #[cfg(feature = "schema-org-seed-data")]
 use std::collections::{HashMap, HashSet};
-#[cfg(feature = "schema-org-seed-data")]
-use std::sync::OnceLock;
 
 #[cfg(feature = "schema-org-seed-data")]
 use schema_types::DataClassification;
@@ -90,28 +88,22 @@ struct OverlayDocument {
     fields: HashMap<String, OverlayEntry>,
 }
 
-/// Parse the committed overlay once per process and cache it.
+/// Parse the committed overlay into a map keyed on snake_case property name.
 ///
-/// Returns a reference to a map keyed on snake_case property name.
+/// A malformed overlay panics. Shipping every Schema.org field at the
+/// fail-closed baseline would hide a bad committed file, so the generator
+/// stops instead.
 #[cfg(feature = "schema-org-seed-data")]
-fn overlay_map() -> &'static HashMap<String, OverlayEntry> {
-    static OVERLAY: OnceLock<HashMap<String, OverlayEntry>> = OnceLock::new();
-    OVERLAY.get_or_init(|| {
-        // Panic at initialization rather than returning an error: if the
-        // overlay file is malformed, the service would boot with every
-        // Schema.org field at the fail-closed baseline, which masks the
-        // bug. Better to crash loudly at startup so the deploy fails
-        // visibly.
-        let doc: OverlayDocument = serde_json::from_str(SCHEMA_ORG_CLASSIFICATION_OVERLAY)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to parse committed Schema.org classification overlay: {e}. \
-                     Regenerate via `cargo run --bin generate-schema-org-classifications` \
-                     and commit the fixed file."
-                )
-            });
-        doc.fields
-    })
+fn load_overlay() -> HashMap<String, OverlayEntry> {
+    let doc: OverlayDocument = serde_json::from_str(SCHEMA_ORG_CLASSIFICATION_OVERLAY)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse committed Schema.org classification overlay: {e}. \
+                 Regenerate via `cargo run --bin generate-schema-org-classifications` \
+                 and commit the fixed file."
+            )
+        });
+    doc.fields
 }
 
 /// Look up the classification for a Schema.org property by snake_case
@@ -121,10 +113,10 @@ fn overlay_map() -> &'static HashMap<String, OverlayEntry> {
 /// fallback — the overlay is the authoritative hand-curated answer.
 #[cfg(feature = "schema-org-seed-data")]
 fn classify_schema_org_field(
+    overlay: &HashMap<String, OverlayEntry>,
     snake_name: &str,
 ) -> FoldDbResult<(DataClassification, Option<String>)> {
-    let map = overlay_map();
-    let (sensitivity, domain, interest) = match map.get(snake_name) {
+    let (sensitivity, domain, interest) = match overlay.get(snake_name) {
         Some(entry) => (
             entry.sensitivity_level,
             entry.data_domain.as_str(),
@@ -162,6 +154,7 @@ pub async fn seed_canonical_fields(
     state: &SchemaServiceState,
     dump: &ParsedDump,
 ) -> FoldDbResult<()> {
+    let overlay = load_overlay();
     let mut count = 0usize;
     for prop in &dump.properties {
         let name = property_name_to_snake_case(&prop.label);
@@ -180,7 +173,7 @@ pub async fn seed_canonical_fields(
         // overlay doesn't cover (e.g. a newer Schema.org release that
         // precedes regeneration) fall through to the fail-closed
         // baseline inside `classify_schema_org_field`.
-        let (classification, interest_category) = classify_schema_org_field(&name)?;
+        let (classification, interest_category) = classify_schema_org_field(&overlay, &name)?;
 
         let canonical = CanonicalField {
             description,
