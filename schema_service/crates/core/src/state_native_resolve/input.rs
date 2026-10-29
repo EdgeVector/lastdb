@@ -36,7 +36,7 @@ impl SchemaServiceState {
     ) -> Result<BuiltNativeInput, String> {
         let config = ResolverConfig::embedding_beam_shadow_defaults();
         let schemas = read_lock(&self.schemas, "schemas_cache").map_err(|e| e.to_string())?;
-        let budget = native_resolve_budget();
+        let budget = self.native_resolve_budget();
         let started = Instant::now();
         let mut memo = MemoStats::default();
 

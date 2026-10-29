@@ -55,7 +55,7 @@ use crate::lock_helpers::read_lock;
 use crate::snapshot::{AppArtifact, AppCodeSignature, AppMetadata, AppRecord, AppTier};
 use crate::state::SchemaServiceState;
 use app_identity_crypto::{
-    canonicalize, compute_payload_hash, root_key_id, verify_dev_cert, verify_envelope,
+    canonicalize, compute_payload_hash, verify_dev_cert, verify_envelope,
     verifying_key_from_base64, DevCert, DevCertVerifyError, Env, Purpose, SignatureEnvelope,
     PURPOSE_DEV_CERT,
 };
@@ -67,8 +67,8 @@ pub use validation::*;
 
 // ─── Config ───────────────────────────────────────────────────────────────
 
-/// App-identity verification config. Built once at startup (from env on
-/// the binaries) and read per request.
+/// App-identity verification config. The process shell builds this once
+/// at startup and passes it in on [`crate::SchemaConfig`].
 #[derive(Clone)]
 pub struct AppIdentityConfig {
     /// Deployment environment the envelopes must be bound to.
@@ -103,76 +103,11 @@ impl Default for AppIdentityConfig {
 }
 
 impl AppIdentityConfig {
-    /// Build config from the process environment:
-    /// - `ENVIRONMENT` — `prod`/`production` → [`Env::Prod`], else [`Env::Dev`].
-    /// - `APP_IDENTITY_ROOT_PUBKEYS` — comma-separated base64 P-256
-    ///   SubjectPublicKeyInfo DER blobs (exemem-infra wires this from the
-    ///   KMS GetPublicKey output of the `exemem-app-identity-root` key).
-    /// - `APP_IDENTITY_REVOKED_DEV_PUBKEYS` — comma-separated base64
-    ///   Ed25519 dev pubkeys to refuse.
-    /// - `APP_REGISTRY_VERIFIER_PUBKEY` — base64 Ed25519 public key of
-    ///   the verifier identity that can write compatibility rows.
-    pub fn from_env() -> Self {
-        let deployment_env = deployment_env_from_process();
-        let trusted_roots = std::env::var("APP_IDENTITY_ROOT_PUBKEYS")
-            .ok()
-            .map(|raw| parse_trusted_roots(&raw))
-            .unwrap_or_default();
-        let revoked_dev_pubkeys = std::env::var("APP_IDENTITY_REVOKED_DEV_PUBKEYS")
-            .ok()
-            .map(|raw| {
-                raw.split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let verifier_pubkey = std::env::var("APP_REGISTRY_VERIFIER_PUBKEY")
-            .ok()
-            .and_then(|s| {
-                let trimmed = s.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            });
-        Self {
-            deployment_env,
-            trusted_roots,
-            revoked_dev_pubkeys,
-            verifier_pubkey,
-        }
-    }
-
     /// Whether app-identity enforcement is active (a trusted root is
     /// configured). See module docs.
     pub fn is_active(&self) -> bool {
         !self.trusted_roots.is_empty()
     }
-}
-
-fn parse_trusted_roots(raw: &str) -> HashMap<String, Vec<u8>> {
-    let mut roots = HashMap::new();
-    for entry in raw.split(',') {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-        match BASE64.decode(entry.as_bytes()) {
-            Ok(der) => {
-                roots.insert(root_key_id(&der), der);
-            }
-            Err(_) => {
-                tracing::warn!(
-                    target: "schema_service::app_identity",
-                    "Skipping malformed APP_IDENTITY_ROOT_PUBKEYS entry (not base64)"
-                );
-            }
-        }
-    }
-    roots
 }
 
 /// Label for the deployment env. Stamped on metric lines and echoed in
@@ -196,18 +131,6 @@ pub fn env_from_label(label: &str) -> Option<Env> {
     }
 }
 
-/// Resolve the deployment env from the `ENVIRONMENT` process variable.
-/// Single source of truth for what env this deployment is — every
-/// app-identity verification path reads through this so an
-/// `ENVIRONMENT=prod` Lambda will refuse a dev-signed envelope (and
-/// vice versa), even though dev and prod are otherwise independent
-/// registries with independent trusted roots.
-pub fn deployment_env_from_process() -> Env {
-    match std::env::var("ENVIRONMENT").as_deref() {
-        Ok("prod" | "production") => Env::Prod,
-        _ => Env::Dev,
-    }
-}
 // ─── Submodules ───────────────────────────────────────────────────────────
 
 mod claim;

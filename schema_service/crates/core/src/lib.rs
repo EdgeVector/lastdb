@@ -65,6 +65,7 @@ pub mod resolver_pack;
 pub mod resolver_pack_consumer;
 mod resolver_pack_vocabulary;
 pub mod resolver_runtime;
+pub mod schema_config;
 pub mod schema_embedding_artifact;
 pub mod schema_mutation_gate;
 pub mod schema_org_seeds;
@@ -125,6 +126,7 @@ pub use resolver_pack_consumer::{
     ResolverPackObjectStore, ResolverPackResolutionRoute, ResolverPackTelemetrySnapshot,
 };
 pub use resolver_runtime::{NativeResolverState, ResolverRuntime, RuntimeTelemetry};
+pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};
 pub use schema_core_resolver::{
     resolve as resolve_schema, verdict_from_output, ResolveVerdict, Unresolvable,
 };

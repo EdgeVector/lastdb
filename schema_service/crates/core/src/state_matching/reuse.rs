@@ -42,14 +42,11 @@ impl SchemaServiceState {
         &self,
         incoming: &Schema,
     ) -> Option<(String, String)> {
-        if !reuse_before_new_enabled() || self.is_seeding_in_progress() {
+        if !self.reuse_before_new_enabled() || self.is_seeding_in_progress() {
             return None;
         }
         let inc_desc = strip_decollision_suffix(incoming.descriptive_name.as_deref()?);
-        let field_fidelity = reuse_threshold_override(
-            "SCHEMA_REUSE_FIELD_FIDELITY_FLOOR",
-            REUSE_FIELD_FIDELITY_FLOOR,
-        );
+        let field_fidelity = self.reuse_field_fidelity_floor();
 
         fn normalize(s: Option<&str>) -> Option<&str> {
             s.filter(|x| !x.is_empty())
@@ -143,7 +140,7 @@ impl SchemaServiceState {
         incoming: &Schema,
         allow_same_name: bool,
     ) -> Option<(String, String)> {
-        if !reuse_before_new_enabled() {
+        if !self.reuse_before_new_enabled() {
             return None;
         }
         // Authoritative seeding (built-ins, persona/schema.org seeds) must
@@ -173,14 +170,9 @@ impl SchemaServiceState {
     /// Read the live gate thresholds and embed the incoming side. `None` when
     /// the embedder fails.
     fn build_reuse_scan<'a>(&self, incoming: &'a Schema) -> Option<ReuseScan<'a>> {
-        let purpose_threshold =
-            reuse_threshold_override("SCHEMA_REUSE_PURPOSE_THRESHOLD", REUSE_PURPOSE_THRESHOLD);
-        let struct_floor =
-            reuse_threshold_override("SCHEMA_REUSE_STRUCT_FLOOR", REUSE_STRUCT_FLOOR);
-        let field_fidelity = reuse_threshold_override(
-            "SCHEMA_REUSE_FIELD_FIDELITY_FLOOR",
-            REUSE_FIELD_FIDELITY_FLOOR,
-        );
+        let purpose_threshold = self.reuse_purpose_threshold();
+        let struct_floor = self.reuse_struct_floor();
+        let field_fidelity = self.reuse_field_fidelity_floor();
 
         // Embed the incoming side ONCE up front (its descriptive_name for the
         // struct signal, its `"{desc} — {purpose}"` blob for the purpose

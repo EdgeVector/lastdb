@@ -59,9 +59,9 @@ use chrono::Utc;
 use schema_service_core::schema_org_seeds::{ParsedDump, SchemaOrgClass};
 use schema_service_core::types::SchemaAddOutcome;
 use schema_service_core::{
-    builtin_canonical_fields, schema_org_seeds, Embedder, SchemaServiceState,
+    builtin_canonical_fields, schema_org_seeds, Embedder, SchemaConfig, SchemaServiceState,
 };
-use schema_service_server_shared::FoldDbFastEmbedder;
+use schema_service_server_shared::{FoldDbFastEmbedder, SchemaConfigEnv};
 use schema_types::{FieldValueType, KeyConfig, Schema, SchemaSource, SchemaType};
 use serde::Serialize;
 
@@ -114,7 +114,7 @@ struct IngestReport {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("==> Bootstrapping schema service state with real embedder …");
     let embedder: Arc<dyn Embedder> = Arc::new(FoldDbFastEmbedder::new());
-    let state = SchemaServiceState::new_in_memory(embedder)?;
+    let state = SchemaServiceState::new_in_memory(embedder, SchemaConfig::from_env())?;
 
     eprintln!("==> Seeding curated canonical fields (the 151 hand-reviewed entries) …");
     builtin_canonical_fields::seed(&state).await?;

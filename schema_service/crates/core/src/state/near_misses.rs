@@ -71,8 +71,8 @@ impl SchemaServiceState {
     ///
     /// Returns `true` when the merge should proceed, `false` when it
     /// must be vetoed. Behavior depends on two env flags (see
-    /// [`crate::state_matching::dual_signal_canonicalization_enabled`]
-    /// and [`crate::state_matching::shadow_mode_enabled`]):
+    /// [`SchemaServiceState::dual_signal_canonicalization_enabled`]
+    /// and [`SchemaServiceState::shadow_mode_enabled`]):
     ///
     /// | Shadow | Phase B | Returned   | Side effect                              |
     /// |--------|---------|------------|------------------------------------------|
@@ -102,10 +102,8 @@ impl SchemaServiceState {
         single_signal_decision: NearMissDecision,
         veto_decision: NearMissDecision,
     ) -> bool {
-        use crate::state_matching::{dual_signal_canonicalization_enabled, shadow_mode_enabled};
-
-        let shadow = shadow_mode_enabled();
-        let phase_b = dual_signal_canonicalization_enabled();
+        let shadow = self.shadow_mode_enabled();
+        let phase_b = self.dual_signal_canonicalization_enabled();
         if !shadow && !phase_b {
             return true;
         }

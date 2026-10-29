@@ -65,7 +65,8 @@ impl SchemaServiceState {
             entries,
             supersessions,
         };
-        let signature = sign_registry_index(&unsigned)?;
+        let signing_key = self.registry_index_signing_key()?;
+        let signature = sign_registry_index(&unsigned, &signing_key)?;
 
         Ok(RegistryIndexEnvelope {
             format_version: unsigned.format_version,
@@ -189,8 +190,10 @@ fn registry_index_merkle_root(entries: &[RegistryIndexEntry]) -> FoldDbResult<St
     Ok(format!("b3:{}", hasher.finalize().to_hex()))
 }
 
-fn sign_registry_index(unsigned: &RegistryIndexUnsigned) -> FoldDbResult<RegistryIndexSignature> {
-    let signing_key = registry_index_signing_key()?;
+fn sign_registry_index(
+    unsigned: &RegistryIndexUnsigned,
+    signing_key: &SigningKey,
+) -> FoldDbResult<RegistryIndexSignature> {
     let payload = serde_json::to_value(unsigned).map_err(|e| {
         FoldDbError::Config(format!(
             "failed to serialize registry index for signing: {e}"
@@ -201,35 +204,10 @@ fn sign_registry_index(unsigned: &RegistryIndexUnsigned) -> FoldDbResult<Registr
             "failed to canonicalize registry index for signing: {e}"
         ))
     })?;
-    let sig = sign(&signing_key, &canonical);
+    let sig = sign(signing_key, &canonical);
     Ok(RegistryIndexSignature {
         alg: "Ed25519".to_string(),
         key_id: key_id(&signing_key.verifying_key()),
         sig: BASE64.encode(sig),
     })
-}
-
-fn registry_index_signing_key() -> FoldDbResult<SigningKey> {
-    match std::env::var(REGISTRY_INDEX_SIGNING_KEY_ENV) {
-        Ok(raw) if !raw.trim().is_empty() => {
-            let bytes = BASE64.decode(raw.trim().as_bytes()).map_err(|_| {
-                FoldDbError::Config(format!("{REGISTRY_INDEX_SIGNING_KEY_ENV} is not base64"))
-            })?;
-            let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-                FoldDbError::Config(format!(
-                    "{REGISTRY_INDEX_SIGNING_KEY_ENV} must decode to a 32-byte Ed25519 seed"
-                ))
-            })?;
-            Ok(SigningKey::from_bytes(&seed))
-        }
-        _ => {
-            if crate::app_identity::deployment_env_from_process() == app_identity_crypto::Env::Prod
-            {
-                return Err(FoldDbError::Config(format!(
-                    "{REGISTRY_INDEX_SIGNING_KEY_ENV} must be set in prod"
-                )));
-            }
-            Ok(SigningKey::from_bytes(&[0x42; 32]))
-        }
-    }
 }

@@ -3,13 +3,14 @@
 //! mutation-gate quota table, and the embedder.
 
 use lambda_http::Error;
-use schema_service_core::ExternalSchemaPersistence;
+use schema_service_core::{ExternalSchemaPersistence, SchemaConfig};
 use schema_service_s3 as s3_persistence;
 use schema_service_s3::store_config::{
     env_var_trimmed, schema_store_s3_config_builder, schema_store_s3_credentials_from_env,
     SCHEMA_STORE_R2_ENDPOINT_ENV,
 };
 use schema_service_server_shared::state::SchemaServiceState;
+use schema_service_server_shared::SchemaConfigEnv;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -79,6 +80,7 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
                 backend,
                 embedder,
                 schema_mutation_gate_store,
+                SchemaConfig::from_env(),
             )
             .await
             .map_err(|e| {
@@ -102,15 +104,10 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
 /// Apply the env-driven gates to a freshly loaded state, then seed the
 /// service-owned canonical fields and built-in schemas.
 async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
-    // App-identity verification config (app_identity v3.1, Lane
-    // B2b): trusted exemem root pubkeys (APP_IDENTITY_ROOT_PUBKEYS,
-    // wired from the KMS GetPublicKey output of the
-    // exemem-app-identity-root key by exemem-infra), deployment env,
-    // and the offline dev-pubkey revocation denylist. With no roots
-    // configured, /v1/apps rejects every cert (401) and the
+    // App identity, the mutation gate, and the canonicalization gates were
+    // loaded once in `SchemaConfig::from_env` before state construction.
+    // With no trusted roots, /v1/apps rejects every cert (401) and the
     // /v1/schemas owner_app_id gate is a passthrough.
-    state.configure_app_identity(schema_service_core::app_identity::AppIdentityConfig::from_env());
-    state.configure_schema_mutation_gate_from_env();
 
     // Seed the curated canonical field registry BEFORE seeding
     // schemas, so that schema field classification hits the

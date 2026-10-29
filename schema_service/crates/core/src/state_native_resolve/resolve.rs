@@ -11,7 +11,7 @@ impl SchemaServiceState {
         &self,
         proposal: &SchemaResolveProposal,
     ) -> FoldDbResult<Option<SchemaResolveResult>> {
-        if !native_component_cover_resolve_enabled() {
+        if !self.native_component_cover_resolve_enabled() {
             return Ok(None);
         }
 

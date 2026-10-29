@@ -17,7 +17,8 @@ use schema_types::{FoldDbError, FoldDbResult};
 use schema_service_client::SchemaServiceClient;
 use schema_service_core::snapshot::SnapshotImportReport;
 use schema_service_core::state::SchemaServiceState;
-use schema_service_server_shared::{handlers, Embedder};
+use schema_service_core::SchemaConfig;
+use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv};
 
 use crate::middleware::otel::W3CParentContext;
 
@@ -219,14 +220,10 @@ impl SchemaServiceServer {
     /// `new_with_builtins` for the production constructor.
     fn new(bind_address: &str) -> FoldDbResult<Self> {
         let embedder = default_embedder();
-        let state = SchemaServiceState::new_in_memory(embedder)?;
-        // App-identity verification config (app_identity v3.1, Lane B2b).
-        // Empty unless APP_IDENTITY_ROOT_PUBKEYS is set — the dev binary
-        // is then a passthrough, matching pre-app-identity behavior.
-        state.configure_app_identity(
-            schema_service_core::app_identity::AppIdentityConfig::from_env(),
-        );
-        state.configure_schema_mutation_gate_from_env();
+        // App-identity and mutation-gate settings come from the same startup
+        // snapshot as the canonicalization gates. Empty trusted roots leave
+        // the dev binary a passthrough, matching pre-app-identity behavior.
+        let state = SchemaServiceState::new_in_memory(embedder, SchemaConfig::from_env())?;
         Ok(Self {
             state: web::Data::new(state),
             bind_address: bind_address.to_string(),
