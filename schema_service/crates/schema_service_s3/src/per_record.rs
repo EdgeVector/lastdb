@@ -74,96 +74,32 @@ impl S3BlobPersistence {
         }
     }
 
-    pub(crate) async fn list_and_load_releases(
-        &self,
-    ) -> FoldDbResult<HashMap<String, ReleaseRecord>> {
-        let mut result = HashMap::new();
+    /// Page one prefix and decode each object. `label` is the list error text.
+    async fn list_records<T>(&self, prefix: &str, label: &str) -> FoldDbResult<Vec<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let mut records = Vec::new();
         let mut continuation: Option<String> = None;
         loop {
             let mut req = self
                 .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
-                .prefix(self.definition_key("releases/").as_ref());
-            if let Some(token) = continuation {
-                req = req.continuation_token(token);
-            }
-            let resp = req.send().await.map_err(|e| {
-                FoldDbError::S3(format!("list S3 'releases/': {}", short_error(&e)))
-            })?;
-            for obj in resp.contents() {
-                let Some(key) = obj.key() else { continue };
-                let Some(rec) = self.get_single_object::<ReleaseRecord>(key).await? else {
-                    continue;
-                };
-                result.insert(rec.release_id.clone(), rec);
-            }
-            if resp.is_truncated().unwrap_or(false) {
-                continuation = resp.next_continuation_token().map(String::from);
-            } else {
-                break;
-            }
-        }
-        Ok(result)
-    }
-
-    pub(crate) async fn list_and_load_channels(
-        &self,
-    ) -> FoldDbResult<HashMap<String, ChannelRecord>> {
-        let mut result = HashMap::new();
-        let mut continuation: Option<String> = None;
-        loop {
-            let mut req = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix(self.definition_key("channels/").as_ref());
-            if let Some(token) = continuation {
-                req = req.continuation_token(token);
-            }
-            let resp = req.send().await.map_err(|e| {
-                FoldDbError::S3(format!("list S3 'channels/': {}", short_error(&e)))
-            })?;
-            for obj in resp.contents() {
-                let Some(key) = obj.key() else { continue };
-                let Some(rec) = self.get_single_object::<ChannelRecord>(key).await? else {
-                    continue;
-                };
-                let channel_key =
-                    schema_service_core::app_release::channel_key(&rec.app_id, &rec.channel);
-                result.insert(channel_key, rec);
-            }
-            if resp.is_truncated().unwrap_or(false) {
-                continuation = resp.next_continuation_token().map(String::from);
-            } else {
-                break;
-            }
-        }
-        Ok(result)
-    }
-
-    pub(crate) async fn list_and_load_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
-        let mut result = HashMap::new();
-        let mut continuation: Option<String> = None;
-        loop {
-            let mut req = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix("apps/");
+                .prefix(prefix);
             if let Some(token) = continuation {
                 req = req.continuation_token(token);
             }
             let resp = req
                 .send()
                 .await
-                .map_err(|e| FoldDbError::S3(format!("list S3 'apps/': {}", short_error(&e))))?;
+                .map_err(|e| FoldDbError::S3(format!("list S3 '{label}': {}", short_error(&e))))?;
             for obj in resp.contents() {
                 let Some(key) = obj.key() else { continue };
-                let Some(rec) = self.get_single_object::<AppRecord>(key).await? else {
+                let Some(record) = self.get_single_object::<T>(key).await? else {
                     continue;
                 };
-                result.insert(rec.app_id.clone(), rec);
+                records.push(record);
             }
             if resp.is_truncated().unwrap_or(false) {
                 continuation = resp.next_continuation_token().map(String::from);
@@ -171,7 +107,47 @@ impl S3BlobPersistence {
                 break;
             }
         }
-        Ok(result)
+        Ok(records)
+    }
+
+    pub(crate) async fn list_and_load_releases(
+        &self,
+    ) -> FoldDbResult<HashMap<String, ReleaseRecord>> {
+        let prefix = self.definition_key("releases/");
+        let records = self
+            .list_records::<ReleaseRecord>(prefix.as_ref(), "releases/")
+            .await?;
+        Ok(records
+            .into_iter()
+            .map(|record| (record.release_id.clone(), record))
+            .collect())
+    }
+
+    pub(crate) async fn list_and_load_channels(
+        &self,
+    ) -> FoldDbResult<HashMap<String, ChannelRecord>> {
+        let prefix = self.definition_key("channels/");
+        let records = self
+            .list_records::<ChannelRecord>(prefix.as_ref(), "channels/")
+            .await?;
+        Ok(records
+            .into_iter()
+            .map(|record| {
+                (
+                    schema_service_core::app_release::channel_key(&record.app_id, &record.channel),
+                    record,
+                )
+            })
+            .collect())
+    }
+
+    pub(crate) async fn list_and_load_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
+        // Apps stay outside the definition namespace. See `definition_key`.
+        let records = self.list_records::<AppRecord>("apps/", "apps/").await?;
+        Ok(records
+            .into_iter()
+            .map(|record| (record.app_id.clone(), record))
+            .collect())
     }
 
     pub(crate) async fn put_release_preserving_revocation(
@@ -354,40 +330,9 @@ impl S3BlobPersistence {
         &self,
         release_id: &str,
     ) -> FoldDbResult<Vec<schema_service_core::app_release::CompatRow>> {
-        let mut result = Vec::new();
-        let mut continuation: Option<String> = None;
         let prefix = format!("compat/{release_id}/");
-        loop {
-            let mut req = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix(self.definition_key(&prefix).as_ref());
-            if let Some(token) = continuation {
-                req = req.continuation_token(token);
-            }
-            let resp = req.send().await.map_err(|e| {
-                FoldDbError::S3(format!(
-                    "list S3 'compat/{release_id}': {}",
-                    short_error(&e)
-                ))
-            })?;
-            for obj in resp.contents() {
-                let Some(key) = obj.key() else { continue };
-                let Some(rec) = self
-                    .get_single_object::<schema_service_core::app_release::CompatRow>(key)
-                    .await?
-                else {
-                    continue;
-                };
-                result.push(rec);
-            }
-            if resp.is_truncated().unwrap_or(false) {
-                continuation = resp.next_continuation_token().map(String::from);
-            } else {
-                break;
-            }
-        }
-        Ok(result)
+        let listed = self.definition_key(&prefix);
+        self.list_records(listed.as_ref(), &format!("compat/{release_id}"))
+            .await
     }
 }
