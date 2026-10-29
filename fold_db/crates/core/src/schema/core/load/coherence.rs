@@ -6,7 +6,7 @@ use crate::atom::deterministic_molecule_uuid;
 use crate::protein::ProteinMember;
 use crate::schema::field_hash_coherence::KeyLayoutFingerprint;
 use crate::schema::types::{Schema, SchemaError};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl SchemaCore {
     /// Bind this schema's fields and matching fields of any stored schema.
@@ -55,6 +55,15 @@ impl SchemaCore {
                 ))
         });
         bindings.dedup();
+        // A protein relates distinct field molecules. Do not allocate a protein
+        // or add write-path metadata for a field that has no peer yet.
+        let mut counts = HashMap::new();
+        for binding in &bindings {
+            *counts
+                .entry(binding.field_identity.clone())
+                .or_insert(0usize) += 1;
+        }
+        bindings.retain(|binding| counts[&binding.field_identity] > 1);
         if self.coherence_memo(schema_name)?.as_ref() == Some(&bindings) {
             return Ok(());
         }

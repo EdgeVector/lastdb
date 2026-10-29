@@ -59,7 +59,7 @@ def separation(node, declared):
     right = install(node, schema(label + "Right", label + " right", cross=True, declared=declared))
     first, second = molecule(node, left), molecule(node, right)
     require(first != second, "distinct declarations or meanings share a molecule")
-    require(protein(node, first) != protein(node, second),
+    require(protein(node, first) is None and protein(node, second) is None,
             "same-name distinct declarations or meanings unexpectedly bind")
     values = {"record_id": "isolated", "group_id": "bucket", "payload": "left meaning"}
     write(node, left, {"hash": "isolated"}, values)

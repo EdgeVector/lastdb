@@ -18,8 +18,8 @@ def field_identity_membership(node):
     require(first != second, "same-key peers unexpectedly share their molecule")
     shared = protein(node, first)
     require(shared is not None and shared == protein(node, second), "equal fields lack one protein")
-    require(protein(node, molecule(node, left, "record_id"))
-            != protein(node, molecule(node, right, "record_id")), "distinct fields share a protein")
+    require(protein(node, molecule(node, left, "record_id")) is None
+            and protein(node, molecule(node, right, "record_id")) is None, "distinct fields share a protein")
     key = {"hash": "field-key"}
     values = {"record_id": "field-key", "group_id": "left-group", "payload": "shared-first"}
     write(node, left, key, values)
