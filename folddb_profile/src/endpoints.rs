@@ -29,7 +29,9 @@ use std::sync::OnceLock;
 /// Service environment — dev or prod.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Environment {
+    /// Development environment.
     Dev,
+    /// Production environment.
     Prod,
 }
 

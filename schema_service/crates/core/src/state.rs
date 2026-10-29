@@ -257,6 +257,8 @@ pub struct SchemaServiceState {
     /// values; the default quota store is in-memory, and Lambda can swap in a
     /// TTL-backed adapter without changing the HTTP contract.
     pub schema_mutation_gate_store: SchemaMutationGateStore,
+    /// Startup snapshot. Shells build this once; core does not read process env.
+    pub schema_config: Arc<crate::schema_config::SchemaConfig>,
 }
 
 impl SchemaServiceState {

@@ -24,6 +24,8 @@ fastembed-layer = ["dep:fastembed_crate", "fastembed_crate/ort-download-binaries
 
 [dependencies]
 schema_service_core = { path = "../core" }
+app_identity_crypto = { workspace = true }
+base64 = { workspace = true }
 # This crate owns the schema-service FastEmbed adapter, but the adapter stays
 # behind explicit features. schema_service_core remains embedder-injected and
 # free of fastembed/ONNX.

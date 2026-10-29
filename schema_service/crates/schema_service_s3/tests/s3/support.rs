@@ -8,7 +8,9 @@ use aws_sdk_s3::{
     },
     Client,
 };
-use schema_service_core::{types::CanonicalField, DisabledEmbeddingModel, SchemaServiceState};
+use schema_service_core::{
+    types::CanonicalField, DisabledEmbeddingModel, SchemaConfig, SchemaServiceState,
+};
 use schema_service_s3::S3BlobPersistence;
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{
@@ -181,9 +183,13 @@ impl Harness {
     }
 
     pub async fn state(&self) -> SchemaServiceState {
-        SchemaServiceState::new_with_external(self.backend(), Arc::new(DisabledEmbeddingModel))
-            .await
-            .expect("independent service state")
+        SchemaServiceState::new_with_external(
+            self.backend(),
+            Arc::new(DisabledEmbeddingModel),
+            SchemaConfig::default(),
+        )
+        .await
+        .expect("independent service state")
     }
 
     pub fn faults(&self) -> &Arc<Faults> {

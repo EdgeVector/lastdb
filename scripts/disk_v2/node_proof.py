@@ -70,9 +70,9 @@ CASE = "new-home"
 # cases of the conversion proof, so the seed data stays the same.
 SEED_NUMBER = 2
 PROFILE = {
-    # Shared canonical fields reduce logical atom bytes. Keep the generated
-    # corpus above MINIMUM_LOGICAL; never lower that admission or the limit.
-    "seed": {"base": 4000, "creates": 1000, "updates": 4000, "deletes": 250},
+    # Keep the generated corpus above MINIMUM_LOGICAL on the current format.
+    # The earlier 3,000-record base reached only 14.4 MiB on the current format.
+    "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 

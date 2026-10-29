@@ -120,15 +120,19 @@ impl<T: Send + 'static> LaneWorker<T> {
         attempt: Attempt,
     ) {
         handle_failed_batch(
-            &self.lane,
+            &LaneAccount {
+                lane: self.lane.as_ref(),
+                metrics: self.metrics.as_ref(),
+                shared_metrics: self.shared_metrics.as_deref(),
+                age_tracker: self.age_tracker.as_ref(),
+            },
             remaining,
             finished,
             error,
-            attempt.count,
-            attempt.bytes,
-            &self.metrics,
-            self.shared_metrics.as_deref(),
-            &self.age_tracker,
+            AttemptedBatch {
+                count: attempt.count,
+                bytes: attempt.bytes,
+            },
         )
         .await;
     }

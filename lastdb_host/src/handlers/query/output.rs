@@ -4,10 +4,14 @@ use serde::Deserialize;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Which query reply shape the current task should build.
 pub enum QueryResponseFormat {
     #[default]
+    /// Rows include the full field metadata.
     Full,
+    /// Rows keep a molecule id per field, then fold that into one conflict flag.
     Values,
+    /// Return a count for the keyed scope and do not build row metadata.
     Count,
 }
 

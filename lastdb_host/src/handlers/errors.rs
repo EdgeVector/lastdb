@@ -9,7 +9,9 @@ use super::*;
 /// even for the owner (**I4**).
 #[derive(Debug, Clone)]
 pub struct HostError {
+    /// HTTP status the caller should return.
     pub status: u16,
+    /// Owner-visible diagnostic. Non-owners do not receive this text.
     pub message: String,
     structured_body: Option<Value>,
     /// Seconds for the `Retry-After` header, when a retry later can work.
@@ -18,6 +20,7 @@ pub struct HostError {
 
 impl HostError {
     #[must_use]
+    /// Build an error with this status and message and no structured body or retry delay.
     pub fn new(status: u16, message: impl Into<String>) -> Self {
         Self {
             status,

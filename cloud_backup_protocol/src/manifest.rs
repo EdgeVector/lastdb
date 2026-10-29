@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Counted receipts add bit 512; older supported native backups remain valid.
 pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0x3fd;
+/// Feature bits a native root must include. Validation rejects a root that omits any of them.
 pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
 
 /// Service-visible summary. Exact CURRENT and home bytes remain authoritative
@@ -13,15 +14,22 @@ pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeRoot {
+    /// Id of the backed-up home.
     pub home_id: Id,
+    /// Digest of the home. An all-zero digest is rejected.
     pub home_digest: Digest,
+    /// SHA-256 of the home's CURRENT list.
     pub current_sha256: Digest,
+    /// Home generation. Zero is rejected.
     pub generation: DecimalU64,
+    /// Native frontier. `u64::MAX` is rejected.
     pub frontier: DecimalU64,
+    /// Feature bits this root requires. They must be a subset of the supported bits and include the required bits.
     pub required_features: DecimalU64,
 }
 
 impl NativeRoot {
+    /// Reject a zero generation, a max frontier, an all-zero home digest, or feature bits outside the supported and required masks.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         let features = self.required_features.get();
         if self.generation.get() == 0
@@ -40,12 +48,16 @@ impl NativeRoot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectExtent {
+    /// Receipt whose object holds these bytes.
     pub receipt_id: Digest,
+    /// Start of this slice in the object, in bytes.
     pub offset: DecimalU64,
+    /// Length of this slice. Zero is rejected, and offset plus length must fit in one cloud object.
     pub length: DecimalU64,
 }
 
 impl ObjectExtent {
+    /// Reject a zero length or a slice that extends past `CLOUD_OBJECT_MAX_BYTES`.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         if self.length.get() == 0
             || self
@@ -62,6 +74,7 @@ impl ObjectExtent {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Which stored file an extent list restores.
 pub enum FileDependencyKind {
     /// `/$lastdb_file`: blob_ref, dek and cipher_suite use the existing main access format.
     Main,
@@ -77,11 +90,17 @@ pub enum FileDependencyKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalFileDependency {
+    /// Which file role these extents restore.
     pub kind: FileDependencyKind,
+    /// SHA-256 of the decrypted file-pointer JSON, including its wrapper.
     pub logical_pointer_sha256: Digest,
+    /// SHA-256 of the stored source bytes.
     pub stored_source_sha256: Digest,
+    /// Stored source length. The extent lengths must add up to this.
     pub stored_source_bytes: DecimalU64,
+    /// Encryption suite name. Validation accepts only the account-v2 AES-256-GCM suite string.
     pub encryption_suite: Text<128>,
+    /// Object slices that concatenate to the stored source.
     pub extents: Vec<ObjectExtent>,
 }
 
@@ -97,6 +116,7 @@ pub fn logical_pointer_sha256(pointer: &serde_json::Value) -> Result<Digest, Pro
 }
 
 impl ExternalFileDependency {
+    /// Reject a bad length, an empty or oversized extent list, the wrong suite, or extents that do not sum to the stored length.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         if self.stored_source_bytes.get() == 0
             || self.stored_source_bytes.get() > BACKUP_STORED_BYTES_MAX

@@ -36,6 +36,16 @@ pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
 pub use batch::execute_mutations_batch;
 
+/// Keep a typed status. A true 500 keeps the historical prefix.
+fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
+    let mapped = error.into();
+    if mapped.status == 500 {
+        HostError::internal(format!("{failed}: {}", mapped.message))
+    } else {
+        mapped
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mutation (POST /api/mutation)
 // ---------------------------------------------------------------------------
@@ -46,14 +56,23 @@ pub use batch::execute_mutations_batch;
 pub struct MutationComponents {
     /// Existing per-key metadata supplied by an owner history restore.
     pub metadata: Option<HashMap<String, String>>,
+    /// Schema the mutation writes.
     pub schema: String,
+    /// Field values for this key, keyed by field name.
     pub fields_and_values: HashMap<String, Value>,
+    /// Record key the mutation addresses.
     pub key_value: KeyValue,
+    /// Create, update, or delete, as chosen by the caller.
     pub mutation_type: MutationType,
+    /// Optional source file name recorded with the write.
     pub source_file_name: Option<String>,
+    /// Optional compare-and-swap expectation for the existing record.
     pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
+    /// How concurrent writers of this key are resolved.
     pub convergence: MutationConvergence,
+    /// Whether the caller waits for the durable commit.
     pub durability: MutationDurability,
+    /// When `Some(true)` on an update, a missing record is an error instead of an insert.
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,
@@ -283,15 +302,7 @@ async fn commit_mutation<H: HostNode>(
     let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
     let receipt = start_core_commit(manager, mutations, ctx, aggregate_write)
         .await
-        .map_err(|e| {
-            // Preserve typed status codes and the historical prefix for true 500s.
-            let mapped = HostError::from(e);
-            if mapped.status == 500 {
-                HostError::internal(format!("Mutation execution failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
 
     let receipt = if aggregate_write {
         require_durable_aggregate_receipt(receipt, "Aggregate set")?

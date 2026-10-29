@@ -94,6 +94,7 @@ pub struct SentryGuard {
 }
 
 #[cfg(not(feature = "sentry"))]
+/// Empty guard used when the crate is built without the `sentry` feature.
 pub struct SentryGuard;
 
 #[cfg(feature = "sentry")]
@@ -133,6 +134,7 @@ pub fn capture_error(error: &(dyn std::error::Error + 'static)) {
 }
 
 #[cfg(not(feature = "sentry"))]
+/// No-op when the crate is built without the `sentry` feature.
 pub fn capture_error(_error: &(dyn std::error::Error + 'static)) {
     // Sentry intentionally absent from this build. Keep the public API as a
     // cheap no-op so callers do not need feature-specific branches.
@@ -152,6 +154,7 @@ pub fn capture_error(_error: &(dyn std::error::Error + 'static)) {
 pub type ErrorLayer<S> = Filtered<sentry_tracing::SentryLayer<S>, FilterFn, S>;
 
 #[cfg(not(feature = "sentry"))]
+/// Stand-in layer when the crate is built without the `sentry` feature.
 pub struct ErrorLayer<S>(std::marker::PhantomData<fn(S)>);
 
 #[cfg(not(feature = "sentry"))]
@@ -289,6 +292,7 @@ where
 }
 
 #[cfg(not(feature = "sentry"))]
+/// Return `None` when the crate is built without the `sentry` feature.
 pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)> {
     None
 }

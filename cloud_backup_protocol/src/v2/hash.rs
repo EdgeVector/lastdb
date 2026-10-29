@@ -3,11 +3,13 @@ use crate::{Digest, ProtocolError};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
+/// RFC 8785 bytes of `value`. Fails as invalid JSON if serialization or canonicalization fails.
 pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, ProtocolError> {
     let value = serde_json::to_value(value).map_err(|_| ProtocolError::invalid("v2.json"))?;
     json_canon::to_vec(&value).map_err(|_| ProtocolError::invalid("v2.canonical_json"))
 }
 
+/// SHA-256 of a length-prefixed V2 domain and the canonical body. The domain must start with `lastdb:cloud-byte-backup:` and end with `:v2`.
 pub fn input<T: Serialize>(domain: &'static str, value: &T) -> Result<Digest, ProtocolError> {
     if !domain.starts_with("lastdb:cloud-byte-backup:") || !domain.ends_with(":v2") {
         return Err(ProtocolError::invalid("v2.digest_domain"));
@@ -24,6 +26,7 @@ pub fn input<T: Serialize>(domain: &'static str, value: &T) -> Result<Digest, Pr
     encode(&hash.finalize())
 }
 
+/// SHA-256 of `bytes` with no domain prefix.
 pub fn stored_bytes(bytes: &[u8]) -> Result<Digest, ProtocolError> {
     encode(&Sha256::digest(bytes))
 }

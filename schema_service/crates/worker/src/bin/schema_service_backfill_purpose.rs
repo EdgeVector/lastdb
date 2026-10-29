@@ -36,11 +36,12 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Parser, ValueEnum};
-use schema_service_core::{Embedder, SchemaServiceState};
+use schema_service_core::{Embedder, SchemaConfig, SchemaServiceState};
 use schema_service_s3::store_config::{
     env_var_trimmed, schema_store_s3_config_builder, schema_store_s3_credentials_from_env,
     SCHEMA_STORE_R2_ENDPOINT_ENV,
 };
+use schema_service_server_shared::SchemaConfigEnv;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Backend {
@@ -200,7 +201,7 @@ async fn build_state(cli: &Cli) -> Result<SchemaServiceState, String> {
         endpoint_url = endpoint_url.as_deref().unwrap_or("aws-default"),
         "backfill: initializing schema service against S3-compatible storage",
     );
-    SchemaServiceState::new_with_external(backend, embedder)
+    SchemaServiceState::new_with_external(backend, embedder, SchemaConfig::from_env())
         .await
         .map_err(|e| format!("S3-compatible state init failed (bucket={bucket}): {e}"))
 }

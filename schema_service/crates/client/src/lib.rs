@@ -191,7 +191,6 @@ impl SchemaServiceClient {
     /// Mini owner-socket handlers use this for direct declare so live schema
     /// service stalls return before the daemon's UDS handler deadline expires.
     pub fn new_with_timeout(schema_service_url: &str, timeout: Duration) -> Self {
-        // trace-egress: propagate (schema_service /v1/* API; .send() callers wrap with observability::propagation::inject_w3c)
         let client = Self::build_http_client(timeout);
         Self {
             base_url: schema_service_url.trim_end_matches('/').to_string(),
@@ -201,12 +200,13 @@ impl SchemaServiceClient {
     }
 
     fn build_http_client(timeout: Duration) -> reqwest::Client {
+        // trace-egress: propagate (schema_service /v1/*; callers wrap send with inject_w3c)
         reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT.min(timeout))
             .no_proxy()
             .build()
-            // trace-egress: propagate (fallback path; same target as builder above)
+            // trace-egress: propagate (fallback path; same schema_service target)
             .unwrap_or_else(|_| reqwest::Client::new())
     }
 
