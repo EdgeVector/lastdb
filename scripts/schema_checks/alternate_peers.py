@@ -6,7 +6,7 @@ import sys
 
 from alternate_keys import task_definition
 from alternate_changes import alternate, rebuild, refused
-from node_ops import ENVIRONMENT, install, require, write, restart
+from node_ops import ENVIRONMENT, install, require, write, restart, schema, read
 from node import Node, save
 from alternate_key_compare import check_rows
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disk_v2"))
@@ -67,6 +67,43 @@ def peers(args, output):
         check_rows(alternate(b, name, "by_group", "o1"), {"peer-1": expected})
         result.update(declaration_revisions_signed=True, older_key_field_keeps_winner=True,
                       refused_revision_keeps_progress=True, crash_reopen_keeps_entries=True)
+        result["legacy_signed_wire"] = legacy_wire(args, output / "legacy-wire")
+        save(output / "result.json", result)
+        return result
+    finally:
+        for node in reversed(nodes):
+            node.close()
+
+
+def legacy_wire(args, output):
+    output.mkdir(mode=0o700)
+    nodes = []
+    try:
+        for label, binary, revision in (("older-source", args.baseline, args.baseline_revision),
+                                        ("new-receiver", args.candidate, args.candidate_revision)):
+            folder = output / label
+            folder.mkdir(mode=0o700)
+            node = Node(binary, revision, folder, environment={**ENVIRONMENT, "LASTDB_LOGICAL_CAPTURE": "1"},
+                        temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
+            nodes.append(node)
+            node.start()
+            install(node, schema("LegacyPeer", "legacy signed compatibility",
+                                 fields=["record_id", "group_id", "owner_id", "payload"]))
+        a, b = nodes
+        fields = {"record_id": "legacy-peer", "group_id": "g", "owner_id": "o", "payload": "older signed data"}
+        write(a, "LegacyPeer", {"hash": "legacy-peer"}, fields)
+        page = export(a)
+        require(len(page["events"]) == 1 and all("alternate_key_revision" not in fact
+                for fact in page["events"][0]["outcomes"]), "control did not produce the original signed wire format")
+        request(b, {"action": "enroll", "anchor": page["anchor"]})
+        receipt = ingest(b, page["events"])
+        read(b, "LegacyPeer", {"hash": "legacy-peer"}, fields, names=list(fields))
+        restart(b, crash=True)
+        read(b, "LegacyPeer", {"hash": "legacy-peer"}, fields, names=list(fields))
+        require(ingest(b, page["events"])["imported_events"] == 0, "original signed retry duplicated data")
+        result = {"source_revision": args.baseline_revision, "receiver_revision": args.candidate_revision,
+                  "original_signatures_accepted": True, "duplicate_replay": True,
+                  "crash_reopen": True, "receipt": receipt}
         save(output / "result.json", result)
         return result
     finally:

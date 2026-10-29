@@ -1,7 +1,6 @@
 //! Named key lists share the captured alternate query and its cursor checks.
 
 use super::*;
-use base64::Engine as _;
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{Query, QueryCursor};
 
@@ -75,7 +74,7 @@ async fn keyed_page(
         handlers::execute_query(host, query, Some(request.limit), None, cursor, ctx, false).await?;
     let rows = page["results"]
         .as_array()
-        .ok_or_else(|| HostError::internal("alternate key-list page is incomplete"))?;
+        .ok_or_else(|| HostError::new(500, "alternate key-list page is incomplete"))?;
     let keys: Vec<_> = rows
         .iter()
         .map(|row| record_key(&row["matched_key"]))
@@ -91,7 +90,7 @@ async fn keyed_page(
             "ak1_{}",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
                 serde_json::to_vec(&page["next_cursor"])
-                    .map_err(|_| HostError::internal("invalid alternate key-list cursor"))?
+                    .map_err(|_| HostError::new(500, "invalid alternate key-list cursor"))?
             )
         ))
     };
@@ -105,11 +104,11 @@ async fn keyed_page(
 
 fn record_key(value: &Value) -> Result<fold_db::db_operations::SchemaRecordKey, HostError> {
     let key: fold_db::schema::types::KeyValue = serde_json::from_value(value.clone())
-        .map_err(|_| HostError::internal("key-list returned invalid coordinates"))?;
+        .map_err(|_| HostError::new(500, "key-list returned invalid coordinates"))?;
     Ok(fold_db::db_operations::SchemaRecordKey {
         hash: key
             .hash
-            .ok_or_else(|| HostError::internal("key-list hash is absent"))?,
+            .ok_or_else(|| HostError::new(500, "key-list hash is absent"))?,
         range: key.range.unwrap_or_default(),
     })
 }
