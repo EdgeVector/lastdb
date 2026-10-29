@@ -12,6 +12,10 @@ pub(crate) use types::{ArchiveRecord, HistoryBinding, HistoryMode};
 pub use types::{AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation};
 
 impl super::AtomStore {
+    pub(crate) fn history_activation(&self) -> &tokio::sync::Notify {
+        &self.history_activation
+    }
+
     pub(crate) async fn atom_history_enabled(&self) -> Result<bool, crate::schema::SchemaError> {
         let marker = self
             .main_store

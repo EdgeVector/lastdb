@@ -69,6 +69,12 @@ impl AtomStore {
                 "history needs a canonical field identity".into(),
             ));
         }
+        if policy != FieldHistoryPolicy::Off {
+            // Wake before the write: cancellation after native acceptance must
+            // not strand a committed policy without its expiry worker. The
+            // worker's existing format guard waits for visible activation.
+            self.history_activation.notify_one();
+        }
         self.in_background_scope(async {
             let mut writes = vec![crate::storage::KvMutation::put(
                 build_storage_key(scope, &format!("ahp:v1:{field}")).into_bytes(),

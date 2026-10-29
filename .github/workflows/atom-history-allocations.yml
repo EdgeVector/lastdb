@@ -1,10 +1,6 @@
 name: Atom history allocation call paths
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/operations/allocation_profile.*'
-      - '.github/workflows/atom-history-allocations.yml'
   workflow_dispatch:
 
 permissions:
