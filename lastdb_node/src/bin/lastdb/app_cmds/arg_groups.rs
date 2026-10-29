@@ -32,6 +32,38 @@ pub(crate) struct RegistrySource {
     pub(crate) lastdb_version: Option<String>,
 }
 
+/// `lastdb app resolve`: the index query for one app on this node.
+pub(crate) struct AppResolveQuery<'a> {
+    pub(crate) app_id: &'a str,
+    pub(crate) channel: Option<&'a str>,
+    pub(crate) index: Option<&'a str>,
+    pub(crate) trust_key: Option<&'a str>,
+    pub(crate) lastdb_version: Option<&'a str>,
+    pub(crate) json: bool,
+}
+
+/// `lastdb app install` after the CLI parse.
+pub(crate) struct AppInstall {
+    pub(crate) app_ids: Vec<String>,
+    pub(crate) source: RegistrySource,
+    pub(crate) dir: Option<PathBuf>,
+    pub(crate) allow_sandbox: bool,
+    pub(crate) force: bool,
+    pub(crate) json: bool,
+    pub(crate) from: Option<String>,
+    pub(crate) rev: Option<String>,
+    pub(crate) dev: bool,
+}
+
+/// `lastdb app upgrade` after the CLI parse.
+pub(crate) struct AppUpgrade {
+    pub(crate) app_ids: Vec<String>,
+    pub(crate) source: RegistrySource,
+    pub(crate) dir: Option<PathBuf>,
+    pub(crate) allow_sandbox: bool,
+    pub(crate) json: bool,
+}
+
 /// How `release-check` repeats and reports.
 pub(crate) struct CheckRun {
     pub(crate) watch: bool,

@@ -104,58 +104,40 @@ fn handle_app_storage(
     app_storage(&socket, json, reconcile, page_size)
 }
 
-// lint:allow-ok thin wrapper unpacking AppCommand match arms
-#[allow(clippy::too_many_arguments)]
-fn handle_app_resolve(
-    home: &Path,
-    app_id: &str,
-    channel: Option<&str>,
-    index: Option<&str>,
-    trust_key: Option<&str>,
-    lastdb_version: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
-    app_resolve(
-        home,
+fn handle_app_resolve(home: &Path, command: AppCommand) -> Result<(), String> {
+    let AppCommand::Resolve {
         app_id,
         channel,
         index,
         trust_key,
         lastdb_version,
         json,
+    } = command
+    else {
+        unreachable!("catalog resolve only");
+    };
+    app_resolve(
+        home,
+        &AppResolveQuery {
+            app_id: &app_id,
+            channel: channel.as_deref(),
+            index: index.as_deref(),
+            trust_key: trust_key.as_deref(),
+            lastdb_version: lastdb_version.as_deref(),
+            json,
+        },
     )
 }
 
-// lint:allow-ok thin wrapper unpacking AppCommand match arms
-#[allow(clippy::too_many_arguments)]
-fn handle_app_install(
-    home: &Path,
-    app_ids: Vec<String>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    channel: Option<String>,
-    index: Option<String>,
-    trust_key: Option<String>,
-    lastdb_version: Option<String>,
-    dir: Option<PathBuf>,
-    allow_sandbox: bool,
-    force: bool,
-    json: bool,
-    from: Option<String>,
-    rev: Option<String>,
-    dev: bool,
-) -> Result<(), String> {
-    app_install(
-        home,
+fn handle_app_install(home: &Path, command: AppCommand) -> Result<(), String> {
+    let AppCommand::Install {
         app_ids,
-        RegistrySource {
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-        },
+        env,
+        schema_url,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
         dir,
         allow_sandbox,
         force,
@@ -163,38 +145,65 @@ fn handle_app_install(
         from,
         rev,
         dev,
+    } = command
+    else {
+        unreachable!("catalog install only");
+    };
+    app_install(
+        home,
+        AppInstall {
+            app_ids,
+            source: RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
+            dir,
+            allow_sandbox,
+            force,
+            json,
+            from,
+            rev,
+            dev,
+        },
     )
 }
 
-// lint:allow-ok thin wrapper unpacking AppCommand match arms
-#[allow(clippy::too_many_arguments)]
-fn handle_app_upgrade(
-    home: &Path,
-    app_ids: Vec<String>,
-    env: Option<String>,
-    schema_url: Option<String>,
-    channel: Option<String>,
-    index: Option<String>,
-    trust_key: Option<String>,
-    lastdb_version: Option<String>,
-    dir: Option<PathBuf>,
-    allow_sandbox: bool,
-    json: bool,
-) -> Result<(), String> {
-    app_upgrade(
-        home,
+fn handle_app_upgrade(home: &Path, command: AppCommand) -> Result<(), String> {
+    let AppCommand::Upgrade {
         app_ids,
-        RegistrySource {
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-        },
+        env,
+        schema_url,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
         dir,
         allow_sandbox,
         json,
+    } = command
+    else {
+        unreachable!("catalog upgrade only");
+    };
+    app_upgrade(
+        home,
+        AppUpgrade {
+            app_ids,
+            source: RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
+            dir,
+            allow_sandbox,
+            json,
+        },
     )
 }
 
@@ -210,22 +219,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             trust_key,
             json,
         } => app_list(home, env, schema_url, channel, index, trust_key, json),
-        AppCommand::Resolve {
-            app_id,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-            json,
-        } => handle_app_resolve(
-            home,
-            &app_id,
-            channel.as_deref(),
-            index.as_deref(),
-            trust_key.as_deref(),
-            lastdb_version.as_deref(),
-            json,
-        ),
+        command @ AppCommand::Resolve { .. } => handle_app_resolve(home, command),
         AppCommand::Index(cmd) => app_index_command(home, cmd),
         AppCommand::Storage {
             json,
@@ -240,62 +234,8 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             index,
             trust_key,
         } => app_info(&app_id, env, schema_url, channel, index, trust_key),
-        AppCommand::Install {
-            app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-            dir,
-            allow_sandbox,
-            force,
-            json,
-            from,
-            rev,
-            dev,
-        } => handle_app_install(
-            home,
-            app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-            dir,
-            allow_sandbox,
-            force,
-            json,
-            from,
-            rev,
-            dev,
-        ),
-        AppCommand::Upgrade {
-            app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-            dir,
-            allow_sandbox,
-            json,
-        } => handle_app_upgrade(
-            home,
-            app_ids,
-            env,
-            schema_url,
-            channel,
-            index,
-            trust_key,
-            lastdb_version,
-            dir,
-            allow_sandbox,
-            json,
-        ),
+        command @ AppCommand::Install { .. } => handle_app_install(home, command),
+        command @ AppCommand::Upgrade { .. } => handle_app_upgrade(home, command),
         _ => unreachable!("app_command routes only catalog subcommands here"),
     }
 }

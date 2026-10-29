@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::atom::{Atom, TipAuthor};
 use crate::db_operations::ChangedKey;
+use crate::protein::LoadedProteinSiblingUpdate;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 
@@ -178,16 +179,16 @@ impl MutationManager {
             });
             let author_clock = mutation_author_clock(mutation);
             let updates = store
-                .protein_sibling_tip_updates_for_loaded_protein(
+                .protein_sibling_tip_updates_for_loaded_protein(LoadedProteinSiblingUpdate {
                     protein,
-                    mol_uuid,
+                    entry_molecule_uuid: mol_uuid,
                     entry_layout,
-                    &key_maps.after[&idx],
-                    atom.uuid(),
-                    self.signer.as_ref(),
+                    fields: &key_maps.after[&idx],
+                    atom_uuid: atom.uuid(),
+                    keypair: self.signer.as_ref(),
                     author_clock,
-                    schema_storage_prefix(schema, Some(mol_uuid)),
-                )
+                    storage_prefix: schema_storage_prefix(schema, Some(mol_uuid)),
+                })
                 .await?;
             for (sibling_molecule, data, changed, base) in updates {
                 if !changed.is_empty() {
