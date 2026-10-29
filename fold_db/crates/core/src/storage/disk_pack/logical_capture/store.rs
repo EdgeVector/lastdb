@@ -19,41 +19,71 @@ pub(in crate::storage::disk_pack) fn open(
         .map_err(map)?;
     let identity = Identity::load(v2)?;
     match (identity, head) {
-        (Some(identity), Some(bytes)) => {
+        (Some(mut identity), Some(bytes)) => {
             let head: Head = decode(&bytes)?;
             head.validate(&identity)?;
+            if !identity.ready {
+                if !allow_create || head.position.sequence != 0 {
+                    return Err(invalid(
+                        "logical capture pending enrollment needs a writable head-zero open",
+                    ));
+                }
+                let reservation =
+                    laststore::space::reserve_space(v2.home.path(), policy, 4096).map_err(map)?;
+                identity.mark_ready(v2)?;
+                drop(reservation);
+            } else if allow_create {
+                // Complete an uncertain ready-byte barrier before this runtime can ack.
+                identity.sync_control(v2)?;
+            }
             Ok(Some(Capture { identity }))
         }
         (None, Some(_)) => Err(invalid(
             "logical capture head has no device control; no signer is recreated",
         )),
+        (Some(identity), None) if !identity.ready && allow_create => {
+            enroll(v2, policy, identity, false)
+        }
         (Some(_), None) => Err(invalid(
             "logical capture control has no durable head; no sequence is reset",
         )),
         (None, None) if allow_create && enabled_from_env()? => {
-            let identity = Identity::fresh(v2);
-            let operations = vec![
-                HomeMutation {
-                    collection: COLLECTION.into(),
-                    key: head_key(),
-                    body: Some(encode(&Head::initial(&identity)?)?),
-                },
-                HomeMutation {
-                    collection: REGISTRY.into(),
-                    key: format!("{NAMESPACES}{COLLECTION}"),
-                    body: Some(vec![1]),
-                },
-            ];
-            let bytes = bootstrap_space(v2, &operations)?;
-            let reservation =
-                laststore::space::reserve_space(v2.home.path(), policy, bytes).map_err(map)?;
-            identity.save(v2)?;
-            v2.home.commit(operations).map_err(map)?;
-            drop(reservation);
-            Ok(Some(Capture { identity }))
+            enroll(v2, policy, Identity::fresh(v2), true)
         }
         (None, None) => Ok(None),
     }
+}
+
+fn enroll(
+    v2: &physical::V2Home,
+    policy: &laststore::space::SpacePolicy,
+    mut identity: Identity,
+    fresh: bool,
+) -> StorageResult<Option<Capture>> {
+    let operations = vec![
+        HomeMutation {
+            collection: COLLECTION.into(),
+            key: head_key(),
+            body: Some(encode(&Head::initial(&identity)?)?),
+        },
+        HomeMutation {
+            collection: REGISTRY.into(),
+            key: format!("{NAMESPACES}{COLLECTION}"),
+            body: Some(vec![1]),
+        },
+    ];
+    let reservation =
+        laststore::space::reserve_space(v2.home.path(), policy, bootstrap_space(v2, &operations)?)
+            .map_err(map)?;
+    if fresh {
+        identity.save(v2)?;
+    } else {
+        identity.sync_control(v2)?;
+    }
+    v2.home.commit(operations).map_err(map)?;
+    identity.mark_ready(v2)?;
+    drop(reservation);
+    Ok(Some(Capture { identity }))
 }
 
 fn bootstrap_space(v2: &physical::V2Home, operations: &[HomeMutation]) -> StorageResult<u64> {

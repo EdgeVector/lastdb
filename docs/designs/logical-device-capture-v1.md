@@ -7,9 +7,11 @@ The stream supplies future multi-device sync work.
 
 `LASTDB_LOGICAL_CAPTURE=1` enables capture on a native home without capture state.
 The default stays off.
-The private `logical-device-capture-v1` control file holds an Ed25519 signer, a generation UUID, and the paired native home identities.
+The private `logical-device-capture-v1` control file holds an Ed25519 signer, a generation UUID, the paired native home identities, and an enrollment state.
 Its mode is `0600`.
 The origin combines the public key and the generation UUID.
+Enrollment writes the prepared control file, commits head zero, then writes the ready state before any runtime becomes available.
+A restart can complete a valid prepared enrollment with its original signer and head zero.
 After enrollment, the durable capture state keeps capture active across restarts.
 The environment flag cannot reset the origin or its sequence.
 Capture refuses a foreign home binding or missing established control state.
@@ -45,7 +47,7 @@ The fixed limits are:
 - 128 source mutations per request.
 - 256 KiB for the serialized source request, with a byte count before buffer allocation.
 - 1,024 declared fields across the addressed schemas and 1,024 final field outcomes.
-- 1 MiB for retained candidate outcomes, with a byte count before each retained clone.
+- 1 MiB for encoded candidate outcomes, with a byte count before each retained clone.
 - 1 MiB for the selected raw atom bodies, with a bound before a large body can enter memory.
 - 1 MiB for a signed event and an explicit export page.
 - Four events per export call.
@@ -59,8 +61,12 @@ An explicit export returns logical event data and needs a separate authorized tr
 The private signer stays outside the native backup file allowlist.
 An enrolled native backup cannot open as a normal node without its original private control file.
 Portable restore needs the future device replacement and snapshot adoption contract.
-A crash between private control creation and the first durable head also refuses normal open.
-This release does not silently create a new signer or reset a sequence after either condition.
+A ready control without its durable head refuses normal open.
+A prepared control with a nonzero head also refuses normal open.
+A partial or malformed control file requires operator attention; it does not reset the identity.
+An offline backup open cannot complete a prepared enrollment.
+This release does not silently create a new signer or reset an established sequence.
+These encoded byte caps do not claim an exact Rust memory size.
 
 This release supplies local authored outcomes and durable device positions.
 It does not supply a complete cloud sync protocol, peer import, portable snapshot adoption, log pruning, or device replacement.

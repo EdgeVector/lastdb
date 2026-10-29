@@ -4,19 +4,21 @@ use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::RngCore;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use zeroize::Zeroizing;
 
 const FILE: &str = "logical-device-capture-v1";
 const MARKER: &[u8] = b"lastdb-logical-device-capture-v1\n";
-const BODY_BYTES: usize = 80;
+const BODY_BYTES: usize = 81;
+const READY_OFFSET: u64 = (MARKER.len() + BODY_BYTES - 1) as u64;
 
 pub(super) struct Identity {
     seed: Zeroizing<[u8; 32]>,
     generation: uuid::Uuid,
     main: uuid::Uuid,
     cas: uuid::Uuid,
+    pub(super) ready: bool,
 }
 
 impl Identity {
@@ -59,7 +61,12 @@ impl Identity {
                     .try_into()
                     .map_err(|_| invalid("logical capture signer length differs"))?,
             ),
-            generation: uuid(&body[64..])?,
+            generation: uuid(&body[64..80])?,
+            ready: match body[80] {
+                0 => false,
+                1 => true,
+                _ => return Err(invalid("logical capture enrollment state differs")),
+            },
         };
         if identity.main != v2.home.identity() || identity.cas != v2.cas.identity() {
             return Err(invalid(
@@ -77,6 +84,7 @@ impl Identity {
             generation: uuid::Uuid::new_v4(),
             main: v2.home.identity(),
             cas: v2.cas.identity(),
+            ready: false,
         }
     }
 
@@ -87,6 +95,7 @@ impl Identity {
         bytes.extend_from_slice(self.cas.as_bytes());
         bytes.extend_from_slice(self.seed.as_ref());
         bytes.extend_from_slice(self.generation.as_bytes());
+        bytes.push(u8::from(self.ready));
         let path = control_path(v2)?;
         let mut file = OpenOptions::new()
             .write(true)
@@ -102,6 +111,38 @@ impl Identity {
         )?
         .sync_all()?;
         Ok(())
+    }
+
+    /// Enrollment is not exposed until its ready byte and filename are durable.
+    pub(super) fn mark_ready(&mut self, v2: &physical::V2Home) -> StorageResult<()> {
+        let mut file = self.checked_file(v2)?;
+        file.seek(SeekFrom::Start(READY_OFFSET))?;
+        file.write_all(&[1])?;
+        file.sync_all()?;
+        sync_parent(v2)?;
+        self.ready = true;
+        Ok(())
+    }
+
+    pub(super) fn sync_control(&self, v2: &physical::V2Home) -> StorageResult<()> {
+        self.checked_file(v2)?.sync_all()?;
+        sync_parent(v2)
+    }
+
+    fn checked_file(&self, v2: &physical::V2Home) -> StorageResult<File> {
+        let found =
+            Self::load(v2)?.ok_or_else(|| invalid("logical capture control disappeared"))?;
+        if found.seed.as_slice() != self.seed.as_slice()
+            || found.generation != self.generation
+            || found.ready != self.ready
+        {
+            return Err(invalid("logical capture control changed during enrollment"));
+        }
+        Ok(OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(control_path(v2)?)?)
     }
 
     pub(super) fn origin(&self) -> String {
@@ -122,6 +163,16 @@ impl Identity {
             self.cas,
         ))?)))
     }
+}
+
+fn sync_parent(v2: &physical::V2Home) -> StorageResult<()> {
+    let path = control_path(v2)?;
+    File::open(
+        path.parent()
+            .ok_or_else(|| invalid("capture control needs a parent"))?,
+    )?
+    .sync_all()?;
+    Ok(())
 }
 
 fn uuid(bytes: &[u8]) -> StorageResult<uuid::Uuid> {
