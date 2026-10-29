@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use super::{error_code, is_precondition_failed, short_error, S3BlobPersistence};
 
@@ -189,44 +190,52 @@ impl S3BlobPersistence {
         Ok(records)
     }
 
+    /// Page one prefix and index each record by `key_of`.
+    async fn list_record_map<T, K, F>(
+        &self,
+        prefix: &str,
+        label: &str,
+        key_of: F,
+    ) -> FoldDbResult<HashMap<K, T>>
+    where
+        T: DeserializeOwned,
+        K: Hash + Eq,
+        F: Fn(&T) -> K,
+    {
+        let records = self.list_records::<T>(prefix, label).await?;
+        Ok(records
+            .into_iter()
+            .map(|record| {
+                let key = key_of(&record);
+                (key, record)
+            })
+            .collect())
+    }
+
     pub(crate) async fn list_and_load_releases(
         &self,
     ) -> FoldDbResult<HashMap<String, ReleaseRecord>> {
         let prefix = self.definition_key("releases/");
-        let records = self
-            .list_records::<ReleaseRecord>(prefix.as_ref(), "releases/")
-            .await?;
-        Ok(records
-            .into_iter()
-            .map(|record| (record.release_id.clone(), record))
-            .collect())
+        self.list_record_map::<ReleaseRecord, _, _>(prefix.as_ref(), "releases/", |record| {
+            record.release_id.clone()
+        })
+        .await
     }
 
     pub(crate) async fn list_and_load_channels(
         &self,
     ) -> FoldDbResult<HashMap<String, ChannelRecord>> {
         let prefix = self.definition_key("channels/");
-        let records = self
-            .list_records::<ChannelRecord>(prefix.as_ref(), "channels/")
-            .await?;
-        Ok(records
-            .into_iter()
-            .map(|record| {
-                (
-                    schema_service_core::app_release::channel_key(&record.app_id, &record.channel),
-                    record,
-                )
-            })
-            .collect())
+        self.list_record_map::<ChannelRecord, _, _>(prefix.as_ref(), "channels/", |record| {
+            schema_service_core::app_release::channel_key(&record.app_id, &record.channel)
+        })
+        .await
     }
 
     pub(crate) async fn list_and_load_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
         // Apps stay outside the definition namespace. See `definition_key`.
-        let records = self.list_records::<AppRecord>("apps/", "apps/").await?;
-        Ok(records
-            .into_iter()
-            .map(|record| (record.app_id.clone(), record))
-            .collect())
+        self.list_record_map::<AppRecord, _, _>("apps/", "apps/", |record| record.app_id.clone())
+            .await
     }
 
     pub(crate) async fn put_release_preserving_revocation(
