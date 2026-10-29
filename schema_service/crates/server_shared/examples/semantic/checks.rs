@@ -1,9 +1,9 @@
 use super::corpus::{Case, Expected, Field};
 use schema_service_core::{
     cosine_similarity, Embedder, ExternalSchemaPersistence, InMemorySchemaPersistence,
-    SchemaServiceState,
+    SchemaConfig, SchemaServiceState,
 };
-use schema_service_server_shared::FoldDbFastEmbedder;
+use schema_service_server_shared::{FoldDbFastEmbedder, SchemaConfigEnv};
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
 
@@ -55,9 +55,13 @@ async fn add(state: &SchemaServiceState, field: Field) -> schema_types::FoldDbRe
 
 pub async fn observe(case: &Case, embedder: Arc<dyn Embedder>) -> Result<Observation, String> {
     let backend = Arc::new(InMemorySchemaPersistence::default());
-    let state = SchemaServiceState::new_with_external(backend.clone(), embedder.clone())
-        .await
-        .map_err(|error| error.to_string())?;
+    let state = SchemaServiceState::new_with_external(
+        backend.clone(),
+        embedder.clone(),
+        SchemaConfig::from_env(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     if let Some(prior) = case.prior {
         add(&state, prior)
             .await

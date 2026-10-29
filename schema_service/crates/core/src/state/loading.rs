@@ -1,4 +1,5 @@
 use super::*;
+use crate::schema_config::SchemaConfig;
 // lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 impl SchemaServiceState {
@@ -17,14 +18,15 @@ impl SchemaServiceState {
     ///
     /// Safe to call inside a runtime: init runs on a dedicated thread so we
     /// never nest `block_on` on the caller's runtime.
-    pub fn new_in_memory(embedder: Arc<dyn Embedder>) -> FoldDbResult<Self> {
+    pub fn new_in_memory(embedder: Arc<dyn Embedder>, config: SchemaConfig) -> FoldDbResult<Self> {
         let backend = Arc::new(InMemorySchemaPersistence::default());
-        Self::new_from_backend_blocking(backend, embedder)
+        Self::new_from_backend_blocking(backend, embedder, config)
     }
 
     fn new_from_backend_blocking(
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
+        config: SchemaConfig,
     ) -> FoldDbResult<Self> {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::Builder::new()
@@ -39,7 +41,7 @@ impl SchemaServiceState {
                                 "failed to build tokio runtime for schema state init: {e}"
                             ))
                         })?;
-                    rt.block_on(Self::new_with_external(backend, embedder))
+                    rt.block_on(Self::new_with_external(backend, embedder, config))
                 })();
                 let _ = tx.send(result);
             })
@@ -64,11 +66,13 @@ impl SchemaServiceState {
     pub async fn new_with_external(
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
+        config: SchemaConfig,
     ) -> FoldDbResult<Self> {
         Self::new_with_external_and_schema_mutation_gate_store(
             backend,
             embedder,
             SchemaMutationGateStore::default(),
+            config,
         )
         .await
     }
@@ -80,6 +84,7 @@ impl SchemaServiceState {
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
         schema_mutation_gate_store: SchemaMutationGateStore,
+        config: SchemaConfig,
     ) -> FoldDbResult<Self> {
         let collection_name_anchors = Self::compute_anchor_embeddings(embedder.as_ref());
 
@@ -106,12 +111,11 @@ impl SchemaServiceState {
                 crate::declared_fields::DeclaredFieldRegistry::new(),
             )),
             declared_field_writes: Arc::new(tokio::sync::Mutex::new(())),
-            app_identity: Arc::new(RwLock::new(
-                crate::app_identity::AppIdentityConfig::default(),
-            )),
+            app_identity: Arc::new(RwLock::new(config.app_identity.clone())),
             schema_match_telemetry: Arc::new(RwLock::new(SchemaMatchTelemetrySnapshot::default())),
-            schema_mutation_gate_config: Arc::new(RwLock::new(SchemaMutationGateConfig::default())),
+            schema_mutation_gate_config: Arc::new(RwLock::new(config.mutation_gate.clone())),
             schema_mutation_gate_store,
+            schema_config: Arc::new(config),
         };
 
         state.load_all_from_external().await?;
