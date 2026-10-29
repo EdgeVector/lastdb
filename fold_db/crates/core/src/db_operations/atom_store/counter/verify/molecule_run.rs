@@ -53,26 +53,16 @@ impl AtomStore {
                 .await
                 .map(MoleculePage::Records),
         };
-        match read {
+        let outcome = match read {
             Ok(page) => {
                 let (rows, resume) = page.shape();
                 run.walk.finish_yield(rows, resume.as_deref());
                 apply_page(run, watch, page);
+                Ok(())
             }
-            Err(SchemaError::ReadResourceLimit { .. }) => {
-                run.report.page_retries += 1;
-                if !run.walk.read_too_big() {
-                    return Err(SchemaError::ReadResourceLimit {
-                        detail: "a key range is too dense to read in pieces".into(),
-                    });
-                }
-            }
-            Err(error) => return Err(error),
-        }
-        let stats = run.walk.take_stats();
-        run.report.range_reads.absorb(stats);
-        self.range_walks().add(stats);
-        Ok(())
+            Err(error) => Err(error),
+        };
+        self.settle_verify_page(run, outcome)
     }
 }
 
