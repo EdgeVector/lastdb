@@ -27,7 +27,6 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       RUSTFLAGS: '-Zprint-type-sizes'
       RUSTC_BOOTSTRAP: '1'
-      CARGO_TARGET_DIR: ${{ runner.temp }}/layout-target
       FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ matrix.revision }}
     steps:
       - uses: actions/checkout@v5
@@ -59,6 +58,8 @@ jobs:
           echo "$RUSTFLAGS" > "$RUNNER_TEMP/layout/flags.txt"
       - name: Build the actual daemon with compiler layout output
         working-directory: source
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/layout-target
         run: |
           cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd > "$RUNNER_TEMP/layout/compiler.log" 2>&1
       - name: Summarize actual request layouts
