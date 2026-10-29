@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 
@@ -73,6 +74,7 @@ def snapshot(node, output, label):
     # Numeric fields only: no identity, capability, configuration, or secret strings.
     status = numeric_fields(node.call("/api/status")[0])
     result = {"rss_by_kind": totals, "rss_bytes": sum(totals.values()), "thread_count": thread_count,
+              "huge_page_bytes": sum(row.get("AnonHugePages", 0) for row in rows),
               "unavailable_stack_pointers": unavailable, "status_numbers": status,
               "largest_mappings": sorted(rows, key=lambda row: row.get("Rss", 0), reverse=True)[:24]}
     save(output / f"{label}.json", result)
@@ -92,11 +94,14 @@ class AttributedGrowth(GrowthWorkload):
         return point
 
 
-def measure(binary, revision, output):
+def measure(binary, revision, output, disable_thp):
+    environment = {"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_SEARCH_ENABLED": "0",
+                   "EXEMEM_API_URL": "http://127.0.0.1:9",
+                   "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"}
+    if disable_thp:
+        environment["MIMALLOC_ALLOW_THP"] = "0"
     node = Node(binary, revision, output, temporary_directory=Path(os.environ["RUNNER_TEMP"]),
-                environment={"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_SEARCH_ENABLED": "0",
-                             "EXEMEM_API_URL": "http://127.0.0.1:9",
-                             "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"})
+                environment=environment)
     try:
         node.start()
         snapshot(node, output, "boot")
@@ -114,19 +119,27 @@ def main():
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--disable-thp", action="store_true")
     args = parser.parse_args()
     root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
     if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
             or not args.output.resolve().is_relative_to(root) or args.output.exists()):
         raise RuntimeError("A fresh output under RUNNER_TEMP on a hosted CI runner is required")
     args.output.mkdir(mode=0o700)
+    save(args.output / "recipe.json", {"disable_thp": args.disable_thp,
+                                     "source": os.environ.get("GITHUB_SHA")})
     for pair in range(2):
         for label in (("baseline", "candidate") if pair == 0 else ("candidate", "baseline")):
             revision = getattr(args, label)
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
-            measure(args.programs / revision / "lastdbd", revision, output)
+            measure(args.programs / revision / "lastdbd", revision, output, args.disable_thp)
+
+
+def interrupted(_signal, _frame):
+    raise KeyboardInterrupt("CI attribution interrupted")
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, interrupted)
     main()

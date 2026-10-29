@@ -46,7 +46,8 @@ jobs:
       - name: Attribute memory on fresh generated homes
         run: |
           python3 driver/scripts/operations/atom_history_memory.py --programs "$RUNNER_TEMP/programs" \
-            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution"
+            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution" \
+            --disable-thp
       - uses: actions/upload-artifact@v4
         id: evidence
         if: always()
