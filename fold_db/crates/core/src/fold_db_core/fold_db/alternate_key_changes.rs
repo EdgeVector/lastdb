@@ -141,11 +141,13 @@ async fn load(
         .get(job_key(schema).as_bytes())
         .await?
         .ok_or_else(|| invalid("alternate change does not exist"))?;
-    let change: Change =
+    let mut change: Change =
         serde_json::from_slice(&bytes).map_err(|_| invalid("alternate change is unreadable"))?;
     if change.id != id || change.source.name != schema {
         return Err(invalid("alternate change identity differs"));
     }
+    change.source.populate_runtime_fields()?;
+    change.target.populate_runtime_fields()?;
     db.db_ops
         .molecule_keys()
         .load_schema(&change.source)
