@@ -2,9 +2,7 @@
 
 use super::*;
 use crate::db_operations::search_index::inbox_fields::{inbox_fields, searchable_fields};
-use crate::db_operations::search_index::{
-    IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink, SearchOutboxSink,
-};
+use crate::db_operations::search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::ChangeFeedEvent;
 use crate::schema::types::KeyValue;
 use std::collections::{BTreeSet, HashMap};
@@ -47,15 +45,7 @@ impl MutationManager {
         if let Some(batch) = self.peer_search_batch(job, heads).await? {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                let sink = inbox
-                    .map(SearchOutboxSink::new)
-                    .or_else(SearchOutboxSink::from_env);
-                if let Some(sink) = sink {
-                    sink.apply_change_batch(batch).await.map_err(|error| {
-                        crate::storage::StorageError::BackendError(error.to_string())
-                    })?;
-                }
-                Ok(())
+                Self::deliver_search_outbox(inbox, batch).await
             })?;
         }
         Ok(())
