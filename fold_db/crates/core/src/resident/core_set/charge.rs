@@ -35,6 +35,9 @@ const SLOT_BASE: usize = 350;
 const SLOT_KEY_COPIES: usize = 1;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
 const HASH_MAP_SLOT: usize = 56;
+/// Added slot counts and pending-list positions in the atom tracker, including
+/// map slack and a candidate vector entry with capacity growth (estimate).
+const ATOM_SWEEP_TRACKING: usize = 48;
 /// The `Arc` strong and weak counters in front of the atom.
 const ARC_HEADER: usize = 2 * std::mem::size_of::<usize>();
 /// Allocator size classes and tree slack, as a ratio of 100 (guess).
@@ -99,6 +102,7 @@ pub(super) fn atom_charge(atom: &Atom) -> usize {
     let metadata = atom.metadata().map_or(0, metadata_heap_bytes);
     finish(
         ARC_HEADER
+            + ATOM_SWEEP_TRACKING
             + std::mem::size_of::<Atom>()
             + strings
             + metadata
