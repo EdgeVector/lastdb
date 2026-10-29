@@ -163,14 +163,18 @@ impl Identity {
     }
 
     pub(super) fn anchor(&self) -> StorageResult<String> {
-        use sha2::{Digest, Sha256};
-        Ok(hex(&Sha256::digest(encode(&(
-            "lastdb-logical-capture-anchor-v1",
-            self.origin(),
-            self.main,
-            self.cas,
-        ))?)))
+        anchor_for(&self.origin(), self.main, self.cas)
     }
+}
+
+pub(super) fn anchor_for(origin: &str, main: uuid::Uuid, cas: uuid::Uuid) -> StorageResult<String> {
+    use sha2::{Digest, Sha256};
+    Ok(hex(&Sha256::digest(encode(&(
+        "lastdb-logical-capture-anchor-v1",
+        origin,
+        main,
+        cas,
+    ))?)))
 }
 
 fn require_absent(path: &Path) -> StorageResult<()> {

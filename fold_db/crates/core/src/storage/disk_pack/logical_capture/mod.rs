@@ -13,6 +13,7 @@ mod model;
 pub(crate) mod outcome;
 mod peer;
 mod reader;
+mod snapshot;
 mod store;
 mod verify;
 
@@ -20,6 +21,8 @@ pub(crate) use bounded::preflight_outcome_size;
 pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position};
 pub use outcome::AcceptedFieldOutcome;
 pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
+pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
+pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};
 pub(super) use store::{open, Capture};
 
 pub(super) const COLLECTION: &str = "logical_sync_v1";

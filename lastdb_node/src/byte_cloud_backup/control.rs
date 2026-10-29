@@ -21,6 +21,9 @@ fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<B
     let runtime = &host.byte_backup;
     let _transition = runtime.transition()?;
     runtime.check_admission()?;
+    if !matches!(action, ByteBackupRequest::DisableAutomatic) {
+        super::local_snapshot::require_inactive(&host.home)?;
+    }
     match action {
         ByteBackupRequest::EnableAutomatic {
             log_interval_seconds,
@@ -66,6 +69,7 @@ fn request_locked(
     origin: RunOrigin,
     work: Option<&super::work::Work>,
 ) -> Result<ByteBackupStatus> {
+    super::local_snapshot::require_inactive(&host.home)?;
     let runtime = &host.byte_backup;
     runtime.check_admission()?;
     let id = match action {

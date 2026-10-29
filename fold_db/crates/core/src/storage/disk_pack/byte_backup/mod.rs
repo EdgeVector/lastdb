@@ -74,6 +74,12 @@ impl ByteBackupCapture {
     pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
         Ok(self.lock()?.journal_anchor.clone())
     }
+    /// Frozen exact-cut device positions; `None` identifies a legacy capture.
+    pub fn logical_inclusion(
+        &self,
+    ) -> StorageResult<Option<super::logical_capture::SnapshotInclusion>> {
+        Ok(self.lock()?.logical_inclusion.clone())
+    }
     /// A run file read holds no lookup buffer, so every stream of the central
     /// backup allowance is available.
     pub fn recommended_parallelism(&self) -> StorageResult<usize> {

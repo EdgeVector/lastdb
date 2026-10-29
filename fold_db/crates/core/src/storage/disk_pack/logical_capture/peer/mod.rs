@@ -3,9 +3,13 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+mod captured;
 mod enrollment;
 mod import;
 mod state;
+
+pub(super) use captured::positions as captured_positions;
+pub(super) const CAPTURE_RECORD_BYTES: u64 = 16 * 1024;
 
 const MAX_PEERS: usize = 32;
 const MAX_RECEIPTS: u64 = 65_536;

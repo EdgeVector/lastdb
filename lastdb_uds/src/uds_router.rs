@@ -72,7 +72,10 @@ const API_VERSION_PATH: &str = "/api/version";
 ///
 /// `8` (2026-10-28) adds the owner-only `POST /api/sync/logical-v1` route.
 /// Existing requests remain compatible; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 8;
+///
+/// `9` (2026-10-28) adds local snapshot prepare, inspect, resume and release
+/// actions to the owner-only logical sync route. The minimum stays `1`.
+pub const API_VERSION: u32 = 9;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

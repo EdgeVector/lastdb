@@ -232,6 +232,9 @@ fn reopen(
         {
             return Err(invalid("run capture saved cut differs"));
         }
+        if let Some(expected) = &state.logical_inclusion {
+            source.verify_logical_inclusion(expected)?;
+        }
         Some(source)
     };
     super::capture::finish(inner(runtime, store, state, run, admission), key, admit)
@@ -315,8 +318,9 @@ fn new_state(
     key: &[u8; 32],
 ) -> StorageResult<State> {
     let profile = run.profile()?;
+    let logical_inclusion = run.logical_inclusion(&profile)?;
     Ok(State {
-        format: 2,
+        format: 3,
         begin: intent.begin,
         reference_id: intent.reference_id,
         current_bytes: Vec::new(),
@@ -335,5 +339,6 @@ fn new_state(
         recovery: Some(recovery),
         run: Some(profile),
         journal_anchor: intent.journal_anchor,
+        logical_inclusion: Some(logical_inclusion),
     })
 }

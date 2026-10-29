@@ -159,6 +159,11 @@ fn reserve_pair(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {
         .and_then(|bytes| {
             bytes.checked_add(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
         })
+        .and_then(|bytes| {
+            bytes.checked_add(
+                crate::storage::disk_pack::logical_capture::SNAPSHOT_INCLUSION_WORK_BYTES,
+            )
+        })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
     main.reserve_metadata(shared).map_err(map)?;
     cas.reserve_metadata(shared).map_err(map)
