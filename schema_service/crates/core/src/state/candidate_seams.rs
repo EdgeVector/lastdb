@@ -2,13 +2,12 @@ use super::*;
 
 impl SchemaServiceState {
     /// Seam: the incoming identity hash already exists with no new fields.
-    /// Returns `true` when a conflict was recorded.
     pub(super) fn collect_identity_hash_candidate(
         &self,
         schema: &Schema,
         schema_name: &str,
         set: &mut CandidateSet,
-    ) -> FoldDbResult<bool> {
+    ) -> FoldDbResult<()> {
         let exact_hash_match: Option<(Schema, String, bool)> = {
             let schemas = read_lock(&self.schemas, "schemas")?;
             if let Some(existing_schema) = schemas.get(schema_name) {
@@ -33,26 +32,6 @@ impl SchemaServiceState {
         };
 
         if let Some((existing, existing_hash, has_new_fields)) = exact_hash_match {
-            if crate::state_expansion::is_cross_schema_type_expansion(schema, &existing) {
-                let desc_name = existing
-                    .descriptive_name
-                    .clone()
-                    .or_else(|| schema.descriptive_name.clone())
-                    .unwrap_or_default();
-                set.conflict = Some(Self::cross_schema_type_conflict(
-                    schema,
-                    &existing,
-                    existing_hash,
-                    desc_name,
-                    format!(
-                        "incoming schema_type {:?} differs from existing {:?}; \
-                         identity_hash collides because schema_type is not part of \
-                         the hash, but merging would corrupt molecule reads",
-                        schema.schema_type, existing.schema_type,
-                    ),
-                ));
-                return Ok(true);
-            }
             if !has_new_fields {
                 let desc_name = existing
                     .descriptive_name
@@ -68,16 +47,15 @@ impl SchemaServiceState {
                 ));
             }
         }
-        Ok(false)
+        Ok(())
     }
 
     /// Seam: exact or semantically similar descriptive_name.
-    /// Returns `true` when a conflict was recorded.
     pub(super) fn collect_descriptive_name_candidate(
         &self,
         schema: &Schema,
         set: &mut CandidateSet,
-    ) -> FoldDbResult<bool> {
+    ) -> FoldDbResult<()> {
         if let Some(incoming_desc_name) = schema.descriptive_name.as_deref() {
             let (matched_desc, existing_schema_name, is_exact_match) = self
                 .find_matching_descriptive_name(
@@ -105,21 +83,6 @@ impl SchemaServiceState {
                     if let Some(existing) = existing {
                         let desc_name =
                             matched_desc.unwrap_or_else(|| incoming_desc_name.to_string());
-                        if crate::state_expansion::is_cross_schema_type_expansion(schema, &existing)
-                        {
-                            set.conflict = Some(Self::cross_schema_type_conflict(
-                                schema,
-                                &existing,
-                                existing_hash,
-                                desc_name,
-                                format!(
-                                    "incoming schema_type {:?} differs from existing {:?}; \
-                                     cross-schema_type expansion would corrupt molecule reads",
-                                    schema.schema_type, existing.schema_type,
-                                ),
-                            ));
-                            return Ok(true);
-                        }
                         set.candidates.push(MatchCandidate::new(
                             if is_exact_match {
                                 MatchSeam::NameExact
@@ -135,16 +98,15 @@ impl SchemaServiceState {
                 }
             }
         }
-        Ok(false)
+        Ok(())
     }
 
     /// Seam: same-key field overlap (Jaccard >= 0.6) with a similar name.
-    /// Returns `true` when a conflict was recorded.
     pub(super) fn collect_field_overlap_candidate(
         &self,
         schema: &Schema,
         set: &mut CandidateSet,
-    ) -> FoldDbResult<bool> {
+    ) -> FoldDbResult<()> {
         let overlap_target = {
             let schemas = read_lock(&self.schemas, "schemas")?;
             let incoming_fields: HashSet<String> = schema
@@ -196,21 +158,6 @@ impl SchemaServiceState {
                 .clone()
                 .or_else(|| schema.descriptive_name.clone())
                 .unwrap_or_default();
-            if crate::state_expansion::is_cross_schema_type_expansion(schema, &existing) {
-                set.conflict = Some(Self::cross_schema_type_conflict(
-                    schema,
-                    &existing,
-                    existing_hash,
-                    desc_name,
-                    format!(
-                        "incoming schema_type {:?} differs from existing {:?}; \
-                         field-overlap (Jaccard {:.2}) cannot bridge cross-schema_type \
-                         without corrupting molecule reads",
-                        schema.schema_type, existing.schema_type, jaccard,
-                    ),
-                ));
-                return Ok(true);
-            }
             // Same-key field overlap → classic expand candidate.
             // Cross-key field overlap is handled by the multi-key sibling pass
             // below (keeps both identities + field mappers).
@@ -224,7 +171,7 @@ impl SchemaServiceState {
                 ));
             }
         }
-        Ok(false)
+        Ok(())
     }
 
     /// Seam: same product fields under a different key layout.

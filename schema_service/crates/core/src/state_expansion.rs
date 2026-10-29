@@ -10,19 +10,6 @@ use super::types::SchemaAddOutcome;
 
 mod renames;
 
-/// Whether expansion across `schema_type` would be unsafe.
-///
-/// Historically each `DeclarativeSchemaType` stored molecules in a different
-/// on-disk shape, so cross-type expansion corrupted reads. After
-/// `north-star-one-molecule-kind` (storage unify + module delete), keyed
-/// molecules share one layout (`MoleculeHashRange` with optional empty key
-/// components). Cross-type expansion is therefore safe and this guard is a
-/// permanent no-op — kept so call sites stay explicit and searchable.
-#[must_use]
-pub(super) fn is_cross_schema_type_expansion(_incoming: &Schema, _existing: &Schema) -> bool {
-    false
-}
-
 /// Normalized key layout for expand / multi-key decisions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyLayoutFingerprint {
@@ -63,7 +50,7 @@ pub fn is_cross_key_layout(incoming: &Schema, existing: &Schema) -> bool {
     key_layout_fingerprint(incoming) != key_layout_fingerprint(existing)
 }
 
-/// Alias used at expand call sites (symmetric with `is_cross_schema_type_expansion`).
+/// Alias used at expand call sites.
 #[must_use]
 pub(super) fn is_cross_key_layout_expansion(incoming: &Schema, existing: &Schema) -> bool {
     is_cross_key_layout(incoming, existing)

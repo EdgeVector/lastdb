@@ -11,11 +11,6 @@ impl SchemaServiceState {
         mutation_mappers: &mut HashMap<String, String>,
     ) -> FoldDbResult<Option<SchemaAddOutcome>> {
         let candidate_set = self.generate_canonicalization_candidates(schema, schema_name)?;
-        if let Some(conflict) = candidate_set.conflict {
-            return Ok(Some(SchemaAddOutcome::DescriptiveNameConflict(
-                conflict.conflict,
-            )));
-        }
 
         if let Some(candidate) = rank_candidates(&candidate_set.candidates) {
             match self
