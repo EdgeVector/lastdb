@@ -15,8 +15,9 @@ import time
 import zipfile
 import zlib
 
-from ownership import REPOSITORY, WORKFLOW
+from ownership import REPOSITORY, WORKFLOW, run_identity
 from programs import execute
+from recovery_recipe import validate as validate_recipe
 from support import ACCOUNT, OperationError, canonical_uuid, decode_json, require
 
 MAX_RUNS = 100
@@ -41,7 +42,7 @@ def point(value, stream):
 
 def ownership(raw, run, baseline):
     value = decode_json(raw)
-    require(isinstance(value, dict) and set(value) == {
+    require(isinstance(value, dict) and set(value) - {"recipe"} == {
         "schema", "owner", "account", "account_generation", "stream_id",
         "observed_accepted_points", "verified_recovery_points", "source_stopped",
         "log_and_snapshot_recovery_passed", "complete_frozen_directory",
@@ -64,17 +65,32 @@ def ownership(raw, run, baseline):
     require(len({item["commit_id"] for item in observed}) == len(observed)
             and len({item["commit_id"] for item in recovered}) == len(recovered)
             and all(item in observed for item in recovered), "ci_history_point_closure")
+    if "recipe" in value:
+        validate_recipe(value["recipe"], recovered, value["owner"]["source"])
     return value
 
 
-def unzip(raw, digest):
+def startup_ownership(raw, run, baseline):
+    value = decode_json(raw)
+    require(isinstance(value, dict) and set(value) == {
+        "schema", "owner", "account", "account_generation", "stream_id"}, "ci_start_receipt_fields")
+    require(value["schema"] == "lastdb.cloud-ci-start.v1" and value["owner"] == {
+        "repository": REPOSITORY, "workflow": WORKFLOW, "source": run["head_sha"],
+        "run_id": str(run["id"]), "run_attempt": str(run["run_attempt"])}, "ci_start_exact_owner")
+    require(value["account"] == baseline["account"] == ACCOUNT
+            and value["account_generation"] == baseline["account_generation"], "ci_start_dev_scope")
+    require(canonical_uuid(value["stream_id"]) != baseline["stream_id"], "ci_start_preserves_baseline")
+    return value
+
+
+def unzip(raw, digest, filename="ci-stream.json"):
     require(0 < len(raw) <= MAX_ZIP and hashlib.sha256(raw).hexdigest() == digest,
             "ci_history_artifact_digest")
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         entries = archive.infolist()
         require(len(entries) == 1, "ci_history_artifact_single_file")
         entry = entries[0]
-        require(entry.filename == "ci-stream.json" and not entry.is_dir()
+        require(entry.filename == filename and not entry.is_dir()
                 and 0 < entry.file_size <= MAX_RECEIPT and entry.compress_size <= MAX_ZIP
                 and not entry.flag_bits & 1 and ((entry.external_attr >> 16) & 0o170000) != 0o120000,
                 "ci_history_artifact_entry")
@@ -110,15 +126,17 @@ class History:
         except OperationError as error:
             raise OperationError("ci_history_github_response_invalid") from error
 
-    def candidate(self, run):
+    def candidate(self, run, finished=True, startup=False):
         number(run["id"])
         number(run["run_attempt"])
         require(run["repository"]["full_name"] == run["head_repository"]["full_name"] == REPOSITORY
                 and run["path"] == WORKFLOW and run["head_branch"] == "main"
                 and run["event"] in ("push", "workflow_dispatch")
-                and run["status"] == "completed" and run["conclusion"] == "success"
                 and re.fullmatch(r"[0-9a-f]{40}", run["head_sha"]), "ci_history_trusted_run")
-        expected = f"cloud-ci-stream-{run['id']}-{run['run_attempt']}"
+        require((run["status"] == "completed" and run["conclusion"] == "success") if finished
+                else run["status"] in ("queued", "in_progress", "completed"), "ci_history_run_state")
+        prefix = "cloud-ci-start" if startup else "cloud-ci-stream"
+        expected = f"{prefix}-{run['id']}-{run['run_attempt']}"
         directory = self.api(f"actions/runs/{run['id']}/artifacts?per_page=100")
         require(type(directory["total_count"]) is int and 0 <= directory["total_count"] <= 100
                 and len(directory["artifacts"]) == directory["total_count"], "ci_history_artifact_directory")
@@ -136,11 +154,27 @@ class History:
                 "ci_history_artifact_hash")
         identifier = number(artifact["id"])
         raw = self.api(f"actions/artifacts/{identifier}/zip", binary=True)
-        receipt = ownership(unzip(raw, digest[7:]), run, self.baseline)
-        completed = self.completion(run)
+        receipt_raw = unzip(raw, digest[7:], "ci-start.json" if startup else "ci-stream.json")
+        receipt = (startup_ownership if startup else ownership)(receipt_raw, run, self.baseline)
+        completed = self.completion(run) if finished else None
         return {"ownership": receipt, "artifact_id": str(identifier), "artifact_sha256": digest[7:],
+                "archive": raw, "receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
                 "artifact_url": f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}/artifacts/{identifier}",
                 "artifact_expires_at": artifact["expires_at"], "completed_at": completed}
+
+    def current(self, identifier, digest, source, startup=False):
+        try:
+            owner = run_identity(source)
+            run = self.api(f"actions/runs/{owner['run_id']}/attempts/{owner['run_attempt']}")
+            require(str(run["id"]) == owner["run_id"]
+                    and str(run["run_attempt"]) == owner["run_attempt"]
+                    and run["head_sha"] == source, "ci_current_run_identity")
+            record = self.candidate(run, finished=False, startup=startup)
+            require(record is not None and record["artifact_id"] == identifier
+                    and record["artifact_sha256"] == digest, "ci_current_artifact_identity")
+            return record
+        finally:
+            self.environment.pop("GH_TOKEN", None)
 
     def completion(self, run):
         directory = self.api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")

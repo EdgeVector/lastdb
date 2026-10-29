@@ -80,7 +80,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 150
     permissions:
       contents: read
       actions: read
@@ -135,9 +135,48 @@ jobs:
           path: ${{ runner.temp }}/cloud-backup-client
           if-no-files-found: error
           retention-days: 3
-      - name: Run automatic snapshots, mutation logs, restart and both recoveries
+      - name: Reclaim old CI DEV backups and prove the kept snapshot
         env:
           GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: |
+          python3 scripts/cloud_backup/preflight.py \
+            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --output "$RUNNER_TEMP/cloud-ci-preflight"
+      - name: Choose this run's new CI backup stream
+        id: ci-start
+        env:
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: |
+          python3 scripts/cloud_backup/prepare_start.py \
+            --source "$SOURCE_COMMIT" --output "$RUNNER_TEMP/cloud-ci-start"
+      - name: Retain CI ownership before the first upload
+        id: ci-start-artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-ci-start-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cloud-ci-start/ci-start.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Admit this exact CI stream before the source starts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+          ARTIFACT_ID: ${{ steps.ci-start-artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.ci-start-artifact.outputs.artifact-digest }}
+        run: |
+          python3 scripts/cloud_backup/register_ownership.py \
+            --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
+            --artifact-sha256 "$ARTIFACT_DIGEST" --phase startup \
+            --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json"
+      - name: Run automatic snapshots, mutation logs, restart and both recoveries
+        env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
           LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
@@ -147,6 +186,9 @@ jobs:
           python3 scripts/cloud_backup/recover.py \
             --bin-dir "$CARGO_TARGET_DIR/dev-release" \
             --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
+            --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
+            --startup-artifact "$RUNNER_TEMP/cloud-ci-start/ci-start.json" \
             --output "$RUNNER_TEMP/cloud-backup-recovery"
       - name: Retain successful CI stream ownership
         id: ci-stream-artifact
@@ -171,6 +213,18 @@ jobs:
               --jq '"Ownership artifact expires: " + .expires_at'
             printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save durable CI ownership before this run ends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+          ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.ci-stream-artifact.outputs.artifact-digest }}
+        run: |
+          python3 scripts/cloud_backup/register_ownership.py \
+            --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
+            --artifact-sha256 "$ARTIFACT_DIGEST"
       - name: Record client provenance
         if: always() && steps.client-artifact.outcome == 'success'
         env:

@@ -140,11 +140,14 @@ The service also enforces the account quota and reservation rules before an allo
 The recipe adds no cloud encryption or native format change.
 It accesses no primary, primary copy, archive, or PROD service.
 
-The current service retains accepted backups. Each successful CI operation adds its accepted DEV recovery points and small new files.
-The fixed base file can use existing object receipts. A quota or integrity block fails CI and requires account maintenance.
+The workflow first resumes an earlier saved CI cleanup, before it registers a new stream.
+It then refreshes verified ownership, retires eligible older CI streams, and proves the kept latest snapshot.
+The fixed baseline, latest successful CI stream, active holds, shared files, and unknown data stay protected.
+A quota or integrity block fails CI before a new upload.
 CI does not create replacement accounts, increase quotas, or bypass a block.
 It does not use account deletion or bucket deletion as cleanup, because those operations do not reconcile V2 allocations.
-An accepted-backup retention operation remains separate work and must preserve every retained snapshot and log dependency.
+The paired service must preserve every retained snapshot and log dependency before a provider delete.
+Source changes alone do not prove live cleanup. The paired DEV release and real cleanup result remain required before activation.
 
 ## CI stream ownership
 
@@ -157,7 +160,7 @@ Only a successful operation uploads the receipt. A cleanup caller must also veri
 
 The source must stop cleanly at least twice, and every observed point must use one new stream in the fixed DEV account and generation.
 That stream must differ from the pinned baseline stream.
-This requirement lets a future cleanup operation identify completed CI streams without an account-wide ownership guess.
+This requirement identifies completed CI streams without an account-wide ownership guess.
 It does not classify an old stream merely because it has an automatic request ID.
 The receipt describes observed points, not a complete frozen directory, and grants no provider deletion authority.
 
@@ -167,25 +170,94 @@ It must preserve shared files, active restores, uploads, and uncertain allocatio
 An expired or missing ownership record supplies no automatic deletion authority.
 General user retention and PROD cleanup remain separate from this CI-only policy.
 
-Before cloud access, CI reads at most four recent successful main workflow runs.
+After pending cleanup, CI reads at most four recent successful main workflow runs.
 It verifies each available ownership archive against GitHub's digest, exact source, workflow, run, attempt, account, and generation.
 The exact attempt's successful recovery-job completion time orders reruns correctly.
 Missing or expired ownership records grant no cleanup authority.
 Malformed, unsupported or unverifiable older records also remain unknown; they do not block a valid newer ownership record.
-GitHub transport and directory failures stop the operation before cloud access.
+GitHub transport and directory failures stop the operation before a new upload.
 This read-only step does not classify a complete directory or delete cloud files.
+
+Before a new restore or upload, CI requires the isolated DEV ownership capability.
+It registers verified recipe-bearing historical receipts through the existing account key.
+The service independently verifies the immutable GitHub artifact and accepted backup points.
+CI then refreshes every durable registration page before it proceeds.
+A partial refresh or a service error fails the operation; it grants no deletion authority.
+
+After the successful receipt upload, CI saves that exact archive in the durable service registry.
+This non-destructive step runs within the existing serialized workflow.
+The service saves the active workflow attempt as `waiting_run`; this state cannot retire a stream.
+A later pre-upload refresh verifies the exact completed successful attempt before promotion.
+This preserves ownership after archive expiration, and for reruns of an old workflow that falls outside the bounded history.
+CI supplies no provider administration credential, GitHub token, or recovery phrase to these routes.
+The adapter permits only the compiled DEV endpoint and the fixed CI account.
+It requires bounded HTTPS responses, checks the exact registration identity, and refuses redirects.
+Ownership registration and refresh make no provider deletions or quota changes.
+
+Before a new upload, CI reads the ordinary account usage ledger.
+It checks reserved bytes, retained bytes, other used bytes, and the current quota.
+CI requires at least 96 MiB of observed free quota for its bounded 64 MiB checkpoint allowance and control overhead.
+Insufficient space stops the operation before upload. CI does not increase or reset quota.
+This read supplies an observation, not a reservation; normal service admission still enforces quota for each allocation.
+The pre-upload retirement operation reclaims only verified old CI data before this check.
+
+The service waits 30 minutes after the logical retirement before it deletes an eligible file.
+CI respects that delay and reads the saved status in waits of at most 30 seconds.
+A request checks a five-second budget between at most 16 saved steps.
+The client checks the retirement hash, planned allocation counts, and planned byte counts as progress continues.
+After the plan exists, planned counts stay fixed. An assigned retirement hash stays fixed.
+Released bytes cannot exceed the plan.
+A complete result requires one confirmed release for every eligible allocation and no unresolved upload bytes.
+Protected allocation counts remain separate, and legacy or unknown streams stay retained.
+CI allows 70 minutes for the control work and 75 minutes for the full pre-upload step.
+A pending cleanup and the next plan can each need the full 30-minute service delay.
+The complete job has a 150-minute limit, which also covers the build and the existing recovery checks.
+An expired limit fails CI. The next run resumes the same saved request before it starts new work.
+
+CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.
+The worker supports a preassigned `LASTDB_CLOUD_CI_STREAM_ID` for the exact dedicated CI account.
+It uses that ID only when it creates the first stream record.
+An existing saved stream must match the ID, source home, and account scope; a mismatch refuses work, including resume.
+The default path uses its existing stream choice when this variable is absent.
+This changes local backup-job metadata only. It changes no native file format or encryption.
+The recovery command supplies this variable only to its owned source after trusted startup registration and admission.
+
+The startup receipt uses `lastdb.cloud-ci-start.v1` and only the existing owner, account, generation, and fresh stream identity.
+Its artifact is `cloud-ci-start-<run_id>-<run_attempt>` and contains only `ci-start.json`.
+`prepare_start.py` prepares that claim on protected main; `register_ownership.py --phase startup` verifies its actual GitHub archive and calls `ci/start`.
+The caller requires `startup_registered`, the exact claim/receipt identity, and open admission before the source can start.
+This claim makes no restore-success or provider-deletion assertion.
+The service must refuse adoption of any pre-existing stream without the exact prior claim.
+The pre-upload cleanup stage precedes startup registration, so an earlier frozen request can resume before any new effect.
+Before the first startup claim, the service can return an explicit unsaved headroom observation.
+That response must attest no prior startup claims, no provider deletion, retained unknown data, and sufficient space.
+CI records this first-admission result as incomplete cleanup. It does not call it a completed plan.
+
+The recovery command requires the private startup admission record and its exact uploaded receipt.
+It checks the source, workflow, run, attempt, fixed baseline, and receipt hash before the source receives its stream ID.
+The live context must require startup ownership and support both startup registration and terminal R2 uploads.
+Restored nodes receive neither source setting.
+
+New final receipts carry an explicit recovery recipe with the verified base snapshot, mutation log, and final full snapshot.
+The recipe stores the changed file size and hash. The service saves this recipe with the trusted artifact identity.
+After retirement, the kept-latest helper selects the recipe's exact final full snapshot.
+The helper refuses absent or unsupported recipes, inconsistent hashes, or inconsistent point order.
+It derives the expected record updates and complete file hash from the saved source revision.
+It checks the restored native inventory before the first boot, then checks all baseline keys and full file bytes after two boots.
+The helper accesses only a fresh private DEV restore. The pre-upload controller calls it before a new source starts.
+Historical receipts without this recipe stay protected and do not become new cleanup inputs.
 
 The PR readback checks at most two recent successful pushes and two successful manual runs.
 It reports the actual verified count. A run with no current archives reports no proof and permits the main producer to refresh them.
 The main backup job does not depend on this readback, so expired archives cannot prevent that refresh.
 If archives exist but none can be verified, the readback fails with a fixed code.
 
-The client also supports an explicit terminal R2 upload contract for later CI activation.
+The client requires an explicit terminal R2 upload contract for CI streams.
 `LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS=1` sets the hash-bound `Begin.r2_multipart` field to true for a new request.
 The default omits that field and preserves old accepted hashes.
 False is invalid. An opted-in R2 upload rejects a direct-PUT grant before it sends bytes.
 The same uploader supports the existing B2 multipart grants and the new R2 multipart grants.
-The current recipe leaves this opt-in off until the separate CI capability confirms service support.
+CI enables this setting only after the live CI capability confirms support and the matching startup claim opens admission.
 These are transport controls. They change no native file format or content encryption.
 
 The recipe uses fresh private runner directories and checks the daemon identity before each stop.

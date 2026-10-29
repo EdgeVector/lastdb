@@ -160,6 +160,10 @@ class Source:
         request = canonical_uuid(job["commit_id"])
         require(request.startswith("a17dbac2-"), "daemon_initiated_request")
         require(job["stream"]["scope"]["account_id"] == ACCOUNT, "accepted_dev_scope")
+        if self.node.ci_stream_id is not None:
+            require(job["stream"]["stream_id"] == self.node.ci_stream_id, "accepted_owned_ci_stream")
+        if self.node.terminal_r2:
+            require(accepted["begin"].get("r2_multipart") is True, "accepted_terminal_r2_mode")
         if self.completed:
             first = next(iter(self.completed.values()))
             require(job["stream"] == first["begin"]["job"]["stream"], "one_owned_automatic_stream")
