@@ -24,6 +24,7 @@ pub use cloud_work::NativeCloudWorkGuard;
 pub use diagnostics::NativeStorageDiagnostics;
 mod initialization;
 mod kv;
+pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
 pub mod mutation_log;
@@ -67,6 +68,7 @@ pub struct PackRuntime {
     physical: physical::V2Home,
     cleanup_job: Arc<cleanup::CleanupJob>,
     mutation_log: mutation_log::MutationLog,
+    logical_capture: Option<logical_capture::Capture>,
     /// Shared with the v2 merge thread, which installs merged roots.
     view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
@@ -179,6 +181,7 @@ impl PackNamespacedStore {
         current: physical::V2Root,
         initializing: bool,
         space_policy: laststore::space::SpacePolicy,
+        logical_capture: Option<logical_capture::Capture>,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
@@ -189,6 +192,7 @@ impl PackNamespacedStore {
                 physical,
                 cleanup_job,
                 mutation_log,
+                logical_capture,
                 view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
@@ -223,7 +227,7 @@ impl PackRuntime {
 #[async_trait::async_trait]
 impl NamespacedStore for PackNamespacedStore {
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
-        if name.len() > 65531 || name == REGISTRY {
+        if name.len() > 65531 || name == REGISTRY || name == logical_capture::COLLECTION {
             return Err(StorageError::InvalidOperation(
                 "namespace exceeds format limit or uses the reserved registry identity".into(),
             ));
@@ -272,6 +276,11 @@ impl NamespacedStore for PackNamespacedStore {
     }
 
     async fn delete_namespace(&self, name: &str) -> StorageResult<bool> {
+        if name == logical_capture::COLLECTION {
+            return Err(StorageError::InvalidOperation(
+                "logical capture namespace is internal".into(),
+            ));
+        }
         self.runtime.delete_namespace(name).await
     }
 
