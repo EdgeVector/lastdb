@@ -17,6 +17,7 @@ use crate::lock_helpers::{read_lock, write_lock};
 use crate::state::SchemaServiceState;
 use crate::types::CanonicalField;
 
+mod app_public_json;
 mod import;
 mod vocabulary;
 
