@@ -80,12 +80,20 @@ pub(crate) fn archive_slot(
     record: &ArchiveRecord,
 ) -> Result<String, crate::schema::SchemaError> {
     let scope = crate::storage::current_keys::exact_scope(key)?;
+    let (Some(hash), Some(range)) = (
+        record.event.field_key.hash.as_deref(),
+        record.event.field_key.range.as_deref(),
+    ) else {
+        return Err(crate::schema::SchemaError::InvalidData(
+            "archive key coordinates are missing".into(),
+        ));
+    };
     Ok(crate::schema::types::field::build_storage_key(
         scope,
         &crate::atom::molecule_key_codec::hash_range_record_key(
             &record.event.molecule_uuid,
-            record.event.field_key.hash.as_deref().unwrap_or(""),
-            record.event.field_key.range.as_deref().unwrap_or(""),
+            hash,
+            range,
         ),
     ))
 }
