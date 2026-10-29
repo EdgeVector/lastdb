@@ -78,11 +78,17 @@ impl SchemaCore {
                     .ok_or_else(|| invalid("typed mapper source field is absent"));
             };
             if !sources.contains_key(mapper.source_schema()) {
+                // Name the source: a declaring app can load it and retry.
                 let source = self
                     .db_ops
                     .get_schema(mapper.source_schema())
                     .await?
-                    .ok_or_else(|| invalid("typed mapper source schema is not installed"))?;
+                    .ok_or_else(|| {
+                        invalid(&format!(
+                            "typed mapper source schema '{}' is not installed",
+                            mapper.source_schema()
+                        ))
+                    })?;
                 sources.insert(mapper.source_schema().to_owned(), source);
             }
             let source = &sources[mapper.source_schema()];
