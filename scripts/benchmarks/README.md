@@ -17,6 +17,9 @@ Smaller payloads bypass the compressor; weak savings retain the original bytes.
 Numeric commit and compaction counters report size and savings skips separately.
 Existing compressed and uncompressed frames use the same version, encryption and read validation.
 Compare complete paired CI results and actual generated-home disk sizes, not cumulative rewrite bytes.
+Sustained diagnostics also retain the private `write_reads` event as a separate count-only family.
+Its four numeric reuse/retention counters and lifecycle bounds receive strict validation.
+The report does not infer a duration or invent phase timings for this event.
 
 ## Paired current 16-writer comparison
 
