@@ -169,7 +169,8 @@ impl AuthorClockPersistReservation {
             state,
             _pending_task: pending_task,
             completion,
-            mutation_admission: crate::sync::capture::current_mutation_admission(),
+            mutation_admission: crate::fold_db_core::mutation_admission::current_mutation_admission(
+            ),
         });
     }
 }
@@ -178,7 +179,7 @@ struct AuthorClockPersistJob {
     state: MutationAuthorClockState,
     _pending_task: PendingTask,
     completion: Option<tokio::sync::watch::Sender<ClockOutcome>>,
-    mutation_admission: Option<crate::sync::capture::MutationAdmission>,
+    mutation_admission: Option<crate::fold_db_core::mutation_admission::MutationAdmission>,
 }
 
 async fn persist_author_clock(
@@ -233,7 +234,7 @@ async fn run_author_clock_persist_queue(
         let mutation_admission = jobs.iter().find_map(|job| job.mutation_admission.clone());
         let outcome = loop {
             let persist = persist_author_clock(&db_ops, &state_key, &high_water);
-            let persist = crate::sync::capture::with_existing_mutation_admission(
+            let persist = crate::fold_db_core::mutation_admission::with_existing_mutation_admission(
                 mutation_admission.clone(),
                 persist,
             );

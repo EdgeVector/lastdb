@@ -19,6 +19,10 @@ impl MutationManager {
         // complete nested pipeline again to prove that their future is Send.
         let future: futures::future::BoxFuture<'_, Result<ResidentCommitReceipt, SchemaError>> =
             Box::pin(self.write_mutations_batch_with_receipt_admitted(mutations, storage_prefix));
-        crate::sync::capture::with_mutation_admission(self.capture_router(), future).await
+        crate::fold_db_core::mutation_admission::with_mutation_admission(
+            self.mutation_admission(),
+            future,
+        )
+        .await
     }
 }

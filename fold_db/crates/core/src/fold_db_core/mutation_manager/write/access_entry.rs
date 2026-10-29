@@ -115,8 +115,8 @@ impl MutationManager {
                 barrier.wait().await?;
             }
         }
-        let mut receipt = crate::sync::capture::with_mutation_admission(
-            self.capture_router(),
+        let mut receipt = crate::fold_db_core::mutation_admission::with_mutation_admission(
+            self.mutation_admission(),
             super::super::logical_capture::with_admission(
                 logical_admission,
                 self.write_with_aggregate_invalidations(

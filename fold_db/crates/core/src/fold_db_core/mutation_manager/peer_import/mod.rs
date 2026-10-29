@@ -7,6 +7,7 @@ mod publication;
 use super::helpers::ModifiedFieldKeys;
 use super::molecules::DeferredPersistJob;
 use super::MutationManager;
+use crate::fold_db_core::mutation_admission::with_mutation_admission;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_capture::{
     AcceptedFieldOutcome, CaptureEvent, ImportReceipt,
@@ -26,7 +27,7 @@ impl MutationManager {
         &self,
         events: Vec<CaptureEvent>,
     ) -> Result<ImportReceipt, SchemaError> {
-        crate::sync::capture::with_mutation_admission(self.capture_router(), async {
+        with_mutation_admission(self.mutation_admission(), async {
             let runtime = self
                 .db_ops
                 .namespaced_store()

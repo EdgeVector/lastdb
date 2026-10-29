@@ -38,8 +38,8 @@ impl MutationManager {
             reservation.submit_and_wait(state).await?;
         }
 
-        let mut receipt = crate::sync::capture::with_mutation_admission(
-            self.capture_router(),
+        let mut receipt = crate::fold_db_core::mutation_admission::with_mutation_admission(
+            self.mutation_admission(),
             self.apply_aggregate_source(source, storage_prefix.as_deref(), WriteOrigin::Request),
         )
         .await?;

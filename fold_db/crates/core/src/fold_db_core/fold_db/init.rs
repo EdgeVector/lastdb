@@ -26,7 +26,6 @@ impl FoldDB {
             db_ops,
             signer,
             search_outbox_inbox,
-            mutation_log_capture,
             offline_maintenance,
         } = init;
         if !offline_maintenance {
@@ -70,9 +69,6 @@ impl FoldDB {
             search_outbox_inbox,
             author_clock_state,
         ));
-        if let Some(router) = mutation_log_capture.as_ref() {
-            mutation_manager.set_capture_router(Arc::clone(router));
-        }
 
         info!("Created MutationManager for mutation operations");
 
@@ -101,7 +97,6 @@ impl FoldDB {
                 offline_maintenance,
             ),
             background_molecule_drain,
-            mutation_log_capture,
         })
     }
 }
@@ -110,12 +105,11 @@ impl FoldDB {
 ///
 /// Created at the factory or embedded constructor boundary and consumed
 /// exactly once. Keeps the initializer signature short while the
-/// surrounding subsystems (mutation manager, sync engine) each pull what
+/// surrounding subsystems (schema and mutation managers) each pull what
 /// they need by name.
 pub struct FoldDbInit {
     pub(crate) offline_maintenance: bool,
     pub db_ops: Arc<DbOperations>,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
-    pub(crate) mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
 }

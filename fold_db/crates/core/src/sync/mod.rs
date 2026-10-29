@@ -1,7 +1,6 @@
 //! V2 account byte transport and local mutation admission.
 //! No legacy cloud engine, provider admission, replay worker or scheduler exists.
 pub mod auth;
-pub(crate) mod capture;
 
 const SHARED_HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 

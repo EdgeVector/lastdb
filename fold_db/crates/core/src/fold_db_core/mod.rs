@@ -16,6 +16,7 @@ pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
 pub mod molecule_drain;
+pub(crate) mod mutation_admission;
 pub mod mutation_flush;
 pub mod orchestration;
 pub mod pending_task_tracker;

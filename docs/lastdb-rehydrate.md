@@ -141,6 +141,13 @@ An empty hash is valid for both initial key preload and later changes to the com
 
 ## Write and flush
 
+Each mutation manager owns one local admission fence from construction.
+Its deferred writer shares that same gate; no optional capture router is installed later.
+Nested writes reuse the current admission. Durable author-clock jobs retain its read guard
+until their writes finish, so an exclusive conflict-metadata read waits for complete work.
+Maintenance and file-blob operations use the same admission. The native preparation gate
+and durable queue still govern disk publication; this fence does not replace them.
+
 1. Validate the batch and its current preconditions under the native write gate.
 2. Prepare the complete logical changes and their disk output.
 3. Reserve their memory and disk work before publication.
