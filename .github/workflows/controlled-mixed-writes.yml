@@ -30,8 +30,8 @@ jobs:
   build:
     uses: ./.github/workflows/bench-build.yml
     with:
-      baseline: ${{ inputs.baseline || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
-      candidate: ${{ inputs.candidate || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
+      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
       driver: ${{ github.sha }}
       profile: standard
 
@@ -40,8 +40,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      BASELINE_SHA: ${{ inputs.baseline || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
-      CANDIDATE_SHA: ${{ inputs.candidate || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
       DRIVER_SHA: ${{ github.sha }}
       BUILD_CONTEXT: ${{ needs.build.outputs.context }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
