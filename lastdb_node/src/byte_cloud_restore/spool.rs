@@ -54,6 +54,7 @@ impl RestoreSession {
     pub(super) fn check_spool(&self) -> Result<()> {
         let mut bytes = 0u64;
         let mut count = 0usize;
+        let mut routes = 0usize;
         for folder in ["cache", "entries", "chain"] {
             let path = self.root.join(folder);
             if folder == "chain" && !path.try_exists()? {
@@ -61,16 +62,22 @@ impl RestoreSession {
             }
             local::directory(&path)?;
             for entry in fs::read_dir(path)? {
-                count += 1;
+                let path = entry?.path();
+                if route_entry(folder, &path)? {
+                    routes += 1;
+                } else {
+                    count += 1;
+                }
                 if count
                     > cloud_backup_protocol::limits::NATIVE_FILES_MAX
                         + 2 * cloud_backup_protocol::v2::limits::MAX_PAGES
                         + 8
+                    || routes > 2 * super::logs::MAX_CHAIN as usize
                 {
                     return Err(RestoreError::Limit("spool entries"));
                 }
                 bytes = bytes
-                    .checked_add(allocated(&entry?.path())?)
+                    .checked_add(allocated(&path)?)
                     .ok_or(RestoreError::Limit("spool bytes"))?;
                 if bytes > MAX {
                     return Err(RestoreError::Limit("spool bytes"));
@@ -80,6 +87,26 @@ impl RestoreSession {
         self.spool_bytes.store(bytes, Ordering::Relaxed);
         Ok(())
     }
+}
+
+fn route_entry(folder: &str, path: &Path) -> Result<bool> {
+    let Some(name) = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("routes-"))
+        .filter(|_| folder == "chain")
+    else {
+        return Ok(false);
+    };
+    let index = name
+        .strip_suffix(".json")
+        .or_else(|| name.strip_suffix(".pending"))
+        .filter(|index| index.len() == 8 && index.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|index| index.parse::<u32>().ok());
+    if !index.is_some_and(|index| index < super::logs::MAX_CHAIN) {
+        return Err(RestoreError::Invalid("mutation route spool name"));
+    }
+    Ok(true)
 }
 
 fn allocated(path: &Path) -> Result<u64> {

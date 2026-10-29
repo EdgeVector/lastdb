@@ -2,6 +2,7 @@
 mod cache;
 mod checkpoint;
 mod plan;
+mod routing;
 use super::{
     local, ByteBackupClient, RecoveryKeys, RestoreError, RestoreReport, RestoreSession, Result,
     VerifiedNativeContext,
@@ -15,6 +16,8 @@ use fold_db::storage::disk_pack::{
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::os::unix::fs::DirBuilderExt;
+
+pub(super) const MAX_CHAIN: u32 = 32768;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -176,7 +179,15 @@ async fn replay_checkpoint(
     if cursor.position != position {
         return Err(RestoreError::Invalid("saved complete replay position"));
     }
-    checkpoint::download(&ancestor, client, keys, &root, inventory).await?;
+    checkpoint::download(
+        &ancestor,
+        client,
+        keys,
+        &root,
+        inventory,
+        cursor.remaining - 1,
+    )
+    .await?;
     let replay = run_restore::MutationReplay::open(
         &session.root.join("home/data"),
         keys.content_key(),

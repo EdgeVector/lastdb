@@ -6,7 +6,7 @@ import os
 import re
 import time
 
-from support import ACCOUNT, OperationError, canonical_uuid, read_json, require
+from support import ACCOUNT, OperationError, canonical_uuid, require
 
 MAX_CHECKPOINTS = 8
 MAX_DECLARED_BYTES = 64 * 1024 * 1024
@@ -39,6 +39,14 @@ def checkpoint_identity(accepted):
             "ordinal": accepted["ordinal"], "root_receipt_id": accepted["root_receipt_id"],
             "inventory_root": {name: accepted["inventory_root"][name]
                 for name in ("sha256", "page_count", "object_count", "stored_bytes")}}
+
+
+def released_publication(value, policy):
+    accepted = value.get("last_accepted_backup")
+    return (value["phase"] == "published" and not value["running"]
+            and value["retained_source_bytes"] == 0 and accepted is not None
+            and policy["last_completed_request_id"] == value["request_id"]
+            and accepted["begin"]["job"]["commit_id"] == value["request_id"])
 
 
 def observation(value, policy, conditions, kind, through, count, declared_bytes):
@@ -79,6 +87,7 @@ class Source:
         self.node, self.expected, self.source = node, copy.deepcopy(baseline), source
         self.summary = summary
         self.completed, self.declared_bytes = {}, 0
+        self.publication_deadlines = {}
 
     def cloud(self, *arguments, input_bytes=None, checkpoint=None):
         value = self.node.programs.command(self.node.home, ["cloud", "backup-v2", *arguments, "--json"], input_bytes)
@@ -121,10 +130,8 @@ class Source:
             value = self.cloud("status", checkpoint=(kind, through))
             policy = self.policy(value, snapshot)
             accepted = value.get("last_accepted_backup")
-            if (value["phase"] == "published" and not value["running"]
-                    and value["retained_source_bytes"] == 0 and value["backup_kind"] == kind
-                    and policy["last_completed_request_id"] == value["request_id"]
-                    and accepted and accepted["commit_sha256"] != previous
+            if (released_publication(value, policy) and value["backup_kind"] == kind
+                    and accepted["commit_sha256"] != previous
                     and (through is None or all(policy["last_backed_up_frontiers"][name] >= frontier
                          for name, frontier in through.items()))):
                 request = accepted["begin"]["job"]["commit_id"]
@@ -134,7 +141,11 @@ class Source:
                 require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == ACCOUNT,
                         "accepted_dev_scope")
                 self.node.health()
-                return value
+                require(time.monotonic() < deadline, "automatic_publication_deadline")
+                self.publication_deadlines[accepted["commit_sha256"]] = deadline
+                self.summary["frozen_backup_selection"] = {"kind": kind, "request_id": request,
+                    "commit_sha256": public(accepted["commit_sha256"], r"[0-9a-f]{64}")}
+                return copy.deepcopy(value)
             time.sleep(0.5)
         raise OperationError("automatic_publication_deadline")
 
@@ -142,6 +153,9 @@ class Source:
         accepted = value.get("last_accepted_backup")
         if accepted is None:
             return
+        self.observe_accepted(accepted)
+
+    def observe_accepted(self, accepted):
         job = accepted["begin"]["job"]
         request = canonical_uuid(job["commit_id"])
         require(request.startswith("a17dbac2-"), "daemon_initiated_request")
@@ -155,7 +169,7 @@ class Source:
         else:
             declared = int(accepted["inventory_root"]["stored_bytes"])
             require(declared > 0, "positive_checkpoint_bytes")
-            self.completed[request] = accepted
+            self.completed[request] = copy.deepcopy(accepted)
             self.declared_bytes += declared
         require(len(self.completed) <= MAX_CHECKPOINTS and self.declared_bytes <= MAX_DECLARED_BYTES,
                 "bounded_ci_cloud_work")
@@ -172,44 +186,25 @@ class Source:
             time.sleep(0.5)
         raise OperationError("previous_automatic_metadata_not_retired")
 
-    def caught_up(self, value):
-        journal, policy = value["mutation_log"], self.policy(value)
-        require(journal["enabled"] and journal["gap"] is None and not journal["snapshot_required"]
-                and journal["retained_bytes"] == 0
-                and journal["acknowledged_through"] == journal["head"]["sequence"]
-                and policy["last_backed_up_frontiers"] == journal["head"]["frontiers"],
-                "accepted_complete_journal_head")
-
-    def routes(self, value):
-        request = canonical_uuid(value["request_id"])
-        root = self.node.home / "data/cloud-byte-backup-v2/jobs" / request
-        plan = read_json(root / "log-plan.json")
-        require(plan["ready"] and 0 < plan["objects"] <= 4096
-                and 0 < plan["files"] <= 4096, "bounded_complete_log_plan")
-        destinations = {}
-        for number in range(plan["objects"]):
-            record = read_json(root / f"log-object-{number:08}.json")
-            receipt = record["receipt"]
-            require(receipt and receipt["object"] == record["input"]["object"], "accepted_log_receipt")
-            destination = receipt["object"]["destination"]
-            if record["payload"] is not None:
-                require(destination == "r2", "log_metadata_uses_r2")
-            destinations[receipt["receipt_id"]] = destination
-        roles = set()
-        for number in range(plan["files"]):
-            file = read_json(root / f"log-file-{number:08}.json")
-            path = file["path"].split("/")
-            require(len(path) == 5 and path[0] == "mutation-log"
-                    and path[3] in ("main", "cas-add", "cas-delete"), "native_log_file_role")
-            roles.add(path[3])
-            destination = "r2" if path[3] == "main" else "b2"
-            require(file["extents"] and all(destinations[e["receipt_id"]] == destination
-                    for e in file["extents"]), "main_r2_and_cas_b2_routes")
-        require({"main", "cas-add"} <= roles, "real_main_and_cas_log_bytes")
-        return {"main_r2": True, "cas_b2": True, "metadata_r2": True, "native_files": plan["files"]}
+    def caught_up(self, selected, snapshot=86400):
+        """Observe current progress without replacing the frozen recovery point."""
+        commit = selected["last_accepted_backup"]["commit_sha256"]
+        require(commit in self.publication_deadlines, "frozen_publication_deadline")
+        deadline = self.publication_deadlines[commit]
+        value = selected
+        while time.monotonic() < deadline:
+            policy = self.policy(value, snapshot)
+            if released_publication(value, policy) and all(completion(value, policy).values()):
+                self.node.health()
+                require(time.monotonic() < deadline, "accepted_complete_journal_head")
+                return
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+            if time.monotonic() < deadline:
+                value = self.cloud("status")
+        raise OperationError("accepted_complete_journal_head")
 
     def write(self, schema):
-        # Real native CAS bytes accompany the record updates in the next log.
+        # Automatic publication may split these real writes across several logs.
         payload = hashlib.shake_256(("Cloud automatic CI " + self.source).encode()).digest(65536)
         path = self.node.home.parent / "automatic-file.bin"
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)

@@ -3,7 +3,6 @@ use cloud_backup_protocol::v2::AcceptedBackup;
 use cloud_backup_protocol::Digest;
 use serde::{Deserialize, Serialize};
 
-const MAX_CHAIN: u32 = 32768;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Plan {

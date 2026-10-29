@@ -13,6 +13,7 @@ import re
 import stat
 
 from support import dev_endpoint, require, read_json, hash_file
+from restore_log import verified as verified_log_routes
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
@@ -136,15 +137,9 @@ def inventory(home, root):
     return sorted(files, key=lambda item: item["path"])
 
 
-def replayed_inventory(home, root, replay, accepted):
-    plan = read_json(owned(root, "chain/plan.json"))
-    cursor = read_json(owned(root, "chain/cursor.json"))
-    require(plan["version"] == cursor["version"] == 1
-            and plan["head"] == cursor["head"] == accepted["commit_sha256"]
-            and plan["base"] == replay["base"] and 1 <= plan["links"] <= 8
-            and cursor["remaining"] == cursor["entry"] == cursor["part"] == 0
-            and cursor["previous"] == accepted and cursor["position"] == replay["through"],
-            "complete_selected_log_replay")
+def replayed_inventory(home, root, replay, accepted, observe):
+    routes = verified_log_routes(lambda path: read_json(owned(root, path)),
+                                 names(owned(root, "chain/plan.json").parent), replay, accepted, observe)
     paths = ["laststore-pack-node-v1"]
     for name in ("disk-run", "disk-cas"):
         paths.extend(name + "/" + control for control in ("CURRENT", "laststore-run-home-v2"))
@@ -158,10 +153,10 @@ def replayed_inventory(home, root, replay, accepted):
         size = nonnegative(file.lstat().st_size)
         files.append({"path": path, "native_bytes": size, "native_sha256": hash_file(file, size)})
     closure(home, files)
-    return files
+    return files, routes
 
 
-def restored(home: Path, report: dict, baseline: dict, replay=None) -> dict:
+def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -185,11 +180,15 @@ def restored(home: Path, report: dict, baseline: dict, replay=None) -> dict:
     require(not os.path.lexists(owned(home, "native-cloud-restore-receipt.json"))
             and not os.path.lexists(owned(home, "current-session.json"))
             and not os.path.lexists(owned(home, "data/folddb.sock")), "restore_before_normal_boot")
-    files = (inventory(home, root) if replay is None
-             else replayed_inventory(home, root, replay, read_json(owned(root, "selection.json"))["accepted"]))
+    routes = None
+    if replay is None:
+        files = inventory(home, root)
+    else:
+        files, routes = replayed_inventory(home, root, replay,
+            read_json(owned(root, "selection.json"))["accepted"], observe)
     require(len(files) == report["native_files"]
             and sum(item["native_bytes"] for item in files) == report["native_bytes"], "restore_native_totals")
-    return {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
+    result = {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
             "native_files": len(files), "native_bytes": report["native_bytes"], "files": files,
             "receipt_sha256": hash_file(receipt_path), "profile_version": 2, "node_format": 4,
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
@@ -197,3 +196,6 @@ def restored(home: Path, report: dict, baseline: dict, replay=None) -> dict:
             "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,
             "native_file_closure_verified": True,
             "before_first_normal_boot": True}
+    if routes is not None:
+        result["mutation_log_routes"] = routes
+    return result
