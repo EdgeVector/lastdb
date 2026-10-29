@@ -1,6 +1,7 @@
 //! Aggregate summary finalize path.
 
-use super::rules::{association_matches, summary_mutation};
+use super::enrolled::pin_enrolled;
+use super::rules::summary_mutation;
 use super::*;
 
 mod rules;
@@ -15,85 +16,26 @@ impl MutationManager {
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.refuse_logical_capture("aggregate operations")?;
         rules::validate_request(&finalize)?;
-        let target_key = self.resolve_aggregate_target_key(
-            &finalize.target_schema_name,
-            &finalize.target_key_value,
-        )?;
-        let storage_prefix = self
-            .resolve_aggregate_storage_prefix(
-                &finalize.source_schema_name,
-                &finalize.target_schema_name,
-                &finalize.member_schema_name,
-                access_context,
-            )
-            .await?;
-        let source_hash = finalize
-            .source_partition_key_value
-            .hash
-            .as_deref()
-            .expect("checked hash");
-        let guard_key = aggregate_guard_key(
-            storage_prefix.as_deref(),
-            &finalize.source_schema_name,
-            source_hash,
-        );
-        let _guard_lock = self
-            .aggregate_named_lock(format!("aggregate_guard_lock\u{1f}{guard_key}"))
-            .write_owned()
-            .await;
-        self.with_aggregate_guards(_guard_lock, async {
-            let source_hash = finalize
-                .source_partition_key_value
-                .hash
-                .as_deref()
-                .expect("checked hash");
-            let guard = self
-                .read_reconciled_aggregate_guard(&guard_key, storage_prefix.as_deref())
-                .await?
-                .ok_or_else(|| {
-                    SchemaError::InvalidData("aggregate source partition is not enrolled".into())
-                })?;
-            guard.validate().map_err(SchemaError::InvalidData)?;
-            if !association_matches(
-                &guard,
-                &finalize.source_schema_name,
-                source_hash,
-                &finalize.target_schema_name,
-                &target_key,
-                &finalize.member_schema_name,
-            ) {
-                return Err(SchemaError::InvalidData(
-                    "aggregate finalize association does not match the enrolled guard".into(),
-                ));
-            }
-            self.validate_enrolled_aggregate_schemas(&guard)?;
-
-            let target_lock_key = Self::aggregate_target_lock_key(
-                storage_prefix.as_deref(),
-                &finalize.target_schema_name,
-                &target_key,
-            );
-            let _target_lock = self
-                .aggregate_named_lock(target_lock_key)
-                .write_owned()
-                .await;
-            self.with_aggregate_guards(_target_lock, async {
-                self.check_aggregate_target_owner(
-                    &guard,
-                    storage_prefix.as_deref(),
-                    "aggregate target owner does not match the finalize source partition",
-                )
-                .await?;
-                self.finalize_with_repair_grant(
-                    finalize,
-                    target_key,
-                    &guard,
-                    storage_prefix.as_deref(),
-                )
-                .await
-            })
-            .await
-        })
+        self.with_enrolled_aggregate_target(
+            finalize,
+            access_context,
+            "checked hash",
+            "aggregate finalize association does not match the enrolled guard",
+            |finalize, manager, target_key, guard, storage_prefix| {
+                pin_enrolled(async move {
+                    manager
+                        .check_aggregate_target_owner(
+                            guard,
+                            storage_prefix,
+                            "aggregate target owner does not match the finalize source partition",
+                        )
+                        .await?;
+                    manager
+                        .finalize_with_repair_grant(finalize, target_key, guard, storage_prefix)
+                        .await
+                })
+            },
+        )
         .await
     }
 
