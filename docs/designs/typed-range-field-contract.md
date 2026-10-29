@@ -41,6 +41,8 @@ The user identity supplies the encryption root. Recovery retains that same ident
 The existing key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for separate encryption and hash keys.
 Separate HKDF labels derive the main and CAS home keys from the encryption key.
 No lookup key uses OPE, and the key derivation has no OPE key.
+The unselected portable OPE prototype and its separate proof workflow are also retired.
+Its historical design remains in Git history; it is not an alternate storage format.
 
 | Part | Representation and protection |
 | --- | --- |

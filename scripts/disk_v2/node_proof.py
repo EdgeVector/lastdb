@@ -66,11 +66,13 @@ PRIMARY_SETTINGS = {
     "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
 }
 CASE = "new-home"
-# Keep the original generator seed and data shape. More distinct records
-# preserve the 16 MiB logical-byte floor after canonical field deduplication.
+# The generator number of the seed: the number this case had among the four
+# cases of the conversion proof, so the seed data stays the same.
 SEED_NUMBER = 2
 PROFILE = {
-    "seed": {"base": 4000, "creates": 1000, "updates": 4000, "deletes": 250},
+    # Keep the generated corpus above MINIMUM_LOGICAL on the current format.
+    # The earlier 3,000-record base reached only 14.4 MiB on the current format.
+    "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 

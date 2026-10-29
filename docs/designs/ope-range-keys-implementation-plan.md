@@ -1,5 +1,9 @@
 # Private-key-derived OPE implementation plan
 
+Historical research: the portable OPE prototype and its CI proof are retired.
+The accepted [typed-range field contract](typed-range-field-contract.md) uses no OPE.
+The design below records the earlier candidate; it is not the current implementation plan.
+
 Status: Portable replacement merged in PR #371, 2026-10-24. Native activation remains gated.
 
 [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge after its suffix-leakage counterexample passed in CI.
@@ -12,7 +16,7 @@ The [replacement options](ope-replacement-options.md) record the other costs and
 Use binary CLWW OPE from the [published paper, Section 3.2](https://saweis.net/pdfs/pore-clww.pdf).
 Instantiate its prefix PRF with independent 128-bit blocks and bounded rejection of the maximum block.
 Addition of a plaintext bit then fits in that block, with no suffix carry.
-The [crate contract](../../lastdb_range_crypto/README.md) specifies the exact profile and its review argument.
+The [crate contract](https://github.com/EdgeVector/lastdb/blob/b2419f5a8b510306411bb9c84a2fece0019ceec3/lastdb_range_crypto/README.md) specifies the exact profile and its review argument.
 The profile is `lastdb:clww-binary128-nonwrapping:hmac-sha256:v1`.
 
 Derive its root directly from the private identity seed with a separate purpose.

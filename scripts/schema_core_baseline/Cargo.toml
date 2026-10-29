@@ -1,0 +1,27 @@
+[package]
+autotests = false
+name = "schema_core_baseline"
+version.workspace = true
+edition.workspace = true
+publish = false
+description = "Deterministic in-memory snapshot of schema_service_core seed identities, release rows, and channel generations."
+
+[[bin]]
+bench = false
+name = "schema-core-baseline"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+app_identity_crypto = { path = "../../app_identity_crypto" }
+base64 = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+schema_service_core = { path = "../../schema_service/crates/core" }
+schema_types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

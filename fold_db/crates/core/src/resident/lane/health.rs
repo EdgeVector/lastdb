@@ -150,42 +150,62 @@ pub(super) fn record_quarantined<T>(
     lane.notify.notify_one();
 }
 
+/// The lane and the counters a failure update publishes together.
+pub(super) struct LaneAccount<'a, T> {
+    pub(super) lane: &'a LaneRuntime<T>,
+    pub(super) metrics: &'a PersistLaneCounters,
+    pub(super) shared_metrics: Option<&'a PersistLaneMetrics>,
+    pub(super) age_tracker: &'a PersistLaneAgeTracker,
+}
+
+/// Envelope count and byte size of one writer attempt.
+pub(super) struct AttemptedBatch {
+    pub(super) count: u64,
+    pub(super) bytes: u64,
+}
+
 /// Shared retry path: release the completed prefix, keep the failed suffix at
 /// the head, count the failure, log, and back off.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_failed_batch<T>(
-    lane: &LaneRuntime<T>,
+    account: &LaneAccount<'_, T>,
     mut remaining: Vec<PersistEnvelope<T>>,
     finished: Vec<PersistEnvelope<T>>,
     error: &str,
-    attempted: u64,
-    attempted_bytes: u64,
-    metrics: &PersistLaneCounters,
-    shared_metrics: Option<&PersistLaneMetrics>,
-    age_tracker: &PersistLaneAgeTracker,
+    attempted: AttemptedBatch,
 ) {
     let returned = remaining.len() as u64;
     let returned_bytes = remaining.iter().fold(0_u64, |total, envelope| {
         total.saturating_add(envelope.bytes)
     });
-    let completed = attempted.saturating_sub(returned);
-    let completed_bytes = attempted_bytes.saturating_sub(returned_bytes);
-    record_completed(lane, completed, completed_bytes, metrics, shared_metrics);
+    let completed = attempted.count.saturating_sub(returned);
+    let completed_bytes = attempted.bytes.saturating_sub(returned_bytes);
+    record_completed(
+        account.lane,
+        completed,
+        completed_bytes,
+        account.metrics,
+        account.shared_metrics,
+    );
     remaining.sort_by_key(|envelope| envelope.commit_id);
-    let consecutive_failures =
-        prepend_failed(lane, remaining, metrics, shared_metrics, age_tracker);
+    let consecutive_failures = prepend_failed(
+        account.lane,
+        remaining,
+        account.metrics,
+        account.shared_metrics,
+        account.age_tracker,
+    );
     // The failed suffix is back on the FIFO before any finished waiter runs,
     // so a follow-up reserve cannot pass that suffix.
     notify_released(finished);
-    metrics.record_failure();
-    if let Some(shared) = shared_metrics {
+    account.metrics.record_failure();
+    if let Some(shared) = account.shared_metrics {
         shared.record_failure();
     }
     if consecutive_failures >= UNHEALTHY_AFTER_FAILURES {
         tracing::error!(
             error = %error,
-            schema = %lane.key.schema_name,
-            storage_prefix = %lane.key.storage_prefix,
+            schema = %account.lane.key.schema_name,
+            storage_prefix = %account.lane.key.storage_prefix,
             consecutive_failures,
             returned,
             "persist lane is unhealthy; admission is closed"
@@ -193,8 +213,8 @@ pub(super) async fn handle_failed_batch<T>(
     } else {
         tracing::warn!(
             error = %error,
-            schema = %lane.key.schema_name,
-            storage_prefix = %lane.key.storage_prefix,
+            schema = %account.lane.key.schema_name,
+            storage_prefix = %account.lane.key.storage_prefix,
             consecutive_failures,
             returned,
             "persist lane write failed; retained envelopes will retry"
