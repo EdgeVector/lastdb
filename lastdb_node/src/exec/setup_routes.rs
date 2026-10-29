@@ -242,11 +242,9 @@ pub(super) fn partition_locally_loaded_schema_requests(
 }
 
 /// `POST /api/apps/shared-surface/publish-attach` — explicit shared publish
-/// or attach via the local-first facade.
+/// or attach via the live schema-service facade.
 ///
-/// Mode/pack wiring is install-owned (`{home}/schema_resolver.json` + env).
-/// Defaults to LiveOnly when pack is not configured; Shadow/Enforce currently
-/// clamp to LiveOnly because Mini no longer ships an in-process embedder.
+/// The install-owned `schema_resolver.json` controls the request timeout.
 /// Private declare routes never call this path.
 pub async fn execute_apps_shared_surface_publish_attach_route(
     req: &UdsRequest,
