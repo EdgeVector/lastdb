@@ -35,6 +35,7 @@ pub use receipt::{
 };
 
 use crate::db_operations::DbOperations;
+use crate::fold_db_core::mutation_admission::MutationAdmissionGate;
 use crate::memory_budget::{
     DeferReservation, DeferredPersistGauge, RuntimeMemoryBudgetObservation,
 };
@@ -147,7 +148,7 @@ pub struct MutationManager {
     purge_stats: Arc<PurgeLedger>,
     /// One local gate shared with the deferred writer. Clock jobs retain its
     /// admission until durable completion; no router is installed after boot.
-    mutation_admission: Arc<crate::fold_db_core::mutation_admission::MutationAdmissionGate>,
+    mutation_admission: Arc<MutationAdmissionGate>,
     /// Per-schema FIFO lanes for durable purge work.
     persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>,
 }
@@ -178,7 +179,7 @@ impl MutationManager {
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: None,
             purge_stats,
-            mutation_admission: Arc::new(Default::default()),
+            mutation_admission: Arc::new(MutationAdmissionGate::default()),
             persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
         };
         let writer = Arc::new(molecules::DeferredLaneWriter {
@@ -239,9 +240,7 @@ impl MutationManager {
         self.persist_lanes.pressure()
     }
 
-    pub(crate) fn mutation_admission(
-        &self,
-    ) -> &crate::fold_db_core::mutation_admission::MutationAdmissionGate {
+    pub(crate) fn mutation_admission(&self) -> &MutationAdmissionGate {
         &self.mutation_admission
     }
 
