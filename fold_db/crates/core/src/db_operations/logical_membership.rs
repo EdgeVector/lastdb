@@ -34,7 +34,7 @@ pub(crate) async fn logical_key_membership(
     if !schema.runtime_fields.contains_key(hash_name) {
         return Ok(matches);
     }
-    let profile = Some(db_ops.molecule_keys().schema_profile(schema)?);
+    let profile = db_ops.molecule_keys().schema_profile(schema)?;
     let hash_values = field_values(db_ops, schema, hash_name, keys, storage_prefix).await?;
     let mut range_keys = Vec::new();
     let mut range_indices = Vec::new();
@@ -77,7 +77,7 @@ pub(crate) async fn logical_key_membership(
 }
 
 fn range_matches_scalar(
-    profile: Option<MoleculeRangeProfile>,
+    profile: MoleculeRangeProfile,
     key: &KeyValue,
     value: &Value,
 ) -> Result<bool, SchemaError> {

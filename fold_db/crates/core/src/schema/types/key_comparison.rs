@@ -22,7 +22,7 @@ pub struct KeyComparisonContext {
     identity: String,
     range: RangeKeyComparison,
     failure: OnceLock<String>,
-    profile: Option<MoleculeRangeProfile>,
+    profile: MoleculeRangeProfile,
 }
 
 impl KeyComparisonContext {
@@ -66,7 +66,7 @@ impl KeyComparisonContext {
             identity: format!("kc1:{:x}", Sha256::digest(bytes)),
             range: range_comparison,
             failure: OnceLock::new(),
-            profile: Some(profile),
+            profile,
         })
     }
 

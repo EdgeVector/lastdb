@@ -214,6 +214,7 @@ Those checks use bounded batch reads. They create no key and change no profile.
 On 2026-10-28 `MoleculeKeyCodec` lost the plain hash encoding and its optional range profile.
 The codec always blinds a hash and always uses the range profile of the molecule.
 
-This part stays. A later change removes it:
-
-- The reader and writer calls that take `Option<MoleculeRangeProfile>` from `KeyComparisonContext::current_profile()`.
+On 2026-10-29 the key comparison context and its normalize helpers took a required range profile.
+The molecule bundle metadata requires its range profile, key authority, and conflict identity.
+`KeyComparisonContext::current_profile()` returns no profile only when no comparison context is active.
+A field read with no molecule and no active comparison context uses its key without normalization.

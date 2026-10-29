@@ -87,9 +87,9 @@ impl MoleculeKeyStore {
             let metadata = BundleMetadata {
                 version: TYPED_METADATA_VERSION,
                 molecule_uuid: molecule.clone(),
-                range_profile: Some(profile),
-                key_authority: Some(KeyAuthority::Bundle),
-                conflict_identity: Some(ConflictKeyIdentity::StoredV1),
+                range_profile: profile,
+                key_authority: KeyAuthority::Bundle,
+                conflict_identity: ConflictKeyIdentity::StoredV1,
             };
             rows.push(KvMutation::put(
                 wrap_key_for(&molecule, NODE_DOMAIN).as_bytes(),
