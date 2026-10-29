@@ -21,7 +21,7 @@ This order preserves the dependency from durable CURRENT to a durable run name a
 The staged CURRENT file is private, even when its file flush finishes first.
 The directory barriers retain their existing platform implementations, including F_FULLFSYNC on macOS.
 
-A worker creation failure returns an error and releases its private temporary run.
+A worker creation failure uses the original serial path and its same barriers.
 A run failure removes a successfully staged temporary CURRENT.
 A CURRENT staging failure still joins the run worker before it returns.
 Unpublished new runs retain the existing discard rule.

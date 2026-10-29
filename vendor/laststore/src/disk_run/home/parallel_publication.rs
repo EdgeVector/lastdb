@@ -19,14 +19,19 @@ impl RunHome {
     ) -> Result<Arc<Manifest>> {
         let staged = {
             let _prerequisites = timing::stage("v2_parallel_prerequisites_us");
-            std::thread::scope(|scope| {
-                let worker = std::thread::Builder::new()
+            let mut run = Some(run);
+            let parallel = std::thread::scope(|scope| {
+                let worker = match std::thread::Builder::new()
                     .name("laststore-sync".into())
-                    .spawn_scoped(scope, move || {
+                    .spawn_scoped(scope, || {
+                        let run = run.take().expect("unclaimed private run");
                         let from = Instant::now();
                         let (result, report) = timing::measure(|| run.finish().map(|_| ()));
                         (result, report, from, Instant::now())
-                    })?;
+                    }) {
+                    Ok(worker) => worker,
+                    Err(_) => return None,
+                };
                 let from = Instant::now();
                 let staged = timing::during("v2_current_staging_us", || {
                     next.stage(&self.root, &self.key)
@@ -49,10 +54,20 @@ impl RunHome {
                         // temporary manifest may be removed on this branch.
                         let _ = fs::remove_file(path);
                     }
-                    return Err(error);
+                    return Some(Err(error));
                 }
-                staged
-            })?
+                Some(staged)
+            });
+            match parallel {
+                Some(staged) => staged?,
+                None => {
+                    // Thread creation is optional. The scope released its
+                    // borrow, and no worker consumed or changed this run.
+                    timing::count("v2_parallel_worker_fallbacks", 1);
+                    run.take().expect("unclaimed private run").finish()?;
+                    next.stage(&self.root, &self.key)?
+                }
+            }
         };
         // Both durable prerequisites succeeded. Rename and root-directory
         // sync retain the existing poison-on-uncertainty publication boundary.
