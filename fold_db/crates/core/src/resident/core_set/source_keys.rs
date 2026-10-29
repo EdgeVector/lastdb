@@ -11,6 +11,8 @@ use super::*;
 use hashbrown::HashTable;
 use std::hash::{BuildHasher, RandomState};
 
+mod probe;
+
 pub(super) type SourceId = u32;
 
 /// Above this many members a source's slot set switches to a hash set.
@@ -98,12 +100,11 @@ pub(super) struct SourceTable {
     entries: Slab<SourceEntry>,
 }
 
-/// Lazily packed forms of one lookup, so a probe packs at most once.
+/// Ordinary comparisons borrow the requested key. Only barriers recover a base.
 struct Probe<'a> {
     collection: &'a str,
     key: &'a str,
-    packed: Option<Vec<u8>>,
-    barrier: Option<Option<Vec<u8>>>,
+    barrier: Option<Option<String>>,
 }
 
 impl<'a> Probe<'a> {
@@ -111,24 +112,17 @@ impl<'a> Probe<'a> {
         Self {
             collection,
             key,
-            packed: None,
             barrier: None,
         }
     }
 
     fn matches(&mut self, stored: &StoredKey) -> bool {
         match stored {
-            StoredKey::Packed(packed) => {
-                let probe = self
-                    .packed
-                    .get_or_insert_with(|| pack_source(self.collection, self.key));
-                packed.as_ref() == probe.as_slice()
-            }
+            StoredKey::Packed(packed) => probe::matches(packed, self.collection, self.key),
             StoredKey::Barrier(base) => {
-                let probe = self.barrier.get_or_insert_with(|| {
-                    barrier_base(self.key).map(|mk| pack_source(self.collection, &mk))
-                });
-                probe.as_deref() == Some(base.as_ref())
+                let key = self.barrier.get_or_insert_with(|| barrier_base(self.key));
+                key.as_deref()
+                    .is_some_and(|key| probe::matches(base, self.collection, key))
             }
         }
     }
