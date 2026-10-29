@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 
 from node import OwnedNode
 from automatic import Automatic
+from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
 from ownership import run_identity
 from programs import Programs
@@ -157,18 +158,22 @@ class Operation:
         finally:
             del phrase
             self.api_key = None
-            (credentials / "cloud_sync.json.paused").unlink()
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
                             keyed_reads=boots, file_bytes=self.baseline["file_bytes"],
                             file_sha256=self.baseline["file_sha256"])
 
     def cleanup(self):
-        if self.node is not None and self.node.process is not None:
-            try:
-                self.node.stop()
-            except BaseException:
-                self.preserve = True
-                self.node.cleanup_stop()
+        try:
+            if self.node is not None and self.node.process is not None:
+                try:
+                    self.node.stop()
+                except BaseException:
+                    self.preserve = True
+                    self.node.cleanup_stop()
+        finally:
+            # The outer cleanup covers failures before Automatic.run(), too.
+            # Retaining uncertain native data must never retain its API key.
+            clear_credentials(self)
         if self.root is None:
             return
         info = private_directory(self.root)

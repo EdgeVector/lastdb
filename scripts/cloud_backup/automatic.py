@@ -5,6 +5,7 @@ import json
 import time
 
 from automatic_source import Source
+from automatic_prefixes import PrefixRecords
 from lifecycle import Lifecycle
 from node import OwnedNode
 from ownership import complete as complete_ownership
@@ -37,7 +38,7 @@ class Automatic:
                 "accepted_dependency_inspection")
         return report
 
-    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None):
+    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None, temporary=None):
         operation = self.operation
         operation.summary["stage"] = name
         require(operation.node.process is None, "source_stays_stopped_for_restore")
@@ -53,15 +54,18 @@ class Automatic:
         operation.node = node
         reads = []
         lifecycle_reads = []
+        temporary_reads = []
         for _number in range(2):
             node.start()
             reads.append(node.verify_records(expected))
             if lifecycle is not None:
                 lifecycle_reads.append(lifecycle.verify(node, initial, name == "snapshot-recovery"))
+            if temporary is not None:
+                temporary_reads.append(temporary.verify_absent(node))
             node.stop()
         require(node.clean_stops == 2, "two_automatic_restore_clean_stops")
         return {"restore": proof, "restored_boots": 2, "strict_clean_stops": 2,
-                "keyed_reads": reads, "lifecycle_reads": lifecycle_reads}
+                "keyed_reads": reads, "lifecycle_reads": lifecycle_reads, "temporary_key_reads": temporary_reads}
 
     def run(self):
         operation = self.operation
@@ -88,7 +92,9 @@ class Automatic:
         first_ttl = lifecycle.await_expiry(2)
         operation.summary["stage"] = "mutation-log"
         source.write(self.baseline["schema"])
-        written = source.cloud("status")["mutation_log"]["head"]
+        temporary = PrefixRecords(source)
+        minimums = temporary.write()
+        written = minimums["both_deleted"]
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"],
                                through=written["frontiers"])
         source.caught_up(log)
@@ -111,6 +117,7 @@ class Automatic:
         restarted = source.published("mutation_log")
         source.caught_up(restarted)
         source.node.verify_records(source.expected)
+        temporary.verify_absent(source.node)
         operation.summary["stage"] = "ttl-snapshot-expiry"
         lifecycle.write(lifecycle.expired[2:])
         second_ttl = lifecycle.await_expiry(4)
@@ -119,6 +126,7 @@ class Automatic:
         later = source.published("snapshot", snapshot["last_accepted_backup"]["commit_sha256"],
                                  snapshot=60, through=second_ttl)
         source.caught_up(later, snapshot=60)
+        temporary.verify_absent(source.node)
         require(later["automatic_backup"]["last_snapshot_at"] > snapshot["automatic_backup"]["last_snapshot_at"],
                 "changed_interval_produced_a_later_snapshot")
         operation.summary["stage"] = "automatic-disable"
@@ -128,13 +136,13 @@ class Automatic:
         source.node.stop()
         dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
                                   "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
-        replay = {"base": snapshot["last_accepted_backup"], "minimum": written}
+        replay = {"base": snapshot["last_accepted_backup"], "minimum": written, "prefixes": minimums}
         base_restore = self.recover("base-recovery", self.baseline, snapshot["last_accepted_backup"],
-                                    lifecycle=lifecycle, initial=True)
+                                    lifecycle=lifecycle, initial=True, temporary=temporary)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
-                                   lifecycle=lifecycle, observe=source.observe_accepted)
+                                   lifecycle=lifecycle, observe=source.observe_accepted, temporary=temporary)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
-                                        lifecycle=lifecycle)
+                                        lifecycle=lifecycle, temporary=temporary)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
                                        for value in (snapshot, log, later)])
         return {"initial_snapshot": True, "minute_mutation_log": True, "daily_snapshot_unchanged_by_log": True,
