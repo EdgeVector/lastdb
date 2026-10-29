@@ -1,26 +1,13 @@
-//! Local-first modes, path metadata and facade request/result types.
+//! Stable wire types for proposal resolution and shared-surface publishing.
 
 use super::*;
 
 // ---------------------------------------------------------------------------
-// Modes & path metadata
+// Resolution-path metadata
 // ---------------------------------------------------------------------------
 
-/// Local-first resolver operating mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LocalFirstMode {
-    /// Always call live; if a local pack is active, evaluate locally for
-    /// comparison only. Caller always receives live results.
-    Shadow,
-    /// Return local UseExisting/UseComponents when high-confidence
-    /// (route = UseLocal); otherwise fall back to live for that proposal.
-    EnforceExistingOnly,
-    /// Kill switch: never use the local pack; always live.
-    LiveOnly,
-}
-
-/// How a single proposal was resolved for the caller.
+/// Resolution-path metadata. The live adapter emits only `Live`; historical
+/// variants remain readable without changing the response contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum FacadePath {

@@ -2,12 +2,7 @@
 
 use super::*;
 
-impl<S, E, L> LocalFirstSchemaResolver<S, E, L>
-where
-    S: ResolverPackObjectStore + Send + Sync + 'static,
-    E: Embedder + Send + Sync + 'static,
-    L: LiveSchemaGateway,
-{
+impl LiveSchemaResolver {
     /// Explicit shared-surface publish/attach.
     pub async fn publish_attach(
         &self,
@@ -36,22 +31,6 @@ where
             .next()
             .ok_or_else(|| FoldDbError::Config("facade returned empty resolve batch".into()))?;
 
-        // Enforce local reuse → attach without register.
-        if matches!(self.mode, LocalFirstMode::EnforceExistingOnly)
-            && matches!(item.path, FacadePath::Local)
-            && item.result.outcome == SchemaResolveOutcome::Reuse
-        {
-            let hash = item.result.matched_shared_schema_hash.clone();
-            return Ok(publish_result(
-                &req,
-                hash,
-                "local_reuse",
-                SharedSurfacePublishOutcome::AttachedExisting,
-                item.path,
-            ));
-        }
-
-        // Shadow / live / enforce-fallback: use live resolve outcome.
         match item.result.outcome {
             SchemaResolveOutcome::Reuse => {
                 let hash = item.result.matched_shared_schema_hash.clone();
@@ -107,15 +86,15 @@ where
             schema.identity_hash = Some(h.clone());
         }
 
-        match self
-            .live
-            .add_shared_schema(
-                &schema,
-                req.request.surface.clone(),
-                "shared_surface_publish",
-                fallback_reason,
-            )
-            .await
+        // The retired async-trait gateway boxed this network future too.
+        match Box::pin(self.live.add_schema_with_shared_surface(
+            &schema,
+            HashMap::new(),
+            req.request.surface.clone(),
+            "shared_surface_publish",
+            fallback_reason,
+        ))
+        .await
         {
             Ok(response) => {
                 let hash = response

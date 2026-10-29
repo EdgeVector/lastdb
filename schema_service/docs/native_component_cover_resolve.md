@@ -33,7 +33,8 @@ Unset or any other value → native path enabled.
 
 ## Mini / local
 
-The client library exposes the same evaluator through
-`schema_service_client::local_first_resolver::evaluate_local_proposal` for callers
-that supply a pack and embedder. Mini has neither and always resolves through
+Mini uses `schema_service_client::LiveSchemaResolver` and always resolves through
 the live service; its host configuration controls only the request timeout.
+The former client local-pack evaluation and shadow/enforce facade are retired.
+Core `evaluate_native` and resolver-pack publication/consumption remain separate
+facilities for callers with an explicit pack and embedder.

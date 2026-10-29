@@ -369,6 +369,13 @@ does not alter a product call path.
 
 ## PR 4 — local-first resolver facade and shadow comparison
 
+Current client status: the local-first facade in this section is historical.
+Mini now uses `LiveSchemaResolver`, which preserves stable proposal matching and
+shared-surface publishing while always calling the live service. The unused
+shadow/enforce client machinery is retired. Core pack tooling and the independent
+HTTP pack store remain available.
+
+
 Suggested card/branch: `schema-resolver-local-first-facade` /
 `fkanban/schema-resolver-local-first-facade`
 

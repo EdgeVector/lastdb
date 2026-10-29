@@ -16,21 +16,19 @@
 //!
 //! Resolver-pack fetch: [`resolver_pack_http::HttpResolverPackStore`] implements
 //! the core [`schema_service_core::ResolverPackObjectStore`] over HTTPS (or
-//! localhost HTTP for tests). Product call-path activation is intentionally
-//! not wired here (see local schema resolver engineering plan PR 3/4).
+//! localhost HTTP for isolated tooling). This is separate from
+//! [`LiveSchemaResolver`], which always resolves through the live service.
 
-pub mod local_first_resolver;
+pub mod live_resolver;
 pub mod resolver_pack_http;
 
-pub use local_first_resolver::{
-    classify_disagreement, evaluate_local_proposal, field_context_text,
-    map_resolver_output_to_resolve_result, match_live_result, pack_to_registry_metadata,
-    proposal_field_id, DisagreementClass, FacadePath, FacadeProposal, FacadeResolveItem,
-    LiveSchemaGateway, LocalEvaluateError, LocalEvaluateOutcome, LocalFirstMode,
-    LocalFirstSchemaResolver, LocalShadowSummary, NoopPackStore, SharedSurfaceAttachmentRecord,
+pub use live_resolver::{
+    match_live_result, DisagreementClass, FacadePath, FacadeProposal, FacadeResolveItem,
+    LiveSchemaResolver, LocalShadowSummary, SharedSurfaceAttachmentRecord,
     SharedSurfacePublishOutcome, SharedSurfacePublishRequest, SharedSurfacePublishResult,
 };
 pub use resolver_pack_http::{join_object_url, HttpResolverPackStore};
+pub use schema_service_core::{field_context_text, proposal_field_id};
 
 use app_identity_crypto::{
     compute_payload_hash, key_id, sign_envelope, Env, Purpose, SignatureEnvelope, SigningKey,
