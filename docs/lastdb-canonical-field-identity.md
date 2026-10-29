@@ -1,5 +1,14 @@
 # Canonical Field Identity — registry-sourced hashes, auto-proteins, and the backfill
 
+**Current membership rule (Tom, 2026-10-29):** Equal canonical field identities
+share one protein across schemas. App ownership, different keys, declarations,
+and the former 0.6 schema-overlap rule do not restrict membership.
+Schema load joins existing proteins without a record rewrite.
+The [canonical model](lastdb-canonical-model.md) defines the current rule.
+The July draft below records the earlier design and its original rationale.
+Its same-product membership gate is superseded.
+
+
 | Field | Value |
 |-------|--------|
 | **Status** | **Draft — plan for review** (Tom asked for the plan 2026-07-30) |
@@ -11,7 +20,7 @@
 | **Milestone** | `milestone-lastdb-fkanban-protein-primary` |
 | **Supersedes (in part)** | `design-lastdb-field-hash-auto-protein` § "Defaults for open edges" |
 | **Already shipped** | fold #1002 (local mint + same-product bind + fold on write), fkanban `cr-ms7t4bwe-b923` (app stops reaching into proteins) |
-| **In-tree (this repo)** | `docs/lastdb-canonical-field-identity.md` — **source of truth for implementers** |
+| **In-tree (this repo)** | `docs/lastdb-canonical-field-identity.md` — historical draft; current rule above |
 
 ---
 

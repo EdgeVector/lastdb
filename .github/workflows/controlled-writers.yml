@@ -1,0 +1,101 @@
+name: Controlled 16-writer comparison
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/benchmarks/controlled_writers.py'
+      - '.github/workflows/controlled-writers.yml'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Full baseline product SHA
+        type: string
+        required: true
+      candidate:
+        description: Full candidate SHA compatible with the stopped generated seed
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: controlled-writers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/bench-build.yml
+    with:
+      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha }}
+      driver: ${{ github.sha }}
+      profile: standard
+
+  compare:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
+      DRIVER_SHA: ${{ github.sha }}
+      BUILD_CONTEXT: ${{ needs.build.outputs.context }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+    steps:
+      - name: Prepare the external result directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/controlled-writers"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/controlled-writers" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/controlled-writer-build
+          merge-multiple: true
+      - name: Verify the exact programs and build recipe
+        run: |
+          python3 driver/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/controlled-writer-bins" \
+            --archive "$RUNNER_TEMP/controlled-writer-build/programs.tar.gz"
+      - name: Compare 16 writers from identical stopped generated files
+        run: |
+          python3 driver/scripts/benchmarks/controlled_writers.py \
+            --baseline-binary "$RUNNER_TEMP/controlled-writer-bins/$BASELINE_SHA/lastdbd" \
+            --baseline-revision "$BASELINE_SHA" \
+            --candidate-binary "$RUNNER_TEMP/controlled-writer-bins/$CANDIDATE_SHA/lastdbd" \
+            --candidate-revision "$CANDIDATE_SHA" --driver-revision "$DRIVER_SHA" \
+            --output "$BENCH_OUTPUT"
+      - name: Upload measurements and input fingerprints
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlled-writers-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify the uploaded artifact and record its download
+        id: receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/controlled-writer-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/controlled-writer-metadata.json" \
+            --output "$RUNNER_TEMP/controlled-writer-receipt"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        with:
+          name: controlled-writers-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/controlled-writer-receipt/
+          if-no-files-found: error
+          retention-days: 14

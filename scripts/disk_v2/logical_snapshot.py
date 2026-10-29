@@ -55,6 +55,9 @@ def zero_positions(nodes, output):
         verify(result["capture"], identity, pages, pages[0]["anchor"]["origin"])
         result["inspect"] = snapshot(node, "inspect", identity)
         require(result["inspect"] == result["capture"], "empty positions changed during local inspection")
+        from snapshot_adoption import zero_plans
+        result["adoption_plans"] = zero_plans(nodes, pages, result["capture"], identity,
+                                               output / "data-before-capture")
     finally:
         if (node.home / INTENT).exists():
             result["release"] = snapshot(node, "release", identity)

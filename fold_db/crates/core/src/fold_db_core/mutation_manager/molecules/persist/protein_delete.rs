@@ -58,6 +58,16 @@ impl MutationManager {
         if inputs.is_empty() {
             return Ok(inputs);
         }
+        let names: HashSet<_> = inputs
+            .iter()
+            .map(|mutation| mutation.schema_name.as_str())
+            .collect();
+        for name in names {
+            self.schema_manager
+                .apply_field_hash_coherence_on_load(name)
+                .await
+                .map_err(target_error)?;
+        }
         let erasures = self
             .expand_protein_member_deletes(inputs, scope)
             .await

@@ -154,6 +154,12 @@ and durable queue still govern disk publication; this fence does not replace the
 4. Complete the disk commit through the one native disk queue.
 5. Publish the clean core change, then send the durable ack.
 
+Write preparation fetches the exact headers of its changed fields in one bounded batch.
+It batches their tip reads within each database scope, with at most 10,000 keys per fetch.
+The existing reader resolves generation shadows, current private changes, and Delete barriers for those exact keys.
+A missing exact-scope header retains the existing full-load fallback.
+The fetched values end with the private preparation. The write gate and durable ack rule stay unchanged.
+
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
 Delete, Purge, and idempotent repeats follow the same rule.
 The ID identifies the accepted input. It does not identify the atom that wins a field conflict.
