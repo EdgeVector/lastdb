@@ -142,9 +142,10 @@ impl RunHome {
         for (key, body) in &records {
             writer.push(key, body.as_deref())?;
         }
-        // A run left by a failed finish is not in CURRENT; the next open
-        // removes it.
-        let run = meta(writer.finish()?)?;
+        // Complete the bytes now. Durability overlaps CURRENT staging, but
+        // both prerequisites finish before CURRENT can name this run.
+        let prepared = writer.prepare_finish()?;
+        let run = meta(prepared.summary().clone())?;
         drop(run_timing);
         let records = run.records;
         let run_bytes = run.file_bytes;
@@ -163,7 +164,11 @@ impl RunHome {
         let file = RunFile::new(&self.runs, run);
         next.levels[0].insert(0, Arc::clone(&file));
         drop(prepare_timing);
-        let installed = self.install_or_discard(next, &[file])?;
+        let installed = self.install_prepared(next, prepared);
+        if installed.is_err() && !self.is_poisoned() {
+            file.retire();
+        }
+        let installed = installed?;
         Ok(RunCommit {
             run_id,
             root: RunRoot(Arc::clone(&installed)),
