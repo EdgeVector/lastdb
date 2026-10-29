@@ -65,9 +65,6 @@ impl MutationManager {
                     entry.insert(schema)
                 }
             };
-            if !schema.alternate_keys.is_empty() && mutation.replay_cutoff_required {
-                return Err(SchemaError::InvalidData("alternate mutation replay requires its declaration revision; unavailable in the spike".into()));
-            }
             self.resolve_mutation_key_value(name, schema, mutation)?;
         }
         Ok(())

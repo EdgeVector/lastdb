@@ -9,7 +9,6 @@ import {
   JsonValue,
   KeyValue,
   QueryCursor,
-  ListResult,
   LoadedSchema,
   NodeVersion,
   QueryPage,
@@ -21,45 +20,7 @@ import {
   SearchResult,
 } from './types.js';
 
-export function parseListResponse(body: unknown): ListResult {
-  if (!isObject(body) || !isObject(body['list'])) {
-    throw new UnexpectedResponseError('list returned an invalid envelope', 200, body);
-  }
-  const page = body['list'];
-  const schema = page['schema'];
-  const rawKeys = page['keys'];
-  const nextCursor = page['next_cursor'];
-  const hasMore = page['has_more'];
-  const truncated = page['truncated'];
-  if (
-    typeof schema !== 'string' ||
-    !Array.isArray(rawKeys) ||
-    (nextCursor !== undefined && nextCursor !== null && typeof nextCursor !== 'string') ||
-    typeof hasMore !== 'boolean' ||
-    typeof truncated !== 'boolean'
-  ) {
-    throw new UnexpectedResponseError('list returned an invalid keys page', 200, body);
-  }
-  const keys = rawKeys.map((raw): { hash: string; range?: string } => {
-    if (!isObject(raw) || typeof raw['hash'] !== 'string') {
-      throw new UnexpectedResponseError('list returned an invalid record key', 200, raw);
-    }
-    const range = raw['range'];
-    if (range !== undefined && typeof range !== 'string') {
-      throw new UnexpectedResponseError('list returned an invalid record key', 200, raw);
-    }
-    return range === undefined || range.length === 0
-      ? { hash: raw['hash'] }
-      : { hash: raw['hash'], range };
-  });
-  return {
-    schema,
-    keys,
-    next_cursor: typeof nextCursor === 'string' ? nextCursor : null,
-    has_more: hasMore,
-    truncated,
-  };
-}
+export { parseListResponse } from './listResponse.js';
 
 /**
  * Parse a `200` `/api/query` body into a {@link QueryResult}, surfacing the

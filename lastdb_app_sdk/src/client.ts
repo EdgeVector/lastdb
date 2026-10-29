@@ -521,8 +521,8 @@ export class LastDbClient {
   // -------------------------------------------------------------------------
 
   /**
-   * `GET /api/list` — return one page of live record keys without hydrating
-   * atom bodies. Use this for membership, then point-read the keys whose
+   * `GET /api/list` — return one page of live primary or alternate keys.
+   * Named lists also return primary_keys for mutations. Read the keys whose
    * fields you need. A page is not a census: follow `next_cursor` while
    * `has_more` is true.
    */
@@ -532,6 +532,8 @@ export class LastDbClient {
   ): Promise<ListResult> {
     const resolved = await this.resolveDataPathSchema(schemaName);
     const params = new URLSearchParams({ schema: resolved.nodeSchemaName });
+    if (opts.keyName !== undefined) params.set('key_name', opts.keyName);
+    if (opts.hash !== undefined) params.set('hash', opts.hash);
     if (opts.limit !== undefined) {
       params.set('limit', String(opts.limit));
     }

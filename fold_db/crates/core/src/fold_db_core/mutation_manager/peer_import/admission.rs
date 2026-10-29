@@ -43,11 +43,6 @@ impl MutationManager {
                     let schema = self
                         .load_schema_for_delta(&outcome.schema_name, None)
                         .await?;
-                    if !schema.alternate_keys.is_empty() {
-                        return Err(unsupported(
-                            "alternate schemas without a declaration-aware import contract",
-                        ));
-                    }
                     declared_fields = declared_fields
                         .checked_add(schema.runtime_fields.len())
                         .filter(|count| *count <= super::super::logical_capture::MAX_OUTCOMES)
@@ -81,6 +76,12 @@ impl MutationManager {
             .runtime_fields
             .get(&outcome.field_name)
             .ok_or_else(|| unsupported("an unknown canonical field"))?;
+        let revision = schema
+            .uses_independent_fields()
+            .then(|| schema.alternate_key_revision());
+        if outcome.alternate_key_revision.as_deref() != revision.as_deref() {
+            return Err(unsupported("an alternate declaration revision mismatch"));
+        }
         if outcome.field_identity.is_empty()
             || outcome.molecule_uuid.is_empty()
             || schema.identity_hash.as_deref() != Some(outcome.schema_identity.as_str())

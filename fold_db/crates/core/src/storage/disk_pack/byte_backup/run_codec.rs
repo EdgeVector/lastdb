@@ -22,16 +22,13 @@ pub struct RunBackupProfile {
     pub main: RunBackupHome,
     pub cas: RunBackupHome,
 }
-/// Profile two is the format 4 home: typed ranges inside the encrypted
-/// physical V2 files. A backup of any other profile is refused.
-pub(crate) const RUN_PROFILE_VERSION: u16 = 2;
-
 impl RunBackupProfile {
     pub(crate) fn node_marker(&self) -> StorageResult<&'static [u8]> {
-        if self.version != RUN_PROFILE_VERSION {
-            return Err(invalid("run backup logical profile version"));
+        match self.version {
+            2 => Ok(super::super::run_admission::FORMAT_FOUR_BYTES),
+            3 => Ok(super::super::run_admission::TYPED_NODE_BYTES),
+            _ => Err(invalid("run backup logical profile version")),
         }
-        Ok(super::super::run_admission::TYPED_NODE_BYTES)
     }
 
     pub fn validate(&self) -> StorageResult<()> {

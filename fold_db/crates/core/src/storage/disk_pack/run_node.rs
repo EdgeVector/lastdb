@@ -39,10 +39,10 @@ const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 const CAS_KEY_LABEL: &[u8] = b"lastdb/run-home/v2/cas";
 
-/// True when `path` holds the format 4 node marker.
+/// True for the current typed home, with or without alternate-key activation.
 pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
     match std::fs::read(path.join(NODE_MARKER)) {
-        Ok(bytes) => Ok(bytes == super::run_admission::TYPED_NODE_BYTES),
+        Ok(bytes) => Ok(super::run_admission::profile(&bytes).is_some()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(error.into()),
     }
@@ -136,8 +136,7 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
 /// another format.
 pub(super) fn not_v2(path: &Path) -> StorageError {
     StorageError::InvalidOperation(format!(
-        "{} is not a format 4 node home (disk format v2 with typed ranges); this program \
-         opens only format 4",
+        "{} is not a supported typed node home; this program opens formats 4 and 5",
         path.display()
     ))
 }

@@ -37,6 +37,11 @@ pub(in crate::fold_db_core) async fn erase_keys(
     if mutations.is_empty() {
         return Ok(BulkPurgeReport::empty());
     }
+    if schema_manager.get_schema_state_cached(schema_name)? == crate::schema::SchemaState::Blocked {
+        return Err(SchemaError::Blocked(format!(
+            "Schema '{schema_name}' is blocked and cannot be erased"
+        )));
+    }
     let keys: Vec<KeyValue> = mutations
         .iter()
         .map(|mutation| mutation.key_value.clone())

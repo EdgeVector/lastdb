@@ -12,6 +12,16 @@ use std::path::Path;
 
 pub(super) const TYPED_NODE_BYTES: &[u8] =
     b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n";
+pub(super) const FORMAT_FOUR_BYTES: &[u8] =
+    b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n";
+
+pub(super) fn profile(bytes: &[u8]) -> Option<u16> {
+    match bytes {
+        FORMAT_FOUR_BYTES => Some(2),
+        TYPED_NODE_BYTES => Some(3),
+        _ => None,
+    }
+}
 
 pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let marker = OpenOptions::new()
@@ -23,7 +33,7 @@ pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
-    if bytes != TYPED_NODE_BYTES {
+    if profile(&bytes).is_none() {
         return Err(invalid("the node range format is unsupported"));
     }
     // Creation commits both proofs before its node marker appears. Even with
@@ -44,6 +54,10 @@ fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
         budget(),
     )
     .map_err(map)?;
+    verify_proofs(&mut main, key)
+}
+
+pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
     let marker = AtomStore::CURRENT_KEY_FORMAT_KEY;
     let cutoff = "layout:v3:delete-replay-cutoff";
     let coordinates = vec![

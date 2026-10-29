@@ -11,13 +11,26 @@ pub(super) async fn execute<H: HostNode>(
     cursor: Option<QueryCursor>,
     context: &AccessContext,
 ) -> Result<Value, HostError> {
-    if offset.unwrap_or_default() != 0
-        || QueryResponseFormat::current() == QueryResponseFormat::Count
-    {
+    if offset.unwrap_or_default() != 0 {
         return Err(HostError::new(
             400,
-            "alternate pages use cursors and do not support count-only responses",
+            "alternate pages use cursors rather than offsets",
         ));
+    }
+    if QueryResponseFormat::current() == QueryResponseFormat::Count {
+        if cursor.is_some() {
+            return Err(HostError::new(400, "alternate counts do not use a cursor"));
+        }
+        let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+        let count = host
+            .fold_db()
+            .query_executor()
+            .count_alternate_rows(&query, context)
+            .await
+            .map_err(HostError::from)?;
+        return Ok(
+            serde_json::json!({"total_count": count, "exact": true, "unresolved_rows": 0, "tombstoned_rows": 0}),
+        );
     }
     let limit = clamp_request_limit(limit);
     let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;

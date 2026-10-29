@@ -1,10 +1,12 @@
 # Alternate key implementation plan
 
 This plan accompanies the [design spike](README.md).
-The branch implements the fresh-home Task slice and a CI comparison.
-Existing-home conversion and final protein removal remain later stages.
-Named pages use cursors. Counts, field conditions, mapped schemas, other database scopes, and schema removal receive explicit refusals.
-Peer import and logical replay also receive a refusal until their contracts carry the alternate declaration revision.
+The branch implements the Task slice, supported-home activation, resumable declaration changes, and CI comparisons.
+Existing protein schemas stay usable. Their explicit correspondence conversion and final protein removal remain later stages.
+Named pages use cursors. Counts and hash-scoped key lists use the named route.
+Field conditions, mapped schemas, other database scopes, and compound primary keys remain outside this slice.
+Signed peer import checks declaration revisions and derives entries from accepted winners.
+Schema removal requires declaration removal and completed entry retirement first.
 Tom prohibited a merge of the spike.
 
 ## Source changes
@@ -79,7 +81,9 @@ All unsupported scope and query combinations return explicit errors.
 
 Use a separate owner command for native homes that the current program supports.
 Do not add a startup migration or restore support for retired home formats.
-The spike does not run a converter on any home.
+The spike adds a format activation command and a resumable declaration change route for standalone owned schemas.
+It runs those commands only on generated CI homes. It does not access the primary.
+The correspondence converter below remains necessary before existing protein relationships can retire.
 
 The command requires:
 

@@ -99,7 +99,7 @@ impl SchemaCore {
                 sources.insert(mapper.source_schema().to_owned(), source);
             }
             let source = &sources[mapper.source_schema()];
-            if !source.alternate_keys.is_empty() {
+            if source.uses_independent_fields() {
                 return Err(invalid(
                     "alternate schemas cannot supply mutable field mappers in the spike",
                 ));

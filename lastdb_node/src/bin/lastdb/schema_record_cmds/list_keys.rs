@@ -15,11 +15,7 @@ pub(crate) fn percent_encode_query(value: &str) -> String {
 
 pub(crate) fn list_record_keys(
     data_dir: Option<PathBuf>,
-    schema: &str,
-    key_hash: Option<&str>,
-    limit: usize,
-    cursor: Option<&str>,
-    json_only: bool,
+    args: &crate::cli_defs::RecordListArgs,
     verb: &str,
 ) -> Result<(), String> {
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -31,14 +27,18 @@ pub(crate) fn list_record_keys(
     }
     let mut path = format!(
         "/api/list?schema={}&limit={}",
-        percent_encode_query(schema),
-        limit.max(1)
+        percent_encode_query(&args.schema),
+        args.limit.max(1)
     );
-    if let Some(hash) = key_hash {
+    if let Some(name) = args.key_name.as_deref() {
+        path.push_str("&key_name=");
+        path.push_str(&percent_encode_query(name));
+    }
+    if let Some(hash) = args.key_hash.as_deref() {
         path.push_str("&hash=");
         path.push_str(&percent_encode_query(hash));
     }
-    if let Some(cursor) = cursor {
+    if let Some(cursor) = args.cursor.as_deref() {
         path.push_str("&cursor=");
         path.push_str(&percent_encode_query(cursor));
     }
@@ -52,7 +52,7 @@ pub(crate) fn list_record_keys(
         .get("list")
         .cloned()
         .ok_or_else(|| "response missing list field".to_string())?;
-    if json_only {
+    if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).map_err(|e| format!("serialize: {e}"))?
@@ -102,12 +102,20 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
     let partition = hash_filter
         .map(|h| format!(" --key-hash {h:?}"))
         .unwrap_or_default();
+    let key_flag = report
+        .get("key_name")
+        .and_then(serde_json::Value::as_str)
+        .map(|name| format!(" --key-name {name}"))
+        .unwrap_or_default();
     eprintln!(
-        "lastdb {verb} {schema}{partition} — {} key{}{layout}{}",
+        "lastdb {verb} {schema}{key_flag}{partition} — {} key{}{layout}{}",
         keys.len(),
         if keys.len() == 1 { "" } else { "s" },
         if has_more { " (more)" } else { "" }
     );
+    if !key_flag.is_empty() {
+        eprintln!("For writes, use primary_keys from --json.");
+    }
     if hash_field.is_some() || range_field.is_some() {
         match (hash_field, range_field) {
             (Some(h), Some(r)) => eprintln!("{h}\t{r}"),
@@ -139,7 +147,7 @@ pub(crate) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
             let hash_flag = hash_filter
                 .map(|h| format!(" --key-hash '{h}'"))
                 .unwrap_or_default();
-            eprintln!("next: lastdb {verb} {schema}{hash_flag} --cursor '{cursor}'");
+            eprintln!("next: lastdb {verb} {schema}{key_flag}{hash_flag} --cursor '{cursor}'");
         }
     }
 }

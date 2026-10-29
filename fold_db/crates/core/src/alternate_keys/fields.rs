@@ -22,13 +22,24 @@ impl AtomStore {
                     .filter_map(|key| key.hash_field.as_deref()),
             )
             .collect();
+        self.schema_fields_at_keys(schema, keys, scope, &names)
+            .await
+    }
+
+    pub(crate) async fn schema_fields_at_keys(
+        &self,
+        schema: &Schema,
+        keys: &[KeyValue],
+        scope: Option<&str>,
+        names: &BTreeSet<&str>,
+    ) -> Result<Vec<RecordFields>, SchemaError> {
         if names.len().saturating_mul(keys.len()) > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate field dependencies exceed 4096 records"));
         }
         let mut slots = Vec::new();
         let mut coordinates = Vec::new();
         for (index, key) in keys.iter().enumerate() {
-            for name in &names {
+            for name in names {
                 let field = schema
                     .runtime_fields
                     .get(*name)

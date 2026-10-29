@@ -128,7 +128,7 @@ def inventory(home, root):
                 "native_proof_identity")
         require(hash_file(owned(home, "data/" + path), size) == expected, "restored_full_native_hash")
         if path == "laststore-pack-node-v1":
-            require(size == len(NODE) and expected == hashlib.sha256(NODE).hexdigest(), "format_four_marker")
+            require(size == len(NODE) and expected == hashlib.sha256(NODE).hexdigest(), "format_five_marker")
         elif path.endswith("/laststore-run-home-v2"):
             require(size == 64, "restored_descriptor_length")
         seen.add(path)
@@ -190,7 +190,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             and sum(item["native_bytes"] for item in files) == report["native_bytes"], "restore_native_totals")
     result = {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
             "native_files": len(files), "native_bytes": report["native_bytes"], "files": files,
-            "receipt_sha256": hash_file(receipt_path), "profile_version": 2, "node_format": 4,
+            "receipt_sha256": hash_file(receipt_path), "profile_version": 3, "node_format": 5,
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
             "independent_native_file_hashes_verified": replay is None,
             "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,

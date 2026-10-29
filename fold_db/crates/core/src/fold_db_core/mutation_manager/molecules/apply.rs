@@ -134,7 +134,7 @@ impl MutationManager {
         mutation_key_values: &[KeyValue],
         eligible: &[(usize, &Atom, &str)],
     ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
-        if !schema.alternate_keys.is_empty() {
+        if schema.uses_independent_fields() {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
         let store = self.db_ops.atoms();

@@ -28,7 +28,8 @@ pub struct AlternateEntry {
 
 pub(crate) type RecordFields = BTreeMap<String, Value>;
 
-pub(crate) fn molecule(schema: &Schema, name: &str) -> String {
+/// The stable identity of one named alternate in its exact declaration revision.
+pub fn molecule(schema: &Schema, name: &str) -> String {
     let revision = schema.alternate_key_revision();
     let mut hash = Sha256::new();
     hash.update(b"lastdb:alternate-molecule:v1");

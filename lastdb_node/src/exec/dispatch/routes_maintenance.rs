@@ -50,6 +50,9 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbBackfillProteinKeys => {
             heap_route!(execute_db_backfill_protein_keys_route, req, ctx, host).await
         }
+        DataRoute::DbAlternateKeys => {
+            heap_route!(execute_db_alternate_keys_route, req, ctx, host).await
+        }
         DataRoute::DbRepairSchemaMoleculeMap => {
             heap_route!(execute_db_repair_schema_molecule_map_route, req, ctx, host).await
         }

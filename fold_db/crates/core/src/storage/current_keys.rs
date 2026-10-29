@@ -8,6 +8,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
         return Ok(counter_namespace_alias(namespace)
             || namespace == "cas_blobs"
             || namespace == "db_catalog"
+            || namespace == "alternate_changes"
             || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(
                 namespace, key,
             ));

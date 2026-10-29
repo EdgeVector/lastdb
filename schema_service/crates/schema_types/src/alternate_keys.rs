@@ -8,6 +8,10 @@ use sha2::{Digest, Sha256};
 
 pub const MAX_ALTERNATE_KEYS: usize = 16;
 
+pub(crate) fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AlternateKey {
@@ -32,9 +36,13 @@ impl AlternateKey {
 }
 
 impl DeclarativeSchemaDefinition {
+    pub fn uses_independent_fields(&self) -> bool {
+        self.independent_fields || !self.alternate_keys.is_empty()
+    }
+
     /// A declaration names local fields, never another schema or its records.
     pub fn validate_alternate_keys(&self) -> Result<(), String> {
-        if self.alternate_keys.is_empty() {
+        if !self.uses_independent_fields() {
             return Ok(());
         }
         if self.alternate_keys.len() > MAX_ALTERNATE_KEYS {
@@ -80,8 +88,8 @@ impl DeclarativeSchemaDefinition {
 
     /// Separate from schema identity: a layout change cannot remint record identity.
     pub fn alternate_key_revision(&self) -> String {
-        let bytes =
-            serde_json::to_vec(&self.alternate_keys).expect("alternate key declarations serialize");
+        let bytes = serde_json::to_vec(&(self.uses_independent_fields(), &self.alternate_keys))
+            .expect("alternate key declarations serialize");
         format!("{:x}", Sha256::digest(bytes))
     }
 }

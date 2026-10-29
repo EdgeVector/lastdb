@@ -18,8 +18,8 @@ It does not prove that two records describe the same fact.
 This changes the current automatic cross-schema write rule and requires explicit adoption.
 
 The [implementation plan](PLAN.md) lists the source changes, conversion gates, and future CI comparisons.
-The spike now includes the fresh-home product slice and a CI comparison.
-It does not convert an existing home or remove the old protein route.
+The spike includes the product slice, explicit existing-home activation, resumable declaration backfill, and CI comparisons.
+It keeps existing protein schemas usable. It does not infer which old schemas describe the same record or remove that route globally.
 
 ## Current state
 
@@ -303,7 +303,13 @@ Keep valid same-key field aliases explicit.
 Convert cross-key same-record schemas to named alternates with declared field maps and source keys.
 An ambiguous or divergent record blocks that conversion.
 
-No startup conversion, primary access, or old-home format fallback belongs in this spike.
+Startup accepts the supported format 4 and format 5 homes. It does not convert a home.
+An owner stops the node and runs `lastdb db enable-alternate-keys` for explicit format 4 activation.
+That command verifies account and key-format proofs under the native owner locks.
+It atomically replaces the format marker. It preserves the encrypted data files.
+Backup profile 2 retains format 4; profile 3 retains format 5.
+An older format 4 writer refuses an activated home.
+This work does not access the primary or the archived home.
 Remove protein code only after the explicit converter covers accepted relationships and all live callers use the new model.
 The final reader and writer each use one route; migration support must not become permanent competing semantics.
 
@@ -312,6 +318,34 @@ The final reader and writer each use one route; migration support must not becom
 The fresh-home `Task` slice now uses the existing native request boundary.
 Review the CI latency and storage comparisons before any future merge decision.
 Keep this design spike unmerged.
+
+## Explicit declaration changes
+
+The owner route `POST /api/db/alternate-keys` supports `status`, `begin`, `backfill`, `commit`, `abort`, and `cleanup`.
+The owner names the schema, the expected active revision, and the target declarations.
+Backfill pages contain at most 64 explicit primary keys. They do not enumerate the schema.
+
+The first page follows a durable schema freeze. Ordinary reads, writes, and erasure receive an error during this maintenance interval.
+Each page writes entries in an unpublished declaration revision and records each unique source key once.
+Commit requires exact coverage of the frozen slot count for every source field.
+It retains primary atoms, author clocks, metadata, conflicts, and Delete barriers.
+A restart retains the freeze, target contracts, and progress.
+Abort removes the unpublished entries in bounded pages and restores the old schema.
+Commit publishes the complete target and restores access. Cleanup then removes the old alternate entries and page receipts.
+
+This conversion requires owned, unshared fields with no existing molecule generations.
+It refuses protein members and external field bindings. Their conversion needs explicit record correspondence and a divergence decision.
+Those existing schemas continue to work through their legacy route.
+The `independent_fields` marker keeps field definition reuse separate after all alternate declarations are removed.
+
+Named counts and key lists use the same captured primary state and declaration revision as reads.
+An alternate key list requires a hash. It returns both alternate keys and primary mutation keys.
+The SDK and CLI expose the selector and preserve the primary keys.
+
+Signed logical field events include the alternate declaration revision.
+The receiver refuses a revision mismatch before data or peer progress changes.
+It derives alternate changes from its accepted field winners in the same transaction as imported tips.
+The existing logical peer protocol still limits the supported mutation and sharing forms.
 
 ## Storage comparison rules
 

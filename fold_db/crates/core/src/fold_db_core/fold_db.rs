@@ -11,6 +11,8 @@ use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
 
 mod accessors;
+pub(crate) mod alternate_key_changes;
+pub use alternate_key_changes::{AlternateKeyChange, AlternateKeyChangeReport};
 mod admin_db;
 mod catalog_gc;
 mod catalog_membership;

@@ -60,6 +60,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/molecule-keys", Scope::Owner, "POST", DataRoute::DbMoleculeKeys),
     row("/api/db/schema-retention", Scope::Owner, "POST", DataRoute::DbSchemaRetention),
     row("/api/db/backfill-protein-keys", Scope::Owner, "POST", DataRoute::DbBackfillProteinKeys),
+    row("/api/db/alternate-keys", Scope::Owner, "POST", DataRoute::DbAlternateKeys),
     row("/api/db/repair-schema-molecule-map", Scope::Owner, "POST", DataRoute::DbRepairSchemaMoleculeMap),
     row("/api/db/repair-hashrange-key-fields", Scope::Owner, "POST", DataRoute::DbRepairHashRangeKeyFields),
     row("/api/db/fetch-file-blob", Scope::Owner, "POST", DataRoute::DbFetchFileBlob),

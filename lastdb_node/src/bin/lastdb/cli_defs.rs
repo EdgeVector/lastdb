@@ -2,6 +2,9 @@
 //! subcommand enum, and the small value-enum argument types.
 
 use super::*;
+#[path = "cli_defs/record_list.rs"]
+mod record_list;
+pub(crate) use record_list::RecordListArgs;
 
 #[path = "cli_defs/app.rs"]
 mod app;
@@ -228,43 +231,9 @@ pub(super) enum Command {
     /// Default page is 100 keys; pass `--cursor` from the previous page to
     /// continue. This is not a census of field atoms and does not require
     /// `X-LastDB-Allow-Full-Scan`. Alias of `get-keys`.
-    List {
-        /// Schema identity hash, `app/Name`, or descriptive name.
-        schema: String,
-        /// Restrict the page to range keys under this hash (O(log M)).
-        #[arg(long)]
-        key_hash: Option<String>,
-        /// Max keys to return (default 100, max 1000).
-        #[arg(long, default_value_t = 100)]
-        limit: usize,
-        /// Exclusive keyset cursor from the previous page's `next_cursor`.
-        #[arg(long)]
-        cursor: Option<String>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// One page of live keys for a schema. No atom bodies.
-    ///
-    /// Prints the schema's hash/range field names in the header so the
-    /// columns have meaning. Pass `--key-hash` to list only under one
-    /// partition. `list` is an alias. Hydrate a row with `lastdb get`.
-    GetKeys {
-        /// Schema identity hash, `app/Name`, or descriptive name.
-        schema: String,
-        /// Restrict the page to range keys under this hash (O(log M)).
-        #[arg(long)]
-        key_hash: Option<String>,
-        /// Max keys to return (default 100, max 1000).
-        #[arg(long, default_value_t = 100)]
-        limit: usize,
-        /// Exclusive keyset cursor from the previous page's `next_cursor`.
-        #[arg(long)]
-        cursor: Option<String>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
+    List(RecordListArgs),
+    /// List one page of primary keys, or named alternate keys under --key-hash.
+    GetKeys(RecordListArgs),
     /// Point-get one record by exact hash (and range when the schema is HashRange).
     ///
     /// Wraps `POST /api/query` with a HashKey / HashRangeKey filter. Refuses a

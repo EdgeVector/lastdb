@@ -7,9 +7,13 @@ on:
       - 'schema_service/crates/schema_types/**'
       - 'lastdb_host/**'
       - 'lastdb_uds/**'
+      - 'lastdb_node/**'
       - 'scripts/benchmarks/alternate_key_compare.py'
       - 'scripts/benchmarks/alternate_key_storage.py'
       - 'scripts/schema_checks/alternate_keys.py'
+      - 'scripts/schema_checks/alternate_compatibility.py'
+      - 'scripts/schema_checks/alternate_changes.py'
+      - 'scripts/schema_checks/alternate_peers.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
     inputs:
@@ -36,7 +40,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      BASELINE_SHA: ${{ inputs.baseline || 'c08e7aa3a7210c3cd7b5cdf7ed22bfa864cd90c0' }}
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
       CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
@@ -78,8 +82,9 @@ jobs:
             revision=$(git rev-parse HEAD)
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
               CARGO_TARGET_DIR="$RUNNER_TEMP/alternate-target-$label" \
-              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin lastdb
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/alternate-bins/$label"
+            cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdb" "$RUNNER_TEMP/alternate-bins/$label-cli"
             rm -rf "$RUNNER_TEMP/alternate-target-$label"
           done
       - name: Compare equivalent records through both public APIs
@@ -96,6 +101,13 @@ jobs:
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/alternate-key-comparison/storage"
+      - name: Prove existing-home compatibility, declaration backfill, and signed peer import
+        run: |
+          python3 driver/scripts/schema_checks/alternate_compatibility.py \
+            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
+            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
+            --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \
+            --output "$RUNNER_TEMP/alternate-key-comparison/compatibility"
       - name: Upload measurements
         id: upload
         if: always()

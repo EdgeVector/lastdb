@@ -19,7 +19,7 @@ impl SchemaCore {
         let Some(loaded) = self.get_schema_metadata(schema_name)? else {
             return Ok(());
         };
-        if !loaded.alternate_keys.is_empty() {
+        if loaded.uses_independent_fields() {
             return Ok(());
         }
         let bindings = {
@@ -93,7 +93,7 @@ fn field_bindings(
     definitions: &HashMap<&str, &Schema>,
     wanted: Option<&HashSet<String>>,
 ) -> Result<Vec<CoherenceBinding>, SchemaError> {
-    if !schema.alternate_keys.is_empty() {
+    if schema.uses_independent_fields() {
         return Ok(Vec::new());
     }
     let layout = KeyLayoutFingerprint::from_schema(schema);

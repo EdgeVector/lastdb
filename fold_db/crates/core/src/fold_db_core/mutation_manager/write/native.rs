@@ -172,6 +172,8 @@ impl MutationManager {
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
     ) -> Result<std::time::Duration, SchemaError> {
+        self.schema_manager
+            .require_queryable_schema(&delta.schema_name)?;
         // Membership must precede the protein reads that select sibling tips.
         // This also upgrades a reopened home on its first ordinary mutation.
         measure(

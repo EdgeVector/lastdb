@@ -23,6 +23,7 @@ impl DeclarativeSchemaDefinition {
             schema_type,
             key,
             alternate_keys: std::collections::BTreeMap::new(),
+            independent_fields: false,
             fields,
             transform_fields,
             field_mappers,

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 pub struct AcceptedFieldOutcome {
     pub schema_name: String,
     pub schema_identity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate_key_revision: Option<String>,
     pub field_name: String,
     pub field_identity: String,
     pub molecule_uuid: String,
@@ -27,6 +29,8 @@ pub struct AcceptedFieldOutcome {
 pub(crate) struct AcceptedFieldOutcomeRef<'a> {
     pub schema_name: &'a str,
     pub schema_identity: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternate_key_revision: Option<&'a str>,
     pub field_name: &'a str,
     pub field_identity: &'a str,
     pub molecule_uuid: &'a str,
@@ -41,6 +45,7 @@ impl AcceptedFieldOutcomeRef<'_> {
         AcceptedFieldOutcome {
             schema_name: self.schema_name.to_owned(),
             schema_identity: self.schema_identity.to_owned(),
+            alternate_key_revision: self.alternate_key_revision.map(str::to_owned),
             field_name: self.field_name.to_owned(),
             field_identity: self.field_identity.to_owned(),
             molecule_uuid: self.molecule_uuid.to_owned(),

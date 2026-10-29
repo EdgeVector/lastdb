@@ -2,6 +2,7 @@ use super::*;
 
 mod change_rules;
 use change_rules::AppChangesRequest;
+mod alternate_list;
 mod list_rules;
 use list_rules::ListRecordKeysRequest;
 
@@ -187,6 +188,10 @@ pub(super) async fn execute_list_record_keys_route(
             ctx,
         );
     };
+
+    if request.key_name.is_some() {
+        return alternate_list::execute(host, ctx, &request, &canonical).await;
+    }
 
     match host
         .db

@@ -53,6 +53,20 @@ Each part has a four-byte length prefix. The digest uses unpadded base64url text
 A writer can name the molecule from the schema and field without a fetch.
 An explicit field mapper can share another field's molecule.
 
+### Named alternate keys and field definition reuse
+
+A schema can opt into independent field values with `independent_fields: true` or named `alternate_keys`.
+That schema keeps its field molecules under one primary hash key.
+Each alternate molecule maps its declared key to the primary record key. It stores no payload atom or separate field tip.
+Equal canonical definitions alone do not connect those records to another schema.
+The independence marker remains after the last alternate key is removed.
+
+Existing schemas retain their protein behavior for compatibility. An upgrade does not infer record correspondence between them.
+Format 4 homes stay readable and writable. Explicit activation on a stopped home enables format 5 and fences older writers.
+The owner backfills alternate declarations by supplied keys and publishes only after complete field-slot coverage.
+Primary atoms and author clocks remain unchanged. The owner can abort an unpublished change.
+See [the alternate-key spike](spikes/alternate-keys-without-proteins/README.md) for the current scope and public commands.
+
 The molecule is the only way in. To find data you present the key the molecule
 is built on; there is no other read path.
 

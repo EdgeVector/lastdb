@@ -18,6 +18,8 @@ struct DeclarativeSchemaDefinitionHelper {
     key: Option<KeyConfig>,
     #[serde(default)]
     alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
+    #[serde(default)]
+    independent_fields: bool,
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
@@ -133,6 +135,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.owner_app_id = self.owner_app_id;
         schema.source = self.source;
         schema.alternate_keys = self.alternate_keys;
+        schema.independent_fields = self.independent_fields;
 
         // Recompute identity_hash if owner_app_id is present and the helper
         // didn't carry an explicit one. owner_app_id participates in

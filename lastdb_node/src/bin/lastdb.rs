@@ -211,8 +211,8 @@ fn run(cli: Cli) -> Result<(), String> {
         } => isolate_volume_command(cli.data_dir, &volume_name, skip_volume, execute, json),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
         cmd @ (Command::Mutate { .. }
-        | Command::List { .. }
-        | Command::GetKeys { .. }
+        | Command::List(_)
+        | Command::GetKeys(_)
         | Command::Get { .. }) => record_command(cli.data_dir, cmd),
         Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
         Command::Liveness { action } => liveness_dispatch(cli.data_dir, action),

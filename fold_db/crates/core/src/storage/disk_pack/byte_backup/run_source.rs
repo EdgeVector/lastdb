@@ -224,10 +224,9 @@ fn marker_profile(root: &Path) -> StorageResult<(u16, u64)> {
     let mut marker = RunSource::node_file(root)?;
     let mut bytes = Vec::new();
     (&mut marker).take(129).read_to_end(&mut bytes)?;
-    if bytes != super::super::run_admission::TYPED_NODE_BYTES {
-        return Err(invalid("run backup node marker is not the node format"));
-    }
-    Ok((super::run_codec::RUN_PROFILE_VERSION, bytes.len() as u64))
+    let profile = super::super::run_admission::profile(&bytes)
+        .ok_or_else(|| invalid("run backup node marker is not a supported node format"))?;
+    Ok((profile, bytes.len() as u64))
 }
 
 pub(super) fn certify(inner: &Inner, key: &[u8; 32]) -> StorageResult<()> {

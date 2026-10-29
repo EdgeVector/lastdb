@@ -45,6 +45,9 @@ export interface QueryCursor extends KeyValue {
 
 /** Options for the keys-only {@link LastDbClient.list} membership page. */
 export interface ListOptions {
+  /** Select a named alternate key. A hash is required with this option. */
+  keyName?: string;
+  hash?: string;
   /** Page size sent to Mini (default 100, clamped by Mini to 1000). */
   limit?: number;
   /** Opaque exclusive cursor returned by the previous page. */
@@ -67,6 +70,9 @@ export interface ListRecordKey {
 export interface ListResult {
   schema: string;
   keys: ListRecordKey[];
+  /** Primary mutation keys aligned with keys when keyName selects an alternate. */
+  primary_keys?: ListRecordKey[];
+  key_name?: string;
   next_cursor: string | null;
   has_more: boolean;
   /** Same honesty signal as `has_more`; one page is not a census. */

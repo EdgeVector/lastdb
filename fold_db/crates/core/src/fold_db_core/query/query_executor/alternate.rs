@@ -13,6 +13,88 @@ pub struct AlternatePage {
 }
 
 impl QueryExecutor {
+    /// Count one explicitly keyed alternate selection in one captured root.
+    /// Pages retain bounded memory; native read admission refuses excess work.
+    pub async fn count_alternate_rows(
+        &self,
+        query: &Query,
+        context: &AccessContext,
+    ) -> Result<usize, SchemaError> {
+        let scope = self.db_ops.read_scope().await?;
+        scope
+            .run_result(Box::pin(self.count_alternate_scoped(query, context)))
+            .await
+    }
+
+    async fn count_alternate_scoped(
+        &self,
+        query: &Query,
+        context: &AccessContext,
+    ) -> Result<usize, SchemaError> {
+        let schema = self
+            .prepare_query_schema(query)
+            .await?
+            .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
+        let scope = self
+            .db_ops
+            .db_catalog()
+            .resolve_storage_prefix(
+                context.db_locator.as_deref(),
+                &schema.name,
+                context.storage_prefix.as_deref(),
+            )
+            .await?;
+        if scope.is_some() {
+            return Err(alternate_keys::invalid(
+                "alternate counts require the personal database",
+            ));
+        }
+        validate_controls(query)?;
+        let name = query
+            .key_name
+            .as_deref()
+            .ok_or_else(|| alternate_keys::invalid("alternate name is absent"))?;
+        let definition = schema
+            .alternate_keys
+            .get(name)
+            .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))?;
+        let filter = query
+            .filter
+            .as_ref()
+            .ok_or_else(|| alternate_keys::invalid("alternate count requires a key"))?;
+        let mut after = None;
+        let mut count = 0usize;
+        loop {
+            let entries = self
+                .db_ops
+                .atoms()
+                .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
+                .await?;
+            let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
+            let fields = self
+                .db_ops
+                .atoms()
+                .alternate_fields(&schema, &keys, None)
+                .await?;
+            for (entry, fields) in entries.iter().zip(fields) {
+                if alternate_keys::derive_key(&schema, definition, &fields)?.as_ref()
+                    != Some(&entry.matched)
+                {
+                    return Err(alternate_keys::invalid(
+                        "alternate count found an entry without its current primary record",
+                    ));
+                }
+            }
+            count = count
+                .checked_add(entries.len())
+                .ok_or_else(|| alternate_keys::invalid("alternate count overflow"))?;
+            if entries.len() < 128 {
+                return Ok(count);
+            }
+            after = entries.last().map(|entry| entry.matched.clone());
+        }
+    }
+
     pub async fn query_alternate_page(
         &self,
         query: Query,
