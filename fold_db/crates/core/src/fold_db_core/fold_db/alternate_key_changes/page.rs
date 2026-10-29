@@ -26,11 +26,7 @@ pub(super) async fn execute(
     }
     let receipts: Vec<_> = keys
         .iter()
-        .map(|key| {
-            serde_json::to_string(key)
-                .map(|encoded| format!("seen:{}:{encoded}", change.id).into_bytes())
-                .map_err(|_| invalid("invalid primary key"))
-        })
+        .map(|key| receipt_key(&change.id, key))
         .collect::<Result<_, _>>()?;
     let existing = store.get_many(receipts.clone()).await?;
     if existing.len() != keys.len() {
@@ -104,4 +100,9 @@ pub(super) async fn execute(
     }
     save(store, &change).await?;
     Ok(change)
+}
+
+fn receipt_key(id: &str, key: &KeyValue) -> Result<Vec<u8>, SchemaError> {
+    let encoded = serde_json::to_string(key).map_err(|_| invalid("invalid primary key"))?;
+    Ok(format!("seen:{id}:{encoded}").into_bytes())
 }

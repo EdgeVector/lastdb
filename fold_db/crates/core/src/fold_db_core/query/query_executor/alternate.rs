@@ -22,7 +22,11 @@ impl QueryExecutor {
     ) -> Result<usize, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
         scope
-            .run_result(Box::pin(self.count_alternate_scoped(query, context)))
+            .run_result(Box::pin(
+                crate::storage::disk_pack::logical_paths::field::query_scope(
+                    self.count_alternate_scoped(query, context),
+                ),
+            ))
             .await
     }
 
@@ -58,6 +62,7 @@ impl QueryExecutor {
             .alternate_keys
             .get(name)
             .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))?;
+        let names = definition.fields().collect();
         let filter = query
             .filter
             .as_ref()
@@ -74,7 +79,7 @@ impl QueryExecutor {
             let fields = self
                 .db_ops
                 .atoms()
-                .alternate_fields(&schema, &keys, None)
+                .schema_fields_at_keys(&schema, &keys, None, &names)
                 .await?;
             for (entry, fields) in entries.iter().zip(fields) {
                 if alternate_keys::derive_key(&schema, definition, &fields)?.as_ref()
