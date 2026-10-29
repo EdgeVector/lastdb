@@ -94,9 +94,8 @@ impl SchemaServiceState {
     /// `descriptive_name` that is already bound to an active schema of a
     /// **different** `schema_type`. Without this guard the smart-folder
     /// ingest pipeline silently drops the file: the auto-correction
-    /// manufactures a name collision the schema service then refuses with
-    /// `DescriptiveNameConflict` (cross-schema_type expansion would corrupt
-    /// molecule reads — see `state_expansion::is_cross_schema_type_expansion`).
+    /// manufactures a name collision with an active schema of a different
+    /// `schema_type`.
     /// Returning `None` lets the caller fail fast so ingestion can re-prompt
     /// instead of manufacturing a cross-type collision or persisting the
     /// generic original.
@@ -190,31 +189,8 @@ impl SchemaServiceState {
         existing.schema_type != incoming.schema_type
     }
 
-    /// If a User proposal's `descriptive_name` exactly collides — in the
-    /// incoming schema's `owner_app_id` namespace — with an active **starter
-    /// seed** (`SchemaSource::StarterSeed`/`SystemSeed`) of an *incompatible*
-    /// `schema_type`, derive a unique, non-colliding `descriptive_name` so the
-    /// proposal can register as its own canonical instead of hard-failing.
-    ///
-    /// Why this is scoped to seeds (not User-vs-User): a starter seed is a
-    /// suggestion the node may fork/override (`SchemaSource` doc), and the
-    /// ingestion LLM routinely proposes a `Hash`/`Single` shape for a name a
-    /// persona seed pre-claimed as `Range` (e.g. "Contacts"). Cross-`schema_type`
-    /// expansion would corrupt molecule reads (see
-    /// [`crate::state_expansion::is_cross_schema_type_expansion`]), so the
-    /// proposal genuinely needs a *separate* canonical — but blocking it with a
-    /// 409 silently drops the user's document. De-colliding the name lets the
-    /// document ingest cleanly while leaving the seed anchor untouched.
-    ///
-    /// A User-vs-User collision is deliberately left to the existing 409 path:
-    /// silently re-naming a real user schema would regrow the duplicate
-    /// `descriptive_name` pile the cross-type guard exists to prevent (see
-    /// `cross_schema_type_does_not_propose_expansion`).
-    ///
-    /// Returns `Some(new_name)` only when a rename is required; `None` when
-    /// there is no seed collision (the proposal keeps its name and follows the
-    /// normal dedup/expansion/409 path). Best-effort: any lookup failure
-    /// returns `None`.
+    /// Names tried for a de-collision suffix: `"<name> (<Type>)"`, then
+    /// `"<name> (<Type> <n>)"`.
     pub(super) fn decollision_candidates<'a>(
         desc_name: &'a str,
         schema_type: &'a schema_types::DeclarativeSchemaType,
@@ -256,63 +232,12 @@ impl SchemaServiceState {
         None
     }
 
-    pub(super) fn decollide_seed_descriptive_name(&self, incoming: &Schema) -> Option<String> {
-        use schema_types::SchemaSource;
-
-        // Only User proposals get de-collided; seeds register exactly.
-        if incoming.source != SchemaSource::User {
-            return None;
-        }
-        let desc_name = incoming.descriptive_name.as_deref()?;
-        let owner = incoming.owner_app_id.as_deref();
-
-        let existing_hash = self
-            .lookup_descriptive_name_in_namespace(owner, desc_name)
-            .ok()??;
-        {
-            let schemas = read_lock(&self.schemas, "schemas").ok()?;
-            let existing = schemas
-                .get(&existing_hash)
-                .filter(|s| s.superseded_by.is_none())?;
-            // Only de-collide against a SEED of an incompatible type. A
-            // same-type seed collision is a legitimate reuse/expansion (handled
-            // downstream), and a User-vs-User collision keeps the 409 contract.
-            if existing.source == SchemaSource::User
-                || !crate::state_expansion::is_cross_schema_type_expansion(incoming, existing)
-            {
-                return None;
-            }
-        }
-
-        // Find the first free variant: "<name> (<Type>)", then numeric suffixes
-        // if even that is taken (another incompatible proposal landed first).
-        for candidate in Self::decollision_candidates(desc_name, &incoming.schema_type) {
-            match self.lookup_descriptive_name_in_namespace(owner, &candidate) {
-                Ok(Some(_)) => continue, // taken — try the next variant
-                Ok(None) => {
-                    tracing::warn!(
-                        target: "schema_service::schema",
-                        original = %desc_name,
-                        de_collided = %candidate,
-                        existing_canonical = %existing_hash,
-                        incoming_schema_type = ?incoming.schema_type,
-                        "Descriptive_name collides with an incompatible-schema_type starter seed — \
-                         de-colliding so the document ingests as its own canonical instead of a 409",
-                    );
-                    return Some(candidate);
-                }
-                Err(_) => return None, // transient read failure — leave as-is
-            }
-        }
-        None
-    }
-
     /// Find a free de-collided `descriptive_name` variant for a User proposal
     /// whose name collides with an existing **active User canonical of the same
     /// concept-shape** that the dual-signal purpose gate VETOED.
     ///
-    /// This is the User-vs-User analogue of [`decollide_seed_descriptive_name`],
-    /// used only at the final duplicate guard as the last resort BEFORE a 409.
+    /// This disambiguates a User proposal against another User canonical.
+    /// It runs only at the final duplicate guard, as the last resort before a 409.
     /// By the time we reach it the proposal has already been offered same-name
     /// reuse (the looser purpose τ 0.72 + field-fidelity gate via
     /// [`crate::state_matching::SchemaServiceState::find_purpose_reuse_target_allow_same_name`])
@@ -337,8 +262,8 @@ impl SchemaServiceState {
         let owner = incoming.owner_app_id.as_deref();
 
         // Find the first free variant: "<name> (<Type>)", then numeric suffixes.
-        // Mirrors `decollide_seed_descriptive_name`'s grammar so the suffix is a
-        // recognised de-collision artifact (see `strip_decollision_suffix`).
+        // The suffix is a recognised de-collision artifact (see
+        // `strip_decollision_suffix`).
         for candidate in Self::decollision_candidates(desc_name, &incoming.schema_type) {
             match self.lookup_descriptive_name_in_namespace(owner, &candidate) {
                 Ok(Some(_)) => continue, // taken — try the next variant

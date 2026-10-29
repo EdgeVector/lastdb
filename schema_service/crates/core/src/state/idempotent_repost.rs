@@ -251,22 +251,6 @@ fn verify_repost_matches_active(
         return None;
     }
 
-    // Same `schema_type` is part of the writer's AlreadyExists branch
-    // (the hash itself does not bind `schema_type`). A cross-type
-    // collision would resolve to 409, not 200, and must keep its cert
-    // gate.
-    if crate::state_expansion::is_cross_schema_type_expansion(probe, active) {
-        tracing::info!(
-            target: "schema_service::schema",
-            owner_app_id = %incoming_owner,
-            descriptive_name = %incoming_dn,
-            identity_hash = %identity_hash,
-            reason = "cross_schema_type",
-            "classify_idempotent_repost: miss",
-        );
-        return None;
-    }
-
     // Incoming fields ⊆ existing fields, otherwise the writer would
     // Expand (state-mutating) and the cert gate must apply.
     let existing_fields: HashSet<String> = active

@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use schema_types::Schema;
 
 use super::near_miss::NearMissDecision;
-use super::types::DescriptiveNameConflict;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MatchSeam {
@@ -78,15 +77,9 @@ pub(super) enum CanonicalizationGateOutcome {
     DeCollideAndRegister,
 }
 
-#[derive(Clone, Debug)]
-pub(super) struct CandidateConflict {
-    pub(super) conflict: DescriptiveNameConflict,
-}
-
 #[derive(Clone, Debug, Default)]
 pub(super) struct CandidateSet {
     pub(super) candidates: Vec<MatchCandidate>,
-    pub(super) conflict: Option<CandidateConflict>,
 }
 
 pub(super) fn rank_candidates(candidates: &[MatchCandidate]) -> Option<MatchCandidate> {

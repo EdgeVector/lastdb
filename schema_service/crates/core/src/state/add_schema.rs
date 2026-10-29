@@ -74,28 +74,13 @@ impl SchemaServiceState {
 
         self.auto_correct_user_descriptive_name(schema)?;
 
-        // De-collide a User proposal whose (possibly auto-corrected)
-        // descriptive_name exactly collides with an incompatible-schema_type
-        // STARTER SEED. The ingestion LLM routinely proposes a Hash/Single
-        // shape for a name a persona seed pre-claimed as Range (e.g.
-        // "Contacts"). Cross-schema_type expansion would corrupt molecule
-        // reads, so the proposal needs its own canonical — but a hard 409 here
-        // silently drops the user's document. Rename it to a free variant so it
-        // ingests cleanly; the seed anchor is left intact. User-vs-User
-        // collisions are intentionally NOT de-collided (they keep the 409
-        // contract — see `decollide_seed_descriptive_name`).
-        // (Card `schema-eval-persona-seed-type-collision`.)
+        // A repeat post of a name that already carries a de-collision suffix
+        // resolves to that canonical.
         if let Some(existing) = self.find_decollided_idempotent_repost(schema, mutation_mappers) {
             return Ok(Err(SchemaAddOutcome::AlreadyExists(
                 existing,
                 mutation_mappers.clone(),
             )));
-        }
-
-        if let Some(decollided) = self.decollide_seed_descriptive_name(schema) {
-            schema.descriptive_name = Some(decollided);
-            // The name changed, so any precomputed identity hash is stale.
-            schema.identity_hash = None;
         }
 
         self.prepare_proposal_fields(schema, mutation_mappers)?;
