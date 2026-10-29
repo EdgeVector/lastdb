@@ -202,11 +202,11 @@ where
         let Some(max_age_seconds) = self.config.max_pack_age_seconds else {
             return Ok(());
         };
-        let generated_at = DateTime::parse_from_rfc3339(&manifest.generated_at)
-            .map_err(|e| ResolverPackConsumerError::BadGeneratedAt(e.to_string()))?
-            .with_timezone(&Utc);
-        let now = self.config.now.unwrap_or_else(|| self.clock.wall_time());
-        if now.signed_duration_since(generated_at).num_seconds() > max_age_seconds {
+        let age = self
+            .clock
+            .whole_seconds_since_rfc3339(&manifest.generated_at, self.config.now)
+            .map_err(ResolverPackConsumerError::BadGeneratedAt)?;
+        if age > max_age_seconds {
             return Err(ResolverPackConsumerError::StaleManifest);
         }
         Ok(())

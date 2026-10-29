@@ -32,12 +32,11 @@ tracing = { workspace = true }
 
 sha2 = { workspace = true }
 async-trait = { workspace = true }
-# `sync` — in-process locks. `macros` — `try_join!`.
-# The shell owns the runtime. This crate does not enable `rt`.
-tokio = { workspace = true, features = ["sync", "macros"] }
+# Workspace `tokio` enables `rt-multi-thread` and `signal`, and member
+# features are additive, so this crate cannot inherit that entry.
+# `sync` is the in-process mutex and rwlock. `macros` is `try_join!`.
+tokio = { version = "1.0", default-features = false, features = ["sync", "macros"] }
 
-# RFC 3339 stamps. Wall time comes from the injected `Clock`.
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Phase C shadow-mode near-miss audit log: `registration_id` is a UUID
 # v4 minted at the call site so a retried registration won't double-log.
 uuid = { workspace = true, features = ["v4"] }

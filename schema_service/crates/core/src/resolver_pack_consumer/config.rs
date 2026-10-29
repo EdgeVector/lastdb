@@ -14,7 +14,7 @@ pub struct ResolverPackConsumerConfig {
     /// Optional freshness ceiling for the manifest's `generated_at`.
     pub max_pack_age_seconds: Option<i64>,
     /// Test hook for deterministic stale-pack checks.
-    pub now: Option<DateTime<Utc>>,
+    pub now: Option<crate::clock::FrozenInstant>,
 }
 
 impl ResolverPackConsumerConfig {
@@ -53,7 +53,7 @@ pub struct ResolverBootstrapConfig {
     pub cache_dir: PathBuf,
     pub trusted_keys: Vec<TrustedResolverPackKey>,
     /// Test hook for deterministic stale-pack checks.
-    pub now: Option<DateTime<Utc>>,
+    pub now: Option<crate::clock::FrozenInstant>,
 }
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]

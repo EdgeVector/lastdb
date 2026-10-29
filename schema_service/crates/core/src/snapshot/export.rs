@@ -107,7 +107,7 @@ impl SchemaServiceState {
         Ok(SnapshotEnvelope {
             format_version: SNAPSHOT_FORMAT_VERSION,
             version: self.current_state_version(),
-            captured_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
+            captured_at: self.clock.rfc3339_secs(),
             embedder_version: self.embedder.embedder_id().to_string(),
             schemas: schemas_vec,
             // Populated from the canonical app registry (app_identity v3.1

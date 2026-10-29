@@ -143,7 +143,7 @@ impl SchemaServiceState {
             release_id: release_id.clone(),
             manifest,
             publisher_dev_pubkey,
-            published_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
+            published_at: self.clock.rfc3339_secs(),
             revoked_at: None,
             revocation_reason: None,
         };
@@ -271,7 +271,7 @@ impl SchemaServiceState {
                 channel: channel.to_string(),
                 release_id: request.release_id,
                 generation: current + 1,
-                updated_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
+                updated_at: self.clock.rfc3339_secs(),
             };
             channels.insert(key, record.clone());
             record
@@ -365,7 +365,7 @@ impl SchemaServiceState {
                 return Err(ReleaseError::AppIdMismatch);
             }
             if existing.revoked_at.is_none() {
-                existing.revoked_at = Some(crate::clock::rfc3339_secs(self.clock.as_ref()));
+                existing.revoked_at = Some(self.clock.rfc3339_secs());
                 existing.revocation_reason = request.reason;
             }
             existing.clone()

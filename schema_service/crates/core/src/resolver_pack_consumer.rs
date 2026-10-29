@@ -12,7 +12,6 @@ use crate::clock::Clock;
 
 use app_identity_crypto::{Env, VerifyError};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

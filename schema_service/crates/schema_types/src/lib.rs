@@ -14,6 +14,7 @@ pub mod key_comparison;
 pub mod key_config;
 pub mod molecule_range_profile;
 pub mod range_storage_profile;
+pub mod rfc3339;
 pub mod schema_type;
 
 pub use data_classification::{DataClassification, MAX_SENSITIVITY_LEVEL};

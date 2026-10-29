@@ -95,7 +95,7 @@ impl SchemaServiceState {
             owner_dev_pubkey: verified.dev_pubkey,
             metadata: request.metadata,
             version: request.version,
-            registered_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
+            registered_at: self.clock.rfc3339_secs(),
             tier: AppTier::Sandbox,
             code_signature: request.code_signature,
             source: request.source,
