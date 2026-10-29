@@ -63,7 +63,7 @@ impl SchemaServiceState {
         proposal: &SchemaResolveProposal,
         existing: &Schema,
     ) -> bool {
-        if !crate::state_matching::dual_signal_canonicalization_enabled() {
+        if !self.dual_signal_canonicalization_enabled() {
             return true;
         }
         let inc_blob = format!(

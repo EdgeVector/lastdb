@@ -315,19 +315,20 @@ use fold_db::access::{AuditToken, CallerHandle, CallerTransport, CallerVerificat
 /// adding the access posture the accept loop attaches to a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsConnVerdict {
-    /// The peer runs as the node owner's OS user. `pid` is the legacy handle and
-    /// `token` the kernel audit token (macOS) the I3b code-signature check
-    /// prefers — its `pidversion` invalidates on PID reuse (blocker **B3**).
-    /// Both `None` when the platform reported neither, which I3b treats as
-    /// unverifiable. The connection may be dispatched, but only as `Unverified`
-    /// until the code-signature check runs.
+    /// Same-user peer. Dispatched only as `Unverified` until code-signature check.
     Accepted {
+        /// Legacy pid. `None` if unreported; a missing pid and token is unverifiable.
         pid: Option<i32>,
+        /// macOS audit token. `pidversion` invalidates on PID reuse (blocker **B3**).
         token: Option<AuditToken>,
     },
-    /// The peer runs as a *different* OS user. The connection must be dropped —
-    /// never dispatched — and a code-signature check is never attempted.
-    Rejected { peer_uid: u32, owner_uid: u32 },
+    /// Different OS user. Drop the connection; do not attempt a code-signature check.
+    Rejected {
+        /// OS user id of the connecting peer.
+        peer_uid: u32,
+        /// OS user id of the node owner.
+        owner_uid: u32,
+    },
 }
 
 impl UdsConnVerdict {

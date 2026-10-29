@@ -86,6 +86,7 @@ pub fn write_busy_and_close(stream: &mut std::os::unix::net::UnixStream) -> io::
     Ok(())
 }
 
+/// Write an HTTP/1.1 response: status line, content length, `Connection: close`, then the caller's other headers and the body.
 pub fn write_response<W: Write>(w: &mut W, resp: &UdsResponse) -> io::Result<()> {
     write!(w, "HTTP/1.1 {} {}\r\n", resp.status, resp.reason)?;
     write!(w, "Content-Length: {}\r\n", resp.body.len())?;

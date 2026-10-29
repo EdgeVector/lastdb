@@ -24,40 +24,25 @@ pub async fn execute_aggregate_finalize<H: HostNode>(
     mut finalize: AggregateFinalize,
     ctx: &AccessContext,
 ) -> Result<Value, HostError> {
-    if !ctx.is_owner {
-        return Err(HostError::new(404, "Not Found"));
-    }
-    let resolve_started = std::time::Instant::now();
-    let resolved = resolve_aggregate_schema_triplet(
+    let (_permit, source, target, member) = prepare_aggregate_write(
         host,
+        ctx,
+        Lane::Interactive,
         &finalize.source_schema_name,
         &finalize.target_schema_name,
         &finalize.member_schema_name,
-    );
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    let (source, target, member) = resolved?;
+    )
+    .await?;
     finalize.source_schema_name = source;
     finalize.target_schema_name = target;
     finalize.member_schema_name = member;
-
-    let admission_started = std::time::Instant::now();
-    let permit = host.acquire_op_permit(Lane::Interactive).await;
-    request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
-    let _permit = permit?;
 
     let receipt = host
         .fold_db()
         .mutation_manager()
         .finalize_aggregate_summary_with_access_receipt(finalize, ctx)
         .await
-        .map_err(|error| {
-            let mapped = HostError::from(error);
-            if mapped.status == 500 {
-                HostError::internal(format!("Aggregate finalize failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|error| super::prefix_core_failure(error, "Aggregate finalize failed"))?;
     let receipt = require_durable_aggregate_receipt(receipt, "Aggregate finalize")?;
 
     Ok(serde_json::json!({
@@ -83,40 +68,25 @@ pub async fn execute_aggregate_repair<H: HostNode>(
     mut repair: AggregateRepair,
     ctx: &AccessContext,
 ) -> Result<Value, HostError> {
-    if !ctx.is_owner {
-        return Err(HostError::new(404, "Not Found"));
-    }
-    let resolve_started = std::time::Instant::now();
-    let resolved = resolve_aggregate_schema_triplet(
+    let (_permit, source, target, member) = prepare_aggregate_write(
         host,
+        ctx,
+        Lane::Bulk,
         &repair.source_schema_name,
         &repair.target_schema_name,
         &repair.member_schema_name,
-    );
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    let (source, target, member) = resolved?;
+    )
+    .await?;
     repair.source_schema_name = source;
     repair.target_schema_name = target;
     repair.member_schema_name = member;
-
-    let admission_started = std::time::Instant::now();
-    let permit = host.acquire_op_permit(Lane::Bulk).await;
-    request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
-    let _permit = permit?;
 
     let repaired = host
         .fold_db()
         .mutation_manager()
         .repair_aggregate_summary_with_access_receipt(repair, ctx)
         .await
-        .map_err(|error| {
-            let mapped = HostError::from(error);
-            if mapped.status == 500 {
-                HostError::internal(format!("Aggregate repair failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|error| super::prefix_core_failure(error, "Aggregate repair failed"))?;
     let receipt = require_durable_aggregate_receipt(repaired.receipt, "Aggregate repair")?;
 
     Ok(serde_json::json!({
@@ -130,4 +100,27 @@ pub async fn execute_aggregate_repair<H: HostNode>(
         },
         "repair_token": repaired.repair_token
     }))
+}
+
+/// Refuse a non-owner, resolve the three schema names, then take `lane`.
+/// The caller keeps the permit until the core call ends.
+async fn prepare_aggregate_write<H: HostNode>(
+    host: &H,
+    ctx: &AccessContext,
+    lane: Lane,
+    source_name: &str,
+    target_name: &str,
+    member_name: &str,
+) -> Result<(H::OpPermit, String, String, String), HostError> {
+    if !ctx.is_owner {
+        return Err(HostError::new(404, "Not Found"));
+    }
+    let resolve_started = std::time::Instant::now();
+    let resolved = resolve_aggregate_schema_triplet(host, source_name, target_name, member_name);
+    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
+    let (source, target, member) = resolved?;
+    let admission_started = std::time::Instant::now();
+    let permit = host.acquire_op_permit(lane).await;
+    request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
+    Ok((permit?, source, target, member))
 }

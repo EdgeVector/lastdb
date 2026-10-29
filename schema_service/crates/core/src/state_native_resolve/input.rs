@@ -36,31 +36,34 @@ impl SchemaServiceState {
     ) -> Result<BuiltNativeInput, String> {
         let config = ResolverConfig::embedding_beam_shadow_defaults();
         let schemas = read_lock(&self.schemas, "schemas_cache").map_err(|e| e.to_string())?;
-        let budget = native_resolve_budget();
         let started = Instant::now();
         let mut memo = MemoStats::default();
+        let mut pass = EmbedPass {
+            started,
+            budget: self.native_resolve_budget(),
+            memo: &mut memo,
+        };
 
         let registry = self.embed_registry_schemas(
             &schemas,
             config.limits.max_registry_schemas as usize,
-            started,
-            budget,
-            &mut memo,
+            &mut pass,
         )?;
         if registry.schemas.is_empty() {
             return Err("empty registry".into());
         }
 
         let proposal_part = self.embed_proposal(proposal)?;
-        let (canonical_meta, canonical_emb) =
-            self.embed_canonical_fields(started, budget, &mut memo)?;
+        let (canonical_meta, canonical_emb) = self.embed_canonical_fields(&mut pass)?;
+        let model_calls = pass.memo.misses;
+        let memo_hits = pass.memo.hits;
 
         tracing::debug!(
             target: "schema_service::schema",
             descriptive_name = %proposal.descriptive_name,
             elapsed_ms = started.elapsed().as_millis() as u64,
-            model_calls = memo.misses,
-            memo_hits = memo.hits,
+            model_calls,
+            memo_hits,
             "native_component_cover: resolver input built"
         );
 
@@ -98,9 +101,7 @@ impl SchemaServiceState {
         &self,
         schemas: &HashMap<String, Schema>,
         max_schemas: usize,
-        started: Instant,
-        budget: Duration,
-        memo: &mut MemoStats,
+        pass: &mut EmbedPass<'_>,
     ) -> Result<RegistryEmbedded, String> {
         let mut out = RegistryEmbedded::default();
         let mut count = 0usize;
@@ -127,23 +128,15 @@ impl SchemaServiceState {
             let _owner = schema.owner_app_id.as_deref();
 
             let name_vec = self
-                .memo_embed_text(&descriptive, memo)
+                .memo_embed_text(&descriptive, pass.memo)
                 .map_err(|e| format!("embed schema name: {e}"))?;
-            ensure_within_budget(started, budget, memo)?;
+            pass.ensure()?;
             out.name_embeddings.push(EmbeddingVectorRecord {
                 target_id: schema_id.clone(),
                 vector: name_vec,
             });
 
-            self.embed_schema_fields(
-                schema,
-                &schema_id,
-                &descriptive,
-                started,
-                budget,
-                memo,
-                &mut out,
-            )?;
+            self.embed_schema_fields(schema, &schema_id, &descriptive, pass, &mut out)?;
 
             out.schemas.push(RegistrySchemaHandle {
                 schema_id,
@@ -156,15 +149,12 @@ impl SchemaServiceState {
     }
 
     /// Embed the field contexts of one registry schema into `out`.
-    #[allow(clippy::too_many_arguments)]
     fn embed_schema_fields(
         &self,
         schema: &Schema,
         schema_id: &str,
         descriptive: &str,
-        started: Instant,
-        budget: Duration,
-        memo: &mut MemoStats,
+        pass: &mut EmbedPass<'_>,
         out: &mut RegistryEmbedded,
     ) -> Result<(), String> {
         let field_names = schema.fields.clone().unwrap_or_default();
@@ -184,9 +174,9 @@ impl SchemaServiceState {
                 .map(String::as_str);
             let text = field_context_text(descriptive, field_name, desc);
             let fvec = self
-                .memo_embed_text(&text, memo)
+                .memo_embed_text(&text, pass.memo)
                 .map_err(|e| format!("embed field context: {e}"))?;
-            ensure_within_budget(started, budget, memo)?;
+            pass.ensure()?;
             out.field_embeddings.push(EmbeddingVectorRecord {
                 target_id: field_id,
                 vector: fvec,
@@ -247,9 +237,7 @@ impl SchemaServiceState {
     /// optional).
     fn embed_canonical_fields(
         &self,
-        started: Instant,
-        budget: Duration,
-        memo: &mut MemoStats,
+        pass: &mut EmbedPass<'_>,
     ) -> Result<
         (
             Vec<RegistryCanonicalFieldHandle>,
@@ -269,13 +257,13 @@ impl SchemaServiceState {
                     canonical_field_id: cid.clone(),
                     field_type: field.field_type.to_string(),
                 });
-                if let Ok(vec) = self.memo_embed_text(name, memo) {
+                if let Ok(vec) = self.memo_embed_text(name, pass.memo) {
                     canonical_emb.push(EmbeddingVectorRecord {
                         target_id: cid,
                         vector: vec,
                     });
                 }
-                ensure_within_budget(started, budget, memo)?;
+                pass.ensure()?;
             }
         }
         Ok((canonical_meta, canonical_emb))
@@ -299,22 +287,27 @@ struct ProposalEmbedded {
     name_embedding: Vec<f32>,
 }
 
-/// Checked after every model call that missed the memo. A hit costs a map
-/// read, so the check only matters on the slow path.
-fn ensure_within_budget(
+/// Wall-clock budget and embedding memo for one resolver-input build.
+struct EmbedPass<'a> {
     started: Instant,
     budget: Duration,
-    memo: &MemoStats,
-) -> Result<(), String> {
-    let elapsed = started.elapsed();
-    if elapsed > budget {
-        return Err(format!(
-            "registry embedding exceeded budget: {}ms > {}ms after {} model calls ({} memo hits)",
-            elapsed.as_millis(),
-            budget.as_millis(),
-            memo.misses,
-            memo.hits
-        ));
+    memo: &'a mut MemoStats,
+}
+
+impl EmbedPass<'_> {
+    /// Checked after every model call that missed the memo. A hit costs a map
+    /// read, so the check only matters on the slow path.
+    fn ensure(&self) -> Result<(), String> {
+        let elapsed = self.started.elapsed();
+        if elapsed > self.budget {
+            return Err(format!(
+                "registry embedding exceeded budget: {}ms > {}ms after {} model calls ({} memo hits)",
+                elapsed.as_millis(),
+                self.budget.as_millis(),
+                self.memo.misses,
+                self.memo.hits
+            ));
+        }
+        Ok(())
     }
-    Ok(())
 }

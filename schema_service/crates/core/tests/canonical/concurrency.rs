@@ -1,7 +1,7 @@
 use super::support::*;
 use schema_service_core::{
     CanonicalVocabularyWrite, DeclaredFieldRegistry, EmbedError, Embedder,
-    ExternalSchemaPersistence, InMemorySchemaPersistence, SchemaServiceState,
+    ExternalSchemaPersistence, InMemorySchemaPersistence, SchemaConfig, SchemaServiceState,
 };
 use schema_types::FieldValueType;
 use std::{
@@ -199,14 +199,20 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
     run(async {
         stale_admission_images_cannot_publish_definitions().await;
         let backend = Arc::new(InMemorySchemaPersistence::default());
-        let first =
-            SchemaServiceState::new_with_external(backend.clone(), Arc::new(ParcelEmbedder))
-                .await
-                .expect("first state");
-        let stale =
-            SchemaServiceState::new_with_external(backend.clone(), Arc::new(ParcelEmbedder))
-                .await
-                .expect("stale state");
+        let first = SchemaServiceState::new_with_external(
+            backend.clone(),
+            Arc::new(ParcelEmbedder),
+            SchemaConfig::default(),
+        )
+        .await
+        .expect("first state");
+        let stale = SchemaServiceState::new_with_external(
+            backend.clone(),
+            Arc::new(ParcelEmbedder),
+            SchemaConfig::default(),
+        )
+        .await
+        .expect("stale state");
         let first_definition = field(
             "Parcel delivery status code supplied by carrier",
             FieldValueType::String,

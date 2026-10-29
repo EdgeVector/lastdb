@@ -28,21 +28,10 @@ pub(super) const SEMANTIC_RENAME_THRESHOLD: f32 = 0.84;
 /// τ_purpose — minimum cosine similarity between purpose-statement embeddings
 /// (formatted as `"{descriptive_name} — {purpose_statement}"`) to confirm a
 /// structural canonicalization match. Phase B of the fbrain
-/// `dual-signal-schema-canonicalization` design. Gated by env flag
-/// `SCHEMA_DUAL_SIGNAL_CANONICALIZATION`. Tighter than the structural gate
-/// because purpose statements are short and high-signal.
+/// `dual-signal-schema-canonicalization` design. Gated by
+/// `SCHEMA_DUAL_SIGNAL_CANONICALIZATION` on [`crate::SchemaConfig`]. Tighter
+/// than the structural gate because purpose statements are short and high-signal.
 pub(super) const PURPOSE_SIMILARITY_THRESHOLD: f32 = 0.88;
-
-/// Whether the dual-signal (structural + purpose) canonicalization gate is
-/// active. **Default on** as of Phase E cutover — callers get dual-signal
-/// unless the env var is explicitly set to `0`/`false`/`FALSE`/`no`, in
-/// which case they fall back to the legacy single-signal behavior. The
-/// explicit-off escape hatch lets operators pin back during deployment
-/// rollout without a code change.
-pub(super) fn dual_signal_canonicalization_enabled() -> bool {
-    !std::env::var("SCHEMA_DUAL_SIGNAL_CANONICALIZATION")
-        .is_ok_and(|v| matches!(v.as_str(), "0" | "false" | "FALSE" | "no"))
-}
 
 /// Default purpose-similarity threshold for the **reuse-before-NEW** check
 /// (`find_purpose_reuse_target`). A proposal that survived every structural
@@ -140,37 +129,7 @@ pub const REUSE_STRUCT_FLOOR: f32 = 0.55;
 /// `camera_details` / `dimensions` structures absent from the candidate).
 /// Subset proposals (input ⊆ candidate) trivially clear it. Overridable via
 /// `SCHEMA_REUSE_FIELD_FIDELITY_FLOOR`.
-pub(super) const REUSE_FIELD_FIDELITY_FLOOR: f32 = 0.5;
-
-/// Whether the reuse-before-NEW semantic-overlap check runs. **Default on**
-/// (same posture as the dual-signal gate it shares thresholds with); set the
-/// env var to a falsy value to fall back to the pre-change behavior where a
-/// proposal that missed every structural seam always registered a fresh
-/// canonical.
-pub(super) fn reuse_before_new_enabled() -> bool {
-    !std::env::var("SCHEMA_REUSE_BEFORE_NEW")
-        .is_ok_and(|v| matches!(v.as_str(), "0" | "false" | "FALSE" | "no"))
-}
-
-/// Read an `f32` threshold override from `key`, falling back to `default`
-/// when the var is unset or unparseable. Keeps the two reuse-before-NEW
-/// thresholds tunable in a deployment without a recompile, mirroring the
-/// env-flag escape hatches the dual-signal gate already exposes.
-pub(super) fn reuse_threshold_override(key: &str, default: f32) -> f32 {
-    env_flag::var_or(key, default)
-}
-
-/// Whether the Phase C shadow-mode observability for dual-signal canonicalization
-/// is active. Default off. When on, every registration that hits the dual-signal
-/// seams also computes the diagnostic via [`SchemaServiceState::dual_signal_diagnostic`];
-/// if the dual-signal outcome would disagree with the single-signal outcome a
-/// [`crate::near_miss::NearMissRecord`] is persisted. Shadow mode forces the
-/// actual decision back to the single-signal algorithm even when
-/// [`dual_signal_canonicalization_enabled`] is also true — disagreement data
-/// is the goal, so we don't want Phase B vetoes to perturb the baseline.
-pub(super) fn shadow_mode_enabled() -> bool {
-    env_flag::var_truthy("SCHEMA_SHADOW_MODE")
-}
+pub(crate) const REUSE_FIELD_FIDELITY_FLOOR: f32 = 0.5;
 
 /// Per-comparison snapshot produced by
 /// [`SchemaServiceState::dual_signal_diagnostic`]. Field names line up with

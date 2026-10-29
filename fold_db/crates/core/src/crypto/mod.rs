@@ -26,11 +26,5 @@ pub use envelope::{
     encrypt_envelope_v2, peek_envelope, EnvelopeHeader, KeyId,
 };
 pub use error::{CryptoError, CryptoResult};
-// Portable candidate API only. Native molecule encodings do not select this
-// format until range values, readers, writers, and conversion are complete.
-pub use lastdb_range_crypto::{
-    EncryptedRangeBounds, ProtectedRange, RangeMoleculeKey, RangeOpeKey, RangeOpeRoot, RangeScope,
-    RangeTerm,
-};
 pub use provider::{CryptoProvider, LocalCryptoProvider};
 pub mod inbox;

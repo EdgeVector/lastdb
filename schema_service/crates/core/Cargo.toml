@@ -14,7 +14,6 @@ schema-org-seed-data = []
 
 [dependencies]
 schema_core_resolver = { workspace = true }
-env_flag = { workspace = true }
 schema_types = { workspace = true }
 # App-identity (app_identity v3.1, Lane B2b): DevCert (ES256) + signed
 # envelope (Ed25519) + JCS verification for `POST /v1/apps` and the

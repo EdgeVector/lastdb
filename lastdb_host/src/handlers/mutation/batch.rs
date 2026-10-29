@@ -106,12 +106,5 @@ async fn write_batch<H: HostNode>(
         .mutation_manager()
         .write_mutations_with_access_receipt(mutations, ctx)
         .await
-        .map_err(|e| {
-            let mapped = HostError::from(e);
-            if mapped.status == 500 {
-                HostError::internal(format!("Mutation batch failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })
+        .map_err(|e| super::prefix_core_failure(e, "Mutation batch failed"))
 }

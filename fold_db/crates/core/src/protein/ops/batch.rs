@@ -6,6 +6,18 @@ use super::{
 };
 use crate::atom::TipAuthor;
 
+/// One loaded protein and the tip this write should copy onto its siblings.
+pub(crate) struct LoadedProteinSiblingUpdate<'a> {
+    pub(crate) protein: &'a Protein,
+    pub(crate) entry_molecule_uuid: &'a str,
+    pub(crate) entry_layout: Option<(&'a str, Option<&'a str>)>,
+    pub(crate) fields: &'a HashMap<String, String>,
+    pub(crate) atom_uuid: &'a str,
+    pub(crate) keypair: &'a Ed25519KeyPair,
+    pub(crate) author_clock: Option<TipAuthor>,
+    pub(crate) storage_prefix: Option<&'a str>,
+}
+
 impl AtomStore {
     /// Resolve global molecule membership definitions with one storage batch.
     pub(crate) async fn protein_of_molecules(
@@ -38,18 +50,20 @@ impl AtomStore {
     }
 
     /// Plan one field's sibling updates from a protein loaded for this write.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn protein_sibling_tip_updates_for_loaded_protein(
         &self,
-        protein: &Protein,
-        entry_molecule_uuid: &str,
-        entry_layout: Option<(&str, Option<&str>)>,
-        fields: &HashMap<String, String>,
-        atom_uuid: &str,
-        keypair: &Ed25519KeyPair,
-        author_clock: Option<TipAuthor>,
-        storage_prefix: Option<&str>,
+        update: LoadedProteinSiblingUpdate<'_>,
     ) -> Result<Vec<PreparedProteinTip>, SchemaError> {
+        let LoadedProteinSiblingUpdate {
+            protein,
+            entry_molecule_uuid,
+            entry_layout,
+            fields,
+            atom_uuid,
+            keypair,
+            author_clock,
+            storage_prefix,
+        } = update;
         let honor_tip_lww = author_clock.is_some();
         let tip = match author_clock {
             Some(author) => AtomEntry::thin_with_author(
