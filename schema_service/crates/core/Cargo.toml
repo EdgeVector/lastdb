@@ -38,8 +38,7 @@ async-trait = { workspace = true }
 # `rt` — ResolverRuntime::spawn_refresh_task + kill-switch clear.
 tokio = { workspace = true, features = ["time", "sync", "rt"] }
 
-# Runtime use: `snapshot::SchemaServiceState::export_snapshot` stamps
-# `captured_at` as RFC 3339 via `chrono::Utc::now()`.
+# RFC 3339 stamps. Wall time comes from the injected `Clock`.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Phase C shadow-mode near-miss audit log: `registration_id` is a UUID
 # v4 minted at the call site so a retried registration won't double-log.

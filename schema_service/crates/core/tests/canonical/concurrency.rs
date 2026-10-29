@@ -203,6 +203,7 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
             backend.clone(),
             Arc::new(ParcelEmbedder),
             SchemaConfig::default(),
+            process_clock(),
         )
         .await
         .expect("first state");
@@ -210,6 +211,7 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
             backend.clone(),
             Arc::new(ParcelEmbedder),
             SchemaConfig::default(),
+            process_clock(),
         )
         .await
         .expect("stale state");

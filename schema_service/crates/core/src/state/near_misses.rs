@@ -126,7 +126,7 @@ impl SchemaServiceState {
                         dual_signal_decision: veto_decision,
                         struct_similarity: d.struct_similarity,
                         purpose_similarity: d.purpose_similarity,
-                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        timestamp: self.clock.wall_time().to_rfc3339(),
                     };
                     self.append_near_miss(record).await;
                 }

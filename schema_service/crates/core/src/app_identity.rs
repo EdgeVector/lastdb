@@ -39,7 +39,6 @@
 //! match and the request is a 401).
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;

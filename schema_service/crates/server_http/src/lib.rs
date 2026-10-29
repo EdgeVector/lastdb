@@ -18,7 +18,7 @@ use schema_service_client::SchemaServiceClient;
 use schema_service_core::snapshot::SnapshotImportReport;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::SchemaConfig;
-use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv};
+use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv, SystemClock};
 
 use crate::middleware::otel::W3CParentContext;
 
@@ -223,7 +223,11 @@ impl SchemaServiceServer {
         // App-identity and mutation-gate settings come from the same startup
         // snapshot as the canonicalization gates. Empty trusted roots leave
         // the dev binary a passthrough, matching pre-app-identity behavior.
-        let state = SchemaServiceState::new_in_memory(embedder, SchemaConfig::from_env())?;
+        let state = SchemaServiceState::new_in_memory(
+            embedder,
+            SchemaConfig::from_env(),
+            Arc::new(SystemClock),
+        )?;
         Ok(Self {
             state: web::Data::new(state),
             bind_address: bind_address.to_string(),

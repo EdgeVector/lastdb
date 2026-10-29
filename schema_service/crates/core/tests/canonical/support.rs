@@ -1,6 +1,6 @@
 use schema_service_core::{
-    types::CanonicalField, DeclareFieldInput, DeclareFieldRequest, DisabledEmbeddingModel,
-    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
+    types::CanonicalField, Clock, DeclareFieldInput, DeclareFieldRequest, DisabledEmbeddingModel,
+    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState, WallTime,
 };
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{future::Future, sync::Arc};
@@ -18,9 +18,32 @@ pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaService
         backend,
         Arc::new(DisabledEmbeddingModel),
         SchemaConfig::default(),
+        process_clock(),
     )
     .await
     .expect("empty or valid backend")
+}
+
+/// Same operating-system reads as the shell `SystemClock`. This crate's tests
+/// cannot depend on the shell.
+pub fn process_clock() -> Arc<dyn Clock> {
+    Arc::new(ProcessClock)
+}
+
+struct ProcessClock;
+
+impl Clock for ProcessClock {
+    fn wall_time(&self) -> WallTime {
+        schema_types::clock::wall_time()
+    }
+
+    fn unix_secs(&self) -> u64 {
+        schema_types::clock::unix_secs()
+    }
+
+    fn monotonic(&self) -> std::time::Instant {
+        schema_types::clock::monotonic()
+    }
 }
 
 pub fn field(description: &str, field_type: FieldValueType) -> CanonicalField {

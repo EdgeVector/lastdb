@@ -12,6 +12,7 @@
 //! [`schema_service_core::Embedder`] implementation that binaries inject
 //! at construction when compiled with the explicit `fastembed` feature.
 
+mod clock;
 mod schema_config;
 
 #[cfg(any(feature = "fastembed", feature = "fastembed-layer"))]
@@ -19,6 +20,7 @@ pub mod fastembed_adapter;
 #[cfg(feature = "actix")]
 pub mod handlers;
 
+pub use clock::SystemClock;
 #[cfg(any(feature = "fastembed", feature = "fastembed-layer"))]
 pub use fastembed_adapter::FoldDbFastEmbedder;
 pub use schema_config::SchemaConfigEnv;

@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::clock::Clock;
+
 use app_identity_crypto::{Env, VerifyError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -44,5 +46,6 @@ pub struct ResolverPackConsumer<S> {
     store: S,
     cache: FsResolverPackCache,
     config: ResolverPackConsumerConfig,
+    clock: Arc<dyn Clock>,
     telemetry: Arc<Mutex<ResolverPackTelemetrySnapshot>>,
 }

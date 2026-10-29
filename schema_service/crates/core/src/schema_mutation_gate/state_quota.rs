@@ -11,7 +11,7 @@ impl SchemaServiceState {
         app_id: Option<&str>,
         dev_pubkey: Option<&str>,
     ) -> Result<(), SchemaMutationGateError> {
-        let now = schema_types::clock::unix_secs();
+        let now = self.clock.unix_secs();
         check_quota_bucket(
             &self.schema_mutation_gate_store,
             "node",
