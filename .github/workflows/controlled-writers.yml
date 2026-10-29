@@ -5,6 +5,9 @@ on:
     paths:
       - 'scripts/benchmarks/controlled_writers.py'
       - '.github/workflows/controlled-writers.yml'
+      - 'fold_db/crates/core/src/db_operations/schema_store/read_snapshot.rs'
+      - 'fold_db/crates/core/src/storage/disk_pack/read/memory.rs'
+      - 'fold_db/crates/core/src/write_preparation.rs'
       - 'vendor/laststore/src/disk_run/writer.rs'
       - 'vendor/laststore/src/disk_run/writer/**'
       - 'vendor/laststore/src/disk_run/home/commit.rs'
