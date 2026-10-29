@@ -38,6 +38,40 @@ impl S3BlobPersistence {
         Ok(())
     }
 
+    /// Replace one object when its ETag still matches.
+    /// A generation pair turns a precondition failure into `GenerationConflict`.
+    async fn put_if_match<T>(
+        &self,
+        key: &str,
+        record: &T,
+        etag: &str,
+        generation_conflict: Option<(u64, u64)>,
+    ) -> FoldDbResult<()>
+    where
+        T: Serialize,
+    {
+        let body = serde_json::to_vec(record)
+            .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(self.definition_key(key).as_ref())
+            .body(ByteStream::from(body))
+            .content_type("application/json")
+            .if_match(etag)
+            .send()
+            .await
+            .map_err(|e| {
+                if let Some((expected, supplied)) = generation_conflict {
+                    if is_precondition_failed(&e) {
+                        return FoldDbError::GenerationConflict { expected, supplied };
+                    }
+                }
+                FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
+            })?;
+        Ok(())
+    }
+
     pub(crate) async fn get_single_object<T>(&self, key: &str) -> FoldDbResult<Option<T>>
     where
         T: DeserializeOwned,
@@ -202,20 +236,7 @@ impl S3BlobPersistence {
                 final_record.revoked_at = existing.revoked_at;
                 final_record.revocation_reason = existing.revocation_reason;
             }
-            let body = serde_json::to_vec(&final_record)
-                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .body(ByteStream::from(body))
-                .content_type("application/json")
-                .if_match(etag)
-                .send()
-                .await
-                .map_err(|e| {
-                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
-                })?;
+            self.put_if_match(key, &final_record, &etag, None).await?;
         } else {
             self.put_single_object(key, record, true).await?;
         }
@@ -240,28 +261,13 @@ impl S3BlobPersistence {
                     supplied: record.generation,
                 });
             }
-            let stored_generation = existing.generation;
-            let body = serde_json::to_vec(record)
-                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .body(ByteStream::from(body))
-                .content_type("application/json")
-                .if_match(etag)
-                .send()
-                .await
-                .map_err(|e| {
-                    if is_precondition_failed(&e) {
-                        FoldDbError::GenerationConflict {
-                            expected: stored_generation,
-                            supplied: record.generation,
-                        }
-                    } else {
-                        FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
-                    }
-                })?;
+            self.put_if_match(
+                key,
+                record,
+                &etag,
+                Some((existing.generation, record.generation)),
+            )
+            .await?;
         } else {
             self.put_single_object(key, record, true).await?;
         }
