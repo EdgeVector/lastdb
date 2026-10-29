@@ -93,6 +93,7 @@ impl SchemaCore {
         if schema.runtime_fields.is_empty() {
             schema.populate_runtime_fields()?;
         }
+        schema.sync_molecule_uuids();
         schema.clear_runtime_molecules();
         // Gated for the same reason as `load_schema_internal`: an identity
         // minted by a newer algorithm must survive an older binary touching it.
