@@ -59,17 +59,24 @@ pub const PURPOSE_DEV_CERT: &str = "dev_cert";
 /// canonicalization time, so declaration order is irrelevant.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DevCert {
+    /// Cert schema version. `verify_dev_cert` accepts only `DEV_CERT_VERSION`.
     pub version: u32,
+    /// Purpose string. Verification accepts only `"dev_cert"`.
     pub purpose: String,
+    /// Algorithm string. Verification accepts only `"ES256"`.
     pub alg: String,
     /// `sha256(SubjectPublicKeyInfo DER of the exemem root pubkey)`, hex.
     pub key_id: String,
     /// The developer's Ed25519 public key (base64). The thing this cert
     /// vouches for.
     pub dev_pubkey: String,
+    /// Developer user hash carried on the cert. Verification does not compare it.
     pub user_hash: String,
+    /// RFC 3339 issuance time. The cert is valid at this instant and after.
     pub issued_at: String,
+    /// RFC 3339 expiry. The cert is rejected at this instant and after.
     pub expires_at: String,
+    /// Deployment name. Callers compare it; `verify_dev_cert` does not.
     pub env: String,
     /// Whether the developer this cert vouches for is an **authorized
     /// publisher** — i.e. passed the publish gate (a paid plan OR an

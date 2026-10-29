@@ -167,11 +167,15 @@ pub fn current_queue_wait() -> Option<Duration> {
 /// Point-in-time occupancy for `/api/status` and self-metrics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UdsPoolSnapshot {
+    /// Worker threads configured for this pool.
     pub workers: usize,
+    /// How many accepted jobs may wait for a worker.
     pub queue_capacity: usize,
     /// Jobs queued or running (not yet finished).
     pub in_flight: usize,
+    /// Jobs the pool has accepted since it started.
     pub submitted: u64,
+    /// Jobs refused because the queue was full.
     pub queue_full_rejects: u64,
 }
 
@@ -270,16 +274,19 @@ impl UdsWorkerPool {
     }
 
     #[must_use]
+    /// Worker threads configured for this pool.
     pub fn workers(&self) -> usize {
         self.inner.workers
     }
 
     #[must_use]
+    /// How many accepted jobs may wait for a worker.
     pub fn queue_capacity(&self) -> usize {
         self.inner.queue_capacity
     }
 
     #[must_use]
+    /// Jobs refused because the queue was full.
     pub fn queue_full_rejects(&self) -> u64 {
         self.inner.queue_full_rejects.load(Ordering::Relaxed)
     }

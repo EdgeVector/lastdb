@@ -16,6 +16,7 @@ pub(super) struct MutationPlan {
 }
 
 impl MutationPlan {
+    /// Reject an illegal `must_exist` or key-range prefix, then keep the components and canonical schema name.
     pub fn new(components: MutationComponents, canonical: String) -> Result<Self, HostError> {
         reject_illegal_must_exist(components.mutation_type, components.must_exist)?;
         if let Some(prefix) = components.key_range_prefix.as_deref() {

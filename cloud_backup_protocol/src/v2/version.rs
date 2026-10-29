@@ -5,8 +5,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Version;
 impl Version {
+    /// The only V2 value. It serializes as the JSON integer 2.
     pub const V2: Self = Self;
     #[must_use]
+    /// Return `2`.
     pub const fn get(self) -> u8 {
         2
     }
