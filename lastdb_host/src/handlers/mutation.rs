@@ -36,6 +36,16 @@ pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
 pub use batch::execute_mutations_batch;
 
+/// Keep a typed status. A true 500 keeps the historical prefix.
+fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
+    let mapped = error.into();
+    if mapped.status == 500 {
+        HostError::internal(format!("{failed}: {}", mapped.message))
+    } else {
+        mapped
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mutation (POST /api/mutation)
 // ---------------------------------------------------------------------------
@@ -292,15 +302,7 @@ async fn commit_mutation<H: HostNode>(
     let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
     let receipt = start_core_commit(manager, mutations, ctx, aggregate_write)
         .await
-        .map_err(|e| {
-            // Preserve typed status codes and the historical prefix for true 500s.
-            let mapped = HostError::from(e);
-            if mapped.status == 500 {
-                HostError::internal(format!("Mutation execution failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
 
     let receipt = if aggregate_write {
         require_durable_aggregate_receipt(receipt, "Aggregate set")?
