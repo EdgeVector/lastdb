@@ -97,11 +97,12 @@ fn bootstrap_space(v2: &physical::V2Home, operations: &[HomeMutation]) -> Storag
     // RunFile objects, boundary-key capacities, lists and paths. Four KiB adds
     // the new RunMeta, frame header/tag and every possible varint-width growth.
     // Two bootstrap records under 4 KiB add at most two data/index blocks, one
-    // top block, their frame headers/tags and a footer. Add a separate 4 KiB
-    // control-file allowance. Frames never expand their plaintext payloads.
+    // top block, their frame headers/tags and a footer. Add a separate 8 KiB
+    // allowance for the fixed control stage and final file. Frames never expand
+    // their plaintext payloads. The ready-byte update stays within those files.
     let current = v2.home.read(super::super::budget()).retained_bytes();
     current
-        .checked_add(4096 + 64 * 1024 + 4096)
+        .checked_add(4096 + 64 * 1024 + 8192)
         .ok_or_else(|| invalid("logical capture bootstrap space bound overflow"))
 }
 

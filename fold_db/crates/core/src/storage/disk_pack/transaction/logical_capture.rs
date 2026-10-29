@@ -39,11 +39,17 @@ pub(in crate::storage::disk_pack) fn require_captured_changes(
 }
 
 fn changes_logical_data(operation: &HomeMutation) -> StorageResult<bool> {
+    if !matches!(operation.collection.as_str(), "tips" | "proteins") {
+        return Ok(false);
+    }
     let key = super::super::native_routing::decode(&operation.key)?;
     let Ok(key) = std::str::from_utf8(&key) else {
         return Ok(false);
     };
-    let key = crate::storage::current_keys::source_key(key)?;
+    let Ok(key) = crate::storage::current_keys::source_key(key) else {
+        // Other metadata in the fallback collection is not a molecule key.
+        return Ok(false);
+    };
     let family = key.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,

@@ -9,6 +9,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use zeroize::Zeroizing;
 
 const FILE: &str = "logical-device-capture-v1";
+const STAGED: &str = ".logical-device-capture-v1.prepared";
 const MARKER: &[u8] = b"lastdb-logical-device-capture-v1\n";
 const BODY_BYTES: usize = 81;
 const READY_OFFSET: u64 = (MARKER.len() + BODY_BYTES - 1) as u64;
@@ -97,20 +98,27 @@ impl Identity {
         bytes.extend_from_slice(self.generation.as_bytes());
         bytes.push(u8::from(self.ready));
         let path = control_path(v2)?;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        File::open(
-            path.parent()
-                .ok_or_else(|| invalid("capture control needs a parent"))?,
-        )?
-        .sync_all()?;
-        Ok(())
+        let staged = path.with_file_name(STAGED);
+        require_absent(&path)?;
+        discard_staged(&staged)?;
+        let result = (|| {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&staged)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            // Both native owner locks exclude another legitimate enrollment creator.
+            require_absent(&path)?;
+            std::fs::rename(&staged, &path)?;
+            sync_parent(v2)
+        })();
+        if result.is_err() {
+            let _ = discard_staged(&staged);
+        }
+        result
     }
 
     /// Enrollment is not exposed until its ready byte and filename are durable.
@@ -163,6 +171,35 @@ impl Identity {
             self.cas,
         ))?)))
     }
+}
+
+fn require_absent(path: &Path) -> StorageResult<()> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(_) => Err(invalid("logical capture control already exists")),
+    }
+}
+
+/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
+fn discard_staged(path: &Path) -> StorageResult<()> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if !meta.is_file()
+        || meta.mode() & 0o777 != 0o600
+        || meta.nlink() != 1
+        || meta.uid() != unsafe { libc::geteuid() }
+        || meta.len() > (MARKER.len() + BODY_BYTES) as u64
+    {
+        return Err(invalid(
+            "logical capture stage is not a private owned partial control",
+        ));
+    }
+    std::fs::remove_file(path)?;
+    Ok(())
 }
 
 fn sync_parent(v2: &physical::V2Home) -> StorageResult<()> {

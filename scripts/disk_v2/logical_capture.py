@@ -144,11 +144,14 @@ def observed_resources(node):
 
 
 def require_ids(status, acknowledged):
+    events = [set(event["mutation_ids"]) for event in status["recent"]]
     captured = [identity for event in status["recent"] for identity in event["mutation_ids"]]
     require(len(captured) == len(set(captured)), "a mutation identity appears in two capture events")
+    returned = [identity for batch in acknowledged for identity in batch["mutation_ids"]]
+    require(len(returned) == len(set(returned)), "durable acknowledgements repeat a mutation identity")
     for batch in acknowledged:
-        require(set(batch["mutation_ids"]).issubset(captured),
-                "an acknowledged mutation lacks its durable capture identity")
+        require(sum(set(batch["mutation_ids"]) == event for event in events) == 1,
+                "an acknowledged batch lacks one capture event with exactly its mutation identities")
 
 
 def prepare(node, result):
@@ -302,6 +305,8 @@ def run(candidate, output):
     result = {"source_revision": candidate[1], "binary_sha256": file_hash(candidate[0]),
               "driver_sha256": file_hash(Path(__file__)), "complete": False,
               "primary_access": False, "cloud_access": False,
+              "verification_scope": "capture metadata and keyed values",
+              "original_event_signature_export_operated": False,
               "max_crash_batches": MAX_CRASH_BATCHES, "records_per_batch": 2}
     node = Node(candidate[0], candidate[1], output, environment={
         "LASTDB_LOGICAL_CAPTURE": "1", "LASTDB_SELF_METRICS_TO_DB": "false",
@@ -334,8 +339,9 @@ def summary(result):
         f"Result: {'PASS' if result['complete'] else 'FAIL'}. Source: `{result['source_revision']}`.",
         "Real production mutations on a fresh V2 home; no primary or cloud access.",
         "The operation checks durable mutation IDs, keyed values, sequence/hash links, repeated content, and refused writes.",
+        "Verification covers capture metadata and keyed values; the operation does not export original events or verify their signatures.",
         "Repeated HTTP content receives a new author clock and event; this endpoint supplies no idempotent retry guarantee.",
-        "The deliberate kill occurs with a client write pending and no pre-crash flush.",
+        "The operation requires a deliberate kill with a client write pending and no pre-crash flush.",
         "Two normal reopens must preserve acknowledged values and captured mutation IDs.",
         "Checkpoint memory and disk samples do not establish universal peaks or power-loss behavior.",
         f"Detail: {result.get('error', 'complete')}", ""])
