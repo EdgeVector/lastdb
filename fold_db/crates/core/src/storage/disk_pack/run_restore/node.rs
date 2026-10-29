@@ -16,9 +16,32 @@ pub struct RunNodeGuard {
     pub(super) cas: RunRead,
     pub(super) profile: RunBackupProfile,
     pub(super) files: Vec<RunRestoreFile>,
+    identity_control: bool,
 }
 
 impl RunNodeGuard {
+    pub(super) fn into_identity_writer(
+        self,
+    ) -> StorageResult<(crate::storage::disk_pack::physical::V2Home, File, File)> {
+        self.check_binding()?;
+        let main = self
+            .main
+            .into_existing_writer(&self.root.join(run_node::RUN_DIR))
+            .map_err(map)?;
+        let cas = self
+            .cas
+            .into_existing_writer(&self.root.join(run_node::CAS_DIR))
+            .map_err(map)?;
+        Ok((
+            crate::storage::disk_pack::physical::V2Home::new(
+                std::sync::Arc::new(main),
+                std::sync::Arc::new(cas),
+            ),
+            self.directory,
+            self.marker,
+        ))
+    }
+
     pub fn check_binding(&self) -> StorageResult<()> {
         files::same_entry(&self.directory, &self.root)?;
         files::same_entry(&self.marker, &self.root.join(NODE_MARKER))?;
@@ -40,12 +63,32 @@ impl RunNodeGuard {
             &self.profile.main,
         )?;
         check_home(&self.root, run_node::CAS_DIR, &self.cas, &self.profile.cas)?;
-        files::require_root_members(&self.root)
+        self.check_root_members()
     }
 
     pub(super) fn open(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
+        Self::open_inner(root, key, false)
+    }
+
+    pub(super) fn open_identity(root: &Path, key: &[u8; 32]) -> StorageResult<Self> {
+        Self::open_inner(root, key, true)
+    }
+
+    fn check_root_members(&self) -> StorageResult<()> {
+        if self.identity_control {
+            files::require_identity_root_members(&self.root)
+        } else {
+            files::require_root_members(&self.root)
+        }
+    }
+
+    fn open_inner(root: &Path, key: &[u8; 32], identity_control: bool) -> StorageResult<Self> {
         let directory = files::directory(root)?;
-        files::require_root_members(root)?;
+        if identity_control {
+            files::require_identity_root_members(root)?;
+        } else {
+            files::require_root_members(root)?;
+        }
         let marker = files::regular(&root.join(NODE_MARKER), true)?;
         marker
             .try_lock()
@@ -101,6 +144,7 @@ impl RunNodeGuard {
             cas,
             profile,
             files: entries,
+            identity_control,
         };
         guard.check_binding()?;
         Ok(guard)

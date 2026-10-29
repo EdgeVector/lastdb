@@ -1,8 +1,6 @@
 //! One bounded batch proves common hashes without reading any event bodies.
 
-use super::super::{
-    key, model::EventMetadata, peer, unhex, verify as event_validation, COLLECTION,
-};
+use super::super::{key, model::EventMetadata, peer, unhex, COLLECTION};
 use super::{compare, invalid, SnapshotInclusionMap, StorageResult};
 use crate::storage::disk_pack::map;
 use laststore::disk_run::home::RunRead;
@@ -46,17 +44,7 @@ pub(super) fn verify(
             .ok_or_else(|| invalid("snapshot adoption common position is not retained"))?;
         if included.origin == local.producer {
             let metadata: EventMetadata = super::super::decode(&bytes)?;
-            event_validation::mutation_ids(&metadata.mutation_ids)?;
-            unhex::<32>(&metadata.previous_sha256)?;
-            if metadata.origin != included.origin
-                || metadata.sequence != included.sequence.get()
-                || metadata.sha256 != included.sha256
-                || metadata.outcome_count > super::super::MAX_OUTCOMES
-                || metadata.encoded_event_bytes == 0
-                || metadata.encoded_event_bytes > (super::super::MAX_EVENT_BYTES - 2) as u64
-            {
-                return Err(invalid("snapshot adoption authored prefix differs"));
-            }
+            metadata.verify_prefix(&included.origin, included.sequence.get(), &included.sha256)?;
         } else if bytes.as_slice() != unhex::<32>(&included.sha256)?.as_slice() {
             return Err(invalid("snapshot adoption imported prefix differs"));
         }

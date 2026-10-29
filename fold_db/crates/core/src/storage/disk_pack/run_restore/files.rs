@@ -96,6 +96,14 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
+    root_members(root, false)
+}
+
+pub(super) fn require_identity_root_members(root: &Path) -> StorageResult<()> {
+    root_members(root, true)
+}
+
+fn root_members(root: &Path, identity: bool) -> StorageResult<()> {
     let mut names = BTreeSet::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -103,15 +111,16 @@ pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {
             .file_name()
             .into_string()
             .map_err(|_| invalid("run restore name"))?;
-        if !matches!(
+        if !(matches!(
             name.as_str(),
             "laststore-pack-node-v1" | "disk-run" | "disk-cas"
-        ) || !names.insert(name)
+        ) || (identity && name == "logical-device-capture-v1"))
+            || !names.insert(name)
         {
             return Err(invalid("run restore wrapper closure"));
         }
     }
-    if names.len() != 3 {
+    if names.len() != if identity { 4 } else { 3 } {
         return Err(invalid("run restore wrapper closure"));
     }
     Ok(())

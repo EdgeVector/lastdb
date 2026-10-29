@@ -140,3 +140,57 @@ CI compares actual captured maps on fresh devices.
 It checks frozen-cut repeatability, verified older boundaries, candidate-prefix requirements, required source tails, and refused certificates.
 It also checks a sequence-zero device with data from before enrollment.
 Record values, native heads, source metadata, and private identities must remain unchanged by the plan.
+
+## Inactive snapshot identity preparation
+
+A foreign snapshot contains the donor's public device head and import positions.
+It contains no private device signer.
+The receiver must keep its own signer, device generation, and original sequence-zero anchor.
+The physical main and CAS identities can differ from the identities at device enrollment.
+The new private control separates these original identities from the current file identities.
+
+The offline `lastdb db snapshot-identity-prepare` command prepares an existing inactive destination.
+The source must be stopped, with a clean shutdown receipt.
+Both homes must belong to the same account encryption key.
+The command verifies the candidate's actual native files and signed inclusion map before it writes device metadata.
+It never copies the donor's private control.
+It never changes the source.
+
+This step accepts only a candidate that includes the receiver's exact authored head.
+Every locally known peer must appear with the same original anchor and complete local coverage.
+An advanced peer position requires proof of the locally known hash in the candidate's retained receipts.
+An unknown device, missing position, earlier position, changed anchor, or unproved prefix causes refusal.
+This step does not fetch or replay missing events.
+
+The prepared destination keeps the receiver's device identity and original anchor.
+The donor becomes a peer of that device.
+Each peer has a snapshot base and a current position.
+The receipt count measures only events after those bases, with the existing 65,536 receipt cap.
+A later receive path must refuse an event below a retained base without its exact retained hash.
+That path still needs an implementation before activation.
+
+Version 2 public device metadata records the original identities and authored base.
+The head reserves a separate authored key layout for the receiver.
+Preparation neither copies nor exports the donor's old authored events.
+Version 2 inclusion maps explicitly sign the retained bases under their own signature domain.
+Version 1 maps keep their original bytes, signature domain, and receipt-count rules.
+The encrypted client metadata remains private to LastDB.
+Cloud continues to hold opaque files without knowledge of these formats.
+
+The prepared private control has a distinct inactive state.
+Normal startup refuses that state even when the authored sequence is zero.
+An incomplete preparation also cannot become an enrolled device through normal startup.
+`snapshot-identity-inspect` verifies the stored preparation after the process closes.
+It exposes no signer seed and grants no startup or file-replacement authority.
+
+The source retains its signer and mutation logs throughout this step.
+The destination remains inactive to prevent two active producers for one device identity.
+Actual adoption still requires a shared-base proof, source-cut revalidation, exclusive source retirement, and atomic publication.
+Equal device positions do not prove equal data from before device enrollment.
+This step neither removes mutation logs nor introduces a recovery journal.
+
+CI uses only fresh generated homes on the existing public Linux and macOS runners.
+It verifies the prepared identities, import bases, unchanged source, and refused destination startup.
+The existing operation also checks ordinary imports, duplicate events, keyed reads, ranges, and crash recovery.
+Activated destination imports remain outside this step because activation remains disabled.
+Source and destination metadata share the existing 96 MiB backup memory allowance.
