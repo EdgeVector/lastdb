@@ -89,7 +89,9 @@ impl AtomStore {
                 let step = self.walk_step(&mut walk).await?;
                 for (key, _) in &step.rows {
                     let key = String::from_utf8_lossy(key);
-                    if !is_counted_record_key(&key) {
+                    if !is_counted_record_key(&key)
+                        || super::super::super::atom_history::is_archive(&key)
+                    {
                         continue;
                     }
                     if record_digest(&key).is_some_and(|digest| !survey.has(digest)) {

@@ -103,6 +103,7 @@ impl AtomStore {
         let accounted = super::super::store::accounted_items(&tips, &rows)?;
         let commit = self
             .commit_tip_changes(TipChangeSet {
+                history: crate::db_operations::atom_store::atom_history::HistoryMode::Ignore,
                 scope: storage_prefix,
                 tips,
                 bodies,

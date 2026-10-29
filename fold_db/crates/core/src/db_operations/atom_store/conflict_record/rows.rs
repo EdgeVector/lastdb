@@ -127,5 +127,5 @@ pub(crate) fn is_counted_record_key(key: &str) -> bool {
     };
     let mut parts = rest.rsplitn(3, ':');
     let (_digest, tag) = (parts.next(), parts.next());
-    matches!(tag, Some("conflict" | "suppressed")) && parts.next().is_some()
+    matches!(tag, Some("conflict" | "suppressed" | "archive")) && parts.next().is_some()
 }

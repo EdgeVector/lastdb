@@ -1,6 +1,7 @@
 # Writer boundary of the atom counter. Format: path|function|families|reason
 # families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters and the bindings counter · R blob counter and blob queue · - none of these
 # One line for each function that the lint finds. The lint fails on a function that is missing,
+fold_db/crates/core/src/db_operations/atom_store/atom_history/policy.rs|set_field_history_policy|C|writes only a canonical field policy and the logical format fence in one native transaction; no tip, archive, atom, or reference counter write
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the planner module only.
 

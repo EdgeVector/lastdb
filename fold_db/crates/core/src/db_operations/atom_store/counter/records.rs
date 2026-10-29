@@ -67,6 +67,8 @@ pub(super) fn with_new_record_rows(
 /// What the planner found for the releases of one run.
 #[derive(Default)]
 pub(super) struct Released {
+    pub(super) history_slots: Vec<String>,
+    files: Vec<String>,
     /// The atoms of each released history row, as the row names them.
     atoms: Vec<Vec<String>>,
     /// The molecule of each released history row, as the row names it. A
@@ -79,6 +81,20 @@ pub(super) struct Released {
 }
 
 impl Released {
+    pub(super) fn file_deltas(
+        &self,
+        records: &[RecordRefs],
+        new_records: &[bool],
+    ) -> super::super::blob_counter::BlobDeltas {
+        let mut deltas = super::super::blob_counter::BlobDeltas::default();
+        deltas.add(&self.files, -1);
+        for (record, is_new) in records.iter().zip(new_records) {
+            if *is_new {
+                deltas.add(&record.files, 1);
+            }
+        }
+        deltas
+    }
     /// The number of records this run ends: history rows released, and
     /// releases whose history row was already gone. A release that the run
     /// keeps (a row that does not decode) is not counted.
@@ -160,6 +176,26 @@ impl AtomStore {
                     out.deletes.extend(release.deletes.iter().cloned());
                     continue;
                 };
+                if super::super::atom_history::is_archive(&release.history) {
+                    match serde_json::from_slice::<super::super::atom_history::ArchiveRecord>(
+                        &bytes,
+                    ) {
+                        Ok(record) => {
+                            out.files.extend(super::super::blob_counter::tip_blobs(
+                                &record.archive.source,
+                            ));
+                            out.history_slots
+                                .push(super::super::atom_history::archive_slot(
+                                    &release.history,
+                                    &record,
+                                )?);
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, "archive cannot decode; references stay");
+                            continue;
+                        }
+                    }
+                }
                 match serde_json::from_slice::<MutationEvent>(&bytes) {
                     Ok(event) => {
                         out.atoms.push(event_atoms(&event));

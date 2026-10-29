@@ -159,6 +159,7 @@ macro_rules! heap_route_ctx_host {
 mod admin_routes;
 mod aggregate_routes;
 mod app_routes;
+mod atom_history;
 mod batch_mutation_routes;
 mod db_compact_routes;
 mod deferred_mutation;
@@ -180,6 +181,7 @@ pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 use admin_routes::*;
 use aggregate_routes::*;
 use app_routes::*;
+use atom_history::*;
 use batch_mutation_routes::*;
 use db_compact_routes::*;
 pub use deferred_mutation::execute_deferred_mutation;

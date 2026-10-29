@@ -106,11 +106,7 @@ impl AtomStore {
                 Phase::Records => record_holders(&rows),
                 _ => tip_holders(&rows),
             };
-            let blob_lists = if matches!(phase, Phase::Tips) {
-                blobs_of_tips(&rows)
-            } else {
-                BTreeMap::new()
-            };
+            let blob_lists = blobs_of_tips(&rows);
             let molecules = match phase {
                 Phase::Records => record_molecules(&rows),
                 _ => tip_molecules(&rows),
@@ -175,6 +171,7 @@ impl AtomStore {
             .map(|(key, _)| String::from_utf8_lossy(key).into_owned())
             .filter(|key| {
                 crate::db_operations::atom_store::conflict_record::is_counted_record_key(key)
+                    && !crate::db_operations::atom_store::atom_history::is_archive(key)
             })
             .filter(|key| {
                 crate::db_operations::atom_store::record_digest(key)

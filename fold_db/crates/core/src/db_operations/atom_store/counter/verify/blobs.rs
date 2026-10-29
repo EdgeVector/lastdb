@@ -197,8 +197,15 @@ pub(super) fn blobs_of_pairs(pairs: &[PairRead]) -> BTreeMap<String, u32> {
 /// tips that name each. A row that does not decode is reported by the tip read.
 pub(super) fn blobs_of_tips(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, u32> {
     let mut out = BTreeMap::new();
-    for (_, value) in rows {
-        for blob in blobs_of_tip_row(value).unwrap_or_default() {
+    for (key, value) in rows {
+        let blobs = if crate::db_operations::atom_store::atom_history::is_archive(
+            &String::from_utf8_lossy(key),
+        ) {
+            crate::db_operations::atom_store::atom_history::files(value)
+        } else {
+            blobs_of_tip_row(value)
+        };
+        for blob in blobs.unwrap_or_default() {
             *out.entry(blob).or_insert(0u32) += 1;
         }
     }

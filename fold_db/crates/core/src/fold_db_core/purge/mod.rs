@@ -24,6 +24,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+mod atom_history;
+mod erase_apply;
 
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::build_storage_key;
@@ -38,6 +40,7 @@ mod removals;
 mod retention_backfill;
 mod targets;
 
+pub(super) use atom_history::history_key_membership;
 pub(crate) use retention_backfill::retention_tip_clocks;
 
 pub(crate) use delete_candidates::plan_normal_delete_barriers;

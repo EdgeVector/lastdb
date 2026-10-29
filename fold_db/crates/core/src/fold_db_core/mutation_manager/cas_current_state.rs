@@ -55,6 +55,7 @@ impl MutationManager {
         else {
             return Ok(CurrentHead::default());
         };
+        let mutation_uuid = entry.mutation_uuid;
         let uuid = entry.atom_uuid;
         let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
@@ -72,6 +73,7 @@ impl MutationManager {
         }
 
         Ok(CurrentHead {
+            mutation_uuid: Some(mutation_uuid),
             atom_uuid: Some(uuid),
             value: Some(atom.content().clone()),
         })

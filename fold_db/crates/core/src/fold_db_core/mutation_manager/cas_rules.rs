@@ -11,6 +11,7 @@ use super::cas::CurrentRowFields;
 /// A selected field's live atom identity and value. Tombstones are absent.
 #[derive(Default)]
 pub(super) struct CurrentHead {
+    pub(super) mutation_uuid: Option<String>,
     pub(super) atom_uuid: Option<String>,
     pub(super) value: Option<serde_json::Value>,
 }
@@ -28,6 +29,10 @@ pub(super) fn check_expectation(
         actual,
     };
     match expected {
+        CasExpectation::Mutation { uuid, .. } => match head.mutation_uuid {
+            Some(current) if &current == uuid => Ok(()),
+            current => Err(conflict(uuid.clone(), current)),
+        },
         CasExpectation::Absent { .. } => {
             if let Some(value) = head.value {
                 return Err(conflict("<absent>".to_string(), Some(value.to_string())));

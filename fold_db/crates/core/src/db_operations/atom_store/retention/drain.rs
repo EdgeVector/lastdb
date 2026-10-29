@@ -100,7 +100,11 @@ impl AtomStore {
                 for (key, value) in &step.rows {
                     if let Some(entry) = self.slot_entry(key, value, &marker.slot, marker.erased_at)
                     {
-                        found.push(entry);
+                        if !marker.preserve_archives
+                            || !super::super::atom_history::is_archive(&entry.history)
+                        {
+                            found.push(entry);
+                        }
                     }
                 }
             }

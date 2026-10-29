@@ -24,6 +24,10 @@ mod range_decode;
 
 /// Logical typed-range format; physical run blocks keep their existing format.
 pub(crate) const TYPED_KEY_FORMAT: &[u8] = b"7;typed-ranges=v1";
+pub(crate) const HISTORY_KEY_FORMAT: &[u8] = b"8;typed-ranges=v1;atom-history=v1";
+pub(crate) fn current_key_format(marker: &[u8]) -> bool {
+    marker == TYPED_KEY_FORMAT || marker == HISTORY_KEY_FORMAT
+}
 
 /// Chokepoint: API HashKey/RangeKey → storage segments for one molecule.
 ///

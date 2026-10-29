@@ -29,14 +29,13 @@ pub(super) async fn build_mutations(
     scope: Option<&str>,
     tips: &BTreeMap<String, Option<PerKeyRecord>>,
     old_tips: &HashMap<String, PerKeyRecord>,
-    (rows, deletes): (Vec<(String, Value)>, Vec<Vec<u8>>),
+    (rows, deletes, mut blob_deltas): (Vec<(String, Value)>, Vec<Vec<u8>>, BlobDeltas),
     plans: Vec<(String, AtomPlan)>,
     mut offers: HashMap<String, Offer>,
 ) -> Result<(Vec<KvMutation>, TipCommit), SchemaError> {
     let mut commit = TipCommit::default();
     let mut puts = Vec::new();
     let mut removals = Vec::new();
-    let mut blob_deltas = BlobDeltas::default();
     for (atom, plan) in plans {
         let event = match plan {
             AtomPlan::Unchanged => None,

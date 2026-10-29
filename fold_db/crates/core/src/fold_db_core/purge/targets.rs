@@ -104,7 +104,7 @@ pub(super) async fn load_targets(
 }
 
 /// Every physical key that a normal reader accepts for each field and key.
-fn candidate_plans(
+pub(super) fn candidate_plans(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,
     keys: &[KeyValue],
@@ -196,7 +196,18 @@ pub(in crate::fold_db_core) async fn validate_purge_targets_present(
         return Ok(PurgeTargetPresence::Present);
     }
     let loaded = load_targets(db_ops, schema_manager, schema_name, keys, storage_prefix).await?;
-    let present = loaded.present();
+    let mut present = loaded.present();
+    if !verb.is_delete() && present.len() < loaded.keys.len() {
+        let history =
+            super::history_key_membership(db_ops, &loaded.schema, &loaded.keys, storage_prefix)
+                .await?;
+        present.extend(
+            history
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, found)| found.then_some(i)),
+        );
+    }
     if present.len() == loaded.keys.len() {
         return Ok(PurgeTargetPresence::Present);
     }

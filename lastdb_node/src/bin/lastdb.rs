@@ -6,6 +6,8 @@
 
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
+#[path = "lastdb/history_cmds.rs"]
+mod history_cmds;
 use app_cmds::*;
 #[path = "lastdb/liveness_atom_print.rs"]
 mod liveness_atom_print;
@@ -215,6 +217,7 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
         Command::Liveness { action } => liveness_dispatch(cli.data_dir, action),
         Command::Db { action } => db_command(cli.data_dir, action),
+        Command::History(args) => history_cmds::run(cli.data_dir, args),
         Command::SchemaRetention { action } => schema_retention_command(cli.data_dir, action),
         Command::SchemaNameClaim { action } => schema_name_claim_command(cli.data_dir, action),
         Command::SearchRebuild { page_size, json } => {

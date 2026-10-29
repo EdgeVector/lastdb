@@ -39,6 +39,7 @@
 mod clock;
 mod commit;
 mod deltas;
+pub(crate) use deltas::tip_blobs;
 mod dwell;
 mod dwell_chunk;
 mod net;
