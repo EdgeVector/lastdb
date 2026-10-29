@@ -44,8 +44,11 @@ jobs:
       DRIVER_SHA: ${{ github.sha }}
       BUILD_CONTEXT: ${{ needs.build.outputs.context }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
-      BENCH_OUTPUT: ${{ github.workspace }}/../mixed-write-results
     steps:
+      - name: Prepare an absolute external result directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/mixed-write-results"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/mixed-write-results" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           path: driver
@@ -77,6 +80,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Verify uploaded artifact and retain download receipt
+        id: receipt
         if: ${{ always() && steps.upload.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,7 +92,7 @@ jobs:
           python3 driver/scripts/benchmarks/artifact.py \
             --metadata "$RUNNER_TEMP/mixed-metadata.json" --output "$RUNNER_TEMP/mixed-receipt"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
         with:
           name: controlled-mixed-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/mixed-receipt/

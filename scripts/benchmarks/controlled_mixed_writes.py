@@ -30,11 +30,11 @@ def seed_template(node, output):
     whole, physical = inventory(node.home), inventory(node.home, physical_only=True)
     save(output / "inventory.json", whole)
     save(output / "physical-inventory.json", physical)
-    return whole, physical, {name: stable[-1][name] + 2 for name in ("generation", "frontier")}
+    return whole, physical, {name: stable[-1][name] for name in ("generation", "frontier")}
 
 
 def prepare(node, mode, template, whole, physical, expected_root):
-    boot = None
+    boot, append_bytes = None, None
     if mode == "independent-timing":
         node.start()
         precondition(node, node.output / "precondition")
@@ -47,8 +47,14 @@ def prepare(node, mode, template, whole, physical, expected_root):
         save(node.output / "clone.json", {"byte_identical": True, "files": len(whole)})
         node.start()
         boot, layout = boot_boundary(node, physical)
-        if boot != expected_root:
-            raise RuntimeError("Unexpected shutdown/boot publications in a shared clone")
+        # Native status reports an installed read view, which can lag the physical
+        # root after background merges. Do not infer stopped CURRENT from live+2.
+        # Identical stopped bytes + one bounded append establish the input; all
+        # reopened clones must expose the same root and append size.
+        delta = json.loads((node.output / "boot-delta.json").read_text())
+        append_bytes = sum(entry["bytes"] for entry in delta["added"].values())
+        if expected_root is not None and boot != expected_root:
+            raise RuntimeError(f"Shared reopened roots differ: expected={expected_root}, observed={boot}")
     if node.disk_format() != 2:
         raise RuntimeError("Comparison requires disk format v2")
     logical = warm(node)
@@ -57,15 +63,16 @@ def prepare(node, mode, template, whole, physical, expected_root):
         physical_state(node, layout, boot)
     # Warm-up and the physical observation stay outside the timed case.
     save(node.output / "before.json", observe(node))
-    return logical
+    return logical, boot, append_bytes
 
 
 def measure(binary, revision, output, mode, template, whole, physical, expected_root):
     output.mkdir()
     node = Node(binary, revision, output)
     work, tracer, error, identities, logical = None, None, None, None, None
+    boot, append_bytes = None, None
     try:
-        logical = prepare(node, mode, template, whole, physical, expected_root)
+        logical, boot, append_bytes = prepare(node, mode, template, whole, physical, expected_root)
         work = Workload(node, RECIPE, output)
         if mode == "shared-trace":
             tracer = Trace(node, output)
@@ -92,7 +99,7 @@ def measure(binary, revision, output, mode, template, whole, physical, expected_
         except BaseException as failure:
             error = f"{error or ''}; cleanup: {type(failure).__name__}: {failure}"
     result = {"complete": error is None, "error": error, "mode": mode,
-              "logical_input_sha256": logical}
+              "logical_input_sha256": logical, "boot_root": boot, "boot_append_bytes": append_bytes}
     save(output / "result.json", result)
     if error:
         raise RuntimeError(error)
@@ -147,11 +154,11 @@ def main():
     seed_output = args.output / "seed"
     seed_output.mkdir()
     template = Node(binaries["baseline"], revisions["baseline"], seed_output)
-    reference, logical = None, None
+    reference, logical, expected_root, expected_append = None, None, None, None
     try:
-        whole, physical, expected_root = seed_template(template, seed_output)
+        whole, physical, observed_live = seed_template(template, seed_output)
         manifest["seed_inventory_sha256"] = file_hash(seed_output / "inventory.json")
-        manifest["expected_boot_root"] = expected_root
+        manifest["observed_seed_live_root"] = observed_live
         for pair in range(PAIRS):
             # Rotate arm order and reverse version order every pair.
             for mode in MODES[pair % 3:] + MODES[:pair % 3]:
@@ -159,6 +166,11 @@ def main():
                     directory = f"{mode}-{pair}-{label}"
                     result, identities = measure(binaries[label], revisions[label], args.output / directory,
                                                  mode, template, whole, physical, expected_root)
+                    if mode != "independent-timing":
+                        if expected_append is not None and result["boot_append_bytes"] != expected_append:
+                            raise RuntimeError("Shared clones appended different amounts of boot metadata")
+                        expected_root, expected_append = result["boot_root"], result["boot_append_bytes"]
+                        manifest.update(shared_boot_root=expected_root, boot_append_bytes=expected_append)
                     if reference is not None and (identities != reference or result["logical_input_sha256"] != logical):
                         raise RuntimeError("Target requests or logical starting values differ between arms")
                     reference, logical = identities, result["logical_input_sha256"]

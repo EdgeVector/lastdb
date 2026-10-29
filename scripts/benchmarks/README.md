@@ -520,6 +520,10 @@ timed case, so independent timing is a contemporary diagnostic comparison, not a
 exact replay of old runner pacing. Requests and logical starting-value hashes
 must agree; reads must report four warm hits and no storage reads. Written keys
 are validated after timing, and shutdown must return a successful durable receipt.
+Live native status can lag physical merges because it reports the installed read
+view. Shared clones therefore require equal reopened roots and boot-append sizes,
+plus byte-identical inherited run files, rather than assuming live generation +2
+equals the shutdown/reopen root.
 
 A third arm uses separate clones with intrusive status/run-file polling and
 request-ID phase collection. Its timings stay separate. Observations are bounded,
