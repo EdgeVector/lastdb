@@ -1,9 +1,7 @@
 //! Exact-key filters answer from warm tips for fully known keys.
 use super::*;
 use crate::resident::CoreWarmTip;
-use crate::schema::types::field::{
-    apply_keyed_filter, FieldKind, HashRangeFilter, KeyedAtomMatch, KeyedFilterMode,
-};
+use crate::schema::types::field::{FieldKind, HashRangeFilter, KeyedAtomMatch};
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::physical::PhysicalRead;
 use crate::storage::disk_pack::read::ReadContext;
@@ -32,105 +30,14 @@ pub(crate) fn matches(
     let context = ReadContext::captured(&runtime).ok_or_else(|| {
         StorageError::InvalidOperation("core filter requires captured query".into())
     })?;
+    if keys.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
     let paths: Vec<_> = keys
         .iter()
         .map(|key| binding.path(scope, molecule, key, "").core())
         .collect();
-    let projection = Projection {
-        scope,
-        molecule,
-        kind,
-        filter,
-        include_tombstones,
-    };
-    if let Some(matches) = captured_matches(&runtime, &context, &paths, &keys, &projection)? {
-        return Ok(Some(matches));
-    }
-    current_matches(&runtime, &context, &paths, &keys, &projection)
-}
-
-struct Projection<'a> {
-    scope: Option<&'a str>,
-    molecule: &'a str,
-    kind: FieldKind,
-    filter: &'a HashRangeFilter,
-    include_tombstones: bool,
-}
-
-fn captured_matches(
-    runtime: &PackRuntime,
-    context: &ReadContext,
-    paths: &[CorePath],
-    keys: &[KeyValue],
-    projection: &Projection<'_>,
-) -> StorageResult<Option<Vec<KeyedAtomMatch>>> {
-    let values: Vec<_> = paths
-        .iter()
-        .map(|path| context.core_model.lookup(path))
-        .collect();
-    if values
-        .iter()
-        .any(crate::resident::CoreWarmLookup::is_unknown)
-    {
-        return Ok(None);
-    }
-    {
-        let view = runtime.view.read().expect("captured filter path holds");
-        let mut core = runtime.core.lock().expect("captured filter retention");
-        context.hold_core(&mut core, paths)?;
-        if view.revision == context.revision {
-            for path in paths {
-                let _ = core.lookup(path);
-            }
-        }
-    }
-    let mode = if projection.kind == FieldKind::Hash {
-        KeyedFilterMode::Hash
-    } else {
-        KeyedFilterMode::HashRange
-    };
-    let filtered =
-        context
-            .core_model
-            .with_molecule(projection.scope, projection.molecule, |model| {
-                apply_keyed_filter(model, Some(projection.filter.clone()), mode)
-            });
-    let mut call = crate::read_receipts::lock(&context.call);
-    let mut matches = Vec::new();
-    for ((key, path), value) in keys.iter().zip(paths).zip(values) {
-        if value.is_absent() {
-            context.account_memory_record(
-                &mut call,
-                key.hash.as_ref().map_or(0, String::len)
-                    + key.range.as_ref().map_or(0, String::len),
-                0,
-            )?;
-            crate::read_receipts::warm_hit();
-            continue;
-        }
-        let Some(value) = value.into_tip() else {
-            return Ok(None);
-        };
-        account_tip(context, &mut call, key, &value)?;
-        if filtered
-            .as_ref()
-            .is_none_or(|filtered| !filtered.matches.contains_key(key))
-            || (!projection.include_tombstones
-                && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned))
-        {
-            continue;
-        }
-        if !source::body_present_in_coordinates(
-            &context.core_model.source_coordinates(path),
-            &value.entry.atom_uuid,
-        )? {
-            return Ok(None);
-        }
-        let writer = (!value.entry.writer_pubkey().is_empty())
-            .then(|| value.entry.writer_pubkey().to_string());
-        matches.push((key.clone(), value.entry.atom_uuid, value.metadata, writer));
-    }
-    Ok(Some(matches))
+    current_matches(&runtime, &context, &paths, &keys, include_tombstones)
 }
 
 fn current_matches(
@@ -138,7 +45,7 @@ fn current_matches(
     context: &ReadContext,
     paths: &[CorePath],
     keys: &[KeyValue],
-    projection: &Projection<'_>,
+    include_tombstones: bool,
 ) -> StorageResult<Option<Vec<KeyedAtomMatch>>> {
     let view = runtime.view.read().expect("core filter captured view");
     if view.revision != context.revision {
@@ -172,9 +79,7 @@ fn current_matches(
             return Ok(None);
         };
         account_tip(context, &mut call, key, &value)?;
-        if !projection.include_tombstones
-            && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned)
-        {
+        if !include_tombstones && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned) {
             continue;
         }
         if !source::body_present(&core, path, &value.entry.atom_uuid)? {

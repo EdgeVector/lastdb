@@ -1,11 +1,10 @@
-//! Immutable typed dirty state shares its values with the current core model.
+//! Typed write effects are prepared before disk-first core publication.
 
 use super::*;
 use crate::memory_budget::DeferReservation;
 use crate::resident::core_keys::{CoreKeyBudget, CoreKeyReservation};
 
 mod prepare;
-mod snapshot;
 
 const METADATA_BYTES: usize = 16 * 1024 * 1024;
 
@@ -34,37 +33,9 @@ impl CoreModelSlot {
             charged_bytes: 0,
         })
     }
-
-    fn lookup(&self) -> CoreWarmLookup {
-        match &self.value {
-            Some(value) => CoreWarmLookup::value(CoreWarmSelection {
-                entry: value.entry.clone(),
-                metadata: value.metadata.clone(),
-                atom: Arc::clone(&value.atom),
-                bytes: value.bytes,
-            }),
-            None => CoreWarmLookup::absent(),
-        }
-    }
-}
-
-struct ModelMolecule {
-    model: MoleculeHashRange,
-    slots: BTreeMap<(String, String), Arc<CoreModelSlot>>,
-    _charge: CoreKeyReservation,
-    charged_bytes: usize,
-}
-
-#[derive(Default)]
-struct ModelRoot {
-    molecules: HashMap<MoleculeKey, Arc<ModelMolecule>>,
-    definitions: HashMap<memory::MemoryKey, PreparedCoreMemory>,
-    _charge: Option<CoreKeyReservation>,
-    charged_bytes: usize,
 }
 
 pub(super) struct CoreModel {
-    root: Arc<ModelRoot>,
     budget: Arc<CoreKeyBudget>,
     refused: u64,
     body_owners: HashMap<usize, Weak<DeferReservation>>,
@@ -74,19 +45,12 @@ pub(super) struct CoreModel {
 impl Default for CoreModel {
     fn default() -> Self {
         Self {
-            root: Arc::new(ModelRoot::default()),
             budget: Arc::new(CoreKeyBudget::new(METADATA_BYTES)),
             refused: 0,
             body_owners: HashMap::new(),
             body_peak_bytes: 0,
         }
     }
-}
-
-/// One retained typed read version, without raw queue or encoded-body owners.
-#[derive(Clone)]
-pub(crate) struct CoreModelSnapshot {
-    root: Arc<ModelRoot>,
 }
 
 /// Fully prepared metadata and typed values. Installation cannot refuse quota.
@@ -138,14 +102,8 @@ impl CoreWarmSet {
             .collect()
     }
 
-    pub(crate) fn dirty_snapshot(&self) -> CoreModelSnapshot {
-        CoreModelSnapshot {
-            root: Arc::clone(&self.model.root),
-        }
-    }
-
     /// All paths must already hold the ordinary core path reservation.
-    /// Disk-first publication installs the same values without a new dirty root.
+    /// Publish prepared effects only after their complete disk root is committed.
     pub(crate) fn install_clean(&mut self, update: &CoreModelUpdate) {
         self.install_model_changes(update);
     }
@@ -185,20 +143,13 @@ impl CoreWarmSet {
     }
 
     pub(crate) fn model_stats(&self) -> CoreModelStats {
-        let root = &self.model.root;
         let budget = self.model.budget.stats();
-        let current = root.charged_bytes
-            + root
-                .molecules
-                .values()
-                .map(|value| value.charged_bytes)
-                .sum::<usize>()
-            + self
-                .slots
-                .iter()
-                .filter_map(|(_, slot)| slot.owned.as_ref())
-                .map(|slot| slot.charged_bytes)
-                .sum::<usize>();
+        let current = self
+            .slots
+            .iter()
+            .filter_map(|(_, slot)| slot.owned.as_ref())
+            .map(|slot| slot.charged_bytes)
+            .sum::<usize>();
         let current_owners: HashMap<_, _> = self
             .slots
             .iter()
@@ -218,9 +169,10 @@ impl CoreWarmSet {
             .map(|owner| owner.bytes())
             .sum();
         CoreModelStats {
-            dirty_slots: root.molecules.values().map(|value| value.slots.len()).sum(),
-            dirty_molecules: root.molecules.len(),
-            dirty_definitions: root.definitions.len(),
+            // Retained status fields: native writes publish only after disk commit.
+            dirty_slots: 0,
+            dirty_molecules: 0,
+            dirty_definitions: 0,
             metadata_limit_bytes: budget.limit_bytes,
             metadata_current_bytes: current,
             metadata_used_bytes: budget.used_bytes,

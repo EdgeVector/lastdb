@@ -11,26 +11,14 @@ impl AtomStore {
         if rows.is_empty() {
             return Ok(rows);
         }
-        let molecules: std::collections::BTreeSet<_> = rows
-            .iter()
-            .filter_map(|(base, _)| molecule_key_codec::molecule_uuid_from_storage_key(base))
-            .collect();
-        let mut captured = std::collections::BTreeMap::new();
-        for molecule in molecules {
-            captured.extend(self.captured_tip_changes(storage_prefix, molecule)?);
-        }
         let final_keys: Vec<String> = rows
             .iter()
-            .filter(|(base, _)| !captured.contains_key(base))
             .map(|(base, _)| build_storage_key(storage_prefix, base))
             .collect();
         let barriers = self.winning_delete_barriers(&final_keys).await?;
         Ok(rows
             .into_iter()
             .filter_map(|(base, record)| {
-                if let Some(final_record) = captured.get(&base) {
-                    return final_record.clone().map(|record| (base, record));
-                }
                 let key = build_storage_key(storage_prefix, &base);
                 barriers
                     .get(&key)

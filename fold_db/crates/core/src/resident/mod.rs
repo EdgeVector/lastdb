@@ -2,8 +2,8 @@
 //!
 //! [`CoreWarmSet`] owns schemas, molecule definitions, complete selected keys,
 //! sparse current tips, confirmed absence, and full atom objects. A call
-//! captures typed dirty state with its matching disk root. Held owners keep
-//! earlier values charged; the separate path order controls clean retention.
+//! captures a disk root and retains selected current values while its revision
+//! matches. Held owners keep earlier values charged; path order controls retention.
 //!
 //! Native writes reserve one request and publish typed core effects. The
 //! private disk queue owns prepared output and flush work. Ordinary reads
@@ -40,9 +40,7 @@ pub use config::{
 };
 pub(crate) use core_set::CoreMemorySource;
 pub use core_set::{CoreMemoryStats, CoreMemoryValue, CoreWarmByteStats};
-pub(crate) use core_set::{
-    CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,
-};
+pub(crate) use core_set::{CoreModelChange, CoreModelStats, CoreModelUpdate, PreparedCoreMemory};
 pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot, CoreWarmTip};
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
