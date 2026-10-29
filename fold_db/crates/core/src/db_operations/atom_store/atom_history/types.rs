@@ -2,7 +2,7 @@ use crate::atom::MutationEvent;
 use crate::db_operations::atom_store::PerKeyRecord;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FieldHistoryPolicy {
     #[default]

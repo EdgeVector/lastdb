@@ -5,6 +5,7 @@ use crate::db_operations::atom_store::time_queue::QueueReader;
 use crate::db_operations::atom_store::{AtomStore, RecordSlot};
 use crate::schema::SchemaError;
 use serde_json::Value;
+type ArchiveRows = (Option<String>, Vec<(String, Value)>);
 
 impl AtomStore {
     pub(crate) fn archive_retention_rows(
@@ -14,7 +15,7 @@ impl AtomStore {
         slot: &RecordSlot<'_>,
         created: u64,
         expires: Option<u64>,
-    ) -> Result<(Option<String>, Vec<(String, Value)>), SchemaError> {
+    ) -> Result<ArchiveRows, SchemaError> {
         let id = digest(key.as_bytes());
         let dir = super::super::retention::archive_dir_key(scope, slot, &id);
         let queue_key = expires.map(|at| queue().entry_key(at, &id));
@@ -48,17 +49,31 @@ impl AtomStore {
     ) -> Result<u64, SchemaError> {
         let now = self.retention_state().clock_nanos();
         reader.refresh(self, now).await?;
-        for bucket in reader.candidates(now) {
+        if let Some(bucket) = reader.candidates(now).into_iter().next() {
             let page = reader.read_due(self, bucket, now).await?;
             let keys: Vec<_> = page.rows.iter().map(|(k, _)| k.clone()).collect();
             let released = self
                 .in_background_scope(async {
                     let rows = self.main_store.get_items::<RetentionEntry>(&keys).await?;
+                    let history_keys: Vec<_> =
+                        rows.iter().flatten().map(|e| e.history.clone()).collect();
+                    let archived: Vec<Option<ArchiveRecord>> =
+                        self.main_store.get_items(&history_keys).await?;
+                    let mut archived = archived.into_iter();
                     let mut by_scope: std::collections::BTreeMap<
                         Option<String>,
                         Vec<ReleaseRequest>,
                     > = std::collections::BTreeMap::new();
                     for entry in rows.into_iter().flatten() {
+                        if let Some(record) = archived.next().flatten() {
+                            if !record.expired(now)
+                                || record.archive.queue_key.as_deref() != Some(&entry.queue)
+                            {
+                                return Err(SchemaError::InvalidData(
+                                    "history queue does not match immutable expiry".into(),
+                                ));
+                            }
+                        }
                         if !is_archive(&entry.history) {
                             return Err(SchemaError::InvalidData(
                                 "foreign history expiry entry".into(),

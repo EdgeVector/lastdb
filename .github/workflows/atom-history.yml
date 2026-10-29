@@ -1,0 +1,73 @@
+name: Atom history product proof
+
+on:
+  pull_request:
+    paths:
+      - 'fold_db/**'
+      - 'lastdb_node/**'
+      - 'lastdb_host/**'
+      - 'lastdb_uds/**'
+      - 'scripts/operations/atom_history.py'
+      - '.github/workflows/atom-history.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atom-history-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  history:
+    name: Fresh-home atom history lifecycle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: schema-node-operations-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the product in CI
+        run: cargo build --locked -p lastdb_node --bin lastdbd --bin lastdb
+      - name: Exercise the actual CLI and daemon on a fresh generated home
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/atom_history.py --daemon "$PWD/target/debug/lastdbd" \
+            --cli "$PWD/target/debug/lastdb" --revision "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/atom-history" 2>&1 | tee "$RUNNER_TEMP/atom-history.log"
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: atom-history-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/atom-history
+            ${{ runner.temp }}/atom-history.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish the result
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+        run: |
+          {
+            echo "## Atom history product proof"
+            echo "Source: $GITHUB_SHA"
+            echo "Result: $RESULT"
+            echo "Fresh generated home only. No primary access, local build, or benchmark."
+            echo "Artifact: $ARTIFACT_URL"
+            echo "Artifact SHA256: $ARTIFACT_DIGEST"
+            echo "Expiration: 7 days after this run."
+          } >> "$GITHUB_STEP_SUMMARY"

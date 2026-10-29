@@ -51,12 +51,12 @@ pub(crate) fn queue() -> TimeQueue {
 }
 
 pub(crate) fn digest(value: &[u8]) -> String {
-    crate::hex::hex_lower(&Sha256::digest(value))
+    crate::hex::hex_lower(Sha256::digest(value))
 }
 
 pub(crate) fn is_archive(key: &str) -> bool {
     crate::kind_partition::rest_of(key, "history")
-        .is_some_and(|rest| rest.rsplitn(3, ':').nth(1) == Some("archive"))
+        .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }
 
 pub(crate) fn prefix(slot: &str) -> Result<String, crate::schema::SchemaError> {

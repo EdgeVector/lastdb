@@ -2,7 +2,8 @@
 use super::*;
 use fold_db::db_operations::atom_store::atom_history::{FieldHistoryPolicy, HistoryLocation};
 use fold_db::schema::types::cas::CasExpectation;
-use fold_db::schema::types::{MutationConvergence, MutationDurability, MutationType};
+use fold_db::schema::types::operations::{MutationConvergence, MutationDurability};
+use fold_db::schema::types::MutationType;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -128,7 +129,10 @@ async fn execute(
                 fields_and_values: [(field, value["value"].clone())].into_iter().collect(),
                 key_value: request.location.key,
                 mutation_type: MutationType::Update,
-                source_file_name: None,
+                source_file_name: value
+                    .pointer("/metadata/source_file_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 expected: Some(expected),
                 convergence: MutationConvergence::Sync,
                 durability: MutationDurability::Durable,

@@ -182,7 +182,7 @@ pub enum DataRoute {
     /// owning (schema, field) and discloses atom UUIDs, so a jailed app must
     /// never reach it; on the app socket the path is unrecognized → `NotFound`.
     MoleculeHistory,
-    /// Owner-only atom history policies, lookup, purge and restore.
+    /// `POST /api/atom-history` — owner-only field policies, lookup, purge and restore.
     AtomHistory,
     /// `GET /api/atom/{atom_uuid}` — a single atom's content by UUID (the
     /// terminal read in the history chain: hydrate a conflict loser's value).
