@@ -24,19 +24,28 @@ pub(super) fn read(
                 serde_json::to_writer(out, counter)
             })?,
         };
-        return Ok(Some(WriteRecord::Core { body, typed: false }));
+        return Ok(Some(WriteRecord::Core {
+            body,
+            owner: WriteOwner::Fact,
+        }));
     }
     let uuid = crate::atom::atom_key_codec::body_uuid_of(&coordinate.1);
     if let Some(value) = core.source_record(&coordinate.0, &coordinate.1, uuid) {
-        let body = match value {
-            CoreSourceRecord::Atom(atom) => encode(context, call, coordinate, |out| {
-                serde_json::to_writer(out, atom)
-            })?,
-            CoreSourceRecord::Tip(entry, meta) => encode(context, call, coordinate, |out| {
-                serde_json::to_writer(out, &Tip { entry, meta })
-            })?,
+        let (body, owner) = match value {
+            CoreSourceRecord::Atom(atom) => (
+                encode(context, call, coordinate, |out| {
+                    serde_json::to_writer(out, atom)
+                })?,
+                WriteOwner::Atom,
+            ),
+            CoreSourceRecord::Tip(entry, meta) => (
+                encode(context, call, coordinate, |out| {
+                    serde_json::to_writer(out, &Tip { entry, meta })
+                })?,
+                WriteOwner::Tip,
+            ),
         };
-        return Ok(Some(WriteRecord::Core { body, typed: true }));
+        return Ok(Some(WriteRecord::Core { body, owner }));
     }
     let Some(value) = core.memory_record(&coordinate.0, &coordinate.1) else {
         return Ok(None);
@@ -48,7 +57,10 @@ pub(super) fn read(
             value.write_record(&coordinate.0, out)
         })?
     };
-    Ok(Some(WriteRecord::Core { body, typed: true }))
+    Ok(Some(WriteRecord::Core {
+        body,
+        owner: WriteOwner::Definition,
+    }))
 }
 
 fn absent(

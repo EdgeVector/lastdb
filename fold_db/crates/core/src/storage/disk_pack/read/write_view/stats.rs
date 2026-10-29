@@ -44,7 +44,7 @@ impl WriteViewCounts {
         &mut self,
         coordinate: &Coordinate,
         body: Option<&[u8]>,
-        typed: bool,
+        owner: WriteOwner,
     ) {
         if !laststore::commit_timing::enabled() {
             return;
@@ -52,23 +52,25 @@ impl WriteViewCounts {
         self.reused_records += 1;
         self.reused_bytes += body.map_or(0, <[u8]>::len) as u64;
         self.absences += u64::from(body.is_none());
-        self.shared_typed_records += u64::from(typed);
-        self.typed_fact_records += u64::from(!typed);
+        self.shared_typed_records += u64::from(!matches!(owner, WriteOwner::Fact));
+        match owner {
+            WriteOwner::Fact => self.typed_fact_records += 1,
+            WriteOwner::Tip => self.typed_tips += 1,
+            WriteOwner::Atom => self.typed_atoms += 1,
+            WriteOwner::Definition => self.typed_metadata += 1,
+        }
         match coordinate.0.as_str() {
             "tips" => {
                 self.tips_and_controls += 1;
-                self.typed_tips += u64::from(typed);
             }
             "atoms" if crate::atom::atom_key_codec::is_counter_key(&coordinate.1) => {
                 self.counters += 1;
             }
             "atoms" => {
                 self.atoms += 1;
-                self.typed_atoms += u64::from(typed);
             }
             _ => {
                 self.metadata += 1;
-                self.typed_metadata += u64::from(typed);
             }
         }
     }

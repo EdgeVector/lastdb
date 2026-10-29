@@ -93,8 +93,8 @@ impl PackRuntime {
                     counts.note_overlay();
                     out[slot] = record.body.clone();
                 }
-                Some(write_view::WriteRecord::Core { body, typed }) => {
-                    counts.note(&coordinates[slot], body.as_deref(), typed);
+                Some(write_view::WriteRecord::Core { body, owner }) => {
+                    counts.note(&coordinates[slot], body.as_deref(), owner);
                     out[slot] = body;
                 }
                 None => misses.push(slot),

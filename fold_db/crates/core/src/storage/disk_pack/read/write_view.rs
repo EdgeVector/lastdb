@@ -11,12 +11,20 @@ pub(super) use stats::{WriteView, WriteViewCounts};
 pub(super) type Coordinate = (String, String);
 pub(super) type Observation<'a> = (&'a Coordinate, Option<&'a [u8]>);
 
+#[derive(Clone, Copy)]
+pub(super) enum WriteOwner {
+    Fact,
+    Tip,
+    Atom,
+    Definition,
+}
+
 pub(super) enum WriteRecord {
     Overlay(Arc<PendingRecord>),
     /// These bytes belong only to the result, never to the shared warm set.
     Core {
         body: Option<Vec<u8>>,
-        typed: bool,
+        owner: WriteOwner,
     },
 }
 
