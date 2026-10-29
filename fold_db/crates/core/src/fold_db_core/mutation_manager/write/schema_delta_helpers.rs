@@ -19,6 +19,7 @@ impl MutationManager {
             .schema
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
+        self.db_ops.molecule_keys().load_schema(&schema).await?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         Ok(schema)
     }

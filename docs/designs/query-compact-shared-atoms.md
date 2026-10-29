@@ -27,7 +27,8 @@ requires the candidate V2 disk size to stay within the accepted V2 size.
 The primary and its archive stay outside the operation.
 
 The restart proof also exposed a cold protein key move that lacked an admitted
-range profile for an unchanged peer field. A move now loads all established
-contracts for its exact selected molecules in one batch before key conversion.
+range profile for an unchanged peer field. Preparation now loads the source
+contracts and all selected protein member contracts before sibling tip work.
+An erasure loads the contracts for its exact selected association slots too.
 It mints no keys and retains the stored profile checks. The accepted baseline
 refusal remains visible in the comparison; the candidate must complete the move.
