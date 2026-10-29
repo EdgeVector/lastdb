@@ -1,6 +1,7 @@
 //! A plan describes required work; it never grants replacement authority.
 
 use super::super::{SnapshotDevicePosition, SnapshotInclusion};
+use crate::storage::disk_pack::byte_backup::RunBackupProfile;
 use cloud_backup_protocol::{DecimalU64, NativeRoot};
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct SnapshotAdoptionCandidate {
     pub native_root: NativeRoot,
+    pub run_profile: RunBackupProfile,
     pub logical_inclusion: Option<SnapshotInclusion>,
 }
 

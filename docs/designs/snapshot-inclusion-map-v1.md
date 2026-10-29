@@ -96,12 +96,13 @@ Snapshot adoption and safe log removal need separate implementations.
 
 The owner can compare a candidate's signed metadata with an existing, unreleased local capture.
 The `snapshot_plan` action takes that capture's `request_id` and a `candidate` object.
-The candidate contains the selected `native_root` and optional `logical_inclusion` from its encrypted client root.
+The candidate contains the selected `native_root`, paired `run_profile`, and optional `logical_inclusion` from its encrypted client root.
 The response adds `adoption_plan`; other snapshot actions keep their existing response fields.
 The action neither prepares a new capture nor changes the existing capture.
 
 The plan binds both native roots, both map hashes, and the local device identity.
 The local map must match its held native readers.
+The candidate's V2 profile must reproduce its selected native root.
 The candidate must have valid signed coverage and a producer already enrolled in that local cut.
 Every candidate origin must already have the same pinned anchor in the local cut.
 An unknown producer, unknown origin, changed anchor, or equal-sequence hash conflict causes refusal.

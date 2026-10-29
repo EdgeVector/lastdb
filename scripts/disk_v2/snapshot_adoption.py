@@ -15,7 +15,7 @@ FIXED = {"shared_base_proof", "candidate_native_verification", "local_cut_revali
 
 
 def candidate(capture):
-    return {key: copy.deepcopy(capture[key]) for key in ("native_root", "logical_inclusion")}
+    return {key: copy.deepcopy(capture[key]) for key in ("native_root", "run_profile", "logical_inclusion")}
 
 
 def plan(node, identity, value, expected=(200,)):
@@ -54,24 +54,41 @@ def release(node, identity):
 
 def zero_plans(nodes, pages, capture, identity, output):
     other_id = str(uuid.uuid4())
-    result = {}
+    result = {"complete": False, "stage": "prepare_other"}
     try:
         other = snapshot(nodes[1], "prepare", other_id)
+        result["other_capture"] = other
         other_before = metadata(nodes[1])
+        result["stage"] = "untrusted_producer"
         result["untrusted_producer"] = plan(nodes[1], other_id, candidate(capture), (409,))
+        result["stage"] = "check_other_unchanged"
         require(request(nodes[1], {"action": "position"})["peers"] == []
                 and metadata(nodes[1]) == other_before and snapshot(nodes[1], "inspect", other_id) == other,
                 "plan enrolled the unknown producer or changed the local source")
         before = metadata(nodes[0])
+        result["stage"] = "zero_plan"
         result["zero_plan"] = plan(nodes[0], identity, candidate(other))
         detail = verify(result["zero_plan"], capture, candidate(other))
         require(all(origin["local_position"]["sequence"] == "0" for origin in detail["origins"])
                 and "shared_base_proof" in detail["requirements"] and metadata(nodes[0]) == before,
                 "zero positions became proof of a shared or empty snapshot")
+        result["stage"] = "data_before_capture"
         result["data_before_capture"] = existing_data_zero(nodes[0], pages, capture, output)
+        result["stage"] = "complete"
+        result["complete"] = True
+    except Exception as error:
+        result["error"] = f"{type(error).__name__}: {error}"[:1200]
+        raise
     finally:
-        if (nodes[1].home / INTENT).exists():
-            result["other_release"] = release(nodes[1], other_id)
+        try:
+            if (nodes[1].home / INTENT).exists():
+                result["other_release"] = release(nodes[1], other_id)
+        except Exception as error:
+            result["release_error"] = f"{type(error).__name__}: {error}"[:1200]
+            result["complete"] = False
+            raise
+        finally:
+            save(output.parent / "adoption-zero.json", result)
     return result
 
 
@@ -161,7 +178,7 @@ def tails(report, capture, value):
 
 def refused_candidates(node, identity, capture):
     result = {}
-    for name in ("legacy_unknown", "disabled", "signature", "native_root"):
+    for name in ("legacy_unknown", "disabled", "signature", "native_root", "run_profile"):
         value = candidate(capture)
         if name == "legacy_unknown":
             value["logical_inclusion"] = None
@@ -169,8 +186,10 @@ def refused_candidates(node, identity, capture):
             value["logical_inclusion"] = {"state": "disabled"}
         elif name == "signature":
             value["logical_inclusion"]["map"]["signature"] = "00" * 64
-        else:
+        elif name == "native_root":
             value["native_root"]["current_sha256"] = "00" * 32
+        else:
+            value["run_profile"]["main"]["current_sha256"] = "00" * 32
         result[name] = plan(node, identity, value, (409,))
     return result
 
@@ -204,6 +223,7 @@ def operate(nodes, model, output):
     output.mkdir(mode=0o700)
     a, b = nodes
     active, result = {}, {"complete": False, "replacement_executed": False, "cloud_access": False,
+                          "stage": "capture_a4",
                           "driver_sha256": file_hash(Path(__file__))}
     failure = None
     try:
@@ -212,25 +232,34 @@ def operate(nodes, model, output):
         active[a] = a4_id
         release(a, a4_id)
         active.pop(a)
+        result["stage"] = "capture_b4"
         b4 = snapshot(b, "prepare", b4_id)
         active[b] = b4_id
+        result["stage"] = "author_fifth_events"
         pages = next_events(nodes, model)
+        result["stage"] = "import_b5_into_a"
         result["import_b5_into_a"] = ingest(a, pages[1]["events"])
         a5_id = str(uuid.uuid4())
+        result["stage"] = "capture_a5"
         a5 = snapshot(a, "prepare", a5_id)
         active[a] = a5_id
+        result["stage"] = "own_future_refusal"
         result["own_future_refusal"] = plan(b, b4_id, candidate(a5), (409,))
         release(b, b4_id)
         active.pop(b)
         b5_id = str(uuid.uuid4())
+        result["stage"] = "capture_b5_a4"
         b5 = snapshot(b, "prepare", b5_id)
         active[b] = b5_id
         before = metadata(b)
+        result["stage"] = "peer_ahead_plan"
         result["peer_ahead"] = plan(b, b5_id, candidate(a5))
         peer_ahead(result["peer_ahead"], b5, candidate(a5), own_head(a)["origin"])
+        result["stage"] = "live_import_frozen_plan"
         result["import_a5_into_b"] = ingest(b, pages[0]["events"])
         require(plan(b, b5_id, candidate(a5)) == result["peer_ahead"] and metadata(b) == before,
                 "live import changed the held local cut or its plan")
+        result["stage"] = "restart_frozen_plan"
         b.stop()
         b.start()
         require(plan(b, b5_id, candidate(a5)) == result["peer_ahead"] and metadata(b) == before,
@@ -239,19 +268,26 @@ def operate(nodes, model, output):
         release(b, b5_id)
         active.pop(b)
         final_id = str(uuid.uuid4())
+        result["stage"] = "capture_b5_a5"
         final = snapshot(b, "prepare", final_id)
         active[b] = final_id
         before = metadata(b)
+        result["stage"] = "tail_plan"
         result["tails"] = plan(b, final_id, candidate(a4))
         tails(result["tails"], final, candidate(a4))
+        result["stage"] = "candidate_refusals"
         result["candidate_refusals"] = refused_candidates(b, final_id, a4)
+        result["stage"] = "byte_limits"
         result["byte_limits"] = byte_limits(b, final_id, a4, result["tails"])
+        result["stage"] = "wrong_request_refusal"
         result["wrong_request"] = plan(b, str(uuid.uuid4()), candidate(a4), (409,))
         require(plan(b, final_id, candidate(a4)) == result["tails"] and metadata(b) == before
                 and snapshot(b, "inspect", final_id) == final, "plan or refusal changed source metadata")
+        result["stage"] = "converged_values"
         result["converged_values"] = [check_values(node, model) for node in nodes]
         result["resources"] = [observed_resources(node) for node in nodes]
         result["complete"] = True
+        result["stage"] = "complete"
     except Exception as error:
         failure = error
         result["error"] = f"{type(error).__name__}: {error}"[:1200]

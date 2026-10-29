@@ -21,10 +21,11 @@ pub(crate) fn plan(
     local: &SnapshotInclusion,
     candidate: &SnapshotAdoptionCandidate,
 ) -> StorageResult<SnapshotAdoptionPlan> {
+    // V2 file identities use their client-owned paired profile. The generic
+    // NativeRoot validator describes the older physical format's feature mask.
     candidate
-        .native_root
-        .validate()
-        .map_err(|_| invalid("snapshot adoption candidate native root differs"))?;
+        .run_profile
+        .validate_root(&candidate.native_root)?;
     let candidate_map = enabled(candidate.logical_inclusion.as_ref())?;
     candidate_map.validate_for(&candidate.native_root)?;
     super::verify_snapshot_inclusion(main, profile, local)?;
