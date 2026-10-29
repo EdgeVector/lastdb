@@ -35,6 +35,7 @@
 
 mod build;
 mod commit;
+mod commit_types;
 mod file_dependencies;
 mod guarded;
 mod molecule;

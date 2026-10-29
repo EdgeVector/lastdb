@@ -66,17 +66,7 @@ impl AtomStore {
                     SchemaError::InvalidData("history tip has invalid coordinates".into())
                 })?;
             let now = self.retention_state().clock_nanos();
-            let expires_at = match policy {
-                FieldHistoryPolicy::Ttl { seconds } => Some(
-                    now.checked_add(
-                        seconds.checked_mul(1_000_000_000).ok_or_else(|| {
-                            SchemaError::InvalidData("history TTL overflow".into())
-                        })?,
-                    )
-                    .ok_or_else(|| SchemaError::InvalidData("history expiry overflow".into()))?,
-                ),
-                _ => None,
-            };
+            let expires_at = history_expiry(policy, now)?;
             let identity =
                 serde_json::to_vec(&(key, &previous.entry, new.as_ref().map(|r| &r.entry)))
                     .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
@@ -125,4 +115,18 @@ impl AtomStore {
         }
         Ok(recorded)
     }
+}
+
+fn history_expiry(policy: FieldHistoryPolicy, now: u64) -> Result<Option<u64>, SchemaError> {
+    Ok(match policy {
+        FieldHistoryPolicy::Ttl { seconds } => Some(
+            now.checked_add(
+                seconds
+                    .checked_mul(1_000_000_000)
+                    .ok_or_else(|| SchemaError::InvalidData("history TTL overflow".into()))?,
+            )
+            .ok_or_else(|| SchemaError::InvalidData("history expiry overflow".into()))?,
+        ),
+        _ => None,
+    })
 }
