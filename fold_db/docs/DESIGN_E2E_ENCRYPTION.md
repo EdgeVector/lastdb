@@ -15,7 +15,10 @@
 > `docs/security/at-rest-threat-model.md` (Operation Trinity status).
 >
 > **2026-10-28 note:** The search helper `E2eKeys::blind_token` is not in
-> the code. Storage HashKeys use `E2eKeys::blind_hash_key`.
+> the code. Storage HashKeys use `E2eKeys::blind_hash_key`. The node does not
+> derive the index key (`fold:index-key`). Each molecule key bundle holds a
+> random blind key for HashKey tokens (`DESIGN_HASHKEY_BLIND_V1.md`). Sections
+> below that use the index key are historical.
 
 ---
 
