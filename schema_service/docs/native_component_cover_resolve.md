@@ -33,9 +33,7 @@ Unset or any other value → native path enabled.
 
 ## Mini / local
 
-Same evaluator: `schema_service_client::local_first_resolver::evaluate_local_proposal`
-and Mini `schema_resolver_host` (pack Shadow / EnforceExistingOnly). LiveOnly
-Mini modes inherit the service path above after deploy.
-
-Primary Mini live dogfood of pack enforce may wait on cloud-sync Situations;
-unit/integration tests of the local path do not require cloud sync.
+The client library exposes the same evaluator through
+`schema_service_client::local_first_resolver::evaluate_local_proposal` for callers
+that supply a pack and embedder. Mini has neither and always resolves through
+the live service; its host configuration controls only the request timeout.

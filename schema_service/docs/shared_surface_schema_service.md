@@ -118,7 +118,7 @@ do not assert an allowed shared purpose or lack required ownership metadata.
 Mini mounts:
 
 - `POST /api/apps/shared-surface/publish-attach` — validate sharing intent,
-  resolve via the facade (default `live_only` until a pack runtime is wired),
+  resolve via the facade in `live_only` mode,
   register novel contracts live with `shared_surface` metadata, and persist
   an attachment under `{home}/shared_surface_attachments.json`.
 - `GET /api/apps/shared-surface/attachments` — list local attachments.
@@ -128,6 +128,14 @@ shared-surface publish/attach. It delegates to
 `lastdb_node::schema_resolver_host::publish_attach_with_host_config`, which is
 the install-owned wrapper around `LocalFirstSchemaResolver`; `exec` and router
 code do not construct live-only schema clients or resolver facades directly.
+
+Mini has no in-process embedder or pack runtime. Its optional
+`{home}/schema_resolver.json` retains only `request_timeout_seconds` (default 10,
+clamped to 1–20 seconds). Missing, empty or invalid files use the default.
+Retired pack settings in existing JSON files are ignored, and the
+`SCHEMA_RESOLVER_*` pack environment variables have no effect. They previously
+always fell back to live service resolution. The shared client library's other
+facade modes remain available to callers that supply their own pack runtime.
 
 Private declare (`POST /api/schemas/declare`, `POST /api/apps/declare-schema`)
 is legacy compatibility for local fixture and migration paths. New durable
