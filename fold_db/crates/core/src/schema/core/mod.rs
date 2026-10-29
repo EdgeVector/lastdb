@@ -53,7 +53,7 @@ pub struct SchemaCore {
     /// established durably, for [`Self::apply_field_hash_coherence_on_load`].
     ///
     /// Schema declaration and refresh establish these bindings. Create/update
-    /// writes publish tips and values without reloading the catalog.
+    /// writes retry relationship binding without reloading the catalog.
     ///
     /// Keyed on the binding tuples themselves, NOT on the schema's identity
     /// hash: the tuples are exactly what the durable work depends on, so a
