@@ -14,7 +14,7 @@ impl AtomStore {
         let names: BTreeSet<_> = schema
             .alternate_keys
             .values()
-            .flat_map(|definition| definition.fields())
+            .flat_map(schema_types::AlternateKey::fields)
             .chain(
                 schema
                     .key

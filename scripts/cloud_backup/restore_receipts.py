@@ -18,7 +18,7 @@ from restore_log import verified as verified_log_routes
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-NODE = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
+NODE = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 MAX_FILES = 4096
 
 

@@ -83,7 +83,7 @@ jobs:
           done
       - name: Compare equivalent records through both public APIs
         env:
-          DRIVER_SHA: ${{ github.sha }}
+          DRIVER_SHA: ${{ env.CANDIDATE_SHA }}
         run: |
           python3 driver/scripts/benchmarks/alternate_key_compare.py \
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \

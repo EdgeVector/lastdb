@@ -70,13 +70,16 @@ def timed(node, label, pair, case, ordinal, path, body, records):
 
 
 def measure_reads(node, alternate, label, pair, records):
-    for case in ("primary_read", "alternate_exact", "alternate_range32"):
+    for case in ("cold_alternate_exact", "primary_read", "alternate_exact", "alternate_range32"):
+        if case == "cold_alternate_exact":
+            node.stop()
+            node.start()
         for i in range(256):
             key = f"t{i:04}"
             if case == "primary_read":
                 body = query(alternate, "primary", {"HashKey": key})
                 expected = {key: values(key)}
-            elif case == "alternate_exact":
+            elif case in ("cold_alternate_exact", "alternate_exact"):
                 body = query(alternate, "by_group", {"HashRangeKey": {"hash": "g0", "range": key}})
                 expected = {key: values(key)}
             else:
@@ -151,7 +154,7 @@ def arm(args, label, pair, output):
     finally:
         node.close()
         save(output / "samples.json", records)
-    require(len(records) == 1680, "comparison request coverage differs")
+    require(len(records) == 1936, "comparison request coverage differs")
     return records
 
 
@@ -181,6 +184,7 @@ def summary(args, records):
                      f"{b95:.3f} | {n95:.3f} | {(n95 / b95 - 1) * 100:+.1f}% |")
     lines += ["", f"Valid timed calls: {len(records)}. Request errors: 0.",
               "Mixed clients alternate a read and a write throughout each arm.",
+              "Cold cases start with empty logical memory after reopen; OS file pages remain uncontrolled.",
               "All arms verify durable writes, logical records, reopen, and owned-home cleanup.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,

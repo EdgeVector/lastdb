@@ -19,7 +19,7 @@ pub(crate) fn affected_keys(
     let dependencies: BTreeSet<_> = schema
         .alternate_keys
         .values()
-        .flat_map(|key| key.fields())
+        .flat_map(schema_types::AlternateKey::fields)
         .filter(|name| Some(*name) != primary)
         .collect();
     let primary_field = primary.and_then(|name| schema.runtime_fields.get(name));
