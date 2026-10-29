@@ -70,7 +70,8 @@ CASE = "new-home"
 # cases of the conversion proof, so the seed data stays the same.
 SEED_NUMBER = 2
 PROFILE = {
-    "seed": {"base": 3000, "creates": 1000, "updates": 4000, "deletes": 250},
+    # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
+    "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 
