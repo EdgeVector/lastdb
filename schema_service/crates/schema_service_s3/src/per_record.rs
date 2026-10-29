@@ -10,6 +10,8 @@ use std::collections::HashMap;
 
 use super::{error_code, is_precondition_failed, short_error, S3BlobPersistence};
 
+type StoredObject = aws_sdk_s3::operation::get_object::GetObjectOutput;
+
 impl S3BlobPersistence {
     pub(crate) async fn put_single_object<T>(
         &self,
@@ -76,25 +78,39 @@ impl S3BlobPersistence {
     where
         T: DeserializeOwned,
     {
-        let result = self
+        let Some(resp) = self.get_stored_object(key).await? else {
+            return Ok(None);
+        };
+        Ok(Some(Self::decode_json_body(key, resp.body).await?))
+    }
+
+    /// Read one record and its ETag. `None` means the object is absent.
+    async fn get_record_with_etag<T>(&self, key: &str) -> FoldDbResult<Option<(T, String)>>
+    where
+        T: DeserializeOwned,
+    {
+        let Some(resp) = self.get_stored_object(key).await? else {
+            return Ok(None);
+        };
+        let etag = resp
+            .e_tag()
+            .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
+            .to_string();
+        let record = Self::decode_json_body(key, resp.body).await?;
+        Ok(Some((record, etag)))
+    }
+
+    /// Read one definition object. `None` means the key is absent.
+    async fn get_stored_object(&self, key: &str) -> FoldDbResult<Option<StoredObject>> {
+        match self
             .client
             .get_object()
             .bucket(&self.bucket)
             .key(self.definition_key(key).as_ref())
             .send()
-            .await;
-        match result {
-            Ok(resp) => {
-                let body = resp
-                    .body
-                    .collect()
-                    .await
-                    .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
-                let bytes = body.into_bytes();
-                let record: T = serde_json::from_slice(&bytes)
-                    .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
-                Ok(Some(record))
-            }
+            .await
+        {
+            Ok(resp) => Ok(Some(resp)),
             Err(e) => {
                 if error_code(&e).as_deref() == Some("NoSuchKey") {
                     Ok(None)
@@ -108,45 +124,17 @@ impl S3BlobPersistence {
         }
     }
 
-    /// Read one record and its ETag. `None` means the object is absent.
-    async fn get_record_with_etag<T>(&self, key: &str) -> FoldDbResult<Option<(T, String)>>
+    /// Read and parse one object body.
+    async fn decode_json_body<T>(key: &str, body: ByteStream) -> FoldDbResult<T>
     where
         T: DeserializeOwned,
     {
-        let result = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(self.definition_key(key).as_ref())
-            .send()
-            .await;
-        match result {
-            Ok(resp) => {
-                let etag = resp
-                    .e_tag()
-                    .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
-                    .to_string();
-                let body = resp
-                    .body
-                    .collect()
-                    .await
-                    .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
-                let bytes = body.into_bytes();
-                let record: T = serde_json::from_slice(&bytes)
-                    .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
-                Ok(Some((record, etag)))
-            }
-            Err(e) => {
-                if error_code(&e).as_deref() == Some("NoSuchKey") {
-                    Ok(None)
-                } else {
-                    Err(FoldDbError::S3(format!(
-                        "get S3 object '{key}': {}",
-                        short_error(&e)
-                    )))
-                }
-            }
-        }
+        let body = body
+            .collect()
+            .await
+            .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
+        serde_json::from_slice(&body.into_bytes())
+            .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))
     }
 
     /// Page one prefix and decode each object. `label` is the list error text.
