@@ -211,15 +211,20 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let note_fatal =
         |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
 
-    let host = Arc::new(runtime.block_on(Host::boot(&home)).map_err(&note_fatal)?);
+    let mut host = runtime.block_on(Host::boot(&home)).map_err(&note_fatal)?;
     // Capture this process's own boot identity once, from the ledger entry
     // this same process just wrote — not from a re-read of the shared
     // per-home ledger file, which a different process sharing this home can
     // append a newer row to after this point
     // (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     if let Some(ledger) = &session_ledger {
-        let _ = host.own_boot_identity.set(ledger.own_record());
+        let boot = ledger.own_record();
+        // Status and shutdown must identify the same process start, even
+        // when opening the native database crosses a wall-clock second.
+        host.process_start_ts = boot.start_ts;
+        let _ = host.own_boot_identity.set(boot);
     }
+    let host = Arc::new(host);
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 
     let socket = UdsSocket::bind_at(
