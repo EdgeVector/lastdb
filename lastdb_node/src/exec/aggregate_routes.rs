@@ -58,11 +58,8 @@ where
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
     );
-    match parsed {
-        Ok(value) => Ok(value),
-        Err(_) => {
-            refuse();
-            Err(Reject::new(RejectKind::InvalidValue).response())
-        }
-    }
+    parsed.map_err(|_| {
+        refuse();
+        Reject::new(RejectKind::InvalidValue).response()
+    })
 }
