@@ -32,6 +32,7 @@ impl AtomStore {
             counter_events: Arc::default(),
             blob_events: Arc::default(),
             retention: Arc::default(),
+            history_activation: Arc::default(),
             counter_verify: Arc::default(),
             molecule_drain: Arc::default(),
             range_walks: Arc::default(),

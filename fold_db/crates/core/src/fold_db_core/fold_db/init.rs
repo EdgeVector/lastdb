@@ -76,6 +76,11 @@ impl FoldDB {
 
         info!("Created MutationManager for mutation operations");
 
+        let background_atom_history = super::super::atom_history::BackgroundAtomHistory::start(
+            Arc::clone(&db_ops),
+            offline_maintenance,
+        )
+        .await;
         let background_flush = Self::start_background_flush(&db_ops, offline_maintenance);
 
         Self::log_memory_budget();
@@ -96,10 +101,7 @@ impl FoldDB {
             background_flush,
             background_protein_reaper,
             background_conflict_janitor,
-            background_atom_history: super::super::atom_history::BackgroundAtomHistory::start(
-                Arc::clone(&db_ops),
-                offline_maintenance,
-            ),
+            background_atom_history,
             background_molecule_drain,
             mutation_log_capture,
         })

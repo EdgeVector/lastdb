@@ -94,12 +94,14 @@ class AttributedGrowth(GrowthWorkload):
         return point
 
 
-def measure(binary, revision, output, disable_thp):
+def measure(binary, revision, output, disable_thp, allocation_profile=False):
     environment = {"LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_SEARCH_ENABLED": "0",
                    "EXEMEM_API_URL": "http://127.0.0.1:9",
                    "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"}
     if disable_thp:
         environment["MIMALLOC_ALLOW_THP"] = "0"
+    if allocation_profile:
+        environment["LASTDB_ALLOCATION_PROFILE"] = str(output / "allocation-profile.json")
     node = Node(binary, revision, output, temporary_directory=Path(os.environ["RUNNER_TEMP"]),
                 environment=environment)
     try:
@@ -120,6 +122,7 @@ def main():
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--disable-thp", action="store_true")
+    parser.add_argument("--allocation-profile", action="store_true")
     args = parser.parse_args()
     root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
     if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
@@ -127,13 +130,15 @@ def main():
         raise RuntimeError("A fresh output under RUNNER_TEMP on a hosted CI runner is required")
     args.output.mkdir(mode=0o700)
     save(args.output / "recipe.json", {"disable_thp": args.disable_thp,
+                                     "allocation_profile": args.allocation_profile,
                                      "source": os.environ.get("GITHUB_SHA")})
     for pair in range(2):
         for label in (("baseline", "candidate") if pair == 0 else ("candidate", "baseline")):
             revision = getattr(args, label)
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
-            measure(args.programs / revision / "lastdbd", revision, output, args.disable_thp)
+            measure(args.programs / revision / "lastdbd", revision, output,
+                    args.disable_thp, args.allocation_profile)
 
 
 def interrupted(_signal, _frame):
