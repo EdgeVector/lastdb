@@ -429,9 +429,16 @@ thiserror = "1"
 # stack (hyper 0.14, hyper-rustls 0.24, rustls 0.21, tokio-rustls 0.24,
 # rustls-webpki 0.101, http-body 0.4) alongside the modern one. The HTTPS
 # client the SDKs actually use comes from `default-https-client`
-# (aws-smithy-http-client/rustls-aws-lc), which the same default set already
-# enabled — so the legacy connector was compiled on every cold build and never
-# selected.
+# (aws-smithy-http-client/rustls-aws-lc). On the current SDK that legacy
+# `rustls` feature is still a default, so a member or dev-dependency that
+# omits `default-features = false` turns the old connector back on for the
+# whole resolve. Use `workspace = true` for these crates.
+#
+# Keep aws-sdk-s3, aws-sdk-dynamodb, and aws-config on one smithy release.
+# They publish together; updating one crate's lock entry without the others
+# duplicates aws-smithy-http, aws-smithy-json, and the HTTP stack under them.
+# `http-1x` selects the http 1 types. `http-02x` is the optional http 0.2
+# compatibility feature and stays off.
 #
 # aws-sdk-s3's other non-default-critical default, `sigv4a`, is also off. It
 # gates `aws-sigv4/sigv4a`, which pulls p256 0.11 and with it the entire
@@ -444,6 +451,7 @@ thiserror = "1"
 # talks to R2/B2, which do not implement SigV4A. Re-enable this feature here if
 # an MRAP ARN ever becomes a bucket target.
 aws-sdk-s3 = { version = "1", default-features = false, features = [
+    "http-1x",
     "default-https-client",
     "rt-tokio",
 ] }
