@@ -32,9 +32,9 @@ impl AtomStore {
         if fallback.is_empty() {
             return Box::pin(self.capture_atom_history(scope, tips, old)).await;
         }
-        let rows = self
-            .delete_target_tips_with_generations(&fallback, scope)
-            .await?;
+        // Keep the generation reader out of the normal write future's frame.
+        // Its allocation is needed only when history is enabled.
+        let rows = Box::pin(self.delete_target_tips_with_generations(&fallback, scope)).await?;
         let mut visible = old.clone();
         for (key, record) in fallback.into_iter().zip(rows) {
             if let Some(record) = record {
