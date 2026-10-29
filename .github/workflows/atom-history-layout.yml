@@ -1,10 +1,6 @@
 name: Atom history compiler layouts
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/operations/atom_history_layout.py'
-      - '.github/workflows/atom-history-layout.yml'
   workflow_dispatch:
 
 permissions:

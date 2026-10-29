@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::pin::Pin;
 use std::time::Instant;
 
 #[derive(Default)]
@@ -42,14 +41,7 @@ pub(crate) async fn capture<F: Future>(work: F) -> F::Output {
 }
 
 /// Child stages overlap their parents. Read counts include OS-cache reads.
-pub(crate) fn measure<F: Future>(name: &'static str, work: F) -> impl Future<Output = F::Output> {
-    // Box before constructing the async wrapper. Its disabled and observed
-    // branches otherwise embed the full child future four times. Nested
-    // preparation phases amplify even a small change to a planner's frame.
-    measure_pinned(name, Box::pin(work))
-}
-
-async fn measure_pinned<F: Future>(name: &'static str, work: Pin<Box<F>>) -> F::Output {
+pub(crate) async fn measure<F: Future>(name: &'static str, work: F) -> F::Output {
     if ACTIVE.try_with(|_| ()).is_err() {
         return work.await;
     }
