@@ -23,7 +23,7 @@ impl SchemaServiceState {
         sig_header: &str,
         body: &Value,
     ) -> Result<AppUpdateOutcome, AppUpdateError> {
-        let started = Instant::now();
+        let started = self.clock.monotonic();
         let config = self.app_identity_config();
         let label = env_label(config.deployment_env);
 

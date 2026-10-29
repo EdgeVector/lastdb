@@ -8,7 +8,7 @@ use ed25519_dalek::Signer;
 use schema_service_core::app_identity::AppIdentityConfig;
 use schema_service_core::{ExternalSchemaPersistence, SchemaConfig, SchemaServiceState};
 use schema_service_s3::S3BlobPersistence;
-use schema_service_server_shared::SchemaConfigEnv;
+use schema_service_server_shared::{SchemaConfigEnv, SystemClock};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -37,9 +37,13 @@ pub async fn create_s3_state(
         "proof-embeddings".to_string(),
     ));
     let embedder = Arc::new(schema_service_core::DisabledEmbeddingModel);
-    let state =
-        SchemaServiceState::new_with_external(backend.clone(), embedder, SchemaConfig::from_env())
-            .await?;
+    let state = SchemaServiceState::new_with_external(
+        backend.clone(),
+        embedder,
+        SchemaConfig::from_env(),
+        Arc::new(SystemClock),
+    )
+    .await?;
     state.configure_app_identity(AppIdentityConfig {
         deployment_env: Env::Dev,
         trusted_roots: HashMap::new(),

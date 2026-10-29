@@ -71,7 +71,7 @@ impl SchemaServiceState {
             release_id: release_id.to_string(),
             contract_version: request.contract_version,
             verifier_pubkey: verifier_pubkey.clone(),
-            verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            verified_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
             verification_url: request.verification_url,
             payload_hash,
             signature,

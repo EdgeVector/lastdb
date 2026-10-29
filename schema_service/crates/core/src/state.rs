@@ -259,6 +259,8 @@ pub struct SchemaServiceState {
     pub schema_mutation_gate_store: SchemaMutationGateStore,
     /// Startup snapshot. Shells build this once; core does not read process env.
     pub schema_config: Arc<crate::schema_config::SchemaConfig>,
+    /// Process clock. The shell passes this in; core does not read the clock.
+    pub(crate) clock: Arc<dyn crate::clock::Clock>,
 }
 
 impl SchemaServiceState {

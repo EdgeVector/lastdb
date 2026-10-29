@@ -6,11 +6,17 @@ impl<S> ResolverPackConsumer<S>
 where
     S: ResolverPackObjectStore,
 {
-    pub fn new(store: S, cache: FsResolverPackCache, config: ResolverPackConsumerConfig) -> Self {
+    pub fn new(
+        store: S,
+        cache: FsResolverPackCache,
+        config: ResolverPackConsumerConfig,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             store,
             cache,
             config,
+            clock,
             telemetry: Arc::new(Mutex::new(ResolverPackTelemetrySnapshot::default())),
         }
     }

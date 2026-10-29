@@ -47,6 +47,7 @@ pub mod app_identity;
 pub mod app_release;
 pub mod builtin_canonical_fields;
 pub mod builtin_schemas;
+pub mod clock;
 pub mod declared_fields;
 pub mod embedder;
 pub mod external_persistence;
@@ -102,6 +103,7 @@ pub use app_identity::{
     AppRegisterOutcome, AppRegisterRequest, AppUpdateError, AppUpdateOutcome, AppUpdateRequest,
     SchemaClaimError,
 };
+pub use clock::{Clock, WallTime};
 pub use declared_fields::{
     mint_declaration_id, DeclareFieldInput, DeclareFieldRequest, DeclaredField, DeclaredFieldError,
     DeclaredFieldRecord, DeclaredFieldRegistry,

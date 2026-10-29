@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::clock::Clock;
+
 use tokio::sync::RwLock;
 
 use crate::resolver_pack_consumer::{
@@ -56,10 +58,15 @@ where
     pub fn new(
         store: S,
         bootstrap: &ResolverBootstrapConfig,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ResolverBootstrapConfigError> {
         bootstrap.validate_bootstrap()?;
-        let consumer =
-            ResolverPackConsumer::new(store, bootstrap.fs_cache(), bootstrap.to_consumer_config());
+        let consumer = ResolverPackConsumer::new(
+            store,
+            bootstrap.fs_cache(),
+            bootstrap.to_consumer_config(),
+            clock,
+        );
         let enabled = AtomicBool::new(bootstrap.enabled);
         Ok(Self {
             consumer,

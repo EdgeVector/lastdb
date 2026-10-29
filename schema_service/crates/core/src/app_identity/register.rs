@@ -14,7 +14,7 @@ impl SchemaServiceState {
         sig_header: &str,
         body: &Value,
     ) -> Result<AppRegisterOutcome, AppRegisterError> {
-        let started = Instant::now();
+        let started = self.clock.monotonic();
         let config = self.app_identity_config();
         let label = env_label(config.deployment_env);
 
@@ -95,7 +95,7 @@ impl SchemaServiceState {
             owner_dev_pubkey: verified.dev_pubkey,
             metadata: request.metadata,
             version: request.version,
-            registered_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            registered_at: crate::clock::rfc3339_secs(self.clock.as_ref()),
             tier: AppTier::Sandbox,
             code_signature: request.code_signature,
             source: request.source,

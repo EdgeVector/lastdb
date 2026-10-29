@@ -20,7 +20,7 @@ impl SchemaServiceState {
         cert_header: &str,
         sig_header: &str,
     ) -> Result<AppPromoteOutcome, AppPromoteError> {
-        let started = Instant::now();
+        let started = self.clock.monotonic();
         let config = self.app_identity_config();
         let label = env_label(config.deployment_env);
 

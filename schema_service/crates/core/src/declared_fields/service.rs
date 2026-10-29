@@ -38,8 +38,7 @@ impl SchemaServiceState {
             .map_err(|error| DeclaredFieldError::InvalidField(error.to_string()))?;
         let mut record = staged.declare(request, mint_declaration_id)?;
         if record.declared_at.is_empty() {
-            record.declared_at =
-                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            record.declared_at = crate::clock::rfc3339_secs(self.clock.as_ref());
         }
         self.record_schema_write();
         self.commit_vocabulary(
