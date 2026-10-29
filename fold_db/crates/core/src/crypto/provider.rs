@@ -18,22 +18,8 @@ pub trait CryptoProvider: Send + Sync {
     async fn decrypt(&self, ciphertext: &[u8]) -> CryptoResult<Vec<u8>>;
 }
 
-// ---------------------------------------------------------------------------
-// NoOpCryptoProvider — passthrough, no encryption (for tests)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// LocalCryptoProvider — file-based key, AES-256-GCM (for standalone dev)
-// ---------------------------------------------------------------------------
-
-/// A local crypto provider that derives its key from a file on disk.
-///
-/// On first use, if no key file exists, a random 256-bit key is generated
-/// and written to `~/.fold_db/encryption.key`. Subsequent uses load
-/// the same key.
-///
-/// This gives local dev parity with the cloud envelope encryption
-/// pattern without requiring AWS KMS.
+/// AES-256-GCM under an explicit key. Local construction supplies the account
+/// E2E content key; this adapter neither reads a key file nor mints a key.
 ///
 /// The key is zeroized when the provider is dropped (at-rest threat model
 /// Gap G3, `docs/security/at-rest-threat-model.md`).
@@ -43,7 +29,7 @@ pub struct LocalCryptoProvider {
 }
 
 impl LocalCryptoProvider {
-    /// Create a provider from an explicit key (useful for tests).
+    /// Create a provider from an explicit key.
     pub fn from_key(key: [u8; 32]) -> Self {
         Self { key }
     }

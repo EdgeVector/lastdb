@@ -2,11 +2,8 @@
 //!
 //! This module provides:
 //! - **`CryptoProvider`** trait — abstract encrypt/decrypt interface
-//! - **`LocalCryptoProvider`** — file-based AES-256-GCM for standalone dev nodes
-//! - **`NoOpCryptoProvider`** — passthrough for tests and migration
+//! - **`LocalCryptoProvider`** — AES-256-GCM under an explicit account content key
 //! - **`envelope`** — self-describing binary ciphertext format
-//! - **`keyring`** — KEK-wrapped per-purpose DEKs
-//! - **`keyring_provider`** — `CryptoProvider` backed by the keyring (the seam adapter)
 //! - **`at_rest`** — shared synchronous `ENC:` / binary `ENB:` value codec for
 //!   stores that bypass the namespaced encryption seam
 
@@ -15,8 +12,6 @@ pub(crate) mod content_key_proof;
 pub mod e2e;
 pub mod envelope;
 pub mod error;
-pub mod keyring;
-pub mod keyring_provider;
 pub mod provider;
 pub mod stream;
 
@@ -31,8 +26,6 @@ pub use envelope::{
     encrypt_envelope_v2, peek_envelope, EnvelopeHeader, KeyId,
 };
 pub use error::{CryptoError, CryptoResult};
-pub use keyring::{Dek, KeyPurpose, Keyring};
-pub use keyring_provider::KeyringCryptoProvider;
 // Portable candidate API only. Native molecule encodings do not select this
 // format until range values, readers, writers, and conversion are complete.
 pub use lastdb_range_crypto::{

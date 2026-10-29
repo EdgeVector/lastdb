@@ -297,7 +297,8 @@ The [engine README](../vendor/laststore/README.md) describes the run files.
 ## Engine boundary
 
 Normal FoldDB startup opens the disk format v2 engine. No selection flag is required.
-Factory options name the local encryption keyring and Search inbox.
+Factory options name offline maintenance and the Search inbox.
+The CAS wrapper uses the account E2E content key directly; no keyring option selects another key.
 The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
 An existing native home can reopen. An empty home can initialize directly.

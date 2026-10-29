@@ -2,6 +2,11 @@
 
 Date: 2026-07-16
 
+Historical note: the remaining in-memory keyring backend was later removed
+after its mint and load APIs were removed (#646, #649). See the
+[current key-provider status](at-rest-threat-model.md). This sunset record
+describes the former keyring path; the explicit v1/v2 envelope codecs remain.
+
 ## Scope
 
 This note records the evidence used to remove the at-rest keyring decrypt fallback for:

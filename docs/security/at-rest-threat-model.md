@@ -25,6 +25,13 @@ cancelled in favor of identity.key + cloud restore. Sections below that still
 describe passphrase / multi-root KEK resolution are **historical design notes**
 from 2026-06, not current Mini product code.
 
+**Current key-provider status:** Local construction always uses the account
+E2E content key for the CAS storage envelope. The unused keyring backend and
+`FoldDbOptions::at_rest_keyring` were removed after its mint and file-loading
+APIs had already been removed (#646, #649). Its private entry list could no
+longer be populated, including by embedded callers. The crypto-provider seam
+and v1/v2 envelope codecs remain; this cleanup adds no key rotation capability.
+
 **Current `node_config` status:** The unused database-namespace wrapper and its
 factory attachment have been retired. It had no active identity/config readers
 or writers and held a redundant copy of the content key. The `node_config` rows
@@ -786,10 +793,10 @@ long-lived node safe (no data loss, no full re-index):
 
 LastDB Mini (`lastdbd`) personal-data at-rest uses the **account E2E content key**
 derived from `identity.key` — the same key material as cloud log/snapshot outer
-seal. Host always boots with `at_rest_keyring: None`.
+seal. Local construction now selects that key directly.
 
-Per-install keyring store DEKs remain available in core for non-Mini / tests
-only. Do not reintroduce a non-portable store DEK on Mini personal data.
+The unusable keyring option has been removed from core. Do not reintroduce a
+non-portable store DEK on Mini personal data.
 
 Design: brain `design-portable-same-key-at-rest-cloud`. Feature:
 `feature-portable-same-key-at-rest`.
