@@ -83,13 +83,7 @@ impl MutationManager {
             rules::finalize_action(&finalize, guard, grant, &status, active_grant.is_some())?;
         if matches!(action, FinalizeAction::AlreadyValid) {
             if active_grant.is_some() {
-                self.db_ops
-                    .metadata()
-                    .put_typed_durable(&finalized_key, grant)
-                    .await?;
-                self.db_ops
-                    .metadata()
-                    .delete_typed_durable(&grant_key)
+                self.retire_active_repair_grant(&finalized_key, &grant_key, grant)
                     .await?;
             }
             let mut receipt = ResidentCommitReceipt::empty();
@@ -99,15 +93,27 @@ impl MutationManager {
         let receipt = self
             .write_finalize_marker(finalize, target_key, storage_prefix)
             .await?;
-        self.db_ops
-            .metadata()
-            .put_typed_durable(&finalized_key, grant)
-            .await?;
-        self.db_ops
-            .metadata()
-            .delete_typed_durable(&grant_key)
+        self.retire_active_repair_grant(&finalized_key, &grant_key, grant)
             .await?;
         Ok(receipt)
+    }
+
+    /// Copy the active repair grant to the finalized key, then drop the active key.
+    async fn retire_active_repair_grant(
+        &self,
+        finalized_key: &str,
+        grant_key: &str,
+        grant: &AggregateRepairGrant,
+    ) -> Result<(), SchemaError> {
+        self.db_ops
+            .metadata()
+            .put_typed_durable(finalized_key, grant)
+            .await?;
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(grant_key)
+            .await?;
+        Ok(())
     }
 
     /// Read the current summary. Corruption invalidates the guard before refusal;
