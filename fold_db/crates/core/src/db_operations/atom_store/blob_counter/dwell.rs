@@ -25,7 +25,7 @@
 use super::blob_dwell_millis;
 use super::dwell_chunk::{decode_entry, DwellEntry};
 use super::queue::BlobQueue;
-use crate::db_operations::atom_store::time_queue::QueueReader;
+use crate::db_operations::atom_store::time_queue::{NetSchedule, QueueReader};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::measure;
@@ -54,7 +54,7 @@ pub struct DwellCursor {
     /// it for the next step. A bucket in this set is not retired.
     partial: BTreeSet<u64>,
     /// The schedule of the safety net (`net.rs`).
-    pub(super) net: super::net::BlobNet,
+    pub(super) net: NetSchedule,
 }
 
 impl DwellCursor {
@@ -65,7 +65,7 @@ impl DwellCursor {
             page,
             passes: 0,
             partial: BTreeSet::new(),
-            net: super::net::BlobNet::new(),
+            net: NetSchedule::new(),
         }
     }
 

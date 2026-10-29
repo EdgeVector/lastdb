@@ -29,33 +29,11 @@ use super::{blob_dwell_millis, BlobQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::measure;
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Slices that one net chunk probes. A chunk is one batch read and, for each
 /// slice without a row, one bounded range read.
 const NET_CHUNK_SLICES: usize = 16;
-
-/// The schedule of the net, and the sweep in progress.
-#[derive(Debug)]
-pub(super) struct BlobNet {
-    /// The time between two sweeps. `None` turns the net off.
-    every: Option<Duration>,
-    /// The next sweep starts at or after this time. The first one is at once.
-    next_at: Instant,
-    /// Slices of the sweep in progress that are not probed yet.
-    todo: VecDeque<u64>,
-}
-
-impl BlobNet {
-    pub(super) fn new() -> Self {
-        Self {
-            every: None,
-            next_at: Instant::now(),
-            todo: VecDeque::new(),
-        }
-    }
-}
 
 /// What one net chunk did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -76,10 +54,7 @@ impl DwellCursor {
     /// `every`, and now. `None` turns the net off. A call with the value the
     /// cursor has changes nothing, so a pass may call it each time.
     pub fn set_net_every(&mut self, every: Option<Duration>) {
-        if self.net.every != every {
-            self.net.every = every;
-            self.net.next_at = Instant::now();
-        }
+        self.net.set_every_when_changed(every);
     }
 }
 
@@ -108,33 +83,23 @@ impl AtomStore {
     ) -> Result<Option<NetStep>, SchemaError> {
         let queue = self.blob_events.queue();
         let now = BlobQueue::nanos(self.blob_clock_millis());
-        if cursor.net.todo.is_empty() {
-            let Some(every) = cursor.net.every else {
-                return Ok(None);
-            };
-            if Instant::now() < cursor.net.next_at {
-                return Ok(None);
-            }
-            cursor.net.next_at = Instant::now() + every;
-            let dwell = BlobQueue::nanos(blob_dwell_millis());
-            cursor
-                .net
-                .todo
-                .extend(queue.layout().net_slices(now, dwell));
-            self.blob_events.note_net_sweep();
-        }
-        let take = cursor.net.todo.len().min(NET_CHUNK_SLICES);
-        let slices: Vec<u64> = cursor.net.todo.iter().take(take).copied().collect();
+        let Some(slices) = cursor.net.next_slices(
+            NET_CHUNK_SLICES,
+            || {
+                let dwell = BlobQueue::nanos(blob_dwell_millis());
+                queue.layout().net_slices(now, dwell)
+            },
+            || self.blob_events.note_net_sweep(),
+        ) else {
+            return Ok(None);
+        };
         let chunk = match queue.layout().mend_slices(self, &slices, now).await {
             Ok(chunk) => chunk,
             Err(error) => {
-                // Drop the sweep. The next one starts at the next time of the
-                // schedule, so a failing net does not read again at once.
-                cursor.net.todo.clear();
+                cursor.net.abandon();
                 return Err(error);
             }
         };
-        cursor.net.todo.drain(..take);
         for bucket in &chunk.unlisted {
             tracing::warn!(
                 target: "fold_db::blob_dwell",

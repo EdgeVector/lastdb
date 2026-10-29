@@ -28,6 +28,8 @@ use super::keys::TimeQueue;
 use crate::db_operations::atom_store::counter::TipChangeSet;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 /// Range reads that a probe of one slice may make before it gives up. A slice
 /// with a very long run of deleted keys needs more than one.
@@ -42,6 +44,79 @@ pub(crate) struct NetChunk {
     pub(crate) unlisted: Vec<u64>,
     /// Slices whose probe gave up.
     pub(crate) unknown: usize,
+}
+
+/// The clock and the remaining slices of one safety-net sweep.
+///
+/// `set_every` always restarts the clock. `set_every_when_changed` keeps the
+/// clock when the interval is the same. The caller supplies the slices when a
+/// sweep starts, and the caller mends each chunk.
+#[derive(Debug)]
+pub(crate) struct NetSchedule {
+    every: Option<Duration>,
+    next_at: Instant,
+    todo: VecDeque<u64>,
+}
+
+impl NetSchedule {
+    pub(crate) fn new() -> Self {
+        Self {
+            every: None,
+            next_at: Instant::now(),
+            todo: VecDeque::new(),
+        }
+    }
+
+    /// Record `every` and make the next sweep due now.
+    pub(crate) fn set_every(&mut self, every: Option<Duration>) {
+        self.every = every;
+        self.next_at = Instant::now();
+    }
+
+    /// Record `every` only when it differs. The same interval keeps this clock.
+    pub(crate) fn set_every_when_changed(&mut self, every: Option<Duration>) {
+        if self.every != every {
+            self.set_every(every);
+        }
+    }
+
+    /// Slices for the next chunk, or `None` when no sweep is due.
+    ///
+    /// A new sweep stores `slices`, then runs `started`, then returns the first
+    /// chunk. That chunk leaves this schedule before the caller mends it.
+    /// [`Self::abandon`] drops whatever remains after a mend error.
+    pub(crate) fn next_slices<Slices, Started>(
+        &mut self,
+        chunk_slices: usize,
+        slices: Slices,
+        started: Started,
+    ) -> Option<Vec<u64>>
+    where
+        Slices: FnOnce() -> Vec<u64>,
+        Started: FnOnce(),
+    {
+        if self.todo.is_empty() {
+            let Some(every) = self.every else {
+                return None;
+            };
+            if Instant::now() < self.next_at {
+                return None;
+            }
+            self.next_at = Instant::now() + every;
+            self.todo.extend(slices());
+            started();
+        }
+        let take = self.todo.len().min(chunk_slices);
+        Some(self.todo.drain(..take).collect())
+    }
+
+    /// Drop the rest of the current sweep.
+    ///
+    /// The next sweep waits for the clock, so a failed mend does not read again
+    /// at once.
+    pub(crate) fn abandon(&mut self) {
+        self.todo.clear();
+    }
 }
 
 impl TimeQueue {
