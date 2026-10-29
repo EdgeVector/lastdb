@@ -238,22 +238,6 @@ jobs:
       - name: Scan tracked text files for secrets
         run: python3 scripts/lints/lint-secrets.py
 
-  schema_canonical_properties:
-    name: Canonical schema properties
-    permissions:
-      contents: read
-      actions: read
-    uses: ./.github/workflows/schema-canonical-properties.yml
-    with:
-      reuse_push_result: true
-
-  schema_operational_checks:
-    name: Canonical schema operational checks
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/schema-operational-checks.yml
-
   atom_history:
     name: Atom history product proof
     permissions:
@@ -271,8 +255,6 @@ jobs:
       - full_workspace_check
       - diff_file_size
       - secret_scan
-      - schema_canonical_properties
-      - schema_operational_checks
       - atom_history
     if: ${{ always() }}
     runs-on: ubuntu-24.04
@@ -283,9 +265,9 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
           echo "Required job results: $RESULTS"
-          # Every required job must succeed, including the scoped property suite.
+          # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

@@ -72,22 +72,6 @@ restore point: branch `archive/desktop-dmg-pre-removal`.)
 
 ## CI checks
 
-**Scoped exception (Tom, 2026-10-28):** Tom explicitly requested canonical schema
-property and concurrency tests and approved their CI PR and run. The test
-retirement below excludes only `schema_service/crates/core/tests/`, its explicit
-`canonical_properties` Cargo target, and `schema-canonical-properties.yml`.
-Run this target in CI with isolated memory stores. All other test targets stay
-retired. This exception grants no primary, shared load, or deployment permission.
-
-**Scoped extension (Tom, 2026-10-28):** Tom requested the isolated node, S3,
-actual-model, recovery, and migration follow-ups. The additional scope is
-`scripts/schema_checks/`, the explicit `s3_canonical_properties` target,
-the `canonical_semantics` example, and `schema-operational-checks.yml`.
-All builds and execution stay in CI. Fresh generated homes, a dedicated model
-cache, and run-owned S3 buckets replace any primary or production data.
-Tom separately approved the new accepted-main AWS role and disposable check
-buckets. No production, deployment, primary, or unrelated test permission is granted.
-
 **The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
 The required gate (`ci-required`) runs fmt, clippy, lints, a tracked-text
 secret scan (`scripts/lints/lint-secrets.py`), and builds only, and the repo

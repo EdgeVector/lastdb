@@ -1,5 +1,6 @@
 //! Command line of `lastdbd` and the one-shot subcommands.
 
+use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -36,6 +37,26 @@ pub(crate) struct Cli {
 
     #[command(subcommand)]
     pub(crate) command: Option<Command>,
+}
+
+impl Cli {
+    /// Preserve requested help/version output and argument-error exit status,
+    /// without printing rejected paths or values into captured stderr.
+    pub(crate) fn parse_private() -> Self {
+        match Self::try_parse() {
+            Ok(cli) => cli,
+            Err(error) => {
+                if matches!(
+                    error.kind(),
+                    clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+                ) {
+                    error.exit();
+                }
+                let _ = writeln!(std::io::stderr().lock(), "lastdbd: invalid_arguments");
+                std::process::exit(2);
+            }
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]

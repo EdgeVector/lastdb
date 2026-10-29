@@ -6,13 +6,9 @@
 #   scripts/ci/mini-gate-step.sh "cargo fmt --check" -- cargo fmt --all -- --check
 set -uo pipefail
 
-# Every gated step opens a store per test under real parallelism, and the
-# Docker runner's default fd ulimit is far below what that needs (measured:
-# `cargo test -p fold_db --lib` here failing 5 tests on `os error 24, Too
-# many open files` while the identical raise already protects the
-# `lastdb_node` step and the heavy-clippy/lambda-artifact/cloud-gc-mutations
-# workflows). Apply the same floor here once, for every step this script
-# gates, instead of repeating it per call site.
+# Keep the file-descriptor floor consistent with the lastdb_node,
+# heavy-clippy, lambda-artifact, and cloud-gc-mutations workflows.
+# Apply it once to every non-test gate command.
 ulimit -n 8192 || true
 
 if [[ "$#" -lt 3 || "$2" != "--" ]]; then
