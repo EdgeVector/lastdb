@@ -130,15 +130,16 @@ impl MutationManager {
             &committed,
         )
         .await?;
-        let metadata = self.db_ops.metadata();
-        metadata
-            .delete_typed_durable(&ctx.guard_pending_key)
-            .await?;
-        metadata
-            .delete_typed_durable(&gs.target_pending_key)
-            .await?;
+        self.delete_durable_copies([
+            ctx.guard_pending_key.as_str(),
+            gs.target_pending_key.as_str(),
+        ])
+        .await?;
         if let Some(old_target_guard_key) = plan.old_target_guard_key {
-            metadata.delete_typed_durable(&old_target_guard_key).await?;
+            self.db_ops
+                .metadata()
+                .delete_typed_durable(&old_target_guard_key)
+                .await?;
         }
         Ok(())
     }
