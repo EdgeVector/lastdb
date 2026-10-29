@@ -2,6 +2,7 @@
 mod cache;
 mod checkpoint;
 mod plan;
+mod routing;
 use super::{
     local, ByteBackupClient, RecoveryKeys, RestoreError, RestoreReport, RestoreSession, Result,
     VerifiedNativeContext,

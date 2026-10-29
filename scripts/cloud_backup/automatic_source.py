@@ -6,7 +6,7 @@ import os
 import re
 import time
 
-from support import ACCOUNT, OperationError, canonical_uuid, read_json, require
+from support import ACCOUNT, OperationError, canonical_uuid, require
 
 MAX_CHECKPOINTS = 8
 MAX_DECLARED_BYTES = 64 * 1024 * 1024
@@ -186,34 +186,6 @@ class Source:
                 and journal["acknowledged_through"] == journal["head"]["sequence"]
                 and policy["last_backed_up_frontiers"] == journal["head"]["frontiers"],
                 "accepted_complete_journal_head")
-
-    def routes(self, value):
-        request = canonical_uuid(value["request_id"])
-        root = self.node.home / "data/cloud-byte-backup-v2/jobs" / request
-        plan = read_json(root / "log-plan.json")
-        require(plan["ready"] and 0 < plan["objects"] <= 4096
-                and 0 < plan["files"] <= 4096, "bounded_complete_log_plan")
-        destinations = {}
-        for number in range(plan["objects"]):
-            record = read_json(root / f"log-object-{number:08}.json")
-            receipt = record["receipt"]
-            require(receipt and receipt["object"] == record["input"]["object"], "accepted_log_receipt")
-            destination = receipt["object"]["destination"]
-            if record["payload"] is not None:
-                require(destination == "r2", "log_metadata_uses_r2")
-            destinations[receipt["receipt_id"]] = destination
-        roles = set()
-        for number in range(plan["files"]):
-            file = read_json(root / f"log-file-{number:08}.json")
-            path = file["path"].split("/")
-            require(len(path) == 5 and path[0] == "mutation-log"
-                    and path[3] in ("main", "cas-add", "cas-delete"), "native_log_file_role")
-            roles.add(path[3])
-            destination = "r2" if path[3] == "main" else "b2"
-            require(file["extents"] and all(destinations[e["receipt_id"]] == destination
-                    for e in file["extents"]), "main_r2_and_cas_b2_routes")
-        require({"main", "cas-add"} <= roles, "real_main_and_cas_log_bytes")
-        return {"main_r2": True, "cas_b2": True, "metadata_r2": True, "native_files": plan["files"]}
 
     def write(self, schema):
         # Real native CAS bytes accompany the record updates in the next log.

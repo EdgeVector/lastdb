@@ -90,7 +90,6 @@ class Automatic:
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"],
                                through=written)
         source.caught_up(log)
-        routes = source.routes(log)
         source.retired(snapshot["request_id"])
         timer = snapshot["automatic_backup"]
         require(all(log["automatic_backup"][name] == timer[name]
@@ -131,6 +130,7 @@ class Automatic:
                                     lifecycle=lifecycle, initial=True)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
                                    lifecycle=lifecycle)
+        routes = log_restore["restore"]["mutation_log_routes"]
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]

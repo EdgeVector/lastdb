@@ -69,7 +69,8 @@ pub(super) async fn download(
         return Err(RestoreError::Invalid("complete mutation file totals"));
     }
     coverage.finish()?;
-    inventory.finish()
+    inventory.finish()?;
+    super::routing::save(session, root)
 }
 
 pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {
