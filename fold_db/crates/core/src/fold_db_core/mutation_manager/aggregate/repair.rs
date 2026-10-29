@@ -201,7 +201,7 @@ impl MutationManager {
             .iter()
             .map(|(field, total)| (field.clone(), serde_json::Value::from(*total)))
             .collect();
-        let mut summary = summary_mutation(
+        let summary = summary_mutation(
             target_schema_name,
             target_key,
             fields,

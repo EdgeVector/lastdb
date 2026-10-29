@@ -233,7 +233,7 @@ impl MutationManager {
     /// Write the invalidations durably, then drop the repair and finalized grants.
     async fn apply_invalidations(
         &self,
-        mut invalidations: Vec<Mutation>,
+        invalidations: Vec<Mutation>,
         invalidated_guards: Vec<AggregateGuard>,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {

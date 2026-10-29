@@ -236,7 +236,7 @@ impl MutationManager {
         target_key: KeyValue,
         storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let mut summary = summary_mutation(
+        let summary = summary_mutation(
             finalize.target_schema_name,
             target_key,
             HashMap::new(),

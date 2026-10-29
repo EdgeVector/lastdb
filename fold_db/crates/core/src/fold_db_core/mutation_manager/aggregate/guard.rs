@@ -12,7 +12,7 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
     ) -> Result<(), SchemaError> {
-        let mut invalidations = self
+        let invalidations = self
             .build_guard_target_invalidations(guards, token, pub_key, storage_prefix)
             .await?;
         if invalidations.is_empty() {
