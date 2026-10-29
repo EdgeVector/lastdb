@@ -2,9 +2,7 @@
 
 use super::{invalid, FoldDB, KeyValue, SchemaError};
 use crate::db_operations::atom_store::AtomStore;
-use crate::schema::field_hash_coherence::{
-    are_multi_key_siblings, shared_field_identities, KeyLayoutFingerprint,
-};
+use crate::schema::field_hash_coherence::{shared_field_identities, KeyLayoutFingerprint};
 use crate::schema::types::{schema::DeclarativeSchemaType, Schema};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -32,11 +30,6 @@ impl Plan {
     ) -> Result<Self, SchemaError> {
         let source = load_schema(db, source)?;
         let target = load_schema(db, target)?;
-        if !are_multi_key_siblings(&source, &target) {
-            return Err(invalid(
-                "protein backfill requires compatible differently-keyed sibling schemas",
-            ));
-        }
         let mut distinct = HashSet::new();
         let keys = keys
             .iter()

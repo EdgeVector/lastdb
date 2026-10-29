@@ -13,6 +13,7 @@ pub struct InventoryVerifier<'a> {
 }
 
 impl<'a> InventoryVerifier<'a> {
+    /// Start a proof over `index`. `root_receipt_id` must appear on exactly one later page.
     pub fn new(index: &'a InventoryIndex, root_receipt_id: Digest) -> Result<Self, ProtocolError> {
         Ok(Self {
             index,
@@ -23,6 +24,7 @@ impl<'a> InventoryVerifier<'a> {
         })
     }
 
+    /// Accept the next page in index order and remember the root receipt if this page holds it.
     pub fn push(&mut self, page: &InventoryPage) -> Result<(), ProtocolError> {
         if page.page_index as usize != self.next
             || page.scope != self.index.scope
@@ -44,6 +46,7 @@ impl<'a> InventoryVerifier<'a> {
         Ok(())
     }
 
+    /// Finish after every index page. Fails if a page is missing or the root receipt never appeared.
     pub fn finish(self) -> Result<InventoryProof, ProtocolError> {
         if self.next != self.index.pages.len() {
             return Err(ProtocolError::invalid("v2.inventory_proof.incomplete"));
@@ -67,6 +70,7 @@ pub struct InventoryProof {
 }
 
 impl InventoryProof {
+    /// Require this proof's scope, root summary, and root receipt id to match the commit.
     pub fn validate_for(
         &self,
         scope: &CloudScope,
@@ -82,6 +86,7 @@ impl InventoryProof {
         Ok(())
     }
 
+    /// Receipt of the inventory root object found while walking pages.
     pub fn root_receipt(&self) -> &ObjectReceipt {
         &self.root_receipt
     }

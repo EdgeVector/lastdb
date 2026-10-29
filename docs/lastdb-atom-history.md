@@ -128,5 +128,12 @@ references. Existing conflict queue diagnostics remain specific to conflicts.
 
 `Atom history product proof` builds the CLI and daemon in GitHub Actions.
 It uses a fresh generated home and exercises the public commands and owner API.
+The required check `ci-required` calls this proof.
+A pull request that does not change the product still reports success, and the long proof does not run.
 The run summary and uploaded artifacts contain the result and source revision.
 The primary remains unchanged.
+
+The proof checks the public commands.
+It does not drive generation activation, a tombstone with a visible generation, or a spared compliance purge.
+The format marker has no owner read.
+A restart after `Off` still serves the kept entries. It does not read the marker bytes.

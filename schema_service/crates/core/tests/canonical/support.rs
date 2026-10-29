@@ -1,6 +1,6 @@
 use schema_service_core::{
     types::CanonicalField, DeclareFieldInput, DeclareFieldRequest, DisabledEmbeddingModel,
-    ExternalSchemaPersistence, SchemaServiceState,
+    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
 };
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{future::Future, sync::Arc};
@@ -14,9 +14,13 @@ pub fn run<T>(future: impl Future<Output = T>) -> T {
 }
 
 pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaServiceState {
-    SchemaServiceState::new_with_external(backend, Arc::new(DisabledEmbeddingModel))
-        .await
-        .expect("empty or valid backend")
+    SchemaServiceState::new_with_external(
+        backend,
+        Arc::new(DisabledEmbeddingModel),
+        SchemaConfig::default(),
+    )
+    .await
+    .expect("empty or valid backend")
 }
 
 pub fn field(description: &str, field_type: FieldValueType) -> CanonicalField {

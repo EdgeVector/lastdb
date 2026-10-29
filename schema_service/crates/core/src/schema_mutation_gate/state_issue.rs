@@ -9,10 +9,6 @@ impl SchemaServiceState {
         }
     }
 
-    pub fn configure_schema_mutation_gate_from_env(&self) {
-        self.configure_schema_mutation_gate(SchemaMutationGateConfig::from_env());
-    }
-
     pub fn schema_mutation_gate_config(&self) -> SchemaMutationGateConfig {
         self.schema_mutation_gate_config
             .read()

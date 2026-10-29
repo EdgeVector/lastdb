@@ -104,7 +104,7 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
     (
         "protein_record",
         "protein:",
-        "protein:{uuid} — protein record (member list). Nothing deletes these; empty ones are orphans.",
+        "protein:{uuid} — field protein member list; canonical field joins replace old protein records.",
     ),
     (
         "protein_member_backref",

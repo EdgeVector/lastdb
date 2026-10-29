@@ -3,6 +3,7 @@
 use super::*;
 use cloud_backup_protocol::v2::{Begin, ClientDescriptor, Destination, Job, Stream, Version};
 use cloud_backup_protocol::{CloudScope, DecimalU64};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,7 +57,11 @@ pub(super) fn admit(
             return Err(BackupError::Identity);
         }
         if intent.begin.job.commit_id == *id {
-            return if intent.released && matches!(action, LocalSnapshotAction::Prepare) {
+            return if intent.released
+                && matches!(
+                    action,
+                    LocalSnapshotAction::Prepare | LocalSnapshotAction::Plan
+                ) {
                 Err(BackupError::Invalid)
             } else {
                 Ok(intent)

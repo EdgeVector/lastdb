@@ -11,18 +11,22 @@ use sha2::{Digest as _, Sha256};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecoveryProfile {
+    /// Mini's existing Ed25519 seed and E2E key derivation. This is not a new construction.
     MiniPortableV1,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Public recovery description. It holds no seed or per-file key.
 pub struct RecoveryDescriptor {
+    /// Which recovery construction this descriptor uses.
     pub profile: RecoveryProfile,
     /// Raw 32-byte Ed25519 public key, lowercase hex; this value is not a secret.
     pub account_public_key: Digest,
 }
 
 impl RecoveryDescriptor {
+    /// Check that the first 16 bytes of SHA-256 over the raw public key equal the scope account id.
     pub fn validate_for(&self, scope: &CloudScope) -> Result<(), ProtocolError> {
         scope.validate()?;
         let public_key = decode_public_key(&self.account_public_key)?;
@@ -39,6 +43,7 @@ impl RecoveryDescriptor {
         Ok(())
     }
 
+    /// Domain-separated SHA-256 of this descriptor.
     pub fn commitment(&self) -> Result<Digest, ProtocolError> {
         crate::input_digest("lastdb:native-backup:recovery:v1", self)
     }

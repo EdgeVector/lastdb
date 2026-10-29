@@ -49,37 +49,10 @@ pub struct SchemaCore {
     /// false — clients (and the safe-upgrade smoke bar) treat empty-ok as a
     /// finished empty brain, which false-REDs a hydrating post-rekey home.
     catalog_ready: AtomicBool,
-    /// Schema name → the exact multi-key binding set this process has already
-    /// established durably, for [`Self::apply_field_hash_coherence_on_load`].
-    ///
-    /// Schema declaration and refresh establish these bindings. Create/update
-    /// writes retry relationship binding without reloading the catalog.
-    ///
-    /// Keyed on the binding tuples themselves, NOT on the schema's identity
-    /// hash: the tuples are exactly what the durable work depends on, so a
-    /// changed molecule UUID or a newly-matched peer invalidates the memo
-    /// without needing a separate rule about what else should.
-    ///
-    /// **Why a per-schema memo is still complete when a NEW sibling appears
-    /// later.** Binding is symmetric — `bind_cross_key_field_protein` joins both
-    /// molecules to one protein regardless of which side initiated. A schema
-    /// registered after this one runs its own pass, finds this one in the peer
-    /// scan, and binds the pair. So a memo hit here can never be the only path
-    /// to a binding that ought to exist.
-    ///
-    /// Process-local and deliberately not persisted: a restart re-establishes it
-    /// on the first load of each schema, which is the one-time cost the pass was
-    /// always meant to be.
+    /// Exact field memberships this process established in a durable native scope.
+    /// A restart re-establishes the memo. New schemas join the same field protein
+    /// directly; app names, key differences and schema overlap do not select peers.
     coherence_bound: Arc<Mutex<HashMap<String, Vec<CoherenceBinding>>>>,
 }
 
-/// One durable multi-key binding, as [`SchemaCore::apply_field_hash_coherence_on_load`]
-/// computes it. Compared as a whole to decide whether the pass has anything
-/// left to do — see [`SchemaCore::coherence_bound`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CoherenceBinding {
-    pub(crate) field: String,
-    pub(crate) field_hash: String,
-    pub(crate) peer_molecule: String,
-    pub(crate) peer_layout: crate::schema::field_hash_coherence::KeyLayoutFingerprint,
-}
+pub(super) use crate::protein::FieldProteinBinding as CoherenceBinding;

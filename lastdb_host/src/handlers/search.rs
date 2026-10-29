@@ -11,17 +11,25 @@ pub(super) const SEARCH_APP_ID: &str = "search";
 
 /// Parsed native-search params, filled by socket executors from query strings.
 pub struct NativeSearchParams {
+    /// Query text. The retired native-search handler does not read it.
     pub term: String,
+    /// Whether internal schemas were requested. The retired handler does not read it.
     pub include_internal: bool,
+    /// Whether an exact match was requested. The retired handler does not read it.
     pub exact: bool,
+    /// Optional minimum score. The retired handler does not read it.
     pub min_score: Option<f64>,
+    /// Schemas to search. `search_app_query` keeps only schemas owned by the Search app.
     pub schemas: Option<Vec<String>>,
 }
 
 /// Parsed app-search params for `POST /api/app/search`.
 pub struct AppSearchParams {
+    /// Query text copied into the retired native-search call.
     pub term: String,
+    /// `Some(0)` returns an empty result. Any other limit still reaches the retired backend.
     pub limit: Option<usize>,
+    /// Optional schema name that narrows the owner or app scope.
     pub target: Option<String>,
 }
 
@@ -257,30 +265,43 @@ pub(super) fn app_owned_search_scope<H: HostNode>(
 /// Request body accepted before the embeddings route returns `503`.
 #[derive(Debug, serde::Deserialize)]
 pub struct AppVectorPutRequest {
+    /// Schema name on the retired embeddings body. The handler does not store it.
     pub schema: String,
+    /// Record key on the retired embeddings body. The handler does not store it.
     pub key: KeyValue,
+    /// Field name on the retired embeddings body. The handler does not store it.
     pub field: String,
+    /// Embedder name on the retired embeddings body. The handler does not store it.
     pub embedder: String,
+    /// Embedding floats on the retired embeddings body. The handler does not store them.
     pub vector: Vec<f32>,
 }
 
 /// Seed record reference for "more like record X" k-NN queries.
 #[derive(Debug, serde::Deserialize)]
 pub struct KnnSeed {
+    /// Schema of the seed record on the retired k-NN body.
     pub schema: String,
+    /// Key of the seed record on the retired k-NN body.
     pub key: KeyValue,
+    /// Field of the seed record on the retired k-NN body.
     pub field: String,
 }
 
 /// Request body accepted before the k-NN route returns `503`.
 #[derive(Debug, serde::Deserialize)]
 pub struct KnnRequest {
+    /// Schema names on the retired k-NN body. The handler does not query them.
     pub schemas: Vec<String>,
+    /// Neighbor count on the retired k-NN body. The handler does not use it.
     pub k: usize,
+    /// Embedder name on the retired k-NN body. The handler does not use it.
     pub embedder: String,
     #[serde(default)]
+    /// Optional query vector on the retired k-NN body. The handler does not use it.
     pub vector: Option<Vec<f32>>,
     #[serde(default)]
+    /// Optional seed record on the retired k-NN body. The handler does not use it.
     pub seed: Option<KnnSeed>,
 }
 

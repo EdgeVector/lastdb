@@ -55,44 +55,6 @@ use schema_types::SchemaSource;
 use super::state::SchemaServiceState;
 use super::state_matching::PURPOSE_SIMILARITY_THRESHOLD;
 
-/// Whether compositional decomposition runs at all. **Default off.** When the
-/// env var is unset (or set to a falsy value) the add-schema path is exactly
-/// today's whole-schema-only behavior — no component decomposition, no
-/// advisory records, no new outcome. Turning it on enables the *advisory*
-/// (shadow) pass: per-component reuse is computed and logged, but the live
-/// decision is unchanged.
-///
-/// Truthy values: `1` / `true` / `TRUE` / `yes` / `advisory` / `apply`.
-/// All of them turn on the advisory (shadow) pass. Only the exact value
-/// `apply` *additionally* turns on the apply step (see
-/// [`compositional_apply_enabled`]) that rewrites `ref_fields` and emits
-/// [`crate::types::SchemaAddOutcome::Composed`]; every other truthy value
-/// stays advisory-only, so it cannot change the persisted result.
-pub(super) fn compositional_decomposition_enabled() -> bool {
-    std::env::var("SCHEMA_COMPOSITIONAL_DECOMPOSITION").is_ok_and(|v| {
-        matches!(
-            v.as_str(),
-            "1" | "true" | "TRUE" | "yes" | "advisory" | "apply"
-        )
-    })
-}
-
-/// Whether the compositional **apply** step runs — the follow-on to the
-/// advisory shadow pass. When on, a proposal whose nested components clear the
-/// per-component reuse gate has those `ref_fields` rewritten to point at the
-/// matched existing canonical, and a newly-registered parent is returned as
-/// [`crate::types::SchemaAddOutcome::Composed`] instead of `Added`.
-///
-/// Strictly stronger than [`compositional_decomposition_enabled`]: ONLY the
-/// exact value `apply` enables it. Any other truthy value (`1`, `advisory`, …)
-/// leaves this off, so the persisted result is identical to advisory mode
-/// unless an operator explicitly opts into `apply`. Default off ⇒ the
-/// add-schema path never mutates `ref_fields` and never emits `Composed`, so
-/// the shipped behavior remains a pure superset of today's.
-pub(super) fn compositional_apply_enabled() -> bool {
-    std::env::var("SCHEMA_COMPOSITIONAL_DECOMPOSITION").is_ok_and(|v| v == "apply")
-}
-
 /// Per-component verdict from decomposing a proposal: a single `ref_fields`
 /// component (a `field_name → child_schema_name` edge) and whether an existing
 /// same-purpose canonical was found to reuse for it.
@@ -288,7 +250,7 @@ impl SchemaServiceState {
     }
 
     /// Advisory (shadow-mode) compositional pass, called from
-    /// [`Self::add_schema`]. When [`compositional_decomposition_enabled`] is
+    /// [`Self::add_schema`]. When [`Self::compositional_decomposition_enabled`] is
     /// off this is a cheap no-op; when on it decomposes the proposal and logs
     /// the per-component reuse verdict WITHOUT changing the add-schema outcome.
     ///
@@ -296,7 +258,7 @@ impl SchemaServiceState {
     /// ignores the return today (advisory-only — the `apply` rewrite is a
     /// follow-on).
     pub(super) fn log_compositional_advice(&self, proposal: &Schema) -> Vec<ComponentReuseAdvice> {
-        if !compositional_decomposition_enabled() {
+        if !self.compositional_decomposition_enabled() {
             return Vec::new();
         }
         let advice = self.compositional_component_advice(proposal);
@@ -337,7 +299,7 @@ impl SchemaServiceState {
     }
 
     /// Compositional **apply** step (the follow-on to [`Self::log_compositional_advice`]).
-    /// When [`compositional_apply_enabled`] is on, decompose `schema` into its
+    /// When [`Self::compositional_apply_enabled`] is on, decompose `schema` into its
     /// nested components and, for every component that clears the per-component
     /// reuse gate, rewrite its `ref_fields` entry to point at the matched
     /// existing canonical's descriptive name — so the persisted parent
@@ -358,7 +320,7 @@ impl SchemaServiceState {
         &self,
         schema: &mut Schema,
     ) -> Vec<ComponentReuseAdvice> {
-        if !compositional_apply_enabled() {
+        if !self.compositional_apply_enabled() {
             return Vec::new();
         }
         let advice = self.compositional_component_advice(schema);

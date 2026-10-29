@@ -111,7 +111,7 @@ fn peer_key(origin: &str) -> String {
     native_routing::encode(format!("p\0{origin}").as_bytes())
 }
 
-fn receipt_key(origin: &str, sequence: u64) -> String {
+pub(super) fn receipt_key(origin: &str, sequence: u64) -> String {
     native_routing::encode(format!("i\0{origin}\0{sequence:020}").as_bytes())
 }
 

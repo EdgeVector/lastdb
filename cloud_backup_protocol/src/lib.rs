@@ -2,6 +2,7 @@
 //!
 //! Both the client and service consume this source. The service binding follows
 //! through its existing LastDB submodule after the canonical source lands.
+#![warn(missing_docs)]
 
 mod common;
 mod digest;

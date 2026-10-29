@@ -16,7 +16,7 @@
 //! The crate accepts whole byte strings, not a narrowed integer or a digest
 //! of the range. Prefix bounds may contain bytes that are not valid UTF-8.
 //! Every allocation has an explicit caller limit or a checked context size.
-
+#![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
 mod key;

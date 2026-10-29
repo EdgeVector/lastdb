@@ -207,7 +207,9 @@ impl QosConfig {
 /// see saturation without reading process internals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QosSnapshot {
+    /// Configured global concurrency budget.
     pub total_permits: usize,
+    /// Configured bulk-lane cap. It stays strictly below `total_permits` when that budget is greater than one.
     pub bulk_permits: usize,
     /// Global slots currently held (both lanes).
     pub total_in_use: usize,

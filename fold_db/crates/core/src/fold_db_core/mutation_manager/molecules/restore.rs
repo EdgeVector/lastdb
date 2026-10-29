@@ -45,31 +45,30 @@ impl MutationManager {
         Ok(())
     }
 
-    /// Load the per-key molecule headers for write concurrently; returns the
-    /// fields with no per-key header, which need the full load.
+    /// Fetch every changed field in bounded exact-key batches. A missing
+    /// exact-scope header still requires the existing full load fallback.
     async fn load_fields_for_write(
         &self,
         schema: &mut Schema,
         plans: Vec<FieldLoadPlan<'_>>,
     ) -> Result<Vec<String>, SchemaError> {
-        let store_loads = futures::future::try_join_all(plans.into_iter().map(|plan| {
-            let db_ops = self.db_ops.clone();
-            async move {
-                let data = db_ops
-                    .atoms()
-                    .load_molecule_for_write(
-                        &plan.molecule_uuid,
-                        plan.storage_prefix.as_deref(),
-                        plan.changed_keys,
-                    )
-                    .await?;
-                Ok::<_, SchemaError>((plan.field_name, data))
-            }
-        }))
-        .await?;
+        let requests: Vec<_> = plans
+            .iter()
+            .map(|plan| crate::db_operations::atom_store::MoleculeWriteLoad {
+                molecule: &plan.molecule_uuid,
+                scope: plan.storage_prefix.as_deref(),
+                changed: plan.changed_keys,
+            })
+            .collect();
+        let store_loads = self
+            .db_ops
+            .atoms()
+            .load_molecules_for_write(&requests)
+            .await?;
 
         let mut fields_without_headers = Vec::new();
-        for (field_name, data) in store_loads {
+        for (plan, data) in plans.into_iter().zip(store_loads) {
+            let field_name = plan.field_name;
             if let Some(data) = data {
                 if let Some(field) = schema.runtime_fields.get_mut(&field_name) {
                     field.set_molecule_data(data);

@@ -1,6 +1,7 @@
 //! One original admission survives an asynchronous handler and its response.
 use super::*;
 
+/// Admission and queue timing kept for one accepted connection after its handler returns.
 pub struct ConnectionWork {
     guard: InFlightGuard,
     enqueued_at: Instant,
@@ -17,6 +18,7 @@ impl ConnectionWork {
     }
 
     #[must_use]
+    /// How long this connection waited in the pool queue before a worker took it.
     pub fn queue_wait(&self) -> Duration {
         self.queue_wait
     }

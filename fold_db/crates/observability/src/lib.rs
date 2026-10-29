@@ -23,6 +23,7 @@
 //! Features: `otel` (default) enables the OpenTelemetry no-op TracerProvider
 //! and W3C propagation. `default-features = false` keeps JSON FMT + optional
 //! Sentry for Lambda-light builds without OTel/reqwest.
+#![warn(missing_docs)]
 
 pub mod attrs;
 pub mod crash;

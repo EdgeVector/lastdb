@@ -75,7 +75,10 @@ const API_VERSION_PATH: &str = "/api/version";
 ///
 /// `9` (2026-10-28) adds local snapshot prepare, inspect, resume and release
 /// actions to the owner-only logical sync route. The minimum stays `1`.
-pub const API_VERSION: u32 = 9;
+///
+/// `10` (2026-10-29) adds read-only snapshot adoption plans on the owner route.
+/// Existing actions and the minimum API version remain unchanged.
+pub const API_VERSION: u32 = 10;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -126,9 +129,12 @@ pub enum ControlRoute {
     /// verification posture, but no node state).
     MintBrowserPairingCode,
     /// The target path is a recognized control-socket path, but not for this
-    /// method. `allow` is the fixed set of methods the path supports, sent back
-    /// as the `Allow` header (the node's own data, never a caller byte).
-    MethodNotAllowed { allow: &'static str },
+    /// method.
+    MethodNotAllowed {
+        /// Methods the path supports, sent as the `Allow` header. This is the
+        /// node's own data, never a caller byte.
+        allow: &'static str,
+    },
     /// No recognized control-socket route matches the target path.
     NotFound,
 }
