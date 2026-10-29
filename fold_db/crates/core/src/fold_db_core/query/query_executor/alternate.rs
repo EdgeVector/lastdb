@@ -67,18 +67,7 @@ impl QueryExecutor {
             .filter
             .take()
             .ok_or_else(|| alternate_keys::invalid("alternate filter is absent"))?;
-        let comparison = format!(
-            "ak1:{:x}",
-            Sha256::digest(
-                serde_json::to_vec(&(
-                    &schema.name,
-                    schema.alternate_key_revision(),
-                    &name,
-                    &filter
-                ))
-                .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
-            )
-        );
+        let comparison = comparison_binding(&schema, &name, &filter)?;
         if cursor
             .as_ref()
             .is_some_and(|cursor| cursor.comparison.as_deref() != Some(&comparison))
@@ -149,4 +138,23 @@ fn validate_controls(query: &Query) -> Result<(), SchemaError> {
         ));
     }
     Ok(())
+}
+
+fn comparison_binding(
+    schema: &crate::schema::Schema,
+    name: &str,
+    filter: &crate::schema::types::field::HashRangeFilter,
+) -> Result<String, SchemaError> {
+    Ok(format!(
+        "ak1:{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&(
+                &schema.name,
+                schema.alternate_key_revision(),
+                &name,
+                &filter
+            ))
+            .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
+        )
+    ))
 }
