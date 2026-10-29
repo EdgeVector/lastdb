@@ -1,10 +1,10 @@
-//! Mutation atom preparation and changed-key analysis.
+//! Mutation atom preparation and key normalization.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::super::MutationManager;
 use crate::atom::Atom;
-use crate::db_operations::{AtomStore, ChangedKey};
+use crate::db_operations::AtomStore;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -131,37 +131,5 @@ impl MutationManager {
             atom_results,
             deferred_atoms: Some(atoms_to_store),
         })
-    }
-
-    /// Build, per field this batch writes, the set of keys it will touch — the
-    /// O(changed) unit. Each mutation upserts every field in
-    /// `fields_and_values` at its `key_value`, so the touched key for a field is
-    /// derived from the supported Hash or HashRange field and the mutation's
-    /// key. The returned map drives the
-    /// O(changed) write-path molecule restore in
-    /// [`Self::restore_missing_molecules`].
-    pub(in crate::fold_db_core::mutation_manager) fn changed_keys_by_field(
-        schema: &Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[KeyValue],
-    ) -> HashMap<String, HashSet<ChangedKey>> {
-        let mut by_field: HashMap<String, HashSet<ChangedKey>> = HashMap::new();
-        for (mutation, key_value) in schema_mutations.iter().zip(mutation_key_values.iter()) {
-            // Delete is hard-erased outside this path; only Create/Update
-            // fields land here.
-            for field_name in mutation.fields_and_values.keys() {
-                let Some(field) = schema.runtime_fields.get(field_name) else {
-                    continue;
-                };
-                let Some(changed_key) = field.changed_key_for(key_value) else {
-                    continue;
-                };
-                by_field
-                    .entry(field_name.clone())
-                    .or_default()
-                    .insert(changed_key);
-            }
-        }
-        by_field
     }
 }

@@ -52,8 +52,11 @@ impl MutationManager {
             "  - create_atoms_batch",
             phase1_start.elapsed(),
         );
-        let changed_keys =
-            Self::changed_keys_by_field(&schema, &schema_mutations, &mutation_key_values);
+        let changed_keys = super::super::molecules::field_rules::changed_keys_by_field(
+            &schema,
+            &schema_mutations,
+            &mutation_key_values,
+        );
         let restore_start = std::time::Instant::now();
         self.reload_changed_for_prepare(&mut schema, &changed_keys)
             .await?;
