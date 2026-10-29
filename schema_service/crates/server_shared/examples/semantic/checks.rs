@@ -3,7 +3,9 @@ use schema_service_core::{
     cosine_similarity, Embedder, ExternalSchemaPersistence, InMemorySchemaPersistence,
     SchemaConfig, SchemaServiceState,
 };
-use schema_service_server_shared::{FoldDbFastEmbedder, SchemaConfigEnv, SystemClock};
+use schema_service_server_shared::{
+    DedicatedThreadRuntime, FoldDbFastEmbedder, SchemaConfigEnv, SystemClock,
+};
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
 
@@ -60,6 +62,7 @@ pub async fn observe(case: &Case, embedder: Arc<dyn Embedder>) -> Result<Observa
         embedder.clone(),
         SchemaConfig::from_env(),
         Arc::new(SystemClock),
+        Arc::new(DedicatedThreadRuntime),
     )
     .await
     .map_err(|error| error.to_string())?;

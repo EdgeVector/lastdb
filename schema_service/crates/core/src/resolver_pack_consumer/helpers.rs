@@ -1,4 +1,4 @@
-//! Staged pack, atomic write and fetch/verify error mapping helpers.
+//! Staged pack and fetch/verify error mapping helpers.
 
 use super::*;
 
@@ -7,15 +7,6 @@ pub(super) struct StagedLoadedPack {
     pub(super) resolver_config_bytes: Vec<u8>,
     pub(super) schema_snapshot_bytes: Vec<u8>,
     pub(super) embedding_artifact_bytes: Vec<u8>,
-}
-
-pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes)?;
-    fs::rename(tmp, path)
 }
 
 pub(super) fn fetch_error_telemetry(err: &ResolverPackFetchError) -> &'static str {

@@ -261,6 +261,8 @@ pub struct SchemaServiceState {
     pub schema_config: Arc<crate::schema_config::SchemaConfig>,
     /// Process clock. The shell passes this in; core does not read the clock.
     pub(crate) clock: Arc<dyn crate::clock::Clock>,
+    /// Dedicated-thread runtime. The shell passes this in.
+    pub(crate) runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
 }
 
 mod queries;

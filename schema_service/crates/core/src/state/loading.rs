@@ -15,15 +15,16 @@ impl SchemaServiceState {
     /// `Arc::new(FoldDbFastEmbedder::new())` (see
     /// `schema_service_server_shared`).
     ///
-    /// Safe to call inside a runtime: init runs on a dedicated thread so we
-    /// never nest `block_on` on the caller's runtime.
+    /// Safe to call inside a runtime: the injected runtime runs init on a
+    /// dedicated thread, so this does not nest on the caller's runtime.
     pub fn new_in_memory(
         embedder: Arc<dyn Embedder>,
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
         let backend = Arc::new(InMemorySchemaPersistence::default());
-        Self::new_from_backend_blocking(backend, embedder, config, clock)
+        Self::new_from_backend_blocking(backend, embedder, config, clock, runtime)
     }
 
     fn new_from_backend_blocking(
@@ -31,30 +32,22 @@ impl SchemaServiceState {
         embedder: Arc<dyn Embedder>,
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("schema-service-state-init".into())
-            .spawn(move || {
-                let result = (|| {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            FoldDbError::Config(format!(
-                                "failed to build tokio runtime for schema state init: {e}"
-                            ))
-                        })?;
-                    rt.block_on(Self::new_with_external(backend, embedder, config, clock))
-                })();
-                let _ = tx.send(result);
-            })
-            .map_err(|e| {
-                FoldDbError::Config(format!("failed to spawn schema state init thread: {e}"))
-            })?;
-        rx.recv().map_err(|_| {
-            FoldDbError::Config("schema state init thread ended without a result".to_string())
-        })?
+        let init = Arc::clone(&runtime);
+        let boxed = crate::blocking_runtime::drive(
+            init.as_ref(),
+            "schema-service-state-init",
+            "failed to build tokio runtime for schema state init",
+            "failed to spawn schema state init thread",
+            "schema state init thread ended without a result",
+            Box::pin(async move {
+                let state =
+                    Self::new_with_external(backend, embedder, config, clock, runtime).await?;
+                Ok(Box::new(state) as crate::blocking_runtime::BlockingOutput)
+            }),
+        )?;
+        Ok(crate::blocking_runtime::downcast(boxed))
     }
 
     /// Create a schema service state backed by a caller-supplied
@@ -72,6 +65,7 @@ impl SchemaServiceState {
         embedder: Arc<dyn Embedder>,
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
         Self::new_with_external_and_schema_mutation_gate_store(
             backend,
@@ -79,6 +73,7 @@ impl SchemaServiceState {
             SchemaMutationGateStore::default(),
             config,
             clock,
+            runtime,
         )
         .await
     }
@@ -92,6 +87,7 @@ impl SchemaServiceState {
         schema_mutation_gate_store: SchemaMutationGateStore,
         config: SchemaConfig,
         clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
         let collection_name_anchors = Self::compute_anchor_embeddings(embedder.as_ref());
 
@@ -124,6 +120,7 @@ impl SchemaServiceState {
             schema_mutation_gate_store,
             schema_config: Arc::new(config),
             clock,
+            runtime,
         };
 
         state.load_all_from_external().await?;
