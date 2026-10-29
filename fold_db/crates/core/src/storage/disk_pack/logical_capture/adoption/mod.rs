@@ -9,7 +9,7 @@ pub use model::*;
 
 use super::{invalid, SnapshotInclusion, SnapshotInclusionMap};
 use crate::storage::disk_pack::byte_backup::RunBackupProfile;
-use crate::storage::StorageResult;
+use crate::storage::error::StorageResult;
 use laststore::disk_run::home::RunRead;
 
 const MAX_ORIGINS: usize = 33;
