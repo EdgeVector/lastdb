@@ -4,7 +4,8 @@ A foreground native commit retains all four durability barriers.
 It changes their schedule without a disk-format change.
 
 The writer first completes the new run's encrypted blocks and footer.
-The commit then holds both the commit lock and the publication lock.
+The commit holds its commit lock throughout the change.
+It captures the next manifest under the publication lock.
 The new run metadata and the next manifest remain private.
 
 Two independent prerequisites execute in parallel:
@@ -29,7 +30,8 @@ An uncertain CURRENT rename or root-directory barrier still poisons the home and
 The accepted queue retains its reservation and fails closed after a failed publication.
 
 Compaction retains its existing publication path.
-Foreground publication holds the publication lock for both prerequisites, so a compaction cannot change the next manifest underneath it.
+Run durability starts before the publication-lock wait, so it can still overlap a compaction publication.
+The caller holds the publication lock from manifest capture through the final barrier, so a compaction cannot change that manifest underneath it.
 The added thread ends before the commit returns. There is no persistent worker, file handle, or new value cache.
 
 The numeric native report imports only its explicitly joined worker.

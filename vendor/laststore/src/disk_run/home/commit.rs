@@ -150,21 +150,8 @@ impl RunHome {
         let records = run.records;
         let run_bytes = run.file_bytes;
         let run_id = run.run_id;
-        let _publish = timing::during("v2_publish_lock_wait_us", || {
-            self.publish.lock().unwrap_or_else(|e| e.into_inner())
-        });
-        self.refuse_if_poisoned()?;
-        let prepare_timing = timing::stage("v2_manifest_prepare_us");
-        let mut next = (*self.held()).clone();
-        next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
-        next.frontier = next.frontier.checked_add(1).ok_or_else(overflow)?;
-        if next.levels.is_empty() {
-            next.levels.push(Vec::new());
-        }
         let file = RunFile::new(&self.runs, run);
-        next.levels[0].insert(0, Arc::clone(&file));
-        drop(prepare_timing);
-        let installed = self.install_prepared(next, prepared);
+        let installed = self.install_prepared(Arc::clone(&file), prepared);
         if installed.is_err() && !self.is_poisoned() {
             file.retire();
         }
