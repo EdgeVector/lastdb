@@ -1,3 +1,4 @@
+use super::super::molecules::PreparedFieldAtom;
 use super::*;
 use crate::atom::AtomEntry;
 use crate::storage::disk_pack::logical_capture::outcome::AcceptedFieldOutcomeRef;
@@ -65,7 +66,12 @@ impl MutationManager {
         CANDIDATES
             .try_with(|state| {
                 let mut state = state.lock().expect("logical capture candidates");
-                for (index, name, atom) in &delta.atom_results {
+                for PreparedFieldAtom {
+                    mutation_index: index,
+                    field_name: name,
+                    atom,
+                } in &delta.atom_results
+                {
                     let mutation = &delta.schema_mutations[*index];
                     let key = &delta.mutation_key_values[*index];
                     let field = delta

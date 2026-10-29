@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::prepared::PreparedFieldAtom;
 use crate::atom::Atom;
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
@@ -14,7 +15,7 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
     pub schema: Schema,
     pub schema_mutations: Vec<Mutation>,
     pub mutation_key_values: Vec<KeyValue>,
-    pub atom_results: Vec<(usize, String, Atom)>,
+    pub atom_results: Vec<PreparedFieldAtom>,
     pub deferred_atoms: Option<Vec<Atom>>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,
