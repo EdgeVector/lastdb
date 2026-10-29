@@ -5,6 +5,7 @@ use super::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+mod adoption;
 mod body;
 mod bounded;
 mod export;
@@ -17,6 +18,12 @@ mod snapshot;
 mod store;
 mod verify;
 
+pub(crate) use adoption::plan as snapshot_adoption_plan;
+pub use adoption::{
+    SnapshotAdoptionCandidate, SnapshotAdoptionOrigin, SnapshotAdoptionPlan,
+    SnapshotAdoptionPosition, SnapshotAdoptionPrefix, SnapshotAdoptionReplay,
+    SnapshotAdoptionReplaySource, SnapshotAdoptionRequirement,
+};
 pub(crate) use bounded::preflight_outcome_size;
 pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position};
 pub use outcome::AcceptedFieldOutcome;

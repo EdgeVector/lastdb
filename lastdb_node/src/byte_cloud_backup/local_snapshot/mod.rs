@@ -6,10 +6,12 @@ mod worker;
 use super::{source::Source, store::Store, BackupError, Result};
 use crate::backup_runtime::{InvocationOutcome, RunOrigin};
 use cloud_backup_protocol::{Id, NativeRoot};
-use fold_db::storage::disk_pack::byte_backup::RunBackupProfile;
+use fold_db::storage::disk_pack::byte_backup::{
+    RunBackupProfile, SnapshotAdoptionCandidate, SnapshotAdoptionPlan,
+};
 use fold_db::storage::disk_pack::logical_capture::SnapshotInclusion;
 use fold_db::storage::disk_pack::PackRuntime;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -21,10 +23,10 @@ pub enum LocalSnapshotAction {
     Inspect,
     Resume,
     Release,
+    Plan,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Serialize)]
 pub struct LocalSnapshotReport {
     pub request_id: Id,
     pub released: bool,
@@ -35,6 +37,8 @@ pub struct LocalSnapshotReport {
     pub native_root: Option<NativeRoot>,
     pub run_profile: Option<RunBackupProfile>,
     pub logical_inclusion: Option<SnapshotInclusion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adoption_plan: Option<SnapshotAdoptionPlan>,
 }
 
 struct Inputs {
@@ -43,6 +47,7 @@ struct Inputs {
     home: std::path::PathBuf,
     intent: intent::Intent,
     action: LocalSnapshotAction,
+    candidate: Option<SnapshotAdoptionCandidate>,
 }
 
 /// Admission is synchronous. No standard mutex guard survives the async wait.
@@ -51,8 +56,26 @@ pub async fn local_snapshot(
     action: LocalSnapshotAction,
     request_id: Id,
 ) -> Result<LocalSnapshotReport> {
+    operate(host, action, request_id, None).await
+}
+
+/// Compare metadata with an existing owned cut. This grants no replacement authority.
+pub async fn local_snapshot_plan(
+    host: &crate::host::Host,
+    request_id: Id,
+    candidate: SnapshotAdoptionCandidate,
+) -> Result<LocalSnapshotReport> {
+    operate(host, LocalSnapshotAction::Plan, request_id, Some(candidate)).await
+}
+
+async fn operate(
+    host: &crate::host::Host,
+    action: LocalSnapshotAction,
+    request_id: Id,
+    candidate: Option<SnapshotAdoptionCandidate>,
+) -> Result<LocalSnapshotReport> {
     let mut changes = host.byte_backup.subscribe();
-    let receiver = admit(host, action, request_id.clone())?;
+    let receiver = admit(host, action, request_id.clone(), candidate)?;
     let result = receiver.await.map_err(|_| BackupError::WorkerPanic)?;
     loop {
         let active = changes
@@ -74,7 +97,11 @@ fn admit(
     host: &crate::host::Host,
     action: LocalSnapshotAction,
     request_id: Id,
+    candidate: Option<SnapshotAdoptionCandidate>,
 ) -> Result<tokio::sync::oneshot::Receiver<Result<LocalSnapshotReport>>> {
+    if matches!(action, LocalSnapshotAction::Plan) != candidate.is_some() {
+        return Err(BackupError::Invalid);
+    }
     let backup = &host.byte_backup;
     let _transition = backup.transition()?;
     backup.check_admission()?;
@@ -97,6 +124,7 @@ fn admit(
         home: host.home.clone(),
         intent,
         action,
+        candidate,
     };
     let (sender, receiver) = tokio::sync::oneshot::channel();
     backup.start(request_id, RunOrigin::Manual, move |pause| {
