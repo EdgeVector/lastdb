@@ -57,7 +57,7 @@ pub(crate) fn qualify_catalog_mapper(catalog_hash: &str, mapper: &str) -> String
 /// Reading only the first left every renamed proposal field to the
 /// same-name default in [`app_single_catalog_binding`], i.e. a field the
 /// catalog does not have: lastgit `LastgitRepoIndex.updated_at` was renamed
-/// to `open_crs_updated_at` and the declare failed in `apply_field_mappers`
+/// to `open_crs_updated_at` and the declare failed in the mapper pass
 /// (2026-09-22). A renamed field follows the catalog's own mapper for its
 /// canonical name, so it lands where that field's rows live.
 pub(crate) fn registered_binding_field_mappers(
