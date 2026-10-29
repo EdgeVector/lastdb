@@ -67,7 +67,7 @@ class Automatic:
         operation = self.operation
         operation.summary["stage"] = "automatic-connect"
         source = Source(OwnedNode(operation.root / "restored", self.programs, backup_source=True),
-                        self.baseline, operation.args.source)
+                        self.baseline, operation.args.source, operation.summary)
         operation.node = source.node
         source.node.start()
         source.node.verify_records(self.baseline)
