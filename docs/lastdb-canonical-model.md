@@ -55,6 +55,12 @@ An explicit field mapper can share another field's molecule.
 
 ### Named alternate keys and field definition reuse
 
+Proteins are deprecated for new app designs (Tom, 2026-10-29).
+Use named alternate keys when several keys must find the same logical record.
+Canonical field reuse supplies definitions and types. It does not imply shared record values.
+Existing protein relationships keep their behavior until an explicit conversion retires them.
+See [the app migration plan](protein-deprecation.md).
+
 A schema can opt into independent field values with `independent_fields: true` or named `alternate_keys`.
 That schema keeps its field molecules under one primary hash key.
 Each alternate molecule maps its declared key to the primary record key. It stores no payload atom or separate field tip.

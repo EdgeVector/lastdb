@@ -87,6 +87,13 @@ jobs:
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdb" "$RUNNER_TEMP/alternate-bins/$label-cli"
             rm -rf "$RUNNER_TEMP/alternate-target-$label"
           done
+      - name: Prove existing-home compatibility, declaration backfill, and signed peer import
+        run: |
+          python3 driver/scripts/schema_checks/alternate_compatibility.py \
+            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
+            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
+            --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \
+            --output "$RUNNER_TEMP/alternate-key-compatibility"
       - name: Compare equivalent records through both public APIs
         env:
           DRIVER_SHA: ${{ env.CANDIDATE_SHA }}
@@ -101,20 +108,15 @@ jobs:
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/alternate-key-comparison/storage"
-      - name: Prove existing-home compatibility, declaration backfill, and signed peer import
-        run: |
-          python3 driver/scripts/schema_checks/alternate_compatibility.py \
-            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
-            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
-            --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \
-            --output "$RUNNER_TEMP/alternate-key-comparison/compatibility"
       - name: Upload measurements
         id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: alternate-key-comparison-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/alternate-key-comparison/
+          path: |
+            ${{ runner.temp }}/alternate-key-comparison/
+            ${{ runner.temp }}/alternate-key-compatibility/
           if-no-files-found: error
           retention-days: 14
       - name: Verify the artifact upload

@@ -1,5 +1,9 @@
 //! Protein — UUID'd molecule set that stays coherent by construction.
 //!
+//! Deprecated for new app designs. Use a single schema with named alternate keys
+//! for the same records, and keep canonical field definition reuse independent.
+//! Existing relationships remain supported until explicit data and caller conversion.
+//!
 //! A **protein** binds member molecules so they share one atom set. Membership
 //! is bi-directional: the protein lists members, and each member stores the
 //! protein UUID. A write on any member updates that member's tip + the shared

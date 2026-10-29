@@ -67,14 +67,16 @@ def alternate(node, name, key_name, hash_value, **options):
 
 
 def list_cli(program, node, name, expected=None):
-    command = [str(program), "--data-dir", str(node.home), "list", name,
+    command = [str(program), "list", name,
                "--key-name", "by_group", "--key-hash", "g0", "--json"]
-    reply = subprocess.run(command, env={**os.environ, "LASTDB_SOCKET_PATH": str(node.socket)},
+    environment = {**os.environ, "LASTDB_HOME": str(node.home), "FOLDDB_HOME": str(node.home),
+                   "LASTDB_SOCKET_PATH": str(node.socket)}
+    reply = subprocess.run(command, env=environment,
                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
     require(len(reply.stdout) <= 128 * 1024 and len(reply.stderr) <= 128 * 1024, "key-list CLI exceeded its output bound")
     if expected is None:
         require(reply.returncode != 0 and "did not honor" in reply.stderr,
-                "new CLI accepted an older node's primary-key fallback")
+                f"new CLI did not refuse the older node's fallback: exit={reply.returncode}; {reply.stderr[:600]}")
         return {"older_node_refused": True}
     require(reply.returncode == 0, f"named key-list CLI failed: {reply.stderr[:600]}")
     report = json.loads(reply.stdout)

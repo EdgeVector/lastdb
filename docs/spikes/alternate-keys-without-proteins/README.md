@@ -1,9 +1,10 @@
 # One schema with alternate keys
 
-Status: design spike, 2026-10-29. Tom requested a plan and prohibited a merge.
+Status: implementation, 2026-10-29. Tom authorizes a merge after compatibility and CI checks pass.
+Proteins are deprecated for new app designs. App conversion follows [the migration plan](../../protein-deprecation.md).
 Design source base: `b2419f5a8b510306411bb9c84a2fece0019ceec3`.
 Implementation control: `c08e7aa3a7210c3cd7b5cdf7ed22bfa864cd90c0`.
-The examples below describe the unmerged spike API. Accepted main does not support this API.
+The examples below describe the API in PR #758.
 
 ## Recommendation
 
@@ -317,7 +318,7 @@ The final reader and writer each use one route; migration support must not becom
 
 The fresh-home `Task` slice now uses the existing native request boundary.
 Review the CI latency and storage comparisons before any future merge decision.
-Keep this design spike unmerged.
+Merge after the required checks and compatibility comparison pass.
 
 ## Explicit declaration changes
 

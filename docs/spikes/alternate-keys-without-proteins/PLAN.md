@@ -7,7 +7,8 @@ Named pages use cursors. Counts and hash-scoped key lists use the named route.
 Field conditions, mapped schemas, other database scopes, and compound primary keys remain outside this slice.
 Signed peer import checks declaration revisions and derives entries from accepted winners.
 Schema removal requires declaration removal and completed entry retirement first.
-Tom prohibited a merge of the spike.
+Tom authorizes a merge after the compatibility and CI checks pass (2026-10-29).
+Proteins are deprecated for new app designs. App conversion follows [the migration plan](../../protein-deprecation.md).
 
 ## Source changes
 
