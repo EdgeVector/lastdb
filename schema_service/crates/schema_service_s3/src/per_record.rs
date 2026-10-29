@@ -216,7 +216,7 @@ impl S3BlobPersistence {
         &self,
     ) -> FoldDbResult<HashMap<String, ReleaseRecord>> {
         let prefix = self.definition_key("releases/");
-        self.list_record_map(prefix.as_ref(), "releases/", |record| {
+        self.list_record_map::<ReleaseRecord, _, _>(prefix.as_ref(), "releases/", |record| {
             record.release_id.clone()
         })
         .await
@@ -226,7 +226,7 @@ impl S3BlobPersistence {
         &self,
     ) -> FoldDbResult<HashMap<String, ChannelRecord>> {
         let prefix = self.definition_key("channels/");
-        self.list_record_map(prefix.as_ref(), "channels/", |record| {
+        self.list_record_map::<ChannelRecord, _, _>(prefix.as_ref(), "channels/", |record| {
             schema_service_core::app_release::channel_key(&record.app_id, &record.channel)
         })
         .await
@@ -234,7 +234,7 @@ impl S3BlobPersistence {
 
     pub(crate) async fn list_and_load_apps(&self) -> FoldDbResult<HashMap<String, AppRecord>> {
         // Apps stay outside the definition namespace. See `definition_key`.
-        self.list_record_map("apps/", "apps/", |record| record.app_id.clone())
+        self.list_record_map::<AppRecord, _, _>("apps/", "apps/", |record| record.app_id.clone())
             .await
     }
 
