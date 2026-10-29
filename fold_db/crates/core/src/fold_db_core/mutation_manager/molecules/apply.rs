@@ -11,6 +11,7 @@ use crate::schema::SchemaError;
 
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
+use super::prepared::PreparedFieldAtom;
 use super::protein_batch::{load_protein_fold_metadata, schema_storage_prefix};
 
 impl MutationManager {
@@ -19,7 +20,7 @@ impl MutationManager {
         schema: &mut Schema,
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
-        atom_results: Vec<(usize, String, Atom)>,
+        atom_results: &[PreparedFieldAtom],
     ) -> (ModifiedFieldKeys, super::prepared::AcceptedSources) {
         // field_name -> the keys touched on that field's molecule this batch.
         // An empty changed-key set can still carry a molecule header update.
@@ -27,19 +28,24 @@ impl MutationManager {
         let mut accepted_sources = HashMap::new();
         let mut slot_heads = super::batch_rebase::BatchSlotHeads::default();
 
-        for (idx, field_name, atom) in atom_results {
-            let mutation = &schema_mutations[idx];
-            let key_value = &mutation_key_values[idx];
+        for PreparedFieldAtom {
+            mutation_index: idx,
+            field_name,
+            atom,
+        } in atom_results
+        {
+            let mutation = &schema_mutations[*idx];
+            let key_value = &mutation_key_values[*idx];
 
             // Extra keys in the mutation payload (e.g. sibling partition keys for
             // field_hash protein fold) are not schema fields — skip atom tip write.
-            let Some(schema_field) = schema.runtime_fields.get_mut(&field_name) else {
+            let Some(schema_field) = schema.runtime_fields.get_mut(field_name) else {
                 continue;
             };
 
             slot_heads.overlay_field(schema_field, key_value);
             let accepted =
-                self.write_field_atom(schema_field, key_value, mutation, &field_name, &atom);
+                self.write_field_atom(schema_field, key_value, mutation, field_name, atom);
             slot_heads.record_field(schema_field, key_value);
             if accepted {
                 if let (Some(uuid), Some(entry)) = (
@@ -47,7 +53,7 @@ impl MutationManager {
                     schema_field.atom_entry_at_key(key_value),
                 ) {
                     accepted_sources
-                        .insert((idx, uuid.clone(), atom.uuid().to_string()), entry.clone());
+                        .insert((*idx, uuid.clone(), atom.uuid().to_string()), entry.clone());
                 }
             }
             // Torn-apply check: a plain local write always becomes the tip.

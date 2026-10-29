@@ -4,6 +4,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::db_operations::{ChangedKey, MoleculeData};
 
+/// One prepared field retains its source mutation position through publication.
+pub(in crate::fold_db_core::mutation_manager) struct PreparedFieldAtom {
+    pub mutation_index: usize,
+    pub field_name: String,
+    pub atom: crate::atom::Atom,
+}
+
 pub(in crate::fold_db_core::mutation_manager) type SiblingUpdate =
     (String, MoleculeData, HashSet<ChangedKey>);
 pub(in crate::fold_db_core::mutation_manager) type SourceId = (usize, String, String);

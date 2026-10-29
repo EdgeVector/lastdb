@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use super::super::MutationManager;
+use super::prepared::PreparedFieldAtom;
 use crate::atom::Atom;
 use crate::db_operations::AtomStore;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -16,7 +17,7 @@ mod key_rules;
 /// Atom preparation outputs retain the mutation position for every field.
 pub(in crate::fold_db_core::mutation_manager) struct PreparedAtoms {
     pub mutation_key_values: Vec<KeyValue>,
-    pub atom_results: Vec<(usize, String, Atom)>,
+    pub atom_results: Vec<PreparedFieldAtom>,
     pub deferred_atoms: Option<Vec<Atom>>,
 }
 
@@ -89,7 +90,7 @@ impl MutationManager {
         schema_mutations: &mut [Mutation],
     ) -> Result<PreparedAtoms, SchemaError> {
         let mut atoms_to_store: Vec<Atom> = Vec::new();
-        let mut atom_results: Vec<(usize, String, Atom)> = Vec::new();
+        let mut atom_results = Vec::new();
         let mut mutation_key_values = Vec::with_capacity(schema_mutations.len());
 
         for (idx, mutation) in schema_mutations.iter_mut().enumerate() {
@@ -121,7 +122,11 @@ impl MutationManager {
                     mutation.metadata.clone(),
                 )?;
                 atoms_to_store.push(atom.clone());
-                atom_results.push((idx, field_name.clone(), atom));
+                atom_results.push(PreparedFieldAtom {
+                    mutation_index: idx,
+                    field_name: field_name.clone(),
+                    atom,
+                });
             }
         }
 

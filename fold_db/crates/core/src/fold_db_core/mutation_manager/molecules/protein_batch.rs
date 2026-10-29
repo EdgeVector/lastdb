@@ -2,10 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::atom::Atom;
 use crate::db_operations::atom_store::AtomStore;
 use crate::protein::Protein;
-use crate::schema::types::{KeyValue, Schema};
+use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
 pub(super) type ProteinFoldMetadata = (
@@ -33,38 +32,6 @@ fn distinct_in_order<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<Strin
         .filter(|value| seen.insert(*value))
         .map(str::to_string)
         .collect()
-}
-
-pub(super) fn eligible_protein_atoms<'a>(
-    schema: &'a Schema,
-    mutation_key_values: &[KeyValue],
-    atom_results: &'a [(usize, String, Atom)],
-    accepted: &super::prepared::AcceptedSources,
-) -> Vec<(usize, &'a Atom, &'a str)> {
-    let mut eligible = Vec::new();
-    for (idx, field_name, atom) in atom_results {
-        let key_value = &mutation_key_values[*idx];
-        let Some(field) = schema.runtime_fields.get(field_name) else {
-            continue;
-        };
-        let Some(mol_uuid) = field.common().molecule_uuid() else {
-            continue;
-        };
-        let source = (*idx, mol_uuid.clone(), atom.uuid().to_string());
-        let Some(accepted) = accepted.get(&source) else {
-            continue;
-        };
-        // A UUID identifies value bytes, not the authored write. An equal
-        // value can lose its clock, or a later batch write can replace it.
-        if field
-            .atom_entry_at_key(key_value)
-            .is_none_or(|entry| entry.lww_key() != accepted.lww_key())
-        {
-            continue;
-        }
-        eligible.push((*idx, atom, mol_uuid.as_str()));
-    }
-    eligible
 }
 
 pub(super) async fn load_protein_fold_metadata(
