@@ -183,6 +183,16 @@ impl RunSource {
         drop(cas);
         super::super::logical_capture::verify_snapshot_inclusion(&mut main, &profile, expected)
     }
+    pub fn snapshot_adoption_plan(
+        &self,
+        local: &SnapshotInclusion,
+        candidate: &super::SnapshotAdoptionCandidate,
+    ) -> StorageResult<super::SnapshotAdoptionPlan> {
+        let profile = self.profile()?;
+        let (mut main, cas) = self.reads(super::super::budget())?;
+        drop(cas);
+        super::super::logical_capture::snapshot_adoption_plan(&mut main, &profile, local, candidate)
+    }
     fn retained_bytes(&self) -> u64 {
         self.main.retained_bytes()
             + self.cas.retained_bytes()

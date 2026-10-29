@@ -1,11 +1,13 @@
 //! Explicit owner trust and bounded original device events. Cloud remains inert.
 
 use super::*;
+use fold_db::storage::disk_pack::byte_backup::SnapshotAdoptionCandidate;
 use fold_db::storage::disk_pack::logical_capture::{CaptureEvent, Position};
 use serde_json::Value;
 
 const CONTROL_BYTES: usize = 8192;
 const EVENT_BYTES: usize = 1024 * 1024;
+const PLAN_BYTES: usize = 32 * 1024 + CONTROL_BYTES;
 const HTTP_BYTES: usize = EVENT_BYTES + CONTROL_BYTES;
 
 enum Request {
@@ -26,6 +28,10 @@ enum Request {
         action: crate::byte_cloud_backup::LocalSnapshotAction,
         request_id: cloud_backup_protocol::Id,
     },
+    SnapshotPlan {
+        request_id: cloud_backup_protocol::Id,
+        candidate: Box<SnapshotAdoptionCandidate>,
+    },
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -39,6 +45,7 @@ enum Action {
     SnapshotInspect,
     SnapshotResume,
     SnapshotRelease,
+    SnapshotPlan,
 }
 
 // A plain struct parses the event field directly. An internally tagged enum
@@ -53,6 +60,7 @@ struct WireRequest {
     origin: Option<String>,
     events: Option<Events>,
     request_id: Option<cloud_backup_protocol::Id>,
+    candidate: Option<Box<SnapshotAdoptionCandidate>>,
 }
 
 struct Events(Vec<CaptureEvent>);
@@ -75,20 +83,21 @@ impl TryFrom<WireRequest> for Request {
             wire.origin,
             wire.events,
             wire.request_id,
+            wire.candidate,
         ) {
-            (Action::Export, Some(after), Some(limit), None, None, None, None) => {
+            (Action::Export, Some(after), Some(limit), None, None, None, None, None) => {
                 Ok(Self::Export { after, limit })
             }
-            (Action::Enroll, None, None, Some(anchor), None, None, None) => {
+            (Action::Enroll, None, None, Some(anchor), None, None, None, None) => {
                 Ok(Self::Enroll { anchor })
             }
-            (Action::Position, None, None, None, origin, None, None) => {
+            (Action::Position, None, None, None, origin, None, None, None) => {
                 Ok(Self::Position { origin })
             }
-            (Action::Import, None, None, None, None, Some(Events(events)), None) => {
+            (Action::Import, None, None, None, None, Some(Events(events)), None, None) => {
                 Ok(Self::Import { events })
             }
-            (action, None, None, None, None, None, Some(request_id)) => {
+            (action, None, None, None, None, None, Some(request_id), None) => {
                 use crate::byte_cloud_backup::LocalSnapshotAction;
                 let action = match action {
                     Action::SnapshotPrepare => LocalSnapshotAction::Prepare,
@@ -99,6 +108,19 @@ impl TryFrom<WireRequest> for Request {
                 };
                 Ok(Self::Snapshot { action, request_id })
             }
+            (
+                Action::SnapshotPlan,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(request_id),
+                Some(candidate),
+            ) => Ok(Self::SnapshotPlan {
+                request_id,
+                candidate,
+            }),
             _ => Err(()),
         }
     }
@@ -150,7 +172,12 @@ pub(super) async fn execute(req: &UdsRequest, ctx: &AccessContext, host: &Host) 
         },
         Err(_) => return error_response(400, "invalid logical sync request", ctx),
     };
-    if !matches!(&request, Request::Import { .. }) && req.body.len() > CONTROL_BYTES {
+    let control_bytes = if matches!(&request, Request::SnapshotPlan { .. }) {
+        PLAN_BYTES
+    } else {
+        CONTROL_BYTES
+    };
+    if !matches!(&request, Request::Import { .. }) && req.body.len() > control_bytes {
         return error_response(413, "logical sync control exceeds its byte limit", ctx);
     }
     match perform(host, request).await {
@@ -212,6 +239,14 @@ async fn perform(host: &Host, request: Request) -> Result<Value, String> {
         ),
         Request::Snapshot { action, request_id } => encoded(
             crate::byte_cloud_backup::local_snapshot(host, action, request_id)
+                .await
+                .map_err(|error| error.to_string())?,
+        ),
+        Request::SnapshotPlan {
+            request_id,
+            candidate,
+        } => encoded(
+            crate::byte_cloud_backup::local_snapshot_plan(host, request_id, *candidate)
                 .await
                 .map_err(|error| error.to_string())?,
         ),

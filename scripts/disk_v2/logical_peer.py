@@ -11,6 +11,7 @@ from logical_peer_support import (add_model, author, check_values, export, inges
                                   own_head, position, record_key, records, refusals, request)
 import logical_peer_crash
 import logical_snapshot
+import snapshot_adoption
 
 CRASH_PAGES = 8
 ENVIRONMENT = {
@@ -58,7 +59,8 @@ def run(candidate, output):
 def driver_sources():
     root = Path(__file__).resolve().parent
     paths = [root / name for name in ["logical_peer.py", "logical_peer_support.py", "logical_peer_crash.py",
-                                      "logical_capture.py", "node_proof.py", "logical_snapshot.py"]]
+                                      "logical_capture.py", "node_proof.py", "logical_snapshot.py",
+                                      "snapshot_adoption.py"]]
     paths.extend(root.parent / "benchmarks" / name for name in ["node.py", "disk_usage.py"])
     return {str(path.relative_to(root.parent)): file_hash(path) for path in paths}
 
@@ -100,6 +102,7 @@ def operate(nodes, output, result):
     result["resources_before_crash"] = [observed_resources(node) for node in nodes]
     verify_rosters(nodes, pages, result)
     result["snapshot_inclusion"] = logical_snapshot.operate(nodes, pages, model, output / "snapshot-inclusion")
+    result["snapshot_adoption"] = snapshot_adoption.operate(nodes, model, output / "snapshot-adoption")
     crash_phase(a, b, model, output, result)
 
 
@@ -158,4 +161,5 @@ def summary(result):
         "Checkpoint disk and memory samples have finite safety caps. They do not establish universal peaks or power-loss behavior.",
         "The driver closes both owned nodes and removes only their generated homes. The primary and cloud stay unchanged.",
         "Local byte snapshots retain signed inclusion maps across later writes, imports, restart, and exact resume; corruption is refused.",
+        "Read-only adoption plans retain base and file checks, verify original boundary hashes, and never authorize replacement.",
         f"Detail: {result.get('error', 'complete')}", ""])
