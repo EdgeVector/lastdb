@@ -2,7 +2,7 @@
 //! rows of the range and every point read or range read for them see one
 //! committed root. Nothing here takes the write gate and nothing here writes.
 
-use super::pages::{Request, VERIFY_KEYS_PER_ROW};
+use super::pages::Request;
 use crate::db_operations::atom_store::{AtomStore, MoleculeBindings};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
@@ -66,12 +66,7 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<HeadersPage, SchemaError> {
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let mut headers = Vec::with_capacity(rows.len());
             for (key, value) in &rows {
@@ -103,12 +98,7 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingsPage, SchemaError> {
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let mut counters = Vec::with_capacity(rows.len());
             for (key, value) in &rows {
@@ -154,12 +144,7 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingRecordsPage, SchemaError> {
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let tokens: BTreeSet<String> = rows
                 .iter()

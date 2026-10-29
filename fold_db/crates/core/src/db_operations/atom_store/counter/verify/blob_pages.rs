@@ -3,7 +3,7 @@
 //! so all of them see one committed root.
 
 use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
-use super::pages::{Request, VERIFY_KEYS_PER_ROW};
+use super::pages::Request;
 use crate::db_operations::atom_store::blob_counter::{
     blob_counter_key, blob_counter_key_of_id, BlobRead,
 };
@@ -63,12 +63,7 @@ impl AtomStore {
     ) -> Result<BlobsPage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let counters: Vec<BlobRead> = rows
                 .iter()
@@ -147,12 +142,7 @@ impl AtomStore {
     ) -> Result<QueuePage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             // The buckets of the page against the directory, at the same root.
             let mut buckets: BTreeMap<u64, (u64, String)> = BTreeMap::new();
