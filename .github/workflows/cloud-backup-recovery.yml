@@ -14,7 +14,6 @@ on:
       - 'lastdb_identity/**'
       - 'lastdb_uds/**'
       - 'lastdb_storage_policy/**'
-      - 'lastdb_range_crypto/**'
       - 'app_identity_crypto/**'
       - 'env_flag/**'
       - 'schema_service/crates/schema_types/**'
