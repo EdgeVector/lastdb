@@ -64,15 +64,14 @@ class Status:
         phase = value.get("phase")
         require(phase in PHASES, "ci_cleanup_blocked_or_unknown_phase")
         digest(value.get("directory_sha256"))
-        for name in ("mark_sha256", "plan_sha256"):
+        for name in ("mark_sha256", "plan_sha256", "retirement_sha256"):
             require(name in value, "ci_cleanup_commitment_field")
             if value[name] is not None:
                 digest(value[name])
         if PHASES.index(phase) >= PHASES.index("planned"):
             require(value["mark_sha256"] is not None and value["plan_sha256"] is not None,
                     "ci_cleanup_planned_commitments")
-        for name in ("confirmed_allocations", "released_bytes", "protected_uncertain_bytes"):
-            count(value.get(name))
+        self.plan_counts(value, phase)
         require(value.get("completion_scope") == "eligible_ci_owned_streams"
                 and value.get("global_erasure_complete") is False
                 and value.get("eligible_cleanup_complete") is (
@@ -94,11 +93,33 @@ class Status:
                 and all(value[name] >= before[name] for name in (
                     "confirmed_allocations", "released_bytes")),
                 "ci_cleanup_progress_regressed")
-        for name in ("plan_sha256", "mark_sha256"):
+        for name in ("plan_sha256", "mark_sha256", "retirement_sha256"):
             require(before[name] is None or value[name] == before[name], "ci_cleanup_plan_changed")
         if before["plan_sha256"] is not None:
-            require(value["directory_sha256"] == before["directory_sha256"],
+            require(all(value[name] == before[name] for name in (
+                "directory_sha256", "planned_allocations", "eligible_allocations",
+                "planned_reserved_bytes", "planned_retained_bytes")),
                     "ci_cleanup_directory_changed")
+
+    @staticmethod
+    def plan_counts(value, phase):
+        counters = {name: count(value.get(name)) for name in (
+            "planned_allocations", "eligible_allocations", "confirmed_allocations",
+            "planned_reserved_bytes", "planned_retained_bytes", "released_bytes",
+            "protected_uncertain_bytes")}
+        planned_bytes = counters["planned_reserved_bytes"] + counters["planned_retained_bytes"]
+        require(planned_bytes < 2**64 and counters["released_bytes"] <= planned_bytes
+                and counters["confirmed_allocations"] <= counters["eligible_allocations"]
+                <= counters["planned_allocations"]
+                and (counters["released_bytes"] == 0 or counters["confirmed_allocations"] > 0),
+                "ci_cleanup_planned_counts")
+        if PHASES.index(phase) >= PHASES.index("drain"):
+            require(value["retirement_sha256"] is not None, "ci_cleanup_retirement_commitment")
+        require("resume_after_ms" in value, "ci_cleanup_resume_hint_field")
+        if phase == "drain" and counters["eligible_allocations"] > 0:
+            require(decimal(value["resume_after_ms"]) > 0, "ci_cleanup_drain_hint")
+        else:
+            require(value["resume_after_ms"] is None, "ci_cleanup_unexpected_resume_hint")
 
     @staticmethod
     def headroom(value, required):

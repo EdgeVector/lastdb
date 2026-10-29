@@ -31,7 +31,7 @@ class Preflight(Operation):
 
     def execute(self):
         credentials = self.credentials()
-        control = Control(self.baseline, self.api_key, budget_seconds=1500)
+        control = Control(self.baseline, self.api_key, budget_seconds=3600)
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         try:
             require(0 < len(phrase) <= 4096, "recovery_phrase")
@@ -97,7 +97,7 @@ def main():
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(2700)
+    signal.alarm(4500)
     try:
         operation.prepare()
         operation.execute()

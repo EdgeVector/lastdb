@@ -3,6 +3,7 @@
 import time
 import uuid
 
+from ci_control import decimal
 from retirement_status import MINIMUM, Status
 from support import OperationError, require, save_json
 
@@ -40,6 +41,20 @@ class Retirement:
                     return state
                 if state["phase"] == "complete":
                     return self.confirm(validator, state)
+                if state["phase"] == "drain" and state["resume_after_ms"] is not None:
+                    delay = decimal(state["resume_after_ms"]) / 1000 - time.time()
+                    if delay > 0:
+                        # The service owns the final time check. Short waits
+                        # avoid repeated delete attempts during its safety delay.
+                        time.sleep(min(30, delay, max(0, self.control.deadline - time.monotonic())))
+                        try:
+                            value = self.control.post("status", {"request_id": request_id})
+                        except OperationError as error:
+                            if str(error) in TRANSIENT:
+                                continue
+                            raise
+                        state = validator.validate(value, request)
+                        continue
             if state is None or state["plan_sha256"] is None:
                 route = "plan"
                 extra = {name: request[name] for name in ("request_id", "required_headroom_bytes")}

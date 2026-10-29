@@ -158,6 +158,16 @@ Insufficient space stops the operation before upload. CI does not increase or re
 This read supplies an observation, not a reservation; normal service admission still enforces quota for each allocation.
 The pre-upload retirement operation reclaims only verified old CI data before this check.
 
+The service waits 30 minutes after the logical retirement before it deletes an eligible file.
+CI respects that delay and reads the saved status in waits of at most 30 seconds.
+A request checks a five-second budget between at most 16 saved steps.
+The client checks the retirement hash, planned allocation counts, and planned byte counts as progress continues.
+After the plan exists, planned counts stay fixed. An assigned retirement hash stays fixed.
+Released bytes cannot exceed the plan.
+CI allows one hour for the control work and 75 minutes for the full pre-upload step.
+The complete job has a 150-minute limit, which also covers the build and the existing recovery checks.
+An expired limit fails CI. The next run resumes the same saved request before it starts new work.
+
 CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.
 The worker supports a preassigned `LASTDB_CLOUD_CI_STREAM_ID` for the exact dedicated CI account.
 It uses that ID only when it creates the first stream record.
