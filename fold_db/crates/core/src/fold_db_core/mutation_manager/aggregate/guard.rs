@@ -12,21 +12,14 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
     ) -> Result<(), SchemaError> {
-        let mut invalidations = self
+        let invalidations = self
             .build_guard_target_invalidations(guards, token, pub_key, storage_prefix)
             .await?;
         if invalidations.is_empty() {
             return Ok(());
         }
-        let clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, origin)
-            .await;
-        let receipt = Self::require_durable_receipt(result?, "invalidation")?;
-        let _ = receipt;
+        self.commit_clocked_mutations(invalidations, storage_prefix, origin, "invalidation", false)
+            .await?;
         self.verify_guard_invalidation_markers(guards, token, storage_prefix)
             .await?;
         self.delete_guard_grants(guards, storage_prefix).await?;
