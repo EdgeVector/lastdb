@@ -20,6 +20,14 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .flat_map(|molecules| molecules.iter())
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
+    fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
+        molecule_uuid: crate::alternate_keys::molecule(schema, name),
+        source: format!(
+            "alternate:{}",
+            serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
+        ),
+        edge_type: "schema-alternate-key".to_owned(),
+    }));
     fields.sort_by(|left, right| left.source.cmp(&right.source));
     fields
 }

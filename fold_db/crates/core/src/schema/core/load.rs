@@ -240,6 +240,17 @@ impl SchemaCore {
         self.resolve_typed_field_mappers(&mut schema, existing.as_ref().or(predecessor.as_ref()))
             .await?;
         schema.sync_molecule_uuids();
+        if !schema.alternate_keys.is_empty()
+            && schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
+                ids.iter().any(|(field, id)| {
+                    *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                })
+            })
+        {
+            return Err(SchemaError::InvalidData(
+                "alternate keys require this schema's owned field molecules".into(),
+            ));
+        }
         // Cache definitions only: retained UUIDs drive per-key molecule fetches.
         schema.clear_runtime_molecules();
         Self::stamp_identity_for_load(&mut schema, existing.as_ref());

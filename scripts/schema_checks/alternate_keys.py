@@ -34,6 +34,8 @@ def expect_refusal(operation, status=400):
 def alternate_key_lifecycle(node):
     name = install(node, task_definition())
     require(protein(node, molecule(node, name)) is None, "alternate fields joined a protein")
+    expect_refusal(lambda: write(node, name, {"hash": "missing-group"}, {"payload": "invalid"}))
+    read(node, name, {"hash": "missing-group"}, None)
     for key in ("t1", "t2"):
         write(node, name, {"hash": key},
               {"record_id": key, "group_id": "g1", "owner_id": "o1", "payload": key})
@@ -94,3 +96,34 @@ def alternate_field_reuse(node):
     expect_refusal(lambda: install(node, invalid))
     return {"equal_canonical_fields": True, "independent_values": True,
             "unknown_declared_field_refused": True}
++
+def alternate_atomic_batch(node):
+    name = install(node, task_definition("AtomicTask"))
+    operations = []
+    for key, fields, operation in (
+            ("a", {"record_id": "a", "group_id": "g0", "owner_id": "o", "payload": "first"}, "create"),
+            ("a", {"group_id": "g2", "payload": "second"}, "update"),
+            ("b", {"record_id": "b", "group_id": "g0", "owner_id": "o", "payload": "b"}, "create")):
+        operations.append({"type": "mutation", "schema": name, "mutation_type": operation,
+                           "key_value": {"hash": key}, "fields_and_values": fields,
+                           "durability": "durable", "convergence": "sync"})
+    node.call("/api/mutations/batch", operations)
+    require([row["key"]["hash"] for row in query(node, name, "by_group", "g0")["results"]] == ["b"],
+            "repeated-key batch retained an intermediate alternate")
+    require(query(node, name, "by_group", "g2")["results"][0]["fields"]["payload"] == "second",
+            "repeated-key batch missed its final value")
+    refused = [
+        {"type": "mutation", "schema": name, "mutation_type": "create",
+         "key_value": {"hash": "refused"}, "fields_and_values": {
+             "record_id": "refused", "group_id": "bad", "owner_id": "o", "payload": "bad"}},
+        {"type": "mutation", "schema": name, "mutation_type": "update",
+         "key_value": {"hash": "a"}, "fields_and_values": {"group_id": "bad"},
+         "expected": {"type": "value", "field": "payload", "value": "wrong"}},
+    ]
+    expect_refusal(lambda: node.call("/api/mutations/batch", refused), status=409)
+    read(node, name, {"hash": "refused"}, None)
+    require(not query(node, name, "by_group", "bad")["results"], "CAS failure published an alternate")
+    require(query(node, name, "by_group", "g2")["results"][0]["fields"]["payload"] == "second",
+            "CAS failure changed a primary record")
+    return {"repeated_key_order": True, "CAS_refusal": True, "whole_batch_rollback": True}
+

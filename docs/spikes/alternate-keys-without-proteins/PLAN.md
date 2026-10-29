@@ -4,6 +4,7 @@ This plan accompanies the [design spike](README.md).
 The branch implements the fresh-home Task slice and a CI comparison.
 Existing-home conversion and final protein removal remain later stages.
 Named pages use cursors. Counts, field conditions, mapped schemas, other database scopes, and schema removal receive explicit refusals.
+Peer import and logical replay also receive a refusal until their contracts carry the alternate declaration revision.
 Tom prohibited a merge of the spike.
 
 ## Source changes
