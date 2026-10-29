@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use super::{error_code, is_precondition_failed, short_error, S3BlobPersistence};
 
 type StoredObject = aws_sdk_s3::operation::get_object::GetObjectOutput;
+type PutRequest = aws_sdk_s3::operation::put_object::builders::PutObjectFluentBuilder;
 
 impl S3BlobPersistence {
     pub(crate) async fn put_single_object<T>(
@@ -22,21 +23,13 @@ impl S3BlobPersistence {
     where
         T: Serialize,
     {
-        let body = serde_json::to_vec(record)
-            .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-        let mut put = self
-            .client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(self.definition_key(key).as_ref())
-            .body(ByteStream::from(body))
-            .content_type("application/json");
+        let mut put = self.start_put(key, Self::encode_json(key, record)?);
         if use_conditional {
             put = put.if_none_match("*");
         }
         put.send()
             .await
-            .map_err(|e| FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e))))?;
+            .map_err(|error| Self::put_s3_error(key, &error))?;
         Ok(())
     }
 
@@ -52,26 +45,43 @@ impl S3BlobPersistence {
     where
         T: Serialize,
     {
-        let body = serde_json::to_vec(record)
-            .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
+        self.start_put(key, Self::encode_json(key, record)?)
+            .if_match(etag)
+            .send()
+            .await
+            .map_err(|error| {
+                if let Some((expected, supplied)) = generation_conflict {
+                    if is_precondition_failed(&error) {
+                        return FoldDbError::GenerationConflict { expected, supplied };
+                    }
+                }
+                Self::put_s3_error(key, &error)
+            })?;
+        Ok(())
+    }
+
+    /// Encode one record for an S3 put.
+    fn encode_json<T: Serialize>(key: &str, record: &T) -> FoldDbResult<Vec<u8>> {
+        serde_json::to_vec(record)
+            .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))
+    }
+
+    /// Start one JSON put. The caller adds the match condition.
+    fn start_put(&self, key: &str, body: Vec<u8>) -> PutRequest {
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(self.definition_key(key).as_ref())
             .body(ByteStream::from(body))
             .content_type("application/json")
-            .if_match(etag)
-            .send()
-            .await
-            .map_err(|e| {
-                if let Some((expected, supplied)) = generation_conflict {
-                    if is_precondition_failed(&e) {
-                        return FoldDbError::GenerationConflict { expected, supplied };
-                    }
-                }
-                FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
-            })?;
-        Ok(())
+    }
+
+    /// The shared S3 text for a failed put.
+    fn put_s3_error<E, R>(key: &str, error: &aws_sdk_s3::error::SdkError<E, R>) -> FoldDbError
+    where
+        E: aws_sdk_s3::error::ProvideErrorMetadata,
+    {
+        FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(error)))
     }
 
     pub(crate) async fn get_single_object<T>(&self, key: &str) -> FoldDbResult<Option<T>>
