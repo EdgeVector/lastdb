@@ -81,6 +81,18 @@ model cache. No primary copy, archive access, production request, or deployment.
 Tom separately approved the dedicated accepted-main AWS role and disposable
 `lastdb-schema-ci-152335099025-*` check buckets on 2026-10-28. Keep all other tests retired.
 
+### Scoped extension: atom history product proof (Tom, 2026-10-29)
+
+Tom approved the fresh-home atom history proof as a required check on 2026-10-29.
+The proof runs the public CLI and daemon on a fresh generated home.
+This authorizes only:
+
+- `scripts/operations/atom_history.py`
+- `.github/workflows/atom-history.yml`
+- the `atom_history` job in `.github/workflows/ci-required.yml`
+
+Use CI for the build and the proof. No primary copy. Keep every other test target retired.
+
 ## Cursor Cloud specific instructions
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
