@@ -1,6 +1,17 @@
 //! Secondary-field steps of the co-key plan: tip matching, then atom bodies.
 
-use super::*;
+use std::collections::HashMap;
+
+use futures::{stream, StreamExt};
+
+use crate::schema::types::field::FieldValue;
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::{Schema, SchemaError};
+
+use super::{
+    secondary_rules::secondary_field_concurrency, HashRangeQueryProcessor, KeySource,
+    SecondaryPending,
+};
 
 impl HashRangeQueryProcessor {
     /// Match every secondary field against the page keys, collecting the atom
@@ -21,17 +32,14 @@ impl HashRangeQueryProcessor {
         let concurrency = secondary_field_concurrency(configured.as_deref(), request_concurrency);
         let schema: &Schema = schema;
         let mut fields = stream::iter(secondary.into_iter().map(|fname| async move {
-            let mut field_pending = Vec::new();
             self.secondary_matches_current(
                 schema,
                 &fname,
                 fanout_keys,
                 fanout_sources,
                 include_tombstones,
-                &mut field_pending,
             )
-            .await?;
-            Ok::<_, SchemaError>(field_pending)
+            .await
         }))
         .buffered(concurrency);
         while let Some(field_pending) = fields.next().await {
@@ -53,7 +61,10 @@ impl HashRangeQueryProcessor {
         for (entry, value) in pending.into_iter().zip(values) {
             if let Some(value) = value {
                 if include_tombstones || !crate::atom::is_tombstone_value(&value.value) {
-                    result.entry(entry.0).or_default().insert(entry.1, value);
+                    result
+                        .entry(entry.field_name)
+                        .or_default()
+                        .insert(entry.key, value);
                 }
             }
         }

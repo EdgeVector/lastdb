@@ -1,9 +1,15 @@
-//! Secondary-field key resolution at the current head.
+//! Resolve each field's selected sources through the core model or disk slots.
 
-use super::*;
+use std::collections::HashMap;
+
+use crate::schema::types::field::{FieldVariant, HashRangeFilter};
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::{Schema, SchemaError};
+
+use super::{secondary_rules, HashRangeQueryProcessor, KeySource, SecondaryPending};
 
 struct SecondaryFieldContext<'a> {
-    field: &'a crate::schema::types::field::FieldVariant,
+    field: &'a FieldVariant,
     name: &'a str,
     molecule: &'a str,
 }
@@ -17,15 +23,14 @@ impl HashRangeQueryProcessor {
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
         include_tombstones: bool,
-        pending: &mut Vec<SecondaryPending>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Vec<SecondaryPending>, SchemaError> {
         let field = schema.runtime_fields.get(fname).ok_or_else(|| {
             SchemaError::InvalidField(format!(
                 "co-key secondary field '{fname}' missing from schema runtime"
             ))
         })?;
         let Some(mol_uuid) = field.common().molecule_uuid().cloned() else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         let binding =
             crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, fname)?;
@@ -35,59 +40,38 @@ impl HashRangeQueryProcessor {
             molecule: &mol_uuid,
         };
 
-        // Group page keys by the storage prefix that owns them.
-        let mut by_prefix: HashMap<KeySource, Vec<KeyValue>> = HashMap::new();
-        for kv in page_keys {
-            let src = key_sources.get(kv).cloned().unwrap_or(None);
-            by_prefix.entry(src).or_default().push(kv.clone());
-        }
-
-        for (prefix, keys) in by_prefix {
+        let mut pending = Vec::new();
+        for (prefix, keys) in secondary_rules::keys_by_prefix(page_keys, key_sources) {
             binding
-                .run(self.secondary_current_for_prefix(
-                    &context,
-                    prefix,
-                    &keys,
-                    include_tombstones,
-                    pending,
-                ))
+                .run(async {
+                    // A complete core result also proves absence. Only an
+                    // unavailable core result permits the disk-slot route.
+                    if self.secondary_warm_for_prefix(
+                        &context,
+                        &prefix,
+                        &keys,
+                        include_tombstones,
+                        &mut pending,
+                    )? {
+                        return Ok(());
+                    }
+                    let slots = secondary_rules::slot_batch(context.field, &keys);
+                    if slots.storage_slots.is_empty() {
+                        return Ok(());
+                    }
+                    self.secondary_current_load_slots(
+                        &context,
+                        &prefix,
+                        include_tombstones,
+                        &slots.storage_slots,
+                        &slots.api_keys,
+                        &mut pending,
+                    )
+                    .await
+                })
                 .await?;
         }
-        Ok(())
-    }
-
-    /// Resolve one storage prefix's keys through the core model and disk root.
-    async fn secondary_current_for_prefix(
-        &self,
-        context: &SecondaryFieldContext<'_>,
-        prefix: KeySource,
-        keys: &[KeyValue],
-        include_tombstones: bool,
-        pending: &mut Vec<SecondaryPending>,
-    ) -> Result<(), SchemaError> {
-        if self.secondary_warm_for_prefix(context, &prefix, keys, include_tombstones, pending)? {
-            return Ok(());
-        }
-        let mut slots = Vec::with_capacity(keys.len());
-        let mut kv_for_slots = Vec::with_capacity(keys.len());
-        for kv in keys {
-            if let Some(slot) = context.field.slot_coordinates(kv) {
-                slots.push(slot);
-                kv_for_slots.push(kv.clone());
-            }
-        }
-        if slots.is_empty() {
-            return Ok(());
-        }
-        self.secondary_current_load_slots(
-            context,
-            &prefix,
-            include_tombstones,
-            &slots,
-            &kv_for_slots,
-            pending,
-        )
-        .await
+        Ok(pending)
     }
 
     /// Batch-load selected records for keys not covered by the complete core result.
@@ -139,14 +123,14 @@ impl HashRangeQueryProcessor {
                     Some(pk)
                 }
             };
-            pending.push((
-                context.name.to_string(),
-                kv.clone(),
-                rec.entry.atom_uuid.clone(),
-                rec.meta.clone(),
-                writer,
-                prefix.clone(),
-            ));
+            pending.push(SecondaryPending {
+                field_name: context.name.to_string(),
+                key: kv.clone(),
+                atom_uuid: rec.entry.atom_uuid.clone(),
+                metadata: rec.meta.clone(),
+                writer_pubkey: writer,
+                storage_prefix: prefix.clone(),
+            });
         }
         Ok(())
     }
@@ -192,14 +176,14 @@ impl HashRangeQueryProcessor {
             let selected =
                 KeyValue::new(Some(hash), (kind == FieldKind::HashRange).then_some(range));
             if let Some((atom, meta, writer)) = matches.get(&selected) {
-                pending.push((
-                    context.name.to_string(),
-                    key.clone(),
-                    atom.clone(),
-                    meta.clone(),
-                    writer.clone(),
-                    prefix.clone(),
-                ));
+                pending.push(SecondaryPending {
+                    field_name: context.name.to_string(),
+                    key: key.clone(),
+                    atom_uuid: atom.clone(),
+                    metadata: meta.clone(),
+                    writer_pubkey: writer.clone(),
+                    storage_prefix: prefix.clone(),
+                });
             }
         }
         Ok(true)
