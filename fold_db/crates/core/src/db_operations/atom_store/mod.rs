@@ -78,7 +78,7 @@ pub(crate) use molecule_drain::{
 };
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
-pub(crate) use molecules::MoleculeKeyDomain;
+pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 pub use types::MoleculeData;
