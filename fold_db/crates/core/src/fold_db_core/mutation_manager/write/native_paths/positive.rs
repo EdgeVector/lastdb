@@ -33,13 +33,14 @@ impl MutationManager {
         Ok(())
     }
 
-    pub(super) fn stage_native_headers(
+    pub(super) async fn stage_native_headers(
         &self,
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
         scope: Option<&str>,
         siblings: bool,
     ) -> Result<(), SchemaError> {
+        let mut molecules = Vec::new();
         for name in job.modified_fields.keys() {
             let Some(field) = job.schema.runtime_fields.get(name) else {
                 continue;
@@ -47,21 +48,24 @@ impl MutationManager {
             let Some(molecule) = field.common().molecule_uuid() else {
                 continue;
             };
-            let Some(data) = field.molecule_data() else {
+            let Some(_) = field.molecule_data() else {
                 continue;
             };
-            self.db_ops
-                .atoms()
-                .stage_molecule_header(runtime, molecule, data, scope)?;
+            molecules.push(molecule.to_owned());
         }
         if siblings {
-            for (molecule, data, _) in &job.sibling_updates {
-                self.db_ops
-                    .atoms()
-                    .stage_molecule_header(runtime, molecule, data, scope)?;
-            }
+            molecules.extend(
+                job.sibling_updates
+                    .iter()
+                    .map(|(molecule, _, _)| molecule.clone()),
+            );
         }
-        Ok(())
+        molecules.sort();
+        molecules.dedup();
+        self.db_ops
+            .atoms()
+            .stage_current_molecule_headers(runtime, &molecules, scope)
+            .await
     }
 
     pub(super) async fn native_path_bindings(

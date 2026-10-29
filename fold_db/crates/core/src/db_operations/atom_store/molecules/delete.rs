@@ -283,10 +283,7 @@ impl AtomStore {
             )?;
         }
 
-        let header = MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        };
+        let header = MoleculeHeader::new(data.version(), data.updated_at());
         let header_value = serde_json::to_value(&header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
         plan.rows.push((

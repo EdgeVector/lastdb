@@ -82,10 +82,7 @@ impl AtomStore {
     ) -> Result<super::super::PreparedMoleculeGenerationActivation, SchemaError> {
         Self::refuse_partial_full_rewrite(molecule_uuid, data)?;
         let records = self.per_key_storage_records(molecule_uuid, data, domain)?;
-        let header = MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        };
+        let header = MoleculeHeader::new(data.version(), data.updated_at());
 
         let mut items = Self::activation_structural_items(molecule_uuid, &header, storage_prefix)?;
         Self::append_activation_tip_items(&mut items, &records, storage_prefix)?;

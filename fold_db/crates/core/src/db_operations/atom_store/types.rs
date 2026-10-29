@@ -150,4 +150,24 @@ pub(crate) struct MoleculeHeader {
     /// and omitted on serialize — storage is always unified HashRange.
     pub version: u64,
     pub updated_at: DateTime<Utc>,
+    /// Exact stored counter fields. Absence must not become a zero count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspect: Option<bool>,
+}
+
+impl MoleculeHeader {
+    /// The counter planner adds the final counts before this draft reaches disk.
+    pub(crate) fn new(version: u64, updated_at: DateTime<Utc>) -> Self {
+        Self {
+            version,
+            updated_at,
+            slots: None,
+            records: None,
+            suspect: None,
+        }
+    }
 }

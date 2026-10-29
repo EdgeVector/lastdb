@@ -139,10 +139,7 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
         let records = self.changed_key_records(molecule_uuid, data, changed)?;
-        let header = MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        };
+        let header = MoleculeHeader::new(data.version(), data.updated_at());
 
         let mut items: Vec<(String, Value)> = Vec::with_capacity(records.len() + 2);
         for (base_key, rec) in &records {

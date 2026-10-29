@@ -82,37 +82,6 @@ impl AtomStore {
         Ok(())
     }
 
-    pub(crate) fn stage_molecule_header(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        molecule: &str,
-        data: &super::super::MoleculeData,
-        scope: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let key = crate::schema::types::field::build_storage_key(
-            scope,
-            &crate::atom::molecule_key_codec::header_key(molecule),
-        );
-        let header = Some(MoleculeHeader {
-            version: data.version(),
-            updated_at: data.updated_at(),
-        });
-        let bytes = serde_json::to_vec(&header)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-            .len()
-            .saturating_mul(8)
-            .saturating_add(256);
-        crate::storage::disk_pack::transaction::stage_core_memory(
-            runtime,
-            std::ptr::from_ref(&HEADER_MEMORY) as usize,
-            key.clone(),
-            header,
-            core_memory_sources("main", key.as_bytes()),
-            bytes,
-        )?;
-        Ok(())
-    }
-
     pub(super) async fn header_from_memory(
         &self,
         key: &str,

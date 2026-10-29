@@ -28,10 +28,7 @@ impl AtomStore {
         }
         // This transient definition only wraps the exact resolver's result.
         // It is never written or used as evidence that any key is absent.
-        let header = MoleculeHeader {
-            version: 0,
-            updated_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
-        };
+        let header = MoleculeHeader::new(0, chrono::DateTime::<chrono::Utc>::UNIX_EPOCH);
         match layout {
             FilterLayout::OneD(slot) => {
                 self.load_filtered_1d(molecule, &header, scope, filter, slot, fill)

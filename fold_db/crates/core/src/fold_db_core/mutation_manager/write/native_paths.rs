@@ -69,7 +69,8 @@ impl MutationManager {
         scope: Option<&str>,
         siblings: bool,
     ) -> Result<(), SchemaError> {
-        self.stage_native_headers(job, runtime, scope, siblings)?;
+        self.stage_native_headers(job, runtime, scope, siblings)
+            .await?;
         // Schema-field/protein definitions are global. The logical records
         // below use this request's scope.
         let tips = changed_tips(job, siblings);
