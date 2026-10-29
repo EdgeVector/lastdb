@@ -42,14 +42,7 @@ pub async fn execute_aggregate_finalize<H: HostNode>(
         .mutation_manager()
         .finalize_aggregate_summary_with_access_receipt(finalize, ctx)
         .await
-        .map_err(|error| {
-            let mapped = HostError::from(error);
-            if mapped.status == 500 {
-                HostError::internal(format!("Aggregate finalize failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|error| prefix_aggregate_failure(error, "Aggregate finalize failed"))?;
     let receipt = require_durable_aggregate_receipt(receipt, "Aggregate finalize")?;
 
     Ok(serde_json::json!({
@@ -93,14 +86,7 @@ pub async fn execute_aggregate_repair<H: HostNode>(
         .mutation_manager()
         .repair_aggregate_summary_with_access_receipt(repair, ctx)
         .await
-        .map_err(|error| {
-            let mapped = HostError::from(error);
-            if mapped.status == 500 {
-                HostError::internal(format!("Aggregate repair failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|error| prefix_aggregate_failure(error, "Aggregate repair failed"))?;
     let receipt = require_durable_aggregate_receipt(repaired.receipt, "Aggregate repair")?;
 
     Ok(serde_json::json!({
@@ -137,4 +123,14 @@ async fn prepare_aggregate_write<H: HostNode>(
     let permit = host.acquire_op_permit(lane).await;
     request_phases::add_phase(RequestPhase::AdmissionWait, admission_started.elapsed());
     Ok((permit?, source, target, member))
+}
+
+/// Keep a typed status. A true 500 keeps the historical prefix.
+fn prefix_aggregate_failure(error: impl Into<HostError>, failed: &str) -> HostError {
+    let mapped = error.into();
+    if mapped.status == 500 {
+        HostError::internal(format!("{failed}: {}", mapped.message))
+    } else {
+        mapped
+    }
 }
