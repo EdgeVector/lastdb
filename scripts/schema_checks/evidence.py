@@ -147,9 +147,12 @@ def case_counts(report):
 
 def structured_counts(root, label):
     name = "node-result.json" if label == "node" else "semantic-report.json"
-    if label not in {"node", "model"} or not (root / name).exists():
+    report_path = root / name
+    if not report_path.exists():
+        report_path = root / "results" / name
+    if label not in {"node", "model"} or not report_path.exists():
         return None
-    report = json_file(root / name)
+    report = json_file(report_path)
     passed, total = case_counts(report)
     lines = [f"Product cases: **{passed}/{total} passed**."]
     if label == "model":

@@ -340,11 +340,11 @@ impl S3BlobPersistence {
 
             match put.send().await {
                 Ok(_) => return Ok(()),
-                Err(e) if is_precondition_failed(&e) => {
+                Err(e) if definitions::retryable_conflict(error_code(&e).as_deref()) => {
                     tracing::warn!(
                         key = key,
                         attempt = attempt + 1,
-                        "S3 blob ETag precondition failed — re-reading and retrying"
+                        "S3 conditional write conflict — re-reading and retrying"
                     );
                     continue;
                 }

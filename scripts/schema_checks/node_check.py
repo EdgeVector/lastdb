@@ -41,7 +41,7 @@ def run_case(args, runner, name, operation):
     output = args.output / name
     output.mkdir(mode=0o700)
     node = Node(args.candidate, args.candidate_revision, output, environment=ENVIRONMENT,
-                start_seconds=120, temporary_directory=output)
+                start_seconds=120, temporary_directory=runner)
     result = {"name": name, "status": "failed", "failure": None}
     started = time.monotonic()
     try:

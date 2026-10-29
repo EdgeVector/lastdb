@@ -31,12 +31,12 @@ jobs:
         run: mkdir -p "$RUNNER_TEMP/schema-evidence/node"
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: schema-node-operations
+          shared-key: schema-node-operations-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the exact daemon in CI
         env:
           FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
-        run: cargo build --locked --release -p lastdb_node --bin lastdbd
+        run: cargo build --locked -p lastdb_node --bin lastdbd
       - name: Run fresh-home cases with external network access disabled
         shell: bash
         run: |
@@ -50,7 +50,7 @@ jobs:
               exec setpriv --reuid "$SCHEMA_CHECK_UID" --regid "$SCHEMA_CHECK_GID" --init-groups \
                 python3 scripts/schema_checks/node_check.py --candidate "$1" \
                 --candidate-revision "$GITHUB_SHA" --output "$RUNNER_TEMP/schema-evidence/node/results"
-            ' sh "$PWD/target/release/lastdbd" \
+            ' sh "$PWD/target/debug/lastdbd" \
             2>&1 | tee "$RUNNER_TEMP/schema-evidence/node/run.log"
       - name: Index evidence
         if: always()

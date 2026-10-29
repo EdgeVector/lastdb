@@ -62,8 +62,8 @@ def main():
                                     text=True, timeout=10, check=True)
             names = [line.split(": ", 1)[0] for line in listed.stdout.splitlines()
                      if "protocol_" in line and line.endswith(": test")]
-            if len(names) != 6:
-                raise RuntimeError("The explicit target must expose all six protocol cases")
+            if len(names) != 8:
+                raise RuntimeError("The explicit target must expose all eight protocol cases")
             result["discovered_cases"] = names
             completed = subprocess.run(
                 [str(args.test_binary), "protocol_", "--test-threads=1", "--nocapture"],

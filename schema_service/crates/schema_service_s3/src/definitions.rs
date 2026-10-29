@@ -6,6 +6,13 @@ use schema_service_core::CanonicalVocabularyWrite;
 const DEFINITIONS_KEY: &str = "definitions.json";
 const REGISTRY_ITEM: &str = "registry";
 
+pub(super) fn retryable_conflict(code: Option<&str>) -> bool {
+    matches!(
+        code,
+        Some("PreconditionFailed" | "ConditionalRequestConflict")
+    )
+}
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DefinitionSet {
@@ -76,6 +83,10 @@ impl S3BlobPersistence {
             if let Some(vocabulary) = &vocabulary {
                 vocabulary.verify(&definitions.canonical_fields)?;
             }
+            schema_service_core::schema_expansion_commit::validate_expansion_pairs(
+                &definitions.schemas,
+                &schemas,
+            )?;
             definitions.canonical_fields =
                 schema_service_core::field_name_policy::canonical_fields_after_insert(
                     &definitions.canonical_fields,

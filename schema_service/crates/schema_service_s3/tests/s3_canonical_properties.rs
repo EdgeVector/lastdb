@@ -7,6 +7,8 @@ mod aws;
 mod backend;
 #[path = "s3/cases.rs"]
 mod cases;
+#[path = "s3/expansion.rs"]
+mod expansion;
 #[path = "s3/proxy.rs"]
 mod proxy;
 #[path = "s3/support.rs"]

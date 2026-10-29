@@ -1,9 +1,7 @@
 use super::support::*;
-use schema_service_core::{
-    types::SchemaAddOutcome, DeclareFieldInput, DeclareFieldRequest, ExternalSchemaPersistence,
-};
-use schema_types::{FieldValueType, Schema};
-use std::{collections::HashMap, sync::atomic::Ordering};
+use schema_service_core::{DeclareFieldInput, DeclareFieldRequest, ExternalSchemaPersistence};
+use schema_types::FieldValueType;
+use std::sync::atomic::Ordering;
 
 #[test]
 fn protocol_conflicting_instances_have_one_durable_winner() {
@@ -284,97 +282,4 @@ async fn lost_declaration_reply(
             .len(),
         1
     );
-}
-
-fn accepted(outcome: SchemaAddOutcome) -> Schema {
-    match outcome {
-        SchemaAddOutcome::Added(schema, _)
-        | SchemaAddOutcome::AlreadyExists(schema, _)
-        | SchemaAddOutcome::Expanded(_, schema, _)
-        | SchemaAddOutcome::Composed(schema, _, _) => schema,
-        SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
-            panic!("unexpected conflict: {conflict:?}")
-        }
-    }
-}
-
-#[test]
-fn protocol_expansion_fault_keeps_predecessor_successor_and_caches_atomic() {
-    run(async {
-        let harness = Harness::protocol("expand").await;
-        let state = harness.state().await;
-        let initial = accepted(
-            state
-                .add_schema(schema(), HashMap::new())
-                .await
-                .expect("initial schema"),
-        );
-        let before_schemas = harness
-            .backend()
-            .load_all_schemas()
-            .await
-            .expect("initial schemas");
-        let before_fields = harness
-            .backend()
-            .load_all_canonical_fields()
-            .await
-            .expect("initial fields");
-        let mut proposal = schema();
-        proposal
-            .fields
-            .as_mut()
-            .expect("fields")
-            .push("parcel_delivery_location".into());
-        proposal
-            .field_types
-            .insert("parcel_delivery_location".into(), FieldValueType::String);
-        proposal.field_descriptions.insert(
-            "parcel_delivery_location".into(),
-            "Parcel delivery location from the carrier".into(),
-        );
-        let before_puts = harness.faults().puts.load(Ordering::SeqCst);
-        harness.faults().fail_nth_next_put(2);
-        let outcome = state.add_schema(proposal, HashMap::new()).await;
-        let durable = harness
-            .backend()
-            .load_all_schemas()
-            .await
-            .expect("durable schemas");
-        match outcome {
-            Ok(outcome) => {
-                let successor = accepted(outcome);
-                assert_ne!(initial.name, successor.name);
-                assert_eq!(
-                    durable[&initial.name].superseded_by.as_deref(),
-                    Some(successor.name.as_str())
-                );
-                assert_eq!(
-                    harness.faults().puts.load(Ordering::SeqCst) - before_puts,
-                    1,
-                    "a successful expansion must commit both schemas in one conditional write"
-                );
-            }
-            Err(_) => {
-                assert_eq!(harness.faults().injected_failures.load(Ordering::SeqCst), 1);
-                assert_eq!(
-                    durable, before_schemas,
-                    "a failed expansion cannot publish only its successor"
-                );
-                assert_eq!(
-                    harness
-                        .backend()
-                        .load_all_canonical_fields()
-                        .await
-                        .expect("durable fields"),
-                    before_fields
-                );
-            }
-        }
-        assert_eq!(*state.schemas.read().expect("warm schemas"), durable);
-        assert_eq!(
-            *harness.state().await.schemas.read().expect("cold schemas"),
-            durable
-        );
-        harness.cleanup().await;
-    });
 }

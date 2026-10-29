@@ -35,7 +35,7 @@ class Context:
     receipt: Path
 
 
-def context():
+def context(output):
     required = {
         "GITHUB_ACTIONS": "true",
         "RUNNER_ENVIRONMENT": "github-hosted",
@@ -59,10 +59,14 @@ def context():
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve(strict=True)
     if temporary == workspace or temporary.is_relative_to(workspace):
         raise BucketError("Ownership receipts must stay outside the source checkout")
-    folder = temporary / "schema-checks"
-    if folder.is_symlink():
-        raise BucketError("The receipt directory cannot be a symlink")
-    folder.mkdir(mode=0o700, exist_ok=True)
+    if not output.is_absolute() or output.is_symlink():
+        raise BucketError("The receipt directory must be an absolute path without a symlink")
+    folder = output.resolve(strict=False)
+    if folder == temporary or not folder.is_relative_to(temporary):
+        raise BucketError("The receipt directory must stay strictly under RUNNER_TEMP")
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if folder.stat().st_uid != os.getuid():
+        raise BucketError("The receipt directory belongs to another owner")
     bucket = f"lastdb-schema-ci-{ACCOUNT}-{run_id}-{attempt}"
     if len(bucket) > 63:
         raise BucketError("The derived bucket name exceeds the S3 limit")
@@ -244,8 +248,9 @@ def cleanup(ctx):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("create", "cleanup"))
+    parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
-    ctx = context()
+    ctx = context(arguments.output)
     try:
         (create if arguments.command == "create" else cleanup)(ctx)
     except (BucketError, OSError, ValueError, subprocess.TimeoutExpired) as error:
