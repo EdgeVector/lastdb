@@ -10,10 +10,10 @@ pub(super) async fn download(
     keys: &RecoveryKeys,
     root: &MutationLogRoot,
     mut inventory: Inventory,
+    link_index: u32,
 ) -> Result<()> {
     let mut coverage = Coverage::new_pages(&root.pages, session, &mut inventory)?;
-    let mut files = 0u64;
-    let mut bytes = 0u64;
+    let mut routes = routing::Routing::new(session, root, &inventory, link_index)?;
     for batch in root
         .pages
         .chunks(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS)
@@ -44,17 +44,7 @@ pub(super) async fn download(
                 root.validate_file(file)
                     .map_err(|_| RestoreError::Invalid("mutation native file identity"))
             })?;
-            for file in &page.files {
-                files = files
-                    .checked_add(1)
-                    .ok_or(RestoreError::Limit("mutation file total"))?;
-                bytes = bytes
-                    .checked_add(file.native_bytes.get())
-                    .ok_or(RestoreError::Limit("mutation byte total"))?;
-            }
-            if files > root.native_file_count || bytes > root.native_bytes {
-                return Err(RestoreError::Invalid("mutation file totals"));
-            }
+            routes.page(&page.files, root)?;
             native::restore_at(
                 session,
                 client,
@@ -65,11 +55,9 @@ pub(super) async fn download(
             .await?;
         }
     }
-    if files != root.native_file_count || bytes != root.native_bytes {
-        return Err(RestoreError::Invalid("complete mutation file totals"));
-    }
     coverage.finish()?;
-    inventory.finish()
+    inventory.finish()?;
+    routes.save(session, root)
 }
 
 pub(super) fn release(session: &RestoreSession, root: &MutationLogRoot) -> Result<()> {

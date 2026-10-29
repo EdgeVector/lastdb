@@ -84,6 +84,9 @@ pub(crate) async fn load_app_single_catalog_binding(
         check_binding_sources_exist(&binding, catalog_hash, &catalog_fields)?;
     }
     adopt_existing_app_molecules_for_empty_catalog(host, &binding, catalog_hash).await?;
+    // The catalog schema can carry molecule UUIDs that predate the current
+    // deterministic derivation. The load's typed mapper pass binds each app
+    // field to the catalog's stored molecule, so one load is enough.
     host.db
         .schema_manager()
         .load_schema_internal(binding)
@@ -91,21 +94,6 @@ pub(crate) async fn load_app_single_catalog_binding(
         .map_err(|e| {
             format!(
                 "failed to load app binding {} -> {catalog_hash}: {e}",
-                declare.local_schema_id
-            )
-        })?;
-
-    // The catalog schema can carry molecule UUIDs that predate the current
-    // deterministic derivation. A load binds the app alias to the catalog's
-    // stored molecules, unless this process already published that binding.
-    // This call reloads the stored binding through the typed mapper pass.
-    host.db
-        .schema_manager()
-        .apply_field_mappers(&declare.local_schema_id)
-        .await
-        .map_err(|e| {
-            format!(
-                "failed to apply app binding {} -> {catalog_hash}: {e}",
                 declare.local_schema_id
             )
         })

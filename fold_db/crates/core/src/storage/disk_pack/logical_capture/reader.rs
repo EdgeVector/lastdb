@@ -48,7 +48,7 @@ impl PackRuntime {
         .await
     }
 
-    fn capture_head(&self, context: &Arc<read::ReadContext>) -> StorageResult<Head> {
+    pub(super) fn capture_head(&self, context: &Arc<read::ReadContext>) -> StorageResult<Head> {
         let capture = self
             .logical_capture
             .as_ref()

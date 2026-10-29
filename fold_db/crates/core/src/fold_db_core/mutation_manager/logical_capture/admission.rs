@@ -59,7 +59,7 @@ impl MutationManager {
         ))
     }
 
-    async fn require_unshared_schemas(
+    pub(in crate::fold_db_core::mutation_manager) async fn require_unshared_schemas(
         &self,
         schemas: &BTreeMap<String, Schema>,
         guards: &[String],
@@ -145,7 +145,9 @@ fn require_local_put(mutation: &Mutation) -> Result<(), SchemaError> {
     Ok(())
 }
 
-fn require_plain_schema(schema: &Schema) -> Result<(), SchemaError> {
+pub(in crate::fold_db_core::mutation_manager) fn require_plain_schema(
+    schema: &Schema,
+) -> Result<(), SchemaError> {
     let kind = match schema.schema_type {
         DeclarativeSchemaType::Hash => FieldKind::Hash,
         DeclarativeSchemaType::HashRange => FieldKind::HashRange,

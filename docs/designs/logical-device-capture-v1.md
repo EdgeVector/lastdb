@@ -22,7 +22,7 @@ Capture refuses a foreign home binding or missing established control state.
 
 The first release accepts locally authored, personal Create and Update requests on plain Hash and HashRange schemas.
 The schema and each field require canonical identities.
-Admission refuses imports, Delete, Purge, TTL, aggregate operations, protein members, mapped fields, share rules, share subscriptions, and file blob references.
+The normal mutation route refuses imports, Delete, Purge, TTL, aggregate operations, protein members, mapped fields, share rules, share subscriptions, and file blob references.
 It also refuses existing molecule generations and alternate field layouts.
 The admission check runs before attribution records or author-clock changes.
 The native admission fence also refuses unsupported internal logical writes before their batch can commit.
@@ -82,11 +82,65 @@ This release does not silently create a new signer or reset an established seque
 
 These encoded byte caps do not claim an exact Rust memory size.
 
-This release supplies local authored outcomes and durable device positions.
-It does not supply a complete cloud sync protocol, peer import, portable snapshot adoption, log pruning, or device replacement.
-Schema administration and other metadata changes also require a future protocol contract.
-The next step uses CI to check native crash boundaries, accepted writes, refused requests, repeated content, and device positions after reopen.
-The CI summary and artifacts hold the operational evidence.
+The owner can export original signed events and import events from an explicitly enrolled device.
+The owner socket supplies `POST /api/sync/logical-v1` for these operations.
+The app socket does not supply this route.
+An export includes the original sequence-zero anchor, the current source position, and a bounded event page.
+An export does not change the source position.
 
-The current CI operation verifies capture metadata and keyed values after the process kill.
-It does not export and verify the original event payloads or signatures.
+Before the first import, the owner enrolls the source origin and its sequence-zero anchor on the receiver.
+A valid event signature alone does not enroll a device.
+The receiver refuses its own origin and a different anchor for an enrolled origin.
+The device roster permits at most 32 origins.
+
+Each import page contains events from one origin in source sequence order.
+The receiver verifies every complete event, its signature, its hash, and its previous hash.
+The receiver refuses a gap or a different event at a known sequence.
+An exact repeat does not change data or advance the import position.
+The native snapshot retains the last import position and one compact hash receipt per accepted source sequence.
+
+The imported field facts retain their original atoms, tips, per-key metadata, and authored order.
+When an original tip has no device identity, the receiver uses the authenticated stream origin for conflict retention.
+This change does not alter the tip order.
+The receiver checks the canonical schema, field, molecule, and key before it writes the facts.
+It computes its own atom reference counts and uses the existing conflict rule.
+A later field fact wins under the existing complete tip order; arrival order does not decide the winner.
+The receiver also advances its local author clock from the authenticated facts.
+It refuses a new field fact at or below the existing home-wide replay cutoff.
+
+App notifications name the accepted keys and original mutation identities.
+They use the operation `update`, because a field outcome does not retain the original request verb.
+The receiver sends Search the actual accepted fields and stored atom bodies.
+A losing field fact does not produce an update notification.
+
+The field facts, conflict records, local reference counts, author clock, and import position share one native commit.
+A refused page changes none of these disk records.
+An ack follows the durable commit and the core memory publication.
+After a crash, the native snapshot supplies both the data and the import position.
+Recovery does not read or replay a mutation log.
+
+An import does not create a new local authored event.
+Each source remains responsible for its own stream.
+A device needs the streams of every source; a third device cannot obtain all source events from one receiver's authored stream.
+The owner export returns logical data without transport encryption.
+It requires an authorized transport before any cloud transfer.
+
+The peer limits are:
+
+- Four events per export or import page.
+- 1 MiB for the encoded event array, including its brackets and separators.
+- 1,024 declared fields across the schemas of one import page.
+- An additional 8 KiB for the request or response envelope.
+- 8 KiB for a control request without imported events.
+- 32 enrolled source origins.
+- 65,536 compact imported hash receipts across all origins.
+
+A full receipt store refuses the complete import page.
+These finite limits bound the first release until snapshot adoption defines safe receipt and log removal.
+They do not change the existing warm set or native memory limits.
+Encoded byte limits do not describe the exact Rust memory size.
+
+This release does not supply a complete cloud sync protocol, portable snapshot adoption, log pruning, or device replacement.
+Schema administration and other metadata changes also require a future protocol contract.
+CI uses fresh nodes for event transfer, duplicate requests, refused pages, conflict results, and crash recovery.
+The CI summary and artifacts hold the operational evidence.
