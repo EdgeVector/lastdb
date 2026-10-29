@@ -7,9 +7,7 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
 use super::super::MutationManager;
-
-/// Field name, molecule uuid, storage prefix and the changed keys to hydrate.
-type FieldLoadPlan = (String, String, Option<String>, HashSet<ChangedKey>);
+use super::field_rules::{cold_field_loads, FieldLoadPlan};
 
 impl MutationManager {
     /// Discard a prior preparation before resolving its current native keys.
@@ -34,46 +32,17 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         // Fetch only the fields and keys this request changes. The native
         // captured view includes accepted logical writes and the current disk root.
-        let plans = Self::plan_cold_field_loads(schema, changed_keys);
-        let need_store = plans;
-        if need_store.is_empty() {
+        let plans = cold_field_loads(schema, changed_keys);
+        if plans.is_empty() {
             return Ok(());
         }
 
-        let need_full = self.load_fields_for_write(schema, need_store).await?;
-        if !need_full.is_empty() {
-            self.load_fields_full(schema, need_full).await?;
+        let fields_without_headers = self.load_fields_for_write(schema, plans).await?;
+        if !fields_without_headers.is_empty() {
+            self.load_fields_full(schema, fields_without_headers)
+                .await?;
         }
         Ok(())
-    }
-
-    /// Plan a cold load for each field that has a molecule uuid but no loaded
-    /// molecule and is touched by this batch.
-    fn plan_cold_field_loads(
-        schema: &Schema,
-        changed_keys: &HashMap<String, HashSet<ChangedKey>>,
-    ) -> Vec<FieldLoadPlan> {
-        let mut plans: Vec<FieldLoadPlan> = Vec::new();
-        for (name, field) in &schema.runtime_fields {
-            if field.common().molecule_uuid().is_none()
-                || field.has_molecule()
-                || !changed_keys.contains_key(name.as_str())
-            {
-                continue;
-            }
-            let Some(uuid) = field.common().molecule_uuid().cloned() else {
-                continue;
-            };
-            let storage_prefix = field.common().storage_prefix().map(ToString::to_string);
-            let Some(keys) = changed_keys.get(name.as_str()) else {
-                continue;
-            };
-            if keys.is_empty() {
-                continue;
-            }
-            plans.push((name.clone(), uuid, storage_prefix, keys.clone()));
-        }
-        plans
     }
 
     /// Load the per-key molecule headers for write concurrently; returns the
@@ -81,67 +50,65 @@ impl MutationManager {
     async fn load_fields_for_write(
         &self,
         schema: &mut Schema,
-        need_store: Vec<FieldLoadPlan>,
+        plans: Vec<FieldLoadPlan<'_>>,
     ) -> Result<Vec<String>, SchemaError> {
-        let store_loads = futures::future::try_join_all(need_store.iter().map(
-            |(field_name, uuid, storage_prefix, keys)| {
-                let db_ops = self.db_ops.clone();
-                let field_name = field_name.clone();
-                let uuid = uuid.clone();
-                let storage_prefix = storage_prefix.clone();
-                let keys = keys.clone();
-                async move {
-                    let data = db_ops
-                        .atoms()
-                        .load_molecule_for_write(&uuid, storage_prefix.as_deref(), &keys)
-                        .await?;
-                    Ok::<_, SchemaError>((field_name, uuid, storage_prefix, data))
-                }
-            },
-        ))
+        let store_loads = futures::future::try_join_all(plans.into_iter().map(|plan| {
+            let db_ops = self.db_ops.clone();
+            async move {
+                let data = db_ops
+                    .atoms()
+                    .load_molecule_for_write(
+                        &plan.molecule_uuid,
+                        plan.storage_prefix.as_deref(),
+                        plan.changed_keys,
+                    )
+                    .await?;
+                Ok::<_, SchemaError>((plan.field_name, data))
+            }
+        }))
         .await?;
 
-        let mut need_full: Vec<String> = Vec::new();
-        for (field_name, _uuid, _prefix, data) in store_loads {
+        let mut fields_without_headers = Vec::new();
+        for (field_name, data) in store_loads {
             if let Some(data) = data {
                 if let Some(field) = schema.runtime_fields.get_mut(&field_name) {
                     field.set_molecule_data(data);
                 }
             } else {
                 // No per-key header — fall through to the full load path below.
-                need_full.push(field_name);
+                fields_without_headers.push(field_name);
             }
         }
 
-        Ok(need_full)
+        Ok(fields_without_headers)
     }
 
     /// Full-load the fields that have no per-key header and set their molecules.
     async fn load_fields_full(
         &self,
         schema: &mut Schema,
-        need_full: Vec<String>,
+        fields_without_headers: Vec<String>,
     ) -> Result<(), SchemaError> {
-        let full_loads = futures::future::try_join_all(need_full.iter().map(|field_name| {
-            let db_ops = self.db_ops.clone();
-            let field_name = field_name.clone();
-            let plan = schema.runtime_fields.get(&field_name).and_then(|field| {
-                let uuid = field.common().molecule_uuid()?.clone();
-                let prefix = field.common().storage_prefix().map(str::to_string);
-                Some((uuid, prefix))
-            });
-            async move {
-                let Some((uuid, prefix)) = plan else {
-                    return Ok((field_name, None));
-                };
-                let data = db_ops
-                    .atoms()
-                    .load_molecule_per_key(&uuid, prefix.as_deref())
-                    .await?;
-                Ok::<_, SchemaError>((field_name, data))
-            }
-        }))
-        .await?;
+        let full_loads =
+            futures::future::try_join_all(fields_without_headers.into_iter().map(|field_name| {
+                let db_ops = self.db_ops.clone();
+                let plan = schema.runtime_fields.get(&field_name).and_then(|field| {
+                    let uuid = field.common().molecule_uuid()?.clone();
+                    let prefix = field.common().storage_prefix().map(str::to_string);
+                    Some((uuid, prefix))
+                });
+                async move {
+                    let Some((uuid, prefix)) = plan else {
+                        return Ok((field_name, None));
+                    };
+                    let data = db_ops
+                        .atoms()
+                        .load_molecule_per_key(&uuid, prefix.as_deref())
+                        .await?;
+                    Ok::<_, SchemaError>((field_name, data))
+                }
+            }))
+            .await?;
 
         for (field_name, data) in full_loads {
             let Some(data) = data else {
