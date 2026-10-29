@@ -57,12 +57,6 @@ impl DbOperations {
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
-        if old
-            .as_ref()
-            .is_some_and(|schema| !schema.alternate_keys.is_empty())
-        {
-            return Err(SchemaError::InvalidData("alternate schema removal requires explicit entry retirement; unavailable in the spike".into()));
-        }
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)
         });
@@ -229,6 +223,12 @@ impl DbOperations {
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
+        if old
+            .as_ref()
+            .is_some_and(|schema| !schema.alternate_keys.is_empty())
+        {
+            return Err(SchemaError::InvalidData("alternate schema removal requires explicit entry retirement; unavailable in the spike".into()));
+        }
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)
         });

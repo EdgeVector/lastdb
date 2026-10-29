@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 mod fields;
+mod preparation;
+pub(crate) use preparation::affected_keys;
 pub(crate) mod read;
 mod write;
 

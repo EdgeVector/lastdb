@@ -12,7 +12,7 @@ impl AtomStore {
         before: &[RecordFields],
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
-        if schema.alternate_keys.is_empty() {
+        if schema.alternate_keys.is_empty() || keys.is_empty() {
             return Ok(());
         }
         if scope.is_some() {

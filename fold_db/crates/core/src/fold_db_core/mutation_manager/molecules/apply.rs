@@ -133,6 +133,9 @@ impl MutationManager {
         mutation_key_values: &[KeyValue],
         eligible: &[(usize, &Atom, &str)],
     ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
+        if !schema.alternate_keys.is_empty() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
         let store = self.db_ops.atoms();
         let mut sibling_updates = Vec::new();
         let mut sibling_origins = Vec::new();

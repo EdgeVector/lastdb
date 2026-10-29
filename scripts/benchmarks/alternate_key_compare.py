@@ -113,8 +113,12 @@ def mixed(node, alternate, label, pair, records):
         key = f"mixed-{worker}"
         node.call("/api/mutation", mutation(key, values(key, "mixed"), "create"))
         for ordinal in range(32):
-            timed(node, label, pair, "mixed_read", worker * 32 + ordinal, "/api/query",
-                  query(alternate, "by_group", {"HashRangeKey": {"hash": "mixed", "range": key}}), samples)
+            reply = timed(node, label, pair, "mixed_read", worker * 32 + ordinal, "/api/query",
+                          query(alternate, "by_group", {"HashRangeKey": {"hash": "mixed", "range": key}}), samples)
+            expected = values(key, "mixed")
+            if ordinal:
+                expected["payload"] = PAYLOAD + str(ordinal - 1)
+            check_rows(reply, {key: expected})
             timed(node, label, pair, "mixed_write", worker * 32 + ordinal, "/api/mutation",
                   mutation(key, {"payload": PAYLOAD + str(ordinal)}), samples)
         return samples

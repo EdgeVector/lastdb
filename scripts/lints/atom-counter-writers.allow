@@ -98,3 +98,5 @@ lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-onl
 
 fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs|record_atom_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no atom, tip, or counter keys
 fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|finish|-|exclusive restore completion deletes only its durable pending marker after exact read-only counter verification
+
+fold_db/crates/core/src/alternate_keys/write.rs|stage_alternate_changes|-|writes only ak: typed primary-key references inside the native request; creates no atom, field tip, history or reference counter

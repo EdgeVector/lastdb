@@ -180,6 +180,25 @@ impl MutationManager {
                 .apply_field_hash_coherence_on_load(&delta.schema_name),
         )
         .await?;
+        let alternate_keys = crate::alternate_keys::affected_keys(
+            &delta.schema,
+            &delta.schema_mutations,
+            &delta.mutation_key_values,
+        );
+        let scope = delta
+            .schema
+            .runtime_fields
+            .values()
+            .find_map(|field| field.common().storage_prefix())
+            .map(str::to_owned);
+        let alternate_before = if alternate_keys.is_empty() {
+            Vec::new()
+        } else {
+            self.db_ops
+                .atoms()
+                .alternate_fields(&delta.schema, &alternate_keys, scope.as_deref())
+                .await?
+        };
         let (modified_fields, fold_elapsed) = measure(
             "rebase_us",
             self.rebase_delta_for_publish(&mut delta, heads),
@@ -189,25 +208,6 @@ impl MutationManager {
         self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
-        let alternate_keys: Vec<_> = if job.schema.alternate_keys.is_empty() {
-            Vec::new()
-        } else {
-            job.modified_fields
-                .values()
-                .flatten()
-                .map(|key| crate::schema::types::KeyValue::new(key.hash.clone(), key.range.clone()))
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect()
-        };
-        let alternate_before = if alternate_keys.is_empty() {
-            Vec::new()
-        } else {
-            self.db_ops
-                .atoms()
-                .alternate_fields(&job.schema, &alternate_keys, job.storage_prefix.as_deref())
-                .await?
-        };
         measure("store_job_us", self.stage_native_job(&mut job)).await?;
         self.db_ops
             .atoms()
