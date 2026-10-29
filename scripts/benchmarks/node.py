@@ -43,7 +43,7 @@ class UnixConnection(http.client.HTTPConnection):
 
 class Node:
     def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
-                 start_seconds=120, arguments=()):
+                 start_seconds=120, arguments=(), temporary_directory=None):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
@@ -52,7 +52,7 @@ class Node:
         # The first health reply can wait for the new home creation.
         self.start_seconds = start_seconds
         # This short private path also fits the macOS Unix-socket path limit.
-        self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
+        self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir=temporary_directory or "/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
         self.home.mkdir(mode=0o700)
         self.owner = {"pid": os.getpid(), "uid": os.getuid(), "root": str(self.root),

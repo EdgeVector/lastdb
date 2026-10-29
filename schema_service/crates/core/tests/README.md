@@ -101,3 +101,32 @@ Use fresh isolated homes for node operations. Never copy the primary or open its
 Service tests cannot establish a migration of existing data.
 Definition generation changes do not move existing atoms or files.
 Shared DEV load, cloud fault checks, deployment, and production activation require separate approval.
+
+## Authorized operational follow-ups
+
+Tom requested the follow-ups on 2026-10-28. The reusable
+`schema-operational-checks.yml` workflow runs once through required CI on PRs
+and main pushes. It does not add a second branch-push trigger.
+
+- Real node: eight cases use the actual daemon and fresh generated homes.
+  The CI network namespace blocks external requests. System seed setup bypasses
+  schema-service admission and app authentication. A durable-ack SIGKILL/reopen
+  check does not cover every crash cut. Refusal of an unsupported marker does
+  not prove a historical-data conversion.
+- Real model: the explicit `canonical_semantics` example uses the product
+  FastEmbed adapter, a fresh CI model cache, a curated corpus, and the bundled
+  file adapter. Reports identify the model snapshot and file checksums. These
+  finite cases cannot prove general language understanding.
+- S3 protocol: the explicit `s3_canonical_properties` target uses the production
+  definition adapter, an owned MinIO process, and a bounded fault relay.
+  These cases cover conditional-write conflicts, retry exhaustion, lost replies,
+  cold caches, and expansion faults. They do not prove AWS or Lambda behavior.
+- Actual AWS: only accepted main uses the separately approved dedicated role.
+  It creates one empty run-owned bucket, checks direct conditional writes and
+  service races, then removes only the known generated objects and that bucket.
+  AWS credentials never reach a PR. This does not execute the deployed Lambda,
+  DynamoDB identity/quota paths, or production schema service.
+
+Raw output stays in RUNNER_TEMP and seven-day CI artifacts. Source revision,
+case results, limits, checksums, artifact URL, and expiration appear in the run.
+The primary and production remain outside all follow-up checks.
