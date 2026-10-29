@@ -91,16 +91,12 @@ impl QueryExecutor {
         let has_more = entries.len() > limit;
         entries.truncate(limit);
         let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
-        let fields = self
-            .db_ops
-            .atoms()
-            .alternate_fields(&schema, &keys, None)
-            .await?;
-        for (entry, fields) in entries.iter().zip(fields) {
-            if alternate_keys::derived(&schema, &fields)?.get(&name) != Some(&entry.matched) {
-                return Err(alternate_keys::invalid(
-                    "alternate entry does not match its primary record",
-                ));
+        let projection = query.fields.clone();
+        if !projection.is_empty() {
+            for field in schema.alternate_keys[&name].fields() {
+                if !query.fields.iter().any(|name| name == field) {
+                    query.fields.push(field.to_owned());
+                }
             }
         }
         query.filter = Some(crate::schema::types::field::HashRangeFilter::HashRangeKeys(
@@ -108,11 +104,15 @@ impl QueryExecutor {
                 .map(|key| (key.hash.clone().unwrap_or_default(), String::new()))
                 .collect(),
         ));
-        let values = if keys.is_empty() {
+        let mut values = if keys.is_empty() {
             HashMap::new()
         } else {
             self.query_current(query, None, Some(context)).await?
         };
+        validate_entries(&schema, &name, &entries, &values)?;
+        if !projection.is_empty() {
+            values.retain(|field, _| projection.contains(field));
+        }
         Ok(AlternatePage {
             values,
             entries,
@@ -157,4 +157,31 @@ fn comparison_binding(
             .map_err(|_| alternate_keys::invalid("invalid alternate comparison"))?,
         )
     ))
+}
+
+fn validate_entries(
+    schema: &crate::schema::Schema,
+    name: &str,
+    entries: &[AlternateEntry],
+    values: &HashMap<String, HashMap<KeyValue, FieldValue>>,
+) -> Result<(), SchemaError> {
+    let definition = &schema.alternate_keys[name];
+    for entry in entries {
+        let fields = definition
+            .fields()
+            .filter_map(|field| {
+                values
+                    .get(field)?
+                    .get(&entry.primary)
+                    .map(|value| (field.to_owned(), value.value.clone()))
+            })
+            .collect();
+        if alternate_keys::derive_key(schema, definition, &fields)?.as_ref() != Some(&entry.matched)
+        {
+            return Err(alternate_keys::invalid(
+                "alternate entry does not match its primary record",
+            ));
+        }
+    }
+    Ok(())
 }

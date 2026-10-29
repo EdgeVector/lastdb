@@ -35,9 +35,11 @@ pub(super) async fn execute<H: HostNode>(
     }
     let mut results = Vec::with_capacity(page.entries.len());
     for entry in &page.entries {
-        let mut row = rows
-            .remove(&entry.primary)
-            .ok_or_else(|| HostError::internal("alternate response has no primary record"))?;
+        let mut row = rows.remove(&entry.primary).unwrap_or_else(|| {
+            serde_json::json!({
+                "key": entry.primary, "fields": {}, "metadata": {}, "author_pub_key": null,
+            })
+        });
         row["matched_key"] = serde_json::to_value(&entry.matched)
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);

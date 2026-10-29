@@ -47,37 +47,44 @@ pub(crate) fn derived(
         return Ok(keys);
     }
     for (name, definition) in &schema.alternate_keys {
-        let mut coordinates = Vec::new();
-        for field in definition.fields() {
-            match fields.get(field) {
-                None | Some(Value::Null)
-                    if definition.missing == schema_types::MissingAlternateKey::Omit =>
-                {
-                    coordinates.clear();
-                    break;
-                }
-                Some(value) => {
-                    schema
-                        .get_field_type(field)
-                        .validate(value)
-                        .map_err(|_| invalid("alternate key field has an invalid type"))?;
-                    coordinates.push(
-                        scalar_key_coordinate(value)
-                            .ok_or_else(|| invalid("alternate key field requires a scalar value"))?
-                            .into_owned(),
-                    );
-                }
-                None => return Err(invalid("required alternate key field is absent")),
-            }
-        }
-        if !coordinates.is_empty() {
-            keys.insert(
-                name.clone(),
-                KeyValue::new(Some(coordinates.remove(0)), coordinates.pop()),
-            );
+        if let Some(key) = derive_key(schema, definition, fields)? {
+            keys.insert(name.clone(), key);
         }
     }
     Ok(keys)
+}
+
+pub(crate) fn derive_key(
+    schema: &Schema,
+    definition: &schema_types::AlternateKey,
+    fields: &RecordFields,
+) -> Result<Option<KeyValue>, SchemaError> {
+    let mut coordinates = Vec::new();
+    for field in definition.fields() {
+        match fields.get(field) {
+            None | Some(Value::Null)
+                if definition.missing == schema_types::MissingAlternateKey::Omit =>
+            {
+                return Ok(None);
+            }
+            Some(value) => {
+                schema
+                    .get_field_type(field)
+                    .validate(value)
+                    .map_err(|_| invalid("alternate key field has an invalid type"))?;
+                coordinates.push(
+                    scalar_key_coordinate(value)
+                        .ok_or_else(|| invalid("alternate key field requires a scalar value"))?
+                        .into_owned(),
+                );
+            }
+            None => return Err(invalid("required alternate key field is absent")),
+        }
+    }
+    Ok(Some(KeyValue::new(
+        Some(coordinates.remove(0)),
+        coordinates.pop(),
+    )))
 }
 
 pub(crate) fn storage_key(
