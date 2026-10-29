@@ -320,6 +320,13 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
 /// the "write everything, resolve in history" read surface: concurrent-write
 /// branches, conflict winners AND losers, become readable instead of orphaned.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
+    if path == "/api/atom-history" {
+        return Some(single_method(
+            method,
+            "POST",
+            ControlRoute::Data(DataRoute::AtomHistory),
+        ));
+    }
     if one_segment(path, "/api/history/").is_some() {
         return Some(single_method(
             method,

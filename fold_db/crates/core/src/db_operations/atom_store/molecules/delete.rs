@@ -46,7 +46,7 @@ impl AtomStore {
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
     ) -> Result<TipCommit, SchemaError> {
-        self.remove_slots(removals, Vec::new(), false).await
+        self.remove_slots(removals, Vec::new(), false, false).await
     }
 
     /// [`Self::remove_molecules_keys_batch`] for an erase (delete, purge, TTL
@@ -57,8 +57,10 @@ impl AtomStore {
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
         extra_rows: Vec<(String, Value)>,
+        capture_history: bool,
     ) -> Result<TipCommit, SchemaError> {
-        self.remove_slots(removals, extra_rows, true).await
+        self.remove_slots(removals, extra_rows, true, capture_history)
+            .await
     }
 
     async fn remove_slots(
@@ -66,6 +68,7 @@ impl AtomStore {
         removals: &[MoleculeKeyRemoval<'_>],
         extra_rows: Vec<(String, Value)>,
         release_records: bool,
+        capture_history: bool,
     ) -> Result<TipCommit, SchemaError> {
         let current = self.read_removed_slots(removals).await?;
         let (generation_markers, _generation_guards) =
@@ -81,13 +84,19 @@ impl AtomStore {
             let mut rows = plan.rows;
             rows.extend(extra_rows.take().unwrap_or_default());
             let slot_releases = if release_records {
-                self.erase_release_requests(scope, removals).await?
+                self.erase_release_requests(scope, removals, capture_history)
+                    .await?
             } else {
                 SlotReleases::default()
             };
             rows.extend(slot_releases.rows);
             let commit = self
                 .commit_tip_changes(TipChangeSet {
+                    history: if capture_history {
+                        crate::db_operations::atom_store::atom_history::HistoryMode::Capture
+                    } else {
+                        crate::db_operations::atom_store::atom_history::HistoryMode::Erase
+                    },
                     scope,
                     tips: plan
                         .keys
@@ -113,6 +122,7 @@ impl AtomStore {
             // No slot was named. Keep the caller rows in the request batch.
             let commit = self
                 .commit_tip_changes(TipChangeSet {
+                    history: crate::db_operations::atom_store::atom_history::HistoryMode::Ignore,
                     scope: None,
                     tips: Vec::new(),
                     bodies: &[],
@@ -203,13 +213,15 @@ impl AtomStore {
         &self,
         scope: Option<&str>,
         removals: &[MoleculeKeyRemoval<'_>],
+        preserve_archives: bool,
     ) -> Result<SlotReleases, SchemaError> {
         let slots: Vec<_> = removals
             .iter()
             .filter(|removal| removal.3 == scope)
             .map(|removal| (removal.0, removal.2))
             .collect();
-        self.slot_release_requests(scope, &slots).await
+        self.slot_release_requests(scope, &slots, preserve_archives)
+            .await
     }
 
     /// The physical record of every slot the removals name, in one grouped read

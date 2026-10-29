@@ -53,6 +53,7 @@ pub struct FoldDB {
     pub(crate) background_protein_reaper: super::protein_reaper::BackgroundProteinReaperTask,
     /// Periodic release of kept conflict records. See [`super::conflict_janitor`].
     pub(crate) background_conflict_janitor: super::conflict_janitor::BackgroundConflictJanitorTask,
+    pub(crate) background_atom_history: super::atom_history::BackgroundAtomHistory,
     /// Paced removal of dead molecules. See [`super::molecule_drain`].
     pub(crate) background_molecule_drain: super::molecule_drain::BackgroundMoleculeDrainTask,
     /// Mutation admission gate. Maintenance and local file-blob writes take
@@ -69,6 +70,7 @@ impl Drop for FoldDB {
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
+        self.background_atom_history.stop();
         self.background_molecule_drain.stop();
     }
 }

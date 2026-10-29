@@ -45,6 +45,8 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CasExpectation {
+    /// The current field must still be the exact authored write selected by the caller.
+    Mutation { field: String, uuid: String },
     /// The named field must currently resolve to exactly `value` at the
     /// mutation's key. A missing / tombstoned value never matches a
     /// `Value` expectation (use [`CasExpectation::Absent`] for the
@@ -79,7 +81,8 @@ impl CasExpectation {
     #[must_use]
     pub fn field(&self) -> &str {
         match self {
-            Self::Value { field, .. }
+            Self::Mutation { field, .. }
+            | Self::Value { field, .. }
             | Self::ContentHash { field, .. }
             | Self::Absent { field } => field,
         }

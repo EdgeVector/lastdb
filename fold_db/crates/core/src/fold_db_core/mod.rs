@@ -9,6 +9,7 @@
 //! - [`orchestration`] — coordination helpers
 //! - [`pending_task_tracker`] — background task bookkeeping
 
+mod atom_history;
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;

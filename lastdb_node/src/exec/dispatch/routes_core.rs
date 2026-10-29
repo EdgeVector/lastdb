@@ -92,6 +92,7 @@ pub(super) async fn dispatch_search_app(
         DataRoute::MoleculeHistory => {
             heap_route!(execute_molecule_history_route, req, ctx, host).await
         }
+        DataRoute::AtomHistory => heap_route!(execute_atom_history_route, req, ctx, host).await,
         DataRoute::AtomContent => heap_route!(execute_atom_content_route, req, ctx, host).await,
         DataRoute::ProteinGet => heap_route!(execute_protein_get_route, req, ctx, host).await,
         DataRoute::ProteinOfMolecule => {

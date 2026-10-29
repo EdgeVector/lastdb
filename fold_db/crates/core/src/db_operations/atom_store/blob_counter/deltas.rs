@@ -72,7 +72,7 @@ impl BlobDeltas {
         unreadable
     }
 
-    fn add(&mut self, blobs: &[String], step: i64) {
+    pub(crate) fn add(&mut self, blobs: &[String], step: i64) {
         for blob in blobs {
             *self.by_blob.entry(blob.clone()).or_default() += step;
         }
@@ -88,7 +88,7 @@ impl BlobDeltas {
 }
 
 /// The blob references that a live tip record names in its metadata.
-fn tip_blobs(record: &PerKeyRecord) -> Vec<String> {
+pub(crate) fn tip_blobs(record: &PerKeyRecord) -> Vec<String> {
     let Some(meta) = record.meta.as_ref().filter(|meta| !meta.tombstoned) else {
         return Vec::new();
     };

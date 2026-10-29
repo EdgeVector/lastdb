@@ -64,13 +64,14 @@ impl AtomStore {
             return Ok(Vec::new());
         }
 
-        let items: Vec<(String, MutationEvent)> = self
+        let mut items: Vec<(String, MutationEvent)> = self
             .scan_exact_storage_prefix(
                 &base_prefix,
                 storage_prefix,
                 "Failed to load mutation events",
             )
             .await?;
+        items.retain(|(key, _)| !super::super::atom_history::is_archive(key));
 
         // A nonempty prefix always reads storage; no event values are cached.
         if items.is_empty() {

@@ -24,6 +24,7 @@
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
+pub mod atom_history;
 mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
@@ -51,7 +52,7 @@ mod molecule_ref_edges;
 mod molecules;
 mod retention;
 mod schema_keys;
-mod time_queue;
+pub(crate) mod time_queue;
 mod types;
 mod writer_watch;
 

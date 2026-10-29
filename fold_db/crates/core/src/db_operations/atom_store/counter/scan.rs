@@ -145,6 +145,7 @@ pub(super) fn record_ids(rows: &[(Vec<u8>, Vec<u8>)]) -> Vec<u128> {
     rows.iter()
         .map(|(key, _)| String::from_utf8_lossy(key))
         .filter(|key| is_counted_record_key(key))
+        .filter(|key| !super::super::atom_history::is_archive(key))
         .filter_map(|key| crate::db_operations::atom_store::record_digest(&key))
         .collect()
 }

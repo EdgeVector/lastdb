@@ -44,6 +44,8 @@ pub use batch::execute_mutations_batch;
 /// (each socket executor) parses the wire body into this shape; the shared
 /// handler owns schema resolution + the write.
 pub struct MutationComponents {
+    /// Existing per-key metadata supplied by an owner history restore.
+    pub metadata: Option<HashMap<String, String>>,
     pub schema: String,
     pub fields_and_values: HashMap<String, Value>,
     pub key_value: KeyValue,
@@ -64,7 +66,7 @@ impl MutationComponents {
     /// Allocate one mutation identity and move the owned payload and options.
     /// Callers resolve the schema and validate request/field rules first.
     fn into_mutation(self, canonical: String, public_key: String) -> Mutation {
-        configure_mutation(
+        let mut mutation = configure_mutation(
             Mutation::new(
                 canonical,
                 self.fields_and_values,
@@ -77,7 +79,9 @@ impl MutationComponents {
             self.expected,
             self.must_exist,
             self.aggregate_set,
-        )
+        );
+        mutation.metadata = self.metadata;
+        mutation
     }
 
     /// Move parsed fields into a request without host or storage access.
@@ -103,6 +107,7 @@ impl MutationComponents {
         } = operation;
 
         Self {
+            metadata: None,
             schema,
             fields_and_values,
             key_value,

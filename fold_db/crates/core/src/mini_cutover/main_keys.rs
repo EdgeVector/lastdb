@@ -35,6 +35,10 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
         || bare.starts_with("crq:")
         || bare.starts_with("crb:")
         || bare.starts_with("crs:")
+        || bare.starts_with("ahf:")
+        || bare.starts_with("ahp:")
+        || bare.starts_with("ahq:")
+        || bare.starts_with("ahb:")
     {
         Some("tips")
     } else {

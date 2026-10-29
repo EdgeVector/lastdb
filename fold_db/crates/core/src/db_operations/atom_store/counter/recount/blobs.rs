@@ -30,8 +30,16 @@ impl AtomStore {
         for scope in &options.scopes {
             self.tally_counter_blobs(scope.as_deref(), &mut holders, &mut unreadable, report)
                 .await?;
-            self.tally_tip_blobs(scope.as_deref(), &mut holders, &mut unreadable, report)
+            for family in [Family::Tips, Family::Records] {
+                self.tally_tip_blobs(
+                    scope.as_deref(),
+                    family,
+                    &mut holders,
+                    &mut unreadable,
+                    report,
+                )
                 .await?;
+            }
         }
         let mut exact = options.blobs_exact;
         if exact && unreadable > 0 {
@@ -76,17 +84,27 @@ impl AtomStore {
     async fn tally_tip_blobs(
         &self,
         scope: Option<&str>,
+        family: Family,
         holders: &mut HashMap<String, u64>,
         unreadable: &mut u64,
         report: &mut RecountReport,
     ) -> Result<(), SchemaError> {
-        let (start, end) = family_range(Family::Tips, scope);
+        let (start, end) = family_range(family, scope);
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         while !walk.done() {
             let step = self.walk_step(&mut walk).await?;
-            for (_, value) in &step.rows {
+            for (key, value) in &step.rows {
                 report.blobs.tips_read += 1;
-                match blobs_of_tip_row(value) {
+                let blobs = if crate::db_operations::atom_store::atom_history::is_archive(
+                    &String::from_utf8_lossy(key),
+                ) {
+                    crate::db_operations::atom_store::atom_history::files(value)
+                } else if family == Family::Records {
+                    continue;
+                } else {
+                    blobs_of_tip_row(value)
+                };
+                match blobs {
                     Ok(blobs) => {
                         for blob in blobs {
                             *holders.entry(blob).or_insert(0) += 1;

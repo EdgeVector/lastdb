@@ -260,7 +260,7 @@ async fn apply_plan(
     let started = std::time::Instant::now();
     let commit = db_ops
         .atoms()
-        .remove_molecules_keys_with_rows(&refs, barrier_rows)
+        .remove_molecules_keys_with_rows(&refs, barrier_rows, options.verb.is_delete())
         .await?;
     let batch_elapsed = started.elapsed();
     let tip_debits = removed_tip_debits(&removed_tip_keys, &commit);

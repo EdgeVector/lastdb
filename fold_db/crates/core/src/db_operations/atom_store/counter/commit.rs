@@ -31,6 +31,8 @@ pub(crate) struct RecordRefs {
     pub key: String,
     /// The distinct atoms that the record names.
     pub atoms: Vec<String>,
+    /// File references stored only in an archived tip's metadata.
+    pub files: Vec<String>,
     /// Rows that only a new record writes: its retention queue entry and its
     /// slot directory entry. A repeat of a decision writes none of them.
     pub new_rows: Vec<(String, Value)>,
@@ -63,6 +65,7 @@ pub(crate) struct GuardedDelete {
 /// Everything one planner run needs.
 #[derive(Default)]
 pub(crate) struct TipChangeSet<'a> {
+    pub history: super::super::atom_history::HistoryMode,
     pub scope: Option<&'a str>,
     pub tips: Vec<TipChange>,
     /// Bodies that this request created. The planner writes a body only for an
@@ -157,6 +160,7 @@ impl AtomStore {
     ) -> Result<TipCommit, SchemaError> {
         self.require_atomic_scope()?;
         let TipChangeSet {
+            history,
             scope,
             tips,
             bodies,
@@ -168,10 +172,18 @@ impl AtomStore {
             guarded_deletes,
         } = set;
         let tips = collapse_tips(tips);
-        let records = dedupe_records(records);
         let old = measure("old_tips_us", self.read_old_tips(&tips)).await?;
+        let recorded = self
+            .prepare_atom_history(history, scope, &tips, &old)
+            .await?;
+        let mut records = records;
+        records.extend(recorded.refs);
+        let records = dedupe_records(records);
+        let mut rows = rows;
+        rows.extend(recorded.rows);
         let new_records = self.read_new_records(&records).await?;
         let released = self.read_released_records(releases).await?;
+        let file_deltas = released.file_deltas(&records, &new_records);
         self.note_touched_atoms(&tips, &old, (&records, &new_records));
         self.note_released_atoms(&released);
         let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
@@ -205,7 +217,15 @@ impl AtomStore {
         let atom_sizes = atom_sizes(&before, &offers);
         let (mutations, mut commit) = measure(
             "build_rows_us",
-            build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers),
+            build_mutations(
+                self,
+                scope,
+                &tips,
+                &old,
+                (rows, deletes, file_deltas),
+                plans,
+                offers,
+            ),
         )
         .await?;
         commit.previous = previous;

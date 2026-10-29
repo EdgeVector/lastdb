@@ -89,13 +89,17 @@ impl FoldDB {
 
         Ok(Self {
             schema_manager,
-            db_ops,
+            db_ops: Arc::clone(&db_ops),
             query_executor,
             mutation_manager,
             pending_tasks,
             background_flush,
             background_protein_reaper,
             background_conflict_janitor,
+            background_atom_history: super::super::atom_history::BackgroundAtomHistory::start(
+                Arc::clone(&db_ops),
+                offline_maintenance,
+            ),
             background_molecule_drain,
             mutation_log_capture,
         })

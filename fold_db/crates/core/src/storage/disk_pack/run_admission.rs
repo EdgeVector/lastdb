@@ -1,7 +1,7 @@
 //! Check the logical format through read-only snapshots before writer cleanup.
 
 use super::{map, native_routing, run_node, StorageError, StorageResult, NODE_MARKER};
-use crate::atom::molecule_key_codec::TYPED_KEY_FORMAT;
+use crate::atom::molecule_key_codec::current_key_format;
 use crate::crypto::content_key_proof;
 use crate::db_operations::atom_store::AtomStore;
 use laststore::disk_run::home::{ReadBudget, RunRead};
@@ -72,7 +72,7 @@ fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("the logical format is absent"))?;
-    if marker != TYPED_KEY_FORMAT {
+    if !current_key_format(marker) {
         return Err(invalid("the logical format differs from the node marker"));
     }
     AtomStore::validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;

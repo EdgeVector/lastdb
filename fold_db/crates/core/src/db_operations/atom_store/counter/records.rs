@@ -67,6 +67,7 @@ pub(super) fn with_new_record_rows(
 /// What the planner found for the releases of one run.
 #[derive(Default)]
 pub(super) struct Released {
+    files: Vec<String>,
     /// The atoms of each released history row, as the row names them.
     atoms: Vec<Vec<String>>,
     /// The molecule of each released history row, as the row names it. A
@@ -79,6 +80,20 @@ pub(super) struct Released {
 }
 
 impl Released {
+    pub(super) fn file_deltas(
+        &self,
+        records: &[RecordRefs],
+        new_records: &[bool],
+    ) -> super::super::blob_counter::BlobDeltas {
+        let mut deltas = super::super::blob_counter::BlobDeltas::default();
+        deltas.add(&self.files, -1);
+        for (record, is_new) in records.iter().zip(new_records) {
+            if *is_new {
+                deltas.add(&record.files, 1);
+            }
+        }
+        deltas
+    }
     /// The number of records this run ends: history rows released, and
     /// releases whose history row was already gone. A release that the run
     /// keeps (a row that does not decode) is not counted.
@@ -160,6 +175,15 @@ impl AtomStore {
                     out.deletes.extend(release.deletes.iter().cloned());
                     continue;
                 };
+                if super::super::atom_history::is_archive(&release.history) {
+                    match super::super::atom_history::files(&bytes) {
+                        Ok(files) => out.files.extend(files),
+                        Err(error) => {
+                            tracing::error!(%error, "archive cannot decode; references stay");
+                            continue;
+                        }
+                    }
+                }
                 match serde_json::from_slice::<MutationEvent>(&bytes) {
                     Ok(event) => {
                         out.atoms.push(event_atoms(&event));

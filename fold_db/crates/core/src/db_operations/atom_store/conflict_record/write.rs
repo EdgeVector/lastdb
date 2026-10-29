@@ -104,6 +104,7 @@ impl AtomStore {
             recorded.refs.push(RecordRefs {
                 key: history_key.clone(),
                 atoms: event_atoms(&event),
+                files: Vec::new(),
                 new_rows,
                 molecule: event.molecule_uuid.clone(),
             });

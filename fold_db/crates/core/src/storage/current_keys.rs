@@ -21,6 +21,10 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
     Ok(matches!(
         family,
         "mk" | "mh"
+            | "ahf"
+            | "ahp"
+            | "ahq"
+            | "ahb"
             | "atom"
             | "history"
             | "conflict"
@@ -297,6 +301,10 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
     matches!(
         family,
         "atom"
+            | "ahf"
+            | "ahp"
+            | "ahq"
+            | "ahb"
             | "fdep"
             | "aloc"
             | "aref"

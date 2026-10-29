@@ -70,6 +70,7 @@ impl AtomStore {
         &self,
         scope: Option<&str>,
         removals: &[RemovedSlots<'_>],
+        preserve_archives: bool,
     ) -> Result<SlotReleases, SchemaError> {
         let mut by_molecule: BTreeMap<&str, BTreeSet<&(String, String)>> = BTreeMap::new();
         for (molecule, slots) in removals {
@@ -97,18 +98,18 @@ impl AtomStore {
                 if entries.len() >= RELEASE_RECORD_CAP || reads >= MAX_SLOT_READS {
                     // No room in this batch, or no read budget left: the
                     // janitor reads this slot.
-                    rows.extend(self.drain_marker_rows(&prefix, &slot, now)?);
+                    rows.extend(self.drain_marker_rows(&prefix, &slot, now, preserve_archives)?);
                     markers += 1;
                     continue;
                 }
                 reads += 1;
                 let room = RELEASE_RECORD_CAP - entries.len();
                 let (found, more) = self
-                    .matching_entries(&prefix, &slot, room, u64::MAX)
+                    .matching_entries(&prefix, &slot, room, u64::MAX, preserve_archives)
                     .await?;
                 entries.extend(found);
                 if more {
-                    rows.extend(self.drain_marker_rows(&prefix, &slot, now)?);
+                    rows.extend(self.drain_marker_rows(&prefix, &slot, now, preserve_archives)?);
                     markers += 1;
                 }
             }
@@ -199,6 +200,7 @@ impl AtomStore {
         slot: &str,
         room: usize,
         created_max: u64,
+        preserve_archives: bool,
     ) -> Result<(Vec<RetentionEntry>, bool), SchemaError> {
         let (mut start, end) = keys::prefix_range(dir_prefix);
         let mut found = Vec::new();
@@ -217,6 +219,9 @@ impl AtomStore {
                 let Some(entry) = self.slot_entry(key, value, slot, created_max) else {
                     continue;
                 };
+                if preserve_archives && super::super::atom_history::is_archive(&entry.history) {
+                    continue;
+                }
                 if found.len() == room {
                     return Ok((found, true));
                 }
@@ -266,10 +271,12 @@ impl AtomStore {
         dir_prefix: &str,
         slot: &str,
         now: u64,
+        preserve_archives: bool,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
         let queue = self.retention_state().queue();
         let id = keys::drain_id(dir_prefix);
         let marker = DrainMarker {
+            preserve_archives,
             version: ENTRY_VERSION,
             drain: true,
             dir_prefix: dir_prefix.to_string(),

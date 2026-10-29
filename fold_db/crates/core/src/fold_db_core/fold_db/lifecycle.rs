@@ -77,6 +77,7 @@ impl FoldDB {
         self.background_flush.stop().await;
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
+        self.background_atom_history.stop();
         self.background_molecule_drain.stop();
         // Drain accepted persist-lane work FIRST, while admission stays open.
         // A supervisor can SIGKILL the process before a long shutdown ends

@@ -38,6 +38,14 @@
 
 mod drain;
 mod entry;
+pub(crate) use entry::RetentionEntry;
+pub(crate) fn archive_dir_key(
+    scope: Option<&str>,
+    slot: &super::RecordSlot<'_>,
+    id: &str,
+) -> String {
+    keys::dir_key(scope, slot.molecule, slot.hash, slot.range, id)
+}
 mod keys;
 mod page;
 mod repair;

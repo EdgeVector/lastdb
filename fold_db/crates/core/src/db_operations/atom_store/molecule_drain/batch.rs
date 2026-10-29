@@ -112,7 +112,11 @@ impl AtomStore {
                 gate => return Ok(Batch::Stopped(gate)),
             }
             let releases = self
-                .slot_release_requests(scope, &[(candidate.molecule.as_str(), slots.as_slice())])
+                .slot_release_requests(
+                    scope,
+                    &[(candidate.molecule.as_str(), slots.as_slice())],
+                    false,
+                )
                 .await?;
             let commit = self
                 .commit_tip_changes(TipChangeSet {
