@@ -4471,6 +4471,7 @@ dependencies = [
  "ed25519-dalek",
  "hmac 0.12.1",
  "schema_core_resolver",
+ "schema_service_server_shared",
  "schema_types",
  "semver",
  "serde",

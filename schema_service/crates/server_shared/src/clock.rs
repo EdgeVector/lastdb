@@ -16,6 +16,7 @@ impl Clock for SystemClock {
     }
 
     fn unix_secs(&self) -> u64 {
+        // Same read as before: whole seconds, and 0 when the clock is before the epoch.
         schema_types::clock::unix_secs()
     }
 

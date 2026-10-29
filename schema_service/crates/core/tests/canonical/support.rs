@@ -1,7 +1,8 @@
 use schema_service_core::{
     types::CanonicalField, Clock, DeclareFieldInput, DeclareFieldRequest, DisabledEmbeddingModel,
-    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState, WallTime,
+    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
 };
+use schema_service_server_shared::SystemClock;
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{future::Future, sync::Arc};
 
@@ -24,26 +25,9 @@ pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaService
     .expect("empty or valid backend")
 }
 
-/// Same operating-system reads as the shell `SystemClock`. This crate's tests
-/// cannot depend on the shell.
+/// The shell adapter. Canonical tests pass the same clock the process entry uses.
 pub fn process_clock() -> Arc<dyn Clock> {
-    Arc::new(ProcessClock)
-}
-
-struct ProcessClock;
-
-impl Clock for ProcessClock {
-    fn wall_time(&self) -> WallTime {
-        schema_types::clock::wall_time()
-    }
-
-    fn unix_secs(&self) -> u64 {
-        schema_types::clock::unix_secs()
-    }
-
-    fn monotonic(&self) -> std::time::Instant {
-        schema_types::clock::monotonic()
-    }
+    Arc::new(SystemClock)
 }
 
 pub fn field(description: &str, field_type: FieldValueType) -> CanonicalField {

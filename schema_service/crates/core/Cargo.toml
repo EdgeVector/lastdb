@@ -46,6 +46,10 @@ uuid = { workspace = true, features = ["v4"] }
 
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# Canonical property tests pass the shell clock in.
+schema_service_server_shared = { path = "../server_shared" }
+
 [lints]
 workspace = true
 
