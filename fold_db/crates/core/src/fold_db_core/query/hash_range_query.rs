@@ -34,6 +34,7 @@ mod field_rules;
 mod fields;
 mod filter;
 mod inspection;
+mod inspection_rules;
 mod layout;
 mod paging;
 mod pending_values;

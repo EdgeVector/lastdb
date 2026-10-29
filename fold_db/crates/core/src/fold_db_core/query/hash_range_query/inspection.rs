@@ -1,17 +1,24 @@
 //! Administrative inspection proves a bounded logical set before its window.
 
-use super::cokey_primary::CokeyPrimaryPage;
-use super::*;
+use std::collections::{HashMap, HashSet};
+
 use crate::schema::types::field::{
-    fetch_atoms_with_key_metadata_async_with_prefix, FieldVariant, KeyedAtomMatch, SAMPLE_PEEK_CAP,
+    fetch_atoms_with_key_metadata_async_with_prefix, FieldValue, FieldVariant, HashRangeFilter,
+    KeyedAtomMatch, SAMPLE_PEEK_CAP,
 };
 use crate::schema::types::key_value::scalar_key_coordinate;
-use std::collections::HashSet;
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::{Schema, SchemaError};
 
-/// Pages/counts require completeness; a sample can stop at enough valid members.
-const INSPECTION_KEY_CAP: usize = 10_000;
+use super::{
+    cokey_primary::CokeyPrimaryPage,
+    field_rules,
+    inspection_rules::{self, inspection_limit, INSPECTION_KEY_CAP},
+    HashRangeQueryProcessor, KeySource,
+};
 
 struct InspectedField {
+    field_name: String,
     values: HashMap<KeyValue, FieldValue>,
     sources: HashMap<KeyValue, KeySource>,
     had_spine: bool,
@@ -35,18 +42,18 @@ impl HashRangeQueryProcessor {
             _ => None,
         };
         if sample_size == Some(0) {
-            return Ok((
-                field_rules::primary_field(schema, selected),
-                HashMap::new(),
-                Vec::new(),
-                HashMap::new(),
-                HashMap::new(),
-            ));
+            return Ok(CokeyPrimaryPage {
+                primary_field: field_rules::primary_field(schema, selected),
+                values: HashMap::new(),
+                page_keys: Vec::new(),
+                key_sources: HashMap::new(),
+                layout_values: HashMap::new(),
+            });
         }
         let mut candidate_cap = sample_size.unwrap_or(INSPECTION_KEY_CAP);
         let mut examined = 0usize;
-        let (primary_name, mut values, mut sources) = loop {
-            let (name, values, sources, complete) = self
+        let mut inspected = loop {
+            let inspected = self
                 .inspection_candidates(
                     schema,
                     selected,
@@ -56,35 +63,26 @@ impl HashRangeQueryProcessor {
                     &mut examined,
                 )
                 .await?;
-            if sample_size.is_none() && !complete {
+            if sample_size.is_none() && !inspected.complete {
                 return Err(inspection_limit());
             }
-            if complete || sample_size.is_some_and(|n| values.len() >= n) {
-                break (name, values, sources);
+            if inspected.complete || sample_size.is_some_and(|n| inspected.values.len() >= n) {
+                break inspected;
             }
-            let remaining = INSPECTION_KEY_CAP.saturating_sub(examined);
-            candidate_cap = candidate_cap.saturating_mul(2).min(remaining);
-            if candidate_cap == 0 {
-                return Err(inspection_limit());
-            }
+            candidate_cap = inspection_rules::next_candidate_cap(candidate_cap, examined)?;
         };
-        let mut keys: Vec<_> = values.keys().cloned().collect();
-        keys.sort_by(KeyValue::cmp_page_order);
-        let (offset, limit) = match filter {
-            Some(HashRangeFilter::Page { offset, limit }) => (*offset, *limit),
-            Some(HashRangeFilter::SampleN(n)) => (0, (*n).min(SAMPLE_PEEK_CAP)),
-            None => (0, INSPECTION_KEY_CAP),
-            _ => {
-                return Err(SchemaError::InvalidData(
-                    "unsupported inspection selector".into(),
-                ))
-            }
-        };
-        let page_keys: Vec<_> = keys.into_iter().skip(offset).take(limit).collect();
+        let keys = inspected.values.keys().cloned().collect();
+        let page_keys = inspection_rules::page_keys(keys, filter)?;
         let kept: HashSet<_> = page_keys.iter().cloned().collect();
-        values.retain(|key, _| kept.contains(key));
-        sources.retain(|key, _| kept.contains(key));
-        Ok((primary_name, values, page_keys, sources, HashMap::new()))
+        inspected.values.retain(|key, _| kept.contains(key));
+        inspected.sources.retain(|key, _| kept.contains(key));
+        Ok(CokeyPrimaryPage {
+            primary_field: inspected.field_name,
+            values: inspected.values,
+            page_keys,
+            key_sources: inspected.sources,
+            layout_values: HashMap::new(),
+        })
     }
 
     async fn inspection_candidates(
@@ -95,21 +93,11 @@ impl HashRangeQueryProcessor {
         received: &[String],
         candidate_cap: usize,
         examined: &mut usize,
-    ) -> Result<
-        (
-            String,
-            HashMap<KeyValue, FieldValue>,
-            HashMap<KeyValue, KeySource>,
-            bool,
-        ),
-        SchemaError,
-    > {
-        let mut primary_name = field_rules::primary_field(schema, selected);
-
+    ) -> Result<InspectedField, SchemaError> {
         let mut inspected = self
             .inspection_field(
                 schema,
-                &primary_name,
+                field_rules::primary_field(schema, selected),
                 include_tombstones,
                 received,
                 candidate_cap,
@@ -117,54 +105,48 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         if !inspected.had_spine {
-            if let Some(fallback) = field_rules::fallback_field(selected, &primary_name) {
-                let fallback = fallback.to_string();
+            if let Some(fallback) = field_rules::fallback_field(selected, &inspected.field_name) {
                 inspected = self
                     .inspection_field(
                         schema,
-                        &fallback,
+                        fallback.to_string(),
                         include_tombstones,
                         received,
                         candidate_cap,
                         examined,
                     )
                     .await?;
-                primary_name = fallback;
             }
         }
-        let InspectedField {
-            mut values,
-            mut sources,
-            complete,
-            ..
-        } = inspected;
 
         let named_primary = schema
             .key
             .as_ref()
             .and_then(|key| key.hash_field.as_deref())
-            == Some(primary_name.as_str());
+            == Some(inspected.field_name.as_str());
         if named_primary {
             self.retain_named_layout(
                 schema,
-                &primary_name,
-                &mut values,
-                &sources,
+                &inspected.field_name,
+                &mut inspected.values,
+                &inspected.sources,
                 include_tombstones,
             )
             .await?;
         }
-        sources.retain(|key, _| values.contains_key(key));
+        inspected
+            .sources
+            .retain(|key, _| inspected.values.contains_key(key));
 
         // Re-enter the existing exact core route only after both coordinates
         // verify. It admits logical API keys and retains the selected scope.
-        let keys: Vec<_> = values.keys().cloned().collect();
+        let keys: Vec<_> = inspected.values.keys().cloned().collect();
         let pending = self
             .collect_cokey_secondary_pending(
                 schema,
-                vec![primary_name.clone()],
+                vec![inspected.field_name.clone()],
                 &keys,
-                &sources,
+                &inspected.sources,
                 include_tombstones,
                 None,
             )
@@ -172,9 +154,11 @@ impl HashRangeQueryProcessor {
         let mut fields = HashMap::new();
         self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut fields)
             .await?;
-        values = fields.remove(&primary_name).unwrap_or_default();
-        sources.retain(|key, _| values.contains_key(key));
-        Ok((primary_name, values, sources, complete))
+        inspected.values = fields.remove(&inspected.field_name).unwrap_or_default();
+        inspected
+            .sources
+            .retain(|key, _| inspected.values.contains_key(key));
+        Ok(inspected)
     }
 
     /// Candidate limits apply to the sum of examined scopes, before bodies.
@@ -183,17 +167,17 @@ impl HashRangeQueryProcessor {
     async fn inspection_field(
         &self,
         schema: &Schema,
-        name: &str,
+        name: String,
         include_tombstones: bool,
         received: &[String],
         candidate_cap: usize,
         examined: &mut usize,
     ) -> Result<InspectedField, SchemaError> {
-        let field = schema.runtime_fields.get(name).ok_or_else(|| {
+        let field = schema.runtime_fields.get(&name).ok_or_else(|| {
             SchemaError::InvalidField(format!("inspection field '{name}' is missing"))
         })?;
         let binding =
-            crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, name)?;
+            crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, &name)?;
         let own = field.common().storage_prefix().map(str::to_owned);
         let mut scopes = vec![own];
         for namespace in received {
@@ -264,7 +248,7 @@ impl HashRangeQueryProcessor {
                     continue;
                 }
                 if let Some(api_key) =
-                    self.inspection_api_key(schema, name, field, storage_key, &value)?
+                    self.inspection_api_key(schema, &name, field, storage_key, &value)?
                 {
                     sources.insert(api_key.clone(), scope.clone());
                     values.insert(api_key, value);
@@ -272,6 +256,7 @@ impl HashRangeQueryProcessor {
             }
         }
         Ok(InspectedField {
+            field_name: name,
             values,
             sources,
             had_spine,
@@ -313,11 +298,5 @@ impl HashRangeQueryProcessor {
             Some(hash.into_owned()),
             storage_key.range,
         )))
-    }
-}
-
-fn inspection_limit() -> SchemaError {
-    SchemaError::ReadResourceLimit {
-        detail: "administrative inspection exceeds 10000 examined candidate keys; query one hash or an exact key batch".into(),
     }
 }

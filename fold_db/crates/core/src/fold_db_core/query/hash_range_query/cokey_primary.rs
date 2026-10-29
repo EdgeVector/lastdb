@@ -1,15 +1,21 @@
 //! Primary-key step of the co-key plan: resolve the page of keys.
 
-use super::*;
+use std::collections::HashMap;
+
+use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::{Schema, SchemaError};
+
+use super::{field_rules, paging, HashRangeQueryProcessor, KeySource};
 
 /// The primary name, values, API page keys, sources and verified range values.
-pub(super) type CokeyPrimaryPage = (
-    String,
-    HashMap<KeyValue, FieldValue>,
-    Vec<KeyValue>,
-    HashMap<KeyValue, KeySource>,
-    HashMap<KeyValue, FieldValue>,
-);
+pub(super) struct CokeyPrimaryPage {
+    pub(super) primary_field: String,
+    pub(super) values: HashMap<KeyValue, FieldValue>,
+    pub(super) page_keys: Vec<KeyValue>,
+    pub(super) key_sources: HashMap<KeyValue, KeySource>,
+    pub(super) layout_values: HashMap<KeyValue, FieldValue>,
+}
 
 impl HashRangeQueryProcessor {
     /// The primary establishes API keys before secondary reads. Administrative
@@ -34,7 +40,7 @@ impl HashRangeQueryProcessor {
                     received_from_namespaces,
                 )
                 .await?;
-            crate::db_operations::note_page_key_forms(Self::countable_keys(&page.2), 0);
+            crate::db_operations::note_page_key_forms(Self::countable_keys(&page.page_keys), 0);
             return Ok(page);
         }
         let mut primary_name = field_rules::primary_field(schema, selected);
@@ -42,13 +48,13 @@ impl HashRangeQueryProcessor {
             window,
             Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
         ) {
-            return Ok((
-                primary_name,
-                HashMap::new(),
-                Vec::new(),
-                HashMap::new(),
-                HashMap::new(),
-            ));
+            return Ok(CokeyPrimaryPage {
+                primary_field: primary_name,
+                values: HashMap::new(),
+                page_keys: Vec::new(),
+                key_sources: HashMap::new(),
+                layout_values: HashMap::new(),
+            });
         }
 
         // --- 1. Primary: current resolve under filter / namespaces ---
@@ -89,12 +95,12 @@ impl HashRangeQueryProcessor {
         }
         let page_keys: Vec<_> = primary.values.keys().cloned().collect();
         crate::db_operations::note_page_key_forms(Self::countable_keys(&page_keys), 0);
-        Ok((
-            primary_name,
-            primary.values,
+        Ok(CokeyPrimaryPage {
+            primary_field: primary_name,
+            values: primary.values,
             page_keys,
-            primary.sources,
-            primary.layout_values,
-        ))
+            key_sources: primary.sources,
+            layout_values: primary.layout_values,
+        })
     }
 }

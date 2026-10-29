@@ -1,6 +1,11 @@
 //! The single co-key query plan: primary key set, then secondary field resolution.
 
-use super::*;
+use std::collections::HashMap;
+
+use crate::schema::types::field::{HashRangeFilter, KeyWindow};
+use crate::schema::{Schema, SchemaError};
+
+use super::{cokey_primary::CokeyPrimaryPage, field_rules, CokeyRows, HashRangeQueryProcessor};
 
 pub(super) struct CokeySelection<'a> {
     pub fields: &'a [String],
@@ -41,7 +46,13 @@ impl HashRangeQueryProcessor {
             });
         }
 
-        let (primary_name, primary_vals, page_keys, key_sources, layout_values) = self
+        let CokeyPrimaryPage {
+            primary_field,
+            values,
+            page_keys,
+            key_sources,
+            layout_values,
+        } = self
             .resolve_cokey_primary_page(
                 schema,
                 key_selected,
@@ -52,10 +63,10 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         let mut rows = CokeyRows {
-            fields: HashMap::from([(primary_name.clone(), primary_vals)]),
+            fields: HashMap::from([(primary_field.clone(), values)]),
             page_keys,
             key_sources,
-            primary_field: primary_name,
+            primary_field,
         };
         // Membership already resolved the range field through the selected
         // source. Move it only when requested and complete for this final page.

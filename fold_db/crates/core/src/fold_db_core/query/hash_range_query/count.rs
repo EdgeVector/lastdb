@@ -1,4 +1,6 @@
-use super::{field_rules, FutureExt, HashRangeQueryProcessor};
+use futures::FutureExt;
+
+use super::{cokey_primary::CokeyPrimaryPage, field_rules, HashRangeQueryProcessor};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::{Schema, SchemaError};
 
@@ -58,7 +60,7 @@ impl HashRangeQueryProcessor {
             return Ok(0);
         }
         if filter.is_none() {
-            let (_, _, keys, _, _) = self
+            let CokeyPrimaryPage { page_keys, .. } = self
                 .resolve_inspection_primary_page(
                     schema,
                     &selected,
@@ -67,12 +69,12 @@ impl HashRangeQueryProcessor {
                     &received_from_namespaces,
                 )
                 .await?;
-            return Ok(keys.len());
+            return Ok(page_keys.len());
         }
 
         let primary = field_rules::primary_field(schema, &selected);
         if Self::needs_named_layout_membership(schema, Some(&primary), filter) {
-            let (_, _, keys, _, _) = self
+            let CokeyPrimaryPage { page_keys, .. } = self
                 .resolve_cokey_primary_page(
                     schema,
                     &selected,
@@ -82,7 +84,7 @@ impl HashRangeQueryProcessor {
                     &received_from_namespaces,
                 )
                 .await?;
-            return Ok(keys.len());
+            return Ok(page_keys.len());
         }
         // The primary alone defines membership. Never union projected fields
         // into a nonempty primary set; sparse fields cannot add records.
