@@ -32,9 +32,9 @@ pub(crate) fn verify_frozen_typed_profile(
         decode(metadata.ok_or_else(|| invalid("typed molecule metadata is absent"))?)?;
     if metadata.version != super::contracts::TYPED_METADATA_VERSION
         || metadata.molecule_uuid != molecule
-        || metadata.range_profile != Some(expected)
-        || metadata.conflict_identity != Some(super::ConflictKeyIdentity::StoredV1)
-        || metadata.key_authority != Some(super::KeyAuthority::Bundle)
+        || metadata.range_profile != expected
+        || metadata.conflict_identity != super::ConflictKeyIdentity::StoredV1
+        || metadata.key_authority != super::KeyAuthority::Bundle
     {
         return Err(invalid("typed molecule metadata differs from its schema"));
     }

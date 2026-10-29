@@ -17,12 +17,12 @@ impl MoleculeKeyStore {
     ) -> StorageResult<MoleculeRangeProfile> {
         if metadata.version != TYPED_METADATA_VERSION
             || metadata.molecule_uuid != molecule
-            || metadata.key_authority != Some(KeyAuthority::Bundle)
-            || metadata.conflict_identity != Some(ConflictKeyIdentity::StoredV1)
+            || metadata.key_authority != KeyAuthority::Bundle
+            || metadata.conflict_identity != ConflictKeyIdentity::StoredV1
         {
             return Err(invalid());
         }
-        metadata.range_profile.ok_or_else(invalid)
+        Ok(metadata.range_profile)
     }
 
     pub(super) fn validate_metadata(
@@ -55,7 +55,7 @@ impl MoleculeKeyStore {
         mut key: crate::schema::types::KeyValue,
     ) -> Result<crate::schema::types::KeyValue, crate::schema::SchemaError> {
         crate::schema::types::key_comparison::normalize::canonical_key(
-            Some(self.schema_profile(schema)?),
+            self.schema_profile(schema)?,
             &mut key,
         )?;
         Ok(key)

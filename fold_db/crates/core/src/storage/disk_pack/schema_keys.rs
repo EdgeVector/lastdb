@@ -217,10 +217,9 @@ fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, Sc
     // The identity lives only in memory, so the Debug form of the profile
     // is as exact as its format ID. The sentinel output identifies the fixed
     // molecule hash key without retaining it. It is never used as a database
-    // coordinate. `BlindV1` is the only hash encoding; the text stays the
-    // former `Debug` spelling that `supported_coordinate` checks.
+    // coordinate.
     Ok(format!(
-        "BlindV1/{:?}/{:?}",
+        "{:?}/{:?}",
         codec
             .storage_hash(molecule, "schema-preload-identity")
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?,

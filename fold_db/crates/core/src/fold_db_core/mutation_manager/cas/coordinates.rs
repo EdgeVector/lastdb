@@ -13,7 +13,7 @@ impl MutationManager {
         let Some(layout) = schema.key.as_ref() else {
             return Ok(vec![false; keys.len()]);
         };
-        let profile = Some(self.db_ops.molecule_keys().schema_profile(schema)?);
+        let profile = self.db_ops.molecule_keys().schema_profile(schema)?;
         let mut requests = Vec::new();
         let mut slot_keys = Vec::new();
         for (index, key) in keys.iter().enumerate() {
@@ -94,7 +94,7 @@ impl MutationManager {
 }
 
 fn coordinate_matches(
-    profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
+    profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
     coordinate: &str,
     is_range: bool,
     value: &serde_json::Value,
