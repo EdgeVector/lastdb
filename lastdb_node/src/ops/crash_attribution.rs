@@ -126,10 +126,7 @@ pub fn scan_previous_crashes(home: &Path) -> Vec<PathBuf> {
 /// when the previous session ended uncleanly with no panic report to explain
 /// it. Log tails and free-form fault text stay local. No-op when no Sentry
 /// client is bound. Returns the number of events sent.
-pub fn promote_previous_crash_evidence(
-    reports: &[PathBuf],
-    start: Option<&StartSummary>,
-) -> usize {
+pub fn promote_previous_crash_evidence(reports: &[PathBuf], start: Option<&StartSummary>) -> usize {
     let sent = crate::crash_telemetry::report_crashes_with_log_tail(reports, start);
     if sent > 0 {
         tracing::info!(

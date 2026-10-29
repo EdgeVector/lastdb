@@ -80,10 +80,7 @@ pub fn startup_failure_recorded(start: Option<&StartSummary>) -> bool {
 /// only the newest [`MAX_REPORTS_PER_LAUNCH`] are promoted.
 /// The previous session's log tail stays local.
 #[cfg(feature = "sentry-telemetry")]
-pub fn report_crashes_with_log_tail(
-    reports: &[PathBuf],
-    start: Option<&StartSummary>,
-) -> usize {
+pub fn report_crashes_with_log_tail(reports: &[PathBuf], start: Option<&StartSummary>) -> usize {
     if sentry::Hub::current().client().is_none() {
         return 0;
     }
@@ -91,10 +88,7 @@ pub fn report_crashes_with_log_tail(
 }
 
 #[cfg(not(feature = "sentry-telemetry"))]
-pub fn report_crashes_with_log_tail(
-    _reports: &[PathBuf],
-    _start: Option<&StartSummary>,
-) -> usize {
+pub fn report_crashes_with_log_tail(_reports: &[PathBuf], _start: Option<&StartSummary>) -> usize {
     0
 }
 
