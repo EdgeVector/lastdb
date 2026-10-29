@@ -223,6 +223,10 @@ impl CoreWarmSet {
         metadata: Option<KeyMetadata>,
     ) {
         let slot = self.slots.get_mut(id).expect("warm core slot");
+        if slot.tip.as_ref() != Some(&entry) || slot.metadata.as_deref() != metadata.as_ref() {
+            slot.tip_source = None;
+            slot.tip_wire_bytes = None;
+        }
         slot.tip = Some(entry);
         slot.metadata = metadata.map(Box::new);
     }

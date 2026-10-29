@@ -190,6 +190,8 @@ impl CoreWarmSet {
         };
         slot.owned = None;
         slot.metadata = None;
+        slot.tip_source = None;
+        slot.tip_wire_bytes = None;
         if let Some(previous) = slot.tip.take() {
             self.unlink_atom(id, &previous.atom_uuid);
         }

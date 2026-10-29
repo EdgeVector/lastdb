@@ -69,6 +69,7 @@ pub(super) fn retain_typed(
         None => WriteFact::Absent,
         Some((value, wire_bytes))
             if coordinate.0 == "atoms"
+                && wire_bytes <= 16 * 1024
                 && crate::atom::atom_key_codec::is_counter_key(&coordinate.1) =>
         {
             let Some(counter) = value.downcast_ref::<AtomCounter>() else {
