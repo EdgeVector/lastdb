@@ -20,6 +20,15 @@ The first supported layout has a Hash primary key in the personal database.
 Each complete alternate key includes the primary field.
 Mapped fields, compound primary keys, received-data scopes, and alternate watches require additional product work before app conversion.
 
+The public app declaration route installs one owned schema under `app_id/name`.
+Its `canonical` response names that runtime schema. Its `identity_hash` names the exact definition from Schema Service.
+The node also accepts that identity for record requests.
+Schema Service supplies the canonical field definitions, types, and classifications.
+The node keeps alternate declarations separate from that definition identity.
+It does not load a second data schema or bind service field mappers.
+An existing local schema needs an explicit conversion. A repeat declare cannot change its key or alternate declarations.
+The read-only `check` intent writes no local schema or service registration.
+
 ## Conversion order
 
 1. Inventory app declarations, retained schema names, reads, writes, lists, counts, watches, and shared fields.

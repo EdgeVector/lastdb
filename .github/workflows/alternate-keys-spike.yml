@@ -80,11 +80,18 @@ jobs:
           for label in baseline candidate; do
             cd "$GITHUB_WORKSPACE/$label"
             revision=$(git rev-parse HEAD)
+            build_args=(-p lastdb_node --bin lastdbd --bin lastdb)
+            if [ "$label" = candidate ]; then
+              build_args+=(-p schema_service_server_http --bin schema_service)
+            fi
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
               CARGO_TARGET_DIR="$RUNNER_TEMP/alternate-target-$label" \
-              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin lastdb
+              cargo build --locked --profile dev-release "${build_args[@]}"
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/alternate-bins/$label"
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdb" "$RUNNER_TEMP/alternate-bins/$label-cli"
+            if [ "$label" = candidate ]; then
+              cp "$RUNNER_TEMP/alternate-target-$label/dev-release/schema_service" "$RUNNER_TEMP/alternate-bins/schema-service"
+            fi
             rm -rf "$RUNNER_TEMP/alternate-target-$label"
           done
       - name: Prove existing-home compatibility, declaration backfill, and signed peer import
@@ -93,6 +100,7 @@ jobs:
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \
+            --schema-service "$RUNNER_TEMP/alternate-bins/schema-service" \
             --output "$RUNNER_TEMP/alternate-key-compatibility"
       - name: Compare equivalent records through both public APIs
         env:

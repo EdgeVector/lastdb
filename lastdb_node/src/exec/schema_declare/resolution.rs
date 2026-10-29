@@ -116,6 +116,12 @@ pub(crate) fn declare_resolution_payload(
     if let Some(canonical) = facts.canonical {
         payload["canonical"] = serde_json::json!(canonical);
     }
+    if declare.catalog_schema.uses_independent_fields() {
+        // The definition identity comes from Schema Service. The runtime name
+        // owns this app's values; there is no second schema or molecule alias.
+        payload["identity_hash"] = serde_json::json!(declare.proposal.identity_hash);
+        payload["independent_fields"] = serde_json::json!(true);
+    }
     payload
 }
 

@@ -15,6 +15,7 @@ from alternate_key_compare import FIELDS, check_rows, declare, mutation, query, 
 from node import Node, file_hash, save
 from alternate_changes import change, converted, list_cli, owned_values, primary_rows, refused
 from alternate_peers import peers
+from alternate_app_declare import app_declare
 
 FOUR = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 FIVE = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
@@ -112,6 +113,7 @@ def main():
         parser.add_argument("--" + label, type=Path, required=True)
         parser.add_argument("--" + label + "-revision", required=True)
     parser.add_argument("--candidate-cli", type=Path, required=True)
+    parser.add_argument("--schema-service", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     require(os.environ.get("GITHUB_ACTIONS") == "true"
@@ -125,6 +127,7 @@ def main():
         home.mkdir(mode=0o700)
         result["existing_home"] = legacy_home(args, home)
         result["signed_peers"] = peers(args, args.output / "signed-peers")
+        result["app_declare"] = app_declare(args, args.output / "app-declare")
         result["complete"] = True
     finally:
         save(args.output / "summary.json", result)
@@ -136,6 +139,7 @@ def main():
             "Primary values, atom identities, and metadata survive activation. Counts and named key lists match.\n"
             "Changes retire old entries; abort restores the old schema. Field reuse stays separate after removal.\n"
             "Signed peers check declaration revisions, retries, older field outcomes, restart, and retry after backfill.\n")
+    text += "The public app route uses the real schema service; field definitions do not share record values.\n"
     (args.output / "summary.md").write_text(text)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
