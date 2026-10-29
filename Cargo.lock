@@ -4409,6 +4409,7 @@ dependencies = [
  "chrono",
  "p256 0.13.2",
  "schema_service_core",
+ "schema_service_server_shared",
  "schema_types",
  "serde",
  "serde_json",

@@ -88,9 +88,12 @@ fn open_state(fixture: &Fixture) -> SchemaServiceState {
     let state = SchemaServiceState::new_in_memory(embedder)
         .unwrap_or_else(|error| fail("in-memory state", error));
     #[cfg(not(schema_core_pre_config))]
-    let state =
-        SchemaServiceState::new_in_memory(embedder, schema_service_core::SchemaConfig::default())
-            .unwrap_or_else(|error| fail("in-memory state", error));
+    let state = SchemaServiceState::new_in_memory(
+        embedder,
+        schema_service_core::SchemaConfig::default(),
+        Arc::new(schema_service_server_shared::SystemClock),
+    )
+    .unwrap_or_else(|error| fail("in-memory state", error));
     state.configure_app_identity(AppIdentityConfig {
         deployment_env: app_identity_crypto::Env::Dev,
         trusted_roots: fixture.trusted_roots(),
