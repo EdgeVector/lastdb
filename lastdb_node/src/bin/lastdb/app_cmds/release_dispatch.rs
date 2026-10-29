@@ -3,9 +3,9 @@ use super::*;
 /// `lastdb app release-publish`, `release-channel` and `release-revoke`: the
 /// registry-writing release subcommands. The rest go to
 /// [`app_release_local_command`].
-pub(super) fn app_release_command(home: &Path, action: AppCommand) -> Result<(), String> {
+pub(super) fn app_release_command(home: &Path, action: AppReleaseCommand) -> Result<(), String> {
     match action {
-        AppCommand::ReleasePublish {
+        AppReleaseCommand::ReleasePublish {
             manifest,
             app_uuid,
             source_commit,
@@ -35,7 +35,7 @@ pub(super) fn app_release_command(home: &Path, action: AppCommand) -> Result<(),
             },
             json,
         ),
-        AppCommand::ReleaseChannel {
+        AppReleaseCommand::ReleaseChannel {
             app_id,
             channel,
             release_id,
@@ -61,7 +61,7 @@ pub(super) fn app_release_command(home: &Path, action: AppCommand) -> Result<(),
             },
             json,
         ),
-        AppCommand::ReleaseRevoke {
+        AppReleaseCommand::ReleaseRevoke {
             app_id,
             release_id,
             reason,
@@ -92,9 +92,9 @@ pub(super) fn app_release_command(home: &Path, action: AppCommand) -> Result<(),
 /// Release and dev-status subcommands that read or observe the local host
 /// (`release-install`, `release-status`, `release-check`, `dev-status`,
 /// `release-observe`).
-fn app_release_local_command(action: AppCommand) -> Result<(), String> {
+fn app_release_local_command(action: AppReleaseCommand) -> Result<(), String> {
     match action {
-        AppCommand::ReleaseInstall {
+        AppReleaseCommand::ReleaseInstall {
             app_id,
             channel,
             env,
@@ -102,7 +102,7 @@ fn app_release_local_command(action: AppCommand) -> Result<(), String> {
             host_track_root,
             json,
         } => app_release_install(&app_id, &channel, env, schema_url, host_track_root, json),
-        AppCommand::ReleaseStatus {
+        AppReleaseCommand::ReleaseStatus {
             app_id,
             channel,
             env,
@@ -119,7 +119,7 @@ fn app_release_local_command(action: AppCommand) -> Result<(), String> {
             host_track_root,
             json,
         ),
-        AppCommand::ReleaseCheck {
+        AppReleaseCommand::ReleaseCheck {
             app_id,
             channel,
             env,
@@ -144,14 +144,14 @@ fn app_release_local_command(action: AppCommand) -> Result<(), String> {
                 json,
             },
         ),
-        AppCommand::DevStatus {
+        AppReleaseCommand::DevStatus {
             app_id,
             workspace_id,
             dev_session_id,
             workspace,
             json,
         } => app_dev_status(app_id, workspace_id, dev_session_id, &workspace, json),
-        AppCommand::ReleaseObserve {
+        AppReleaseCommand::ReleaseObserve {
             app_id,
             app_uuid,
             release_id,

@@ -46,51 +46,44 @@ pub(crate) fn print_pretty_json<T: serde::Serialize + ?Sized>(value: &T) {
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
-        AppCommand::DevInit { key_file } => app_dev_init(&home, key_file),
-        AppCommand::Check {
+        AppCommand::Lifecycle(AppLifecycleCommand::DevInit { key_file }) => {
+            app_dev_init(&home, key_file)
+        }
+        AppCommand::Lifecycle(AppLifecycleCommand::Check {
             manifest,
             json,
             sync,
             confirm_expire_existing,
             schema_url: _,
-        } => app_check_command(&home, &manifest, json, sync, confirm_expire_existing),
-        AppCommand::RegisterSchemas { manifest, .. } => app_register_schemas(&home, &manifest),
-        AppCommand::Publish {
+        }) => app_check_command(&home, &manifest, json, sync, confirm_expire_existing),
+        AppCommand::Lifecycle(AppLifecycleCommand::RegisterSchemas { manifest, .. }) => {
+            app_register_schemas(&home, &manifest)
+        }
+        AppCommand::Lifecycle(AppLifecycleCommand::Publish {
             manifest,
             env,
             schema_url,
             api_url,
             key_file,
             api_key,
-        } => app_publish_command(
+        }) => app_publish_command(
             &home, &manifest, env, schema_url, api_url, key_file, api_key,
         ),
-        AppCommand::Promote {
+        AppCommand::Lifecycle(AppLifecycleCommand::Promote {
             manifest,
             env,
             schema_url,
             api_url,
             key_file,
             api_key,
-        } => app_promote(
+        }) => app_promote(
             &home, &manifest, env, schema_url, api_url, key_file, api_key,
         ),
-        action @ (AppCommand::List { .. }
-        | AppCommand::Resolve { .. }
-        | AppCommand::Index(_)
-        | AppCommand::Storage { .. }
-        | AppCommand::Info { .. }
-        | AppCommand::Install { .. }
-        | AppCommand::Upgrade { .. }) => app_catalog_command(&home, action),
-        action @ (AppCommand::ReleasePublish { .. }
-        | AppCommand::ReleaseChannel { .. }
-        | AppCommand::ReleaseRevoke { .. }
-        | AppCommand::ReleaseInstall { .. }
-        | AppCommand::ReleaseStatus { .. }
-        | AppCommand::ReleaseCheck { .. }
-        | AppCommand::DevStatus { .. }
-        | AppCommand::ReleaseObserve { .. }) => app_release_command(&home, action),
-        AppCommand::Run { app_id, dir, args } => app_run(&home, app_id, dir, args),
+        AppCommand::Lifecycle(AppLifecycleCommand::Run { app_id, dir, args }) => {
+            app_run(&home, app_id, dir, args)
+        }
+        AppCommand::Catalog(action) => app_catalog_command(&home, action),
+        AppCommand::Release(action) => app_release_command(&home, action),
     }
 }
 
@@ -104,8 +97,8 @@ fn handle_app_storage(
     app_storage(&socket, json, reconcile, page_size)
 }
 
-fn handle_app_resolve(home: &Path, command: AppCommand) -> Result<(), String> {
-    let AppCommand::Resolve {
+fn handle_app_resolve(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
+    let AppCatalogCommand::Resolve {
         app_id,
         channel,
         index,
@@ -129,8 +122,8 @@ fn handle_app_resolve(home: &Path, command: AppCommand) -> Result<(), String> {
     )
 }
 
-fn handle_app_install(home: &Path, command: AppCommand) -> Result<(), String> {
-    let AppCommand::Install {
+fn handle_app_install(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
+    let AppCatalogCommand::Install {
         app_ids,
         env,
         schema_url,
@@ -172,8 +165,8 @@ fn handle_app_install(home: &Path, command: AppCommand) -> Result<(), String> {
     )
 }
 
-fn handle_app_upgrade(home: &Path, command: AppCommand) -> Result<(), String> {
-    let AppCommand::Upgrade {
+fn handle_app_upgrade(home: &Path, command: AppCatalogCommand) -> Result<(), String> {
+    let AppCatalogCommand::Upgrade {
         app_ids,
         env,
         schema_url,
@@ -209,9 +202,9 @@ fn handle_app_upgrade(home: &Path, command: AppCommand) -> Result<(), String> {
 
 /// Catalog subcommands of `lastdb app`: list, resolve, index, storage, info,
 /// install and upgrade.
-fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
+fn app_catalog_command(home: &Path, action: AppCatalogCommand) -> Result<(), String> {
     match action {
-        AppCommand::List {
+        AppCatalogCommand::List {
             env,
             schema_url,
             channel,
@@ -219,14 +212,14 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             trust_key,
             json,
         } => app_list(home, env, schema_url, channel, index, trust_key, json),
-        command @ AppCommand::Resolve { .. } => handle_app_resolve(home, command),
-        AppCommand::Index(cmd) => app_index_command(home, cmd),
-        AppCommand::Storage {
+        command @ AppCatalogCommand::Resolve { .. } => handle_app_resolve(home, command),
+        AppCatalogCommand::Index(cmd) => app_index_command(home, cmd),
+        AppCatalogCommand::Storage {
             json,
             reconcile,
             page_size,
         } => handle_app_storage(home, json, reconcile, page_size),
-        AppCommand::Info {
+        AppCatalogCommand::Info {
             app_id,
             env,
             schema_url,
@@ -234,8 +227,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             index,
             trust_key,
         } => app_info(&app_id, env, schema_url, channel, index, trust_key),
-        command @ AppCommand::Install { .. } => handle_app_install(home, command),
-        command @ AppCommand::Upgrade { .. } => handle_app_upgrade(home, command),
-        _ => unreachable!("app_command routes only catalog subcommands here"),
+        command @ AppCatalogCommand::Install { .. } => handle_app_install(home, command),
+        command @ AppCatalogCommand::Upgrade { .. } => handle_app_upgrade(home, command),
     }
 }
