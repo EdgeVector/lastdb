@@ -36,7 +36,11 @@ fn head_key() -> String {
 
 fn encode<T: Serialize>(value: &T) -> StorageResult<Vec<u8>> {
     bounded::serialized_size(value)?;
-    cloud_backup_protocol::v2::hash::canonical_bytes(value)
+    // Device outcomes contain nanosecond clocks and exact user integers. Keep
+    // their scalar representation; the cloud RFC8785 encoder rejects >2^53-1.
+    let value = serde_json::to_value(value)
+        .map_err(|_| invalid("cannot encode logical capture metadata"))?;
+    serde_json::to_vec(&crate::canonical::CanonicalValue(&value))
         .map_err(|_| invalid("cannot encode logical capture metadata"))
 }
 

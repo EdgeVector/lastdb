@@ -43,6 +43,10 @@ An entirely idempotent retry produces no new event or sequence.
 The device signs the prepared outcome event with a new outer signature.
 This signature binds the origin, sequence, previous hash, source mutation identities, and complete field outcomes.
 The original mutation signature does not authenticate a changed, normalized request payload.
+The event encoder sorts all JSON object keys in UTF-8 byte order and preserves array order.
+It uses `serde_json` number encoding and preserves exact integers, including nanosecond times.
+The cloud manifest encoder has different integer limits and does not encode these logical events.
+
 The event contains no source request predicates, blinded storage keys, or native reference counters.
 The event, its metadata, the device head, the atoms, and their local reference counts share one native commit.
 A capacity or preparation error drops the complete private batch.
