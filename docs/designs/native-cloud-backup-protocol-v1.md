@@ -423,7 +423,7 @@ The existing derivation remains:
 Do not use BIP39's PBKDF seed output.
 Preserve the existing Ed25519-to-X25519 conversion and HKDF-SHA256 derivation.
 The salt remains fold:e2e:v1.
-The info values remain fold:content-key and fold:index-key.
+The info value remains fold:content-key. The node does not derive fold:index-key now.
 
 The public key contains 32 raw Ed25519 bytes in lowercase hexadecimal.
 The account ID equals the first sixteen SHA-256 bytes of that raw public key.
