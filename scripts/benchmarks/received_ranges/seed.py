@@ -24,12 +24,14 @@ class Seed:
             "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
             "field_descriptions": {
                 name: "received range batches " + name for name in FIELDS + EXTRA_FIELDS}}})
-        alternate_fields = ["bucket", "alternate_id", "title", "body"]
+        alternate_fields = ["bucket", "id", "title", "body"]
+        alternate_descriptions = {name: "received range batches " + name for name in alternate_fields}
+        alternate_descriptions["id"] = "received range alternate membership id"
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": HIDDEN_SCHEMA, "descriptive_name": HIDDEN_SCHEMA,
-            "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "alternate_id"},
-            "fields": alternate_fields, "field_types": {"bucket": "String", "alternate_id": "String"},
-            "field_descriptions": {name: "received range batches " + name for name in alternate_fields},
+            "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+            "fields": alternate_fields, "field_types": {"bucket": "String", "id": "String"},
+            "field_descriptions": alternate_descriptions,
             "field_mappers": {name: SCHEMA + "." + name for name in ("bucket", "title", "body")}}})
         self.node.call("/api/db/flush", {})
         self.node.stop()
@@ -40,20 +42,15 @@ class Seed:
         for hashed, ranged in coordinates:
             self.ordinal += 1
             value = {} if action in ("delete", "purge") else fields(hashed, ranged, source, revision)
-            if alternate:
-                value["alternate_id"] = value.pop("id")
             mutations.append({"uuid": f"00000000-0000-4000-8000-{self.ordinal:012x}",
                 "schema_name": HIDDEN_SCHEMA if alternate else SCHEMA, "fields_and_values": value,
                 "key_value": {"hash": hashed, "range": ranged}, "pub_key": "generated-ci",
                 "mutation_type": action, "synchronous": True,
                 "source_file_name": marker(source) if hashed == CONDITION_HASH else None})
-            # A different typed key layout has its own molecules. Its local
-            # writes cannot hide received keys in the queried schema.
-            if not alternate:
-                if action in ("delete", "purge"):
-                    self.sources[source].pop((hashed, ranged), None)
-                else:
-                    self.sources[source][(hashed, ranged)] = value
+            if action in ("delete", "purge"):
+                self.sources[source].pop((hashed, ranged), None)
+            else:
+                self.sources[source][(hashed, ranged)] = None if alternate else value
         raw = json.dumps({"source": source, "mutations": mutations}, sort_keys=True, separators=(",", ":")).encode() + b"\n"
         self.offered.update(raw)
         stream.write(raw)
@@ -109,7 +106,11 @@ class Seed:
     def expected(self):
         result = {}
         for source in (1, 0, None):
-            result.update(self.sources[source])
+            for coordinate, value in self.sources[source].items():
+                if value is None:
+                    result.pop(coordinate, None)
+                else:
+                    result[coordinate] = value
         return result
 
     def final_hash(self):

@@ -102,6 +102,10 @@ struct PackKvStore {
 
 fn map(error: laststore::Error) -> StorageError {
     match error {
+        laststore::Error::NativeProof(code) => StorageError::NativeProof {
+            stage: crate::storage::error::NativeProofStage::NativeReader,
+            cause: crate::storage::error::NativeProofCause::Static(code),
+        },
         laststore::Error::Io(io) if StorageError::is_storage_full_io(&io) => {
             StorageError::StorageFull {
                 detail: io.to_string(),

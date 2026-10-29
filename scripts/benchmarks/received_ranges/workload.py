@@ -36,8 +36,8 @@ class Workload:
     def edges(self):
         cases = [("overlap-boundary", query(key(8160), key(8240), 7)),
             ("second-source-only", query(key(23000), key(23500), 37)),
-            ("alternate-layout-tail", query(key(24000), key(TOTAL), 37)),
-            ("alternate-layout-prefix", query(key(5000), key(5800), 37)),
+            ("all-hidden-tail", query(key(24000), key(TOTAL), 37)),
+            ("hidden-prefix-refill", query(key(5000), key(5800), 37)),
             ("empty-interval", query(key(77), key(77), 7)),
             ("inverted-interval", query(key(78), key(77), 7)),
             ("empty-prefix", prefix("", 2, EDGE_HASH)),

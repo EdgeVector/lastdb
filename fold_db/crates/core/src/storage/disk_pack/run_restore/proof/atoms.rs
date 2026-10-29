@@ -29,9 +29,15 @@ pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<u64> {
         }
         let dependencies = files::expected(&atom)?;
         drop(atom);
-        directories(proof, scope.as_deref(), &id, &dependencies)?;
+        super::phase(
+            super::Stage::Directories,
+            directories(proof, scope.as_deref(), &id, &dependencies),
+        )?;
         for dependency in dependencies {
-            super::native::verify(proof, &dependency)?;
+            super::phase(
+                super::Stage::NativeCas,
+                super::native::verify(proof, &dependency),
+            )?;
         }
         count = count
             .checked_add(1)

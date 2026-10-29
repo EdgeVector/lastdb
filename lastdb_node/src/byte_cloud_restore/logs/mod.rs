@@ -128,7 +128,7 @@ fn finish(
         keys.content_key(),
         &session.root.join("run-proof"),
     )
-    .map_err(|_| RestoreError::Invalid("complete replayed native proof"))?;
+    .map_err(RestoreError::native_proof)?;
     let root = proof
         .native_root()
         .map_err(|_| RestoreError::Invalid("replayed native root"))?;

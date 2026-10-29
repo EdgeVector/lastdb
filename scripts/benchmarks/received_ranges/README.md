@@ -15,14 +15,12 @@ Local records duplicate every sixteenth key, plus selected boundary keys.
 The four fields identify the source and contain a generated 256-byte body.
 Every returned field must match the expected source precedence.
 Local values take precedence. Source zero precedes source one.
-
-An alternate schema maps the same canonical fields but uses a different range field.
-The typed key contract keeps its molecules separate from the queried schema's molecules.
-Local alternate-schema writes therefore cannot hide received records from the queried schema.
-The recipe requires the received records across the 640-key prefix interval and the 576-key tail.
-
-Main PRs #657 and #666 establish this typed behavior. The old hidden-key expectation assumed physical molecule collapse.
-The generated mutations and timed narrow requests remain unchanged. Only the expected membership and two case labels change.
+An alternate schema uses the same `(bucket,id)` key and explicit mappers for `bucket`, `title`, and `body`.
+Its unmapped `id` has a distinct description and molecule.
+The local write supplies no value in the first schema's `id` molecule.
+Those local primary values take precedence before schema membership excludes them.
+The recipe verifies 640 excluded keys before a valid refill and a 576-key all-hidden tail.
+Received values at those same keys must remain hidden.
 
 The public mutation API does not accept a received namespace override.
 The CI-only `received_range_seed` executable therefore uses the ordinary mutation manager.

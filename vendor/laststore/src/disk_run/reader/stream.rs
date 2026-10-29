@@ -13,9 +13,12 @@ mod diagnostic;
 mod diagnostic_io;
 #[path = "stream/import.rs"]
 mod import;
+#[path = "stream/proof.rs"]
+mod proof;
 use body::copy_exact;
 pub(crate) use body::StreamBody;
 pub(crate) use diagnostic::SummaryCursor;
+pub(crate) use proof::{ProofBlock, ProofBounds, ProofHead};
 
 pub(crate) enum SelectedBody {
     Deleted,
