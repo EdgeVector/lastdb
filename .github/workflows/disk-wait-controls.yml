@@ -1,0 +1,113 @@
+name: PR 702 disk-wait controls
+
+# One historical diagnostic campaign; no replacement for benchmark-complete.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/disk-wait-controls.yml'
+      - 'scripts/benchmarks/disk_wait_controls*.py'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: disk-wait-controls-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  investigate:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [0, 1]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASELINE_SHA: 4898273d73b70c50fa7210d17116f7394dd3c129
+      CANDIDATE_SHA: 8def278b037d25a73a382c1366ac2822ab16cc3d
+      BUILD_CONTEXT: 269671646d3b8594616ed1dbd07727a8a75c922b42621f562175e9053e99636b
+      BUNDLE_SHA256: ff817f6bf5e14aa1dc1fdb01cf72c5848abb70c0424491d4862b03e32fd0d151
+    steps:
+      - name: Prepare external CI output
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          result="$RUNNER_TEMP/disk-wait-controls-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$result"
+          echo "BENCH_OUTPUT=$result" >> "$GITHUB_ENV"
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: 9041e1521ad552dad274ab41ef896193b5ff0cf3
+          path: historical
+          persist-credentials: false
+      - name: Check diagnostic source syntax
+        run: python3 -m py_compile controller/scripts/benchmarks/disk_wait_controls*.py
+      - name: Retain original artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12872265708" > "$BENCH_OUTPUT/source-artifact.json"
+      - name: Download the original programs without another build
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 12872265708
+          run-id: 40814490993
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/original-programs
+          merge-multiple: true
+      - name: Verify programs, hashes, build recipe and runtime dependencies
+        run: |
+          python3 historical/scripts/benchmarks/programs.py unpack \
+            --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/original-programs/programs.tar.gz"
+      - name: Require space for generated homes and diagnostic logs
+        run: python3 historical/scripts/benchmarks/disk.py --profile standard --phase measure --require
+      - name: Run the fixed ordinary and native controls
+        run: |
+          timeout --signal=TERM --kill-after=120s 75m \
+            python3 controller/scripts/benchmarks/disk_wait_controls.py \
+              --driver "$GITHUB_WORKSPACE/historical" --programs "$BENCH_BINARY_ROOT" \
+              --source-metadata "$BENCH_OUTPUT/source-artifact.json" \
+              --replica ${{ matrix.replica }} --output "$BENCH_OUTPUT/investigation"
+      - name: Audit raw samples and publish the controls
+        if: always()
+        run: python3 controller/scripts/benchmarks/disk_wait_controls_report.py --output "$BENCH_OUTPUT/investigation"
+      - name: Upload the original identities and all measurements
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-disk-wait-controls-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify the uploaded artifact metadata
+        if: always() && steps.upload.outcome == 'success'
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.CONTROLLER_SHA }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/controls-artifact.json"
+          python3 historical/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/controls-artifact.json" --output "$RUNNER_TEMP/controls-download"
+      - name: Retain the verified download receipt
+        if: always() && steps.receipt.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-disk-wait-controls-receipt-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/controls-download/artifact.json
+          retention-days: 14
+          if-no-files-found: error
