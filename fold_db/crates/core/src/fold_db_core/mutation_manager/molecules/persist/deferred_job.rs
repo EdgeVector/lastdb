@@ -20,14 +20,6 @@ impl MutationManager {
         if let Some(runtime) = &runtime {
             runtime.record_read_stage("molecule-stores-done", job.modified_fields.len());
         }
-        // Declaration binding is best effort. Keep its existing per-write
-        // retry without storing or reloading the unchanged schema catalog.
-        measure(
-            "schema_coherence_us",
-            self.schema_manager
-                .apply_field_hash_coherence_on_load(&job.schema_name),
-        )
-        .await?;
         measure("side_records_us", self.store_deferred_side_records(job)).await
     }
 

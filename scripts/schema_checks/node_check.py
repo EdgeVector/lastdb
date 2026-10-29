@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 import time
 
+from field_proteins import field_identity_membership, independent_field_joins, renamed_mapper
+
 from node_cases import (ambiguous_backfill, concurrent_members, late_member, linked_lifecycle, schema_evolution, separation,
                         unsupported_layouts, unsupported_marker)
 from node_ops import ENVIRONMENT, Node, file_hash, require, save
@@ -28,6 +30,9 @@ LIMITS = [
     "Explicit migration copies current visible tips; it does not replay historical source Delete barriers.",
 ]
 CASES = [
+    ("equal-fields-same-key-low-overlap", field_identity_membership),
+    ("one-equal-field-local-rename", independent_field_joins),
+    ("renamed-mapper-source-identity", renamed_mapper),
     ("linked-lifecycle", linked_lifecycle),
     ("declaration-separation", lambda node: separation(node, declared=True)),
     ("same-name-distinct-meaning", lambda node: separation(node, declared=False)),
@@ -101,7 +106,7 @@ def main():
     save(args.output / "node-result.json", {
         "source": args.candidate_revision, "binary_sha256": file_hash(args.candidate),
         "drivers": {name: file_hash(Path(__file__).parent / name)
-                    for name in ("node_check.py", "node_cases.py", "node_ops.py")},
+                    for name in ("node_check.py", "node_cases.py", "node_ops.py", "field_proteins.py")},
         "limits": LIMITS, "cases": results,
     })
     write_summary(args, results)
