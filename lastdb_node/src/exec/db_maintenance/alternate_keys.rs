@@ -10,9 +10,9 @@ pub(in crate::exec) async fn execute_db_alternate_keys_route(
     if ctx.db_locator.is_some() || ctx.storage_prefix.is_some() {
         return error_response(400, "alternate changes require the personal database", ctx);
     }
-    let Ok(request) = serde_json::from_slice::<fold_db::fold_db_core::fold_db::AlternateKeyChange>(
-        &req.body,
-    ) else {
+    let Ok(request) =
+        serde_json::from_slice::<fold_db::fold_db_core::fold_db::AlternateKeyChange>(&req.body)
+    else {
         return error_response(400, "invalid alternate-key change request", ctx);
     };
     match host.db.change_alternate_keys(request).await {
