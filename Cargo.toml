@@ -18,6 +18,8 @@ members = [
     "schema_service/crates/resolver_pack_publisher",
     "schema_service/scripts/generate_schema_org_classifications",
     "schema_service/scripts/generate_validated_schema_org_seeds",
+    # In-memory observable snapshot for schema_service_core refactors.
+    "scripts/schema_core_baseline",
 
 
     # shared Ed25519 + JCS + signed-envelope helpers (app_identity Lane A)
