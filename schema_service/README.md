@@ -157,7 +157,8 @@ cargo run -p schema_service_worker --bin schema_service_backfill_purpose -- \
 > `build --recompute-embeddings` (feature `recompute-embeddings`) or feed a
 > snapshot that already has embeddings. Local dogfood:
 > `publish --local-out-dir ./serve --dry-run` then `python3 -m http.server`.
-> Mini install config: [docs/mini_schema_resolver_config.md](docs/mini_schema_resolver_config.md).
+> Mini resolves live. Its timeout config is documented in
+> [docs/mini_schema_resolver_config.md](docs/mini_schema_resolver_config.md).
 
 `schema_resolver_pack_publish` is the local-machine release publisher for
 Schema Resolver Packs. It runs on Tom's provisioned machine, not Forgejo CI,
@@ -255,8 +256,8 @@ cargo run -p schema_resolver_pack_publisher --bin schema_resolver_pack_publish -
   --audit-log ./resolver-pack-dev-audit.json
 ```
 
-The public dev read origin is documented in
-[`docs/mini_schema_resolver_config.md`](docs/mini_schema_resolver_config.md).
+The public dev read origin for pack tooling is
+`https://pub-a27a88cf1c0b47cdb158819600250b98.r2.dev`.
 
 Promote a previous signed manifest without rebuilding:
 
