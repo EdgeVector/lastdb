@@ -104,15 +104,21 @@ class Status:
     @staticmethod
     def plan_counts(value, phase):
         counters = {name: count(value.get(name)) for name in (
-            "planned_allocations", "eligible_allocations", "confirmed_allocations",
+            "planned_allocations", "eligible_allocations", "protected_allocations", "confirmed_allocations",
             "planned_reserved_bytes", "planned_retained_bytes", "released_bytes",
             "protected_uncertain_bytes")}
         planned_bytes = counters["planned_reserved_bytes"] + counters["planned_retained_bytes"]
         require(planned_bytes < 2**64 and counters["released_bytes"] <= planned_bytes
                 and counters["confirmed_allocations"] <= counters["eligible_allocations"]
                 <= counters["planned_allocations"]
+                and counters["protected_allocations"] == (
+                    counters["planned_allocations"] - counters["eligible_allocations"])
+                and value.get("legacy_and_unknown_streams_retained") is True
                 and (counters["released_bytes"] == 0 or counters["confirmed_allocations"] > 0),
                 "ci_cleanup_planned_counts")
+        if phase == "complete":
+            require(counters["confirmed_allocations"] == counters["eligible_allocations"]
+                    and counters["protected_uncertain_bytes"] == 0, "ci_cleanup_all_eligible_confirmed")
         if PHASES.index(phase) >= PHASES.index("drain"):
             require(value["retirement_sha256"] is not None, "ci_cleanup_retirement_commitment")
         require("resume_after_ms" in value, "ci_cleanup_resume_hint_field")
