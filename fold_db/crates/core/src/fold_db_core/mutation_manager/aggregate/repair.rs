@@ -44,15 +44,8 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<HashMap<KeyValue, BTreeMap<String, serde_json::Value>>, SchemaError> {
-        let mut member_schema = self
-            .schema_manager
-            .get_schema_metadata(&guard.member_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate member schema '{}' not found",
-                    guard.member_schema_name
-                ))
-            })?;
+        let mut member_schema =
+            self.require_aggregate_schema("member", &guard.member_schema_name)?;
         super::super::helpers::apply_storage_prefix_to_schema(&mut member_schema, storage_prefix);
         let mut rows: HashMap<KeyValue, BTreeMap<String, serde_json::Value>> = HashMap::new();
         let mut authoritative_member_keys: Option<std::collections::HashSet<KeyValue>> = None;

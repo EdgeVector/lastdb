@@ -39,15 +39,7 @@ impl MutationManager {
                     .into(),
                 ));
         }
-        let source_schema = self
-            .schema_manager
-            .get_schema_metadata(&source.schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate source schema '{}' not found",
-                    source.schema_name
-                ))
-            })?;
+        let source_schema = self.require_aggregate_schema("source", &source.schema_name)?;
         if source_schema.schema_type != DeclarativeSchemaType::HashRange {
             return Err(SchemaError::InvalidData(
                 "aggregate source schema must be HashRange".into(),
@@ -78,15 +70,8 @@ impl MutationManager {
 
     /// Validates the target schema and metric fields; returns the resolved target key.
     fn validate_aggregate_target(&self, aggregate: &AggregateSet) -> Result<KeyValue, SchemaError> {
-        let target_schema = self
-            .schema_manager
-            .get_schema_metadata(&aggregate.target_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate target schema '{}' not found",
-                    aggregate.target_schema_name
-                ))
-            })?;
+        let target_schema =
+            self.require_aggregate_schema("target", &aggregate.target_schema_name)?;
         if target_schema.schema_type != DeclarativeSchemaType::Hash {
             return Err(SchemaError::InvalidData(
                 "aggregate target schema must be Hash".into(),
@@ -137,15 +122,8 @@ impl MutationManager {
         aggregate: &AggregateSet,
         source_key: &KeyValue,
     ) -> Result<KeyValue, SchemaError> {
-        let member_schema = self
-            .schema_manager
-            .get_schema_metadata(&aggregate.member_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate member schema '{}' not found",
-                    aggregate.member_schema_name
-                ))
-            })?;
+        let member_schema =
+            self.require_aggregate_schema("member", &aggregate.member_schema_name)?;
         if member_schema.schema_type != DeclarativeSchemaType::HashRange {
             return Err(SchemaError::InvalidData(format!(
                 "aggregate member schema '{}' must be HashRange",
@@ -199,15 +177,7 @@ impl MutationManager {
     }
 
     fn validate_enrolled_source_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
-        let source_schema = self
-            .schema_manager
-            .get_schema_metadata(&guard.source_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate source schema '{}' not found",
-                    guard.source_schema_name
-                ))
-            })?;
+        let source_schema = self.require_aggregate_schema("source", &guard.source_schema_name)?;
         if source_schema.schema_type != DeclarativeSchemaType::HashRange
             || guard.source_schema_name == guard.member_schema_name
         {
@@ -225,15 +195,7 @@ impl MutationManager {
     }
 
     fn validate_enrolled_target_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
-        let target_schema = self
-            .schema_manager
-            .get_schema_metadata(&guard.target_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate target schema '{}' not found",
-                    guard.target_schema_name
-                ))
-            })?;
+        let target_schema = self.require_aggregate_schema("target", &guard.target_schema_name)?;
         if target_schema.schema_type != DeclarativeSchemaType::Hash {
             return Err(SchemaError::InvalidData(
                 "enrolled aggregate target must remain a Hash schema".into(),
@@ -265,15 +227,7 @@ impl MutationManager {
     }
 
     fn validate_enrolled_member_schema(&self, guard: &AggregateGuard) -> Result<(), SchemaError> {
-        let member_schema = self
-            .schema_manager
-            .get_schema_metadata(&guard.member_schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate member schema '{}' not found",
-                    guard.member_schema_name
-                ))
-            })?;
+        let member_schema = self.require_aggregate_schema("member", &guard.member_schema_name)?;
         if member_schema.schema_type != DeclarativeSchemaType::HashRange {
             return Err(SchemaError::InvalidData(
                 "enrolled aggregate member must remain a HashRange schema".into(),
