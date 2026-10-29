@@ -124,13 +124,15 @@ def abort_partial(node, declarations):
     name = install(node, schema("AbortAlternate", "abort compatibility", fields=FIELDS))
     write(node, name, {"hash": "good"}, {"record_id": "good", "group_id": "g", "owner_id": "o", "payload": "good"})
     write(node, name, {"hash": "missing"}, {"record_id": "missing", "payload": "preserved"})
+    model = {"good": {"record_id": "good", "group_id": "g", "owner_id": "o", "payload": "good"},
+             "missing": {"record_id": "missing", "payload": "preserved"}}
+    before = primary_rows(node, name, model)
     current = change(node, name, "status")
     started = change(node, name, "begin", expected_revision=current["active_revision"], alternate_keys=declarations)
     change(node, name, "backfill", change_id=started["change_id"], keys=[{"hash": "good"}])
     refused(lambda: change(node, name, "backfill", change_id=started["change_id"], keys=[{"hash": "missing"}]), "required alternate")
     receipt = clean(node, name, change(node, name, "abort", change_id=started["change_id"]))
     require(receipt["phase"] == "aborted", "abort did not restore availability")
-    result = node.call("/api/query", {"schema_name": name, "fields": ["payload"], "filter": {"HashKey": "missing"}})[0]
-    require(result["results"][0]["fields"] == {"payload": "preserved"}, "abort changed a primary value")
+    require(primary_rows(node, name, model) == before, "abort changed primary atoms, clocks, or metadata")
     write(node, name, {"hash": "missing"}, {"payload": "usable again"}, "update")
     return receipt
