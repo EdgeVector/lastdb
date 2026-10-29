@@ -71,8 +71,7 @@ impl MutationManager {
         gs: GuardState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let expected = &ctx.expected_guard;
-        let migration_winner =
-            gs.source_conflict(expected).is_some() || gs.target_conflict(expected).is_some();
+        let migration_winner = gs.has_association_conflict(expected);
         rules::reject_request_migration(ctx.origin, migration_winner)?;
         if gs.loses_replay_conflict(expected) {
             return self.apply_losing_replay(source, ctx, &gs).await;
