@@ -52,7 +52,9 @@ impl LiveSchemaResolver {
             }
         }
         let wire = proposals.iter().map(|p| p.proposal.clone()).collect();
-        let live_map = self.live.resolve_schemas(None, wire).await?;
+        // Retain the old gateway's heap boundary instead of embedding the full
+        // network future in the surrounding request future.
+        let live_map = Box::pin(self.live.resolve_schemas(None, wire)).await?;
         let mut claimed = HashSet::new();
         let mut out = Vec::with_capacity(proposals.len());
         for p in proposals {

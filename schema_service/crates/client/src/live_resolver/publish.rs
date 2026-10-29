@@ -86,16 +86,15 @@ impl LiveSchemaResolver {
             schema.identity_hash = Some(h.clone());
         }
 
-        match self
-            .live
-            .add_schema_with_shared_surface(
-                &schema,
-                HashMap::new(),
-                req.request.surface.clone(),
-                "shared_surface_publish",
-                fallback_reason,
-            )
-            .await
+        // The retired async-trait gateway boxed this network future too.
+        match Box::pin(self.live.add_schema_with_shared_surface(
+            &schema,
+            HashMap::new(),
+            req.request.surface.clone(),
+            "shared_surface_publish",
+            fallback_reason,
+        ))
+        .await
         {
             Ok(response) => {
                 let hash = response
