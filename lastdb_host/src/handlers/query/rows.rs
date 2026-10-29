@@ -159,7 +159,7 @@ async fn execute_rows_captured<H: HostNode>(
     let mut drops = RowDrops::from(drops);
     drops.conflict_flags = annotate_conflict_flags(host, &mut results).await;
     if compact {
-        super::output::compact_rows(&mut results);
+        super::output::compact_rows(&mut results, drops.conflict_flags);
     }
     request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
 

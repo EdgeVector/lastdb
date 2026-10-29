@@ -27,7 +27,7 @@ impl QueryResponseFormat {
 }
 
 /// Keep one conservative row conflict flag after the field metadata leaves the reply.
-pub(super) fn compact_rows(rows: &mut [serde_json::Value]) {
+pub(super) fn compact_rows(rows: &mut [serde_json::Value], coverage: &str) {
     use serde_json::Value;
     for row in rows {
         let Some(row) = row.as_object_mut() else {
@@ -40,7 +40,11 @@ pub(super) fn compact_rows(rows: &mut [serde_json::Value]) {
             .into_iter()
             .flat_map(|fields| fields.values())
             .filter_map(|field| field.get("has_conflicts"));
-        let mut flag = Value::Bool(false);
+        let mut flag = if coverage == "known" {
+            Value::Bool(false)
+        } else {
+            Value::String("unknown".into())
+        };
         for value in flags {
             if value == &Value::Bool(true) {
                 flag = Value::Bool(true);
