@@ -38,5 +38,6 @@ mod survey;
 
 pub(crate) use keys::digest_of_id;
 pub(crate) use keys::TimeQueue;
+pub(crate) use net::NetSchedule;
 pub(crate) use reader::{DuePage, QueueReader};
 pub(crate) use survey::QueueSurvey;
