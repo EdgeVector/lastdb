@@ -10,7 +10,7 @@ use crate::qos::Lane;
 use crate::HostError;
 
 use super::fields::{require_durable_aggregate_receipt, resolve_aggregate_schema_triplet};
-use super::{operations_json, stages_json};
+use super::{commit_core_json, extend_json};
 
 /// Execute `POST /api/aggregate/finalize` after a caller verifies a complete
 /// member-partition repair. The core checks the exact guard association and
@@ -45,15 +45,13 @@ pub async fn execute_aggregate_finalize<H: HostNode>(
         .map_err(|error| super::prefix_core_failure(error, "Aggregate finalize failed"))?;
     let receipt = require_durable_aggregate_receipt(receipt, "Aggregate finalize")?;
 
-    Ok(serde_json::json!({
-        "success": true,
-        "mutation_ids": receipt.mutation_ids,
-        "revision": receipt.revision,
-        "operations": operations_json(&receipt.operations),
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": stages_json(&receipt.stages),
-        "touched_group_ids": receipt.touched_group_ids
-    }))
+    Ok(extend_json(
+        commit_core_json(&receipt),
+        serde_json::json!({
+            "success": true,
+            "mutation_ids": receipt.mutation_ids,
+        }),
+    ))
 }
 
 /// Execute `POST /api/aggregate/repair` after a caller reconciles the source
@@ -90,14 +88,12 @@ pub async fn execute_aggregate_repair<H: HostNode>(
     let receipt = require_durable_aggregate_receipt(repaired.receipt, "Aggregate repair")?;
 
     Ok(serde_json::json!({
-        "receipt": {
-            "mutation_ids": receipt.mutation_ids,
-            "revision": receipt.revision,
-            "operations": operations_json(&receipt.operations),
-            "durability": receipt.durability.as_str(),
-            "resident_stages_us": stages_json(&receipt.stages),
-            "touched_group_ids": receipt.touched_group_ids
-        },
+        "receipt": extend_json(
+            commit_core_json(&receipt),
+            serde_json::json!({
+                "mutation_ids": receipt.mutation_ids,
+            }),
+        ),
         "repair_token": repaired.repair_token
     }))
 }
