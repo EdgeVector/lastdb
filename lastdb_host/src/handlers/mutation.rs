@@ -11,7 +11,6 @@ use fold_db::access::AccessContext;
 use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
     MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
 };
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
@@ -169,6 +168,31 @@ pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
     })
 }
 
+/// The commit fields shared by a mutation, a batch, a finalize, and a repair.
+pub(super) fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
+    serde_json::json!({
+        "revision": receipt.revision,
+        "operations": operations_json(&receipt.operations),
+        "durability": receipt.durability.as_str(),
+        "resident_stages_us": stages_json(&receipt.stages),
+        "touched_group_ids": receipt.touched_group_ids,
+    })
+}
+
+/// Insert every key of `extra` into `base`. A repeated key keeps the `extra` value.
+pub(super) fn extend_json(base: Value, extra: Value) -> Value {
+    let Value::Object(mut base_map) = base else {
+        return extra;
+    };
+    let Value::Object(extra_map) = extra else {
+        return Value::Object(base_map);
+    };
+    for (key, value) in extra_map {
+        base_map.insert(key, value);
+    }
+    Value::Object(base_map)
+}
+
 pub(super) async fn wait_for_requested_convergence<H: HostNode>(
     host: &H,
     convergence: MutationConvergence,
@@ -192,40 +216,34 @@ fn mutation_response(
     receipt: &ResidentCommitReceipt,
     payload_bytes: usize,
 ) -> Value {
-    serde_json::json!({
-        "mutation_id": mutation_id,
-        "success": true,
-        "background_tasks_drained": background_tasks_drained,
-        "convergence_pending": !background_tasks_drained,
-        "revision": receipt.revision,
-        "operations": operations_json(&receipt.operations),
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": stages_json(&receipt.stages),
-        "touched_group_ids": receipt.touched_group_ids,
-        // The fixed-size logical accounting of the value this write just
-        // attributed: the same payload-bytes measure QoS lane admission
-        // already computed, returned inline so a caller (or the attribution
-        // proof) has the write's size before it does a second read.
-        "size": payload_bytes
-    })
+    // The fixed-size logical accounting of the value this write just
+    // attributed: the same payload-bytes measure QoS lane admission
+    // already computed, returned inline so a caller (or the attribution
+    // proof) has the write's size before it does a second read.
+    extend_json(
+        commit_core_json(receipt),
+        serde_json::json!({
+            "mutation_id": mutation_id,
+            "success": true,
+            "background_tasks_drained": background_tasks_drained,
+            "convergence_pending": !background_tasks_drained,
+            "size": payload_bytes
+        }),
+    )
 }
 
 /// Response for a prefix delete that matched no rows.
 fn empty_delete_response() -> Value {
-    let operations = ResidentCommitOperations::default();
-    let stages = ResidentCommitStages::default();
-    serde_json::json!({
-        "mutation_id": "",
-        "success": true,
-        "background_tasks_drained": true,
-        "convergence_pending": false,
-        "revision": Value::Null,
-        "operations": operations_json(&operations),
-        "durability": ResidentDurability::Queued.as_str(),
-        "resident_stages_us": stages_json(&stages),
-        "touched_group_ids": [],
-        "size": 0
-    })
+    extend_json(
+        commit_core_json(&ResidentCommitReceipt::empty()),
+        serde_json::json!({
+            "mutation_id": "",
+            "success": true,
+            "background_tasks_drained": true,
+            "convergence_pending": false,
+            "size": 0
+        }),
+    )
 }
 
 /// Move the payload for one selected key. Multi-key prefix deletes retain
