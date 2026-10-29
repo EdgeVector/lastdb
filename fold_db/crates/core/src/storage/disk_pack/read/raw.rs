@@ -103,7 +103,7 @@ impl PackRuntime {
             }
         }
         drop(records);
-        context.note_write_view(counts)?;
+        context.note_write_view(&counts)?;
         let addresses: Vec<_> = misses
             .iter()
             .map(|slot| coordinates[*slot].clone())

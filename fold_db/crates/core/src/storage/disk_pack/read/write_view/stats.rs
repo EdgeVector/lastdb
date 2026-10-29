@@ -46,7 +46,7 @@ impl WriteViewCounts {
         match record.collection.as_str() {
             "tips" => self.tips_and_controls += 1,
             "atoms" if crate::atom::atom_key_codec::is_counter_key(&record.key) => {
-                self.counters += 1
+                self.counters += 1;
             }
             "atoms" => self.atoms += 1,
             _ => self.metadata += 1,
@@ -55,7 +55,7 @@ impl WriteViewCounts {
 }
 
 impl ReadContext {
-    pub(in super::super) fn note_write_view(&self, counts: WriteViewCounts) -> StorageResult<()> {
+    pub(in super::super) fn note_write_view(&self, counts: &WriteViewCounts) -> StorageResult<()> {
         let Some(view) = &self.write_view else {
             return Ok(());
         };
