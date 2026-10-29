@@ -64,3 +64,30 @@ def independent_field_joins(node):
     require(source["metadata"]["payload"]["atom_uuid"]
             == record["metadata"]["renamed_payload"]["atom_uuid"], "renamed field copied its atom")
     return {"one_shared_declared_identity": True, "local_rename": True, "protein": field_id}
+
+
+def renamed_mapper(node):
+    source = install(node, schema("MapperSource", "mapped shared"))
+    peer = install(node, schema("MapperPeer", "mapped shared", cross=True))
+    alias = schema("MapperAlias", "local alias descriptions")
+    alias["fields"][2] = "local_payload"
+    for mapping in ("field_types", "field_descriptions", "field_versions", "field_declarations", "field_hashes"):
+        alias[mapping]["local_payload"] = alias[mapping].pop("payload")
+    alias["field_mappers"] = {"record_id": source + ".record_id", "group_id": source + ".group_id",
+                              "local_payload": source + ".payload"}
+    alias = install(node, alias)
+    original_id = molecule(node, source)
+    require(molecule(node, alias, "local_payload") == original_id, "renamed mapper changed its source molecule")
+    require(metadata(node, alias)["field_hashes"]["local_payload"]
+            == metadata(node, source)["field_hashes"]["payload"], "mapper did not inherit its field identity")
+    values = {"record_id": "mapper-key", "group_id": "mapper-group", "payload": "before"}
+    write(node, source, {"hash": "mapper-key"}, values)
+    restart(node)
+    write(node, alias, {"hash": "mapper-key"}, {"local_payload": "after"}, "update")
+    values["payload"] = "after"
+    same_atom(read(node, source, {"hash": "mapper-key"}, values),
+              read(node, peer, {"hash": "mapper-group", "range": "mapper-key"}, values))
+    read(node, alias, {"hash": "mapper-key"}, {"record_id": "mapper-key", "group_id": "mapper-group", "local_payload": "after"},
+         names=["record_id", "group_id", "local_payload"])
+    return {"local_field_identity_normalized": True, "shared_molecule": original_id,
+            "write_after_restart_updates_peer": True}

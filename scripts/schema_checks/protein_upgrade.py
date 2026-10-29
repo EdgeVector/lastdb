@@ -31,20 +31,21 @@ def upgrade(node, candidate, revision):
     require(all(before_ids), "baseline did not create field proteins")
     before = [read(node, name, keys[index % 2], values[index // 2])
               for index, name in enumerate(names)]
-    before_atoms = [record["metadata"]["payload"]["atom_uuid"] for record in before]
     node.stop()
     node.binary, node.revision = candidate, revision
     node.start()
-    # Schema access must join even a peer whose field molecules are still cold.
-    install(node, definitions[0])
+    # The first candidate request is an ordinary write. No schema reload or
+    # candidate read may establish membership before sibling preparation.
+    write(node, names[0], keys[0], {"payload": "after upgrade"}, "update")
     after_ids = [protein(node, member) for member in molecules]
     require(len(set(after_ids)) == 1, "existing equal fields remain on separate proteins")
-    after = [read(node, name, keys[index % 2], values[index // 2])
-             for index, name in enumerate(names)]
-    require(before_atoms == [record["metadata"]["payload"]["atom_uuid"] for record in after],
-            "membership upgrade rewrote a current atom")
-    write(node, names[0], keys[0], {"payload": "after upgrade"}, "update")
     expected = [dict(value, payload="after upgrade") for value in values]
+    after = [read(node, name, keys[index % 2], expected[index // 2])
+             for index, name in enumerate(names)]
+    require([[record["metadata"][field]["atom_uuid"] for field in ("record_id", "group_id")]
+             for record in before]
+            == [[record["metadata"][field]["atom_uuid"] for field in ("record_id", "group_id")]
+                for record in after], "membership upgrade changed untouched field atoms")
     shared = same_atom(*(read(node, name, keys[index % 2], expected[index // 2])
                          for index, name in enumerate(names)))
     node.stop()
@@ -54,7 +55,7 @@ def upgrade(node, candidate, revision):
     for index, name in enumerate(names):
         read(node, name, keys[index % 2], expected[index // 2])
     return {"original_proteins": before_ids, "original_protein_count": len(set(before_ids)),
-            "final_protein": after_ids[0], "current_atoms_preserved": True,
+            "final_protein": after_ids[0], "first_candidate_request": "ordinary update without schema reload",
             "shared_atom_after_new_write": shared, "reopen_verified": True}
 
 

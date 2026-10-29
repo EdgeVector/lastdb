@@ -172,6 +172,14 @@ impl MutationManager {
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
     ) -> Result<std::time::Duration, SchemaError> {
+        // Membership must precede the protein reads that select sibling tips.
+        // This also upgrades a reopened home on its first ordinary mutation.
+        measure(
+            "schema_coherence_us",
+            self.schema_manager
+                .apply_field_hash_coherence_on_load(&delta.schema_name),
+        )
+        .await?;
         let (modified_fields, fold_elapsed) = measure(
             "rebase_us",
             self.rebase_delta_for_publish(&mut delta, heads),

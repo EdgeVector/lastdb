@@ -39,7 +39,7 @@ impl SchemaCore {
             .collect();
         let mut sources = HashMap::new();
         for field in fields {
-            let molecule = self
+            let (molecule, identity) = self
                 .typed_mapper_molecule(schema, &field, stored, &mut sources)
                 .await?;
             schema
@@ -48,6 +48,7 @@ impl SchemaCore {
                 .ok_or_else(|| invalid("mapper target field is absent"))?
                 .common_mut()
                 .set_molecule_uuid(molecule);
+            schema.field_hashes.insert(field, identity);
         }
         schema.sync_molecule_uuids();
         Ok(())
@@ -59,7 +60,7 @@ impl SchemaCore {
         field: &str,
         stored: Option<&Schema>,
         sources: &mut HashMap<String, Schema>,
-    ) -> Result<String, SchemaError> {
+    ) -> Result<(String, String), SchemaError> {
         let mut current = schema.clone_for_read_shared();
         let mut field = field.to_owned();
         let mut first = true;
@@ -69,12 +70,19 @@ impl SchemaCore {
                 return Err(invalid("cyclic typed field mapper"));
             }
             let Some(mapper) = current.field_mappers.as_ref().and_then(|m| m.get(&field)) else {
-                return current
+                let molecule = current
                     .runtime_fields
                     .get(&field)
-                    .and_then(|f| f.common().molecule_uuid())
+                    .and_then(|field| field.common().molecule_uuid())
                     .cloned()
-                    .ok_or_else(|| invalid("typed mapper source field is absent"));
+                    .ok_or_else(|| invalid("typed mapper source field is absent"))?;
+                let identity = current
+                    .field_hashes
+                    .get(&field)
+                    .filter(|id| !id.is_empty())
+                    .cloned()
+                    .ok_or_else(|| invalid("typed mapper source identity is absent"))?;
+                return Ok((molecule, identity));
             };
             if !sources.contains_key(mapper.source_schema()) {
                 // Name the source: a declaring app can load it and retry.
@@ -93,7 +101,9 @@ impl SchemaCore {
             let source = &sources[mapper.source_schema()];
             if !same_coordinates(&current, source) {
                 let old = if first { stored } else { Some(&current) };
-                return cross_key_molecule(&current, &field, source, mapper.source_field(), old);
+                let molecule =
+                    cross_key_molecule(&current, &field, source, mapper.source_field(), old)?;
+                return Ok((molecule, current.field_hashes[&field].clone()));
             }
             field = mapper.source_field().to_owned();
             current = source.clone_for_read_shared();

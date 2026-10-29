@@ -19,51 +19,21 @@ impl SchemaCore {
         let Some(loaded) = self.get_schema_metadata(schema_name)? else {
             return Ok(());
         };
-        let identities: HashSet<_> = loaded
-            .field_hashes
-            .values()
-            .filter(|identity| !identity.is_empty())
-            .map(String::as_str)
-            .collect();
-        let mut bindings = field_bindings(&loaded, &identities);
-        {
+        let bindings = {
             let schemas = read_map(&self.schemas, "schemas")?;
             let staged = self.staged_schemas()?;
-            let committed = schemas.iter().filter(|(name, _)| {
-                *name != schema_name && !staged.iter().any(|(staged_name, _)| staged_name == *name)
-            });
-            let staged = staged
+            let mut definitions: HashMap<_, _> = schemas
                 .iter()
-                .filter(|(name, _)| name != schema_name)
-                .map(|(name, cached)| (name, &cached.schema));
-            for (_, peer) in committed.chain(staged) {
-                bindings.extend(field_bindings(peer, &identities));
-            }
-        }
-        bindings.sort_by(|a, b| {
-            (
-                &a.field_identity,
-                &a.member.molecule_uuid,
-                &a.member.hash_field,
-                &a.member.range_field,
-            )
-                .cmp(&(
-                    &b.field_identity,
-                    &b.member.molecule_uuid,
-                    &b.member.hash_field,
-                    &b.member.range_field,
-                ))
-        });
-        bindings.dedup();
-        // A protein relates distinct field molecules. Do not allocate a protein
-        // or add write-path metadata for a field that has no peer yet.
-        let mut counts = HashMap::new();
-        for binding in &bindings {
-            *counts
-                .entry(binding.field_identity.clone())
-                .or_insert(0usize) += 1;
-        }
-        bindings.retain(|binding| counts[&binding.field_identity] > 1);
+                .map(|(name, schema)| (name.as_str(), schema))
+                .collect();
+            definitions.extend(
+                staged
+                    .iter()
+                    .map(|(name, cached)| (name.as_str(), &cached.schema)),
+            );
+            definitions.insert(schema_name, &loaded);
+            coherence_bindings(&loaded, &definitions)?
+        };
         if self.coherence_memo(schema_name)?.as_ref() == Some(&bindings) {
             return Ok(());
         }
@@ -74,27 +44,116 @@ impl SchemaCore {
     }
 }
 
-fn field_bindings(schema: &Schema, wanted: &HashSet<&str>) -> Vec<CoherenceBinding> {
+/// Field identity, including an explicit mapper reference, selects membership.
+/// App owners, local field names, key differences and schema overlap do not.
+fn coherence_bindings(
+    loaded: &Schema,
+    definitions: &HashMap<&str, &Schema>,
+) -> Result<Vec<CoherenceBinding>, SchemaError> {
+    let mut bindings = field_bindings(loaded, definitions)?;
+    let identities: HashSet<_> = bindings
+        .iter()
+        .map(|binding| binding.field_identity.clone())
+        .collect();
+    for peer in definitions.values().filter(|peer| peer.name != loaded.name) {
+        bindings.extend(
+            field_bindings(peer, definitions)?
+                .into_iter()
+                .filter(|binding| identities.contains(&binding.field_identity)),
+        );
+    }
+    bindings.sort_by(|a, b| {
+        (
+            &a.field_identity,
+            &a.member.molecule_uuid,
+            &a.member.hash_field,
+            &a.member.range_field,
+        )
+            .cmp(&(
+                &b.field_identity,
+                &b.member.molecule_uuid,
+                &b.member.hash_field,
+                &b.member.range_field,
+            ))
+    });
+    bindings.dedup();
+    // A protein relates distinct field molecules. Do not allocate a protein
+    // or add write-path metadata for a field that has no peer yet.
+    let mut counts = HashMap::new();
+    for binding in &bindings {
+        *counts
+            .entry(binding.field_identity.clone())
+            .or_insert(0usize) += 1;
+    }
+    bindings.retain(|binding| counts[&binding.field_identity] > 1);
+    Ok(bindings)
+}
+
+fn field_bindings(
+    schema: &Schema,
+    definitions: &HashMap<&str, &Schema>,
+) -> Result<Vec<CoherenceBinding>, SchemaError> {
     let layout = KeyLayoutFingerprint::from_schema(schema);
     let Some(hash_field) = layout.hash_field.filter(|hash| !hash.is_empty()) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     schema
         .field_hashes
-        .iter()
-        .filter(|(_, identity)| wanted.contains(identity.as_str()))
-        .map(|(field, identity)| CoherenceBinding {
-            field_identity: identity.clone(),
-            member: ProteinMember::new(
-                schema
-                    .field_molecule_uuids
-                    .as_ref()
-                    .and_then(|ids| ids.get(field))
-                    .cloned()
-                    .unwrap_or_else(|| deterministic_molecule_uuid(&schema.name, field)),
-                &hash_field,
-                layout.range_field.clone(),
-            ),
+        .keys()
+        .map(|field| {
+            Ok(CoherenceBinding {
+                field_identity: mapped_identity(schema, field, definitions)?,
+                member: ProteinMember::new(
+                    schema
+                        .field_molecule_uuids
+                        .as_ref()
+                        .and_then(|ids| ids.get(field))
+                        .cloned()
+                        .unwrap_or_else(|| deterministic_molecule_uuid(&schema.name, field)),
+                    &hash_field,
+                    layout.range_field.clone(),
+                ),
+            })
         })
         .collect()
+}
+
+/// A mapper references its source field; a local rename does not create a new
+/// identity for that molecule. Resolve old stored aliases too, without a reload.
+fn mapped_identity(
+    schema: &Schema,
+    field: &str,
+    definitions: &HashMap<&str, &Schema>,
+) -> Result<String, SchemaError> {
+    let mut current = schema;
+    let mut name = field;
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert((current.name.clone(), name.to_owned())) {
+            return Err(SchemaError::InvalidData(
+                "cyclic field identity mapper".into(),
+            ));
+        }
+        let Some(mapper) = current
+            .field_mappers
+            .as_ref()
+            .and_then(|mappers| mappers.get(name))
+        else {
+            return current
+                .field_hashes
+                .get(name)
+                .filter(|identity| !identity.is_empty())
+                .cloned()
+                .ok_or_else(|| {
+                    SchemaError::InvalidData("mapped canonical field identity is absent".into())
+                });
+        };
+        name = mapper.source_field();
+        current = definitions
+            .get(mapper.source_schema())
+            .copied()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("mapped canonical source schema is absent".into())
+            })?;
+    }
 }
