@@ -154,6 +154,10 @@ Change notices use that exact input-to-ID association. They do not substitute an
 
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
+The logical path stage collects the bindings for all changed molecules first.
+It reads each distinct schema definition once from the current private view.
+Each molecule still requires its own complete binding counter and exact field-to-molecule checks.
+The definitions leave memory after that stage. A later stage reads its own current view.
 Within that preparation, repeated exact disk reads reuse the already authenticated result from the held root.
 The private result store has a 1 MiB key/value/entry allowance and at most 10,000 records.
 It omits individual values larger than 16 KiB and falls back to disk when its allowance is full.

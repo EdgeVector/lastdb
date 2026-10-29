@@ -72,18 +72,19 @@ impl MutationManager {
     ) -> Result<BTreeMap<String, Vec<Binding>>, SchemaError> {
         let molecules: std::collections::BTreeSet<_> =
             tips.iter().map(|tip| tip.molecule.clone()).collect();
-        let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async {
-            let binding = self.path_bindings(&job.schema, molecule).await?;
-            let binding = if let Some(binding) = binding {
-                binding
-            } else {
-                transaction::require_durable(runtime)?;
-                bindings::schema_bindings(&job.schema, molecule)?
-            };
-            Ok::<_, SchemaError>((molecule.clone(), binding))
-        }))
-        .await?;
-        Ok(bindings.into_iter().collect())
+        self.path_bindings_batch(&job.schema, &molecules)
+            .await?
+            .into_iter()
+            .map(|(molecule, binding)| {
+                let binding = if let Some(binding) = binding {
+                    binding
+                } else {
+                    transaction::require_durable(runtime)?;
+                    bindings::schema_bindings(&job.schema, &molecule)?
+                };
+                Ok((molecule, binding))
+            })
+            .collect()
     }
 
     pub(super) fn native_path_records(
