@@ -55,20 +55,7 @@ impl QueryExecutor {
                 "alternate reads require the personal database scope",
             ));
         }
-        if query.requires_post_key_work()
-            || query.as_of.is_some()
-            || query.rehydrate_depth.is_some()
-            || query.include_tombstones
-            || query
-                .sort_order
-                .as_ref()
-                .is_some_and(|order| *order != crate::schema::types::operations::SortOrder::Asc)
-            || query.expected_total_count.is_some()
-        {
-            return Err(alternate_keys::invalid(
-                "unsupported alternate query controls",
-            ));
-        }
+        validate_controls(&query)?;
         let name = query
             .key_name
             .take()
@@ -144,4 +131,22 @@ impl QueryExecutor {
             comparison,
         })
     }
+}
+
+fn validate_controls(query: &Query) -> Result<(), SchemaError> {
+    if query.requires_post_key_work()
+        || query.as_of.is_some()
+        || query.rehydrate_depth.is_some()
+        || query.include_tombstones
+        || query
+            .sort_order
+            .as_ref()
+            .is_some_and(|order| *order != crate::schema::types::operations::SortOrder::Asc)
+        || query.expected_total_count.is_some()
+    {
+        return Err(alternate_keys::invalid(
+            "unsupported alternate query controls",
+        ));
+    }
+    Ok(())
 }
