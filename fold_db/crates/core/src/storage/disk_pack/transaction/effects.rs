@@ -24,7 +24,7 @@ pub(crate) fn stage_paths(
     Ok(())
 }
 
-pub(crate) fn stage_core_memory<T: Any + Send + Sync>(
+pub(crate) fn stage_core_memory<T: crate::resident::CoreRecordData>(
     runtime: &PackRuntime,
     owner: usize,
     name: String,
@@ -44,7 +44,8 @@ pub(crate) fn stage_core_memory<T: Any + Send + Sync>(
         .lock()
         .expect("native private definitions");
     match prepared {
-        Ok(prepared) if definitions.contains_key(&key) || definitions.len() < 4096 => {
+        Ok(mut prepared) if definitions.contains_key(&key) || definitions.len() < 4096 => {
+            prepared.expose_record::<T>();
             definitions.insert(key, prepared);
             Ok(())
         }

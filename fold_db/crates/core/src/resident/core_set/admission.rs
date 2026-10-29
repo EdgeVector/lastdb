@@ -174,6 +174,7 @@ impl CoreWarmSet {
         }
         slot.tip = Some(entry);
         slot.metadata = metadata.map(Box::new);
+        slot.tip_source = None;
         if let Some(previous) = &slot.owned {
             let mut value = previous.value.clone();
             if let Some(value) = &mut value {

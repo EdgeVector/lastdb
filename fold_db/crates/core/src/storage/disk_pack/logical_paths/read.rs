@@ -46,8 +46,11 @@ impl PackRuntime {
         let mut call = crate::read_receipts::lock(&context.call);
         let mut core = self.core.lock().expect("native shared core model");
         let key = path.core();
-        let Some(AdmissionTip { tip, sources }) =
-            admission_tip(&mut core, &key, &path.atom, selected)
+        let Some(AdmissionTip {
+            tip,
+            sources,
+            source,
+        }) = admission_tip(&mut core, &key, &path.atom, selected)
         else {
             return Ok(());
         };
@@ -55,6 +58,7 @@ impl PackRuntime {
         let bytes = body::encoded_len(facts.atom.as_ref())?;
         context.account_memory_record(&mut call, path.id()?.len(), bytes)?;
         let atom_source = (facts.source().0.to_owned(), facts.source().1.to_owned());
+        let record_tip = source.as_ref().map(|_| tip.clone());
         let slot = CoreWarmSlot {
             entry: tip.entry,
             metadata: tip.metadata,
@@ -79,6 +83,9 @@ impl PackRuntime {
             }
             core.authorize_path(&key);
         }
+        if let Some(((collection, source), tip)) = source.zip(record_tip) {
+            core.authorize_tip_source(&collection, &source, &tip.entry, tip.metadata.as_ref());
+        }
         Ok(())
     }
 }
@@ -86,6 +93,7 @@ impl PackRuntime {
 struct AdmissionTip {
     tip: crate::resident::CoreWarmTip,
     sources: Option<Vec<(String, String)>>,
+    source: Option<(String, String)>,
 }
 
 /// Exact core filters select an authorized tip without a disk receipt.
@@ -105,6 +113,7 @@ fn admission_tip(
                 metadata: selected.metadata,
             },
             sources,
+            source: selected.tip_source.or_else(|| core.tip_record_source(path)),
         });
     }
     if !core.path_authorized(path) {
@@ -116,6 +125,7 @@ fn admission_tip(
     (tip.entry.atom_uuid == atom).then(|| AdmissionTip {
         tip,
         sources: Some(core.source_coordinates(path)),
+        source: core.tip_record_source(path),
     })
 }
 
@@ -140,6 +150,14 @@ pub(super) fn refresh_tip(
     tip: core_read::SelectedTip,
     primary: &str,
 ) {
+    let source = tip
+        .tip_source
+        .clone()
+        .or_else(|| core.tip_record_source(path));
+    let record_tip = crate::resident::CoreWarmTip {
+        entry: tip.entry.clone(),
+        metadata: tip.metadata.clone(),
+    };
     let Some(sources) = tip.sources else { return };
     if !core.refresh_tip(path, tip.entry, tip.metadata) {
         return;
@@ -154,6 +172,14 @@ pub(super) fn refresh_tip(
         .all(|(collection, key)| core.link_source(path, &collection, &key))
     {
         core.authorize_path(path);
+        if let Some((collection, source)) = source {
+            core.authorize_tip_source(
+                &collection,
+                &source,
+                &record_tip.entry,
+                record_tip.metadata.as_ref(),
+            );
+        }
     } else {
         core.invalidate_slot(path);
     }

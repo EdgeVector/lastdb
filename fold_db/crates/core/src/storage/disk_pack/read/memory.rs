@@ -116,3 +116,28 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
 fn lock_error() -> StorageError {
     StorageError::BackendError("core definition memory lock is unavailable".into())
 }
+
+/// Expose an exact source reader over this same typed allocation, not bytes.
+pub(crate) fn core_record_insert<T: crate::resident::CoreRecordData>(
+    runtime: Option<Arc<PackRuntime>>,
+    owner: usize,
+    name: String,
+    value: T,
+    sources: Vec<CoreMemorySource>,
+    bytes: usize,
+) -> StorageResult<Arc<CoreMemoryValue<T>>> {
+    let held = core_memory_insert(runtime.clone(), owner, name.clone(), value, sources, bytes)?;
+    if let Some(runtime) = runtime {
+        if let Some(context) = super::ReadContext::captured(&runtime) {
+            let view = runtime.view.read().map_err(|_| lock_error())?;
+            if view.revision == context.revision && !context.hidden_prefix {
+                runtime
+                    .core
+                    .lock()
+                    .map_err(|_| lock_error())?
+                    .expose_memory_record(owner, &name, &held);
+            }
+        }
+    }
+    Ok(held)
+}

@@ -4,7 +4,8 @@ use super::{Schema, SchemaCore, SchemaState};
 use crate::db_operations::schema_store::{snapshot_bytes, snapshot_sources, SchemaReadSnapshot};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{
-    core_memory_get, core_memory_insert, read_snapshot_active, read_snapshot_get, CoreMemoryValue,
+    core_memory_get, core_memory_insert, core_record_insert, read_snapshot_active,
+    read_snapshot_get, CoreMemoryValue,
 };
 use std::sync::Arc;
 
@@ -108,7 +109,7 @@ impl SchemaCore {
         }
         let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
         let bytes = snapshot_bytes(&snapshot)?;
-        Ok(core_memory_insert(
+        Ok(core_record_insert(
             runtime,
             cache,
             name.to_string(),

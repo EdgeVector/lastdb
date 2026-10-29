@@ -18,6 +18,7 @@ mod lifecycle;
 mod memory;
 mod model;
 mod path_table;
+mod records;
 mod slab;
 mod source_keys;
 mod sources;
@@ -25,9 +26,11 @@ mod tables;
 
 pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
+pub(crate) use memory::CoreRecordData;
 pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
 pub(crate) use model::{CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate};
+pub(crate) use records::CoreSourceRecord;
 
 /// Stable identity of one used field path. Its current atom is not its key.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -71,6 +71,9 @@ pub(super) fn admit(
         return Ok(());
     }
     core.authorize_path(&path);
+    if let Some((collection, key)) = &selected.tip_source {
+        core.authorize_tip_source(collection, key, &selected.entry, selected.metadata.as_ref());
+    }
     Ok(())
 }
 

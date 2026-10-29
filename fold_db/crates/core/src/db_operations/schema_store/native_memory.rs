@@ -5,6 +5,33 @@ use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::{core_memory_sources, transaction, CoreMemorySource};
 use std::sync::Arc;
 
+impl crate::resident::CoreRecordData for SchemaReadSnapshot {
+    fn record_present(&self, collection: &str) -> Option<bool> {
+        match collection {
+            "schemas" => Some(self.schema.is_some()),
+            "schema_superseded_by" if self.state == crate::schema::SchemaState::Blocked => {
+                Some(self.successor.is_some())
+            }
+            // The default state does not establish whether its source was absent.
+            _ => None,
+        }
+    }
+
+    fn write_record(
+        &self,
+        collection: &str,
+        out: &mut dyn std::io::Write,
+    ) -> serde_json::Result<()> {
+        match collection {
+            "schemas" => serde_json::to_writer(out, self.schema.as_ref().expect("present schema")),
+            "schema_superseded_by" => {
+                serde_json::to_writer(out, self.successor.as_ref().expect("present successor"))
+            }
+            _ => unreachable!("unsupported schema source"),
+        }
+    }
+}
+
 impl SchemaStore {
     pub(super) fn prepared_snapshot(
         &self,

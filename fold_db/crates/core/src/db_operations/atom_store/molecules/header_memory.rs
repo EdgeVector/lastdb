@@ -3,7 +3,7 @@
 use super::super::types::MoleculeHeader;
 use super::super::AtomStore;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
+use crate::storage::disk_pack::{core_memory_get, core_memory_sources, core_record_insert};
 use serde::{de::DeserializeOwned, Serialize};
 
 static HEADER_MEMORY: u8 = 0;
@@ -146,7 +146,7 @@ impl AtomStore {
             .saturating_mul(8)
             .saturating_add(256);
         let sources = core_memory_sources("main", key.as_bytes());
-        let held = core_memory_insert(runtime, owner, key.to_owned(), control, sources, bytes)?;
+        let held = core_record_insert(runtime, owner, key.to_owned(), control, sources, bytes)?;
         Ok(held.as_ref().as_ref().cloned())
     }
 }

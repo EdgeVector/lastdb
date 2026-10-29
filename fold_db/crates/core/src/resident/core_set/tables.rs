@@ -27,6 +27,8 @@ pub(super) struct SlotEntry {
     /// no second molecule copy; the slot is the only owner of the tip.
     pub(super) tip: Option<AtomEntry>,
     pub(super) metadata: Option<Box<KeyMetadata>>,
+    /// Exact observed tip source; other invalidation edges grant no raw answer.
+    pub(super) tip_source: Option<SourceId>,
     pub(super) owned: Option<Arc<model::CoreModelSlot>>,
     /// Heap of the current molecule tip, charged once for all alias paths.
     pub(super) tip_charge: usize,
@@ -104,6 +106,7 @@ impl SlotTable {
             atom: None,
             tip: None,
             metadata: None,
+            tip_source: None,
             owned: None,
             tip_charge: 0,
         };

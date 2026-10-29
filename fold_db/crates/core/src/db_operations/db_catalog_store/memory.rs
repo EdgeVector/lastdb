@@ -1,7 +1,7 @@
 //! One used membership is a typed core definition with exact invalidation.
 
 use super::*;
-use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
+use crate::storage::disk_pack::{core_memory_get, core_memory_sources, core_record_insert};
 
 static MEMBERSHIP_MEMORY: u8 = 0;
 
@@ -31,7 +31,7 @@ impl DbCatalogStore {
             })
             .saturating_mul(8)
             .saturating_add(1024);
-        let retained = core_memory_insert(
+        let retained = core_record_insert(
             self.runtime.clone(),
             owner,
             key.to_owned(),

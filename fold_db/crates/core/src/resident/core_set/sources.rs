@@ -145,6 +145,7 @@ impl CoreWarmSet {
             return;
         };
         let sources = std::mem::take(&mut slot.sources);
+        slot.tip_source = None;
         self.release_links(sources.len() * link_charge());
         for source in sources {
             if let Some(packed_len) = self.sources.unlink(source, id) {

@@ -80,29 +80,26 @@ impl PackRuntime {
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
-        let records = self.write_view_records(context, pending, coordinates)?;
+        let records = self.write_view_records(context, call, pending, coordinates)?;
         let mut counts = write_view::WriteViewCounts::default();
-        for (slot, selected) in records.iter().enumerate() {
-            if let Some(selected) = selected {
-                let record = selected.record();
-                let key_bytes = record.key.len()
-                    + if selected.is_core() {
-                        record.collection.len()
-                    } else {
-                        0
-                    };
-                context.account_memory_record(
-                    call,
-                    key_bytes,
-                    record.body.as_ref().map_or(0, Vec::len),
-                )?;
-                counts.note(selected);
-                out[slot] = record.body.clone();
-            } else {
-                misses.push(slot);
+        for (slot, selected) in records.into_iter().enumerate() {
+            match selected {
+                Some(write_view::WriteRecord::Overlay(record)) => {
+                    context.account_memory_record(
+                        call,
+                        record.key.len(),
+                        record.body.as_ref().map_or(0, Vec::len),
+                    )?;
+                    counts.note_overlay();
+                    out[slot] = record.body.clone();
+                }
+                Some(write_view::WriteRecord::Core { body, typed }) => {
+                    counts.note(&coordinates[slot], body.as_deref(), typed);
+                    out[slot] = body;
+                }
+                None => misses.push(slot),
             }
         }
-        drop(records);
         context.note_write_view(&counts)?;
         let addresses: Vec<_> = misses
             .iter()

@@ -5,6 +5,10 @@ use crate::resident::core_keys::{CoreKeyBudget, CoreKeyReservation};
 use std::any::Any;
 use std::ops::Deref;
 
+mod api;
+mod records;
+pub(crate) use records::{CoreRecordData, CoreRecordReader};
+
 const MAX_ENTRIES: usize = 10_000;
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 pub(super) type MemoryKey = (usize, String);
@@ -15,6 +19,7 @@ pub(crate) struct PreparedCoreMemory {
     pub(crate) key: MemoryKey,
     pub(super) value: Arc<dyn Any + Send + Sync>,
     sources: Arc<Vec<CoreMemorySource>>,
+    reader: Option<Arc<dyn CoreRecordReader>>,
 }
 
 impl PreparedCoreMemory {
@@ -72,6 +77,7 @@ pub struct CoreMemoryStats {
 
 struct Entry {
     value: Arc<dyn Any + Send + Sync>,
+    reader: Option<Arc<dyn CoreRecordReader>>,
     sources: Vec<CoreMemorySource>,
     tick: u64,
 }
@@ -144,6 +150,7 @@ impl CoreMemory {
                 _charge: Some(charge),
             }),
             sources: Arc::new(sources),
+            reader: None,
         })
     }
 
@@ -173,8 +180,13 @@ impl CoreMemory {
             key,
             value,
             sources,
+            reader,
         } = definition;
-        self.install(key, value, sources.as_ref().clone());
+        self.install(key.clone(), value, sources.as_ref().clone());
+        self.entries
+            .get_mut(&key)
+            .expect("installed core definition")
+            .reader = reader;
     }
 
     fn install(
@@ -196,6 +208,7 @@ impl CoreMemory {
             key,
             Entry {
                 value,
+                reader: None,
                 sources,
                 tick: self.clock,
             },
@@ -340,49 +353,6 @@ fn allocation_bound(key: &MemoryKey, sources: &[CoreMemorySource], bytes: usize)
                 .saturating_add(512)
         },
     )
-}
-
-impl CoreWarmSet {
-    pub(crate) fn prepare_memory<T: Any + Send + Sync>(
-        &mut self,
-        owner: usize,
-        name: String,
-        value: T,
-        sources: Vec<CoreMemorySource>,
-        bytes: usize,
-    ) -> Result<PreparedCoreMemory, CoreCapacity> {
-        self.memory.prepare((owner, name), value, sources, bytes)
-    }
-
-    pub(crate) fn memory_get<T: Any + Send + Sync>(
-        &mut self,
-        owner: usize,
-        name: &str,
-    ) -> Option<Arc<CoreMemoryValue<T>>> {
-        self.memory.get(owner, name)
-    }
-
-    pub(crate) fn memory_insert<T: Any + Send + Sync>(
-        &mut self,
-        owner: usize,
-        name: String,
-        value: T,
-        sources: Vec<CoreMemorySource>,
-        bytes: usize,
-    ) -> Arc<CoreMemoryValue<T>> {
-        self.memory.insert((owner, name), value, sources, bytes)
-    }
-
-    pub(crate) fn memory_uncached<T>(value: T) -> Arc<CoreMemoryValue<T>> {
-        Arc::new(CoreMemoryValue {
-            value,
-            _charge: None,
-        })
-    }
-
-    pub(crate) fn memory_stats(&self) -> CoreMemoryStats {
-        self.memory.stats()
-    }
 }
 
 fn memory_capacity() -> CoreCapacity {

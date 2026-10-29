@@ -38,7 +38,7 @@ impl PackRuntime {
             .iter()
             .map(|(counter, _)| super::super::kv::coordinate("main", counter.as_bytes()))
             .collect();
-        let known = self.write_view_records(context, Some(pending), &primaries)?;
+        let known = self.known_write_counters(context, pending, &primaries)?;
         let mut selected = Vec::new();
         let mut pairs = Vec::new();
         for (position, (_, body)) in keys.iter().enumerate() {
@@ -46,7 +46,7 @@ impl PackRuntime {
             let fallback = super::super::kv::coordinate("main", body.as_bytes());
             if primary.0 == super::super::physical::CAS_COLLECTION
                 || fallback.0 == super::super::physical::CAS_COLLECTION
-                || known[position].is_some()
+                || known[position]
                 || context
                     .overlay_record(Some(pending), &fallback.0, &fallback.1)
                     .is_some()

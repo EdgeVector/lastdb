@@ -1,7 +1,7 @@
 //! Retain positive and confirmed-absent metadata under the existing core owner.
 
 use super::{metadata_key, BundleMetadata, MoleculeKeyStore, StorageError, StorageResult};
-use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
+use crate::storage::disk_pack::{core_memory_get, core_memory_sources, core_record_insert};
 use std::sync::Arc;
 
 impl MoleculeKeyStore {
@@ -42,7 +42,7 @@ impl MoleculeKeyStore {
             let bytes = value.as_ref().map_or(256, |metadata| {
                 metadata.molecule_uuid.capacity().saturating_add(256)
             });
-            let held = core_memory_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
+            let held = core_record_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
             output[at] = held.as_ref().as_ref().cloned();
         }
         Ok(output)

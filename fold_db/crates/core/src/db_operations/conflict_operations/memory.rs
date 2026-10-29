@@ -1,7 +1,7 @@
 //! The existing conflict control record, including confirmed absence, stays warm.
 
 use super::*;
-use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
+use crate::storage::disk_pack::{core_memory_get, core_memory_sources, core_record_insert};
 
 static CONFLICT_MEMORY: u8 = 0;
 
@@ -59,7 +59,7 @@ impl DbOperations {
             .len()
             .saturating_mul(8)
             .saturating_add(1024);
-        let held = core_memory_insert(
+        let held = core_record_insert(
             runtime,
             owner,
             key.clone(),
