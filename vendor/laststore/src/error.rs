@@ -12,6 +12,8 @@ pub enum Error {
     Io(std::io::Error),
     /// On-disk format is truncated, truncated mid-record, or inconsistent.
     Corrupt(String),
+    /// A backup cursor's fixed source diagnostic. Never contains record data.
+    NativeProof(&'static str),
     /// AEAD authentication failed while decrypting a frame.
     AeadAuthFail,
     /// Invalid configuration or caller input (e.g. an empty disk run commit).
@@ -28,6 +30,7 @@ impl fmt::Display for Error {
         match self {
             Self::Io(e) => write!(f, "io: {e}"),
             Self::Corrupt(s) => write!(f, "corrupt: {s}"),
+            Self::NativeProof(code) => write!(f, "native proof: {code}"),
             Self::AeadAuthFail => write!(f, "aead authentication failed"),
             Self::Config(s) => write!(f, "config: {s}"),
             Self::ReadBudgetExceeded => write!(f, "read resource limit exceeded"),

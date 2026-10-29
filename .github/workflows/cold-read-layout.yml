@@ -6,6 +6,11 @@ on:
       - 'scripts/benchmarks/cold_layout.py'
       - '.github/workflows/cold-read-layout.yml'
   workflow_dispatch:
+    inputs:
+      product_revision:
+        description: Exact product commit SHA to investigate
+        type: string
+        default: '24f2844b2efe8b8f39349a5c5c9dfedb65599d04'
 
 permissions:
   contents: read
@@ -20,11 +25,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      # Exact reverted program: isolate the investigation from later product changes.
-      PRODUCT_SHA: 24f2844b2efe8b8f39349a5c5c9dfedb65599d04
+      # Keep the original control by default; manual runs can select an exact product.
+      PRODUCT_SHA: ${{ inputs.product_revision || '24f2844b2efe8b8f39349a5c5c9dfedb65599d04' }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
     steps:
+      - name: Require exact product revision
+        run: '[[ "$PRODUCT_SHA" =~ ^[0-9a-f]{40}$ ]]'
       - uses: actions/checkout@v5
         with:
           path: driver

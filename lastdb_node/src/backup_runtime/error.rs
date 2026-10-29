@@ -1,4 +1,5 @@
 use super::source_diagnostic;
+use fold_db::storage::error::NativeProofCause;
 use fold_db::sync::auth::byte_backup::BackupTransportError;
 use serde::{Deserialize, Serialize};
 
@@ -145,23 +146,28 @@ impl From<fold_db::storage::StorageError> for BackupError {
         use fold_db::storage::StorageError;
         source_diagnostic::report(&error);
         match error {
+            StorageError::NativeProof { cause, .. } => Self::from(cause),
             StorageError::ReadResourceLimit { .. }
             | StorageError::WriteResourceLimit { .. }
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
-            StorageError::InvalidOperation(detail) => match detail.as_str() {
-                "native authorized file consumer copy is unavailable" => {
-                    Self::FileSourceUnavailable
-                }
-                "native file source owner scope needs a read-only grant" => {
-                    Self::UnsupportedFileScope
-                }
-                "legacy or incomplete file dependency is uncertified"
-                | "metadata-only file dependency is uncertified"
-                | "live file metadata lacks certified atom pointer coverage"
-                | "native CAS per-file encryption suite is uncertified" => Self::UncertifiedFile,
-                _ => Self::Source,
-            },
+            StorageError::InvalidOperation(detail) => {
+                Self::from(NativeProofCause::invalid_operation(&detail))
+            }
+            _ => Self::Source,
+        }
+    }
+}
+
+impl From<NativeProofCause> for BackupError {
+    fn from(cause: NativeProofCause) -> Self {
+        match cause {
+            NativeProofCause::ReadResource | NativeProofCause::WriteResource => Self::Limit,
+            NativeProofCause::Io { .. } | NativeProofCause::StorageFull => Self::Disk,
+            NativeProofCause::FileSourceUnavailable => Self::FileSourceUnavailable,
+            NativeProofCause::UnsupportedFileScope => Self::UnsupportedFileScope,
+            NativeProofCause::UncertifiedFile => Self::UncertifiedFile,
+            NativeProofCause::Static(code) => Self::from(NativeProofCause::invalid_operation(code)),
             _ => Self::Source,
         }
     }

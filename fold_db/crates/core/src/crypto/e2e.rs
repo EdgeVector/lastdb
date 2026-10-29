@@ -8,13 +8,12 @@ use zeroize::{Zeroize, Zeroizing};
 
 const HKDF_SALT: &[u8] = b"fold:e2e:v1";
 const CONTENT_KEY_INFO: &[u8] = b"fold:content-key";
-const INDEX_KEY_INFO: &[u8] = b"fold:index-key";
 
-/// Holds E2E keys derived from a single passkey/identity secret:
-/// - `encryption_key`: AES-256-GCM key for atom content
-/// - `index_key`: HMAC-SHA256 key for blind index / HashKey tokens
+/// Holds the E2E key derived from a single passkey/identity secret:
+/// `encryption_key`, the AES-256-GCM account content key. HashKey tokens use
+/// each molecule bundle's own blind key, not a key derived here.
 ///
-/// All fields are zeroized when the struct (or any clone of it) is dropped, so
+/// The key is zeroized when the struct (or any clone of it) is dropped, so
 /// the derived key bytes do not linger in freed memory (at-rest threat model
 /// Gap G3, `docs/security/at-rest-threat-model.md`). The by-value accessors
 /// below still hand out short-lived stack copies — those are consumed
@@ -22,11 +21,10 @@ const INDEX_KEY_INFO: &[u8] = b"fold:index-key";
 #[derive(Clone, Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct E2eKeys {
     encryption_key: [u8; 32],
-    index_key: [u8; 32],
 }
 
 impl E2eKeys {
-    /// Derive E2E keys from a 32-byte secret using HKDF-SHA256.
+    /// Derive the E2E key from a 32-byte secret using HKDF-SHA256.
     pub fn from_secret(secret: &[u8; 32]) -> Self {
         let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), secret);
 
@@ -34,20 +32,13 @@ impl E2eKeys {
         hk.expand(CONTENT_KEY_INFO, &mut encryption_key)
             .expect("32 bytes is a valid HKDF-SHA256 output length");
 
-        let mut index_key = [0u8; 32];
-        hk.expand(INDEX_KEY_INFO, &mut index_key)
-            .expect("32 bytes is a valid HKDF-SHA256 output length");
-
-        Self {
-            encryption_key,
-            index_key,
-        }
+        Self { encryption_key }
     }
 
-    /// Derive E2E keys from an Ed25519 private key seed.
+    /// Derive the E2E key from an Ed25519 private key seed.
     ///
     /// Converts the Ed25519 seed to an X25519 secret key, then derives
-    /// encryption + index keys via HKDF. This allows a single Ed25519
+    /// the encryption key via HKDF. This allows a single Ed25519
     /// key pair to serve as both identity and encryption root.
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> CryptoResult<Self> {
         let ed_seed = ed25519_compact::Seed::new(*seed);
@@ -62,14 +53,9 @@ impl E2eKeys {
         Ok(Self::from_secret(&secret))
     }
 
-    /// AES-256-GCM key for atom content encryption.
+    /// AES-256-GCM content key. The disk home and the cloud backup use it.
     pub fn encryption_key(&self) -> [u8; 32] {
         self.encryption_key
-    }
-
-    /// HMAC-SHA256 key for blind index tokens.
-    pub fn index_key(&self) -> [u8; 32] {
-        self.index_key
     }
 
     /// Deterministic storage-facing HashKey token (design-lastdb-hashkey-blind-v1).
@@ -81,14 +67,14 @@ impl E2eKeys {
     ///
     /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
     /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
-    /// `escape_segment` remains safe.
+    /// `escape_segment` remains safe. `blind_key` is the molecule bundle's key.
     pub fn blind_hash_key(
-        index_key: &[u8; 32],
+        blind_key: &[u8; 32],
         molecule_uuid: &str,
         plaintext_hash: &str,
     ) -> String {
         let mut mac =
-            Hmac::<Sha256>::new_from_slice(index_key).expect("HMAC accepts any key length");
+            Hmac::<Sha256>::new_from_slice(blind_key).expect("HMAC accepts any key length");
         mac.update(b"hk|v1");
         mac.update(&[0u8]);
         mac.update(molecule_uuid.as_bytes());

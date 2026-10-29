@@ -54,35 +54,4 @@ impl HashRangeQueryProcessor {
         }
         Self::primary_key_form(filter) == PrimaryKeyForm::Api
     }
-
-    /// Primary field for co-key: the schema key field whenever one exists,
-    /// otherwise the first projected field.
-    ///
-    /// The primary defines the row set; it is not merely a projected column.
-    /// Choosing a sparse projected field here silently turns a projection into
-    /// a row filter and makes `total_count` agree with the truncated answer.
-    pub(super) fn cokey_primary_field(schema: &Schema, selected: &[String]) -> String {
-        if let Some(key_field) = schema
-            .key
-            .as_ref()
-            .and_then(|k| k.hash_field.as_ref().or(k.range_field.as_ref()))
-        {
-            if schema.runtime_fields.contains_key(key_field.as_str()) {
-                return key_field.clone();
-            }
-        }
-        selected[0].clone()
-    }
-
-    /// One selected non-primary field can supply keys when the spine is empty.
-    /// Both reads and counts pass normalized fields, including `fields: []`.
-    pub(super) fn cokey_fallback_field<'a>(
-        selected: &'a [String],
-        primary: &str,
-    ) -> Option<&'a str> {
-        selected
-            .iter()
-            .find(|field| field.as_str() != primary)
-            .map(String::as_str)
-    }
 }

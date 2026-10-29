@@ -96,10 +96,9 @@ pub(crate) async fn load_app_single_catalog_binding(
         })?;
 
     // The catalog schema can carry molecule UUIDs that predate the current
-    // deterministic derivation. Loading the mapper metadata alone leaves the
-    // app alias on derived, empty molecules, so every historical row appears
-    // absent. Apply the mappers now and persist the catalog's stored molecule
-    // locations onto the app-qualified schema.
+    // deterministic derivation. A load binds the app alias to the catalog's
+    // stored molecules, unless this process already published that binding.
+    // This call reloads the stored binding through the typed mapper pass.
     host.db
         .schema_manager()
         .apply_field_mappers(&declare.local_schema_id)

@@ -6,6 +6,8 @@ use crate::disk_run::RunReader;
 use crate::{Error, Result};
 use sha2::{Digest, Sha256};
 use std::io::{self, Write};
+#[path = "stream/proof.rs"]
+mod proof;
 
 /// Exact decoded stored bytes copied without a file-sized allocation.
 pub struct CopiedRunBody {

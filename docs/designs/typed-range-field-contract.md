@@ -207,9 +207,11 @@ The profile version binds the exact node marker and its byte count to the backup
 Capture and restore check each schema against its existing molecule profile and key authority at the held roots.
 Those checks use bounded batch reads. They create no key and change no profile.
 
-## Later codec cleanup
+## Codec cleanup
 
-These parts stay in the codec. A later change removes them:
+On 2026-10-28 `MoleculeKeyCodec` lost the plain hash encoding and its optional range profile.
+The codec always blinds a hash and always uses the range profile of the molecule.
 
-- The plain hash encoding of `MoleculeKeyCodec`.
-- The optional range profile in `MoleculeKeyCodec` and in the reader and writer calls that take `Option<MoleculeRangeProfile>`.
+This part stays. A later change removes it:
+
+- The reader and writer calls that take `Option<MoleculeRangeProfile>` from `KeyComparisonContext::current_profile()`.

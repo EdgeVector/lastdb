@@ -47,7 +47,7 @@ struct DeclarativeSchemaDefinitionHelper {
     identity_hash: Option<String>,
     #[serde(default)]
     identity_hash_algo_version: Option<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     superseded_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     trust_domain: Option<String>,

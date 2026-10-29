@@ -28,7 +28,6 @@ pub mod attrs;
 pub mod crash;
 pub mod init;
 pub mod layers;
-pub mod progress_reporter;
 #[cfg(feature = "otel")]
 pub mod propagation;
 pub mod truncate;

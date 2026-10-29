@@ -16,9 +16,8 @@ impl SchemaServiceState {
     /// Idempotent — re-running on a clean registry is a no-op.
     ///
     /// This is the one-shot dev cleanup for the duplicate pile produced by
-    /// the pre-409 cross-schema_type fall-through (see
-    /// `state_expansion::is_cross_schema_type_expansion`) and by concurrent
-    /// Lambda races. It does NOT delete data — superseded schemas are
+    /// the old cross-schema_type fall-through and by concurrent Lambda races.
+    /// It does NOT delete data — superseded schemas are
     /// preserved so any in-flight writes that still address them keep
     /// resolving via the active-redirect path.
     pub async fn dedupe_descriptive_names(&self) -> FoldDbResult<Vec<DescriptiveNameDedupeGroup>> {

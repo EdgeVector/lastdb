@@ -29,8 +29,8 @@ impl HashRangeQueryProcessor {
             received_from_namespaces,
             request_concurrency,
         } = selection;
-        let selected = Self::cokey_selected_fields(schema, fields);
-        let key_selected = key_fields.map(|fields| Self::cokey_selected_fields(schema, fields));
+        let selected = field_rules::selected_fields(schema, fields);
+        let key_selected = key_fields.map(|fields| field_rules::selected_fields(schema, fields));
         let key_selected = key_selected.as_deref().unwrap_or(&selected);
         if selected.is_empty() || key_selected.is_empty() {
             return Ok(CokeyRows {

@@ -196,12 +196,10 @@ pub(crate) struct DualSignalDiagnostic {
 /// Strip the cross-schema_type **de-collision suffix** from a descriptive_name
 /// for the purpose of *semantic* comparison.
 ///
-/// When a User proposal's `descriptive_name` collides with an
-/// incompatible-`schema_type` starter seed, [`SchemaServiceState::
-/// decollide_seed_descriptive_name`] renames it to `"<name> (<Type>)"` (or
-/// `"<name> (<Type> <n>)"`) so the document ingests as its own canonical
-/// instead of 409'ing — e.g. a `Hash` "Contacts" proposal lands as
-/// `"Contacts (Hash)"` next to the seed's `Range` "Contacts".
+/// A de-collided name uses `"<name> (<Type>)"` (or `"<name> (<Type> <n>)"`).
+/// [`SchemaServiceState::decollide_user_descriptive_name`] still writes that
+/// suffix. Older stored names use the same shape — e.g. `"Contacts (Hash)"`
+/// next to a `Range` "Contacts".
 ///
 /// That suffix is a **storage-layer disambiguation artifact, not semantic
 /// content**, but it is baked into the stored `descriptive_name` and its

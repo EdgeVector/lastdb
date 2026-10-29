@@ -151,9 +151,12 @@ class Operation:
             save_json(self.args.output / "summary.json", self.summary)
             step_summary(self.summary)
         # Only this fixed summary can enter the Actions log or summary.
-        print(json.dumps({"result": self.summary["result"],
-                          "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
-                          "source": self.args.source, "primary_access": False}, sort_keys=True))
+        value = {"result": self.summary["result"],
+                 "stage": self.summary.get("stage"), "failure": self.summary.get("failure"),
+                 "source": self.args.source, "primary_access": False}
+        if self.summary["result"] != "passed" and "automatic_checkpoint_observation" in self.summary:
+            value["automatic_checkpoint_observation"] = self.summary["automatic_checkpoint_observation"]
+        print(json.dumps(value, sort_keys=True))
 
 
 def step_summary(summary):

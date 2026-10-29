@@ -3,9 +3,9 @@
 //! ## Encryption Architecture
 //!
 //! FoldDB uses **end-to-end (E2E) encryption** as its sole encryption mechanism.
-//! E2E keys are derived from a local secret (`~/.fold_db/e2e.key`) via HKDF-SHA256,
-//! producing an AES-256-GCM content key and an HMAC-SHA256 index key. This ensures
-//! atom content and index tokens are encrypted before they ever reach storage.
+//! The E2E key is derived from the node identity seed via HKDF-SHA256: one
+//! AES-256-GCM content key. The disk home and the cloud backup use it. HashKey
+//! tokens use each molecule bundle's own blind key, not a key derived here.
 //!
 //! This module provides:
 //! - Ed25519 key pair generation and management

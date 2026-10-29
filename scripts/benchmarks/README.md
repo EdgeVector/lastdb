@@ -1,5 +1,18 @@
 # LastDB benchmarks in GitHub Actions
 
+## Paired current 16-writer comparison
+
+The optional `writer16` comparison reuses the normal verified build artifact in a separate hosted measurement job.
+It is available in the manual historical comparison.
+Three alternating pairs each use a fresh 100,000-record home, one schema, one hash, and 16 clients with disjoint keys.
+Each ordinary case completes 2,048 single-record durable writes and verifies the final values.
+The final pair also records native clocks after a restart; instrumented latency stays separate from the ordinary comparison.
+The summary compares median P95 and throughput, and retains logical preparation phases and actual read/decode counts.
+Candidate-only write-read-reuse counters remain explicit; absent baseline instrumentation is unreported.
+Search stays off. All generated daemons stop and their owned homes are removed.
+Speed changes remain advisory. Required standard speed, growth, disk/delete and upload checks still run.
+The additional job uses the same source revisions and programs, without another build or local operation.
+
 ## Historical 16-writer investigation
 
 `write-contention.yml` diagnoses the warning in run 40558556490. It downloads the exact two archived program pairs from that run.
@@ -489,3 +502,49 @@ Content verification reads files before timing, so this is logical-record-cold,
 not physical-device-cold. The standard startup-tail recipe stays unchanged.
 The snapshot and its generated credentials are never uploaded; only fingerprints,
 request receipts, validation results, and timings enter the verified CI artifact.
+
+## Controlled mixed-write layout investigation
+
+`controlled-mixed-writes.yml` is a separate CI-only comparison pinned initially
+at the exact baseline/merge revisions of rejected PR #671. It does not reinstate
+that simplification or change the standard benchmark. Four arms each retain four
+alternating pairs and all 256 mixed/4 calls per run (128 reads, 128 durable writes):
+independent timing, shared timing, independent native clocks, and shared native
+clocks. Arm order rotates and version order reverses by pair. Timing controls
+and intrusive native measurements remain separate, including their comparisons.
+
+Independent arms replay the preceding standard history in their own fresh homes.
+Shared arms replay it once with the baseline, observe three stable seconds, stop
+durably, and verify byte-identical copies before opening each version. They
+record one bounded boot append, warm the same 256 keys, and require unchanged
+inherited layout/root before timing. All arms add warm-up and pre/post physical
+observations outside timing, so this is not an exact replay of old runner pacing.
+Requests and logical starting-value hashes must agree. Reads require four warm
+hits and no storage reads; all written keys are verified after timing. Every
+daemon must return a durable shutdown receipt before owned cleanup. Live status
+can lag physical merges, so reopened roots are compared directly across clones.
+
+Native arms enable the existing isolated-node numeric clocks from startup,
+including their independent prehistory. They disable stdio rotation to retain
+complete numeric records; ordinary arms keep defaults. This replaces the earlier
+intrusive filesystem-polling arm. Native capture reads only the owned log after
+shutdown, bounded to 256 MiB, 256 KiB per line, and 100,000 events per home.
+Case clocks must cover all 128 successful writes. Existing native scope checks
+require unique sequences and one enclosed durable commit per scope; physical
+cost counts each distinct commit once and requires its completion event. Raw
+intersecting events, crossing counts, nested phase distributions and merge steps
+remain artifacts. Stages missing from a capture are unreported, never zero.
+Native sequences do not identify HTTP IDs: exact request-ID coverage is audited
+separately, without an invented per-request disk-stage association.
+
+A commit and background merge may overlap; their phase times are not additive.
+Merge overlap is correlation, not proof that it blocked a request. The shared
+boundary combines common identity, shutdown/reopen, settling and warm-up. It does
+not freeze maintenance or control scheduling, new mutation IDs/output bytes or
+device caches; hashing warms OS pages. Instrumented history can also change the
+independent layout. Neither arm differences nor the largest phase alone isolate
+one cause. Use ordinary timing arms for latency comparisons, native arms for
+stage attribution, and retain adverse pairs. #671 stays closed pending evidence.
+
+Only source and durable instructions enter Git. Raw output stays in CI artifacts;
+owned generated homes and keys are cleaned up outside the artifact.

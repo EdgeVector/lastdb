@@ -222,7 +222,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
                                           ├─ encryption_key ── AES-256-GCM ──► `main`, `metadata`
                                           │                                    namespaces, file blobs,
                                           │                                    node_config sensitive fields
-                                          └─ index_key (HMAC-SHA256)  ──► **no production callers** (see 4.4)
+                                          └─ (no index key: HashKeys use each molecule bundle's blind key, see 4.4)
 ```
 
 - Master-key resolution: `fold_db_node/src/secure_store.rs`
@@ -289,7 +289,8 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    bug that writes plaintext) is invisible.
 3. **Search blind tokens are not a production path.** The unused search
    helper `E2eKeys::blind_token` is removed. Storage HashKeys use
-   `E2eKeys::blind_hash_key` with `index_key()`. The native index is
+   `E2eKeys::blind_hash_key` with the `blind_key` of each molecule's key
+   bundle. `E2eKeys` derives no index key. The native index is
    embedding-based and stored plaintext.
 4. **No rotation story.** One static master key, one static E2E key
    derived from a never-rotating identity seed, and an envelope format

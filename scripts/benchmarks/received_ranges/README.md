@@ -15,8 +15,9 @@ Local records duplicate every sixteenth key, plus selected boundary keys.
 The four fields identify the source and contain a generated 256-byte body.
 Every returned field must match the expected source precedence.
 Local values take precedence. Source zero precedes source one.
-An alternate schema shares the hash field through an explicit field mapper.
-It declares another range field and supplies local primary values without the first schema's range field.
+An alternate schema uses the same `(bucket,id)` key and explicit mappers for `bucket`, `title`, and `body`.
+Its unmapped `id` has a distinct description and molecule.
+The local write supplies no value in the first schema's `id` molecule.
 Those local primary values take precedence before schema membership excludes them.
 The recipe verifies 640 excluded keys before a valid refill and a 576-key all-hidden tail.
 Received values at those same keys must remain hidden.

@@ -121,8 +121,8 @@ impl FieldVariant {
     /// load, clone, or node restart — not only for a field that has never been
     /// written. The durable binding is `inner.molecule_uuid`, which
     /// `populate_runtime_fields` has already resolved: a field carrying a
-    /// `FieldMapper` resolves to its chain ROOT's `(schema, field)` pair, and
-    /// `apply_field_mappers` copies the root's UUID for a multi-hop chain.
+    /// `FieldMapper` resolves to its direct source `(schema, field)` pair, and
+    /// the typed mapper pass binds a same-key chain to the root's molecule.
     ///
     /// So `(schema_name, field_name)` — the mutation's own names — is the
     /// correct source pair only for an UNMAPPED field. Deriving the UUID from

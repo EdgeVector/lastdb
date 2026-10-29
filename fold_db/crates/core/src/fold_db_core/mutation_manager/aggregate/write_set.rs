@@ -17,6 +17,7 @@ impl MutationManager {
         mut source: Mutation,
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
+        self.refuse_logical_capture("aggregate operations")?;
         let aggregate = source.aggregate_set.clone().ok_or_else(|| {
             SchemaError::InvalidData("aggregate commit requires aggregate_set".into())
         })?;

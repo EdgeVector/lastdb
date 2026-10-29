@@ -3,6 +3,11 @@ impl SchemaServiceState {
     /// Reject proposals whose shape would break identity hashing or the
     /// descriptive_name / field registries. Pure: reads the proposal only.
     pub(super) fn validate_proposal_shape(schema: &Schema) -> FoldDbResult<()> {
+        if schema.superseded_by.is_some() {
+            return Err(FoldDbError::Config(
+                "invalid_schema_proposal: superseded_by is managed by the schema service".into(),
+            ));
+        }
         schema.validate_definition().map_err(FoldDbError::Config)?;
         Self::validate_descriptive_name(schema)?;
         Self::validate_field_names(schema)

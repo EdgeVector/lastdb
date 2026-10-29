@@ -1,5 +1,6 @@
 use super::*;
 use crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE;
+use crate::storage::error::{NativeProofCause, NativeProofStage};
 use laststore::space::SpacePolicy;
 use std::path::Path;
 
@@ -8,7 +9,14 @@ mod json_string;
 pub(super) mod scratch;
 mod verify;
 
-/// This digest names the exact stored native record, with or without an account wrapper.
+fn invalid(code: &'static str) -> StorageError {
+    StorageError::NativeProof {
+        stage: NativeProofStage::NativeCas,
+        cause: NativeProofCause::Static(code),
+    }
+}
+
+/// This digest names the exact stored native CAS record.
 /// Native file inventory already protects these bytes; no BlobPart is required.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

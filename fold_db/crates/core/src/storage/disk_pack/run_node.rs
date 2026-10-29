@@ -218,9 +218,11 @@ impl PackNamespacedStore {
         } else {
             super::cas_delete::require_clear(&v2)?;
         }
+        let policy = space::policy_from_env()?;
+        let logical_capture = logical_capture::open(&v2, &policy, resume_merges)?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
-        let store = Self::assemble(v2, root, initializing, space::policy_from_env()?);
+        let store = Self::assemble(v2, root, initializing, policy, logical_capture);
         if resume_merges {
             store.runtime.resume_merges();
         }

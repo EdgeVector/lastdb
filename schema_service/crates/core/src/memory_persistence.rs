@@ -63,6 +63,7 @@ impl InMemorySchemaPersistence {
         if let Some(vocabulary) = vocabulary {
             vocabulary.verify(&registry.canonical_fields)?;
         }
+        crate::schema_expansion_commit::validate_expansion_pairs(&registry.schemas, schemas)?;
         let canonical_fields = crate::field_name_policy::canonical_fields_after_insert(
             &registry.canonical_fields,
             fields,

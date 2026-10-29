@@ -27,8 +27,8 @@ impl MoleculeHashRange {
     ///
     /// Use this when the caller knows which molecule the field is bound to and
     /// that binding is not `deterministic(this_schema, this_field)` — the
-    /// FieldMapper case, where `populate_runtime_fields` already resolved the
-    /// field to its chain root's molecule. [`Self::new`] derives the UUID from
+    /// FieldMapper case, where the schema load already bound the field to its
+    /// source molecule. [`Self::new`] derives the UUID from
     /// the pair it is handed, so calling it with the *mapped* field's own
     /// (schema, field) silently re-anchors the field onto a second molecule.
     #[must_use]

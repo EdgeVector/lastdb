@@ -9,9 +9,33 @@ use crate::schema::types::operations::{FieldPredicate, QueryOrderBy, SortOrder};
 use crate::schema::{Schema, SchemaError};
 use std::collections::HashMap;
 
+/// Current field conditions and projection controls for one captured query.
+#[derive(Default)]
+pub struct FieldQueryOptions<'a> {
+    pub predicates: Option<&'a [FieldPredicate]>,
+    pub value_filters: Option<&'a [crate::schema::types::ValueFilter]>,
+    pub order_by: Option<&'a QueryOrderBy>,
+    pub predicate_limit: Option<usize>,
+    pub include_tombstones: bool,
+    pub secondary_concurrency: Option<usize>,
+}
+
+impl FieldQueryOptions<'_> {
+    /// Empty condition lists keep the direct path. Ordering or any explicit
+    /// condition limit still needs all candidates before the result window.
+    pub(super) fn requires_condition_pass(&self) -> bool {
+        self.predicates
+            .is_some_and(|predicates| !predicates.is_empty())
+            || self
+                .value_filters
+                .is_some_and(|filters| !filters.is_empty())
+            || self.order_by.is_some()
+            || self.predicate_limit.is_some()
+    }
+}
+
 pub(super) fn condition_fields(
     schema: &Schema,
-    blinded_hash: bool,
     predicates: &[FieldPredicate],
     value_filters: &[crate::schema::types::ValueFilter],
     order_by: Option<&QueryOrderBy>,
@@ -26,19 +50,15 @@ pub(super) fn condition_fields(
     if let Some(order_by) = order_by {
         fields.push(order_by.field.clone());
     }
-    // Candidate discovery already prefers the declared key molecule. Only
-    // blinded reads need its value in pass A to recover the API hash.
-    // Adding it on plain homes would disable the empty-spine fallback for
-    // sibling layouts whose shared fields establish their keys.
-    if blinded_hash {
-        if let Some(key_field) = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
-        {
-            if schema.runtime_fields.contains_key(key_field.as_str()) {
-                fields.push(key_field.clone());
-            }
+    // Candidate discovery already prefers the declared key molecule. Every
+    // hash is blinded, so pass A needs its value to recover the API hash.
+    if let Some(key_field) = schema
+        .key
+        .as_ref()
+        .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
+    {
+        if schema.runtime_fields.contains_key(key_field.as_str()) {
+            fields.push(key_field.clone());
         }
     }
     fields.sort();
@@ -109,26 +129,34 @@ pub(super) fn matching_field_predicate_keys(
     keys
 }
 
-pub(super) fn sort_keys_by_field(
-    keys: &mut [KeyValue],
+/// Preserve default key order unless a value order is requested, then limit.
+pub(super) fn order_condition_keys(
+    mut keys: Vec<KeyValue>,
     fields: &HashMap<String, HashMap<KeyValue, FieldValue>>,
-    order_by: &QueryOrderBy,
-) {
-    let field_values = fields.get(&order_by.field);
-    keys.sort_by(|a, b| {
-        let av = field_values
-            .and_then(|values| values.get(a))
-            .map(|fv| &fv.value);
-        let bv = field_values
-            .and_then(|values| values.get(b))
-            .map(|fv| &fv.value);
-        let primary = compare_json_values(av, bv);
-        let ordered = match order_by.order.as_ref() {
-            Some(SortOrder::Desc) => primary.reverse(),
-            _ => primary,
-        };
-        ordered.then_with(|| a.cmp_page_order(b))
-    });
+    order_by: Option<&QueryOrderBy>,
+    limit: Option<usize>,
+) -> Vec<KeyValue> {
+    if let Some(order_by) = order_by {
+        let field_values = fields.get(&order_by.field);
+        keys.sort_by(|a, b| {
+            let av = field_values
+                .and_then(|values| values.get(a))
+                .map(|fv| &fv.value);
+            let bv = field_values
+                .and_then(|values| values.get(b))
+                .map(|fv| &fv.value);
+            let primary = compare_json_values(av, bv);
+            let ordered = match order_by.order.as_ref() {
+                Some(SortOrder::Desc) => primary.reverse(),
+                _ => primary,
+            };
+            ordered.then_with(|| a.cmp_page_order(b))
+        });
+    }
+    if let Some(limit) = limit {
+        keys.truncate(limit);
+    }
+    keys
 }
 
 /// Pass B retains key and sort helpers without changing candidate discovery.
@@ -137,15 +165,7 @@ pub(super) fn exact_key_selected_fields(
     fields: &[String],
     order_by: Option<&QueryOrderBy>,
 ) -> Vec<String> {
-    let mut selected: Vec<String> = if fields.is_empty() {
-        schema.runtime_field_names()
-    } else {
-        fields
-            .iter()
-            .filter(|f| schema.runtime_fields.contains_key(f.as_str()))
-            .cloned()
-            .collect()
-    };
+    let mut selected = super::field_rules::selected_fields(schema, fields);
     // Pass B formats records from the field maps it hydrates. Carry the key
     // field so a kept row with none of the projected values still has an
     // identity map entry and cannot disappear after satisfying `Absent`.
