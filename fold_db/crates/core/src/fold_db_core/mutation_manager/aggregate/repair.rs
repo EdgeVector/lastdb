@@ -4,34 +4,9 @@ use super::*;
 
 mod entry;
 mod rules;
-use super::rules::{summary_mutation, target_owner_matches};
+use super::rules::summary_mutation;
 
 impl MutationManager {
-    /// The committed target owner must be the guard being repaired.
-    async fn check_repair_target_owner(
-        &self,
-        guard: &AggregateGuard,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let reverse_key = aggregate_target_guard_key(
-            storage_prefix,
-            &guard.target_schema_name,
-            &guard.target_key,
-        );
-        let reverse = self
-            .read_active_target_guard(&reverse_key, storage_prefix)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate target has no committed owner".into())
-            })?;
-        if !target_owner_matches(&reverse, guard) {
-            return Err(SchemaError::InvalidData(
-                "aggregate target owner does not match the repair source partition".into(),
-            ));
-        }
-        Ok(())
-    }
-
     /// Read the current summary token; a corrupt summary invalidates the guard.
     async fn check_repair_guard_token(
         &self,

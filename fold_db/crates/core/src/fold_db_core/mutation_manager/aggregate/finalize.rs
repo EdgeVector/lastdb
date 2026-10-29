@@ -1,6 +1,6 @@
 //! Aggregate summary finalize path.
 
-use super::rules::{association_matches, summary_mutation, target_owner_matches};
+use super::rules::{association_matches, summary_mutation};
 use super::*;
 
 mod rules;
@@ -78,8 +78,12 @@ impl MutationManager {
                 .write_owned()
                 .await;
             self.with_aggregate_guards(_target_lock, async {
-                self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
-                    .await?;
+                self.check_aggregate_target_owner(
+                    &guard,
+                    storage_prefix.as_deref(),
+                    "aggregate target owner does not match the finalize source partition",
+                )
+                .await?;
                 self.finalize_with_repair_grant(
                     finalize,
                     target_key,
@@ -162,31 +166,6 @@ impl MutationManager {
             .delete_typed_durable(&grant_key)
             .await?;
         Ok(receipt)
-    }
-
-    /// The committed target owner must be the guard being finalized.
-    async fn check_finalize_target_owner(
-        &self,
-        guard: &AggregateGuard,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let reverse_key = aggregate_target_guard_key(
-            storage_prefix,
-            &guard.target_schema_name,
-            &guard.target_key,
-        );
-        let reverse = self
-            .read_active_target_guard(&reverse_key, storage_prefix)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate target has no committed owner".into())
-            })?;
-        if !target_owner_matches(&reverse, guard) {
-            return Err(SchemaError::InvalidData(
-                "aggregate target owner does not match the finalize source partition".into(),
-            ));
-        }
-        Ok(())
     }
 
     /// Read the current summary. Corruption invalidates the guard before refusal;
