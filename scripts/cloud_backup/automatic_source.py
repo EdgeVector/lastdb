@@ -116,6 +116,8 @@ class Source:
         return policy
 
     def published(self, kind, previous=None, snapshot=86400, through=None):
+        # Publication can cover the requested cut while a newer TTL or native
+        # housekeeping mutation still awaits its next ordinary log upload.
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
             value = self.cloud("status", checkpoint=(kind, through))
@@ -125,6 +127,7 @@ class Source:
                     and value["retained_source_bytes"] == 0 and value["backup_kind"] == kind
                     and policy["last_completed_request_id"] == value["request_id"]
                     and accepted and accepted["commit_sha256"] != previous
+                    and all(completion(value, policy).values())
                     and (through is None or all(policy["last_backed_up_frontiers"][name] >= frontier
                          for name, frontier in through.items()))):
                 request = accepted["begin"]["job"]["commit_id"]
