@@ -5,6 +5,11 @@ name: Canonical schema operational checks
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      protein_baseline:
+        description: Optional exact baseline revision for the generated-home field protein upgrade
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -33,6 +38,20 @@ jobs:
         with:
           shared-key: schema-node-operations-debug
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build an optional exact protein baseline in CI
+        if: github.event_name == 'workflow_dispatch' && inputs.protein_baseline != ''
+        env:
+          PROTEIN_BASELINE: ${{ inputs.protein_baseline }}
+        run: |
+          set -euo pipefail
+          [[ "$PROTEIN_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$PROTEIN_BASELINE"
+          git worktree add --detach "$RUNNER_TEMP/protein-baseline-src" "$PROTEIN_BASELINE"
+          (cd "$RUNNER_TEMP/protein-baseline-src" && \
+            CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PROTEIN_BASELINE" \
+            cargo build --locked -p lastdb_node --bin lastdbd)
+          cp target/debug/lastdbd "$RUNNER_TEMP/protein-baseline-lastdbd"
+          git worktree remove "$RUNNER_TEMP/protein-baseline-src"
       - name: Build the exact daemon in CI
         env:
           FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
@@ -52,6 +71,24 @@ jobs:
                 --candidate-revision "$GITHUB_SHA" --output "$RUNNER_TEMP/schema-evidence/node/results"
             ' sh "$PWD/target/debug/lastdbd" \
             2>&1 | tee "$RUNNER_TEMP/schema-evidence/node/run.log"
+      - name: Upgrade only the run-owned generated database
+        if: github.event_name == 'workflow_dispatch' && inputs.protein_baseline != ''
+        env:
+          PROTEIN_BASELINE: ${{ inputs.protein_baseline }}
+        run: |
+          set -euo pipefail
+          SCHEMA_CHECK_UID="$(id -u)"
+          SCHEMA_CHECK_GID="$(id -g)"
+          export SCHEMA_CHECK_UID SCHEMA_CHECK_GID
+          sudo --preserve-env=HOME,RUNNER_TEMP,GITHUB_SHA,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,SCHEMA_CHECK_UID,SCHEMA_CHECK_GID,PROTEIN_BASELINE \
+            unshare --net -- sh -eu -c '
+              ip link set lo up
+              exec setpriv --reuid "$SCHEMA_CHECK_UID" --regid "$SCHEMA_CHECK_GID" --init-groups \
+                python3 scripts/schema_checks/protein_upgrade.py --candidate "$1" \
+                --candidate-revision "$GITHUB_SHA" --baseline "$RUNNER_TEMP/protein-baseline-lastdbd" \
+                --baseline-revision "$PROTEIN_BASELINE" --output "$RUNNER_TEMP/schema-evidence/node/upgrade"
+            ' sh "$PWD/target/debug/lastdbd" \
+            2>&1 | tee "$RUNNER_TEMP/schema-evidence/node/upgrade.log"
       - name: Index evidence
         if: always()
         env:

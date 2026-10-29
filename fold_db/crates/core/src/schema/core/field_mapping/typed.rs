@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::SchemaCore;
 use crate::atom::deterministic_molecule_uuid;
-use crate::schema::field_hash_coherence::are_multi_key_siblings;
 use crate::schema::types::{Schema, SchemaError};
 
 impl SchemaCore {
@@ -148,12 +147,9 @@ fn cross_key_molecule(
         ));
     }
     let identity = target.field_hashes.get(field).filter(|id| !id.is_empty());
-    if identity.is_none()
-        || identity != source.field_hashes.get(source_field)
-        || !are_multi_key_siblings(target, source)
-    {
+    if identity.is_none() || identity != source.field_hashes.get(source_field) {
         return Err(invalid(
-            "cross-key mapper requires matching fields of multi-key siblings",
+            "cross-key mapper requires matching canonical field identities",
         ));
     }
     if let Some(molecule) = stored
