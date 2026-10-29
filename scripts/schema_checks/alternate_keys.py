@@ -48,6 +48,15 @@ def alternate_key_lifecycle(node):
     second = query(node, name, "by_group", "g1", limit=1, cursor=page["next_cursor"])
     require([row["key"]["hash"] for row in second["results"]] == ["t2"]
             and not second["has_more"], "alternate continuation differs")
+    projected = node.call("/api/query", {"schema_name": name, "key_name": "by_group",
+                         "fields": ["payload"], "filter": {"HashKey": "g1"}})[0]
+    require([row["fields"] for row in projected["results"]] == [{"payload": "t1"}, {"payload": "t2"}],
+            "alternate dependency fields escaped the requested projection")
+    write(node, name, {"hash": "sparse"}, {"record_id": "sparse", "group_id": "g3", "payload": "sparse"})
+    sparse = node.call("/api/query", {"schema_name": name, "key_name": "by_group",
+                      "fields": ["owner_id"], "filter": {"HashKey": "g3"}})[0]
+    require(len(sparse["results"]) == 1 and sparse["results"][0]["fields"] == {},
+            "a missing projected field removed a valid alternate record")
     primary = read(node, name, {"hash": "t1"},
                    {"record_id": "t1", "group_id": "g1", "owner_id": "o1", "payload": "t1"},
                    names=["record_id", "group_id", "owner_id", "payload"])
