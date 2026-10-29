@@ -16,10 +16,34 @@ impl AtomStore {
         tips: &BTreeMap<String, Option<PerKeyRecord>>,
         old: &HashMap<String, PerKeyRecord>,
     ) -> Result<Recorded, SchemaError> {
-        match mode {
-            HistoryMode::Capture => Box::pin(self.capture_atom_history(scope, tips, old)).await,
-            _ => Ok(Recorded::default()),
+        if !matches!(mode, HistoryMode::Capture) {
+            return Ok(Recorded::default());
         }
+        // Physical tip deltas still use the direct rows. History instead
+        // archives the visible old value, including an immutable generation.
+        let fallback: Vec<_> = tips
+            .keys()
+            .filter(|key| {
+                old.get(*key)
+                    .is_none_or(|r| r.meta.as_ref().is_some_and(|m| m.tombstoned))
+            })
+            .cloned()
+            .collect();
+        if fallback.is_empty() {
+            return Box::pin(self.capture_atom_history(scope, tips, old)).await;
+        }
+        let rows = self
+            .delete_target_tips_with_generations(&fallback, scope)
+            .await?;
+        let mut visible = old.clone();
+        for (key, record) in fallback.into_iter().zip(rows) {
+            if let Some(record) = record {
+                visible.insert(key, record);
+            } else {
+                visible.remove(&key);
+            }
+        }
+        Box::pin(self.capture_atom_history(scope, tips, &visible)).await
     }
     pub(crate) async fn capture_atom_history(
         &self,
@@ -31,6 +55,9 @@ impl AtomStore {
             .iter()
             .filter_map(|(key, new)| {
                 let previous = old.get(key)?;
+                if previous.meta.as_ref().is_some_and(|m| m.tombstoned) {
+                    return None;
+                }
                 if new
                     .as_ref()
                     .is_some_and(|n| n.entry.atom_uuid == previous.entry.atom_uuid)

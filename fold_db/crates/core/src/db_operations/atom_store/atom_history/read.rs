@@ -31,7 +31,11 @@ impl AtomStore {
             let mut walk = history_walk(slot, cursor, limit)?;
             let step = self.walk_step(&mut walk).await?;
             let now = self.retention_state().clock_nanos();
-            let current = self.main_store.get_item::<super::super::PerKeyRecord>(slot).await?
+            let scope = crate::storage::current_keys::exact_scope(slot)?;
+            let base = crate::storage::current_keys::source_key(slot)?.to_owned();
+            let current = self.load_visible_per_key_records(scope, &[base]).await?
+                .into_iter().next().flatten()
+                .filter(|r| !r.meta.as_ref().is_some_and(|m| m.tombstoned))
                 .map(|r| serde_json::json!({"atom": r.entry.atom_uuid, "mutation": r.entry.mutation_uuid}));
             let mut entries = Vec::new();
             for (key, bytes) in step.rows {
