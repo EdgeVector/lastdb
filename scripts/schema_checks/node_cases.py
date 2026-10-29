@@ -105,18 +105,90 @@ def concurrent_members(node):
 def late_member(node):
     original = install(node, schema("LateOriginal", "late member"))
     values = {"record_id": "old-record", "group_id": "old-group", "payload": "before-schema"}
+    second = {"record_id": "old-second", "group_id": "old-group", "payload": "before-schema-second"}
     write(node, original, {"hash": "old-record"}, values)
+    write(node, original, {"hash": "old-second"}, second)
     sibling = install(node, schema("LateSibling", "late member", cross=True))
     original_mol, sibling_mol = molecule(node, original), molecule(node, sibling)
     require(protein(node, original_mol) == protein(node, sibling_mol)
             and protein(node, original_mol) is not None, "late member lacks its protein")
-    # The canonical contract requires history when a new access path joins.
-    # Do not rewrite the source to hide a missing backfill.
+    before = read(node, original, {"hash": "old-record"}, values)
+    second_before = read(node, original, {"hash": "old-second"}, second)
+    request = {"source_schema": original, "target_schema": sibling,
+               "keys": [{"hash": "old-record"}, {"hash": "old-second"}]}
+    for invalid_keys in ([], [{"hash": "old-record"}] * 65,
+                         [{"hash": "old-record"}, {"hash": "absent"}]):
+        require(http_status(node, "/api/db/backfill-protein-keys", dict(request, keys=invalid_keys)) == 400,
+                "invalid migration batch was not rejected")
+    read(node, sibling, {"hash": "old-group", "range": "old-record"}, None)
+    read(node, sibling, {"hash": "old-group", "range": "old-second"}, None)
+    # Schema load cannot discover arbitrary source hashes. Supply the exact
+    # migration keys; this operation must preserve the existing atom and clock.
+    migration = node.call("/api/db/backfill-protein-keys", request)[0]["protein_backfill"]
+    require(migration["durable"] is True and migration["keys_supplied"] == 2
+            and migration["tips_offered"] == 2 * len(FIELDS)
+            and migration["automatic_history_backfill"] is False,
+            "explicit historical migration lacks its bounded durable receipt")
     same_atom(read(node, original, {"hash": "old-record"}, values),
               read(node, sibling, {"hash": "old-group", "range": "old-record"}, values))
+    require(same_atom(before, read(node, sibling, {"hash": "old-group", "range": "old-record"}, values)),
+            "migration replaced the historical source atom")
+    same_atom(second_before, read(node, sibling, {"hash": "old-group", "range": "old-second"}, second))
     restart(node)
-    read(node, sibling, {"hash": "old-group", "range": "old-record"}, values)
-    return {"historical_record_visible_without_rewrite": True}
+    same_atom(before, read(node, original, {"hash": "old-record"}, values),
+              read(node, sibling, {"hash": "old-group", "range": "old-record"}, values))
+    same_atom(second_before, read(node, original, {"hash": "old-second"}, second),
+              read(node, sibling, {"hash": "old-group", "range": "old-second"}, second))
+    node.call("/api/db/backfill-protein-keys", request)
+    same_atom(before, read(node, sibling, {"hash": "old-group", "range": "old-record"}, values))
+    write(node, sibling, {"hash": "old-group", "range": "old-record"}, {"payload": "newer"}, "update")
+    values["payload"] = "newer"
+    newer = read(node, sibling, {"hash": "old-group", "range": "old-record"}, values)
+    node.call("/api/db/backfill-protein-keys", request)
+    same_atom(newer, read(node, original, {"hash": "old-record"}, values),
+              read(node, sibling, {"hash": "old-group", "range": "old-record"}, values))
+    write(node, sibling, {"hash": "old-group", "range": "old-record"}, operation="delete")
+    require(http_status(node, "/api/db/backfill-protein-keys", request) == 400,
+            "migration accepted a deleted source key")
+    restart(node)
+    read(node, original, {"hash": "old-record"}, None)
+    read(node, sibling, {"hash": "old-group", "range": "old-record"}, None)
+    same_atom(second_before, read(node, original, {"hash": "old-second"}, second),
+              read(node, sibling, {"hash": "old-group", "range": "old-second"}, second))
+    return {"historical_record_visible_without_rewrite": True, "migration": migration,
+            "same_hash_distinct_ranges_preserved_after_reopen": True,
+            "invalid_batch_has_no_partial_write": True, "repeat_creates_no_new_atom": True,
+            "newer_update_and_delete_preserved": True,
+            "limit": "Explicit supplied key batch only; schema load does not automatically backfill history."}
+
+
+def ambiguous_backfill(node):
+    original = install(node, schema("AmbiguousOriginal", "ambiguous migration"))
+    first = {"record_id": "a1", "group_id": "same-target", "payload": "first-source"}
+    second = {"record_id": "a2", "group_id": "same-target", "payload": "second-source"}
+    write(node, original, {"hash": "a1"}, first)
+    write(node, original, {"hash": "a2"}, second)
+    definition = schema("AmbiguousTarget", "ambiguous migration")
+    definition["key"] = {"hash_field": "group_id"}
+    target = install(node, definition)
+    source_before = [read(node, original, {"hash": "a1"}, first),
+                     read(node, original, {"hash": "a2"}, second)]
+    require(protein(node, molecule(node, original)) == protein(node, molecule(node, target))
+            and protein(node, molecule(node, original)) is not None,
+            "ambiguity check requires existing protein members")
+    request = {"source_schema": original, "target_schema": target,
+               "keys": [{"hash": "a1"}, {"hash": "a2"}]}
+    require(http_status(node, "/api/db/backfill-protein-keys", request) == 400,
+            "migration accepted two source records for one target slot")
+    read(node, target, {"hash": "same-target"}, None)
+    same_atom(source_before[0], read(node, original, {"hash": "a1"}, first))
+    same_atom(source_before[1], read(node, original, {"hash": "a2"}, second))
+    restart(node)
+    read(node, target, {"hash": "same-target"}, None)
+    same_atom(source_before[0], read(node, original, {"hash": "a1"}, first))
+    same_atom(source_before[1], read(node, original, {"hash": "a2"}, second))
+    return {"ambiguous_target_slots_rejected": True, "sources_unchanged_after_reopen": 2,
+            "target_empty_after_reopen": True}
 
 
 def schema_evolution(node):

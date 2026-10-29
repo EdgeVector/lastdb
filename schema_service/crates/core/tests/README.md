@@ -108,11 +108,15 @@ Tom requested the follow-ups on 2026-10-28. The reusable
 `schema-operational-checks.yml` workflow runs once through required CI on PRs
 and main pushes. It does not add a second branch-push trigger.
 
-- Real node: eight cases use the actual daemon and fresh generated homes.
+- Real node: nine cases use the actual daemon and fresh generated homes.
   The CI network namespace blocks external requests. System seed setup bypasses
   schema-service admission and app authentication. A durable-ack SIGKILL/reopen
   check does not cover every crash cut. Refusal of an unsupported marker does
   not prove a historical-data conversion.
+  Historical tips enter a new key layout only through the explicit owner
+  backfill operation with 1–64 known source keys. It preserves atoms and author
+  clocks, rejects ambiguous target slots, and retains newer target writes and
+  delete barriers. It does not enumerate history or replay absent source deletes.
 - Real model: the explicit `canonical_semantics` example uses the product
   FastEmbed adapter, a fresh CI model cache, a curated corpus, and the bundled
   file adapter. Reports identify the model snapshot and file checksums. These

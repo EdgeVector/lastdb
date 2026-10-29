@@ -47,6 +47,8 @@ struct DeclarativeSchemaDefinitionHelper {
     identity_hash: Option<String>,
     #[serde(default)]
     identity_hash_algo_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    superseded_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     trust_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -124,6 +126,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.field_versions = self.field_versions;
         schema.identity_hash = self.identity_hash;
         schema.identity_hash_algo_version = self.identity_hash_algo_version;
+        schema.superseded_by = self.superseded_by;
         schema.trust_domain = self.trust_domain;
         schema.owner_app_id = self.owner_app_id;
         schema.source = self.source;

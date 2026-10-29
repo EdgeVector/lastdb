@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 import time
 
-from node_cases import (concurrent_members, late_member, linked_lifecycle, schema_evolution, separation,
+from node_cases import (ambiguous_backfill, concurrent_members, late_member, linked_lifecycle, schema_evolution, separation,
                         unsupported_layouts, unsupported_marker)
 from node_ops import ENVIRONMENT, Node, file_hash, require, save
 
@@ -24,6 +24,8 @@ LIMITS = [
     "SIGKILL follows a durable acknowledgement; this does not enumerate every storage crash cut.",
     "Unsupported marker refusal does not prove conversion from any real historical disk format.",
     "Public mutation requests allocate new write identities; authenticated peer replay is outside this check.",
+    "Historical backfill requires an explicit source-key batch; automatic schema-load backfill is unsupported.",
+    "Explicit migration copies current visible tips; it does not replay historical source Delete barriers.",
 ]
 CASES = [
     ("linked-lifecycle", linked_lifecycle),
@@ -31,6 +33,7 @@ CASES = [
     ("same-name-distinct-meaning", lambda node: separation(node, declared=False)),
     ("concurrent-member-writes", concurrent_members),
     ("late-member-historical-read", late_member),
+    ("ambiguous-target-backfill-refusal", ambiguous_backfill),
     ("existing-data-schema-expansion", schema_evolution),
     ("unsupported-layout-refusal", unsupported_layouts),
     ("unsupported-marker-data-preservation", unsupported_marker),
