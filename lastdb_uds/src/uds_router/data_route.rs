@@ -303,6 +303,9 @@ pub enum DataRoute {
     /// `POST /api/db/schema-retention` — owner read/set/clear of the
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
+    /// `POST /api/db/backfill-protein-keys` — replay at most 64 named source
+    /// keys into an existing protein member. Owner only; no key enumeration.
+    DbBackfillProteinKeys,
     /// `POST /api/db/repair-schema-molecule-map` — compare-and-set repair of
     /// one installed schema's field-to-molecule metadata. Owner only. The
     /// request is a dry run unless `execute=true`.

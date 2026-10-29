@@ -38,6 +38,7 @@ from node import Node, save  # noqa: E402  (the benchmark daemon driver)
 from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
 import cleanup  # noqa: E402
+import logical_capture  # noqa: E402
 
 LIMIT = 2.0
 MINIMUM_LOGICAL = 16 * 1024 * 1024
@@ -439,10 +440,12 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     candidate = (args.candidate.resolve(strict=True), args.candidate_revision)
     report = Case(candidate, args.output).execute()
+    capture = logical_capture.run(candidate, args.output / "logical-capture")
     save(args.output / "node-proof.json", {"limit": LIMIT, "profile": PROFILE,
-                                           "reports": [report]})
+                                           "reports": [report], "logical_capture": capture})
     print(summary(report, args.candidate_revision), flush=True)
-    if report["failures"]:
+    print(logical_capture.summary(capture), flush=True)
+    if report["failures"] or not capture["complete"]:
         sys.exit(1)
 
 

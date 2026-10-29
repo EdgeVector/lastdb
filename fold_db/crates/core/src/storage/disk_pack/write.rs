@@ -185,6 +185,9 @@ impl PackRuntime {
             batch_bytes: _,
             space,
         } = prepared;
+        if requests.is_empty() {
+            transaction::require_captured_changes(self, None, &operations)?;
+        }
         // A direct durable publication consumes its bodies below. Keep only
         // membership coordinates; queued flushes already published them.
         let key_changes = if hidden_changes.is_empty() {

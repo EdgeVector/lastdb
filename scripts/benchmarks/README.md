@@ -505,35 +505,46 @@ request receipts, validation results, and timings enter the verified CI artifact
 
 ## Controlled mixed-write layout investigation
 
-`controlled-mixed-writes.yml` is a separate CI-only comparison, initially pinned
+`controlled-mixed-writes.yml` is a separate CI-only comparison pinned initially
 at the exact baseline/merge revisions of rejected PR #671. It does not reinstate
-that simplification or alter the standard benchmark. Each arm retains four
-alternating pairs and all 256 mixed/4 calls per run (128 reads, 128 durable writes).
+that simplification or change the standard benchmark. Four arms each retain four
+alternating pairs and all 256 mixed/4 calls per run (128 reads, 128 durable writes):
+independent timing, shared timing, independent native clocks, and shared native
+clocks. Arm order rotates and version order reverses by pair. Timing controls
+and intrusive native measurements remain separate, including their comparisons.
 
-The independent arm replays the preceding standard history in each version's own
-fresh home. The shared arm replays that history once with the baseline, observes
-three stable seconds, shuts down durably, and verifies complete byte-identical
-copies before opening each version. It records the bounded boot metadata append,
-warms the same 256 keys, and requires unchanged inherited layout/root before the
-case starts. All arms add explicit warm-up and pre/post observations outside the
-timed case, so independent timing is a contemporary diagnostic comparison, not an
-exact replay of old runner pacing. Requests and logical starting-value hashes
-must agree; reads must report four warm hits and no storage reads. Written keys
-are validated after timing, and shutdown must return a successful durable receipt.
-Live native status can lag physical merges because it reports the installed read
-view. Shared clones therefore require equal reopened roots and boot-append sizes,
-plus byte-identical inherited run files, rather than assuming live generation +2
-equals the shutdown/reopen root.
+Independent arms replay the preceding standard history in their own fresh homes.
+Shared arms replay it once with the baseline, observe three stable seconds, stop
+durably, and verify byte-identical copies before opening each version. They
+record one bounded boot append, warm the same 256 keys, and require unchanged
+inherited layout/root before timing. All arms add warm-up and pre/post physical
+observations outside timing, so this is not an exact replay of old runner pacing.
+Requests and logical starting-value hashes must agree. Reads require four warm
+hits and no storage reads; all written keys are verified after timing. Every
+daemon must return a durable shutdown receipt before owned cleanup. Live status
+can lag physical merges, so reopened roots are compared directly across clones.
 
-A third arm uses separate clones with intrusive status/run-file polling and
-request-ID phase collection. Its timings stay separate. Observations are bounded,
-non-atomic, and can miss short-lived events; generation/frontier and file removal
-are evidence to inspect, not automatic causal labels. The shared boundary controls
-starting files and combines common identity, shutdown, settling and warm-up. It
-does not freeze maintenance during writes or control scheduling, newly assigned
-mutation IDs, new encrypted output bytes, or device caches. Hash verification warms
-OS pages. Do not infer a single cause from a difference between arms.
+Native arms enable the existing isolated-node numeric clocks from startup,
+including their independent prehistory. They disable stdio rotation to retain
+complete numeric records; ordinary arms keep defaults. This replaces the earlier
+intrusive filesystem-polling arm. Native capture reads only the owned log after
+shutdown, bounded to 256 MiB, 256 KiB per line, and 100,000 events per home.
+Case clocks must cover all 128 successful writes. Existing native scope checks
+require unique sequences and one enclosed durable commit per scope; physical
+cost counts each distinct commit once and requires its completion event. Raw
+intersecting events, crossing counts, nested phase distributions and merge steps
+remain artifacts. Stages missing from a capture are unreported, never zero.
+Native sequences do not identify HTTP IDs: exact request-ID coverage is audited
+separately, without an invented per-request disk-stage association.
 
-Only source and these durable instructions enter Git. Results, observations,
-request receipts and fingerprints are workflow artifacts; owned generated homes
-and keys are cleaned up outside the artifact.
+A commit and background merge may overlap; their phase times are not additive.
+Merge overlap is correlation, not proof that it blocked a request. The shared
+boundary combines common identity, shutdown/reopen, settling and warm-up. It does
+not freeze maintenance or control scheduling, new mutation IDs/output bytes or
+device caches; hashing warms OS pages. Instrumented history can also change the
+independent layout. Neither arm differences nor the largest phase alone isolate
+one cause. Use ordinary timing arms for latency comparisons, native arms for
+stage attribution, and retain adverse pairs. #671 stays closed pending evidence.
+
+Only source and durable instructions enter Git. Raw output stays in CI artifacts;
+owned generated homes and keys are cleaned up outside the artifact.

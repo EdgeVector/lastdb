@@ -41,6 +41,20 @@ pub(super) async fn execute_status_route(
     status["search"] = fold_db::db_operations::search_index::queue_policy::status(
         &fold_db::db_operations::search_index::search_inbox_dir_for_home(&host.home),
     );
+    if ctx.is_owner {
+        if let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() {
+            match runtime.logical_capture_status().await {
+                Ok(capture) => status["logical_capture"] = serde_json::json!(capture),
+                Err(error) => {
+                    return mapped_error_response(
+                        "logical capture status failed",
+                        error.into(),
+                        ctx,
+                    )
+                }
+            }
+        }
+    }
     json_ok(&envelope(
         &serde_json::json!({ "status": status }),
         ctx.user_id.as_str(),

@@ -258,9 +258,24 @@ fn schema_catalog_stamps_do_not_reidentify_an_existing_shape() {
     changed
         .field_hashes
         .insert("parcel_mass".into(), "updated_catalog_stamp".into());
+    changed.superseded_by = Some("next_schema_identity".into());
     changed.compute_identity_hash();
     assert_eq!(base.identity_hash, changed.identity_hash);
     assert_ne!(base.field_hashes, changed.field_hashes);
+    let restored: Schema =
+        serde_json::from_value(serde_json::to_value(&changed).expect("serialize"))
+            .expect("restore persisted schema metadata");
+    assert_eq!(restored.superseded_by, changed.superseded_by);
+    assert_eq!(
+        restored.identity_hash_algo_version,
+        changed.identity_hash_algo_version
+    );
+    assert_eq!(restored, changed);
+
+    let legacy = serde_json::to_value(&base).expect("legacy schema without a successor marker");
+    assert!(legacy.get("superseded_by").is_none());
+    let restored: Schema = serde_json::from_value(legacy).expect("legacy schema remains readable");
+    assert!(restored.superseded_by.is_none());
 }
 
 #[test]

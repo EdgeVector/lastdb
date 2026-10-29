@@ -11,6 +11,7 @@ impl MutationManager {
         repair: AggregateRepair,
         access_context: &crate::access::AccessContext,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
+        self.refuse_logical_capture("aggregate operations")?;
         rules::validate_request(&repair)?;
         let target_key = self
             .resolve_aggregate_target_key(&repair.target_schema_name, &repair.target_key_value)?;

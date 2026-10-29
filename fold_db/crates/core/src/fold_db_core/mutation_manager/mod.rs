@@ -17,6 +17,7 @@ mod cas_preconditions;
 mod cas_rules;
 pub(super) mod helpers;
 mod index;
+mod logical_capture;
 mod molecules;
 mod purge_locks;
 pub mod receipt;

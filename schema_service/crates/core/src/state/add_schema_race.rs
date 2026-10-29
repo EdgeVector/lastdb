@@ -2,9 +2,8 @@ use super::*;
 
 impl SchemaServiceState {
     /// The descriptive_name index already points at the incoming identity hash.
-    /// Returns a 409 for a cross-schema_type collision, `AlreadyExists` for a
-    /// true duplicate, or `None` (after mapping fields) for a multi-key
-    /// sibling so the caller falls through to registration.
+    /// Returns `AlreadyExists` for a true duplicate, or `None` (after mapping
+    /// fields) for a multi-key sibling so the caller falls through to registration.
     fn race_same_hash_outcome(
         schema: &mut Schema,
         existing_hash: &str,
@@ -17,35 +16,6 @@ impl SchemaServiceState {
         // than conflict — the index just hadn't caught up earlier in
         // this call, but they're the same canonical.
         //
-        // Sibling guard: a concurrent add could have just inserted
-        // an entry with the same identity_hash but a different
-        // `schema_type` (the hash doesn't include schema_type).
-        // Refuse with 409 instead of handing the caller back a
-        // schema with the wrong on-disk shape — same gate the
-        // early dedup short-circuit applies.
-        if crate::state_expansion::is_cross_schema_type_expansion(schema, existing) {
-            tracing::warn!(
-                target: "schema_service::schema",
-                descriptive_name = %desc_name,
-                existing_canonical = %existing_hash,
-                old_schema_type = ?existing.schema_type,
-                new_schema_type = ?schema.schema_type,
-                "Refusing cross-schema_type identity-hash collision in race-condition guard — returning DescriptiveNameConflict (409)",
-            );
-            return Some(SchemaAddOutcome::DescriptiveNameConflict(
-                crate::types::DescriptiveNameConflict {
-                    existing_canonical: existing_hash.to_string(),
-                    descriptive_name: desc_name.to_string(),
-                    reason: format!(
-                        "incoming schema_type {:?} differs from existing {:?}; \
-                         identity_hash collides because schema_type is not part \
-                         of the hash, but merging would corrupt molecule reads",
-                        schema.schema_type, existing.schema_type,
-                    ),
-                },
-            ));
-        }
-
         // Defense: if key layout ever fails to participate in
         // identity_hash, same hash + different keys must NOT
         // AlreadyExists-discard the new layout (that was the
@@ -146,27 +116,6 @@ impl SchemaServiceState {
             ) {
                 return Ok(Some(outcome));
             }
-        }
-        if crate::state_expansion::is_cross_schema_type_expansion(schema, &existing) {
-            tracing::warn!(
-                target: "schema_service::schema",
-                descriptive_name = %desc_name_owned,
-                existing_hash = %existing_hash,
-                old_schema_type = ?existing.schema_type,
-                new_schema_type = ?schema.schema_type,
-                "Refusing cross-schema_type expansion in race-condition path — returning DescriptiveNameConflict (409)",
-            );
-            return Ok(Some(SchemaAddOutcome::DescriptiveNameConflict(
-                crate::types::DescriptiveNameConflict {
-                    existing_canonical: existing_hash,
-                    descriptive_name: desc_name_owned,
-                    reason: format!(
-                        "incoming schema_type {:?} differs from existing {:?}; \
-                         cross-schema_type expansion would corrupt molecule reads",
-                        schema.schema_type, existing.schema_type,
-                    ),
-                },
-            )));
         }
         let race_candidate = MatchCandidate::new(
             MatchSeam::NameExact,
