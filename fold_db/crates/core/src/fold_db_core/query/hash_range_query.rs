@@ -42,6 +42,7 @@ mod primary_selection;
 mod received_window;
 mod resolve;
 mod secondary;
+mod secondary_rules;
 mod shares;
 mod watch;
 
@@ -53,16 +54,6 @@ use condition_rules::{
 };
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
-
-/// Production defaults to serial field reads. A value above one opts in to
-/// bounded overlap for current-head queries only.
-fn secondary_field_concurrency(value: Option<&str>, request: Option<usize>) -> usize {
-    request
-        .or_else(|| value.and_then(|value| value.parse::<usize>().ok()))
-        .filter(|value| *value > 0)
-        .unwrap_or(1)
-        .min(8)
-}
 
 /// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
 /// [`HashRangeFilter::redacted`] view.
@@ -102,16 +93,15 @@ fn full_span_page() -> HashRangeFilter {
 /// prefix (`Some`).
 type KeySource = Option<String>;
 
-/// Secondary pending atom resolve:
-/// `(field, key, uuid, meta, writer, atom prefix)`.
-type SecondaryPending = (
-    String,
-    KeyValue,
-    String,
-    Option<crate::atom::KeyMetadata>,
-    Option<String>,
-    Option<String>,
-);
+/// One secondary value retains its field, API key, atom and storage source.
+struct SecondaryPending {
+    field_name: String,
+    key: KeyValue,
+    atom_uuid: String,
+    metadata: Option<crate::atom::KeyMetadata>,
+    writer_pubkey: Option<String>,
+    storage_prefix: KeySource,
+}
 
 /// A resolved page carries verified API coordinates into secondary reads.
 struct CokeyRows {
