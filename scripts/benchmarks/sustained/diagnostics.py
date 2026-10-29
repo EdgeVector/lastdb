@@ -3,36 +3,18 @@
 import json
 import math
 from pathlib import Path
-import re
 import time
 
+from diagnostic_events import MAX_FIELDS, NAME, integer, numeric_map, write_read_event
 from diagnostic_report import render
 
 
 MARKERS = {"LASTDB_WRITE_REQUEST_TIMING ": {"request"},
-           "LASTDB_SNAPSHOT_TIMING ": {"scope", "prepare", "commit", "completion", "search_outbox", "merge"}}
+           "LASTDB_SNAPSHOT_TIMING ": {"scope", "prepare", "commit", "completion", "search_outbox", "merge", "write_reads"}}
 MAX_LOG_BYTES, MAX_LINE_BYTES, MAX_EVENTS = 2 * 1024 ** 3, 256 * 1024, 2_000_000
-MAX_WINDOWS, MAX_FIELDS, MAX_ERRORS = 64, 512, 32
+MAX_WINDOWS, MAX_ERRORS = 64, 32
 MAX_EXCLUDED_BYTES = 32 * 1024 ** 2
-NAME = re.compile(r"[A-Za-z0-9_-]{1,96}\Z")
-U64_MAX = 2 ** 64 - 1
 FILE_KINDS = ("published", "retired_held", "temporary", "unreferenced", "other_home")
-
-
-def integer(value):
-    if type(value) is not int or not 0 <= value <= U64_MAX:
-        raise ValueError("A diagnostic value is not a nonnegative u64 integer")
-    return value
-
-
-def numeric_map(values):
-    if not isinstance(values, dict) or len(values) > MAX_FIELDS:
-        raise ValueError("A numeric diagnostic map exceeds its bound")
-    for key, value in values.items():
-        if not isinstance(key, str) or not NAME.fullmatch(key):
-            raise ValueError("A numeric diagnostic field name is invalid")
-        integer(value)
-    return values
 
 
 class Metric:
@@ -79,7 +61,7 @@ class Family:
 
     def observe(self, event):
         self.events += 1
-        add_metrics(self.phases, event["phases_us"], True)
+        add_metrics(self.phases, event.get("phases_us", {}), True)
         add_metrics(self.counts, event.get("counts", {}))
         names = ("total_us", "covered_us", "unassigned_us", "queue_wait_us", "body_bytes",
                  "rows", "requests", "inputs", "records", "run_bytes")
@@ -99,6 +81,8 @@ class Family:
 def validate_event(event, allowed):
     if not isinstance(event, dict) or event.get("kind") not in allowed:
         raise ValueError("A log marker has an unsupported event kind")
+    if event["kind"] == "write_reads":
+        return write_read_event(event)
     for name in ("started_us", "ended_us", "total_us"):
         integer(event.get(name))
     if event["ended_us"] < event["started_us"]:

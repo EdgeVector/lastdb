@@ -3,6 +3,7 @@
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile};
 use super::{RunHome, MAX_VALUE_BYTES};
+use crate::disk_run::reader::MetadataMemo;
 use crate::disk_run::{value, Found, RunReader};
 use crate::{Error, Result};
 use std::sync::Arc;
@@ -74,6 +75,8 @@ pub struct RunRead {
     pub(super) key: [u8; 32],
     pub(super) budget: ReadBudget,
     pub(super) costs: RunReadCosts,
+    /// A bounded metadata workspace; it leaves memory with this held call.
+    pub(super) metadata: MetadataMemo,
     /// Keeps the owner lock while the read names run files.
     pub(super) _owner_lock: Arc<std::fs::File>,
 }
@@ -104,6 +107,7 @@ impl RunHome {
             key: self.key,
             budget,
             costs: RunReadCosts::default(),
+            metadata: MetadataMemo::new(budget.bytes),
             _owner_lock: Arc::clone(&self.lock),
         }
     }
@@ -113,6 +117,7 @@ impl RunRead {
     /// Bytes retained by this call's manifest, reader slots and opened metadata.
     pub fn retained_bytes(&self) -> u64 {
         self.manifest.retained_bytes()
+            + self.metadata.retained_bytes()
             + (self.runs.capacity() * std::mem::size_of::<(Arc<RunFile>, Option<RunReader>)>())
                 as u64
     }
@@ -238,7 +243,7 @@ impl RunRead {
             if !self.runs[slot].0.meta.covers(&wanted) {
                 continue;
             }
-            match self.reader(slot)?.get(&wanted)? {
+            match self.read_many_at(slot, &[&wanted])?.pop().flatten() {
                 Some(Found::Value(value)) => return self.accept(value, maximum).map(Some),
                 Some(Found::Tombstone) => return Ok(None),
                 None => {}
@@ -300,7 +305,7 @@ impl RunRead {
                 .iter()
                 .map(|&at| wanted[at].as_ref().expect("checked").as_slice())
                 .collect();
-            let hits = self.reader(slot)?.get_many(&keys)?;
+            let hits = self.read_many_at(slot, &keys)?;
             for (at, hit) in open.into_iter().zip(hits) {
                 found[at] = hit;
             }
@@ -314,5 +319,14 @@ impl RunRead {
             });
         }
         Ok(out)
+    }
+
+    fn read_many_at(&mut self, slot: usize, keys: &[&[u8]]) -> Result<Vec<Option<Found>>> {
+        self.reader(slot)?;
+        self.runs[slot]
+            .1
+            .as_ref()
+            .expect("reader opened")
+            .get_many_with(keys, &mut self.metadata)
     }
 }
