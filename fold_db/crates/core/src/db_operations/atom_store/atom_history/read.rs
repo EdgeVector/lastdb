@@ -32,7 +32,9 @@ impl AtomStore {
             let step = self.walk_step(&mut walk).await?;
             let now = self.retention_state().clock_nanos();
             let scope = crate::storage::current_keys::exact_scope(slot)?;
-            let base = crate::storage::current_keys::source_key(slot)?.to_owned();
+            let base = slot.strip_prefix(&build_storage_key(scope, ""))
+                .ok_or_else(|| history_error("history slot is outside its exact scope"))?
+                .to_owned();
             let current = self.load_visible_per_key_records(scope, &[base]).await?
                 .into_iter().next().flatten()
                 .filter(|r| !r.meta.as_ref().is_some_and(|m| m.tombstoned))
