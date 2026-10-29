@@ -15,32 +15,17 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        let summary_probe =
-            Self::aggregate_probe(repair.target_schema_name.clone(), target_key.clone());
-        let status = match self
-            .read_current_row_fields(
-                &summary_probe,
+        let status = self
+            .read_summary_fields(
+                repair.target_schema_name.clone(),
+                target_key,
                 &[AGGREGATE_GUARD_TOKEN_FIELD.to_string()],
+                guard,
                 storage_prefix,
+                "repair",
             )
             .await?
-        {
-            CurrentRowFields::Absent => BTreeMap::new(),
-            CurrentRowFields::Present(fields) => fields,
-            CurrentRowFields::Corrupt { field, atom_uuid } => {
-                self.invalidate_guard_targets_durable(
-                    &[guard],
-                    &format!("repair-corrupt:{}", uuid::Uuid::new_v4()),
-                    "",
-                    storage_prefix,
-                    WriteOrigin::Replay,
-                )
-                .await?;
-                return Err(SchemaError::InvalidData(format!(
-                    "aggregate repair found unresolved summary field '{field}' atom '{atom_uuid}'"
-                )));
-            }
-        };
+            .unwrap_or_default();
         let current_token = status
             .get(AGGREGATE_GUARD_TOKEN_FIELD)
             .and_then(serde_json::Value::as_str);
