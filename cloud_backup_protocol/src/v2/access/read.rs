@@ -60,7 +60,7 @@ pub struct ReadGrant {
     pub sha256: Digest,
     /// Object length, in bytes. Zero is rejected.
     pub bytes: DecimalU64,
-    /// Grant lifetime, in milliseconds. Zero is rejected.
+    /// Unix epoch milliseconds when this grant expires. Zero is rejected.
     pub expires_ms: DecimalU64,
     /// Temporary GET URL. This is not stored on a durable receipt.
     pub url: Text<8192>,

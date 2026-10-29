@@ -133,7 +133,7 @@ pub enum TransferMode {
 pub struct UploadGrant {
     /// Temporary upload URL. Do not store it on a durable record.
     pub url: Text<8192>,
-    /// Grant lifetime, in milliseconds. Zero is rejected.
+    /// Unix epoch milliseconds when this grant expires. Zero is rejected.
     pub expires_ms: DecimalU64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// How the URL is signed. Absent means a conditional PUT with an exact content length.
