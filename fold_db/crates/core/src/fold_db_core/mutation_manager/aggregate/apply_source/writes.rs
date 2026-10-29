@@ -1,5 +1,6 @@
 //! Guard and data-generation writes for one aggregate source apply.
 
+use super::super::rules::{derived_mutation, summary_mutation};
 use super::*;
 
 impl MutationManager {
@@ -50,33 +51,25 @@ impl MutationManager {
         let mut data_mutations = vec![source];
         let mut derived_clock = None;
         if let AggregateApply::Applied(next_summary) = apply {
-            let mut member = Mutation::new(
+            let member = derived_mutation(
                 aggregate.member_schema_name.clone(),
                 incoming.to_fields(),
                 aggregate.member_key_value.clone(),
                 data_mutations[0].pub_key.clone(),
                 MutationType::Update,
             );
-            member.aggregate_derived_internal = true;
-            member.synchronous = Some(true);
-            let mut summary_values: HashMap<String, serde_json::Value> = next_summary
+            let summary_values: HashMap<String, serde_json::Value> = next_summary
                 .into_iter()
                 .map(|(field, value)| (field, serde_json::Value::from(value)))
                 .collect();
-            summary_values.insert(AGGREGATE_VALID_FIELD.into(), serde_json::Value::from(0));
-            summary_values.insert(
-                AGGREGATE_GUARD_TOKEN_FIELD.into(),
-                serde_json::Value::String(guard_token.to_string()),
-            );
-            let mut summary = Mutation::new(
+            let summary = summary_mutation(
                 aggregate.target_schema_name.clone(),
-                summary_values,
                 aggregate.target_key_value.clone(),
+                summary_values,
+                false,
+                guard_token.to_string(),
                 data_mutations[0].pub_key.clone(),
-                MutationType::Update,
             );
-            summary.aggregate_derived_internal = true;
-            summary.synchronous = Some(true);
             let mut derived_owned = vec![member, summary];
             derived_clock = self.prepare_mutation_author_clocks(&mut derived_owned)?;
             data_mutations.extend(derived_owned);
@@ -154,21 +147,14 @@ impl MutationManager {
         ctx: &ApplyCtx<'_>,
         guard_token: &str,
     ) -> Result<(), SchemaError> {
-        let mut marker = Mutation::new(
+        let marker = summary_mutation(
             ctx.aggregate.target_schema_name.clone(),
-            HashMap::from([
-                (AGGREGATE_VALID_FIELD.into(), serde_json::Value::from(1)),
-                (
-                    AGGREGATE_GUARD_TOKEN_FIELD.into(),
-                    serde_json::Value::String(guard_token.to_string()),
-                ),
-            ]),
             ctx.aggregate.target_key_value.clone(),
+            HashMap::new(),
+            true,
+            guard_token.to_string(),
             String::new(),
-            MutationType::Update,
         );
-        marker.aggregate_derived_internal = true;
-        marker.synchronous = Some(true);
         self.commit_clocked_mutations(
             vec![marker],
             ctx.storage_prefix,
