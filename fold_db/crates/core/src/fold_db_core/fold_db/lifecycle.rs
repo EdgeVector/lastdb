@@ -72,9 +72,6 @@ impl FoldDB {
             target: "fold_node::database",
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
-        // Stop periodic flusher before the final barrier so we do not race
-        // two flushes (and so Drop does not try to abort a still-running tick).
-        self.background_flush.stop().await;
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
         if let Err(error) = self.background_atom_history.stop().await {
@@ -110,8 +107,8 @@ impl FoldDB {
             );
             pre_flush_errors.push(format!("keep-small flush failed: {e}"));
         }
-        // Always durability-barrier on graceful shutdown — deferred mutation
-        // flush means the last interval of writes may still be in memory.
+        // Keep the final barrier after accepted work and the debounced
+        // keep-small projection have drained.
         let flush_result = self.flush().await;
         let timeout = [persist_lane_timeout, pending_task_timeout]
             .into_iter()
