@@ -1,17 +1,13 @@
 use schema_service_core::{
-    types::CanonicalField, Clock, DeclareFieldInput, DeclareFieldRequest, DisabledEmbeddingModel,
-    ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
+    types::CanonicalField, BlockingRuntime, Clock, DeclareFieldInput, DeclareFieldRequest,
+    DisabledEmbeddingModel, ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
 };
-use schema_service_server_shared::SystemClock;
+use schema_service_server_shared::{DedicatedThreadRuntime, SystemClock};
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{future::Future, sync::Arc};
 
 pub fn run<T>(future: impl Future<Output = T>) -> T {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime")
-        .block_on(future)
+    schema_service_server_shared::block_on_current_thread(future)
 }
 
 pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaServiceState {
@@ -20,6 +16,7 @@ pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaService
         Arc::new(DisabledEmbeddingModel),
         SchemaConfig::default(),
         process_clock(),
+        process_runtime(),
     )
     .await
     .expect("empty or valid backend")
@@ -28,6 +25,11 @@ pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaService
 /// The shell adapter. Canonical tests pass the same clock the process entry uses.
 pub fn process_clock() -> Arc<dyn Clock> {
     Arc::new(SystemClock)
+}
+
+/// The shell runtime. Canonical tests pass the same adapter the process entry uses.
+pub fn process_runtime() -> Arc<dyn BlockingRuntime> {
+    Arc::new(DedicatedThreadRuntime)
 }
 
 pub fn field(description: &str, field_type: FieldValueType) -> CanonicalField {

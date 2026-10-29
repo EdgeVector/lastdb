@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use clap::Parser;
 use schema_service_server_http::{SchemaServiceServer, DEFAULT_DEV_SCHEMA_PORT};
+use schema_service_server_shared::DedicatedThreadRuntime;
 
 /// Schema service dev binary.
 ///
@@ -50,7 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Schema service starting with in-memory storage (lost on restart)");
 
-    let server = SchemaServiceServer::new_with_builtins(&bind_address).await?;
+    let server =
+        SchemaServiceServer::new_with_builtins(&bind_address, Arc::new(DedicatedThreadRuntime))
+            .await?;
 
     if let Some(remote) = hydrate_from.as_deref() {
         let api_key =

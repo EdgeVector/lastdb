@@ -20,6 +20,7 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tracing = "0.1"
 
 [dev-dependencies]
+schema_service_server_shared = { path = "../server_shared" }
 aws-config = { workspace = true }
 app_identity_crypto = { workspace = true }
 base64 = { workspace = true }

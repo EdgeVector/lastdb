@@ -8,7 +8,7 @@ where
 {
     pub fn new(
         store: S,
-        cache: FsResolverPackCache,
+        cache: Arc<dyn ResolverPackCache>,
         config: ResolverPackConsumerConfig,
         clock: Arc<dyn Clock>,
     ) -> Self {

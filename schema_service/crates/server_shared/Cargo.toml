@@ -38,6 +38,7 @@ serde = { workspace = true }
 # request body as a raw `Value` and emit discriminated JSON error bodies.
 serde_json = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

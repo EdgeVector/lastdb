@@ -45,6 +45,7 @@
 
 pub mod app_identity;
 pub mod app_release;
+pub mod blocking_runtime;
 pub mod builtin_canonical_fields;
 pub mod builtin_schemas;
 pub mod clock;
@@ -103,6 +104,7 @@ pub use app_identity::{
     AppRegisterOutcome, AppRegisterRequest, AppUpdateError, AppUpdateOutcome, AppUpdateRequest,
     SchemaClaimError,
 };
+pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
 pub use clock::{Clock, WallTime};
 pub use declared_fields::{
     mint_declaration_id, DeclareFieldInput, DeclareFieldRequest, DeclaredField, DeclaredFieldError,
@@ -122,8 +124,8 @@ pub use resolver_config::{
     NATIVE_COMPONENT_COVER_ALGORITHM_VERSION, RESOLVER_CONFIG_FORMAT_VERSION,
 };
 pub use resolver_pack_consumer::{
-    validate_bootstrap_base_url, FsResolverPackCache, ImportedResolverPackEmbeddings,
-    LoadedResolverPack, ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError,
+    validate_bootstrap_base_url, ImportedResolverPackEmbeddings, LoadedResolverPack,
+    ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError, ResolverPackCache,
     ResolverPackConsumer, ResolverPackConsumerConfig, ResolverPackFallbackReason,
     ResolverPackFetchError, ResolverPackLoadOutcome, ResolverPackLoadSource,
     ResolverPackObjectStore, ResolverPackResolutionRoute, ResolverPackTelemetrySnapshot,

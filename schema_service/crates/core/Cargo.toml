@@ -32,11 +32,9 @@ tracing = { workspace = true }
 
 sha2 = { workspace = true }
 async-trait = { workspace = true }
-# `time` — backoff sleeps + reconciler interval; `sync` — the in-process
-# cross-env mirror queue (mpsc). `rt`/`macros` come from the binaries that
-# spawn the worker and reconciler loops.
-# `rt` — ResolverRuntime::spawn_refresh_task + kill-switch clear.
-tokio = { workspace = true, features = ["time", "sync", "rt"] }
+# `sync` — in-process locks. `macros` — `try_join!`.
+# The shell owns the runtime. This crate does not enable `rt`.
+tokio = { workspace = true, features = ["sync", "macros"] }
 
 # RFC 3339 stamps. Wall time comes from the injected `Clock`.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

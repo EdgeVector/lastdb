@@ -1,5 +1,7 @@
 //! Consumer and bootstrap configuration for the resolver pack consumer.
 
+use std::path::PathBuf;
+
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -67,7 +69,8 @@ impl ResolverBootstrapConfig {
         validate_bootstrap_base_url(&self.base_url)
     }
 
-    /// Cache root scoped by format/contract/algorithm/embedder identity.
+    /// Cache root the shell opens. Scoped by format, contract, algorithm,
+    /// and embedder identity.
     pub fn cache_identity_dir(&self) -> PathBuf {
         let embedder_digest = artifact_sha256_hex(self.expected_embedder_id.as_bytes());
         self.cache_dir
@@ -88,10 +91,6 @@ impl ResolverBootstrapConfig {
             max_pack_age_seconds: self.max_config_age_seconds,
             now: self.now,
         }
-    }
-
-    pub fn fs_cache(&self) -> FsResolverPackCache {
-        FsResolverPackCache::new(self.cache_identity_dir())
     }
 }
 
