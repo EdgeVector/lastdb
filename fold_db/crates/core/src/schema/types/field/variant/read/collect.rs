@@ -16,7 +16,7 @@ impl FieldVariant {
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
         self.require_supported_read(filter.as_ref())?;
         let profile = self.read_range_profile(db_ops).await?;
-        // A field with no molecule and no captured schema has no range type.
+        // A field with no molecule and no active comparison context has no range type.
         let filter = match profile {
             Some(profile) => {
                 crate::schema::types::key_comparison::normalize::canonical_filter(profile, filter)?

@@ -50,7 +50,7 @@ impl FieldVariant {
         self.require_supported_read(filter.as_ref())?;
         use crate::schema::types::key_comparison::normalize;
         let profile = self.read_range_profile(db_ops).await?;
-        // A field with no molecule and no captured schema has no range type.
+        // A field with no molecule and no active comparison context has no range type.
         let (filter, window) = match profile {
             Some(profile) => (
                 normalize::canonical_filter(profile, filter)?,

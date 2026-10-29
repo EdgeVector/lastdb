@@ -216,5 +216,5 @@ The codec always blinds a hash and always uses the range profile of the molecule
 
 On 2026-10-29 the key comparison context and its normalize helpers took a required range profile.
 The molecule bundle metadata requires its range profile, key authority, and conflict identity.
-`KeyComparisonContext::current_profile()` returns no profile only when no schema read is active.
-A field read with no molecule and no active schema read uses its key without normalization.
+`KeyComparisonContext::current_profile()` returns no profile only when no comparison context is active.
+A field read with no molecule and no active comparison context uses its key without normalization.
