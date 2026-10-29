@@ -37,6 +37,8 @@ pub struct SnapshotDevicePosition {
     pub anchor_sha256: String,
     pub sequence: DecimalU64,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<SnapshotIdentityPosition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +65,7 @@ impl SnapshotInclusion {
 impl SnapshotInclusionMap {
     pub fn validate_for(&self, expected: &NativeRoot) -> StorageResult<()> {
         bounded::serialized_size_with_limit(self, MAX_MAP_BYTES)?;
-        if self.version != 1 || self.snapshot != *expected {
+        if !matches!(self.version, 1 | 2) || self.snapshot != *expected {
             return Err(invalid("snapshot inclusion native identity differs"));
         }
         self.validate_positions()?;
@@ -101,11 +103,19 @@ impl SnapshotInclusionMap {
                     "snapshot inclusion initial device position differs",
                 ));
             }
+            let base = match (self.version, &position.base) {
+                (1, None) => 0,
+                (2, Some(base)) => {
+                    base.validate_for(position)?;
+                    base.sequence.get()
+                }
+                _ => return Err(invalid("snapshot inclusion retained base version differs")),
+            };
             if position.origin == self.producer {
                 producer += 1;
             } else {
                 imported = imported
-                    .checked_add(position.sequence.get())
+                    .checked_add(position.sequence.get() - base)
                     .filter(|count| *count <= MAX_IMPORTED_RECEIPTS)
                     .ok_or_else(|| invalid("snapshot inclusion imported receipt cap differs"))?;
             }
@@ -118,7 +128,11 @@ impl SnapshotInclusionMap {
 
     fn signing_bytes(&self) -> StorageResult<Vec<u8>> {
         encode(&(
-            "lastdb-snapshot-inclusion-map-v1",
+            if self.version == 1 {
+                "lastdb-snapshot-inclusion-map-v1"
+            } else {
+                "lastdb-snapshot-inclusion-map-v2"
+            },
             self.version,
             &self.producer,
             &self.snapshot,
@@ -133,34 +147,43 @@ impl PackRuntime {
         main: &mut RunRead,
         profile: &RunBackupProfile,
     ) -> StorageResult<SnapshotInclusion> {
-        let Some(facts) = read::positions(main, profile)? else {
-            return Ok(SnapshotInclusion::Disabled);
-        };
         let capture = self
             .logical_capture
             .as_ref()
-            .ok_or_else(|| invalid("snapshot inclusion signer is unavailable"))?;
-        if capture.identity.origin() != facts.producer {
-            return Err(invalid(
-                "snapshot inclusion signer differs from the captured producer",
-            ));
-        }
-        let mut map = SnapshotInclusionMap {
-            version: 1,
-            producer: facts.producer,
-            snapshot: profile.native_root()?,
-            positions: facts.positions,
-            sha256: String::new(),
-            signature: String::new(),
-        };
-        map.validate_positions()?;
-        bounded::serialized_size_with_limit(&map, MAX_MAP_BYTES)?;
-        let bytes = map.signing_bytes()?;
-        map.sha256 = hex(&Sha256::digest(&bytes));
-        map.signature = capture.identity.sign(&bytes);
-        map.validate_for(&profile.native_root()?)?;
-        Ok(SnapshotInclusion::Enabled { map })
+            .map(|capture| &capture.identity);
+        signed_inclusion(capture, main, profile)
     }
+}
+
+pub(super) fn signed_inclusion(
+    identity: Option<&identity::Identity>,
+    main: &mut RunRead,
+    profile: &RunBackupProfile,
+) -> StorageResult<SnapshotInclusion> {
+    let Some(facts) = read::positions(main, profile)? else {
+        return Ok(SnapshotInclusion::Disabled);
+    };
+    let identity = identity.ok_or_else(|| invalid("snapshot inclusion signer is unavailable"))?;
+    if identity.origin() != facts.producer {
+        return Err(invalid(
+            "snapshot inclusion signer differs from the captured producer",
+        ));
+    }
+    let mut map = SnapshotInclusionMap {
+        version: facts.version,
+        producer: facts.producer,
+        snapshot: profile.native_root()?,
+        positions: facts.positions,
+        sha256: String::new(),
+        signature: String::new(),
+    };
+    map.validate_positions()?;
+    bounded::serialized_size_with_limit(&map, MAX_MAP_BYTES)?;
+    let bytes = map.signing_bytes()?;
+    map.sha256 = hex(&Sha256::digest(&bytes));
+    map.signature = identity.sign(&bytes);
+    map.validate_for(&profile.native_root()?)?;
+    Ok(SnapshotInclusion::Enabled { map })
 }
 
 /// Compare the authenticated certificate with the actual restored native cut.
@@ -174,7 +197,9 @@ pub(crate) fn verify_snapshot_inclusion(
     match (inclusion, read::positions(main, profile)?) {
         (SnapshotInclusion::Disabled, None) => Ok(()),
         (SnapshotInclusion::Enabled { map }, Some(facts))
-            if map.producer == facts.producer && map.positions == facts.positions =>
+            if map.version == facts.version
+                && map.producer == facts.producer
+                && map.positions == facts.positions =>
         {
             Ok(())
         }

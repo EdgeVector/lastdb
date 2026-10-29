@@ -17,8 +17,8 @@ use schema_types::{FoldDbError, FoldDbResult};
 use schema_service_client::SchemaServiceClient;
 use schema_service_core::snapshot::SnapshotImportReport;
 use schema_service_core::state::SchemaServiceState;
-use schema_service_core::SchemaConfig;
-use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv};
+use schema_service_core::{BlockingRuntime, SchemaConfig};
+use schema_service_server_shared::{handlers, Embedder, SchemaConfigEnv, SystemClock};
 
 use crate::middleware::otel::W3CParentContext;
 
@@ -218,12 +218,17 @@ impl SchemaServiceServer {
     /// Construct a server backed by the in-memory registry (nothing
     /// survives a restart). Does NOT seed built-in schemas — see
     /// `new_with_builtins` for the production constructor.
-    fn new(bind_address: &str) -> FoldDbResult<Self> {
+    fn new(bind_address: &str, runtime: Arc<dyn BlockingRuntime>) -> FoldDbResult<Self> {
         let embedder = default_embedder();
         // App-identity and mutation-gate settings come from the same startup
         // snapshot as the canonicalization gates. Empty trusted roots leave
         // the dev binary a passthrough, matching pre-app-identity behavior.
-        let state = SchemaServiceState::new_in_memory(embedder, SchemaConfig::from_env())?;
+        let state = SchemaServiceState::new_in_memory(
+            embedder,
+            SchemaConfig::from_env(),
+            Arc::new(SystemClock),
+            runtime,
+        )?;
         Ok(Self {
             state: web::Data::new(state),
             bind_address: bind_address.to_string(),
@@ -233,8 +238,11 @@ impl SchemaServiceServer {
     /// Construct a server, seed Phase 1 SystemSeed fingerprint schemas,
     /// and seed the Schema.org StarterSeed canonical fields + schemas.
     /// Idempotent.
-    pub async fn new_with_builtins(bind_address: &str) -> FoldDbResult<Self> {
-        let server = Self::new(bind_address)?;
+    pub async fn new_with_builtins(
+        bind_address: &str,
+        runtime: Arc<dyn BlockingRuntime>,
+    ) -> FoldDbResult<Self> {
+        let server = Self::new(bind_address, runtime)?;
         server.seed_builtins().await?;
         Ok(server)
     }

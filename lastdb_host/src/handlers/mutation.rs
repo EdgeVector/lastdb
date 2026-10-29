@@ -11,7 +11,6 @@ use fold_db::access::AccessContext;
 use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::fold_db_core::mutation_manager::{
     MutationManager, ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages,
-    ResidentDurability,
 };
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{MutationConvergence, MutationDurability, Operation};
@@ -36,6 +35,16 @@ pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
 pub use batch::execute_mutations_batch;
 
+/// Keep a typed status. A true 500 keeps the historical prefix.
+fn prefix_core_failure(error: impl Into<HostError>, failed: &str) -> HostError {
+    let mapped = error.into();
+    if mapped.status == 500 {
+        HostError::internal(format!("{failed}: {}", mapped.message))
+    } else {
+        mapped
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mutation (POST /api/mutation)
 // ---------------------------------------------------------------------------
@@ -46,14 +55,23 @@ pub use batch::execute_mutations_batch;
 pub struct MutationComponents {
     /// Existing per-key metadata supplied by an owner history restore.
     pub metadata: Option<HashMap<String, String>>,
+    /// Schema the mutation writes.
     pub schema: String,
+    /// Field values for this key, keyed by field name.
     pub fields_and_values: HashMap<String, Value>,
+    /// Record key the mutation addresses.
     pub key_value: KeyValue,
+    /// Create, update, or delete, as chosen by the caller.
     pub mutation_type: MutationType,
+    /// Optional source file name recorded with the write.
     pub source_file_name: Option<String>,
+    /// Optional compare-and-swap expectation for the existing record.
     pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
+    /// How concurrent writers of this key are resolved.
     pub convergence: MutationConvergence,
+    /// Whether the caller waits for the durable commit.
     pub durability: MutationDurability,
+    /// When `Some(true)` on an update, a missing record is an error instead of an insert.
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,
@@ -150,6 +168,31 @@ pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
     })
 }
 
+/// The commit fields shared by a mutation, a batch, a finalize, and a repair.
+pub(super) fn commit_core_json(receipt: &ResidentCommitReceipt) -> Value {
+    serde_json::json!({
+        "revision": receipt.revision,
+        "operations": operations_json(&receipt.operations),
+        "durability": receipt.durability.as_str(),
+        "resident_stages_us": stages_json(&receipt.stages),
+        "touched_group_ids": receipt.touched_group_ids,
+    })
+}
+
+/// Insert every key of `extra` into `base`. A repeated key keeps the `extra` value.
+pub(super) fn extend_json(base: Value, extra: Value) -> Value {
+    let Value::Object(mut base_map) = base else {
+        return extra;
+    };
+    let Value::Object(extra_map) = extra else {
+        return Value::Object(base_map);
+    };
+    for (key, value) in extra_map {
+        base_map.insert(key, value);
+    }
+    Value::Object(base_map)
+}
+
 pub(super) async fn wait_for_requested_convergence<H: HostNode>(
     host: &H,
     convergence: MutationConvergence,
@@ -173,40 +216,34 @@ fn mutation_response(
     receipt: &ResidentCommitReceipt,
     payload_bytes: usize,
 ) -> Value {
-    serde_json::json!({
-        "mutation_id": mutation_id,
-        "success": true,
-        "background_tasks_drained": background_tasks_drained,
-        "convergence_pending": !background_tasks_drained,
-        "revision": receipt.revision,
-        "operations": operations_json(&receipt.operations),
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": stages_json(&receipt.stages),
-        "touched_group_ids": receipt.touched_group_ids,
-        // The fixed-size logical accounting of the value this write just
-        // attributed: the same payload-bytes measure QoS lane admission
-        // already computed, returned inline so a caller (or the attribution
-        // proof) has the write's size before it does a second read.
-        "size": payload_bytes
-    })
+    // The fixed-size logical accounting of the value this write just
+    // attributed: the same payload-bytes measure QoS lane admission
+    // already computed, returned inline so a caller (or the attribution
+    // proof) has the write's size before it does a second read.
+    extend_json(
+        commit_core_json(receipt),
+        serde_json::json!({
+            "mutation_id": mutation_id,
+            "success": true,
+            "background_tasks_drained": background_tasks_drained,
+            "convergence_pending": !background_tasks_drained,
+            "size": payload_bytes
+        }),
+    )
 }
 
 /// Response for a prefix delete that matched no rows.
 fn empty_delete_response() -> Value {
-    let operations = ResidentCommitOperations::default();
-    let stages = ResidentCommitStages::default();
-    serde_json::json!({
-        "mutation_id": "",
-        "success": true,
-        "background_tasks_drained": true,
-        "convergence_pending": false,
-        "revision": Value::Null,
-        "operations": operations_json(&operations),
-        "durability": ResidentDurability::Queued.as_str(),
-        "resident_stages_us": stages_json(&stages),
-        "touched_group_ids": [],
-        "size": 0
-    })
+    extend_json(
+        commit_core_json(&ResidentCommitReceipt::empty()),
+        serde_json::json!({
+            "mutation_id": "",
+            "success": true,
+            "background_tasks_drained": true,
+            "convergence_pending": false,
+            "size": 0
+        }),
+    )
 }
 
 /// Move the payload for one selected key. Multi-key prefix deletes retain
@@ -283,15 +320,7 @@ async fn commit_mutation<H: HostNode>(
     let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
     let receipt = start_core_commit(manager, mutations, ctx, aggregate_write)
         .await
-        .map_err(|e| {
-            // Preserve typed status codes and the historical prefix for true 500s.
-            let mapped = HostError::from(e);
-            if mapped.status == 500 {
-                HostError::internal(format!("Mutation execution failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })?;
+        .map_err(|e| prefix_core_failure(e, "Mutation execution failed"))?;
 
     let receipt = if aggregate_write {
         require_durable_aggregate_receipt(receipt, "Aggregate set")?

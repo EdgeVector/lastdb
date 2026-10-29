@@ -4,7 +4,7 @@ use super::*;
 
 impl KeyComparisonContext {
     pub(crate) fn current_profile() -> Option<MoleculeRangeProfile> {
-        COMPARISON.try_with(|active| active.profile).ok().flatten()
+        COMPARISON.try_with(|active| active.profile).ok()
     }
 
     pub(crate) async fn run_for_molecule<T>(
@@ -12,7 +12,7 @@ impl KeyComparisonContext {
         future: impl Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
         if let Ok(active) = COMPARISON.try_with(Arc::clone) {
-            if active.profile != profile {
+            if Some(active.profile) != profile {
                 return Err(SchemaError::InvalidData(
                     "the field range profile differs from the captured schema".into(),
                 ));
@@ -30,7 +30,7 @@ impl KeyComparisonContext {
             identity: format!("field-comparison:{}", profile.format_id()),
             range,
             failure: OnceLock::new(),
-            profile: Some(profile),
+            profile,
         })
         .run(future)
         .await

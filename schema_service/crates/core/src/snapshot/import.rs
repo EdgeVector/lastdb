@@ -94,8 +94,9 @@ impl SchemaServiceState {
         // Wipe + rewrite via the storage backend (in-memory for the dev
         // server; S3 backends return "unsupported" and the caller should
         // hydrate cloud via normal write paths instead).
-        // `import_snapshot` is sync (callers include non-async paths); run the
-        // async backend ops on a dedicated thread like `SchemaServiceState::new_in_memory`.
+        // `import_snapshot` is sync (callers include non-async paths). The
+        // injected runtime runs the async backend ops on a dedicated thread,
+        // same as `SchemaServiceState::new_in_memory`.
         let backend = self.storage.backend().clone();
         let schemas = envelope.schemas.clone();
         let cf_batch: Vec<(String, _)> = envelope
@@ -104,32 +105,21 @@ impl SchemaServiceState {
             .map(|(n, c)| (n.clone(), c.clone()))
             .collect();
         let apps = envelope.apps.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("schema-snapshot-import".into())
-            .spawn(move || {
-                let result = (|| {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            FoldDbError::Config(format!("snapshot import runtime failed: {e}"))
-                        })?;
-                    rt.block_on(async {
-                        backend.clear_registry_for_snapshot_import().await?;
-                        backend.save_schema_definitions(&schemas, &cf_batch).await?;
-                        for app in &apps {
-                            backend.update_app(app).await?;
-                        }
-                        Ok::<(), FoldDbError>(())
-                    })
-                })();
-                let _ = tx.send(result);
-            })
-            .map_err(|e| FoldDbError::Config(format!("snapshot import spawn failed: {e}")))?;
-        rx.recv().map_err(|_| {
-            FoldDbError::Config("snapshot import thread ended without a result".to_string())
-        })??;
+        crate::blocking_runtime::drive(
+            self.runtime.as_ref(),
+            "schema-snapshot-import",
+            "snapshot import runtime failed",
+            "snapshot import spawn failed",
+            "snapshot import thread ended without a result",
+            Box::pin(async move {
+                backend.clear_registry_for_snapshot_import().await?;
+                backend.save_schema_definitions(&schemas, &cf_batch).await?;
+                for app in &apps {
+                    backend.update_app(app).await?;
+                }
+                Ok(Box::new(()) as crate::blocking_runtime::BlockingOutput)
+            }),
+        )?;
         Ok(())
     }
 

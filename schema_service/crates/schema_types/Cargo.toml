@@ -11,7 +11,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 app_identity_crypto = { workspace = true }
-chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # OpenAPI schema derives (same posture as fold_db core wire types).
 utoipa = { version = "4", features = ["actix_extras"] }
 

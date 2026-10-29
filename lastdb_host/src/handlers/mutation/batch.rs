@@ -13,7 +13,7 @@ use crate::HostError;
 
 use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
 use super::plan::reject_illegal_must_exist;
-use super::{operations_json, stages_json, wait_for_requested_convergence, MutationComponents};
+use super::{commit_core_json, extend_json, wait_for_requested_convergence, MutationComponents};
 
 mod rules;
 
@@ -71,19 +71,17 @@ fn batch_response(
     count: usize,
     background_tasks_drained: bool,
 ) -> Value {
-    serde_json::json!({
-        "mutation_ids": &receipt.mutation_ids,
-        "count": count,
-        "background_tasks_drained": background_tasks_drained,
-        "convergence_pending": !background_tasks_drained,
-        // One committed revision lets the caller read back every batch record
-        // without a post-write verification round trip.
-        "revision": receipt.revision,
-        "operations": operations_json(&receipt.operations),
-        "durability": receipt.durability.as_str(),
-        "resident_stages_us": stages_json(&receipt.stages),
-        "touched_group_ids": &receipt.touched_group_ids
-    })
+    // One committed revision lets the caller read back every batch record
+    // without a post-write verification round trip.
+    extend_json(
+        commit_core_json(receipt),
+        serde_json::json!({
+            "mutation_ids": &receipt.mutation_ids,
+            "count": count,
+            "background_tasks_drained": background_tasks_drained,
+            "convergence_pending": !background_tasks_drained,
+        }),
+    )
 }
 
 /// Admit the whole batch on the lane its combined payload size implies and
@@ -106,12 +104,5 @@ async fn write_batch<H: HostNode>(
         .mutation_manager()
         .write_mutations_with_access_receipt(mutations, ctx)
         .await
-        .map_err(|e| {
-            let mapped = HostError::from(e);
-            if mapped.status == 500 {
-                HostError::internal(format!("Mutation batch failed: {}", mapped.message))
-            } else {
-                mapped
-            }
-        })
+        .map_err(|e| super::prefix_core_failure(e, "Mutation batch failed"))
 }

@@ -215,6 +215,8 @@ pub struct AtomStore {
     blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.
     retention: Arc<retention::RetentionState>,
+    /// Wake expiry after a history policy activation attempt. Shared by clones.
+    history_activation: Arc<tokio::sync::Notify>,
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,

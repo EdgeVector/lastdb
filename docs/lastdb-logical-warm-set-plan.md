@@ -303,7 +303,7 @@ Keep full atom copies separate when their dates or source details differ, even w
 Resolve document-copy precedence before predicates, order, limits, and projection.
 Fetch unprojected predicate and sort fields in batches.
 Preserve one tie comparator, explicit bounds, public cursor behavior, and start-inclusive/end-exclusive ranges.
-Do not compare incompatible OPE domains or construct prefix bounds with a NUL suffix.
+Do not compare ranges across range profiles or construct prefix bounds with a NUL suffix.
 
 For N qualifying records, continue to N+1 or authoritative exhaustion.
 Keep examined continuation separate from the last-returned-key cursor.
@@ -340,9 +340,9 @@ That design targets disk format v1, which is removed. A disk format v2 route nee
 Update accessors, byte-based splits, capacity quotes, validators, LastDB compaction, and dependency walks together.
 Include backup readers and required format-feature rejection.
 Keep encrypted tip bytes, shared atoms, file packing, and semantic cloud mutation order.
-Retain explicit support and cost accounting for oversized OPE keys.
+Retain explicit support and cost accounting for oversized range keys.
 
-Use the existing compatible codec for compact OPE bytes in memory.
+Use the existing typed range codec for compact range bytes in memory.
 Do not change the encryption algorithm with the page format.
 Cached tree-construction time is not complete first-query load time.
 
@@ -490,7 +490,7 @@ Use format, syntax, lint, build, and product operational checks; add or run no t
 - Ordinary writes, flush, and physical LastDB compaction do not force complete-key reloads.
 - Tip and atom purge preserves keys; whole-domain purge clears readiness before removal.
 - Unknown tips, values, and predicate fields use batches and never become false absence.
-- Counts, preview, document-copy precedence, sharing, and OPE bounds remain correct.
+- Counts, preview, document-copy precedence, sharing, and typed range bounds remain correct.
 - Refusal, cancellation, restart, and incompatible controls have explicit bounded behavior.
 - Compatibility removal leaves no required raw read fallback.
 - Matched product measurements report first-use cost, later range gains, and all material regressions.

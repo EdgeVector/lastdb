@@ -8,15 +8,29 @@ pub(crate) struct BackgroundAtomHistory {
 }
 
 impl BackgroundAtomHistory {
-    pub(crate) fn start(db: Arc<DbOperations>, offline: bool) -> Self {
+    pub(crate) async fn start(db: Arc<DbOperations>, offline: bool) -> Self {
         if offline {
             return Self {
                 task: Mutex::new(None),
             };
         }
+        // Read once on the boot caller, which already does storage I/O. An
+        // unused expiry task must not warm another worker's allocator heaps.
+        // An unreadable marker preserves the existing expiry retry behavior.
+        let enabled = db
+            .atoms()
+            .atom_history_enabled()
+            .await
+            .unwrap_or_else(|error| {
+                tracing::error!(%error, "history activation check failed; expiry retries");
+                true
+            });
         // lint:spawn-bare-ok process-lifetime expiry task, stopped with the database.
         let task = tokio::spawn(async move {
             let atoms = db.atoms();
+            if !enabled {
+                atoms.history_activation().notified().await;
+            }
             let mut reader =
                 QueueReader::new(crate::db_operations::atom_store::atom_history::queue(), 32);
             let mut ticks = 0u64;

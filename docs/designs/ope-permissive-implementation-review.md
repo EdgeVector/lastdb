@@ -1,10 +1,14 @@
 # Permissive OPE Implementations And The Private-Key Contract
 
+Historical research: the portable OPE prototype and its CI proof are retired.
+The accepted [typed-range field contract](typed-range-field-contract.md) uses no OPE.
+The design below records the earlier candidate; it is not the current implementation plan.
+
 Current route: [binary CLWW replacement](ope-range-keys-implementation-plan.md).
 The earlier backward-carry candidate below is rejected; [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge.
 
 Source review: 2026-10-24. This is a candidate review, not an implementation audit or a release approval.
-Implementation now starts with LastDB-owned source under the [fixed candidate codec contract](../../lastdb_range_crypto/README.md).
+Implementation now starts with LastDB-owned source under the [fixed candidate codec contract](https://github.com/EdgeVector/lastdb/blob/b2419f5a8b510306411bb9c84a2fece0019ceec3/lastdb_range_crypto/README.md).
 
 Tom requires the user's private key to control creation of an ordered set of lookup keys.
 The [implementation plan](ope-range-keys-implementation-plan.md) retains that requirement.

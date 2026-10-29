@@ -1,5 +1,26 @@
 # LastDB benchmarks in GitHub Actions
 
+## Call-local metadata reuse and compression admission
+
+Ordinary keyed reads share authenticated index blocks across lookups in the same held native read call.
+The workspace admits at most 64 blocks and 256 KiB, including reference entries and their vector capacity.
+It also limits admission to one sixteenth of the call's byte budget.
+Oversize blocks and allocation failures use the normal decode path.
+The workspace retains no data blocks, opens no extra files, and ends with the call.
+It never enters the logical warm set. Bounded backup reads do not use it.
+Preparation receipts distinguish actual metadata decode attempts from metadata decode reuses.
+Reuses add no file bytes or authentication work to the receipt.
+
+Writers retain zstd level 3 compression for block payloads of at least 256 bytes only when
+the compressed bytes, including the eight-byte length prefix, save at least 64 bytes and 10%.
+Smaller payloads bypass the compressor; weak savings retain the original bytes.
+Numeric commit and compaction counters report size and savings skips separately.
+Existing compressed and uncompressed frames use the same version, encryption and read validation.
+Compare complete paired CI results and actual generated-home disk sizes, not cumulative rewrite bytes.
+Sustained diagnostics also retain the private `write_reads` event as a separate count-only family.
+Its four numeric reuse/retention counters and lifecycle bounds receive strict validation.
+The report does not infer a duration or invent phase timings for this event.
+
 ## Paired current 16-writer comparison
 
 The optional `writer16` comparison reuses the normal verified build artifact in a separate hosted measurement job.

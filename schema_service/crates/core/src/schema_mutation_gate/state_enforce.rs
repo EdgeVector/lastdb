@@ -111,7 +111,7 @@ impl SchemaServiceState {
         &self,
         proof: &PowChallengeProof<'_>,
     ) -> Result<(), SchemaMutationGateError> {
-        let now = schema_types::clock::unix_secs();
+        let now = self.clock.unix_secs();
         if proof.expires_at_unix_secs < now {
             return Err(SchemaMutationGateError::ProofOfWorkExpired);
         }

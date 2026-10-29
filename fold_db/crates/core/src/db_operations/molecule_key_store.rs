@@ -62,12 +62,9 @@ enum ConflictKeyIdentity {
 struct BundleMetadata {
     version: u8,
     molecule_uuid: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    range_profile: Option<schema_types::molecule_range_profile::MoleculeRangeProfile>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    key_authority: Option<KeyAuthority>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    conflict_identity: Option<ConflictKeyIdentity>,
+    range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
+    key_authority: KeyAuthority,
+    conflict_identity: ConflictKeyIdentity,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

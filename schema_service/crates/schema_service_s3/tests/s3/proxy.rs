@@ -255,6 +255,29 @@ fn serve(mut client: TcpStream, upstream: SocketAddr, faults: &Faults) -> io::Re
     relay(client, request, upstream, faults, lose_reply)
 }
 
+/// The current smithy HTTP client resets its socket after it has read a
+/// `Connection: close` response. The relay may still be copying the tail.
+fn ignore_client_close(error: io::Error) -> io::Result<()> {
+    match error.kind() {
+        io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe => Ok(()),
+        _ => Err(error),
+    }
+}
+
+fn write_response(
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+    response: &[u8],
+) -> io::Result<()> {
+    if let Err(error) = client.write_all(response) {
+        return ignore_client_close(error);
+    }
+    match io::copy(upstream, client) {
+        Ok(_) => Ok(()),
+        Err(error) => ignore_client_close(error),
+    }
+}
+
 fn reject(client: &mut TcpStream, request: &[u8], status: &str, code: &str) -> io::Result<()> {
     let end = request
         .windows(4)
@@ -309,8 +332,7 @@ fn relay(
             io::copy(&mut upstream, &mut io::sink())?;
             faults.committed_lost_replies.fetch_add(1, Ordering::SeqCst);
         } else {
-            client.write_all(&response)?;
-            io::copy(&mut upstream, &mut client)?;
+            write_response(&mut client, &mut upstream, &response)?;
         }
         Ok(())
     })();

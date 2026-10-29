@@ -133,18 +133,17 @@ pub(crate) fn app_list(
     Ok(())
 }
 
-pub(crate) fn app_resolve(
-    home: &Path,
-    app_id: &str,
-    channel: Option<&str>,
-    index: Option<&str>,
-    trust_key: Option<&str>,
-    lastdb_version: Option<&str>,
-    json: bool,
-) -> Result<(), String> {
+pub(crate) fn app_resolve(home: &Path, query: &AppResolveQuery<'_>) -> Result<(), String> {
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-    let resolution = resolve_by_proof(&socket, app_id, channel, index, trust_key, lastdb_version)?;
-    if json {
+    let resolution = resolve_by_proof(
+        &socket,
+        query.app_id,
+        query.channel,
+        query.index,
+        query.trust_key,
+        query.lastdb_version,
+    )?;
+    if query.json {
         print_pretty_json(&resolution);
     } else {
         println!(
@@ -190,42 +189,28 @@ pub(crate) fn app_info(
     Ok(())
 }
 
-// lint:allow-ok entry point from app_catalog_command for install with local source support
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn app_install(
-    home: &Path,
-    app_ids: Vec<String>,
-    source: RegistrySource,
-    dir: Option<PathBuf>,
-    allow_sandbox: bool,
-    force: bool,
-    json: bool,
-    from: Option<String>,
-    rev: Option<String>,
-    dev: bool,
-) -> Result<(), String> {
-    if let Some(from_path) = from {
-        if !dev {
-            return Err("--from requires --dev".to_string());
-        }
-        let rev = rev.ok_or("--from requires --rev")?;
-        return app_install_local(home, &app_ids, &from_path, &rev, &dir, force, json, dev);
-    }
-    if rev.is_some() {
-        return Err("--rev requires --from".to_string());
-    }
-    if dev && from.is_none() {
-        return Err("--dev requires --from".to_string());
+pub(crate) fn app_install(home: &Path, install: AppInstall) -> Result<(), String> {
+    if install.from.is_some() || install.rev.is_some() || install.dev {
+        return app_install_local(home, &install);
     }
 
-    let RegistrySource {
-        env,
-        schema_url,
-        channel,
-        index,
-        trust_key,
-        lastdb_version,
-    } = source;
+    let AppInstall {
+        app_ids,
+        source:
+            RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
+        dir,
+        allow_sandbox,
+        force,
+        json,
+        ..
+    } = install;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));
@@ -289,22 +274,22 @@ pub(crate) fn app_install(
     Ok(())
 }
 
-pub(crate) fn app_upgrade(
-    home: &Path,
-    app_ids: Vec<String>,
-    source: RegistrySource,
-    dir: Option<PathBuf>,
-    allow_sandbox: bool,
-    json: bool,
-) -> Result<(), String> {
-    let RegistrySource {
-        env,
-        schema_url,
-        channel,
-        index,
-        trust_key,
-        lastdb_version,
-    } = source;
+pub(crate) fn app_upgrade(home: &Path, upgrade: AppUpgrade) -> Result<(), String> {
+    let AppUpgrade {
+        app_ids,
+        source:
+            RegistrySource {
+                env,
+                schema_url,
+                channel,
+                index,
+                trust_key,
+                lastdb_version,
+            },
+        dir,
+        allow_sandbox,
+        json,
+    } = upgrade;
     check_dir_matches_app_count(&dir, &app_ids)?;
     if env.is_none() && schema_url.is_none() {
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));

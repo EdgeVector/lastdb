@@ -1,14 +1,14 @@
 //! Dev/off-by-default local consumer for signed Schema Resolver Packs.
 //!
 //! The consumer is deliberately transport-agnostic: callers inject an object
-//! store that can read R2 keys, while this module owns compatibility checks,
-//! changed-artifact caching, last-known-good persistence, and local-vs-live
-//! routing decisions.
+//! store that can read R2 keys and a [`ResolverPackCache`] for artifact bytes.
+//! This module owns compatibility checks, last-known-good decisions, and
+//! local-vs-live routing.
 
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use crate::clock::Clock;
 
 use app_identity_crypto::{Env, VerifyError};
 use async_trait::async_trait;
@@ -42,7 +42,8 @@ use helpers::*;
 
 pub struct ResolverPackConsumer<S> {
     store: S,
-    cache: FsResolverPackCache,
+    cache: Arc<dyn ResolverPackCache>,
     config: ResolverPackConsumerConfig,
+    clock: Arc<dyn Clock>,
     telemetry: Arc<Mutex<ResolverPackTelemetrySnapshot>>,
 }

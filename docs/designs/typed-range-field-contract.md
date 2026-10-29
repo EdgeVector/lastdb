@@ -41,6 +41,8 @@ The user identity supplies the encryption root. Recovery retains that same ident
 The existing key derivation converts the Ed25519 seed to an X25519 secret, then uses HKDF-SHA256 for separate encryption and hash keys.
 Separate HKDF labels derive the main and CAS home keys from the encryption key.
 No lookup key uses OPE, and the key derivation has no OPE key.
+The unselected portable OPE prototype and its separate proof workflow are also retired.
+Its historical design remains in Git history; it is not an alternate storage format.
 
 | Part | Representation and protection |
 | --- | --- |
@@ -212,6 +214,7 @@ Those checks use bounded batch reads. They create no key and change no profile.
 On 2026-10-28 `MoleculeKeyCodec` lost the plain hash encoding and its optional range profile.
 The codec always blinds a hash and always uses the range profile of the molecule.
 
-This part stays. A later change removes it:
-
-- The reader and writer calls that take `Option<MoleculeRangeProfile>` from `KeyComparisonContext::current_profile()`.
+On 2026-10-29 the key comparison context and its normalize helpers took a required range profile.
+The molecule bundle metadata requires its range profile, key authority, and conflict identity.
+`KeyComparisonContext::current_profile()` returns no profile only when no comparison context is active.
+A field read with no molecule and no active comparison context uses its key without normalization.

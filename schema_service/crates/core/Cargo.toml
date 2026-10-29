@@ -32,20 +32,21 @@ tracing = { workspace = true }
 
 sha2 = { workspace = true }
 async-trait = { workspace = true }
-# `time` — backoff sleeps + reconciler interval; `sync` — the in-process
-# cross-env mirror queue (mpsc). `rt`/`macros` come from the binaries that
-# spawn the worker and reconciler loops.
-# `rt` — ResolverRuntime::spawn_refresh_task + kill-switch clear.
-tokio = { workspace = true, features = ["time", "sync", "rt"] }
+# `sync` — in-process locks. `macros` — `try_join!`.
+# The shell owns the runtime. This crate does not enable `rt`.
+tokio = { workspace = true, features = ["sync", "macros"] }
 
-# Runtime use: `snapshot::SchemaServiceState::export_snapshot` stamps
-# `captured_at` as RFC 3339 via `chrono::Utc::now()`.
+# RFC 3339 stamps. Wall time comes from the injected `Clock`.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Phase C shadow-mode near-miss audit log: `registration_id` is a UUID
 # v4 minted at the call site so a retried registration won't double-log.
 uuid = { workspace = true, features = ["v4"] }
 
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# Canonical property tests pass the shell clock in.
+schema_service_server_shared = { path = "../server_shared" }
 
 [lints]
 workspace = true

@@ -48,17 +48,15 @@ impl FieldVariant {
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
         self.require_supported_read(filter.as_ref())?;
+        use crate::schema::types::key_comparison::normalize;
         let profile = self.read_range_profile(db_ops).await?;
-        let filter =
-            crate::schema::types::key_comparison::normalize::canonical_filter(profile, filter)?;
-        let window = match window {
-            Some(KeyWindow::After { mut after, limit }) => {
-                crate::schema::types::key_comparison::normalize::canonical_key(
-                    profile, &mut after,
-                )?;
-                Some(KeyWindow::after(after, limit))
-            }
-            other => other,
+        // A field with no molecule and no active comparison context has no range type.
+        let (filter, window) = match profile {
+            Some(profile) => (
+                normalize::canonical_filter(profile, filter)?,
+                normalize::canonical_window(profile, window)?,
+            ),
+            None => (filter, window),
         };
         crate::schema::types::key_comparison::KeyComparisonContext::run_for_molecule(
             profile,

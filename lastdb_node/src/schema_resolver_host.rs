@@ -7,16 +7,14 @@
 use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use app_identity_crypto::{Env, SigningKey};
 use folddb_profile::endpoints::Environment;
 use schema_service_client::types::{SchemaResolveProposal, SchemaResolveResult};
 use schema_service_client::{
-    DisabledEmbeddingModel, FacadeProposal, FacadeResolveItem, LocalFirstMode,
-    LocalFirstSchemaResolver, NoopPackStore, SchemaServiceClient, SharedSurfacePublishRequest,
-    SharedSurfacePublishResult,
+    FacadeProposal, FacadeResolveItem, LiveSchemaResolver, SchemaServiceClient,
+    SharedSurfacePublishRequest, SharedSurfacePublishResult,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -184,13 +182,8 @@ async fn resolve_live_only(
     proposals: Vec<FacadeProposal>,
     timeout: Duration,
 ) -> Result<Vec<FacadeResolveItem>, String> {
-    // LiveOnly ignores pack; DisabledEmbeddingModel is fine.
     let client = SchemaServiceClient::new_with_timeout(schema_service_url, timeout);
-    let facade = LocalFirstSchemaResolver::<NoopPackStore, _, _>::new(
-        client,
-        Arc::new(DisabledEmbeddingModel),
-        LocalFirstMode::LiveOnly,
-    );
+    let facade = LiveSchemaResolver::new(client);
     facade.resolve(proposals).await.map_err(|e| e.to_string())
 }
 
@@ -200,12 +193,7 @@ async fn publish_live_only(
     body: SharedSurfacePublishRequest,
     timeout: Duration,
 ) -> Result<SharedSurfacePublishResult, String> {
-    // LiveOnly ignores pack; DisabledEmbeddingModel is fine.
     let client = schema_publish_client(home, schema_service_url, timeout)?;
-    let facade = LocalFirstSchemaResolver::<NoopPackStore, _, _>::new(
-        client,
-        Arc::new(DisabledEmbeddingModel),
-        LocalFirstMode::LiveOnly,
-    );
+    let facade = LiveSchemaResolver::new(client);
     facade.publish_attach(body).await.map_err(|e| e.to_string())
 }

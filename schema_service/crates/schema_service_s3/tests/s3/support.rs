@@ -9,15 +9,17 @@ use aws_sdk_s3::{
     Client,
 };
 use schema_service_core::{
-    types::CanonicalField, DisabledEmbeddingModel, SchemaConfig, SchemaServiceState,
+    types::CanonicalField, Clock, DisabledEmbeddingModel, SchemaConfig, SchemaServiceState,
+    WallTime,
 };
 use schema_service_s3::S3BlobPersistence;
+use schema_service_server_shared::DedicatedThreadRuntime;
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 pub fn run<T>(future: impl Future<Output = T>) -> T {
@@ -187,6 +189,8 @@ impl Harness {
             self.backend(),
             Arc::new(DisabledEmbeddingModel),
             SchemaConfig::default(),
+            process_clock(),
+            Arc::new(DedicatedThreadRuntime),
         )
         .await
         .expect("independent service state")
@@ -267,4 +271,24 @@ pub fn schema() -> Schema {
             .insert(name.into(), description.into());
     }
     schema
+}
+
+fn process_clock() -> Arc<dyn Clock> {
+    Arc::new(ProcessClock)
+}
+
+struct ProcessClock;
+
+impl Clock for ProcessClock {
+    fn wall_time(&self) -> WallTime {
+        schema_types::clock::wall_time()
+    }
+
+    fn unix_secs(&self) -> u64 {
+        schema_types::clock::unix_secs()
+    }
+
+    fn monotonic(&self) -> Instant {
+        schema_types::clock::monotonic()
+    }
 }

@@ -12,6 +12,7 @@ from logical_peer_support import (add_model, author, check_values, export, inges
 import logical_peer_crash
 import logical_snapshot
 import snapshot_adoption
+import snapshot_identity
 
 CRASH_PAGES = 8
 ENVIRONMENT = {
@@ -40,6 +41,9 @@ def run(candidate, output):
             list(pool.map(lambda node: node.start(), nodes))
         require(all(node.disk_format() == 2 for node in nodes), "fresh peers are not V2")
         operate(nodes, output, result)
+        for node in nodes:
+            node.stop()
+        result["snapshot_identity"] = snapshot_identity.run(candidate, output / "snapshot-identity", ENVIRONMENT)
         result["complete"] = True
     except Exception as error:
         result["error"] = f"{type(error).__name__}: {error}"[:1200]
@@ -60,7 +64,7 @@ def driver_sources():
     root = Path(__file__).resolve().parent
     paths = [root / name for name in ["logical_peer.py", "logical_peer_support.py", "logical_peer_crash.py",
                                       "logical_capture.py", "node_proof.py", "logical_snapshot.py",
-                                      "snapshot_adoption.py"]]
+                                      "snapshot_adoption.py", "snapshot_identity.py", "identity_snapshot_files.py"]]
     paths.extend(root.parent / "benchmarks" / name for name in ["node.py", "disk_usage.py"])
     return {str(path.relative_to(root.parent)): file_hash(path) for path in paths}
 
@@ -162,4 +166,5 @@ def summary(result):
         "The driver closes both owned nodes and removes only their generated homes. The primary and cloud stay unchanged.",
         "Local byte snapshots retain signed inclusion maps across later writes, imports, restart, and exact resume; corruption is refused.",
         "Read-only adoption plans retain base and file checks, verify original boundary hashes, and never authorize replacement.",
+        "Inactive foreign snapshots retain source device identity and covered receipt bases; prepared targets refuse startup.",
         f"Detail: {result.get('error', 'complete')}", ""])

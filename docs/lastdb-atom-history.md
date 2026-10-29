@@ -106,6 +106,10 @@ An `ahk:v1` record counts the history entries for one molecule key.
 The count joins each capture or release batch.
 Purge checks these counts in one batch, even after delete removes every tip.
 The expiry worker keeps bounded cursors and stops with the database.
+Before the first activation attempt, the worker waits without a timer or storage reads.
+A keep or TTL policy attempt wakes it.
+A reopened history home starts expiry at boot.
+The format check prevents expiry before activation is visible.
 
 ## Backup and size
 

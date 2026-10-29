@@ -36,7 +36,7 @@ Superseded rows are always excluded from the projection.
 | Builtin / Schema.org seeders | SystemSeed / StarterSeed at boot | System owned | Stay in projection |
 | Resolver pack publisher | Shared-only projection → pack artifacts (`project_snapshot_shared_only` / `GET /v1/snapshot/shared-only`) | Done | PR `schema-service-shared-registry-projection` |
 | `SchemaServiceClient::resolve_schemas` | Always live HTTP for generic registry resolution; no shared publish/attach product caller in-repo | N/A | Keep out of shared publish/attach |
-| LastDB Mini `POST /api/apps/shared-surface/publish-attach` | Single shared publish/attach product route; delegates to `schema_resolver_host::publish_attach_with_host_config` and then `LocalFirstSchemaResolver` | Explicit shared surface | Keep as the only product entry |
+| LastDB Mini `POST /api/apps/shared-surface/publish-attach` | Single shared publish/attach product route; delegates to `schema_resolver_host::publish_attach_with_host_config` and then `LiveSchemaResolver` | Explicit shared surface | Keep as the only product entry |
 
 ## Runtime measurement
 

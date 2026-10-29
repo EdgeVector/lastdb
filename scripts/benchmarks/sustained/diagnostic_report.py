@@ -1,7 +1,7 @@
 """Human-readable isolated write stages and native storage checkpoint changes."""
 
 MIB = 1024 ** 2
-FAMILIES = ("request", "scope", "prepare", "commit", "completion", "search_outbox", "merge_main", "merge_cas")
+FAMILIES = ("request", "scope", "prepare", "write_reads", "commit", "completion", "search_outbox", "merge_main", "merge_cas")
 COLLECTION_FIELDS = ("live_keys", "live_key_bytes", "live_stored_value_bytes", "deleted_keys", "deleted_key_bytes")
 
 
@@ -24,6 +24,7 @@ def timing_lines(report):
              "Each nonempty load window requires nonzero completion coverage. Search outbox coverage is required only when the seed checkpoint reports Search enabled.",
              "An enabled Search attempt can stop at its queue cap. Missing file-write stages do not imply missing attempt coverage.",
              "Background merge events are observed in a phase window; they are not assigned to particular writes.",
+             "Private write read-reuse events report counts only. Their lifecycle bounds do not supply a stage duration.",
              "Request total excludes socket queue wait. Scope durable wait overlaps physical commits.",
              "Request JSON omits zero phase fields. Request stage means and percentiles use only events with the field present.",
              "Histogram percentiles are upper bounds from approximately 10% bins.", "",

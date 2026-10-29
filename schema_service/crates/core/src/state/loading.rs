@@ -1,6 +1,5 @@
 use super::*;
 use crate::schema_config::SchemaConfig;
-// lint:file-size-ok moved verbatim from the parent module; one method family per file
 
 impl SchemaServiceState {
     /// Create a schema service state whose data lives only in memory.
@@ -16,41 +15,39 @@ impl SchemaServiceState {
     /// `Arc::new(FoldDbFastEmbedder::new())` (see
     /// `schema_service_server_shared`).
     ///
-    /// Safe to call inside a runtime: init runs on a dedicated thread so we
-    /// never nest `block_on` on the caller's runtime.
-    pub fn new_in_memory(embedder: Arc<dyn Embedder>, config: SchemaConfig) -> FoldDbResult<Self> {
+    /// Safe to call inside a runtime: the injected runtime runs init on a
+    /// dedicated thread, so this does not nest on the caller's runtime.
+    pub fn new_in_memory(
+        embedder: Arc<dyn Embedder>,
+        config: SchemaConfig,
+        clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+    ) -> FoldDbResult<Self> {
         let backend = Arc::new(InMemorySchemaPersistence::default());
-        Self::new_from_backend_blocking(backend, embedder, config)
+        Self::new_from_backend_blocking(backend, embedder, config, clock, runtime)
     }
 
     fn new_from_backend_blocking(
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
         config: SchemaConfig,
+        clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("schema-service-state-init".into())
-            .spawn(move || {
-                let result = (|| {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            FoldDbError::Config(format!(
-                                "failed to build tokio runtime for schema state init: {e}"
-                            ))
-                        })?;
-                    rt.block_on(Self::new_with_external(backend, embedder, config))
-                })();
-                let _ = tx.send(result);
-            })
-            .map_err(|e| {
-                FoldDbError::Config(format!("failed to spawn schema state init thread: {e}"))
-            })?;
-        rx.recv().map_err(|_| {
-            FoldDbError::Config("schema state init thread ended without a result".to_string())
-        })?
+        let init = Arc::clone(&runtime);
+        let boxed = crate::blocking_runtime::drive(
+            init.as_ref(),
+            "schema-service-state-init",
+            "failed to build tokio runtime for schema state init",
+            "failed to spawn schema state init thread",
+            "schema state init thread ended without a result",
+            Box::pin(async move {
+                let state =
+                    Self::new_with_external(backend, embedder, config, clock, runtime).await?;
+                Ok(Box::new(state) as crate::blocking_runtime::BlockingOutput)
+            }),
+        )?;
+        Ok(crate::blocking_runtime::downcast(boxed))
     }
 
     /// Create a schema service state backed by a caller-supplied
@@ -67,12 +64,16 @@ impl SchemaServiceState {
         backend: Arc<dyn ExternalSchemaPersistence>,
         embedder: Arc<dyn Embedder>,
         config: SchemaConfig,
+        clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
         Self::new_with_external_and_schema_mutation_gate_store(
             backend,
             embedder,
             SchemaMutationGateStore::default(),
             config,
+            clock,
+            runtime,
         )
         .await
     }
@@ -85,6 +86,8 @@ impl SchemaServiceState {
         embedder: Arc<dyn Embedder>,
         schema_mutation_gate_store: SchemaMutationGateStore,
         config: SchemaConfig,
+        clock: Arc<dyn crate::clock::Clock>,
+        runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
     ) -> FoldDbResult<Self> {
         let collection_name_anchors = Self::compute_anchor_embeddings(embedder.as_ref());
 
@@ -116,6 +119,8 @@ impl SchemaServiceState {
             schema_mutation_gate_config: Arc::new(RwLock::new(config.mutation_gate.clone())),
             schema_mutation_gate_store,
             schema_config: Arc::new(config),
+            clock,
+            runtime,
         };
 
         state.load_all_from_external().await?;
@@ -365,171 +370,6 @@ impl SchemaServiceState {
         );
         Ok(())
     }
-
-    /// Rebuild the descriptive_name -> schema_name index.
-    ///
-    /// Does NOT rebuild the embeddings cache. Per-schema fastembed
-    /// calls add up quickly at cold-start time: at 200 schemas × ~40ms
-    /// per inference plus model-load overhead, this loop alone
-    /// contributed ~10-15s to every Lambda cold start (measured
-    /// 2026-04-23 against `SchemaServiceStack-dev`). Embeddings are
-    /// only consumed by the semantic-similarity matching endpoints
-    /// (see `state_matching::find_similar_schema`), which already
-    /// handle an empty embedding cache by returning no-match. The
-    /// cache gets populated organically as each `add_schema` writes
-    /// its own embedding, so steady-state similarity matching still
-    /// works for schemas the current Lambda instance registered.
-    ///
-    /// Callers that need eager-warming (e.g. a similarity-heavy
-    /// workload after a fresh deploy) should call
-    /// `warm_descriptive_name_embeddings` explicitly — ideally from a
-    /// background task so the warm-up doesn't block request serving.
-    pub(crate) fn rebuild_descriptive_name_index(&self) {
-        let Ok(schemas) = self.schemas.read() else {
-            return;
-        };
-        let Ok(mut index) = self.descriptive_name_index.write() else {
-            return;
-        };
-        index.clear();
-        for (name, schema) in schemas.iter() {
-            // Skip superseded schemas — only the active expanded version
-            // should be in the index.
-            if schema.superseded_by.is_some() {
-                continue;
-            }
-            if let Some(ref desc) = schema.descriptive_name {
-                let key = descriptive_name_key(schema.owner_app_id.as_deref(), desc);
-                index.insert(key, name.clone());
-            }
-        }
-    }
-
-    /// Eagerly embed every canonical field that doesn't already have
-    /// a persisted embedding, populate the in-memory cache, and
-    /// persist each new embedding to S3 so the next cold start
-    /// inherits them.
-    ///
-    /// Wired up to `POST /v1/admin/warm-embeddings`. Meant for the
-    /// one-shot backfill after deploying the persisted-embeddings
-    /// feature against an S3 bucket whose blobs predate the change.
-    /// Subsequent writes keep the cache in sync automatically.
-    ///
-    /// Returns `(computed, skipped)` counts.
-    pub async fn warm_canonical_field_embeddings(&self) -> (usize, usize) {
-        let work: Vec<(String, String)> = {
-            let Ok(fields) = self.canonical_fields.read() else {
-                return (0, 0);
-            };
-            let Ok(embeddings) = self.canonical_field_embeddings.read() else {
-                return (0, 0);
-            };
-            fields
-                .iter()
-                .filter_map(|(name, canonical)| {
-                    if embeddings.contains_key(name) {
-                        return None;
-                    }
-                    Some((
-                        name.clone(),
-                        Self::build_embedding_text(&canonical.description),
-                    ))
-                })
-                .collect()
-        };
-
-        let mut computed = 0;
-        let mut skipped = 0;
-        for (name, embed_text) in work {
-            let Ok(vec) = self.embedder.embed_text(&embed_text) else {
-                skipped += 1;
-                continue;
-            };
-            if let Ok(mut embeddings) = self.canonical_field_embeddings.write() {
-                embeddings.insert(name.clone(), vec.clone());
-            }
-            let backend = self.storage.backend();
-            if let Err(e) = backend.save_canonical_field_embedding(&name, &vec).await {
-                tracing::warn!(
-                target: "schema_service::schema",
-                            "warm_canonical_field_embeddings: failed to persist '{}': {}",
-                            name,
-                            e
-                        );
-            }
-            computed += 1;
-        }
-        (computed, skipped)
-    }
-
-    /// Eagerly embed every current schema's `descriptive_name` that
-    /// doesn't already have a persisted embedding, populate the
-    /// in-memory cache, and persist each new embedding to S3.
-    ///
-    /// Wired up to `POST /v1/admin/warm-embeddings` alongside the
-    /// canonical-field warm. Returns `(computed, skipped)` counts.
-    pub async fn warm_descriptive_name_embeddings(&self) -> (usize, usize) {
-        // (schema_hash, descriptive_name, namespaced_key). The embedder
-        // sees the bare descriptive_name (the human-readable text it was
-        // trained on); the in-memory cache is keyed by the namespaced
-        // form so app-owned schemas and a same-named seed have separate
-        // entries.
-        let work: Vec<(String, String, String)> = {
-            let Ok(schemas) = self.schemas.read() else {
-                return (0, 0);
-            };
-            let Ok(embeddings) = self.descriptive_name_embeddings.read() else {
-                return (0, 0);
-            };
-            schemas
-                .iter()
-                .filter_map(|(schema_hash, schema)| {
-                    if schema.superseded_by.is_some() {
-                        return None;
-                    }
-                    let desc = schema.descriptive_name.as_ref()?;
-                    let key = descriptive_name_key(schema.owner_app_id.as_deref(), desc);
-                    if embeddings.contains_key(&key) {
-                        return None;
-                    }
-                    Some((schema_hash.clone(), desc.clone(), key))
-                })
-                .collect()
-        };
-
-        let mut computed = 0;
-        let mut skipped = 0;
-        for (schema_hash, desc, key) in work {
-            match self.embedder.embed_text(&desc) {
-                Ok(vec) => {
-                    if let Ok(mut embeddings) = self.descriptive_name_embeddings.write() {
-                        embeddings.insert(key, vec.clone());
-                    }
-                    let backend = self.storage.backend();
-                    if let Err(e) = backend
-                        .save_descriptive_name_embedding(&schema_hash, &vec)
-                        .await
-                    {
-                        tracing::warn!(
-                        target: "schema_service::schema",
-                                            "warm_descriptive_name_embeddings: failed to persist '{}': {}",
-                                            desc,
-                                            e
-                                        );
-                    }
-                    computed += 1;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                    target: "schema_service::schema",
-                                "Failed to embed descriptive_name '{}': {}",
-                                desc,
-                                e
-                            );
-                    skipped += 1;
-                }
-            }
-        }
-        (computed, skipped)
-    }
 }
+
+mod warm;

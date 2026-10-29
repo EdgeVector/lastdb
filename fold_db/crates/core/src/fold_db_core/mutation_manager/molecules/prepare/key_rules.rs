@@ -70,7 +70,7 @@ pub(super) fn validated_materialized_key_field(
     mutation: &Mutation,
     field_name: &str,
     coordinate: &str,
-    profile: Option<MoleculeRangeProfile>,
+    profile: MoleculeRangeProfile,
 ) -> Result<Option<serde_json::Value>, SchemaError> {
     if !schema.runtime_fields.contains_key(field_name) {
         return Err(SchemaError::InvalidData(format!(
@@ -89,7 +89,7 @@ pub(super) fn validated_materialized_key_field(
             .as_ref()
             .and_then(|key| key.range_field.as_deref())
             == Some(field_name);
-        let matches = if is_range && profile.is_some() {
+        let matches = if is_range {
             crate::schema::types::key_comparison::normalize::canonical_range(
                 profile,
                 &explicit_coordinate,

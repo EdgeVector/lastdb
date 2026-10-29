@@ -36,7 +36,7 @@ impl SchemaServiceState {
             ));
         }
 
-        let now = schema_types::clock::unix_secs();
+        let now = self.clock.unix_secs();
         let node_public_key_hash = key_id(&verifying_key);
         let app_id = request.app_id.as_deref().filter(|s| !s.is_empty());
         let base_bits = cfg.base_difficulty_bits;

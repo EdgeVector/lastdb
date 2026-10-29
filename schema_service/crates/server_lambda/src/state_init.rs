@@ -10,7 +10,7 @@ use schema_service_s3::store_config::{
     SCHEMA_STORE_R2_ENDPOINT_ENV,
 };
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::SchemaConfigEnv;
+use schema_service_server_shared::{DedicatedThreadRuntime, SchemaConfigEnv, SystemClock};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -81,6 +81,8 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
                 embedder,
                 schema_mutation_gate_store,
                 SchemaConfig::from_env(),
+                Arc::new(SystemClock),
+                Arc::new(DedicatedThreadRuntime),
             )
             .await
             .map_err(|e| {

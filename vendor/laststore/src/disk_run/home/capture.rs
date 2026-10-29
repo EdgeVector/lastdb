@@ -331,6 +331,7 @@ impl CapturedRunHome {
             key: owner.key,
             budget,
             costs: RunReadCosts::default(),
+            metadata: super::super::reader::MetadataMemo::new(0),
             _owner_lock: Arc::clone(&owner.lock),
         })
     }

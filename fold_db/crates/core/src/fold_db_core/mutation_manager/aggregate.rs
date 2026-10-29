@@ -25,6 +25,7 @@ use super::receipt::{ResidentCommitReceipt, ResidentDurability};
 use super::write::WriteOrigin;
 use super::MutationManager;
 
+mod enrolled;
 mod finalize;
 mod guard;
 mod invalidation_rules;

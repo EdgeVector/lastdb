@@ -172,9 +172,10 @@ impl PackRuntime {
     }
 }
 
+/// A stored hash is empty or one BlindV1 token: 16 HMAC bytes in 22 URL-safe
+/// base64 characters.
 pub(super) fn supported_coordinate(domain: &CoreKeyDomain, hash: &str, range: &str) -> bool {
-    let hash_supported = !domain.identity().encoding_identity.starts_with("BlindV1/")
-        || hash.is_empty()
+    let hash_supported = hash.is_empty()
         || (hash.len() == 22
             && hash
                 .bytes()

@@ -205,7 +205,7 @@ where
         let generated_at = DateTime::parse_from_rfc3339(&manifest.generated_at)
             .map_err(|e| ResolverPackConsumerError::BadGeneratedAt(e.to_string()))?
             .with_timezone(&Utc);
-        let now = self.config.now.unwrap_or_else(Utc::now);
+        let now = self.config.now.unwrap_or_else(|| self.clock.wall_time());
         if now.signed_duration_since(generated_at).num_seconds() > max_age_seconds {
             return Err(ResolverPackConsumerError::StaleManifest);
         }

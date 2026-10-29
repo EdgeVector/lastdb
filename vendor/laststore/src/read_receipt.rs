@@ -66,6 +66,10 @@ pub struct DiskReadReceipt {
     pub frame_decompressor_setups: u64,
     /// Ordinary opens whose footer read also supplied the complete top frame.
     pub coalesced_metadata_reads: u64,
+    /// Index block decode attempts; reuses do not enter this count or I/O bytes.
+    pub metadata_decodes: u64,
+    /// Authenticated index blocks reused inside one held read call.
+    pub metadata_decode_reuses: u64,
     /// Sum of read-only file open durations, including failed attempts.
     pub open_nanos: u64,
     /// Sum of explicit file status durations.

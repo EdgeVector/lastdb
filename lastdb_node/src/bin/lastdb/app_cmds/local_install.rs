@@ -2,22 +2,27 @@
 
 use super::*;
 
-// lint:allow-ok extracted from app_catalog_command to satisfy file size limits
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_install_local(
     home: &std::path::Path,
-    app_ids: &[String],
-    from_path: &str,
-    rev: &str,
-    dir: &Option<std::path::PathBuf>,
-    force: bool,
-    json: bool,
-    is_dev: bool,
+    install: &AppInstall,
 ) -> Result<(), String> {
     use lastdb_node::app_registry_index as registry_index;
     use lastdb_node::version;
 
-    check_dir_matches_app_count(dir, app_ids)?;
+    let Some(from_path) = install.from.as_deref() else {
+        if install.rev.is_some() {
+            return Err("--rev requires --from".to_string());
+        }
+        return Err("--dev requires --from".to_string());
+    };
+    if !install.dev {
+        return Err("--from requires --dev".to_string());
+    }
+    let Some(rev) = install.rev.as_deref() else {
+        return Err("--from requires --rev".to_string());
+    };
+
+    check_dir_matches_app_count(&install.dir, &install.app_ids)?;
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     let (node, node_source) = registry_index::running_lastdb_version(None, &socket);
     let versions = registry_index::ContractVersions {
@@ -37,28 +42,34 @@ pub(crate) fn app_install_local(
         .map_err(|e| format!("failed to resolve --from path '{}': {e}", path.display()))?;
 
     let mut outcomes = Vec::new();
-    for app_id in app_ids {
+    for app_id in &install.app_ids {
         let location = registry_index::IndexLocation::Local {
             path: canonical_path.clone(),
             rev: rev.to_string(),
         };
 
-        let resolution =
-            registry_index::resolve_local(&location, app_id, &node_version, &versions, is_dev)?;
+        let resolution = registry_index::resolve_local(
+            &location,
+            app_id,
+            &node_version,
+            &versions,
+            install.dev,
+        )?;
 
-        let install_dir = dir
+        let install_dir = install
+            .dir
             .clone()
             .unwrap_or_else(|| home.join("apps").join(app_id));
 
-        let outcome = registry_index::install_pinned(&resolution, &install_dir, force)?;
+        let outcome = registry_index::install_pinned(&resolution, &install_dir, install.force)?;
 
-        if !json {
+        if !install.json {
             println!(
                 "installed: {} {} @ {} (local, dev: {}, rev: {})",
                 outcome.app_id,
                 outcome.app_version,
                 short_sha(&outcome.sha),
-                is_dev,
+                install.dev,
                 rev
             );
             println!("  source: {}", outcome.source);
@@ -67,7 +78,7 @@ pub(crate) fn app_install_local(
         outcomes.push(outcome);
     }
 
-    if json {
+    if install.json {
         print_pretty_json(&outcomes);
     }
 

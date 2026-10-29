@@ -90,9 +90,10 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           rustc --version
           FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target-candidate" \
-            cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin lastdb
           mkdir -p "$RUNNER_TEMP/programs/candidate"
           cp "$RUNNER_TEMP/target-candidate/dev-release/lastdbd" "$RUNNER_TEMP/programs/candidate/lastdbd"
+          cp "$RUNNER_TEMP/target-candidate/dev-release/lastdb" "$RUNNER_TEMP/programs/candidate/lastdb"
           rm -rf "$RUNNER_TEMP/target-candidate"
           "$RUNNER_TEMP/programs/candidate/lastdbd" --version
       - name: Run the node proof

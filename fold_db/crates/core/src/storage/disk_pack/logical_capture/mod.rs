@@ -15,6 +15,7 @@ pub(crate) mod outcome;
 mod peer;
 mod reader;
 mod snapshot;
+pub(crate) mod snapshot_identity;
 mod store;
 mod verify;
 
@@ -30,6 +31,9 @@ pub use outcome::AcceptedFieldOutcome;
 pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};
+pub use snapshot_identity::{
+    SnapshotIdentityPeer, SnapshotIdentityPosition, SnapshotIdentityReport,
+};
 pub(super) use store::{open, Capture};
 
 pub(super) const COLLECTION: &str = "logical_sync_v1";
