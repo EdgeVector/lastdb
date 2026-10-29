@@ -23,7 +23,6 @@ const HEAD: &[u8] = b"head";
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
 const MAX_MUTATIONS: usize = 128;
 const BACKLOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
-const EXPORT_ENTRIES: usize = 4;
 const RECENT_ENTRIES: u64 = 16;
 
 fn key(prefix: &str, sequence: u64) -> String {
