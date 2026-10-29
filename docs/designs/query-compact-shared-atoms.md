@@ -25,3 +25,9 @@ uses exact CI program artifacts, fresh generated homes, and both Brain layouts.
 It compares read latency, durable writes, disk size, and sampled memory. It
 requires the candidate V2 disk size to stay within the accepted V2 size.
 The primary and its archive stay outside the operation.
+
+The restart proof also exposed a cold protein key move that lacked an admitted
+range profile for an unchanged peer field. A move now loads all established
+contracts for its exact selected molecules in one batch before key conversion.
+It mints no keys and retains the stored profile checks. The accepted baseline
+refusal remains visible in the comparison; the candidate must complete the move.

@@ -128,6 +128,14 @@ impl MutationManager {
     ) -> Result<MoveState, SchemaError> {
         let atoms = self.db_ops.atoms();
         let prefix = schema_storage_prefix(input.schema, None);
+        let contracts: Vec<_> = slots
+            .keys()
+            .map(|(molecule, _, _)| molecule)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .cloned()
+            .collect();
+        atoms.load_molecule_key_bundles(&contracts).await?;
         let mut slot_keys = vec![String::new(); slots.len()];
         for ((molecule, hash, range), position) in slots {
             slot_keys[position] = atoms
