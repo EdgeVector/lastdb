@@ -51,8 +51,11 @@ def main():
                 if process.poll() is not None:
                     raise RuntimeError("The owned MinIO process exited before readiness")
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:9000/minio/health/ready", timeout=2) as reply:
+                    # /ready returns 200 before storage initialization in pinned MinIO.
+                    # /cluster requires initialized storage, metadata, IAM, and write quorum.
+                    with urllib.request.urlopen("http://127.0.0.1:9000/minio/health/cluster", timeout=2) as reply:
                         if reply.status == 200:
+                            result["storage_ready_endpoint"] = "/minio/health/cluster"
                             break
                 except (urllib.error.URLError, TimeoutError):
                     time.sleep(0.2)
