@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+mod atom_history;
 
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::build_storage_key;

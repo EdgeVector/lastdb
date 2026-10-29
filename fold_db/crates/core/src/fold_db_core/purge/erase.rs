@@ -207,6 +207,17 @@ async fn apply_plan(
     plan: ErasePlan,
     options: EraseOptions<'_>,
 ) -> Result<BulkPurgeReport, SchemaError> {
+    let history = if options.verb.is_delete() {
+        TipCommit::default()
+    } else {
+        super::atom_history::release_key_history(
+            db_ops,
+            &loaded,
+            &plan.spared,
+            options.storage_prefix,
+        )
+        .await?
+    };
     let LoadedTargets {
         schema,
         keys,
@@ -242,6 +253,7 @@ async fn apply_plan(
     if removed.is_empty() && barrier_rows.is_empty() {
         return Ok(BulkPurgeReport {
             spared_keys,
+            atom_rows_deleted: history.deleted.len(),
             ..BulkPurgeReport::empty()
         });
     }
@@ -258,10 +270,11 @@ async fn apply_plan(
         })
         .collect();
     let started = std::time::Instant::now();
-    let commit = db_ops
+    let mut commit = db_ops
         .atoms()
         .remove_molecules_keys_with_rows(&refs, barrier_rows, options.verb.is_delete())
         .await?;
+    commit.absorb(history);
     let batch_elapsed = started.elapsed();
     let tip_debits = removed_tip_debits(&removed_tip_keys, &commit);
     let report = BulkPurgeReport {

@@ -62,7 +62,7 @@ Details per family: `docs/lastdb-molecule-counters.md`,
 
 For every scope and every atom `A`:
 
-- I1: `refs(A)` equals the number of tip records plus counted conflict records that name `A`.
+- I1: `refs(A)` equals the number of tip records plus counted conflict and ordinary history records that name `A`.
 - I2: the body exists if and only if the counter exists. A counter never holds zero, except a counter with `suspect`.
 - I3: a batch lowers `refs(A)` by `k` only if the same batch removes `k` references to `A`. The batch reads each of them from the store inside the gate hold.
 - I4: the stored count is never lower than the true number of references.

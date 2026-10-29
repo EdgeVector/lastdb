@@ -104,7 +104,7 @@ pub(super) async fn load_targets(
 }
 
 /// Every physical key that a normal reader accepts for each field and key.
-fn candidate_plans(
+pub(super) fn candidate_plans(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,
     keys: &[KeyValue],
