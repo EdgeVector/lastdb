@@ -10,6 +10,8 @@ pub struct AllocatorTuning {
     pub name: &'static str,
     pub purge_delay_ms: Option<i64>,
     pub purge_delay_from_env: bool,
+    pub transparent_huge_pages_disabled: Option<bool>,
+    pub transparent_huge_pages_errno: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -30,6 +32,9 @@ const MI_OPTION_PAGE_COMMIT_ON_DEMAND: libmimalloc_sys::mi_option_t = 40;
 
 /// The environment variable that overrides commit on demand.
 pub const COMMIT_ON_DEMAND_ENV: &str = "MIMALLOC_PAGE_COMMIT_ON_DEMAND";
+
+#[cfg(all(feature = "purging-allocator", target_os = "linux"))]
+mod linux_pages;
 
 #[cfg(feature = "purging-allocator")]
 mod tracked {
@@ -122,6 +127,8 @@ pub fn configure() -> AllocatorTuning {
             name: "system",
             purge_delay_ms: None,
             purge_delay_from_env: false,
+            transparent_huge_pages_disabled: None,
+            transparent_huge_pages_errno: None,
         };
     }
     let purge_delay_from_env = std::env::var_os(PURGE_DELAY_ENV).is_some();
@@ -136,10 +143,16 @@ pub fn configure() -> AllocatorTuning {
     }
     // SAFETY: the option index matches the pinned mimalloc v3 header.
     let purge_delay_ms = unsafe { libmimalloc_sys::mi_option_get(MI_OPTION_PURGE_DELAY) };
+    #[cfg(target_os = "linux")]
+    let (transparent_huge_pages_disabled, transparent_huge_pages_errno) = linux_pages::configure();
+    #[cfg(not(target_os = "linux"))]
+    let (transparent_huge_pages_disabled, transparent_huge_pages_errno) = (None, None);
     AllocatorTuning {
         name: "mimalloc",
         purge_delay_ms: Some(purge_delay_ms),
         purge_delay_from_env,
+        transparent_huge_pages_disabled,
+        transparent_huge_pages_errno,
     }
 }
 
@@ -149,6 +162,8 @@ pub fn configure() -> AllocatorTuning {
         name: "system",
         purge_delay_ms: None,
         purge_delay_from_env: false,
+        transparent_huge_pages_disabled: None,
+        transparent_huge_pages_errno: None,
     }
 }
 

@@ -157,8 +157,12 @@ fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
         allocator = tuning.name,
         purge_delay_ms = ?tuning.purge_delay_ms,
         purge_delay_from_env = tuning.purge_delay_from_env,
+        transparent_huge_pages_disabled = ?tuning.transparent_huge_pages_disabled,
         "configured process allocator"
     );
+    if let Some(errno) = tuning.transparent_huge_pages_errno {
+        tracing::warn!(target: "lastdbd::allocator", errno, "could not configure Linux huge page policy");
+    }
 }
 
 fn init_resident_key_cap() -> Result<(), String> {

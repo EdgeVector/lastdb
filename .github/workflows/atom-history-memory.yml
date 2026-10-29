@@ -1,11 +1,12 @@
 name: Atom history memory attribution
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/operations/atom_history_memory.py'
-      - '.github/workflows/atom-history-memory.yml'
   workflow_dispatch:
+    inputs:
+      disable_thp:
+        description: Disable transparent huge pages in both original programs
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,10 +45,13 @@ jobs:
           BENCH_OUTPUT="$RUNNER_TEMP/transfer" python3 historical-driver/scripts/benchmarks/programs.py unpack \
             --root "$RUNNER_TEMP/programs" --archive "$RUNNER_TEMP/historical-programs/programs.tar.gz"
       - name: Attribute memory on fresh generated homes
+        env:
+          DISABLE_THP: ${{ inputs.disable_thp }}
         run: |
+          options=()
+          if [ "$DISABLE_THP" = "true" ]; then options+=(--disable-thp); fi
           python3 driver/scripts/operations/atom_history_memory.py --programs "$RUNNER_TEMP/programs" \
-            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution" \
-            --disable-thp
+            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution" "${options[@]}"
       - uses: actions/upload-artifact@v4
         id: evidence
         if: always()
@@ -64,12 +68,14 @@ jobs:
           RESULT: ${{ job.status }}
           ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
           ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+          DISABLE_THP: ${{ inputs.disable_thp }}
         run: |
           {
             echo "## PR 708 memory attribution"
             echo "Diagnostic source: $GITHUB_SHA"
             echo "Baseline: $BASELINE_SHA; candidate: $CANDIDATE_SHA"
             echo "Original run: 40827041301; verified program bundle: $BUNDLE_SHA256"
+            echo "Disable transparent huge pages in both programs: $DISABLE_THP"
             echo "Result: $RESULT"
             echo "Artifact: $ARTIFACT_URL"
             echo "Artifact SHA256: $ARTIFACT_DIGEST"
