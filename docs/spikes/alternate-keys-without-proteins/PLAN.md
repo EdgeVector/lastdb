@@ -1,7 +1,9 @@
 # Alternate key implementation plan
 
 This plan accompanies the [design spike](README.md).
-Its stages describe future work. This branch contains design text only.
+The branch implements the fresh-home Task slice and a CI comparison.
+Existing-home conversion and final protein removal remain later stages.
+Named pages use cursors. Counts, field conditions, mapped schemas, other database scopes, and schema removal receive explicit refusals.
 Tom prohibited a merge of the spike.
 
 ## Source changes
@@ -146,7 +148,7 @@ The final current format contains no protein records or live references.
 
 ## CI product checks and latency comparison
 
-This design branch needs no product build or benchmark.
+The spike requires CI builds, operational results, and both latency comparisons.
 Use CI for all future LastDB builds, operational checks, and measurements.
 Use fresh generated homes and the accepted operational scope; do not copy the primary.
 Do not add a general test suite or a fixture harness.

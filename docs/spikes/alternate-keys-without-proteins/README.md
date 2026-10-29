@@ -2,7 +2,7 @@
 
 Status: design spike, 2026-10-29. Tom requested a plan and prohibited a merge.
 Source base: `b2419f5a8b510306411bb9c84a2fece0019ceec3`.
-The examples below describe a proposed API. The current node does not accept them.
+The examples below describe the unmerged spike API. Accepted main does not support this API.
 
 ## Recommendation
 
@@ -17,7 +17,8 @@ It does not prove that two records describe the same fact.
 This changes the current automatic cross-schema write rule and requires explicit adoption.
 
 The [implementation plan](PLAN.md) lists the source changes, conversion gates, and future CI comparisons.
-This spike changes no product code, schema, home, or workflow.
+The spike now includes the fresh-home product slice and a CI comparison.
+It does not convert an existing home or remove the old protein route.
 
 ## Current state
 
@@ -136,18 +137,12 @@ Use the native encryption and typed key codec.
 Do not construct compound keys with text separators.
 Do not keep an uncharged second store of alternate entries or fetched payload values.
 
-## Mathematical contract
+## Record and key rules
 
-For one schema and scope, let `R[p]` be the accepted current record at primary key `p`.
-Let `g_i(R[p])` derive the complete key for alternate declaration `i`.
-Let `A_i[a]` be the primary key stored at alternate key `a`.
-
-```text
-For every live eligible R[p]:       A_i[g_i(R[p])] = p
-For every A_i[a] = p:               R[p] is live and g_i(R[p]) = a
-For every alternate read at a:      result = primary_read(A_i[a])
-For every primary field f:         value = molecule_f[p] -> atom
-```
+Each eligible primary record has one entry in each alternate molecule.
+Each entry names a live primary record whose current fields derive that alternate key.
+An alternate read returns the current primary field values.
+The primary field molecules remain the only route to their atoms.
 
 Each supported alternate key in this slice contains the complete primary key.
 Thus two different primary keys cannot claim one complete alternate key.
