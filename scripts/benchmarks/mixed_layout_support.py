@@ -3,7 +3,6 @@
 import gzip
 import hashlib
 import json
-import threading
 import time
 
 from cold_layout import snapshot
@@ -57,60 +56,7 @@ def observe(node):
     return state
 
 
-class Trace:
-    """Intrusive diagnostic only; never pooled into the unpolled timing arm."""
-
-    def __init__(self, node, output):
-        self.node, self.output = node, output
-        self.stop, self.ready = threading.Event(), threading.Event()
-        self.error, self.operations, self.observations = None, {}, []
-        self.thread = threading.Thread(target=self.run, daemon=True)
-
-    def collect(self):
-        state = observe(self.node)
-        recent = self.node.call("/api/status?recent=1")[0]["status"]["request_ops"]["recent"]
-        for row in recent:
-            if (row.get("client") == "github-benchmark"
-                    and (row.get("request_id") or "").startswith("bench-0-")):
-                self.operations[row["request_id"]] = row
-        self.observations.append(state)
-
-    def run(self):
-        try:
-            deadline = time.monotonic() + 60
-            while not self.stop.is_set():
-                if time.monotonic() >= deadline or len(self.observations) >= 600:
-                    raise RuntimeError("The diagnostic observation exceeded its bound")
-                self.collect()
-                self.ready.set()
-                self.stop.wait(0.1)
-        except BaseException as failure:
-            self.error = f"{type(failure).__name__}: {failure}"
-            self.ready.set()
-
-    def start(self):
-        self.thread.start()
-        if not self.ready.wait(10) or self.error:
-            self.finish()
-            raise RuntimeError(self.error or "Diagnostic observer did not start")
-
-    def finish(self):
-        self.stop.set()
-        self.thread.join(timeout=20)
-        if self.thread.is_alive():
-            raise RuntimeError("Diagnostic observer did not finish")
-        if not self.error:
-            try:
-                self.collect()
-            except BaseException as failure:
-                self.error = f"{type(failure).__name__}: {failure}"
-        save(self.output / "trace.json", {"error": self.error, "observations": self.observations,
-                                         "request_ops": self.operations})
-        if self.error:
-            raise RuntimeError(self.error)
-
-
-def audit(node, output, trace):
+def audit(node, output):
     rows = [json.loads(line) for line in gzip.decompress((output / "samples.jsonl.gz").read_bytes()).splitlines()]
     if len(rows) != 256 or any(row.get("error") or row["case"] != CASE for row in rows):
         raise RuntimeError("The target case lacks 256 successful samples")
@@ -133,7 +79,7 @@ def audit(node, output, trace):
                 index = turn * 4 + client
                 number = RECIPE["records"] - 256 + index // 2
                 expected[key(number)] = fields(number, f"{CASE}-{index}")["title"]
-    operations = trace.operations if trace else {r["request_id"]: r.get("server_request_ops") for r in rows}
+    operations = {r["request_id"]: r.get("server_request_ops") for r in rows}
     if any(not operations.get(r["request_id"]) for r in rows):
         raise RuntimeError("The target case lacks exact server request-ID coverage")
     # This verification is after timing and tracing; every written key must survive.

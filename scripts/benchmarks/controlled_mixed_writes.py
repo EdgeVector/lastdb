@@ -10,13 +10,14 @@ import shutil
 
 from cold_layout import stable_boundary
 from cold_shared_seed import boot_boundary, inventory, physical_state
-from mixed_layout_support import CASE, RECIPE, Trace, audit, observe, precondition, warm
+from mixed_layout_support import CASE, RECIPE, audit, observe, precondition, warm
+from mixed_native_stages import collect, summary_lines
 from node import Node, file_hash, save
 from report import compare
 from workload import Workload
 
 PAIRS = 4
-MODES = ("independent-timing", "shared-timing", "shared-trace")
+MODES = ("independent-timing", "shared-timing", "independent-native", "shared-native")
 
 
 def seed_template(node, output):
@@ -35,7 +36,7 @@ def seed_template(node, output):
 
 def prepare(node, mode, template, whole, physical, expected_root):
     boot, append_bytes = None, None
-    if mode == "independent-timing":
+    if mode.startswith("independent-"):
         node.start()
         precondition(node, node.output / "precondition")
     else:
@@ -58,7 +59,7 @@ def prepare(node, mode, template, whole, physical, expected_root):
     if node.disk_format() != 2:
         raise RuntimeError("Comparison requires disk format v2")
     logical = warm(node)
-    if mode != "independent-timing":
+    if mode.startswith("shared-"):
         save(node.output / "settle.json", stable_boundary(node))
         physical_state(node, layout, boot)
     # Warm-up and the physical observation stay outside the timed case.
@@ -68,26 +69,21 @@ def prepare(node, mode, template, whole, physical, expected_root):
 
 def measure(binary, revision, output, mode, template, whole, physical, expected_root):
     output.mkdir()
-    node = Node(binary, revision, output)
-    work, tracer, error, identities, logical = None, None, None, None, None
+    native = mode.endswith("-native")
+    node = Node(binary, revision, output, native_timing=native,
+                environment={"LASTDBD_STDIO_LOG_ROTATION": "0"} if native else None)
+    work, error, identities, logical = None, None, None, None
     boot, append_bytes = None, None
     try:
         logical, boot, append_bytes = prepare(node, mode, template, whole, physical, expected_root)
         work = Workload(node, RECIPE, output)
-        if mode == "shared-trace":
-            tracer = Trace(node, output)
-            tracer.start()
-        try:
-            work.measure(CASE, "mixed", clients=4)
-        finally:
-            if tracer:
-                tracer.finish()
+        work.measure(CASE, "mixed", clients=4)
         work.raw.close()
         save(output / "after.json", observe(node))
-        identities = audit(node, output, tracer)
-        native = node.call("/api/db/native-status")[0]
-        save(output / "native-status.json", native)
-        if native["native_disk"].get("writer_failed") is not False:
+        identities = audit(node, output)
+        status = node.call("/api/db/native-status")[0]
+        save(output / "native-status.json", status)
+        if status["native_disk"].get("writer_failed") is not False:
             raise RuntimeError("The native writer is unhealthy")
     except BaseException as failure:
         error = f"{type(failure).__name__}: {failure}"
@@ -98,6 +94,12 @@ def measure(binary, revision, output, mode, template, whole, physical, expected_
             node.close()
         except BaseException as failure:
             error = f"{error or ''}; cleanup: {type(failure).__name__}: {failure}"
+    # Stop first so a merge crossing the case end can finish its numeric event.
+    if native and error is None:
+        try:
+            collect(output)
+        except Exception as failure:
+            error = f"native capture: {type(failure).__name__}: {failure}"
     result = {"complete": error is None, "error": error, "mode": mode,
               "logical_input_sha256": logical, "boot_root": boot, "boot_append_bytes": append_bytes}
     save(output / "result.json", result)
@@ -122,9 +124,11 @@ def summaries(output, manifest):
     lines += ["", "Each arm retains 4 alternating pairs, 256 calls/run (128 reads/128 writes).",
               "Independent timing replays its own preceding standard history without a stability wait.",
               "Shared timing verifies identical stopped files and settles/warms clones before timing.",
-              "Shared trace is intrusive and diagnostic only; its P95 must not replace timing results.",
+              "Native arms enable numeric clocks throughout their history and disable log rotation.",
+              "Native timings are intrusive diagnostics and must not replace ordinary timing results.",
               "Writes can legitimately change layout. Observations are not atomic and can miss short merges.",
               "OS pages are warmed by verification; new mutation IDs and physical output are not identical."]
+    lines.extend(summary_lines(output, manifest))
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write("\n".join(lines) + "\n")
 
@@ -148,7 +152,7 @@ def main():
                              for label, binary in binaries.items()},
                 "scope": "Same exact programs and keyed mixed/4 recipe on one hosted machine. "
                          "Compare independent standard histories with byte-identical clones of one "
-                         "stopped baseline history, then trace separate clones. This controls starting "
+                         "stopped baseline history, with separate native-clock arms. This controls starting "
                          "files and logical values, not thread schedules, device state or new output bytes."}
     save(args.output / "benchmark.json", manifest)
     seed_output = args.output / "seed"
@@ -161,12 +165,12 @@ def main():
         manifest["observed_seed_live_root"] = observed_live
         for pair in range(PAIRS):
             # Rotate arm order and reverse version order every pair.
-            for mode in MODES[pair % 3:] + MODES[:pair % 3]:
+            for mode in MODES[pair % len(MODES):] + MODES[:pair % len(MODES)]:
                 for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
                     directory = f"{mode}-{pair}-{label}"
                     result, identities = measure(binaries[label], revisions[label], args.output / directory,
                                                  mode, template, whole, physical, expected_root)
-                    if mode != "independent-timing":
+                    if mode.startswith("shared-"):
                         if expected_append is not None and result["boot_append_bytes"] != expected_append:
                             raise RuntimeError("Shared clones appended different amounts of boot metadata")
                         expected_root, expected_append = result["boot_root"], result["boot_append_bytes"]
