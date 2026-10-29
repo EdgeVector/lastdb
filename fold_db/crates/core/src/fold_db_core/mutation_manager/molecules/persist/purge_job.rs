@@ -212,7 +212,7 @@ impl MutationManager {
         let inbox = self.search_outbox_inbox.clone();
         let batch = batch.clone();
         crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
-            MutationManager::deliver_search_outbox(inbox, batch).await
+            Self::deliver_search_outbox(inbox, batch).await
         })?;
         Ok(())
     }

@@ -45,7 +45,7 @@ impl MutationManager {
         if let Some(batch) = self.peer_search_batch(job, heads).await? {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                MutationManager::deliver_search_outbox(inbox, batch).await
+                Self::deliver_search_outbox(inbox, batch).await
             })?;
         }
         Ok(())
