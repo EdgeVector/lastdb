@@ -52,7 +52,7 @@ class Control:
         require(endpoint.scheme == "https" and endpoint.path == "" and endpoint.port is None,
                 "ci_control_dev_endpoint")
         self.host = endpoint.hostname
-        require(type(budget_seconds) is int and 0 < budget_seconds <= 3600, "ci_control_time_budget")
+        require(type(budget_seconds) is int and 0 < budget_seconds <= 4200, "ci_control_time_budget")
         self.deadline = time.monotonic() + budget_seconds
         self.calls = 0
 

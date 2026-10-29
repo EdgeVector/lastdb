@@ -31,7 +31,9 @@ class Preflight(Operation):
 
     def execute(self):
         credentials = self.credentials()
-        control = Control(self.baseline, self.api_key, budget_seconds=3600)
+        # A resumed cleanup and the next plan can each require a 30-minute
+        # service drain. Leave time for both without shortening either one.
+        control = Control(self.baseline, self.api_key, budget_seconds=4200)
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         try:
             require(0 < len(phrase) <= 4096, "recovery_phrase")
