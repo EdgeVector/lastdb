@@ -86,33 +86,10 @@ impl SchemaCore {
         Ok(schema)
     }
 
-    /// Update an existing schema in both the database and in-memory cache.
-    /// Used by ingestion to add Reference topologies after child schemas are resolved.
+    /// Publish definition updates through the same normalization, bindings and
+    /// cache-state boundary as schema declaration.
     pub async fn update_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
-        let mut schema = schema.clone();
-        if schema.runtime_fields.is_empty() {
-            schema.populate_runtime_fields()?;
-        }
-        schema.sync_molecule_uuids();
-        schema.clear_runtime_molecules();
-        // Gated for the same reason as `load_schema_internal`: an identity
-        // minted by a newer algorithm must survive an older binary touching it.
-        if let IdentityRecompute::RefusedDowngrade { stored, binary } =
-            schema.recompute_identity_hash_unless_newer()
-        {
-            tracing::warn!(
-                schema = %schema.name,
-                stored_algo_version = stored,
-                binary_algo_version = binary,
-                "refusing to downgrade schema identity during update_schema; \
-                 keeping the stored identity",
-            );
-        }
-
-        let name = schema.name.clone();
-        self.db_ops.store_schema(&name, &schema).await?;
-        write_map(&self.schemas, "schemas")?.insert(name, schema);
-        Ok(())
+        self.load_schema_internal(schema.clone()).await
     }
 
     /// Fetches a schema by name, checking both in-memory cache and database,
