@@ -230,8 +230,20 @@ class Operation:
         ingest(self.a, event["events"])
         self.result["converged_values"] = [check_values(node, self.model) for node in (self.a, self.b)]
         self.result["stage"] = "nonzero_prepare"
+        held_id = str(uuid.uuid4())
+        held = snapshot(self.b, "prepare", held_id)
+        self.result["retained_source_capture"] = held
         self.result["nonzero"] = self.prepare("prepared-target", self.capture(), own_head(self.b), True)
+        links = self.result["nonzero"]["directory_modes"]["source"]
+        require(links["data/disk-run/laststore-run-home-v2"]["links"] > 1
+                and links["data/disk-cas/laststore-run-home-v2"]["links"] > 1
+                and links["data/laststore-pack-node-v1"]["links"] > 1,
+                "identity preparation did not use a genuinely retained source snapshot")
         self.b.start()
+        self.result["retained_source_reopened"] = snapshot(self.b, "inspect", held_id)
+        require(self.result["retained_source_reopened"] == held,
+                "identity preparation or source restart changed its retained snapshot")
+        self.result["retained_source_release"] = release(self.b, held_id)
         self.result["stage"] = "peer_ahead_prepare"
         before = request(self.b, {"action": "position", "origin": self.anchors[0]["origin"]})["position"]
         self.advance(self.a, None, "identity-a-ahead")

@@ -41,6 +41,21 @@ pub(super) fn directory(path: &Path) -> StorageResult<File> {
 }
 
 pub(super) fn regular(path: &Path, write: bool) -> StorageResult<File> {
+    private_file(path, write, false)
+}
+
+/// Source snapshots hardlink these immutable selectors. Targets remain unlinked.
+pub(super) fn captured_selector(path: &Path) -> StorageResult<File> {
+    if !matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("CURRENT" | RUN_HOME_MARKER)
+    ) {
+        return Err(invalid("captured source selector name differs"));
+    }
+    private_file(path, false, true)
+}
+
+fn private_file(path: &Path, write: bool, captured: bool) -> StorageResult<File> {
     let file = OpenOptions::new()
         .read(true)
         .write(write)
@@ -50,7 +65,7 @@ pub(super) fn regular(path: &Path, write: bool) -> StorageResult<File> {
     if !meta.is_file()
         || meta.uid() != unsafe { libc::geteuid() }
         || meta.mode() & 0o077 != 0
-        || meta.nlink() != 1
+        || (!captured && meta.nlink() != 1)
     {
         return Err(invalid("run restore private file"));
     }
@@ -236,7 +251,7 @@ fn require_home_members(path: &Path) -> StorageResult<()> {
 }
 
 fn hash(path: &Path, expected: &Digest) -> StorageResult<u64> {
-    let (digest, bytes) = inspect(path)?;
+    let (digest, bytes) = inspect(path, false)?;
     if digest != *expected {
         return Err(invalid("run restore file digest differs"));
     }
@@ -248,9 +263,26 @@ pub(super) fn profile_home(
     name: &str,
     reader: &RunRead,
 ) -> StorageResult<RunBackupHome> {
+    profile(root, name, reader, false)
+}
+
+pub(super) fn source_profile_home(
+    root: &Path,
+    name: &str,
+    reader: &RunRead,
+) -> StorageResult<RunBackupHome> {
+    profile(root, name, reader, true)
+}
+
+fn profile(
+    root: &Path,
+    name: &str,
+    reader: &RunRead,
+    captured: bool,
+) -> StorageResult<RunBackupHome> {
     let path = root.join(name);
-    let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER))?;
-    let (current_sha256, current_bytes) = inspect(&path.join("CURRENT"))?;
+    let (descriptor_sha256, descriptor_bytes) = inspect(&path.join(RUN_HOME_MARKER), captured)?;
+    let (current_sha256, current_bytes) = inspect(&path.join("CURRENT"), captured)?;
     let mut files = 2u64;
     let mut bytes = descriptor_bytes
         .checked_add(current_bytes)
@@ -275,8 +307,12 @@ pub(super) fn profile_home(
     })
 }
 
-fn inspect(path: &Path) -> StorageResult<(Digest, u64)> {
-    let mut file = regular(path, false)?;
+fn inspect(path: &Path, captured: bool) -> StorageResult<(Digest, u64)> {
+    let mut file = if captured {
+        captured_selector(path)?
+    } else {
+        regular(path, false)?
+    };
     let before = file.metadata()?;
     let mut hasher = Sha256::new();
     let mut buffer =

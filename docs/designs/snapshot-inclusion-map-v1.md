@@ -153,6 +153,8 @@ The offline `lastdb db snapshot-identity-prepare` command prepares an existing i
 The source must be stopped, with a clean shutdown receipt.
 Both homes must belong to the same account encryption key.
 The command verifies the candidate's actual native files and signed inclusion map before it writes device metadata.
+Source validation permits the file links that an existing retained snapshot needs.
+The source home remains private, and the destination keeps the stricter restore-file checks.
 It never copies the donor's private control.
 It never changes the source.
 

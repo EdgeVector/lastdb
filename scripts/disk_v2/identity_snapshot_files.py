@@ -37,13 +37,16 @@ def owned(node):
 
 def mode_snapshot(node):
     paths = (".", "identity.key", "data", "data/disk-run", "data/disk-run/runs", "data/disk-run/LOCK",
-             "data/disk-cas", "data/disk-cas/runs", "data/laststore-pack-node-v1", "data/logical-device-capture-v1")
+             "data/disk-run/CURRENT", "data/disk-run/laststore-run-home-v2", "data/disk-cas",
+             "data/disk-cas/runs", "data/disk-cas/CURRENT", "data/disk-cas/laststore-run-home-v2",
+             "data/laststore-pack-node-v1", "data/logical-device-capture-v1")
     result = {}
     for name in paths:
         try:
             info = (node.home / name).lstat()
             result[name] = {"mode": oct(stat.S_IMODE(info.st_mode)), "owned": info.st_uid == os.getuid(),
-                            "directory": stat.S_ISDIR(info.st_mode), "regular": stat.S_ISREG(info.st_mode)}
+                            "directory": stat.S_ISDIR(info.st_mode), "regular": stat.S_ISREG(info.st_mode),
+                            "links": info.st_nlink}
         except FileNotFoundError:
             result[name] = {"exists": False}
     return result

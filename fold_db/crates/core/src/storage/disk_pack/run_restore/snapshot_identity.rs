@@ -182,7 +182,12 @@ fn read_source(
     main.reserve_metadata(shared).map_err(map)?;
     cas.reserve_metadata(shared).map_err(map)?;
     proof::verify_account(&main, key, 2)?;
-    let profile = reader_profile(root, &main, &cas)?;
+    let profile = RunBackupProfile {
+        version: 2,
+        main: files::source_profile_home(root, run_node::RUN_DIR, &main)?,
+        cas: files::source_profile_home(root, run_node::CAS_DIR, &cas)?,
+    };
+    profile.validate()?;
     let source = logical::read_source(root, &mut main, &profile)?;
     files::same_entry(&directory, root)?;
     files::same_entry(&marker, &root.join(NODE_MARKER))?;
@@ -214,7 +219,11 @@ fn source_bindings(root: &Path) -> StorageResult<Vec<(PathBuf, File)>> {
             laststore::disk_run::home::RUN_HOME_MARKER,
         ] {
             let path = root.join(name).join(child);
-            let file = files::regular(&path, false)?;
+            let file = if child == "LOCK" {
+                files::regular(&path, false)?
+            } else {
+                files::captured_selector(&path)?
+            };
             bindings.push((path, file));
         }
     }
@@ -279,7 +288,9 @@ fn source_entry(path: &Path, directory: bool) -> StorageResult<File> {
         || (!directory && !meta.is_file())
         || meta.uid() != unsafe { libc::geteuid() }
         || meta.mode() & 0o022 != 0
-        || (!directory && meta.nlink() != 1)
+        || (!directory
+            && meta.nlink() != 1
+            && path.file_name().and_then(|name| name.to_str()) != Some(NODE_MARKER))
     {
         return Err(invalid(
             "snapshot identity source entry ownership or mode differs",
