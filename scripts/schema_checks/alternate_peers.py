@@ -53,6 +53,7 @@ def peers(args, output):
         check_rows(alternate(b, name, "by_group", "g3"), {})
         local = export(b)
         require(len(local["events"]) == 1, "receiver lacks its original local key-field event")
+        request(a, {"action": "enroll", "anchor": local["anchor"]})
         ingest(a, local["events"])
         check_rows(alternate(a, name, "by_group", "g4"), {"peer-1": expected})
         updated = {"by_group": {"hash_field": "owner_id", "range_field": "record_id", "missing": "reject"}}
