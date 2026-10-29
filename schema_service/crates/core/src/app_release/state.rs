@@ -19,6 +19,34 @@ impl SchemaServiceState {
             .and_then(|channels| channels.get(&channel_key(app_id, channel)).cloned())
     }
 
+    /// Verify the cert and require the signer to own `app_id`.
+    ///
+    /// The app comes from durable storage, not memory, so a concurrent
+    /// registration cannot be bypassed. Returns the owner pubkey.
+    async fn require_app_owner(
+        &self,
+        app_id: &str,
+        config: &AppIdentityConfig,
+        cert_header: &str,
+        sig_header: &str,
+        body: &Value,
+        purpose: Purpose,
+    ) -> Result<String, ReleaseError> {
+        let verified = verify_cert_and_signature(config, cert_header, sig_header, body, purpose)
+            .map_err(|f| map_auth_failure(&f))?;
+        let app = self
+            .storage
+            .backend()
+            .load_app(app_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
+            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
+        if app.owner_dev_pubkey != verified.dev_pubkey {
+            return Err(ReleaseError::NotAppOwner);
+        }
+        Ok(verified.dev_pubkey)
+    }
+
     /// `POST /v2/apps/{app_id}/releases` — publish an immutable release.
     ///
     /// `body` is the parsed request JSON `{ "manifest": … }`, and it is the
@@ -73,28 +101,16 @@ impl SchemaServiceState {
             return Err(ReleaseError::AppIdMismatch);
         }
 
-        let verified = verify_cert_and_signature(
-            config,
-            cert_header,
-            sig_header,
-            body,
-            Purpose::AppReleasePublish,
-        )
-        .map_err(|f| map_auth_failure(&f))?;
-
-        // Ownership: only the registered owner of the namespace publishes
-        // releases into it. Read from durable storage, not memory, so a
-        // concurrent app registration cannot be bypassed.
-        let app = self
-            .storage
-            .backend()
-            .load_app(app_id)
-            .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))?
-            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
-        if app.owner_dev_pubkey != verified.dev_pubkey {
-            return Err(ReleaseError::NotAppOwner);
-        }
+        let publisher_dev_pubkey = self
+            .require_app_owner(
+                app_id,
+                config,
+                cert_header,
+                sig_header,
+                body,
+                Purpose::AppReleasePublish,
+            )
+            .await?;
 
         // Every locked identity must already resolve. This is the gate that
         // keeps the release path read-only against the catalog: an
@@ -126,7 +142,7 @@ impl SchemaServiceState {
         let record = ReleaseRecord {
             release_id: release_id.clone(),
             manifest,
-            publisher_dev_pubkey: verified.dev_pubkey,
+            publisher_dev_pubkey,
             published_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             revoked_at: None,
             revocation_reason: None,
@@ -221,24 +237,15 @@ impl SchemaServiceState {
             ));
         }
 
-        let verified = verify_cert_and_signature(
+        self.require_app_owner(
+            app_id,
             config,
             cert_header,
             sig_header,
             body,
             Purpose::AppChannelSet,
         )
-        .map_err(|f| map_auth_failure(&f))?;
-        let app = self
-            .storage
-            .backend()
-            .load_app(app_id)
-            .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))?
-            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
-        if app.owner_dev_pubkey != verified.dev_pubkey {
-            return Err(ReleaseError::NotAppOwner);
-        }
+        .await?;
 
         // A channel can only point at a release that exists, in this app.
         let release = self
@@ -338,24 +345,15 @@ impl SchemaServiceState {
             }
         }
 
-        let verified = verify_cert_and_signature(
+        self.require_app_owner(
+            app_id,
             config,
             cert_header,
             sig_header,
             body,
             Purpose::AppReleaseRevoke,
         )
-        .map_err(|f| map_auth_failure(&f))?;
-        let app = self
-            .storage
-            .backend()
-            .load_app(app_id)
-            .await
-            .map_err(|e| ReleaseError::Internal(e.to_string()))?
-            .ok_or_else(|| ReleaseError::UnknownApp(app_id.to_string()))?;
-        if app.owner_dev_pubkey != verified.dev_pubkey {
-            return Err(ReleaseError::NotAppOwner);
-        }
+        .await?;
 
         let record = {
             let mut releases = write_lock(&self.app_releases, "app_releases")
