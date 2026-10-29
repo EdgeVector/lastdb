@@ -37,7 +37,7 @@ impl HashRangeQueryProcessor {
             crate::db_operations::note_page_key_forms(Self::countable_keys(&page.2), 0);
             return Ok(page);
         }
-        let mut primary_name = Self::cokey_primary_field(schema, selected);
+        let mut primary_name = field_rules::primary_field(schema, selected);
         if matches!(
             window,
             Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
@@ -72,7 +72,7 @@ impl HashRangeQueryProcessor {
         // when that spine is empty so sibling-key reads remain addressable.
         // Do not fall back after dropping sibling-layout tips: that re-opens
         // the union. Projecting the empty key field does not block fallback.
-        let fallback = Self::cokey_fallback_field(selected, &primary_name)
+        let fallback = field_rules::fallback_field(selected, &primary_name)
             .filter(|_| primary.values.is_empty() && !primary.had_spine);
         if let Some(fallback) = fallback {
             primary = self

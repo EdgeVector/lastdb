@@ -54,6 +54,7 @@ impl MutationManager {
         request: NativeRequest<'_>,
         state: &mut super::create_update_batch::BatchState,
     ) -> Result<NativeCommit, SchemaError> {
+        self.require_native_logical_admission(&request.mutations)?;
         // The clock queue uses native storage too. Complete its barrier before
         // taking the request's exclusive storage gate, never while owning it.
         if let Some(clock) = request.author_clock {
@@ -108,8 +109,9 @@ impl MutationManager {
                 .record_read_stage("conditions-done", mutations.len());
             // Keep the private multi-schema stage behind one future
             // allocation instead of expanding it in every host caller.
-            let delta_count = self
-                .stage_grouped_deltas(
+            let (delta_count, logical_candidates) = super::super::logical_capture::collect(
+                &request.runtime,
+                self.stage_grouped_deltas(
                     mutations,
                     hashes,
                     request.storage_prefix,
@@ -117,11 +119,14 @@ impl MutationManager {
                     &mut state.stages,
                     &request.runtime,
                 )
-                .boxed()
-                .await?;
+                .boxed(),
+            )
+            .await?;
             request
                 .runtime
                 .record_read_stage("stored-stages-done", delta_count);
+            self.finish_logical_capture(&request.runtime, &mutation_ids, logical_candidates)
+                .await?;
             measure("author_clock_us", self.stage_native_author_clock()).await?;
             measure(
                 "change_feed_us",
@@ -172,6 +177,7 @@ impl MutationManager {
         )
         .await?;
         heads.record(&delta);
+        self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
         measure("store_job_us", self.stage_native_job(&mut job)).await?;

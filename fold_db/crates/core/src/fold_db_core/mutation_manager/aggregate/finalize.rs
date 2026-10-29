@@ -13,6 +13,7 @@ impl MutationManager {
         finalize: AggregateFinalize,
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
+        self.refuse_logical_capture("aggregate operations")?;
         rules::validate_request(&finalize)?;
         let target_key = self.resolve_aggregate_target_key(
             &finalize.target_schema_name,

@@ -1,4 +1,4 @@
-//! Backup cursor selects keys without retaining decoded value blocks.
+//! Backup-only cursor with bounded optional authenticated block storage.
 use super::super::{
     keys::{run_key, storage_key},
     RunRead,
@@ -7,7 +7,7 @@ use super::RunRangePage;
 use crate::{Error, Result};
 #[path = "memo.rs"]
 mod memo;
-use memo::{HeadMemo, Selection};
+use memo::{CachedValue, HeadMemo, Selection};
 
 pub(super) struct BoundedRange<'a> {
     owner: &'a mut RunRead,
@@ -114,12 +114,14 @@ impl<'a> BoundedRange<'a> {
                 self.upper.as_deref(),
                 self.exclusive,
                 retained,
-            )? {
-                Selection::Key(key, slot) => {
+            ) {
+                Ok(Selection::Key(key, slot)) => {
                     return storage_key(&self.collection, &key).map(|key| Some((key, Some(slot))));
                 }
-                Selection::Exhausted => return Ok(None),
-                Selection::Fallback => self.memo = None,
+                Ok(Selection::Exhausted) => return Ok(None),
+                Ok(Selection::Fallback) => self.memo = None,
+                Err(error) if descriptor_pressure(&error) => self.memo = None,
+                Err(error) => return Err(error),
             }
         }
         self.owner
@@ -143,10 +145,13 @@ impl<'a> BoundedRange<'a> {
     fn value(&mut self, key: &str, maximum: u64, slot: Option<usize>) -> Result<Option<Vec<u8>>> {
         let costs = self.owner.costs;
         let value = self.reserved_value(key, maximum, slot);
-        if matches!(value, Err(Error::ReadBudgetExceeded)) && self.memo.is_some() {
+        let retry = value.as_ref().err().is_some_and(|error| {
+            matches!(error, Error::ReadBudgetExceeded) || descriptor_pressure(error)
+        });
+        if retry && self.memo.is_some() {
             self.memo = None;
-            // An optional cache must not reject a row that the stateless path
-            // admits. The selected logical key still consumes one work slot.
+            // Drop optional memory and descriptors before retry. Restore only
+            // logical charges; physical read/open/decode costs stay cumulative.
             self.owner.costs.examined_keys = costs.examined_keys;
             self.owner.costs.budget_bytes = costs.budget_bytes;
             return self.reserved_value(key, maximum, None);
@@ -165,9 +170,18 @@ impl<'a> BoundedRange<'a> {
             .checked_add(self.retained_bytes())
             .ok_or(Error::ReadBudgetExceeded)?;
         let value = match slot {
-            Some(slot) => self
-                .owner
-                .streamed_value_at(slot, &self.collection, key, maximum),
+            Some(slot) => match self
+                .memo
+                .as_ref()
+                .map(|memo| memo.value(self.owner, slot, &self.collection, key, maximum))
+                .transpose()
+            {
+                Ok(Some(CachedValue::Value(value))) => Ok(value),
+                Ok(_) => self
+                    .owner
+                    .streamed_value_at(slot, &self.collection, key, maximum),
+                Err(error) => Err(error),
+            },
             None => self.owner.streamed_value(&self.collection, key, maximum),
         };
         self.owner.shared_metadata_bytes = before;
@@ -186,4 +200,14 @@ impl<'a> BoundedRange<'a> {
         }
         storage_key(&self.collection, &self.lower)
     }
+}
+
+fn descriptor_pressure(error: &Error) -> bool {
+    let Error::Io(error) = error else {
+        return false;
+    };
+    matches!(
+        rustix::io::Errno::from_io_error(error),
+        Some(rustix::io::Errno::MFILE | rustix::io::Errno::NFILE)
+    )
 }

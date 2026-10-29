@@ -41,6 +41,9 @@ impl SchemaServiceState {
         _mutation_mappers: &HashMap<String, String>,
         descriptive_name_override: Option<&str>,
     ) -> Option<Schema> {
+        if schema.superseded_by.is_some() {
+            return None;
+        }
         let mut probe = schema.clone();
         if let Some(desc_name) = descriptive_name_override {
             probe.descriptive_name = Some(desc_name.to_string());
@@ -246,22 +249,6 @@ fn verify_repost_matches_active(
             existing_descriptive_name = %active.descriptive_name.as_deref().unwrap_or(""),
             identity_hash = %identity_hash,
             reason = "descriptive_name_mismatch",
-            "classify_idempotent_repost: miss",
-        );
-        return None;
-    }
-
-    // Same `schema_type` is part of the writer's AlreadyExists branch
-    // (the hash itself does not bind `schema_type`). A cross-type
-    // collision would resolve to 409, not 200, and must keep its cert
-    // gate.
-    if crate::state_expansion::is_cross_schema_type_expansion(probe, active) {
-        tracing::info!(
-            target: "schema_service::schema",
-            owner_app_id = %incoming_owner,
-            descriptive_name = %incoming_dn,
-            identity_hash = %identity_hash,
-            reason = "cross_schema_type",
             "classify_idempotent_repost: miss",
         );
         return None;

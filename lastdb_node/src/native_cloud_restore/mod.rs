@@ -22,6 +22,10 @@ pub enum RestoreError {
     Io(std::io::Error),
     Protocol(cloud_backup_protocol::ProtocolError),
     Source(&'static str),
+    NativeProof {
+        stage: fold_db::storage::error::NativeProofStage,
+        cause: fold_db::storage::error::NativeProofCause,
+    },
 }
 pub type Result<T> = std::result::Result<T, RestoreError>;
 
@@ -35,6 +39,14 @@ impl From<cloud_backup_protocol::ProtocolError> for RestoreError {
         Self::Protocol(value)
     }
 }
+impl RestoreError {
+    pub(crate) fn native_proof(error: fold_db::storage::StorageError) -> Self {
+        let (stage, cause) =
+            error.native_proof_context(fold_db::storage::error::NativeProofStage::Restore);
+        drop(error);
+        Self::NativeProof { stage, cause }
+    }
+}
 impl std::fmt::Display for RestoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -44,6 +56,9 @@ impl std::fmt::Display for RestoreError {
             Self::Io(_) => f.write_str("restore disk operation failed"),
             Self::Protocol(_) => f.write_str("restore protocol validation failed"),
             Self::Source(field) => write!(f, "restore source unavailable: {field}"),
+            Self::NativeProof { stage, cause } => {
+                write!(f, "native restore proof {stage}: {cause}")
+            }
         }
     }
 }

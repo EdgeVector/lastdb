@@ -1,7 +1,6 @@
 //! Restore-only native publication. No daemon or logical maintenance worker starts.
 use super::*;
 use crate::storage::disk_pack::{
-    map,
     mutation_log::{Frontiers, LogAnchor, LogEntry, LogPosition},
     run_node, NODE_MARKER,
 };
@@ -103,7 +102,7 @@ pub fn verify_replayed(
     if through.epoch != anchor.epoch {
         return Err(invalid("mutation replay epoch"));
     }
-    let native = RunNodeGuard::open(data, key)?;
+    let native = phase(Stage::PhysicalRoot, RunNodeGuard::open(data, key))?;
     if native.profile.main.home_id != anchor.main_home
         || native.profile.cas.home_id != anchor.cas_home
         || native.profile.main.frontier.get() != through.frontiers.main
@@ -119,6 +118,6 @@ pub fn verify_replayed(
         native.profile.version,
     )?;
     let guard = RunRestoreGuard { native, atoms };
-    guard.check_binding()?;
+    phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }

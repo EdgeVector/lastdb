@@ -13,7 +13,7 @@ fn promote_previous_crash(
     summary: Option<&lastdb_node::session_ledger::StartSummary>,
 ) {
     let reports = lastdb_node::crash_attribution::scan_previous_crashes(home);
-    lastdb_node::crash_attribution::promote_previous_crash_evidence(&reports, summary, None);
+    lastdb_node::crash_attribution::promote_previous_crash_evidence(&reports, summary);
 }
 
 /// Record this session's start (reading the prior session for clean/unclean +

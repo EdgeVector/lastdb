@@ -55,3 +55,14 @@ That authorization supersedes the test prohibition above only for
 `.github/workflows/schema-canonical-properties.yml` at the repository root.
 Keep all other test targets retired. Use CI for builds and execution.
 Use isolated memory stores; this grants no primary, shared load, or deployment permission.
+
+### Scoped operational extension (Tom, 2026-10-28)
+
+Tom requested actual-model and isolated cloud race checks as follow-ups.
+This authorizes only the explicit `s3_canonical_properties` target in
+`crates/schema_service_s3/tests/` and the `canonical_semantics` example in
+`crates/server_shared/examples/`. Build and execute them only in CI.
+Use the product model with a dedicated CI cache. Protocol checks use loopback
+MinIO; actual AWS checks use only the separately approved accepted-main role
+and disposable `lastdb-schema-ci-152335099025-*` buckets. No production schema
+service, existing data bucket, primary, or unrelated test target is authorized.

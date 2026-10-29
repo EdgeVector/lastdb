@@ -57,12 +57,6 @@ impl SchemaServiceState {
         if self.is_system_schema(&existing.name) {
             return false;
         }
-        // Cross-schema_type reuse would corrupt molecule reads (same guard
-        // the structural seams apply before expanding) — skip it here so we
-        // don't propose a merge the expansion path would only 409 on.
-        if super::super::state_expansion::is_cross_schema_type_expansion(incoming, existing) {
-            return false;
-        }
         if super::super::state_expansion::is_cross_key_layout(incoming, existing) {
             return false;
         }

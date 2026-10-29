@@ -6,6 +6,9 @@ pub(crate) mod blocked;
 mod effects;
 mod empty;
 mod leases;
+mod logical_capture;
+pub(crate) use logical_capture::mark_logical_capture;
+pub(super) use logical_capture::require_captured_changes;
 pub(crate) mod publication;
 mod request;
 mod resources;
@@ -41,6 +44,7 @@ pub(super) struct PendingBatch {
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
+    logical_capture_ready: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
@@ -67,6 +71,7 @@ impl PendingBatch {
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
+            logical_capture_ready: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
             paths: Mutex::new(Vec::new()),
             definitions: Mutex::new(BTreeMap::new()),

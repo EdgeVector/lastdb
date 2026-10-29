@@ -36,6 +36,7 @@ fn schema_creation_repost_and_field_permutation_keep_identity() {
         );
         assert_eq!(first.name, second.name);
         assert_eq!(first.field_hashes, second.field_hashes);
+        assert_client_marker_refused(&state, backend.as_ref(), &first).await;
         assert_eq!(backend.load_all_schemas().await.expect("schemas").len(), 1);
         assert_eq!(
             backend
@@ -51,6 +52,42 @@ fn schema_creation_repost_and_field_permutation_keep_identity() {
             vec![first.name]
         );
     });
+}
+
+async fn assert_client_marker_refused(
+    state: &schema_service_core::SchemaServiceState,
+    backend: &InMemorySchemaPersistence,
+    registered: &schema_types::Schema,
+) {
+    let mut supplied = registered.clone();
+    supplied.superseded_by = Some("another_app_schema".into());
+    let supplied = serde_json::from_value::<schema_types::Schema>(
+        serde_json::to_value(supplied).expect("serialize proposal"),
+    )
+    .expect("trusted wire format retains the marker");
+    assert!(state
+        .classify_idempotent_repost(&supplied, &HashMap::new())
+        .is_none());
+    let before = state.current_state_version();
+    let error = state
+        .validate_schema_field_vocabulary(&supplied)
+        .await
+        .expect_err("public metadata guard");
+    assert!(error.to_string().contains("superseded_by"), "{error}");
+    let error = state
+        .add_schema(supplied, HashMap::new())
+        .await
+        .expect_err("direct proposal metadata guard");
+    assert!(error.to_string().contains("superseded_by"), "{error}");
+    assert_eq!(state.current_state_version(), before);
+    let durable = backend
+        .load_all_schemas()
+        .await
+        .expect("unchanged stored definition");
+    assert_eq!(&durable[&registered.name], registered);
+    assert!(durable
+        .values()
+        .all(|schema| schema.superseded_by.is_none()));
 }
 
 #[test]
