@@ -21,6 +21,11 @@ impl CoreWarmSet {
         entry: &AtomEntry,
         metadata: Option<&KeyMetadata>,
     ) {
+        // A generation winner also carries shadow state. Its raw value is not
+        // a PerKeyRecord, so the logical tip cannot answer that stored record.
+        if collection != "tips" || crate::kind_partition::rest_of(key, "mk").is_none() {
+            return;
+        }
         let Some(source) = self.sources.find(collection, key) else {
             return;
         };

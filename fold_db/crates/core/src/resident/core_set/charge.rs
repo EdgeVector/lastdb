@@ -31,6 +31,8 @@ const SOURCE_BASE: usize = 72;
 /// Calibrated on 2026-10-20 from a heap profile after the molecule copy left
 /// (about 620 bytes per slot with a small tip, 1.34 KB before).
 const SLOT_BASE: usize = 350;
+/// The exact source marker adds one optional interned source id to each slot.
+const TIP_SOURCE_BYTES: usize = std::mem::size_of::<Option<u32>>();
 /// Copies of the slot hash and range strings: the interned slot key only.
 const SLOT_KEY_COPIES: usize = 1;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
@@ -51,7 +53,7 @@ pub(super) fn path_charge() -> usize {
 /// One slot: the per-slot entries and the copies of its hash and range.
 /// Molecule names are shared by every slot of the molecule and not charged.
 pub(super) fn slot_charge(slot: &SlotKey) -> usize {
-    finish(SLOT_BASE + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
+    finish(SLOT_BASE + TIP_SOURCE_BYTES + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
 }
 
 /// Heap owned by the slot's tip, apart from the fixed slot cost: the tip's
