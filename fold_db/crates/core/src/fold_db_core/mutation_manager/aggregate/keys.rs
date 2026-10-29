@@ -147,19 +147,25 @@ impl MutationManager {
         )
     }
 
+    /// Load one named aggregate schema. The missing-name error keeps `kind`.
+    pub(super) fn require_aggregate_schema(
+        &self,
+        kind: &str,
+        name: &str,
+    ) -> Result<crate::schema::Schema, SchemaError> {
+        self.schema_manager
+            .get_schema_metadata(name)?
+            .ok_or_else(|| {
+                SchemaError::InvalidData(format!("aggregate {kind} schema '{name}' not found"))
+            })
+    }
+
     pub(super) fn resolve_aggregate_target_key(
         &self,
         schema_name: &str,
         key_value: &KeyValue,
     ) -> Result<KeyValue, SchemaError> {
-        let schema = self
-            .schema_manager
-            .get_schema_metadata(schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate target schema '{schema_name}' not found"
-                ))
-            })?;
+        let schema = self.require_aggregate_schema("target", schema_name)?;
         if schema.schema_type != DeclarativeSchemaType::Hash {
             return Err(SchemaError::InvalidData(
                 "aggregate target schema must be Hash".into(),

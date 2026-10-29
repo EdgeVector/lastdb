@@ -12,15 +12,7 @@ impl MutationManager {
         ctx: &ApplyCtx<'_>,
         source: &Mutation,
     ) -> Result<(BTreeMap<String, serde_json::Value>, Option<AggregateWinner>), SchemaError> {
-        let source_schema = self
-            .schema_manager
-            .get_schema_metadata(&source.schema_name)?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "aggregate source schema '{}' not found",
-                    source.schema_name
-                ))
-            })?;
+        let source_schema = self.require_aggregate_schema("source", &source.schema_name)?;
         let source_field_names: Vec<String> =
             source_schema.runtime_fields.keys().cloned().collect();
         let source_probe =
