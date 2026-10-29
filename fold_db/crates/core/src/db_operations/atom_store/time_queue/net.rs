@@ -96,9 +96,7 @@ impl NetSchedule {
         Started: FnOnce(),
     {
         if self.todo.is_empty() {
-            let Some(every) = self.every else {
-                return None;
-            };
+            let every = self.every?;
             if Instant::now() < self.next_at {
                 return None;
             }
