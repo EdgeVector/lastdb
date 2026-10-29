@@ -171,6 +171,7 @@ mod mutation_notifications;
 mod query_filters;
 mod query_mutation_routes;
 mod query_read_receipt;
+mod schema_list_rows;
 mod schema_routes;
 mod setup_routes;
 mod socket_queue;

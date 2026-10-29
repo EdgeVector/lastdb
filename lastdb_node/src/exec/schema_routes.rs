@@ -1,3 +1,4 @@
+use super::schema_list_rows::{annotate_full_schemas, annotate_summary_schemas};
 use super::*;
 
 pub(super) async fn execute_list_schemas_route(
@@ -76,75 +77,6 @@ pub(super) async fn execute_list_schemas_route(
         "retired_name_claims": retired_name_claims,
     });
     json_ok(&envelope(&payload, ctx.user_id.as_str()))
-}
-
-/// Serialize one schema row and stamp its record count. Counts stay `null`
-/// unless the caller opted in: they walk the store. `None` on a
-/// serialization failure.
-async fn annotated_schema_row<T: serde::Serialize>(
-    host: &Host,
-    schema_name: &str,
-    schema: &T,
-    include_counts: bool,
-) -> Option<Value> {
-    let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
-        return None;
-    };
-    let record_count = if include_counts {
-        count_schema_records(host, schema_name).await
-    } else {
-        None
-    };
-    row.insert("record_count".into(), record_count.into());
-    row.insert(
-        "has_data".into(),
-        record_count.map(|count| count > 0).into(),
-    );
-    Some(Value::Object(row))
-}
-
-/// Full schema rows (`include_full`). `None` on an internal failure.
-async fn annotate_full_schemas(
-    host: &Host,
-    include_system: bool,
-    include_counts: bool,
-) -> Option<Vec<Value>> {
-    let mut schemas = host
-        .db
-        .schema_manager()
-        .get_active_schemas_with_states()
-        .ok()?;
-    if !include_system {
-        schemas.retain(|s| s.schema.source != SchemaSource::SystemSeed);
-    }
-    let mut annotated = Vec::with_capacity(schemas.len());
-    for schema in schemas {
-        let name = schema.schema.name.clone();
-        annotated.push(annotated_schema_row(host, &name, &schema, include_counts).await?);
-    }
-    Some(annotated)
-}
-
-/// Summary rows (the default projection). `None` on an internal failure.
-async fn annotate_summary_schemas(
-    host: &Host,
-    include_system: bool,
-    include_counts: bool,
-) -> Option<Vec<Value>> {
-    let mut schemas = host
-        .db
-        .schema_manager()
-        .get_active_schema_list_entries_with_states()
-        .ok()?;
-    if !include_system {
-        schemas.retain(|s| s.source != SchemaSource::SystemSeed);
-    }
-    let mut annotated = Vec::with_capacity(schemas.len());
-    for schema in schemas {
-        let name = schema.name.clone();
-        annotated.push(annotated_schema_row(host, &name, &schema, include_counts).await?);
-    }
-    Some(annotated)
 }
 
 /// Mark each row whose name no longer answers `descriptive_name` resolution.
