@@ -529,7 +529,8 @@ including their independent prehistory. They disable stdio rotation to retain
 complete numeric records; ordinary arms keep defaults. This replaces the earlier
 intrusive filesystem-polling arm. Native capture reads only the owned log after
 shutdown, bounded to 256 MiB, 256 KiB per line, and 100,000 events per home.
-Case clocks must cover all 128 successful writes. Existing native scope checks
+Counter-only `write_reads` records retain their interval and counts without an
+invented total duration. Case clocks must cover all 128 successful writes. Existing native scope checks
 require unique sequences and one enclosed durable commit per scope; physical
 cost counts each distinct commit once and requires its completion event. Raw
 intersecting events, crossing counts, nested phase distributions and merge steps
