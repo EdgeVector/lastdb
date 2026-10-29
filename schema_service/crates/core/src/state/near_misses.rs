@@ -119,7 +119,7 @@ impl SchemaServiceState {
             if let Some(d) = diagnostic.as_ref() {
                 if !dual_allows {
                     let record = NearMissRecord {
-                        registration_id: crate::ids::fresh_uuid_v4().to_string(),
+                        registration_id: self.ids.fresh_uuid_v4().to_string(),
                         candidate_schema_hash: candidate_hash.to_string(),
                         existing_canonical_hash: existing_hash.to_string(),
                         single_signal_decision,

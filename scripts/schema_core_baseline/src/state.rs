@@ -93,6 +93,7 @@ fn open_state(fixture: &Fixture) -> SchemaServiceState {
         schema_service_core::SchemaConfig::default(),
         Arc::new(schema_service_server_shared::SystemClock),
         Arc::new(schema_service_server_shared::DedicatedThreadRuntime),
+        Arc::new(schema_service_server_shared::SystemIds),
     )
     .unwrap_or_else(|error| fail("in-memory state", error));
     state.configure_app_identity(AppIdentityConfig {

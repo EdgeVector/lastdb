@@ -8,7 +8,9 @@ use ed25519_dalek::Signer;
 use schema_service_core::app_identity::AppIdentityConfig;
 use schema_service_core::{ExternalSchemaPersistence, SchemaConfig, SchemaServiceState};
 use schema_service_s3::S3BlobPersistence;
-use schema_service_server_shared::{DedicatedThreadRuntime, SchemaConfigEnv, SystemClock};
+use schema_service_server_shared::{
+    DedicatedThreadRuntime, SchemaConfigEnv, SystemClock, SystemIds,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -43,6 +45,7 @@ pub async fn create_s3_state(
         SchemaConfig::from_env(),
         Arc::new(SystemClock),
         Arc::new(DedicatedThreadRuntime),
+        Arc::new(SystemIds),
     )
     .await?;
     state.configure_app_identity(AppIdentityConfig {

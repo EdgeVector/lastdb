@@ -4,7 +4,7 @@ use schema_service_core::{
     SchemaConfig, SchemaServiceState,
 };
 use schema_service_server_shared::{
-    DedicatedThreadRuntime, FoldDbFastEmbedder, SchemaConfigEnv, SystemClock,
+    DedicatedThreadRuntime, FoldDbFastEmbedder, SchemaConfigEnv, SystemClock, SystemIds,
 };
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
@@ -63,6 +63,7 @@ pub async fn observe(case: &Case, embedder: Arc<dyn Embedder>) -> Result<Observa
         SchemaConfig::from_env(),
         Arc::new(SystemClock),
         Arc::new(DedicatedThreadRuntime),
+        Arc::new(SystemIds),
     )
     .await
     .map_err(|error| error.to_string())?;

@@ -58,8 +58,8 @@ impl SchemaServiceState {
             .saturating_add(catalog_bits);
         let ttl_cap_bits = max_difficulty_bits_for_challenge_ttl(cfg.challenge_ttl);
         let difficulty_bits = uncapped_difficulty_bits.min(ttl_cap_bits);
-        let challenge_id = crate::ids::fresh_uuid_v4().to_string();
-        let nonce = crate::ids::fresh_uuid_v4().simple().to_string();
+        let challenge_id = self.ids.fresh_uuid_v4().to_string();
+        let nonce = self.ids.fresh_uuid_v4().simple().to_string();
         let expires_at_unix_secs = now + cfg.challenge_ttl.as_secs();
         let challenge_mac = issue_challenge_mac(
             &cfg,

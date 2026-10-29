@@ -370,9 +370,6 @@ impl DeclaredFieldRegistry {
 
 /// Mint a fresh declaration id. Prefixed so it is recognisable on sight.
 #[must_use]
-pub fn mint_declaration_id() -> String {
-    format!(
-        "{DECLARATION_ID_PREFIX}{}",
-        crate::ids::fresh_uuid_v4().simple()
-    )
+pub fn mint_declaration_id(ids: &dyn crate::ids::IdGen) -> String {
+    format!("{DECLARATION_ID_PREFIX}{}", ids.fresh_uuid_v4().simple())
 }

@@ -12,7 +12,7 @@ use schema_service_core::{
     types::CanonicalField, DisabledEmbeddingModel, SchemaConfig, SchemaServiceState,
 };
 use schema_service_s3::S3BlobPersistence;
-use schema_service_server_shared::{DedicatedThreadRuntime, SystemClock};
+use schema_service_server_shared::{DedicatedThreadRuntime, SystemClock, SystemIds};
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{
     future::Future,
@@ -190,6 +190,7 @@ impl Harness {
             SchemaConfig::default(),
             Arc::new(SystemClock),
             Arc::new(DedicatedThreadRuntime),
+            Arc::new(SystemIds),
         )
         .await
         .expect("independent service state")

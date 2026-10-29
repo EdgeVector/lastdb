@@ -94,7 +94,6 @@ jobs:
           CLIPPY_MODE: ${{ steps.required-clippy-plan.outputs.mode }}
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (${CLIPPY_MODE}:${CLIPPY_FAMILY})" -- ruby scripts/ci/required-clippy-plan.rb --run "$CLIPPY_FAMILY"
       - name: cargo clippy (schema_service_core functional core)
-        if: steps.required-clippy-plan.outputs.schema_core == 'true'
         env:
           CARGO_BUILD_JOBS: "2"
         run: bash scripts/ci/mini-gate-step.sh "cargo clippy (schema_service_core)" -- cargo clippy --locked -p schema_service_core --lib --features schema-org-seed-data -- -D warnings -D clippy::disallowed_methods -D clippy::disallowed_types

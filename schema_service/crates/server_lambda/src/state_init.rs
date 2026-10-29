@@ -10,7 +10,9 @@ use schema_service_s3::store_config::{
     SCHEMA_STORE_R2_ENDPOINT_ENV,
 };
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::{DedicatedThreadRuntime, SchemaConfigEnv, SystemClock};
+use schema_service_server_shared::{
+    DedicatedThreadRuntime, SchemaConfigEnv, SystemClock, SystemIds,
+};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -83,6 +85,7 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
                 SchemaConfig::from_env(),
                 Arc::new(SystemClock),
                 Arc::new(DedicatedThreadRuntime),
+                Arc::new(SystemIds),
             )
             .await
             .map_err(|e| {

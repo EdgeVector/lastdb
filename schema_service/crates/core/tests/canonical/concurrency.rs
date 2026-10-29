@@ -205,6 +205,7 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
             SchemaConfig::default(),
             process_clock(),
             process_runtime(),
+            process_ids(),
         )
         .await
         .expect("first state");
@@ -214,6 +215,7 @@ fn semantic_duplicate_admission_is_consistent_across_independent_caches() {
             SchemaConfig::default(),
             process_clock(),
             process_runtime(),
+            process_ids(),
         )
         .await
         .expect("stale state");

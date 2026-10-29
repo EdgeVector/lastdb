@@ -58,7 +58,7 @@ pub mod embedder;
 pub mod external_persistence;
 mod field_identity_validation;
 pub mod field_name_policy;
-mod ids;
+pub mod ids;
 mod lock_helpers;
 pub mod memory_persistence;
 /// Same-product multi-key tip regeneration (background reindex job class).
@@ -117,6 +117,7 @@ pub use declared_fields::{
 };
 pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
 pub use external_persistence::ExternalSchemaPersistence;
+pub use ids::IdGen;
 pub use memory_persistence::InMemorySchemaPersistence;
 pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeResolverInput};
 pub use near_miss::{NearMissDecision, NearMissRecord};

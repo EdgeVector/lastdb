@@ -268,6 +268,8 @@ pub struct SchemaServiceState {
     pub(crate) clock: Arc<dyn crate::clock::Clock>,
     /// Dedicated-thread runtime. The shell passes this in.
     pub(crate) runtime: Arc<dyn crate::blocking_runtime::BlockingRuntime>,
+    /// Random ids. The shell passes this in; core does not read OS entropy.
+    pub(crate) ids: Arc<dyn crate::ids::IdGen>,
 }
 
 mod queries;

@@ -46,7 +46,7 @@ disallowed-methods = [
   { path = "tokio::task::spawn_blocking", reason = "the shell owns the runtime", allow-invalid = true },
   { path = "tokio::runtime::Builder::new_current_thread", reason = "the shell owns the runtime", allow-invalid = true },
   { path = "tokio::runtime::Builder::new_multi_thread", reason = "the shell owns the runtime", allow-invalid = true },
-  { path = "uuid::Uuid::new_v4", reason = "v4 ids are minted only in ids::fresh_uuid_v4" },
+  { path = "uuid::Uuid::new_v4", reason = "use the injected IdGen" },
   { path = "rand::thread_rng", reason = "randomness stays in the shell", allow-invalid = true },
   { path = "rand::rng", reason = "randomness stays in the shell", allow-invalid = true },
 ]

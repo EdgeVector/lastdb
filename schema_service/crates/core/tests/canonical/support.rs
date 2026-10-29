@@ -1,8 +1,8 @@
 use schema_service_core::{
     types::CanonicalField, BlockingRuntime, Clock, DeclareFieldInput, DeclareFieldRequest,
-    DisabledEmbeddingModel, ExternalSchemaPersistence, SchemaConfig, SchemaServiceState,
+    DisabledEmbeddingModel, ExternalSchemaPersistence, IdGen, SchemaConfig, SchemaServiceState,
 };
-use schema_service_server_shared::{DedicatedThreadRuntime, SystemClock};
+use schema_service_server_shared::{DedicatedThreadRuntime, SystemClock, SystemIds};
 use schema_types::{DeclarativeSchemaType, FieldValueType, KeyConfig, Schema};
 use std::{future::Future, sync::Arc};
 
@@ -17,6 +17,7 @@ pub async fn state(backend: Arc<dyn ExternalSchemaPersistence>) -> SchemaService
         SchemaConfig::default(),
         process_clock(),
         process_runtime(),
+        process_ids(),
     )
     .await
     .expect("empty or valid backend")
@@ -30,6 +31,11 @@ pub fn process_clock() -> Arc<dyn Clock> {
 /// The shell runtime. Canonical tests pass the same adapter the process entry uses.
 pub fn process_runtime() -> Arc<dyn BlockingRuntime> {
     Arc::new(DedicatedThreadRuntime)
+}
+
+/// The shell id source. Canonical tests pass the same adapter the process entry uses.
+pub fn process_ids() -> Arc<dyn IdGen> {
+    Arc::new(SystemIds)
 }
 
 pub fn field(description: &str, field_type: FieldValueType) -> CanonicalField {
