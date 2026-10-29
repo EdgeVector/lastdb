@@ -89,16 +89,8 @@ impl CaptureEvent {
         mutation_ids: &[String],
         outcomes: Vec<AcceptedFieldOutcome>,
     ) -> StorageResult<Self> {
-        if mutation_ids.is_empty()
-            || mutation_ids.len() > MAX_MUTATIONS
-            || mutation_ids
-                .iter()
-                .any(|id| id.is_empty() || id.len() > 128)
-        {
-            return Err(StorageError::MutationLimit {
-                detail: "logical capture needs 1..=128 bounded mutation IDs".into(),
-            });
-        }
+        verify::mutation_ids(mutation_ids)?;
+        verify::outcomes(&outcomes, mutation_ids)?;
         let mut entry = Self {
             version: 1,
             origin: identity.origin(),
@@ -121,7 +113,7 @@ impl CaptureEvent {
         Ok(entry)
     }
 
-    fn signing_bytes(&self) -> StorageResult<Vec<u8>> {
+    pub(super) fn signing_bytes(&self) -> StorageResult<Vec<u8>> {
         encode(&(
             "lastdb-logical-device-capture-v1",
             self.version,

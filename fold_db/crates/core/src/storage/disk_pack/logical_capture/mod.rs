@@ -7,21 +7,28 @@ use serde::Serialize;
 
 mod body;
 mod bounded;
+mod export;
 mod identity;
 mod model;
 pub(crate) mod outcome;
+mod peer;
 mod reader;
 mod store;
+mod verify;
 
 pub(crate) use bounded::preflight_outcome_size;
 pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position};
 pub use outcome::AcceptedFieldOutcome;
+pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
 pub(super) use store::{open, Capture};
 
 pub(super) const COLLECTION: &str = "logical_sync_v1";
 const HEAD: &[u8] = b"head";
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
 const MAX_MUTATIONS: usize = 128;
+const MAX_OUTCOMES: usize = 1024;
+const PAGE_EVENTS: usize = 4;
+const PAGE_ENVELOPE_BYTES: usize = 8192;
 const BACKLOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
 const RECENT_ENTRIES: u64 = 16;
 

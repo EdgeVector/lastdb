@@ -1,6 +1,7 @@
 //! Opt-in capture of certified final fields from the ordinary native request.
 
 mod admission;
+pub(super) use admission::require_plain_schema;
 mod certify;
 mod collector;
 pub(super) use collector::collect;

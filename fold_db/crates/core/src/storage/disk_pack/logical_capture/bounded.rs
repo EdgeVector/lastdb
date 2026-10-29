@@ -6,6 +6,7 @@ use std::io::{self, Write};
 struct Counter {
     bytes: usize,
     exceeded: bool,
+    limit: usize,
 }
 
 impl Write for Counter {
@@ -13,7 +14,7 @@ impl Write for Counter {
         let Some(total) = self
             .bytes
             .checked_add(bytes.len())
-            .filter(|total| *total <= MAX_EVENT_BYTES - 2)
+            .filter(|total| *total <= self.limit)
         else {
             self.exceeded = true;
             return Err(io::Error::new(
@@ -31,14 +32,22 @@ impl Write for Counter {
 }
 
 pub(super) fn serialized_size<T: Serialize + ?Sized>(value: &T) -> StorageResult<usize> {
+    serialized_size_with_limit(value, MAX_EVENT_BYTES - 2)
+}
+
+pub(super) fn serialized_size_with_limit<T: Serialize + ?Sized>(
+    value: &T,
+    limit: usize,
+) -> StorageResult<usize> {
     let mut count = Counter {
         bytes: 0,
         exceeded: false,
+        limit,
     };
     if serde_json::to_writer(&mut count, value).is_err() {
         return Err(if count.exceeded {
             StorageError::MutationLimit {
-                detail: "logical capture event exceeds 1 MiB".into(),
+                detail: "logical capture exceeds its encoded byte cap".into(),
             }
         } else {
             StorageError::SerializationError("cannot serialize logical capture".into())
