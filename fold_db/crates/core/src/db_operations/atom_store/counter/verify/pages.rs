@@ -12,6 +12,7 @@ use crate::db_operations::atom_store::counter::scan::{
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
+use crate::storage::traits::YieldedScan;
 use std::collections::BTreeMap;
 
 /// The keys that a page read keeps for the reads it makes for each row it gets:
@@ -86,6 +87,21 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
 }
 
 impl AtomStore {
+    /// Read one verify page. The key budget stays [`VERIFY_KEYS_PER_ROW`].
+    /// The caller keeps its own read scope.
+    pub(super) async fn read_verify_page(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        asked: usize,
+    ) -> Result<YieldedScan, SchemaError> {
+        self.raw()
+            .inner()
+            .scan_range_yielding(start, end, asked, VERIFY_KEYS_PER_ROW)
+            .await
+            .map_err(SchemaError::from)
+    }
+
     /// Read one page of tips or of conflict records, and the counters and the
     /// bodies of the atoms they name, at one root.
     pub(super) async fn read_referenced_page(
@@ -95,12 +111,7 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<ReferencedPage, SchemaError> {
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let (holders, bad) = match phase {
                 Phase::Records => record_holders(&rows),
@@ -159,12 +170,7 @@ impl AtomStore {
         suspects: &std::collections::HashSet<u128>,
         (start, end, asked): Request,
     ) -> Result<SuspectsPage, SchemaError> {
-        let scan = self
-            .raw()
-            .inner()
-            .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-            .await
-            .map_err(SchemaError::from)?;
+        let scan = self.read_verify_page(&start, &end, asked).await?;
         let (rows, resume) = (scan.rows, scan.resume);
         let keys = rows
             .iter()
@@ -193,12 +199,7 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<AtomsPage, SchemaError> {
         self.atom_read_scope(async {
-            let scan = self
-                .raw()
-                .inner()
-                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW)
-                .await
-                .map_err(SchemaError::from)?;
+            let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let paired = self.pair_rows(&rows, &start, scope).await?;
             let blobs = self.read_blob_listed(blobs_of_pairs(&paired.pairs)).await?;
