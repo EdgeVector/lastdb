@@ -46,14 +46,23 @@ pub use batch::execute_mutations_batch;
 pub struct MutationComponents {
     /// Existing per-key metadata supplied by an owner history restore.
     pub metadata: Option<HashMap<String, String>>,
+    /// Schema the mutation writes.
     pub schema: String,
+    /// Field values for this key, keyed by field name.
     pub fields_and_values: HashMap<String, Value>,
+    /// Record key the mutation addresses.
     pub key_value: KeyValue,
+    /// Create, update, or delete, as chosen by the caller.
     pub mutation_type: MutationType,
+    /// Optional source file name recorded with the write.
     pub source_file_name: Option<String>,
+    /// Optional compare-and-swap expectation for the existing record.
     pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
+    /// How concurrent writers of this key are resolved.
     pub convergence: MutationConvergence,
+    /// Whether the caller waits for the durable commit.
     pub durability: MutationDurability,
+    /// When `Some(true)` on an update, a missing record is an error instead of an insert.
     pub must_exist: Option<bool>,
     /// Delete all live rows under `key_value.hash` with this range prefix.
     pub key_range_prefix: Option<String>,

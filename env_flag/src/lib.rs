@@ -21,6 +21,7 @@
 //!
 //! This crate only owns **recognition** of enablement strings. Callers still
 //! decide what happens when the variable is unset (default-off vs default-on).
+#![warn(missing_docs)]
 
 /// Returns `true` when `raw` is a canonical truthy flag value.
 ///

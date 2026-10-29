@@ -8,9 +8,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct Version;
 
 impl Version {
+    /// The only version-one value. It serializes as the JSON integer 1.
     pub const V1: Self = Self;
 
     #[must_use]
+    /// Return `1`.
     pub const fn get(self) -> u8 {
         1
     }
@@ -39,11 +41,13 @@ pub struct DecimalU64(u64);
 
 impl DecimalU64 {
     #[must_use]
+    /// Wrap `value`. This does not check a decimal wire encoding.
     pub const fn new(value: u64) -> Self {
         Self(value)
     }
 
     #[must_use]
+    /// Return the integer.
     pub const fn get(self) -> u64 {
         self.0
     }
@@ -80,12 +84,14 @@ impl<'de> Deserialize<'de> for DecimalU64 {
 }
 
 macro_rules! string_primitive {
-    ($name:ident, $validate:ident, $message:literal) => {
+    ($name:ident, $validate:ident, $message:literal, $doc:literal) => {
+        #[doc = $doc]
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
+            /// Borrow the validated string.
             #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
@@ -112,10 +118,30 @@ macro_rules! string_primitive {
     };
 }
 
-string_primitive!(Digest, valid_digest, "invalid SHA-256 digest");
-string_primitive!(Id, valid_id, "invalid nonnil UUID");
-string_primitive!(AccountId, valid_account, "invalid account identity");
-string_primitive!(RelativePath, valid_path, "invalid relative path");
+string_primitive!(
+    Digest,
+    valid_digest,
+    "invalid SHA-256 digest",
+    "Lowercase hex SHA-256 digest, 64 characters."
+);
+string_primitive!(
+    Id,
+    valid_id,
+    "invalid nonnil UUID",
+    "Non-nil UUID: 36 lowercase hex characters with hyphens."
+);
+string_primitive!(
+    AccountId,
+    valid_account,
+    "invalid account identity",
+    "32-character lowercase hex account identity."
+);
+string_primitive!(
+    RelativePath,
+    valid_path,
+    "invalid relative path",
+    "Relative path of at most 512 bytes and eight components. Empty parts, `.`, `..`, a backslash, a drive prefix, and control characters are rejected."
+);
 
 fn lower_hex(value: &str) -> bool {
     value
@@ -170,6 +196,7 @@ pub struct Text<const N: usize>(String);
 
 impl<const N: usize> Text<N> {
     #[must_use]
+    /// Borrow the validated text.
     pub fn as_str(&self) -> &str {
         &self.0
     }

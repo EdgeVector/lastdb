@@ -21,9 +21,13 @@ pub const ENVELOPE_VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Purpose {
+    /// Purpose `app_register`.
     AppRegister,
+    /// Purpose `app_update`.
     AppUpdate,
+    /// Purpose `app_promote`.
     AppPromote,
+    /// Purpose `schema_claim`.
     SchemaClaim,
     /// Signs a `POST /v1/fields/declare` body. Declaring a field is claiming
     /// a slot others' data can fold into, so it carries the same DevCert gate
@@ -48,7 +52,9 @@ pub enum Purpose {
     AppChannelSet,
     /// Signs a `POST /v2/apps/{app_id}/revocations` body.
     AppReleaseRevoke,
+    /// Purpose `capability_grant`.
     CapabilityGrant,
+    /// Purpose `dev_cert`.
     DevCert,
 }
 
@@ -58,7 +64,9 @@ pub enum Purpose {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Env {
+    /// Deployment `dev`.
     Dev,
+    /// Deployment `prod`.
     Prod,
 }
 
@@ -81,16 +89,25 @@ pub const ALG_ED25519: &str = "Ed25519";
 /// unsigned envelope".
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignatureEnvelope {
+    /// Envelope schema version. Verification accepts only `ENVELOPE_VERSION`.
     pub version: u32,
+    /// What this signature is for. A signature for one purpose does not verify as another.
     pub purpose: Purpose,
+    /// Algorithm name. Verification accepts only `"Ed25519"`.
     pub alg: String,
+    /// Lowercase hex SHA-256 of the 32-byte Ed25519 verifying key.
     pub key_id: String,
+    /// Inclusive start of the validity window.
     pub issued_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Exclusive end of the validity window. Absent means the envelope does not expire.
     pub expires_at: Option<DateTime<Utc>>,
+    /// Deployment binding. `verify_envelope` does not compare it.
     pub env: Env,
+    /// Lowercase hex SHA-256 of the JCS payload. `verify_envelope` does not recompute it.
     pub payload_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Base64 Ed25519 signature. Absent on an unsigned envelope and omitted from its JCS bytes.
     pub sig: Option<String>,
 }
 

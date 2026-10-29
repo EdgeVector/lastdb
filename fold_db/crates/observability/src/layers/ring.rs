@@ -64,12 +64,19 @@ pub const OBS_RING_CAPACITY: usize = 5000;
 /// `LoggingSystem::LogEntry` contract (retired in Phase 3 / T7).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LogEntry {
+    /// Random UUID assigned when the event is recorded.
     pub id: String,
+    /// Unix time in milliseconds, or 0 when the clock is before the epoch.
     pub timestamp: i64,
+    /// Tracing level of the event.
     pub level: LogLevel,
+    /// Tracing target of the event.
     pub event_type: String,
+    /// Message taken from the event fields.
     pub message: String,
+    /// Present on the JSON shape. The ring recorder stores `None`.
     pub user_id: Option<String>,
+    /// Other tracing fields, or `None` when the event has none.
     pub metadata: Option<HashMap<String, String>>,
 }
 
@@ -78,10 +85,15 @@ pub struct LogEntry {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LogLevel {
+    /// Serializes as `TRACE`.
     Trace,
+    /// Serializes as `DEBUG`.
     Debug,
+    /// Serializes as `INFO`.
     Info,
+    /// Serializes as `WARN`.
     Warn,
+    /// Serializes as `ERROR`.
     Error,
 }
 

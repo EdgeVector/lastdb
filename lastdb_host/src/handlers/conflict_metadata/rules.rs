@@ -16,6 +16,7 @@ const MAX_FIELDS_PER_KEY: usize = 32;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Body naming the personal conflict keys to read.
 pub struct SelectedConflictRequest {
     pub(super) keys: Vec<SelectedConflictKey>,
 }

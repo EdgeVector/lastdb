@@ -25,6 +25,7 @@
 //!
 //! It depends only on `fold_db` core and `lastdb_uds` (the socket transport),
 //! never on either node crate, so both binaries consume it without a cycle.
+#![warn(missing_docs)]
 
 pub mod catalog;
 pub mod envelope;

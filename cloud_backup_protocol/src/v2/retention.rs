@@ -18,11 +18,14 @@ pub const MAX_DIRECTORY_BYTES: usize = 32 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryPoint {
+    /// Job of this accepted point.
     pub job: Job,
+    /// Head of this accepted point. Its commit id must equal the job's.
     pub head: Head,
 }
 
 impl RecoveryPoint {
+    /// Validate the job and head, and require their commit ids to match.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         self.job.validate()?;
         self.head.validate()?;
@@ -32,6 +35,7 @@ impl RecoveryPoint {
         Ok(())
     }
 
+    /// Point taken from an accepted backup's job and head.
     pub fn of(backup: &AcceptedBackup) -> Self {
         Self {
             job: backup.job().clone(),
@@ -43,8 +47,11 @@ impl RecoveryPoint {
 /// Deterministic dependency classification, not a saved retirement request.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct RecoveryClosure {
+    /// Accepted points reachable from the requested roots, including those roots.
     pub retained: Vec<RecoveryPoint>,
+    /// Other accepted points in the directory, not reachable from the roots.
     pub candidates: Vec<RecoveryPoint>,
+    /// Domain-separated SHA-256 of the scope and the full ordered directory.
     pub directory_sha256: Digest,
 }
 
