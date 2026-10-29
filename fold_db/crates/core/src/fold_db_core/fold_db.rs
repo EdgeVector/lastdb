@@ -70,7 +70,7 @@ impl Drop for FoldDB {
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
-        self.background_atom_history.stop();
+        self.background_atom_history.abort();
         self.background_molecule_drain.stop();
     }
 }

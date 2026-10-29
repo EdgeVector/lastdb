@@ -38,7 +38,20 @@ impl BackgroundAtomHistory {
         }
     }
 
-    pub(crate) fn stop(&self) {
+    pub(crate) async fn stop(&self) -> Result<(), String> {
+        let task = self.task.lock().expect("history task lock").take();
+        if let Some(task) = task {
+            task.abort();
+            if let Err(error) = task.await {
+                if !error.is_cancelled() {
+                    return Err(format!("atom history worker failed: {error}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn abort(&self) {
         if let Some(task) = self.task.lock().expect("history task lock").take() {
             task.abort();
         }
@@ -47,6 +60,6 @@ impl BackgroundAtomHistory {
 
 impl Drop for BackgroundAtomHistory {
     fn drop(&mut self) {
-        self.stop();
+        self.abort();
     }
 }
