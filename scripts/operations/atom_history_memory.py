@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Attribute the #708 memory result on owned, generated CI homes only."""
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,18 @@ from growth import GrowthWorkload, PROFILES  # noqa: E402
 from node import Node, save  # noqa: E402
 
 HEADER = re.compile(r"^([0-9a-f]+)-([0-9a-f]+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s*(.*)$")
+
+
+def disable_inherited_thp():
+    # Linux preserves this process-local policy across fork and exec. Set it
+    # before either daemon starts, including versions without allocator setup.
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    prctl.argtypes = [ctypes.c_int] + [ctypes.c_ulong] * 4
+    prctl.restype = ctypes.c_int
+    if prctl(41, 1, 0, 0, 0) != 0:  # PR_SET_THP_DISABLE, all THPs disabled.
+        raise OSError(ctypes.get_errno(), "Cannot disable inherited huge pages")
+    if prctl(42, 0, 0, 0, 0) != 1:  # PR_GET_THP_DISABLE.
+        raise RuntimeError("The CI driver did not inherit a disabled huge page policy")
 
 
 def numeric_fields(value, prefix=""):
@@ -66,6 +79,8 @@ def snapshot(node, output, label):
     (output / f"{label}-smaps.txt").write_text(raw)
     pointers, unavailable, thread_count = stack_pointers(proc)
     rows, totals = mappings(raw), {}
+    kernel_thp = next((line.split()[1] for line in (proc / "status").read_text().splitlines()
+                       if line.startswith("THP_enabled:")), None)
     for row in rows:
         stack = row["path"] == "[stack]" or any(row["start"] <= p < row["end"] for p in pointers)
         kind = "thread_stack" if stack else "file" if row["path"].startswith("/") else "anonymous"
@@ -75,8 +90,12 @@ def snapshot(node, output, label):
     status = numeric_fields(node.call("/api/status")[0])
     result = {"rss_by_kind": totals, "rss_bytes": sum(totals.values()), "thread_count": thread_count,
               "huge_page_bytes": sum(row.get("AnonHugePages", 0) for row in rows),
+              "transparent_huge_pages_disabled": kernel_thp == "0",
               "unavailable_stack_pointers": unavailable, "status_numbers": status,
               "largest_mappings": sorted(rows, key=lambda row: row.get("Rss", 0), reverse=True)[:24]}
+    if node.environment.get("MIMALLOC_ALLOW_THP") == "0" and (
+            not result["transparent_huge_pages_disabled"] or result["huge_page_bytes"] != 0):
+        raise RuntimeError("The owned daemon lacks a verified disabled huge page policy")
     save(output / f"{label}.json", result)
     print(json.dumps({"snapshot": label, "rss_by_kind": totals,
                       "unavailable_stack_pointers": unavailable}), flush=True)
@@ -123,17 +142,22 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--disable-thp", action="store_true")
     parser.add_argument("--allocation-profile", action="store_true")
+    parser.add_argument("--pairs", type=int, choices=(2, 4, 6), default=2)
     args = parser.parse_args()
     root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
     if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
             or not args.output.resolve().is_relative_to(root) or args.output.exists()):
         raise RuntimeError("A fresh output under RUNNER_TEMP on a hosted CI runner is required")
+    if args.disable_thp:
+        disable_inherited_thp()
     args.output.mkdir(mode=0o700)
     save(args.output / "recipe.json", {"disable_thp": args.disable_thp,
                                      "allocation_profile": args.allocation_profile,
+                                     "pairs": args.pairs, "growth": PROFILES["standard"],
+                                     "baseline": args.baseline, "candidate": args.candidate,
                                      "source": os.environ.get("GITHUB_SHA")})
-    for pair in range(2):
-        for label in (("baseline", "candidate") if pair == 0 else ("candidate", "baseline")):
+    for pair in range(args.pairs):
+        for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):
             revision = getattr(args, label)
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
