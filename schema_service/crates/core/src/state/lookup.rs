@@ -105,7 +105,6 @@ fn stored_repost_by_namespace(
                 == owner
             && candidate.descriptive_name == proposal.descriptive_name
             && !crate::state_expansion::is_cross_key_layout(proposal, candidate)
-            && !crate::state_expansion::is_cross_schema_type_expansion(proposal, candidate)
     });
     let candidate = matches.next().cloned();
     if matches.next().is_some() {
@@ -135,7 +134,6 @@ fn durable_active_schema<'a>(
         if current.owner_app_id != successor.owner_app_id
             || current.descriptive_name != successor.descriptive_name
             || crate::state_expansion::is_cross_key_layout(current, successor)
-            || crate::state_expansion::is_cross_schema_type_expansion(current, successor)
         {
             return Err(FoldDbError::Config(
                 "stored schema successor changes namespace or key layout".into(),
