@@ -249,7 +249,6 @@ impl AtomStore {
         }
         let molecule = molecule_key_codec::molecule_uuid_from_storage_key(start)
             .ok_or_else(|| SchemaError::InvalidData("tip page needs a molecule prefix".into()))?;
-        let changes = self.captured_tip_changes(storage_prefix, molecule)?;
         let pointer = self
             .active_molecule_generation(molecule, storage_prefix)
             .await?;
@@ -282,9 +281,10 @@ impl AtomStore {
                 .await?;
             let consumed = rows.len();
             for ((key, (live, base)), deletion) in rows.into_iter().zip(deletions) {
-                let record = changes.get(&key).cloned().unwrap_or_else(|| {
-                    Self::apply_generation_delete(Self::merge_generation_slot(live, base), deletion)
-                });
+                let record = Self::apply_generation_delete(
+                    Self::merge_generation_slot(live, base),
+                    deletion,
+                );
                 if let Some(record) = record {
                     output.push((key, record));
                 }

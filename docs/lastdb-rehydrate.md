@@ -23,11 +23,13 @@ Private write metadata retains its separate allowance.
 ## Read
 
 1. Resolve the schema and its field molecules through the core model.
-2. Capture the current core state and the matching disk root.
-3. Use the known keys, tips, and full atom values from that captured state.
+2. Capture the current disk root and its publication revision.
+3. Use current core keys, tips, and atom values only while that revision still matches. Retain selected values for the call.
 4. Fetch the missing records in batches from the held disk root.
 5. Admit each successful fetch after its source checks. Purge clean, unused records when the byte charge exceeds the limit.
 
+Native writes commit to disk before publishing clean core effects. There is no dirty-model read overlay.
+The read scope retains its disk root, call-local definitions, selected atom sources, and path/value holds.
 A call can retain an earlier value while a later write replaces the current value.
 Its memory owner stays charged until that call returns.
 This call lifetime does not provide an old-value query or stored atom history.
@@ -295,7 +297,7 @@ The [engine README](../vendor/laststore/README.md) describes the run files.
 |---|---|---|
 | Core model | Current definitions, selected tips, atom values, and confirmed absence | A partial molecule does not prove a complete range. |
 | Complete selected keys | Membership for selected schemas | The separate allowance does not preload every atom. |
-| Read scope | One captured core state, disk root, allowance, and held owners | Child reads keep the same scope and selected atom location. |
+| Read scope | One held disk root, publication revision, allowance, and call-local owners | Child reads keep the same scope and selected atom location. |
 | Write preparation | One complete logical change and its prepared disk bytes | A failed preparation does not publish part of that change. |
 | Native queue | Prepared disk output and completion work | Ordinary reads cannot use it as another value source. |
 | Physical maintenance | Run-file merge, backup, and explicit repair | These tools do not select another logical engine. |

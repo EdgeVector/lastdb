@@ -108,7 +108,6 @@ impl AtomStore {
                 }
             }
         }
-        self.merge_captured_exact_tips(storage_prefix, base_keys, slots_by_molecule, &mut hit)?;
         Ok(hit)
     }
 
