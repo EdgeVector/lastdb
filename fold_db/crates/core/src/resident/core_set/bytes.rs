@@ -77,6 +77,9 @@ impl WarmBytes {
     }
 
     pub(super) fn sweep(&mut self) {
+        let _timing = laststore::commit_timing::stage("memory_atom_sweep_us");
+        laststore::commit_timing::count("memory_atom_sweep_calls", 1);
+        laststore::commit_timing::count("memory_atom_sweep_entries", self.atoms.len() as u64);
         let mut freed = 0;
         self.atoms.retain(|_, tracked| {
             let alive = tracked.atom.strong_count() > 0;
