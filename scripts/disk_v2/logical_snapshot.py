@@ -12,7 +12,7 @@ from logical_capture import Node, file_hash, observed_resources, read, require, 
 from logical_peer_support import add_model, check_values, export, ingest, item, own_head, request
 
 INTENT = "data/cloud-byte-backup-v2/logical-snapshot-local-v1.json"
-SOURCE = "data/cloud-byte-source-v2"
+SOURCE = "data/disk-run/cloud-byte-source-v2"
 
 
 def snapshot(node, action, request_id, expected=(200,)):
