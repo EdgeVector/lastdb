@@ -28,7 +28,7 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
     folder
         .try_lock()
         .map_err(|_| invalid("node directory is owned"))?;
-    let marker = private_file(&root.join(NODE_MARKER), false)?;
+    let marker = marker_file(&root.join(NODE_MARKER), false)?;
     let mut bytes = Vec::new();
     (&marker).take(129).read_to_end(&mut bytes)?;
     let profile =
@@ -64,7 +64,7 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
         });
     }
     let pending = root.join(PENDING);
-    let mut file = private_file(&pending, true)?;
+    let mut file = marker_file(&pending, true)?;
     let mut previous = Vec::new();
     Read::by_ref(&mut file)
         .take(129)
@@ -86,7 +86,7 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
     })
 }
 
-fn private_file(path: &Path, create: bool) -> StorageResult<File> {
+fn marker_file(path: &Path, create: bool) -> StorageResult<File> {
     let file = OpenOptions::new()
         .read(true)
         .write(create)
@@ -96,13 +96,17 @@ fn private_file(path: &Path, create: bool) -> StorageResult<File> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let meta = file.metadata()?;
+    // Existing format-4 creation uses the process umask for this public header.
+    // Refuse another writer, but permit its normal read permissions. New pending
+    // markers remain private and cannot reuse a hard-linked file.
+    let forbidden = if create { 0o077 } else { 0o022 };
     if !meta.is_file()
         || meta.uid() != unsafe { libc::geteuid() }
-        || meta.mode() & 0o077 != 0
+        || meta.mode() & forbidden != 0
         || meta.len() > 128
     {
         return Err(invalid(
-            "format marker must be a bounded private owned file",
+            "format marker must be bounded, owned, and protected from other writers",
         ));
     }
     if create && meta.nlink() != 1 {
