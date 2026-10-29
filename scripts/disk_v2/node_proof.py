@@ -66,11 +66,11 @@ PRIMARY_SETTINGS = {
     "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
 }
 CASE = "new-home"
-# The generator number of the seed: the number this case had among the four
-# cases of the conversion proof, so the seed data stays the same.
+# Keep the original generator seed and data shape. More distinct records
+# preserve the 16 MiB logical-byte floor after canonical field deduplication.
 SEED_NUMBER = 2
 PROFILE = {
-    "seed": {"base": 3000, "creates": 1000, "updates": 4000, "deletes": 250},
+    "seed": {"base": 4000, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
 
