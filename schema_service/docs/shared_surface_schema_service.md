@@ -104,38 +104,35 @@ The exact transport endpoint is an implementation detail, but it must be
 separate from generic private declaration. The service rejects requests that
 do not assert an allowed shared purpose or lack required ownership metadata.
 
-## Local-first facade (PR 4/5)
+## Live resolver adapter
 
-`schema_service_client::local_first_resolver` provides
-`LocalFirstSchemaResolver` with three modes:
-
-| Mode | Behavior |
-| --- | --- |
-| `shadow` | Always call live; compare local native decisions for telemetry only |
-| `enforce_existing_only` | Return local `UseExisting` / `UseComponents` when pack policy allows; else live |
-| `live_only` | Kill switch — never use the local pack |
+`schema_service_client::LiveSchemaResolver` always resolves through the live service.
+It preserves stable proposal IDs, input order, duplicate-name claim handling, and
+shared-surface publish/attach outcomes. The unused local evaluation, shadow/enforce
+modes, phantom pack store, and injectable gateway are retired from the client.
+The old facade had no public way to attach a pack runtime.
 
 Mini mounts:
 
 - `POST /api/apps/shared-surface/publish-attach` — validate sharing intent,
-  resolve via the facade in `live_only` mode,
-  register novel contracts live with `shared_surface` metadata, and persist
-  an attachment under `{home}/shared_surface_attachments.json`.
+  resolve live, register novel contracts with signed `shared_surface` metadata,
+  and persist an attachment under `{home}/shared_surface_attachments.json`.
 - `GET /api/apps/shared-surface/attachments` — list local attachments.
 
-As of 2026-07-15, this Mini route is the only in-tree product entry point for
-shared-surface publish/attach. It delegates to
-`lastdb_node::schema_resolver_host::publish_attach_with_host_config`, which is
-the install-owned wrapper around `LocalFirstSchemaResolver`; `exec` and router
-code do not construct live-only schema clients or resolver facades directly.
+The publish/attach product entry delegates to
+`lastdb_node::schema_resolver_host::publish_attach_with_host_config`.
+That wrapper owns the service timeout and node signing identity.
+The direct-declare wrapper uses the same live adapter.
+Existing request/result JSON, including resolution-path metadata, is unchanged.
+Historical path variants remain readable; the adapter emits only `live`.
 
 Mini has no in-process embedder or pack runtime. Its optional
 `{home}/schema_resolver.json` retains only `request_timeout_seconds` (default 10,
 clamped to 1–20 seconds). Missing, empty or invalid files use the default.
 Retired pack settings in existing JSON files are ignored, and the
-`SCHEMA_RESOLVER_*` pack environment variables have no effect. They previously
-always fell back to live service resolution. The shared client library's other
-facade modes remain available to callers that supply their own pack runtime.
+`SCHEMA_RESOLVER_*` pack environment variables have no effect.
+Core resolver-pack publication, evaluation and consumption remain separate facilities;
+the client's HTTP pack store remains available for tooling.
 
 Private declare (`POST /api/schemas/declare`, `POST /api/apps/declare-schema`)
 is legacy compatibility for local fixture and migration paths. New durable
