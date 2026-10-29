@@ -1,0 +1,77 @@
+name: Atom history memory attribution
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/operations/atom_history_memory.py'
+      - '.github/workflows/atom-history-memory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  historical:
+    name: Attribute the exact PR 708 programs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASELINE_SHA: 71fb949a89d1ba77909ca9d57cfcfaf7d7418d45
+      CANDIDATE_SHA: 18bc31a40ea5253563aececc1a30fd030da0949b
+      BUILD_CONTEXT: 269671646d3b8594616ed1dbd07727a8a75c922b42621f562175e9053e99636b
+      BUNDLE_SHA256: 2e85b0f43dc902698247cdffee751ca1ad806e258abe13af0bd2a68145279858
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: 18bc31a40ea5253563aececc1a30fd030da0949b
+          path: historical-driver
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 40827041301
+          artifact-ids: 12877551303
+          path: ${{ runner.temp }}/historical-programs
+          merge-multiple: true
+      - name: Verify the original programs, source identities, and checksums
+        run: |
+          mkdir "$RUNNER_TEMP/transfer"
+          BENCH_OUTPUT="$RUNNER_TEMP/transfer" python3 historical-driver/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/programs" --archive "$RUNNER_TEMP/historical-programs/programs.tar.gz"
+      - name: Attribute memory on fresh generated homes
+        run: |
+          python3 driver/scripts/operations/atom_history_memory.py --programs "$RUNNER_TEMP/programs" \
+            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution"
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: atom-history-memory-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/memory-attribution
+            ${{ runner.temp }}/transfer
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish attribution provenance
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+        run: |
+          {
+            echo "## PR 708 memory attribution"
+            echo "Diagnostic source: $GITHUB_SHA"
+            echo "Baseline: $BASELINE_SHA; candidate: $CANDIDATE_SHA"
+            echo "Original run: 40827041301; verified program bundle: $BUNDLE_SHA256"
+            echo "Result: $RESULT"
+            echo "Artifact: $ARTIFACT_URL"
+            echo "Artifact SHA256: $ARTIFACT_DIGEST"
+            echo "Expiration: 7 days after this run."
+            echo "Generated CI homes only. This diagnostic does not replace benchmark-complete."
+          } >> "$GITHUB_STEP_SUMMARY"
