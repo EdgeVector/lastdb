@@ -238,7 +238,7 @@ impl SchemaCore {
         let existing = self.db_ops.get_schema(&schema.name).await?;
         if existing
             .as_ref()
-            .is_some_and(Schema::uses_independent_fields)
+            .is_some_and(|schema| schema.uses_independent_fields())
             && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
         {
             crate::fold_db_core::fold_db::alternate_key_changes::require_finished(

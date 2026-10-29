@@ -236,7 +236,10 @@ impl DbOperations {
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
-        if old.as_ref().is_some_and(Schema::uses_independent_fields) {
+        if old
+            .as_ref()
+            .is_some_and(|schema| schema.uses_independent_fields())
+        {
             crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
                 self,
                 schema_name,
