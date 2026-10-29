@@ -264,4 +264,7 @@ The recipe uses fresh private runner directories and checks the daemon identity 
 It removes only its own stopped temporary homes after a complete result.
 An uncertain automatic operation fails CI and retains its private local capture for recovery on the runner.
 It preserves accepted backups and uncertain provider obligations and reports the failure without raw product output.
-The Actions log reports a fixed stage name and failure code. Product replies and credentials stay private.
+The Actions log reports a fixed stage name and failure code.
+It also records allowlisted pause categories, policy intervals, cleanup counts, and quota totals.
+The full CI summary remains the validation record.
+Raw status, product replies, credentials, file keys, and provider grants stay private.

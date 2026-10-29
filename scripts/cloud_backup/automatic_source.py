@@ -34,6 +34,19 @@ def public(value, pattern):
     return value if isinstance(value, str) and len(value) <= 64 and re.fullmatch(pattern, value) else None
 
 
+def paused(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return {"disposition": None, "reason": None}
+    dispositions = ("retry", "attention")
+    reasons = ("temporary", "disabled", "busy", "missing", "identity", "invalid", "disk", "source",
+               "unsupported", "resource_limit", "quota", "credentials", "authority", "refused",
+               "closing", "shutdown", "worker_panic")
+    return {"disposition": value.get("disposition") if value.get("disposition") in dispositions else None,
+            "reason": value.get("reason") if value.get("reason") in reasons else None}
+
+
 def checkpoint_identity(accepted):
     return {"job": accepted["begin"]["job"], "commit_sha256": accepted["commit_sha256"],
             "ordinal": accepted["ordinal"], "root_receipt_id": accepted["root_receipt_id"],
@@ -61,6 +74,12 @@ def observation(value, policy, conditions, kind, through, count, declared_bytes)
     return {"requested_kind": kind if kind in ("snapshot", "mutation_log") else None,
             "published": value["phase"] == "published",
             "running": value["running"] if type(value["running"]) is bool else None,
+            "automatic_enabled": (value.get("automatic_backup_enabled")
+                                  if type(value.get("automatic_backup_enabled")) is bool else None),
+            "policy_enabled": policy.get("enabled") if type(policy.get("enabled")) is bool else None,
+            "policy_paused": paused(policy.get("paused")),
+            "log_interval_seconds": number(policy.get("log_interval_seconds")),
+            "snapshot_interval_seconds": number(policy.get("snapshot_interval_seconds")),
             "retained_source_bytes": number(value["retained_source_bytes"]),
             "request_id": public(value["request_id"], uuid),
             "accepted_request_id": public(job.get("commit_id"), uuid),
