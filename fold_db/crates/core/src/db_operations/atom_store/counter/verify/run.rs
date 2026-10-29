@@ -139,19 +139,39 @@ impl AtomStore {
             | Phase::BlobQueue
             | Phase::Done => return Ok(()),
         };
-        match page {
+        let outcome = match page {
             Ok(Page::Referenced(page)) => {
                 run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_referenced(run, page);
+                Ok(())
             }
-            Ok(Page::Suspects(page)) => apply_suspects(run, &page),
+            Ok(Page::Suspects(page)) => {
+                apply_suspects(run, &page);
+                Ok(())
+            }
             Ok(Page::Atoms(page)) => {
                 run.walk.finish_yield(page.rows, page.resume.as_deref());
                 apply_atoms(run, watch, page);
+                Ok(())
             }
+            Err(error) => Err(error),
+        };
+        self.settle_verify_page(run, outcome)
+    }
+
+    /// Record one page attempt. A read that hits the limit asks for fewer rows
+    /// or a narrower key range. The next call uses a new read scope. A range
+    /// that cannot shrink returns the same limit error.
+    pub(super) fn settle_verify_page(
+        &self,
+        run: &mut Run,
+        outcome: Result<(), SchemaError>,
+    ) -> Result<(), SchemaError> {
+        match outcome {
+            Ok(()) => {}
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 // The read hit the limit of one call. Ask for fewer rows or a
-                // narrower key range, in a new read scope.
+                // narrower key range. The next call uses a new read scope.
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
                     return Err(SchemaError::ReadResourceLimit {
