@@ -50,17 +50,13 @@ fn coherence_bindings(
     loaded: &Schema,
     definitions: &HashMap<&str, &Schema>,
 ) -> Result<Vec<CoherenceBinding>, SchemaError> {
-    let mut bindings = field_bindings(loaded, definitions)?;
+    let mut bindings = field_bindings(loaded, definitions, None)?;
     let identities: HashSet<_> = bindings
         .iter()
         .map(|binding| binding.field_identity.clone())
         .collect();
     for peer in definitions.values().filter(|peer| peer.name != loaded.name) {
-        bindings.extend(
-            field_bindings(peer, definitions)?
-                .into_iter()
-                .filter(|binding| identities.contains(&binding.field_identity)),
-        );
+        bindings.extend(field_bindings(peer, definitions, Some(&identities))?);
     }
     bindings.sort_by(|a, b| {
         (
@@ -92,30 +88,40 @@ fn coherence_bindings(
 fn field_bindings(
     schema: &Schema,
     definitions: &HashMap<&str, &Schema>,
+    wanted: Option<&HashSet<String>>,
 ) -> Result<Vec<CoherenceBinding>, SchemaError> {
     let layout = KeyLayoutFingerprint::from_schema(schema);
     let Some(hash_field) = layout.hash_field.filter(|hash| !hash.is_empty()) else {
         return Ok(Vec::new());
     };
-    schema
-        .field_hashes
-        .keys()
-        .map(|field| {
-            Ok(CoherenceBinding {
-                field_identity: mapped_identity(schema, field, definitions)?,
-                member: ProteinMember::new(
-                    schema
-                        .field_molecule_uuids
-                        .as_ref()
-                        .and_then(|ids| ids.get(field))
-                        .cloned()
-                        .unwrap_or_else(|| deterministic_molecule_uuid(&schema.name, field)),
-                    &hash_field,
-                    layout.range_field.clone(),
-                ),
-            })
-        })
-        .collect()
+    let mut bindings = Vec::new();
+    for (field, identity) in &schema.field_hashes {
+        let mapped = schema
+            .field_mappers
+            .as_ref()
+            .is_some_and(|mappers| mappers.contains_key(field));
+        if !mapped && wanted.is_some_and(|wanted| !wanted.contains(identity)) {
+            continue;
+        }
+        let identity = mapped_identity(schema, field, definitions)?;
+        if wanted.is_some_and(|wanted| !wanted.contains(&identity)) {
+            continue;
+        }
+        bindings.push(CoherenceBinding {
+            field_identity: identity,
+            member: ProteinMember::new(
+                schema
+                    .field_molecule_uuids
+                    .as_ref()
+                    .and_then(|ids| ids.get(field))
+                    .cloned()
+                    .unwrap_or_else(|| deterministic_molecule_uuid(&schema.name, field)),
+                &hash_field,
+                layout.range_field.clone(),
+            ),
+        });
+    }
+    Ok(bindings)
 }
 
 /// A mapper references its source field; a local rename does not create a new
@@ -129,11 +135,6 @@ fn mapped_identity(
     let mut name = field;
     let mut visited = HashSet::new();
     loop {
-        if !visited.insert((current.name.clone(), name.to_owned())) {
-            return Err(SchemaError::InvalidData(
-                "cyclic field identity mapper".into(),
-            ));
-        }
         let Some(mapper) = current
             .field_mappers
             .as_ref()
@@ -148,6 +149,11 @@ fn mapped_identity(
                     SchemaError::InvalidData("mapped canonical field identity is absent".into())
                 });
         };
+        if !visited.insert((current.name.clone(), name.to_owned())) {
+            return Err(SchemaError::InvalidData(
+                "cyclic field identity mapper".into(),
+            ));
+        }
         name = mapper.source_field();
         current = definitions
             .get(mapper.source_schema())
