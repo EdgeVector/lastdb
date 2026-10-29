@@ -71,6 +71,8 @@ CASE = "new-home"
 SEED_NUMBER = 2
 PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
+    # This qualifies the generic engine capacity check; fewer stored atoms are
+    # not evidence of lost data. Alternate-key savings use a fixed-input pass.
     "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
@@ -371,7 +373,8 @@ class Case:
         share of acknowledged mutations."""
         if min(start, end) < MINIMUM_LOGICAL:
             self.failures.append(f"{name}: the node reports {mib(min(start, end))} of logical "
-                                 "atoms, under the 16 MiB that the limit check needs")
+                                 "atoms, under the 16 MiB that the capacity check needs; "
+                                 "this is insufficient measurement volume, not a data-loss finding")
         worst = None
         for sample in window["samples"]:
             logical = start + (end - start) * sample["progress"]

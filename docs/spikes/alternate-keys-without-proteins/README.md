@@ -309,7 +309,26 @@ The final reader and writer each use one route; migration support must not becom
 
 ## Next action
 
-Review the record identity, field reuse rule, and conversion scope first.
-Then implement the fresh-home `Task` slice through the existing native request boundary.
-Run the generated-data operational checks and latency comparison in CI before any future merge decision.
+The fresh-home `Task` slice now uses the existing native request boundary.
+Review the CI latency and storage comparisons before any future merge decision.
 Keep this design spike unmerged.
+
+## Storage comparison rules
+
+The source record count and values must match across revisions.
+All primary keys and both alternate keys must return the expected fields before and after reopen.
+Key moves must remove old alternate entries. Deletes must remove the record from each key.
+
+The dedicated storage comparison uses a fixed source corpus above 16 MiB.
+It records disk space after native cleanup and daemon stop.
+A smaller disk result is allowed when all records remain correct.
+This result measures space after cleanup. It does not measure the highest space use during writes.
+
+The native atom report counts each serialized atom body once, with its source metadata.
+It excludes field tips and alternate entries. It is not the original input size.
+The generic disk proof uses that report for its existing disk ratio and capacity checks.
+Its 16 MiB minimum qualifies the measurement volume. It does not establish data loss below that volume.
+The larger generic seed preserves that capacity check without a change to its limits.
+
+The dedicated CI job also runs the original generic seed on both source revisions.
+That seed declares no alternate keys. It cannot establish the space benefit of alternate keys.

@@ -30,7 +30,7 @@ def values(key, group="g0"):
     return {"record_id": key, "group_id": group, "owner_id": "owner", "payload": PAYLOAD}
 
 
-def declare(node, alternate):
+def declare(node, alternate, records=256):
     definition = task_definition("Task")
     if not alternate:
         definition.pop("alternate_keys")
@@ -40,7 +40,7 @@ def declare(node, alternate):
             peer = dict(definition, name=name, descriptive_name=name, schema_type="HashRange",
                         key={"hash_field": hash_field, "range_field": "record_id"})
             install(node, peer)
-    for offset in range(0, 256, 32):
+    for offset in range(0, records, 32):
         node.call("/api/mutations/batch",
                   [mutation(f"t{i:04}", values(f"t{i:04}"), "create") for i in range(offset, offset + 32)])
 
@@ -185,6 +185,8 @@ def summary(args, records):
     lines += ["", f"Valid timed calls: {len(records)}. Request errors: 0.",
               "Mixed clients alternate a read and a write throughout each arm.",
               "Cold cases start with empty logical memory after reopen; OS file pages remain uncontrolled.",
+              "The primary_read case follows alternate reads: the candidate reuses their primary-field memory; the baseline does not.",
+              "That row measures cross-key memory reuse, rather than equal initial primary-read memory states.",
               "All arms verify durable writes, logical records, reopen, and owned-home cleanup.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,

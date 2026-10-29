@@ -8,6 +8,7 @@ on:
       - 'lastdb_host/**'
       - 'lastdb_uds/**'
       - 'scripts/benchmarks/alternate_key_compare.py'
+      - 'scripts/benchmarks/alternate_key_storage.py'
       - 'scripts/schema_checks/alternate_keys.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
@@ -89,6 +90,12 @@ jobs:
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/alternate-key-comparison"
+      - name: Compare disk space with equal source records and audit the original seed
+        run: |
+          python3 driver/scripts/benchmarks/alternate_key_storage.py \
+            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
+            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/alternate-key-comparison/storage"
       - name: Upload measurements
         id: upload
         if: always()
