@@ -209,9 +209,11 @@ After the plan exists, planned counts stay fixed. An assigned retirement hash st
 Released bytes cannot exceed the plan.
 A complete result requires one confirmed release for every eligible allocation and no unresolved upload bytes.
 Protected allocation counts remain separate, and legacy or unknown streams stay retained.
-CI allows 70 minutes for the control work and 75 minutes for the full pre-upload step.
+CI allows 140 minutes for the control work and 150 minutes for the full pre-upload step.
 A pending cleanup and the next plan can each need the full 30-minute service delay.
-The complete job has a 150-minute limit, which also covers the build and the existing recovery checks.
+Each pass also validates the complete saved metadata directory and allocation plan.
+A shared 70-minute limit can expire after one request completes and before the next request finishes.
+The complete job has a 210-minute limit, which also covers the build and the existing recovery checks.
 An expired limit fails CI. The next run resumes the same saved request before it starts new work.
 
 CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.

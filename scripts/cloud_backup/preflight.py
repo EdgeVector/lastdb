@@ -31,9 +31,10 @@ class Preflight(Operation):
 
     def execute(self):
         credentials = self.credentials()
-        # A resumed cleanup and the next plan can each require a 30-minute
-        # service drain. Leave time for both without shortening either one.
-        control = Control(self.baseline, self.api_key, budget_seconds=4200)
+        # A resumed cleanup and the next plan each need bounded metadata work
+        # plus a full 30-minute service drain. Budget 70 minutes for each pass;
+        # never shorten the service's retirement delay to fit the client.
+        control = Control(self.baseline, self.api_key, budget_seconds=8400)
         phrase = os.environ.pop("LASTDB_CLOUD_DEV_RECOVERY_PHRASE", "").strip().encode()
         try:
             require(0 < len(phrase) <= 4096, "recovery_phrase")
@@ -99,7 +100,7 @@ def main():
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGALRM):
         signal.signal(signum, interrupted)
-    signal.alarm(4500)
+    signal.alarm(9000)
     try:
         operation.prepare()
         operation.execute()
