@@ -163,6 +163,7 @@ impl PackRuntime {
             {
                 protection.publish_clean()?;
             }
+            self.publish_write_view(request)?;
         }
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);

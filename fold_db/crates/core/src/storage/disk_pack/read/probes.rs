@@ -18,8 +18,9 @@ impl PackRuntime {
             crate::storage::current_keys::validate("main", counter.as_bytes())?;
             crate::storage::current_keys::validate("main", body.as_bytes())?;
         }
+        let runtime = Arc::clone(self);
         super::super::run_blocking(move || {
-            let result = Self::disk_counter_body_probes(&context, &pending, &keys);
+            let result = runtime.disk_counter_body_probes(&context, &pending, &keys);
             context.remember(&result);
             result
         })
@@ -27,31 +28,35 @@ impl PackRuntime {
     }
 
     fn disk_counter_body_probes(
+        &self,
         context: &ReadContext,
         pending: &Arc<transaction::PendingBatch>,
         keys: &[(String, String)],
     ) -> StorageResult<Vec<Option<ProbedValue>>> {
         context.validate_owner(Some(pending))?;
+        let primaries: Vec<_> = keys
+            .iter()
+            .map(|(counter, _)| super::super::kv::coordinate("main", counter.as_bytes()))
+            .collect();
+        let known = self.write_view_records(context, Some(pending), &primaries)?;
         let mut selected = Vec::new();
         let mut pairs = Vec::new();
-        for (position, (counter, body)) in keys.iter().enumerate() {
-            let primary = super::super::kv::coordinate("main", counter.as_bytes());
+        for (position, (_, body)) in keys.iter().enumerate() {
+            let primary = primaries[position].clone();
             let fallback = super::super::kv::coordinate("main", body.as_bytes());
             if primary.0 == super::super::physical::CAS_COLLECTION
                 || fallback.0 == super::super::physical::CAS_COLLECTION
-                || context
-                    .overlay_record(Some(pending), &primary.0, &primary.1)
-                    .is_some()
+                || known[position].is_some()
                 || context
                     .overlay_record(Some(pending), &fallback.0, &fallback.1)
                     .is_some()
-                || context.has_disk_value(&primary)?
             {
                 continue;
             }
             selected.push(position);
             pairs.push(ReadProbe { primary, fallback });
         }
+        drop(known);
         let mut output: Vec<_> = keys.iter().map(|_| None).collect();
         if pairs.is_empty() {
             return Ok(output);
@@ -89,11 +94,15 @@ impl PackRuntime {
                 .map(|value| 1 + u64::from(value.value.is_none()))
                 .sum(),
         );
-        for ((position, pair), value) in selected.into_iter().zip(pairs).zip(values) {
-            context.remember_disk_value(&pair.primary, value.value.as_deref())?;
+        let mut observations = Vec::with_capacity(pairs.len() * 2);
+        for (pair, value) in pairs.iter().zip(&values) {
+            observations.push((&pair.primary, value.value.as_deref()));
             if value.value.is_none() && !value.fallback_present {
-                context.remember_disk_value(&pair.fallback, None)?;
+                observations.push((&pair.fallback, None));
             }
+        }
+        self.remember_write_view(context, &observations)?;
+        for (position, value) in selected.into_iter().zip(values) {
             output[position] = Some(value);
         }
         Ok(output)

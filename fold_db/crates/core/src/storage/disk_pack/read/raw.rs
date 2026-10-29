@@ -80,21 +80,30 @@ impl PackRuntime {
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
-        for (slot, coordinate) in coordinates.iter().enumerate() {
-            let (collection, key) = coordinate;
-            if let Some(record) = context.overlay_record(pending, collection, key) {
+        let records = self.write_view_records(context, pending, coordinates)?;
+        let mut counts = write_view::WriteViewCounts::default();
+        for (slot, selected) in records.iter().enumerate() {
+            if let Some(selected) = selected {
+                let record = selected.record();
+                let key_bytes = record.key.len()
+                    + if selected.is_core() {
+                        record.collection.len()
+                    } else {
+                        0
+                    };
                 context.account_memory_record(
                     call,
-                    key.len(),
+                    key_bytes,
                     record.body.as_ref().map_or(0, Vec::len),
                 )?;
+                counts.note(selected);
                 out[slot] = record.body.clone();
-            } else if let Some(value) = context.reuse_disk_value(call, coordinate)? {
-                out[slot] = value;
             } else {
                 misses.push(slot);
             }
         }
+        drop(records);
+        context.note_write_view(counts)?;
         let addresses: Vec<_> = misses
             .iter()
             .map(|slot| coordinates[*slot].clone())
@@ -102,9 +111,17 @@ impl PackRuntime {
         let results = call
             .get_many(&addresses)
             .map_err(|error| call_error(error, call))?;
-        for (slot, result) in misses.into_iter().zip(results) {
-            let value = result.map_err(|error| call_error(error, call))?;
-            context.remember_disk_value(&coordinates[slot], value.as_deref())?;
+        let values = results
+            .into_iter()
+            .collect::<laststore::Result<Vec<_>>>()
+            .map_err(|error| call_error(error, call))?;
+        let observations: Vec<_> = addresses
+            .iter()
+            .zip(&values)
+            .map(|(coordinate, value)| (coordinate, value.as_deref()))
+            .collect();
+        self.remember_write_view(context, &observations)?;
+        for (slot, value) in misses.into_iter().zip(values) {
             out[slot] = value;
         }
         Ok(out)

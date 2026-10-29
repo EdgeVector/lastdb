@@ -29,7 +29,7 @@ impl ReadContext {
                 revision: base.revision,
                 current: base.current.clone(),
                 write_owner: None,
-                write_reads: None,
+                write_view: None,
                 _preload_charge: Some(Arc::clone(charge)),
             }),
         })

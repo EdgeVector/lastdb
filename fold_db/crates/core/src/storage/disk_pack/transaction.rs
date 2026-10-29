@@ -211,6 +211,14 @@ impl PendingBatch {
         data.latest.keys().cloned().collect()
     }
 
+    pub(super) fn final_records(&self) -> Vec<Arc<PendingRecord>> {
+        let data = self.data.lock().expect("native final record owners");
+        data.latest
+            .values()
+            .map(|at| Arc::clone(&data.operations[*at]))
+            .collect()
+    }
+
     pub(super) fn note_flush_blocked(&self, took: std::time::Duration) {
         self.flush_blocked_us.store(
             took.as_micros().try_into().unwrap_or(u64::MAX),
