@@ -45,6 +45,7 @@ pub struct QueryRequest {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     pub cursor: Option<QueryCursor>,
+    pub response_format: crate::handlers::QueryResponseFormat,
 }
 
 /// Decode a query body before any schema lookup, admission, or record read.
@@ -61,6 +62,12 @@ pub fn parse_query_body(
     let offset = take_pagination(&mut obj, WireKey::Offset)?;
     let cursor = take_cursor(&mut obj)?;
     let expected_total_count = take_pagination(&mut obj, WireKey::ExpectedTotalCount)?;
+    let response_format = obj
+        .remove("response_format")
+        .map(serde_json::from_value::<crate::handlers::QueryResponseFormat>)
+        .transpose()
+        .map_err(|_| Reject::invalid(WireKey::ResponseFormat).response())?
+        .unwrap_or_default();
     // Name the first missing required key before serde maps it to a generic
     // invalid value. Optional `filter` still reaches the keyed-access guard.
     require_keys(&obj, QUERY_REQUIRED_KEYS)?;
@@ -72,6 +79,7 @@ pub fn parse_query_body(
         limit,
         offset,
         cursor,
+        response_format,
     })
 }
 

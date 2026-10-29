@@ -42,11 +42,31 @@ impl AtomStore {
         uuids: &[&str],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Atom>>, SchemaError> {
-        let keys: Vec<String> = uuids
+        // Several selected tips can name the same atom, including protein
+        // members and repeated key-field values. Resolve and certify its body
+        // once in this captured namespace; logical path admission still runs
+        // for every selected tip in the caller.
+        let mut identities = HashMap::with_capacity(uuids.len());
+        let mut keys = Vec::new();
+        let mut uses = Vec::<usize>::new();
+        let slots: Vec<_> = uuids
             .iter()
-            .map(|uuid| self.body_storage_key(uuid, storage_prefix))
+            .map(|uuid| {
+                let slot = *identities.entry(*uuid).or_insert_with(|| {
+                    keys.push(self.body_storage_key(uuid, storage_prefix));
+                    uses.push(0);
+                    keys.len() - 1
+                });
+                uses[slot] += 1;
+                slot
+            })
             .collect();
-        let out = self.get_atoms_by_storage_keys_captured(&keys).await?;
+        let mut out = self.get_atoms_by_storage_keys_captured(&keys).await?;
+        if out.len() != keys.len() {
+            return Err(SchemaError::StorageRead {
+                detail: "unique atom read returned a different number of results".into(),
+            });
+        }
         let runtime = self
             .namespaced_store
             .as_ref()
@@ -57,7 +77,17 @@ impl AtomStore {
             &keys,
             &out,
         )?;
-        Ok(out)
+        Ok(slots
+            .into_iter()
+            .map(|slot| {
+                uses[slot] -= 1;
+                if uses[slot] == 0 {
+                    out[slot].take()
+                } else {
+                    out[slot].clone()
+                }
+            })
+            .collect())
     }
 
     /// The storage key of one atom body in one scope.

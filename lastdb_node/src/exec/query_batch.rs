@@ -88,6 +88,7 @@ pub(super) async fn execute_query_batch_route(
                 limit,
                 offset,
                 cursor,
+                response_format,
             } = match parse_query_body(obj) {
                 Ok(query) => query,
                 Err(response) => return (index, response),
@@ -101,7 +102,9 @@ pub(super) async fn execute_query_batch_route(
                 ctx,
                 // Batch items always require keys, even if the outer request
                 // carries the owner-only unfiltered-read header.
-                handlers::execute_query(host, query, limit, offset, cursor, ctx, false),
+                response_format.run(handlers::execute_query(
+                    host, query, limit, offset, cursor, ctx, false,
+                )),
             )
             .await;
             (index, response)
