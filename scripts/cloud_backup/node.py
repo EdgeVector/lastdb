@@ -12,7 +12,7 @@ import socket
 import subprocess
 import time
 
-from support import ACCOUNT, CHUNK, OperationError, decode_json, read_json, require
+from support import ACCOUNT, CHUNK, OperationError, canonical_uuid, decode_json, read_json, require
 
 
 class Connection(http.client.HTTPConnection):
@@ -27,12 +27,16 @@ class Connection(http.client.HTTPConnection):
 
 
 class OwnedNode:
-    def __init__(self, home, programs, backup_source=False):
+    def __init__(self, home, programs, backup_source=False, ci_stream_id=None, terminal_r2=False):
         self.home, self.programs = home, programs
         self.socket = home / "data/folddb.sock"
         self.process, self.start_ts, self.instance_id = None, None, None
         self.clean_stops, self.forced = 0, False
         self.backup_source = backup_source
+        require(type(terminal_r2) is bool and (not terminal_r2 or backup_source), "owned_ci_upload_mode")
+        require(ci_stream_id is None or (backup_source and terminal_r2), "owned_ci_stream_mode")
+        self.ci_stream_id = None if ci_stream_id is None else canonical_uuid(ci_stream_id)
+        self.terminal_r2 = terminal_r2
         # A restore must prove the selected bytes before any TTL worker can
         # erase an expired key and conceal a missing journal deletion.
         self.ttl_sweep = False
@@ -74,12 +78,18 @@ class OwnedNode:
         require(self.process is None and not self.socket.exists(), "owned_boot_state")
         self.offline()
         self.programs.verify()
-        self.process = subprocess.Popen(
-            [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)],
-            env=dict(self.programs.environment,
+        environment = dict(self.programs.environment,
                      LASTDB_BYTE_BACKUP_V2_ENABLED="true" if self.backup_source else "false",
                      LASTDB_ISOLATED_COPY="1" if self.backup_source else "0",
-                     LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0"),
+                     LASTDB_TTL_SWEEP="1" if self.ttl_sweep else "0")
+        for name in ("LASTDB_CLOUD_CI_STREAM_ID", "LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"):
+            environment.pop(name, None)
+        if self.ci_stream_id is not None:
+            environment["LASTDB_CLOUD_CI_STREAM_ID"] = self.ci_stream_id
+        if self.terminal_r2:
+            environment["LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS"] = "1"
+        self.process = subprocess.Popen(
+            [str(self.programs.directory / "lastdbd"), "--data-dir", str(self.home)], env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         deadline = time.monotonic() + 120
