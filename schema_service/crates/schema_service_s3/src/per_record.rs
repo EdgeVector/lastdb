@@ -74,6 +74,47 @@ impl S3BlobPersistence {
         }
     }
 
+    /// Read one record and its ETag. `None` means the object is absent.
+    async fn get_record_with_etag<T>(&self, key: &str) -> FoldDbResult<Option<(T, String)>>
+    where
+        T: DeserializeOwned,
+    {
+        let result = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(self.definition_key(key).as_ref())
+            .send()
+            .await;
+        match result {
+            Ok(resp) => {
+                let etag = resp
+                    .e_tag()
+                    .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
+                    .to_string();
+                let body = resp
+                    .body
+                    .collect()
+                    .await
+                    .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
+                let bytes = body.into_bytes();
+                let record: T = serde_json::from_slice(&bytes)
+                    .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
+                Ok(Some((record, etag)))
+            }
+            Err(e) => {
+                if error_code(&e).as_deref() == Some("NoSuchKey") {
+                    Ok(None)
+                } else {
+                    Err(FoldDbError::S3(format!(
+                        "get S3 object '{key}': {}",
+                        short_error(&e)
+                    )))
+                }
+            }
+        }
+    }
+
     /// Page one prefix and decode each object. `label` is the list error text.
     async fn list_records<T>(&self, prefix: &str, label: &str) -> FoldDbResult<Vec<T>>
     where
@@ -155,45 +196,8 @@ impl S3BlobPersistence {
         key: &str,
         record: &ReleaseRecord,
     ) -> FoldDbResult<()> {
-        let existing: Option<(ReleaseRecord, String)> = {
-            let result = self
-                .client
-                .get_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .send()
-                .await;
-            match result {
-                Ok(resp) => {
-                    let etag = resp
-                        .e_tag()
-                        .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
-                        .to_string();
-                    let body = resp
-                        .body
-                        .collect()
-                        .await
-                        .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
-                    let bytes = body.into_bytes();
-                    let existing: ReleaseRecord = serde_json::from_slice(&bytes)
-                        .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
-                    Some((existing, etag))
-                }
-                Err(e) => {
-                    if error_code(&e).as_deref() == Some("NoSuchKey") {
-                        None
-                    } else {
-                        return Err(FoldDbError::S3(format!(
-                            "get S3 object '{key}': {}",
-                            short_error(&e)
-                        )));
-                    }
-                }
-            }
-        };
-
-        let mut final_record = record.clone();
-        if let Some((existing, etag)) = existing {
+        if let Some((existing, etag)) = self.get_record_with_etag::<ReleaseRecord>(key).await? {
+            let mut final_record = record.clone();
             if existing.revoked_at.is_some() {
                 final_record.revoked_at = existing.revoked_at;
                 final_record.revocation_reason = existing.revocation_reason;
@@ -213,20 +217,7 @@ impl S3BlobPersistence {
                     FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
                 })?;
         } else {
-            let body = serde_json::to_vec(&final_record)
-                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .body(ByteStream::from(body))
-                .content_type("application/json")
-                .if_none_match("*")
-                .send()
-                .await
-                .map_err(|e| {
-                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
-                })?;
+            self.put_single_object(key, record, true).await?;
         }
         Ok(())
     }
@@ -236,43 +227,7 @@ impl S3BlobPersistence {
         key: &str,
         record: &ChannelRecord,
     ) -> FoldDbResult<()> {
-        let existing: Option<(ChannelRecord, String)> = {
-            let result = self
-                .client
-                .get_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .send()
-                .await;
-            match result {
-                Ok(resp) => {
-                    let etag = resp
-                        .e_tag()
-                        .ok_or_else(|| FoldDbError::S3(format!("no ETag for '{key}'")))?
-                        .to_string();
-                    let body = resp
-                        .body
-                        .collect()
-                        .await
-                        .map_err(|e| FoldDbError::S3(format!("read S3 body '{key}': {e}")))?;
-                    let bytes = body.into_bytes();
-                    let existing: ChannelRecord = serde_json::from_slice(&bytes)
-                        .map_err(|e| FoldDbError::Serialization(format!("parse '{key}': {e}")))?;
-                    Some((existing, etag))
-                }
-                Err(e) => {
-                    if error_code(&e).as_deref() == Some("NoSuchKey") {
-                        None
-                    } else {
-                        return Err(FoldDbError::S3(format!(
-                            "get S3 object '{key}': {}",
-                            short_error(&e)
-                        )));
-                    }
-                }
-            }
-        };
-        if let Some((existing, etag)) = existing {
+        if let Some((existing, etag)) = self.get_record_with_etag::<ChannelRecord>(key).await? {
             let expected = record.generation.checked_sub(1).ok_or_else(|| {
                 FoldDbError::Config(format!(
                     "generation underflow: new generation {} must be at least 1",
@@ -308,20 +263,7 @@ impl S3BlobPersistence {
                     }
                 })?;
         } else {
-            let body = serde_json::to_vec(record)
-                .map_err(|e| FoldDbError::Serialization(format!("serialize '{key}': {e}")))?;
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.definition_key(key).as_ref())
-                .body(ByteStream::from(body))
-                .content_type("application/json")
-                .if_none_match("*")
-                .send()
-                .await
-                .map_err(|e| {
-                    FoldDbError::S3(format!("put S3 object '{key}': {}", short_error(&e)))
-                })?;
+            self.put_single_object(key, record, true).await?;
         }
         Ok(())
     }
