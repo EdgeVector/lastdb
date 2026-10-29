@@ -218,11 +218,11 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     // append a newer row to after this point
     // (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     if let Some(ledger) = &session_ledger {
-        let boot = ledger.own_record();
-        // Status and shutdown must identify the same process start, even
-        // when opening the native database crosses a wall-clock second.
-        host.process_start_ts = boot.start_ts;
-        let _ = host.own_boot_identity.set(boot);
+        let record = ledger.own_record();
+        // Status, boot identity and shutdown receipts must use the same start,
+        // even when database boot crosses a clock second after ledger creation.
+        host.process_start_ts = record.start_ts;
+        let _ = host.own_boot_identity.set(record);
     }
     let host = Arc::new(host);
     let shutdown_flag = Arc::new(AtomicBool::new(false));

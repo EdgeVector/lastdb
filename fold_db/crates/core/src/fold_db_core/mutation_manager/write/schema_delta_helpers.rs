@@ -4,7 +4,7 @@ use super::*;
 
 impl MutationManager {
     /// Load the schema's current field definitions for private mutation preparation.
-    pub(super) async fn load_schema_for_delta(
+    pub(in crate::fold_db_core::mutation_manager) async fn load_schema_for_delta(
         &self,
         schema_name: &str,
         storage_prefix: Option<&str>,

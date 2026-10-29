@@ -3,7 +3,7 @@
 mod apply;
 pub(in crate::fold_db_core::mutation_manager) mod batch_rebase;
 mod delta;
-mod field_rules;
+pub(in crate::fold_db_core::mutation_manager) mod field_rules;
 mod persist;
 mod prepare;
 mod prepared;

@@ -104,6 +104,7 @@ mod db_catalog;
 mod db_maintenance;
 mod file_blob;
 mod file_blob_local;
+mod logical_sync_routes;
 mod query_batch;
 mod schema_declare;
 use self::conflict_metadata::*;

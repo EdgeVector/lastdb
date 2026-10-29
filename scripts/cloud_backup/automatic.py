@@ -31,13 +31,13 @@ class Automatic:
         report = self.programs.command(self.credentials, ["cloud", "backup-v2", "inspect-dependencies",
             "--recovery-phrase-stdin", "--stream", chosen["stream_id"], "--generation", chosen["account_generation"],
             "--commit", chosen["commit_id"], "--commit-sha256", chosen["commit_sha256"], "--json"], self.phrase)
-        require(report["accepted_hashes_verified"] is True and report["retained_points"] > 0
+        require(report["accepted_hashes_verified"] is True and 0 < report["retained_points"] <= 8
                 and report["closure_only"] is True and report["account_directory_frozen"] is False
                 and report["provider_deletion_authorized"] is False and report["provider_deletions"] == 0,
                 "accepted_dependency_inspection")
         return report
 
-    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False):
+    def recover(self, name, expected, accepted, replay=None, lifecycle=None, initial=False, observe=None):
         operation = self.operation
         operation.summary["stage"] = name
         require(operation.node.process is None, "source_stays_stopped_for_restore")
@@ -46,7 +46,7 @@ class Automatic:
         destination = parent / "restored"
         selected = selection(expected, accepted)
         report = self.programs.restore(self.credentials, destination, selected, self.phrase)
-        proof = restored(destination, report, selected, replay)
+        proof = restored(destination, report, selected, replay, observe)
         inventory = json.dumps(proof.pop("files"), sort_keys=True, separators=(",", ":")).encode()
         proof["native_inventory_sha256"] = hashlib.sha256(inventory).hexdigest()
         node = OwnedNode(destination, self.programs)
@@ -79,16 +79,18 @@ class Automatic:
         source.configure()
         snapshot = source.published("snapshot")
         source.caught_up(snapshot)
+        operation.summary["stage"] = "automatic-snapshot-stop"
         source.node.stop()
         source.node.ttl_sweep = True
+        operation.summary["stage"] = "automatic-ttl-restart"
         source.node.start()
         operation.summary["stage"] = "ttl-log-expiry"
         first_ttl = lifecycle.await_expiry(2)
         operation.summary["stage"] = "mutation-log"
         source.write(self.baseline["schema"])
-        written = dict(source.cloud("status")["mutation_log"]["head"]["frontiers"])
+        written = source.cloud("status")["mutation_log"]["head"]
         log = source.published("mutation_log", snapshot["last_accepted_backup"]["commit_sha256"],
-                               through=written)
+                               through=written["frontiers"])
         source.caught_up(log)
         source.retired(snapshot["request_id"])
         timer = snapshot["automatic_backup"]
@@ -116,6 +118,7 @@ class Automatic:
         source.configure(snapshot=60)
         later = source.published("snapshot", snapshot["last_accepted_backup"]["commit_sha256"],
                                  snapshot=60, through=second_ttl)
+        source.caught_up(later, snapshot=60)
         require(later["automatic_backup"]["last_snapshot_at"] > snapshot["automatic_backup"]["last_snapshot_at"],
                 "changed_interval_produced_a_later_snapshot")
         operation.summary["stage"] = "automatic-disable"
@@ -125,12 +128,11 @@ class Automatic:
         source.node.stop()
         dependency_inspections = {"log": self.dependencies(source.expected, log["last_accepted_backup"]),
                                   "snapshot": self.dependencies(source.expected, later["last_accepted_backup"])}
-        replay = {"base": snapshot["last_accepted_backup"], "through": log["mutation_log"]["head"]}
+        replay = {"base": snapshot["last_accepted_backup"], "minimum": written}
         base_restore = self.recover("base-recovery", self.baseline, snapshot["last_accepted_backup"],
                                     lifecycle=lifecycle, initial=True)
         log_restore = self.recover("log-recovery", source.expected, log["last_accepted_backup"], replay,
-                                   lifecycle=lifecycle)
-        routes = log_restore["restore"]["mutation_log_routes"]
+                                   lifecycle=lifecycle, observe=source.observe_accepted)
         snapshot_restore = self.recover("snapshot-recovery", source.expected, later["last_accepted_backup"],
                                         lifecycle=lifecycle)
         ownership = complete_ownership(operation, source, [value["last_accepted_backup"]
@@ -139,7 +141,7 @@ class Automatic:
                 "automatic_policy_survives_restart": True, "changed_snapshot_interval_observed": True,
                 "log_interval_seconds": 60, "final_snapshot_interval_seconds": 86400,
                 "new_file_bytes": source.expected["file_bytes"], "new_file_sha256": source.expected["file_sha256"],
-                "mutation_log_routes": routes,
+                "mutation_log_routes": log_restore["restore"]["mutation_log_routes"],
                 "updated_records": 15, "deleted_records": 1, "observed_checkpoints": len(source.completed),
                 "declared_checkpoint_bytes": source.declared_bytes,
                 "base_recovery": base_restore, "log_recovery": log_restore,

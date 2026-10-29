@@ -116,10 +116,11 @@ impl MutationManager {
 
         let key_value =
             self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
-        let mutation_key_values = vec![key_value.clone()];
-        let single_mutation = vec![mutation.clone()];
-        let changed_keys =
-            Self::changed_keys_by_field(&schema, &single_mutation, &mutation_key_values);
+        let changed_keys = super::molecules::field_rules::changed_keys_by_field(
+            &schema,
+            std::slice::from_ref(mutation),
+            std::slice::from_ref(&key_value),
+        );
         self.restore_missing_molecules(&mut schema, &changed_keys)
             .await?;
 

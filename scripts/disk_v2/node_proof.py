@@ -39,6 +39,7 @@ from sampler import Sampler, folder_sizes, v2_bytes  # noqa: E402
 from seed import SCHEMAS, Seed, batch_request, canonical, query_request, schema_request  # noqa: E402
 import cleanup  # noqa: E402
 import logical_capture  # noqa: E402
+import logical_peer  # noqa: E402
 
 LIMIT = 2.0
 MINIMUM_LOGICAL = 16 * 1024 * 1024
@@ -441,11 +442,13 @@ def main():
     candidate = (args.candidate.resolve(strict=True), args.candidate_revision)
     report = Case(candidate, args.output).execute()
     capture = logical_capture.run(candidate, args.output / "logical-capture")
+    peers = logical_peer.run(candidate, args.output / "logical-peers")
     save(args.output / "node-proof.json", {"limit": LIMIT, "profile": PROFILE,
-                                           "reports": [report], "logical_capture": capture})
+                                           "reports": [report], "logical_capture": capture, "logical_peers": peers})
     print(summary(report, args.candidate_revision), flush=True)
     print(logical_capture.summary(capture), flush=True)
-    if report["failures"] or not capture["complete"]:
+    print(logical_peer.summary(peers), flush=True)
+    if report["failures"] or not capture["complete"] or not peers["complete"]:
         sys.exit(1)
 
 
