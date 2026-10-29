@@ -58,11 +58,19 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         &self,
         key: &str,
     ) -> StorageResult<Option<T>> {
-        Ok(self
-            .get_items::<T>(&[key.to_owned()])
+        if let Some((runtime, namespace)) = self.inner.native_typed_view() {
+            if let Some(mut values) = runtime
+                .direct_write_items(namespace, &[key.to_owned()], decode_item::<T>)
+                .await?
+            {
+                return Ok(values.pop().expect("one typed key"));
+            }
+        }
+        self.inner
+            .get(key.as_bytes())
             .await?
-            .pop()
-            .expect("one typed key"))
+            .map(|bytes| decode_item(&bytes))
+            .transpose()
     }
 
     /// Get multiple typed items, preserving input order.
