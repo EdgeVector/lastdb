@@ -93,9 +93,10 @@ requests carried a phase breakdown at all.
 
 Zero-hide applies on both axes: phases that measured zero are omitted from
 each row, and the table is absent entirely when nothing reported phases.
-Flush in particular stays near zero on default builds (background flusher;
-sync only under `LASTDB_MUTATION_SYNC_FLUSH=1`), so a visible `flush=0` would
-read as broken instrumentation rather than a measurement.
+The flush phase covers explicit store barriers. Native writes complete their disk
+commit before acknowledgment and report that work in their native commit phases.
+`LASTDB_MUTATION_SYNC_FLUSH` and `LASTDB_BACKGROUND_FLUSH_MS` are retired;
+neither setting changes native durability.
 
 Proof sequence for "where did my slow write spend its time":
 
