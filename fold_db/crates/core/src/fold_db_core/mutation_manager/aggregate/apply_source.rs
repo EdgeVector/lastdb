@@ -117,10 +117,7 @@ impl MutationManager {
             missing_derived_for_existing_source,
         ) {
             Ok(apply) => apply,
-            Err(error) => {
-                self.invalidate_expected(ctx).await?;
-                return Err(error);
-            }
+            Err(error) => return self.refuse_after_invalidate(ctx, error).await,
         };
         let prior_valid = summary.valid && !missing_derived_for_existing_source;
         let association_stable = gs.association_stable(expected);

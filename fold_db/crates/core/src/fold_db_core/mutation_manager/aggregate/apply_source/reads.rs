@@ -36,10 +36,13 @@ impl MutationManager {
             CurrentRowFields::Absent => Ok((BTreeMap::new(), current_source_winner)),
             CurrentRowFields::Present(fields) => Ok((fields, current_source_winner)),
             CurrentRowFields::Corrupt { field, atom_uuid } => {
-                self.invalidate_expected(ctx).await?;
-                Err(SchemaError::InvalidData(format!(
-                    "aggregate source field '{field}' has unresolved or tombstoned atom '{atom_uuid}'"
-                )))
+                self.refuse_after_invalidate(
+                    ctx,
+                    SchemaError::InvalidData(format!(
+                        "aggregate source field '{field}' has unresolved or tombstoned atom '{atom_uuid}'"
+                    )),
+                )
+                .await
             }
         }
     }
@@ -77,10 +80,7 @@ impl MutationManager {
         };
         match member_rules::interpret_member(recovering, &member_fields) {
             Ok(member) => Ok(member),
-            Err(error) => {
-                self.invalidate_expected(ctx).await?;
-                Err(error)
-            }
+            Err(error) => self.refuse_after_invalidate(ctx, error).await,
         }
     }
 
@@ -106,10 +106,14 @@ impl MutationManager {
             CurrentRowFields::Absent => BTreeMap::new(),
             CurrentRowFields::Present(fields) => fields,
             CurrentRowFields::Corrupt { field, atom_uuid } => {
-                self.invalidate_expected(ctx).await?;
-                return Err(SchemaError::InvalidData(format!(
-                    "aggregate summary field '{field}' has unresolved atom '{atom_uuid}'"
-                )));
+                return self
+                    .refuse_after_invalidate(
+                        ctx,
+                        SchemaError::InvalidData(format!(
+                            "aggregate summary field '{field}' has unresolved atom '{atom_uuid}'"
+                        )),
+                    )
+                    .await;
             }
         };
         match rules::interpret_summary(
@@ -120,10 +124,7 @@ impl MutationManager {
             summary_fields,
         ) {
             Ok(summary) => Ok(summary),
-            Err(error) => {
-                self.invalidate_expected(ctx).await?;
-                Err(error)
-            }
+            Err(error) => self.refuse_after_invalidate(ctx, error).await,
         }
     }
 }
