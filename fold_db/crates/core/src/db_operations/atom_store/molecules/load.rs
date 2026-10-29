@@ -150,54 +150,15 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         changed: &std::collections::HashSet<ChangedKey>,
     ) -> Result<Option<MoleculeData>, SchemaError> {
-        // Probe the header at the EXACT prefix we will persist to — deliberately
-        // NO org pre-tag dual-read fallback. If it's absent here the persist step
-        // takes the full-rewrite migration path (which needs the whole molecule),
-        // so bail to the full load.
-        let header_key = build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::header_key(molecule_uuid),
-        );
-        let header: MoleculeHeader =
-            match self.main_store.get_item(&header_key).await.map_err(|e| {
-                SchemaError::InvalidData(format!("read molecule header {molecule_uuid}: {e}"))
-            })? {
-                Some(h) => h,
-                None => return Ok(None),
-            };
-        let mut slots = Vec::with_capacity(changed.len());
-        let mut groups = Vec::with_capacity(changed.len());
-        for ck in changed {
-            let api_hash = ck.hash_or_empty();
-            let api_range = ck.range_or_empty();
-            let storage_hash = self.storage_hash(molecule_uuid, api_hash)?;
-            let storage_range = self.storage_range(molecule_uuid, api_range)?;
-            let key = molecule_key_codec::hash_range_record_key(
-                molecule_uuid,
-                &storage_hash,
-                &storage_range,
-            );
-            slots.push((api_hash.to_string(), api_range.to_string()));
-            groups.push(key);
-        }
-        // The shared helper reads each exact tip and Delete barrier in batches,
-        // and probes this molecule's active generation only once.
-        let selected = self
-            .load_visible_per_key_records(storage_prefix, &groups)
-            .await?;
-        let records = slots
-            .into_iter()
-            .zip(selected)
-            .filter_map(|((hash, range), record)| {
-                record.map(|record| (hash, range, record.entry, record.meta))
-            })
-            .collect();
-        Ok(Some(MoleculeHashRange::from_write_records(
-            molecule_uuid.to_string(),
-            header.version,
-            header.updated_at,
-            records,
-        )))
+        Ok(self
+            .load_molecules_for_write(&[super::MoleculeWriteLoad {
+                molecule: molecule_uuid,
+                scope: storage_prefix,
+                changed,
+            }])
+            .await?
+            .pop()
+            .expect("one keyed molecule write request"))
     }
 
     /// Read `mh:{M}` at the exact storage prefix. `None` means the molecule

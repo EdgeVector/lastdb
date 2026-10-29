@@ -4,34 +4,9 @@ use super::*;
 
 mod entry;
 mod rules;
-use super::rules::{summary_mutation, target_owner_matches};
+use super::rules::summary_mutation;
 
 impl MutationManager {
-    /// The committed target owner must be the guard being repaired.
-    async fn check_repair_target_owner(
-        &self,
-        guard: &AggregateGuard,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let reverse_key = aggregate_target_guard_key(
-            storage_prefix,
-            &guard.target_schema_name,
-            &guard.target_key,
-        );
-        let reverse = self
-            .read_active_target_guard(&reverse_key, storage_prefix)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate target has no committed owner".into())
-            })?;
-        if !target_owner_matches(&reverse, guard) {
-            return Err(SchemaError::InvalidData(
-                "aggregate target owner does not match the repair source partition".into(),
-            ));
-        }
-        Ok(())
-    }
-
     /// Read the current summary token; a corrupt summary invalidates the guard.
     async fn check_repair_guard_token(
         &self,
@@ -201,7 +176,7 @@ impl MutationManager {
             .iter()
             .map(|(field, total)| (field.clone(), serde_json::Value::from(*total)))
             .collect();
-        let mut summary = summary_mutation(
+        let summary = summary_mutation(
             target_schema_name,
             target_key,
             fields,
@@ -209,16 +184,15 @@ impl MutationManager {
             repair_token.clone(),
             String::new(),
         );
-        let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
-        let revision = summary.logical_counter;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
-            .await;
-        let mut receipt = Self::require_durable_receipt(result?, "repair summary")?;
-        receipt.revision = Some(revision);
+        let receipt = self
+            .commit_clocked_mutations(
+                vec![summary],
+                storage_prefix,
+                WriteOrigin::Request,
+                "repair summary",
+                true,
+            )
+            .await?;
         let grant = AggregateRepairGrant {
             version: 1,
             repair_token: repair_token.clone(),

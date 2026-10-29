@@ -1,4 +1,4 @@
-//! Read calls: schema lists, lookups, reuse checks, resolve and app fetches.
+//! Read calls: schema lookups, resolve, and app fetches.
 
 use super::*;
 
@@ -36,37 +36,6 @@ impl SchemaServiceClient {
             })
         })
         .await
-    }
-
-    /// Extract a schema name from a JSON value that may be a string, `{"name": ...}`, or `{"schema": {"name": ...}}`.
-    pub(super) fn extract_schema_name(v: &serde_json::Value) -> Option<String> {
-        v.as_str().map(Into::into).or_else(|| {
-            let obj = v.as_object()?;
-            obj.get("name")
-                .and_then(|n| n.as_str())
-                .or_else(|| {
-                    obj.get("schema")
-                        .and_then(|s| s.get("name"))
-                        .and_then(|n| n.as_str())
-                })
-                .map(Into::into)
-        })
-    }
-
-    /// List all available schemas from the schema service.
-    pub async fn list_schemas(&self) -> FoldDbResult<Vec<String>> {
-        #[derive(Deserialize)]
-        struct SchemasListResponse {
-            schemas: Vec<serde_json::Value>,
-        }
-
-        let url = format!("{}/v1/schemas", self.base_url);
-        let resp: SchemasListResponse = self.get_json(&url, "schemas").await?;
-        Ok(resp
-            .schemas
-            .iter()
-            .filter_map(Self::extract_schema_name)
-            .collect())
     }
 
     /// Get all available schemas with their full definitions from the schema service.
@@ -134,63 +103,6 @@ impl SchemaServiceClient {
                 .map_err(|e| {
                     RetryError::Permanent(FoldDbError::Config(format!(
                         "Failed to parse schema '{name}' lookup response: {e}"
-                    )))
-                })
-        })
-        .await
-    }
-
-    /// Fetch the signed compact registry index.
-    ///
-    /// The client only transports and parses the envelope. Signature, Merkle,
-    /// and trust-root verification are owned by fold_db_node, which decides
-    /// which signing keys are trusted in its runtime.
-    pub async fn get_registry_index(&self) -> FoldDbResult<RegistryIndexEnvelope> {
-        let url = format!("{}/v1/registry/index", self.base_url);
-        self.get_json(&url, "registry index").await
-    }
-
-    /// Batch check whether proposed schemas can reuse existing ones.
-    ///
-    /// Retries up to 3 times on transient failures.
-    pub async fn batch_check_schema_reuse(
-        &self,
-        entries: &[SchemaLookupEntry],
-    ) -> FoldDbResult<BatchSchemaReuseResponse> {
-        let url = format!("{}/v1/schemas/batch-check-reuse", self.base_url);
-        let request = BatchSchemaReuseRequest {
-            schemas: entries.to_vec(),
-        };
-
-        with_retries(|| async {
-            let response =
-                observability::propagation::inject_w3c(self.client.post(&url).json(&request))
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        let retryable = reqwest_error_is_retryable(&e);
-                        let wrapped = FoldDbError::Config(format!(
-                            "Failed to batch check schema reuse at {url}: {e}"
-                        ));
-                        RetryError::classify(retryable, wrapped)
-                    })?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let retryable = status_is_retryable(status);
-                let body = response_body_text(response).await;
-                let wrapped = FoldDbError::Config(format!(
-                    "Batch schema reuse check failed (status {status}): {body}"
-                ));
-                return Err(RetryError::classify(retryable, wrapped));
-            }
-
-            response
-                .json::<BatchSchemaReuseResponse>()
-                .await
-                .map_err(|e| {
-                    RetryError::Permanent(FoldDbError::Config(format!(
-                        "Failed to parse batch schema reuse response: {e}"
                     )))
                 })
         })

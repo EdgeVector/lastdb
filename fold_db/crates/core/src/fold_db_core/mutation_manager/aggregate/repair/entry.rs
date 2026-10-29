@@ -11,6 +11,7 @@ impl MutationManager {
         repair: AggregateRepair,
         access_context: &crate::access::AccessContext,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
+        self.refuse_logical_capture("aggregate operations")?;
         rules::validate_request(&repair)?;
         let target_key = self
             .resolve_aggregate_target_key(&repair.target_schema_name, &repair.target_key_value)?;
@@ -88,8 +89,12 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
-        self.check_repair_target_owner(guard, storage_prefix)
-            .await?;
+        self.check_aggregate_target_owner(
+            guard,
+            storage_prefix,
+            "aggregate target owner does not match the repair source partition",
+        )
+        .await?;
         self.check_repair_guard_token(&repair, &target_key, guard, storage_prefix)
             .await?;
         let repair_token = format!("repair:{}", uuid::Uuid::new_v4());

@@ -45,6 +45,7 @@ impl PackRuntime {
                 || context
                     .overlay_record(Some(pending), &fallback.0, &fallback.1)
                     .is_some()
+                || context.has_disk_value(&primary)?
             {
                 continue;
             }
@@ -88,7 +89,11 @@ impl PackRuntime {
                 .map(|value| 1 + u64::from(value.value.is_none()))
                 .sum(),
         );
-        for (position, value) in selected.into_iter().zip(values) {
+        for ((position, pair), value) in selected.into_iter().zip(pairs).zip(values) {
+            context.remember_disk_value(&pair.primary, value.value.as_deref())?;
+            if value.value.is_none() && !value.fallback_present {
+                context.remember_disk_value(&pair.fallback, None)?;
+            }
             output[position] = Some(value);
         }
         Ok(output)

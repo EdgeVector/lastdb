@@ -13,8 +13,8 @@ use super::near_miss::{NearMissDecision, NearMissRecord};
 use super::schema_mutation_gate::{SchemaMutationGateConfig, SchemaMutationGateStore};
 use super::snapshot::AppRecord;
 use super::state_canonicalization::{
-    gate_outcome_for_candidate, rank_candidates, CandidateConflict, CandidateSet,
-    CanonicalizationGateOutcome, MatchCandidate, MatchSeam,
+    gate_outcome_for_candidate, rank_candidates, CandidateSet, CanonicalizationGateOutcome,
+    MatchCandidate, MatchSeam,
 };
 use super::state_matching::collect_field_names;
 pub use super::state_matching::jaccard_index;

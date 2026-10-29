@@ -9,8 +9,6 @@
 //!   events, and the ERROR-level Sentry tracing layer installed by `lastdbd`.
 //! - [`install_crash_hook`] / [`scan_previous_crashes`] — write a durable local
 //!   crash report on every panic and surface unseen reports on the next boot.
-//! - [`previous_log_tail`] — read the tail of the previous daemon log so an
-//!   unclean-exit event can answer "what was it doing when it died".
 //! - [`promote_previous_crash_evidence`] — the boot-time promotion call.
 //! - [`status_lines`] — the human-readable "uptime + why it last died" lines
 //!   the `lastdb status` command prints (the card's one-command answer).
@@ -21,21 +19,6 @@
 use std::path::{Path, PathBuf};
 
 use crate::session_ledger::{self, SessionRecord, StartSummary};
-
-/// Cap on the previous-session log tail we read + attach (bytes). Matches the
-/// event-side cap in [`crate::crash_telemetry`] so we never read materially
-/// more than can ride the event.
-const LOG_TAIL_READ_CAP: usize = 16 * 1024;
-
-/// Env override naming the daemon log file whose tail rides an unclean-exit
-/// event. Primarily a test seam; in production the launchd stdio path is
-/// auto-resolved (see [`resolve_log_path`]).
-const LOG_PATH_ENV: &str = "LASTDBD_LOG_PATH";
-
-/// Homebrew launchd `StandardOutPath` default for `lastdbd` — the file the
-/// sibling `lastdb-lastdbd-brew-log-rotation` card bounds. Used as the last
-/// resort when the running fd cannot be resolved to a regular file.
-const BREW_LOG_PATH: &str = "/opt/homebrew/var/log/lastdb/lastdbd.log";
 
 /// The baked build version (`FOLDDB_BUILD_VERSION`, stamped by `build.rs`).
 /// Same source the `--version` flag and the session ledger use, so a crash /
@@ -126,12 +109,8 @@ pub fn scan_previous_crashes(home: &Path) -> Vec<PathBuf> {
 /// when the previous session ended uncleanly with no panic report to explain
 /// it. Log tails and free-form fault text stay local. No-op when no Sentry
 /// client is bound. Returns the number of events sent.
-pub fn promote_previous_crash_evidence(
-    reports: &[PathBuf],
-    start: Option<&StartSummary>,
-    prev_log_tail: Option<&str>,
-) -> usize {
-    let sent = crate::crash_telemetry::report_crashes_with_log_tail(reports, start, prev_log_tail);
+pub fn promote_previous_crash_evidence(reports: &[PathBuf], start: Option<&StartSummary>) -> usize {
+    let sent = crate::crash_telemetry::report_crashes_with_log_tail(reports, start);
     if sent > 0 {
         tracing::info!(
             target: "lastdbd::crash_attribution",
@@ -139,48 +118,6 @@ pub fn promote_previous_crash_evidence(
         );
     }
     sent
-}
-
-// ---------------------------------------------------------------------------
-// Previous-daemon log tail
-// ---------------------------------------------------------------------------
-
-/// Read the tail of the previous daemon log (up to [`LOG_TAIL_READ_CAP`]
-/// bytes), for attaching to an unclean-exit event. Called EARLY at boot, before
-/// this session writes much, so the file still holds the dying session's last
-/// lines. `None` when no log file can be resolved/read.
-pub fn previous_log_tail() -> Option<String> {
-    let path = resolve_log_path()?;
-    read_tail(&path, LOG_TAIL_READ_CAP)
-}
-
-/// Resolve the daemon log file path, in priority order: the `LASTDBD_LOG_PATH`
-/// override, the running stderr fd's file (where tracing goes), the stdout fd's
-/// file (`println!` / launchd `StandardOutPath`), then the Homebrew default.
-fn resolve_log_path() -> Option<PathBuf> {
-    if let Some(p) = std::env::var(LOG_PATH_ENV)
-        .ok()
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .filter(|p| p.is_file())
-    {
-        return Some(p);
-    }
-    for fd in [libc::STDERR_FILENO, libc::STDOUT_FILENO] {
-        if let Some(p) = crate::log_rotation::fd_regular_file_path(fd) {
-            return Some(p);
-        }
-    }
-    let brew = PathBuf::from(BREW_LOG_PATH);
-    brew.is_file().then_some(brew)
-}
-
-/// Read the last `cap` bytes of `path` as (lossy) UTF-8. Tail-biased: keeps the
-/// END of the file (the last things the dying session logged).
-fn read_tail(path: &Path, cap: usize) -> Option<String> {
-    let data = std::fs::read(path).ok()?;
-    let start = data.len().saturating_sub(cap);
-    Some(String::from_utf8_lossy(&data[start..]).into_owned())
 }
 
 // ---------------------------------------------------------------------------

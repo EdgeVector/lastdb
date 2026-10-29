@@ -1,6 +1,6 @@
 //! Aggregate summary finalize path.
 
-use super::rules::{association_matches, summary_mutation, target_owner_matches};
+use super::rules::{association_matches, summary_mutation};
 use super::*;
 
 mod rules;
@@ -13,6 +13,7 @@ impl MutationManager {
         finalize: AggregateFinalize,
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
+        self.refuse_logical_capture("aggregate operations")?;
         rules::validate_request(&finalize)?;
         let target_key = self.resolve_aggregate_target_key(
             &finalize.target_schema_name,
@@ -77,8 +78,12 @@ impl MutationManager {
                 .write_owned()
                 .await;
             self.with_aggregate_guards(_target_lock, async {
-                self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
-                    .await?;
+                self.check_aggregate_target_owner(
+                    &guard,
+                    storage_prefix.as_deref(),
+                    "aggregate target owner does not match the finalize source partition",
+                )
+                .await?;
                 self.finalize_with_repair_grant(
                     finalize,
                     target_key,
@@ -163,31 +168,6 @@ impl MutationManager {
         Ok(receipt)
     }
 
-    /// The committed target owner must be the guard being finalized.
-    async fn check_finalize_target_owner(
-        &self,
-        guard: &AggregateGuard,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let reverse_key = aggregate_target_guard_key(
-            storage_prefix,
-            &guard.target_schema_name,
-            &guard.target_key,
-        );
-        let reverse = self
-            .read_active_target_guard(&reverse_key, storage_prefix)
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate target has no committed owner".into())
-            })?;
-        if !target_owner_matches(&reverse, guard) {
-            return Err(SchemaError::InvalidData(
-                "aggregate target owner does not match the finalize source partition".into(),
-            ));
-        }
-        Ok(())
-    }
-
     /// Read the current summary. Corruption invalidates the guard before refusal;
     /// the caller then evaluates token, metric, grant and valid-marker rules.
     async fn read_finalize_summary(
@@ -235,7 +215,7 @@ impl MutationManager {
         target_key: KeyValue,
         storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let mut summary = summary_mutation(
+        let summary = summary_mutation(
             finalize.target_schema_name,
             target_key,
             HashMap::new(),
@@ -243,16 +223,13 @@ impl MutationManager {
             finalize.expected_guard_token,
             String::new(),
         );
-        let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
-        let revision = summary.logical_counter;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
-            .await;
-        let mut receipt = Self::require_durable_receipt(result?, "finalize marker")?;
-        receipt.revision = Some(revision);
-        Ok(receipt)
+        self.commit_clocked_mutations(
+            vec![summary],
+            storage_prefix,
+            WriteOrigin::Request,
+            "finalize marker",
+            true,
+        )
+        .await
     }
 }

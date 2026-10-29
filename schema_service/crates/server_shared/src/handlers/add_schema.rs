@@ -55,16 +55,22 @@ fn observe_shared_surface(request: &AddSchemaRequest) -> Result<(), HttpResponse
 /// body are already publicly readable via `GET /v1/schemas`, so
 /// echoing an existing entry leaks nothing beyond enumeration.
 /// Create / expand / conflict outcomes still require a cert below.
-fn idempotent_repost_response(
+async fn idempotent_repost_response(
     state: &SchemaServiceState,
     request: &AddSchemaRequest,
 ) -> Option<HttpResponse> {
-    request
-        .schema
-        .owner_app_id
-        .as_deref()
-        .filter(|s| !s.is_empty())?;
-    let existing = state.classify_idempotent_repost(&request.schema, &request.mutation_mappers)?;
+    let existing = match state
+        .lookup_idempotent_repost(&request.schema, &request.mutation_mappers)
+        .await
+    {
+        Ok(Some(existing)) => existing,
+        Ok(None) => return None,
+        Err(error) => {
+            return Some(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to read existing schema: {error}"),
+            }));
+        }
+    };
     let system = state.is_system_schema(&existing.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {
         schema: existing,
@@ -76,16 +82,12 @@ fn idempotent_repost_response(
     }))
 }
 
-/// owner_app_id ↔ dev-cert gate (app_identity v3.1, Lane B2b; local-first
-/// app-namespacing). Un-namespaced submissions are accepted
-/// unconditionally. A namespaced submission is cert-free when it merely
-/// CLAIMS a local namespace (`offer_to_shared_discovery = false`, the
-/// default node/init path — the deterministic identity_hash is computed
-/// locally) and cert-gated only when it OFFERS the schema into the shared
-/// registry's discovery (`offer_to_shared_discovery = true`).
+/// New schemas and expansions require an Exemem developer cert, a signed
+/// schema payload, and the registered app owner. Local claims and shared
+/// offers use the same gate. Exact public reposts return before this gate.
 ///
 /// Also checks declared-field references and the schema mutation gate.
-fn authorize_add_schema(
+async fn authorize_add_schema(
     state: &SchemaServiceState,
     req: &HttpRequest,
     request: &AddSchemaRequest,
@@ -94,13 +96,16 @@ fn authorize_add_schema(
 ) -> Result<(), HttpResponse> {
     let cert = header_value(req, "X-Exemem-Dev-Cert");
     let sig = header_value(req, "X-Signature");
-    if let Err(e) = state.authorize_schema_claim(
-        request.schema.owner_app_id.as_deref(),
-        cert.as_deref(),
-        sig.as_deref(),
-        schema_value,
-        request.offer_to_shared_discovery,
-    ) {
+    if let Err(e) = state
+        .authorize_schema_claim(
+            request.schema.owner_app_id.as_deref(),
+            cert.as_deref(),
+            sig.as_deref(),
+            schema_value,
+            request.offer_to_shared_discovery,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return Err(json_status(status, body));
     }
@@ -198,7 +203,7 @@ pub async fn add_schema(
         request.offer_to_shared_discovery,
     );
 
-    if let Some(response) = idempotent_repost_response(&state, &request) {
+    if let Some(response) = idempotent_repost_response(&state, &request).await {
         return response;
     }
 
@@ -212,7 +217,8 @@ pub async fn add_schema(
         }
     }
 
-    if let Err(response) = authorize_add_schema(&state, &req, &request, &schema_value, &observation)
+    if let Err(response) =
+        authorize_add_schema(&state, &req, &request, &schema_value, &observation).await
     {
         return response;
     }

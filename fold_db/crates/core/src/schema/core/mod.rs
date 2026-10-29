@@ -6,7 +6,6 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaState;
 
 mod cache;
-mod declare;
 mod field_mapping;
 mod load;
 mod locks;
@@ -17,7 +16,7 @@ mod state;
 /// Core schema management system that combines schema interpretation, validation, and management.
 ///
 /// SchemaCore is responsible for:
-/// - Loading and validating schemas from JSON
+/// - Loading and validating schemas
 /// - Managing schema storage and persistence
 /// - Handling schema field mappings
 /// - Providing schema access and validation services
@@ -50,46 +49,10 @@ pub struct SchemaCore {
     /// false — clients (and the safe-upgrade smoke bar) treat empty-ok as a
     /// finished empty brain, which false-REDs a hydrating post-rekey home.
     catalog_ready: AtomicBool,
-    /// Schema name → the exact multi-key binding set this process has already
-    /// established durably, for [`Self::apply_field_hash_coherence_on_load`].
-    ///
-    /// The pass's name says "on load", but its only caller is
-    /// `load_schema_internal`, and the mutation write path calls that after
-    /// **every write** to refresh the in-memory cache. So a step designed to run
-    /// once per schema registration was running once per mutation, and its
-    /// binder had no already-bound fast path: in the steady state each shared
-    /// field still cost several durable protein reads plus an unconditional
-    /// `fldprot:` breadcrumb rewrite. Measured on the primary 2026-08-17, that
-    /// made `schema_reload` 2162ms/mutation on `BoardCards_hashrange_v1` (24
-    /// fields, has multi-key siblings) against 3.8ms/mutation on `Card` (no
-    /// sibling, so its binding set is empty and it returned early) — 25% of all
-    /// time that schema's mutations spent in the node.
-    ///
-    /// Keyed on the binding tuples themselves, NOT on the schema's identity
-    /// hash: the tuples are exactly what the durable work depends on, so a
-    /// changed molecule UUID or a newly-matched peer invalidates the memo
-    /// without needing a separate rule about what else should.
-    ///
-    /// **Why a per-schema memo is still complete when a NEW sibling appears
-    /// later.** Binding is symmetric — `bind_cross_key_field_protein` joins both
-    /// molecules to one protein regardless of which side initiated. A schema
-    /// registered after this one runs its own pass, finds this one in the peer
-    /// scan, and binds the pair. So a memo hit here can never be the only path
-    /// to a binding that ought to exist.
-    ///
-    /// Process-local and deliberately not persisted: a restart re-establishes it
-    /// on the first load of each schema, which is the one-time cost the pass was
-    /// always meant to be.
+    /// Exact field memberships this process established in a durable native scope.
+    /// A restart re-establishes the memo. New schemas join the same field protein
+    /// directly; app names, key differences and schema overlap do not select peers.
     coherence_bound: Arc<Mutex<HashMap<String, Vec<CoherenceBinding>>>>,
 }
 
-/// One durable multi-key binding, as [`SchemaCore::apply_field_hash_coherence_on_load`]
-/// computes it. Compared as a whole to decide whether the pass has anything
-/// left to do — see [`SchemaCore::coherence_bound`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CoherenceBinding {
-    pub(crate) field: String,
-    pub(crate) field_hash: String,
-    pub(crate) peer_molecule: String,
-    pub(crate) peer_layout: crate::schema::field_hash_coherence::KeyLayoutFingerprint,
-}
+pub(super) use crate::protein::FieldProteinBinding as CoherenceBinding;

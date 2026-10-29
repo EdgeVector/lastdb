@@ -127,7 +127,7 @@ impl SchemaCore {
         &self,
         schema: &mut Schema,
         own_stored: Option<&Schema>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Option<Schema>, SchemaError> {
         if let Some(molecules) = stored_molecules(schema, own_stored) {
             let restored = use_molecules(schema, molecules);
             if restored > 0 {
@@ -137,33 +137,35 @@ impl SchemaCore {
                     "restored this identity's stored molecule map over wire-derived values"
                 );
             }
-            return Ok(());
+            return Ok(None);
         }
         let Some(criteria) = PredecessorMatch::new(schema) else {
-            return Ok(());
+            return Ok(None);
         };
-        // Clone only the selected map, then release the cache lock before mutation.
+        // Clone only the selected definition, without materialized molecules,
+        // then release the cache lock before mutation and typed profile checks.
         let selected = {
             let schemas = read_map(&self.schemas, "schemas")?;
-            criteria.select(schemas.values()).map(|peer| {
-                (
-                    peer.name.clone(),
-                    peer.field_molecule_uuids.clone().unwrap_or_default(),
-                )
-            })
+            criteria
+                .select(schemas.values())
+                .map(Schema::clone_for_read_shared)
         };
-        if let Some((predecessor, molecules)) = selected {
-            let adopted = use_molecules(schema, &molecules);
+        if let Some(predecessor) = selected {
+            let adopted = predecessor
+                .field_molecule_uuids
+                .as_ref()
+                .map_or(0, |molecules| use_molecules(schema, molecules));
             if adopted > 0 {
                 tracing::info!(
                     schema = %schema.name,
-                    predecessor = %predecessor,
+                    predecessor = %predecessor.name,
                     adopted,
                     "adopted predecessor molecule map for shared fields (schema expansion \
                      data continuity — reads/writes stay on the predecessor's molecules)"
                 );
             }
+            return Ok(Some(predecessor));
         }
-        Ok(())
+        Ok(None)
     }
 }

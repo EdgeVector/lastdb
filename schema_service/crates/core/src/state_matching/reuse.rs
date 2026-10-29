@@ -68,9 +68,6 @@ impl SchemaServiceState {
             if self.is_system_schema(&existing.name) {
                 continue;
             }
-            if super::super::state_expansion::is_cross_schema_type_expansion(incoming, existing) {
-                continue;
-            }
             // Different lookup keys ⇒ multi-key sibling, not field-reuse merge target.
             if super::super::state_expansion::is_cross_key_layout(incoming, existing) {
                 continue;

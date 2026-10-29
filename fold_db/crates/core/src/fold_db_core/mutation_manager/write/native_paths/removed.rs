@@ -179,14 +179,13 @@ impl MutationManager {
         schema: &Schema,
         molecules: &std::collections::BTreeSet<String>,
     ) -> Result<BTreeMap<String, Vec<Binding>>, SchemaError> {
-        let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async move {
-            let bindings = self
-                .path_bindings(schema, molecule)
-                .await?
-                .unwrap_or(bindings::schema_bindings(schema, molecule)?);
-            Ok::<_, SchemaError>((molecule.clone(), bindings))
-        }))
-        .await?;
-        Ok(bindings.into_iter().collect())
+        self.path_bindings_batch(schema, molecules)
+            .await?
+            .into_iter()
+            .map(|(molecule, bindings)| {
+                let bindings = bindings.unwrap_or(bindings::schema_bindings(schema, &molecule)?);
+                Ok((molecule, bindings))
+            })
+            .collect()
     }
 }

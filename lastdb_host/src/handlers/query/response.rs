@@ -145,6 +145,7 @@ fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
 pub(in crate::handlers) fn format_rows(
     result_map: HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
     sort_helper: Option<&str>,
+    compact: bool,
 ) -> Vec<Value> {
     let records_map = fold_db::fold_db_core::query::records_from_field_map(result_map);
     records_map
@@ -166,8 +167,28 @@ pub(in crate::handlers) fn format_rows(
                 "fields".into(),
                 Value::Object(record.fields.into_iter().collect()),
             );
-            row.insert("metadata".into(), serde_json::json!(record.metadata));
-            row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
+            if compact {
+                // Conflict annotation only needs each projected molecule. Avoid
+                // serializing provenance that the caller did not request.
+                row.insert(
+                    "metadata".into(),
+                    Value::Object(
+                        record
+                            .metadata
+                            .into_iter()
+                            .map(|(field, metadata)| {
+                                (
+                                    field,
+                                    serde_json::json!({"molecule_uuid": metadata.molecule_uuid}),
+                                )
+                            })
+                            .collect(),
+                    ),
+                );
+            } else {
+                row.insert("metadata".into(), serde_json::json!(record.metadata));
+                row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
+            }
             Value::Object(row)
         })
         .collect()

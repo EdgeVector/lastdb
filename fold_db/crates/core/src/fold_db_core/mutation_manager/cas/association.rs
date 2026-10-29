@@ -110,6 +110,9 @@ impl MutationManager {
         if candidates.is_empty() {
             return Ok(candidates);
         }
+        // Peers can be cold after restart. Admit their existing typed profiles
+        // before field_slots/read logic asks the codec for those molecules.
+        self.prepare_batch_molecule_keys(&candidates).await?;
         let source_schema = self
             .schema_manager
             .get_schema_metadata(&source.schema_name)?
@@ -163,6 +166,13 @@ impl MutationManager {
             });
         }
         let atoms = self.db_ops.atoms();
+        let contracts = slots
+            .keys()
+            .map(|(molecule, _, _)| molecule.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        atoms.load_molecule_key_bundles(&contracts).await?;
         let mut slot_keys = vec![String::new(); slots.len()];
         for ((molecule, hash, range), position) in slots {
             slot_keys[position] = atoms

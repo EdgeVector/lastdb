@@ -1,21 +1,19 @@
 use super::capture::Capture;
 use super::{
-    model::{Saved, StreamRecord},
-    publication, retry,
-    source::Source,
-    store::Store,
-    transfer, BackupError, Phase, Result,
+    model::Saved, publication, retry, source::Source, store::Store, transfer, BackupError, Phase,
+    Result,
 };
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
 use cloud_backup_protocol::v2::{
-    AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Stream, Version,
+    AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Version,
 };
 use cloud_backup_protocol::{ErrorCode, Id};
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
+mod stream;
 mod terminal;
 pub(super) use terminal::{terminal_invocation, validate_terminal};
 
@@ -27,6 +25,9 @@ pub(super) async fn run(
     pause: &AtomicBool,
 ) -> Result<()> {
     source.validate(saved)?;
+    if saved.begin.is_some() {
+        stream::validate_saved(source, store, saved)?;
+    }
     if saved.local_action.is_some() {
         source.cancel_replacement(saved)?;
         saved.phase = Phase::Closed;
@@ -95,26 +96,7 @@ async fn setup(
     if !context.new_work_allowed {
         return Err(BackupError::Authority);
     }
-    let previous: Option<StreamRecord> = store.read_base("stream.json")?;
-    let stream = match previous {
-        Some(record)
-            if record.source_home == source.source_home && record.stream.scope == context.scope =>
-        {
-            record.stream
-        }
-        _ => Stream {
-            scope: context.scope,
-            stream_id: Id::try_from(uuid::Uuid::new_v4().to_string())?,
-        },
-    };
-    stream.validate()?;
-    store.write_base(
-        "stream.json",
-        &StreamRecord {
-            source_home: source.source_home.clone(),
-            stream: stream.clone(),
-        },
-    )?;
+    let stream = stream::select(source, store, context.scope)?;
     let head_request = HeadReadRequest {
         version: Version::V2,
         stream: stream.clone(),
@@ -156,6 +138,7 @@ async fn setup(
         },
         descriptor: ClientDescriptor::empty(),
         required_destinations: vec![Destination::R2, Destination::B2],
+        r2_multipart: env_flag::var_truthy("LASTDB_CLOUD_CI_TERMINAL_R2_UPLOADS").then_some(true),
         predecessor,
         // The current service does not advertise accepted-backup retirement.
         // Preserve the legacy hash and conservative dependency rule until it does.

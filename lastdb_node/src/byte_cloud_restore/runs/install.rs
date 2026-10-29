@@ -45,14 +45,19 @@ pub(super) fn verify(
         .run
         .as_ref()
         .ok_or(RestoreError::Invalid("run profile"))?;
-    let proof = run_restore::verify(
+    let mut proof = run_restore::verify(
         &data,
         profile,
         &root.native_root,
         keys.content_key(),
         &scratch,
     )
-    .map_err(|_| RestoreError::Invalid("complete run native proof"))?;
+    .map_err(RestoreError::native_proof)?;
+    if let Some(inclusion) = &root.logical_inclusion {
+        proof
+            .verify_logical_inclusion(inclusion)
+            .map_err(RestoreError::native_proof)?;
+    }
     for file in proof.files() {
         let entry: NativeFileProof = local::read_json(
             &session

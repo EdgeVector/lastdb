@@ -1,21 +1,17 @@
-use super::*;
+//! Resolve the caller's namespace, prepare its schema, then read selected fields.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::access::AccessContext;
+use crate::schema::types::field::{FieldValue, KeyWindow};
+use crate::schema::types::{KeyValue, Query};
+use crate::schema::SchemaError;
+
+use super::{rules, FieldQueryOptions, QueryExecutor};
 
 impl QueryExecutor {
-    pub(super) async fn query_internal_scoped(
-        &self,
-        query: Query,
-        window: Option<KeyWindow>,
-        access_context: Option<&AccessContext>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        crate::storage::disk_pack::logical_paths::field::query_scope(self.query_current(
-            query,
-            window,
-            access_context,
-        ))
-        .await
-    }
-
-    async fn query_current(
+    pub(super) async fn query_current(
         &self,
         mut query: Query,
         window: Option<KeyWindow>,
@@ -37,36 +33,12 @@ impl QueryExecutor {
             None => None,
         };
 
-        let Some(mut schema) = self
-            .schema_manager
-            // Resolved fields replace their molecules. Avoid a deep clone of
-            // molecule data that the read would discard.
-            .get_schema_following_supersession_for_read(&query.schema_name)
-            .await?
-        else {
+        let Some(mut schema) = self.prepare_query_schema(&query).await? else {
             return Err(SchemaError::InvalidData(format!(
                 "Schema '{}' not found",
                 query.schema_name
             )));
         };
-        self.schema_manager.require_queryable_schema(&schema.name)?;
-        crate::schema::require_logical_layout(&schema.schema_type)?;
-        crate::schema::require_logical_filter(query.filter.as_ref())?;
-        crate::schema::require_logical_query_controls(&query)?;
-
-        self.db_ops
-            .molecule_keys()
-            .load_schema(&schema)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "load molecule key bundles for schema '{}': {error}",
-                    schema.name
-                ))
-            })?;
-
-        rules::reject_unknown_projection(&schema, &query.fields)?;
-
         // Scope molecule reads to the request DB handle (personal /
         // org). Clone-only schema — never written back to the registry.
         rules::scope_fields(&mut schema, storage_prefix.as_deref());

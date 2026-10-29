@@ -107,7 +107,7 @@ async fn reuse_exact_catalog(
             ));
         }
     };
-    let fold_schema: Schema = envelope.schema.into();
+    let mut fold_schema: Schema = envelope.schema.into();
     let loaded_schemas = host
         .db
         .schema_manager()
@@ -126,6 +126,7 @@ async fn reuse_exact_catalog(
             )
             .await?;
         }
+        adopt_catalog_mapper_sources(&mut fold_schema, field_mappers)?;
     }
     host.db
         .schema_manager()
@@ -232,7 +233,8 @@ async fn apply_resolution(
             field_mappers,
             replaced_schema,
         } => {
-            if let Some(schema) = service_registered_schema {
+            if let Some(mut schema) = service_registered_schema {
+                prepare_catalog_for_load(host, &mut schema).await?;
                 host.db
                     .schema_manager()
                     .load_schema_internal(schema)

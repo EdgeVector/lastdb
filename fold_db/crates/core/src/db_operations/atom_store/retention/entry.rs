@@ -40,6 +40,8 @@ pub(crate) struct RetentionEntry {
 /// bounded pages and releases the records until none is left.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DrainMarker {
+    #[serde(default)]
+    pub(crate) preserve_archives: bool,
     #[serde(rename = "v")]
     pub(crate) version: u8,
     /// Always true. It tells a marker from a record entry.
@@ -89,7 +91,10 @@ impl RetentionEntry {
     pub(crate) fn request(&self) -> ReleaseRequest {
         // An entry that a repair wrote again has no slot directory entry of its own
         // (`dir` is empty): there is no key to delete.
-        let mut deletes = vec![self.queue.as_bytes().to_vec()];
+        let mut deletes = Vec::new();
+        if !self.queue.is_empty() {
+            deletes.push(self.queue.as_bytes().to_vec());
+        }
         if !self.dir.is_empty() {
             deletes.push(self.dir.as_bytes().to_vec());
         }

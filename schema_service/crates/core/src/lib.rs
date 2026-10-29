@@ -67,6 +67,7 @@ mod resolver_pack_vocabulary;
 pub mod resolver_runtime;
 pub mod schema_config;
 pub mod schema_embedding_artifact;
+pub mod schema_expansion_commit;
 pub mod schema_mutation_gate;
 pub mod schema_org_seeds;
 pub mod schema_resolver_abi;

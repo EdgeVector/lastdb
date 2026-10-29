@@ -242,7 +242,9 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::NativeIndexSearch | DataRoute::SearchAppQuery | DataRoute::AppSearch => {
             OpKind::Search
         }
-        DataRoute::MoleculeHistory | DataRoute::AppChanges => OpKind::History,
+        DataRoute::MoleculeHistory | DataRoute::AtomHistory | DataRoute::AppChanges => {
+            OpKind::History
+        }
         DataRoute::AtomContent => OpKind::Atom,
         DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so

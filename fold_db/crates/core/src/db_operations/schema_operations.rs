@@ -73,6 +73,7 @@ impl DbOperations {
             self.atoms().flush().await?;
         }
         self.schemas().store_schema(schema_name, schema).await?;
+        self.atoms().bind_history_schema(schema).await?;
         for edge in &new_edges {
             self.atoms()
                 .keep_small()

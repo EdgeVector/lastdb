@@ -187,12 +187,17 @@ fn winning_sources(
     delta
         .atom_results
         .iter()
-        .filter_map(|(idx, name, atom)| {
-            let field = schema.runtime_fields.get(name)?;
+        .filter_map(|prepared| {
+            let field = schema.runtime_fields.get(&prepared.field_name)?;
             let uuid = field.common().molecule_uuid()?;
-            let source = (*idx, uuid.clone(), atom.uuid().to_string());
+            let source = (
+                prepared.mutation_index,
+                uuid.clone(),
+                prepared.atom.uuid().to_string(),
+            );
             let accepted = accepted.get(&source)?;
-            let (hash, range) = field.slot_coordinates(&delta.mutation_key_values[*idx])?;
+            let (hash, range) =
+                field.slot_coordinates(&delta.mutation_key_values[prepared.mutation_index])?;
             let head = SlotHead::at(field.molecule.as_ref()?, &hash, &range)?;
             (head.entry.lww_key() == accepted.lww_key()).then_some((source, head))
         })
@@ -218,11 +223,11 @@ impl MutationManager {
             &mut prospective,
             &delta.schema_mutations,
             &delta.mutation_key_values,
-            delta.atom_results.clone(),
+            &delta.atom_results,
         );
         let sources = winning_sources(delta, &prospective, &accepted);
         let fold_started = std::time::Instant::now();
-        let eligible = super::protein_batch::eligible_protein_atoms(
+        let eligible = super::field_rules::eligible_protein_atoms(
             &prospective,
             &delta.mutation_key_values,
             &delta.atom_results,

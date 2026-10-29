@@ -69,7 +69,16 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
 /// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 7;
+///
+/// `8` (2026-10-28) adds the owner-only `POST /api/sync/logical-v1` route.
+/// Existing requests remain compatible; `MIN_SUPPORTED_API_VERSION` stays `1`.
+///
+/// `9` (2026-10-28) adds local snapshot prepare, inspect, resume and release
+/// actions to the owner-only logical sync route. The minimum stays `1`.
+///
+/// `10` (2026-10-29) adds read-only snapshot adoption plans on the owner route.
+/// Existing actions and the minimum API version remain unchanged.
+pub const API_VERSION: u32 = 10;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///
@@ -320,6 +329,13 @@ fn blob_route(method: &str, put: DataRoute, get: DataRoute) -> ControlRoute {
 /// the "write everything, resolve in history" read surface: concurrent-write
 /// branches, conflict winners AND losers, become readable instead of orphaned.
 fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
+    if path == "/api/atom-history" {
+        return Some(single_method(
+            method,
+            "POST",
+            ControlRoute::Data(DataRoute::AtomHistory),
+        ));
+    }
     if one_segment(path, "/api/history/").is_some() {
         return Some(single_method(
             method,

@@ -14,11 +14,12 @@ impl MutationManager {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         // The planner writes each body in the batch of the first tip that names
         // it, so no body is stored before the tips of this job.
+        // Record writes keep the registered schema definition; only their
+        // tips, values and molecule headers enter the native publication.
         measure("molecule_store_us", self.persist_deferred_molecules(job)).await?;
         if let Some(runtime) = &runtime {
             runtime.record_read_stage("molecule-stores-done", job.modified_fields.len());
         }
-        measure("schema_store_us", self.store_deferred_schema(job)).await?;
         measure("side_records_us", self.store_deferred_side_records(job)).await
     }
 
@@ -62,57 +63,6 @@ impl MutationManager {
                 );
                 error
             })
-    }
-
-    /// Store the durable schema row, then refresh the in-process schema cache.
-    async fn store_deferred_schema(&self, job: &DeferredPersistJob) -> Result<(), SchemaError> {
-        // A request scope must not enter durable schema metadata. Keep the
-        // envelope schema unchanged because a later stage can force retry.
-        let mut durable_schema = job.schema.clone();
-        super::super::super::helpers::clear_storage_prefix_on_schema(&mut durable_schema);
-        durable_schema.sync_molecule_uuids();
-        measure(
-            "schema_put_us",
-            self.db_ops.store_schema(&job.schema_name, &durable_schema),
-        )
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                error = %error,
-                schema = %job.schema_name,
-                "deferred resident-write schema store failed"
-            );
-            error
-        })?;
-        measure(
-            "schema_reload_us",
-            self.schema_manager.load_schema_internal(durable_schema),
-        )
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                error = %error,
-                schema = %job.schema_name,
-                "deferred resident-write schema reload failed"
-            );
-            // The catalog row is already durable (store_schema above
-            // succeeded); this reload only refreshes the in-process
-            // cache. A partial failure here must not leave a stale
-            // copy silently cached — evict so the next lookup
-            // self-heals from the just-persisted row instead of
-            // drifting until the next reload or restart.
-            if let Err(evict_error) = self
-                .schema_manager
-                .evict_stale_schema_cache(&job.schema_name)
-            {
-                tracing::error!(
-                    error = %evict_error,
-                    schema = %job.schema_name,
-                    "failed to evict stale schema cache after reload failure"
-                );
-            }
-            error
-        })
     }
 
     /// Idempotency and retention records of one native job.

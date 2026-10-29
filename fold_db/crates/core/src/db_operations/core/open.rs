@@ -102,48 +102,25 @@ impl DbOperations {
     pub async fn from_namespaced_store(
         store: Arc<dyn NamespacedStore>,
     ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_hash_key(
-            store,
-            None,
-            crate::atom::MoleculeKeyCodec::plain(),
-        )
-        .await
+        Self::from_namespaced_store_with_content_and_molecule_keys_mode(store, None, None, true)
+            .await
     }
 
-    /// Like [`Self::from_namespaced_store`], with the account content key and
-    /// an explicit HashKey storage encoding (design-lastdb-hashkey-blind-v1).
+    /// Production constructor with a node key for durable molecule-key wraps.
     ///
     /// `content_key` is the account E2E content key. It seals local file
     /// blobs and is the key that `content_key_proof` checks on each open. Atom
     /// rows are plain JSON on a disk format v2 home, so it seals no atom content.
-    pub async fn from_namespaced_store_with_content_and_hash_key(
-        store: Arc<dyn NamespacedStore>,
-        content_key: Option<[u8; 32]>,
-        hash_key_codec: crate::atom::MoleculeKeyCodec,
-    ) -> Result<Self, crate::storage::StorageError> {
-        Self::from_namespaced_store_with_content_and_molecule_keys_mode(
-            store,
-            content_key,
-            hash_key_codec,
-            None,
-            true,
-        )
-        .await
-    }
-
-    /// Production constructor with a node key for durable molecule-key wraps.
     /// The wrap key is also the `content_key_proof` key when `content_key` is
-    /// `None`.
+    /// `None`. Each molecule's key bundle blinds its hashes (`blind_v1`).
     pub async fn from_namespaced_store_with_content_and_molecule_keys(
         store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
-        hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, crate::storage::StorageError> {
         Self::from_namespaced_store_with_content_and_molecule_keys_mode(
             store,
             content_key,
-            hash_key_codec,
             molecule_wrap_key,
             true,
         )
@@ -153,7 +130,6 @@ impl DbOperations {
     async fn from_namespaced_store_with_content_and_molecule_keys_mode(
         store: Arc<dyn NamespacedStore>,
         content_key: Option<[u8; 32]>,
-        hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_wrap_key: Option<[u8; 32]>,
         admit_meter_trust: bool,
     ) -> Result<Self, crate::storage::StorageError> {
@@ -208,7 +184,6 @@ impl DbOperations {
             &store,
             AtomNamespaces::new(main_kv, keep_small_kv),
             content_key,
-            hash_key_codec,
             &molecule_keys,
             admit_meter_trust,
             content_key.or(molecule_wrap_key),
@@ -239,20 +214,15 @@ impl DbOperations {
         store: &Arc<dyn NamespacedStore>,
         namespaces: AtomNamespaces,
         content_key: Option<[u8; 32]>,
-        hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_keys: &MoleculeKeyStore,
         admit_meter_trust: bool,
         proof_key: Option<[u8; 32]>,
     ) -> Result<AtomStore, crate::storage::StorageError> {
         // Creation records the key layout. Every open requires that exact marker.
-        let atom_store = AtomStore::new_with_content_and_hash_key_codec(
-            namespaces.main,
-            content_key,
-            hash_key_codec,
-        )
-        .with_namespaced_store(Arc::clone(store))
-        .with_molecule_keys(molecule_keys.clone())
-        .with_keep_small_persist(namespaces.keep_small);
+        let atom_store = AtomStore::new_with_content_key(namespaces.main, content_key)
+            .with_namespaced_store(Arc::clone(store))
+            .with_molecule_keys(molecule_keys.clone())
+            .with_keep_small_persist(namespaces.keep_small);
         Self::initialize_fresh_native_refs(store, &atom_store, proof_key).await?;
         // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
         // boot on any hydrate error; on 2026-09-25 that made every new build

@@ -182,6 +182,8 @@ pub enum DataRoute {
     /// owning (schema, field) and discloses atom UUIDs, so a jailed app must
     /// never reach it; on the app socket the path is unrecognized → `NotFound`.
     MoleculeHistory,
+    /// `POST /api/atom-history` — owner-only field policies, lookup, purge and restore.
+    AtomHistory,
     /// `GET /api/atom/{atom_uuid}` — a single atom's content by UUID (the
     /// terminal read in the history chain: hydrate a conflict loser's value).
     ///
@@ -233,6 +235,8 @@ pub enum DataRoute {
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.
     SyncByteBackupV2Connect,
+    /// `POST /api/sync/logical-v1` — owner trust and bounded signed device events.
+    SyncLogicalV1,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
     /// byte breakdown. OWNER socket only.
     ///
@@ -303,6 +307,9 @@ pub enum DataRoute {
     /// `POST /api/db/schema-retention` — owner read/set/clear of the
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
+    /// `POST /api/db/backfill-protein-keys` — replay at most 64 named source
+    /// keys into an existing protein member. Owner only; no key enumeration.
+    DbBackfillProteinKeys,
     /// `POST /api/db/repair-schema-molecule-map` — compare-and-set repair of
     /// one installed schema's field-to-molecule metadata. Owner only. The
     /// request is a dry run unless `execute=true`.

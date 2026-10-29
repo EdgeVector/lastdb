@@ -158,15 +158,14 @@ impl MutationManager {
         );
         marker.aggregate_derived_internal = true;
         marker.synchronous = Some(true);
-        let marker_clock =
-            self.prepare_mutation_author_clocks(std::slice::from_mut(&mut marker))?;
-        if let Some((reservation, state)) = marker_clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let marker_result = self
-            .write_mutations_batch_inner(vec![marker], ctx.storage_prefix, WriteOrigin::Replay)
-            .await;
-        Self::require_durable_receipt(marker_result?, "valid marker")?;
+        self.commit_clocked_mutations(
+            vec![marker],
+            ctx.storage_prefix,
+            WriteOrigin::Replay,
+            "valid marker",
+            false,
+        )
+        .await?;
         Ok(())
     }
 }

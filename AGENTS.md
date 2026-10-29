@@ -69,6 +69,18 @@ Keep every other test target retired. Use CI for Rust builds and execution.
 The scope uses isolated memory stores and grants no primary, shared service load,
 deployment, or production authorization.
 
+### Scoped extension: canonical operational checks (Tom, 2026-10-28)
+
+Tom requested the follow-ups for real-node molecule/protein links, cloud races,
+the actual semantic model, recovery, and migration limits. This explicitly
+authorizes only `scripts/schema_checks/`, the `s3_canonical_properties` target
+in `schema_service_s3`, the `canonical_semantics` example in `server_shared`,
+and `.github/workflows/schema-operational-checks.yml` in addition to the scope above.
+Use CI for all builds and execution. Use fresh generated homes and a dedicated
+model cache. No primary copy, archive access, production request, or deployment.
+Tom separately approved the dedicated accepted-main AWS role and disposable
+`lastdb-schema-ci-152335099025-*` check buckets on 2026-10-28. Keep all other tests retired.
+
 ## Cursor Cloud specific instructions
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.

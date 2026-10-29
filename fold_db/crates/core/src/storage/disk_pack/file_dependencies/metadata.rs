@@ -54,6 +54,10 @@ impl<R: MetadataRead> MetadataProof<R> {
             self.live(scope.as_deref(), bare, body)?
         } else if bare.starts_with("mgr:v1:") {
             self.generation(scope.as_deref(), bare, body)?
+        } else if crate::db_operations::atom_store::atom_history::is_archive(raw) {
+            let record: crate::db_operations::atom_store::atom_history::ArchiveRecord =
+                decode(body)?;
+            Some(record.archive.source)
         } else {
             None
         };

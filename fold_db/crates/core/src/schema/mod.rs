@@ -28,16 +28,13 @@ pub mod field_hash_coherence;
 pub mod interpreter;
 mod logical_rules;
 pub mod manifest_retention;
-pub mod persistence;
 pub mod schema_types;
 pub mod types;
 
 // Public re-exports
 pub use core::SchemaCore;
 pub use field_hash_coherence::{
-    are_multi_key_siblings, bind_cross_key_field_protein, declared_field_identities,
-    declared_identities_match, field_identity_hashes, overlap_coefficient, shared_field_identities,
-    KeyLayoutFingerprint, SharedFieldIdentity, MULTI_KEY_SIBLING_OVERLAP,
+    shared_field_identities, KeyLayoutFingerprint, SharedFieldIdentity,
 };
 pub use interpreter::SchemaInterpreter;
 pub use logical_rules::{

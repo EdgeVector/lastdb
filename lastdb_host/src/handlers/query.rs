@@ -13,8 +13,10 @@ pub(in crate::handlers) use self::response::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
 mod execute;
+mod output;
 mod row_rules;
 mod rules;
+pub use output::QueryResponseFormat;
 
 /// Execute `POST /api/query`: resolve the schema, check request rules, and
 /// select the bounded read before rendering the page response. Ordinary
@@ -208,7 +210,7 @@ pub(super) async fn count_rows<H: HostNode>(
 pub(super) async fn acquire_read_permit<H: HostNode>(
     host: &H,
     lane: Lane,
-) -> Result<Box<dyn crate::host_node::ReadPermit>, ReadBusy> {
+) -> Result<H::OpPermit, ReadBusy> {
     let started = std::time::Instant::now();
     let permit = host.acquire_op_permit(lane).await;
     request_phases::add_phase(RequestPhase::AdmissionWait, started.elapsed());

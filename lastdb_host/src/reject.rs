@@ -153,6 +153,8 @@ pub enum WireKey {
     Cursor,
     /// `expected_total_count` — an optional assertion for a keyed COUNT request.
     ExpectedTotalCount,
+    /// `response_format` — full metadata, compact values, or an exact keyed count.
+    ResponseFormat,
     /// `min_score` — the native-index search score floor.
     MinScore,
     /// `q` — the native-index search query string.
@@ -206,6 +208,7 @@ impl WireKey {
             Self::Offset => "offset",
             Self::Cursor => "cursor",
             Self::ExpectedTotalCount => "expected_total_count",
+            Self::ResponseFormat => "response_format",
             Self::MinScore => "min_score",
             Self::Query => "q",
             Self::OperationType => "type",
@@ -244,6 +247,7 @@ impl WireKey {
             Self::ExpectedTotalCount => {
                 &[r#""expected_total_count": 3    # non-negative keyed COUNT assertion"#]
             }
+            Self::ResponseFormat => &[r#""response_format": "full"    # full, values, count"#],
             Self::MinScore => &[r#""min_score": 0.5    # finite, 0.0 ..= 1.0"#],
             Self::Query => &[r#"?q=<text>&k=10"#],
             // Every structural mutation key hands back the whole canonical

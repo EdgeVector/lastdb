@@ -17,7 +17,9 @@ mod cas_preconditions;
 mod cas_rules;
 pub(super) mod helpers;
 mod index;
+mod logical_capture;
 mod molecules;
+mod peer_import;
 mod purge_locks;
 pub mod receipt;
 mod write;
@@ -26,6 +28,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub use crate::storage::disk_pack::logical_capture::ImportReceipt;
 pub use aggregate::AggregateRepairReceipt;
 pub use receipt::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,

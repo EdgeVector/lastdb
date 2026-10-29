@@ -62,6 +62,8 @@ pub(super) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(super) enum Command {
+    /// Field history policy, retained values, and recovery.
+    History(super::history_cmds::HistoryArgs),
     /// Show whether the local daemon socket is reachable.
     ///
     /// Exit 0 when the owner socket answers `/health`. Exit 1 when it does

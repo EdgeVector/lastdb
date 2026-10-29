@@ -80,8 +80,7 @@ pub(crate) async fn post_admin_warm_embeddings(
 // with the largest field set per `descriptive_name` as the survivor,
 // marks the rest `superseded_by` the survivor. Idempotent — a clean
 // registry returns an empty array. See state.rs:dedupe_descriptive_names
-// for the rationale and `state_expansion::is_cross_schema_type_expansion`
-// for the historical fall-through bug this cleans up after.
+// for the rationale and the historical cross-schema_type fall-through.
 //
 // Intentionally NOT auth-gated for now — the action is reversible
 // (data isn't deleted, only superseded) and the dev API gateway is

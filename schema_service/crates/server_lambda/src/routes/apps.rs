@@ -67,26 +67,7 @@ pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response
                 .app_identity_config()
                 .revoked_dev_pubkeys
                 .contains(&record.owner_dev_pubkey);
-            // Field parity with `list_live_apps` / actix `get_app`:
-            // install uses GET-by-id and requires `source` (and
-            // SemVer `version`). Omitting them made list green while
-            // `lastdb app install` rejected live apps as "no source".
-            json_response(
-                200,
-                &json!({
-                    "app_id": record.app_id,
-                    "owner_dev_pubkey": record.owner_dev_pubkey,
-                    "metadata": record.metadata,
-                    "version": record.version,
-                    "registered_at": record.registered_at,
-                    "tier": record.tier,
-                    "code_signature": record.code_signature,
-                    "source": record.source,
-                    "artifact": record.artifact,
-                    "uses": record.uses,
-                    "revoked": revoked,
-                }),
-            )
+            json_response(200, &record.to_public_json(revoked))
         }
         None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
     }
@@ -352,22 +333,7 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
                 .app_identity_config()
                 .revoked_dev_pubkeys
                 .contains(&record.owner_dev_pubkey);
-            json_response(
-                200,
-                &json!({
-                    "app_id": record.app_id,
-                    "owner_dev_pubkey": record.owner_dev_pubkey,
-                    "metadata": record.metadata,
-                    "version": record.version,
-                    "registered_at": record.registered_at,
-                    "tier": record.tier,
-                    "code_signature": record.code_signature,
-                    "source": record.source,
-                    "artifact": record.artifact,
-                    "uses": record.uses,
-                    "revoked": revoked,
-                }),
-            )
+            json_response(200, &record.to_public_json(revoked))
         }
         None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
     }

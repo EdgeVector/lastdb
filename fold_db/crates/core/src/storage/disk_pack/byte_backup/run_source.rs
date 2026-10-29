@@ -1,4 +1,5 @@
 //! Native run snapshot ownership behind the existing opaque file planner.
+use super::super::logical_capture::{SnapshotInclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 use super::{
     invalid, protocol, Inner, PackRuntime, RunBackupHome, RunBackupProfile, StorageResult,
 };
@@ -29,6 +30,7 @@ impl RunSource {
             .checked_mul(resources.concurrent_streams as u64)
             .and_then(|n| n.checked_mul(3))
             .and_then(|n| n.checked_add(super::CODEC_PLAINTEXT_MAX_BYTES * 3))
+            .and_then(|n| n.checked_add(SNAPSHOT_INCLUSION_WORK_BYTES))
             .ok_or_else(|| invalid("run capture workspace size overflow"))?;
         let maximum = resources
             .working_memory_bytes
@@ -150,7 +152,8 @@ impl RunSource {
         let retained = self
             .retained_bytes()
             .saturating_add(self.main.reader_bytes())
-            .saturating_add(self.cas.reader_bytes());
+            .saturating_add(self.cas.reader_bytes())
+            .saturating_add(SNAPSHOT_INCLUSION_WORK_BYTES);
         if retained > lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes {
             return Err(invalid("run paired read allowance"));
         }
@@ -165,6 +168,30 @@ impl RunSource {
         main.reserve_metadata(retained).map_err(super::super::map)?;
         cas.reserve_metadata(retained).map_err(super::super::map)?;
         Ok((main, cas))
+    }
+    pub fn logical_inclusion(
+        &self,
+        profile: &RunBackupProfile,
+    ) -> StorageResult<SnapshotInclusion> {
+        let (mut main, cas) = self.reads(super::super::budget())?;
+        drop(cas);
+        self.runtime.snapshot_inclusion(&mut main, profile)
+    }
+    pub fn verify_logical_inclusion(&self, expected: &SnapshotInclusion) -> StorageResult<()> {
+        let profile = self.profile()?;
+        let (mut main, cas) = self.reads(super::super::budget())?;
+        drop(cas);
+        super::super::logical_capture::verify_snapshot_inclusion(&mut main, &profile, expected)
+    }
+    pub fn snapshot_adoption_plan(
+        &self,
+        local: &SnapshotInclusion,
+        candidate: &super::SnapshotAdoptionCandidate,
+    ) -> StorageResult<super::SnapshotAdoptionPlan> {
+        let profile = self.profile()?;
+        let (mut main, cas) = self.reads(super::super::budget())?;
+        drop(cas);
+        super::super::logical_capture::snapshot_adoption_plan(&mut main, &profile, local, candidate)
     }
     fn retained_bytes(&self) -> u64 {
         self.main.retained_bytes()

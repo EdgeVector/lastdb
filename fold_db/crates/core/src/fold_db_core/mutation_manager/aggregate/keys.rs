@@ -25,6 +25,28 @@ impl MutationManager {
         )
     }
 
+    /// Drop the repair grant, then the finalized grant, for one target.
+    pub(super) async fn delete_aggregate_target_grants(
+        &self,
+        storage_prefix: Option<&str>,
+        target_schema_name: &str,
+        target_key: &str,
+    ) -> Result<(), SchemaError> {
+        let grant_key =
+            Self::aggregate_repair_grant_key(storage_prefix, target_schema_name, target_key);
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(&grant_key)
+            .await?;
+        let finalized_key =
+            Self::aggregate_finalized_grant_key(storage_prefix, target_schema_name, target_key);
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(&finalized_key)
+            .await?;
+        Ok(())
+    }
+
     pub(super) fn aggregate_totals_fingerprint(totals: &BTreeMap<String, i64>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(b"lastdb-aggregate-totals-v1\0");
@@ -44,6 +66,35 @@ impl MutationManager {
             return Err(SchemaError::InvalidData(format!(
                 "aggregate {phase} returned a queued receipt"
             )));
+        }
+        Ok(receipt)
+    }
+
+    /// Prepare author clocks, write the mutations, and require a durable receipt.
+    /// `stamp_revision` records the first mutation counter on that receipt.
+    pub(super) async fn commit_clocked_mutations(
+        &self,
+        mut mutations: Vec<Mutation>,
+        storage_prefix: Option<&str>,
+        origin: WriteOrigin,
+        label: &str,
+        stamp_revision: bool,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
+        let clock = self.prepare_mutation_author_clocks(&mut mutations)?;
+        let revision = if stamp_revision {
+            mutations.first().map(|mutation| mutation.logical_counter)
+        } else {
+            None
+        };
+        if let Some((reservation, state)) = clock {
+            reservation.submit_and_wait(state).await?;
+        }
+        let result = self
+            .write_mutations_batch_inner(mutations, storage_prefix, origin)
+            .await;
+        let mut receipt = Self::require_durable_receipt(result?, label)?;
+        if let Some(revision) = revision {
+            receipt.revision = Some(revision);
         }
         Ok(receipt)
     }

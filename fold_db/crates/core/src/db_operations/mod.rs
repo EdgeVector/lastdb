@@ -4,6 +4,7 @@ pub mod core;
 pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
+pub mod atom_history;
 pub mod atom_store;
 pub mod attribution_ledger;
 mod conflict_index_heal;

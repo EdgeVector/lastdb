@@ -19,11 +19,8 @@ use crate::db_operations::ChangeFeedEvent;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
-use crate::schema::types::operations::{FieldPredicate, QueryOrderBy};
 use crate::schema::{Schema, SchemaError};
-use chrono::{DateTime, Utc};
 use futures::{stream, FutureExt, StreamExt};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -33,6 +30,7 @@ mod cokey_primary;
 mod cokey_secondary;
 mod condition_rules;
 mod count;
+mod field_rules;
 mod fields;
 mod filter;
 mod inspection;
@@ -44,24 +42,18 @@ mod primary_selection;
 mod received_window;
 mod resolve;
 mod secondary;
+mod secondary_rules;
 mod shares;
 mod watch;
 
 use cokey::CokeySelection;
-use condition_rules::*;
-pub use filter::FieldQueryOptions;
+pub use condition_rules::FieldQueryOptions;
+use condition_rules::{
+    condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
+    order_condition_keys,
+};
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
-
-/// Production defaults to serial field reads. A value above one opts in to
-/// bounded overlap for current-head queries only.
-fn secondary_field_concurrency(value: Option<&str>, request: Option<usize>) -> usize {
-    request
-        .or_else(|| value.and_then(|value| value.parse::<usize>().ok()))
-        .filter(|value| *value > 0)
-        .unwrap_or(1)
-        .min(8)
-}
 
 /// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
 /// [`HashRangeFilter::redacted`] view.
@@ -101,16 +93,15 @@ fn full_span_page() -> HashRangeFilter {
 /// prefix (`Some`).
 type KeySource = Option<String>;
 
-/// Secondary pending atom resolve:
-/// `(field, key, uuid, meta, writer, atom prefix)`.
-type SecondaryPending = (
-    String,
-    KeyValue,
-    String,
-    Option<crate::atom::KeyMetadata>,
-    Option<String>,
-    Option<String>,
-);
+/// One secondary value retains its field, API key, atom and storage source.
+struct SecondaryPending {
+    field_name: String,
+    key: KeyValue,
+    atom_uuid: String,
+    metadata: Option<crate::atom::KeyMetadata>,
+    writer_pubkey: Option<String>,
+    storage_prefix: KeySource,
+}
 
 /// A resolved page carries verified API coordinates into secondary reads.
 struct CokeyRows {

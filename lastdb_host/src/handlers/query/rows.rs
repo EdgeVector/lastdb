@@ -135,7 +135,8 @@ async fn execute_rows_captured<H: HostNode>(
     };
 
     let format_started = std::time::Instant::now();
-    let mut results = format_rows(result_map, sort_helper.as_deref());
+    let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
+    let mut results = format_rows(result_map, sort_helper.as_deref(), compact);
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
     let sort_started = std::time::Instant::now();
@@ -157,6 +158,9 @@ async fn execute_rows_captured<H: HostNode>(
     let annotate_started = std::time::Instant::now();
     let mut drops = RowDrops::from(drops);
     drops.conflict_flags = annotate_conflict_flags(host, &mut results).await;
+    if compact {
+        super::output::compact_rows(&mut results, drops.conflict_flags);
+    }
     request_phases::add_phase(RequestPhase::Annotate, annotate_started.elapsed());
 
     Ok((results, drops))

@@ -46,3 +46,14 @@ workspace = true
 test = false
 doctest = false
 bench = false
+
+[[example]]
+name = "canonical_semantics"
+path = "examples/canonical_semantics.rs"
+required-features = ["fastembed"]
+test = false
+bench = false
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tokio = { workspace = true }

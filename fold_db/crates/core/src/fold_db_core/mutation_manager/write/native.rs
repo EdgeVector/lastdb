@@ -2,7 +2,6 @@
 
 use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
-use crate::db_operations::search_index::{IndexSink, SearchOutboxSink};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
 use futures::FutureExt;
@@ -54,6 +53,7 @@ impl MutationManager {
         request: NativeRequest<'_>,
         state: &mut super::create_update_batch::BatchState,
     ) -> Result<NativeCommit, SchemaError> {
+        self.require_native_logical_admission(&request.mutations)?;
         // The clock queue uses native storage too. Complete its barrier before
         // taking the request's exclusive storage gate, never while owning it.
         if let Some(clock) = request.author_clock {
@@ -108,8 +108,9 @@ impl MutationManager {
                 .record_read_stage("conditions-done", mutations.len());
             // Keep the private multi-schema stage behind one future
             // allocation instead of expanding it in every host caller.
-            let delta_count = self
-                .stage_grouped_deltas(
+            let (delta_count, logical_candidates) = super::super::logical_capture::collect(
+                &request.runtime,
+                self.stage_grouped_deltas(
                     mutations,
                     hashes,
                     request.storage_prefix,
@@ -117,11 +118,14 @@ impl MutationManager {
                     &mut state.stages,
                     &request.runtime,
                 )
-                .boxed()
-                .await?;
+                .boxed(),
+            )
+            .await?;
             request
                 .runtime
                 .record_read_stage("stored-stages-done", delta_count);
+            self.finish_logical_capture(&request.runtime, &mutation_ids, logical_candidates)
+                .await?;
             measure("author_clock_us", self.stage_native_author_clock()).await?;
             measure(
                 "change_feed_us",
@@ -141,7 +145,9 @@ impl MutationManager {
         Ok(committed)
     }
 
-    async fn stage_native_author_clock(&self) -> Result<(), SchemaError> {
+    pub(in crate::fold_db_core::mutation_manager) async fn stage_native_author_clock(
+        &self,
+    ) -> Result<(), SchemaError> {
         let key = crate::schema::types::author_clock::mutation_author_clock_key(
             &self.signer.public_key_base64(),
         );
@@ -166,12 +172,21 @@ impl MutationManager {
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
     ) -> Result<std::time::Duration, SchemaError> {
+        // Membership must precede the protein reads that select sibling tips.
+        // This also upgrades a reopened home on its first ordinary mutation.
+        measure(
+            "schema_coherence_us",
+            self.schema_manager
+                .apply_field_hash_coherence_on_load(&delta.schema_name),
+        )
+        .await?;
         let (modified_fields, fold_elapsed) = measure(
             "rebase_us",
             self.rebase_delta_for_publish(&mut delta, heads),
         )
         .await?;
         heads.record(&delta);
+        self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
         measure("store_job_us", self.stage_native_job(&mut job)).await?;
@@ -180,15 +195,7 @@ impl MutationManager {
         if let Some(batch) = job.search_batch.take() {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                let sink = inbox
-                    .map(SearchOutboxSink::new)
-                    .or_else(SearchOutboxSink::from_env);
-                if let Some(sink) = sink {
-                    sink.apply_change_batch(batch).await.map_err(|error| {
-                        crate::storage::StorageError::BackendError(error.to_string())
-                    })?;
-                }
-                Ok(())
+                Self::deliver_search_outbox(inbox, batch).await
             })?;
         }
         transaction::retain(runtime, pending_persist_task)?;

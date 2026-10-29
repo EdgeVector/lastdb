@@ -25,6 +25,9 @@ pub(super) fn read(
     // pending-write memory, and disk admission still decide the complete write.
     let maximum = if raw_blob {
         lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+    } else if method == "POST" && target.split(['?', '#']).next() == Some("/api/sync/logical-v1") {
+        // Match the router's path grammar; reject before request allocation.
+        1024 * 1024 + 8192
     } else {
         MAX_BODY_LEN as u64
     };

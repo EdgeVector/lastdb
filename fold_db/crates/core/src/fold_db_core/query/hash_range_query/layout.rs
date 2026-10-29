@@ -1,7 +1,13 @@
 //! A named layout proves both declared coordinates before its result window.
 
-use super::*;
+use std::collections::HashMap;
+
+use crate::schema::types::field::FieldValue;
 use crate::schema::types::key_value::scalar_key_coordinate;
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::{Schema, SchemaError};
+
+use super::{HashRangeQueryProcessor, KeySource};
 
 impl HashRangeQueryProcessor {
     pub(super) async fn retain_named_layout(
@@ -25,16 +31,9 @@ impl HashRangeQueryProcessor {
             return Ok(HashMap::new());
         }
         let keys: Vec<_> = values.keys().cloned().collect();
-        let mut pending = Vec::new();
-        self.secondary_matches_current(
-            schema,
-            range_field,
-            &keys,
-            sources,
-            include_tombstones,
-            &mut pending,
-        )
-        .await?;
+        let pending = self
+            .secondary_matches_current(schema, range_field, &keys, sources, include_tombstones)
+            .await?;
         let mut fields = HashMap::new();
         self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut fields)
             .await?;

@@ -35,12 +35,35 @@ impl SchemaServiceState {
         self.classify_idempotent_repost_with_descriptive_name(schema, mutation_mappers, None)
     }
 
+    /// Check a durable candidate without replacing a newer local cache entry.
+    pub(super) fn classify_repost_candidate(
+        &self,
+        schema: &Schema,
+        active: &Schema,
+    ) -> Option<Schema> {
+        let mut probe = schema.clone();
+        let owner = probe.owner_app_id.clone().unwrap_or_default();
+        let description = probe.descriptive_name.clone().unwrap_or_default();
+        validate_repost_probe(&probe, &owner, &description)?;
+        probe.dedup_fields();
+        probe.compute_identity_hash();
+        let identity = probe.get_identity_hash()?;
+        if crate::state_expansion::is_cross_key_layout(&probe, active) {
+            return None;
+        }
+        verify_repost_matches_active(&probe, active, identity, &owner, &description)?;
+        Some(active.clone())
+    }
+
     pub(super) fn classify_idempotent_repost_with_descriptive_name(
         &self,
         schema: &Schema,
         _mutation_mappers: &HashMap<String, String>,
         descriptive_name_override: Option<&str>,
     ) -> Option<Schema> {
+        if schema.superseded_by.is_some() {
+            return None;
+        }
         let mut probe = schema.clone();
         if let Some(desc_name) = descriptive_name_override {
             probe.descriptive_name = Some(desc_name.to_string());
@@ -246,22 +269,6 @@ fn verify_repost_matches_active(
             existing_descriptive_name = %active.descriptive_name.as_deref().unwrap_or(""),
             identity_hash = %identity_hash,
             reason = "descriptive_name_mismatch",
-            "classify_idempotent_repost: miss",
-        );
-        return None;
-    }
-
-    // Same `schema_type` is part of the writer's AlreadyExists branch
-    // (the hash itself does not bind `schema_type`). A cross-type
-    // collision would resolve to 409, not 200, and must keep its cert
-    // gate.
-    if crate::state_expansion::is_cross_schema_type_expansion(probe, active) {
-        tracing::info!(
-            target: "schema_service::schema",
-            owner_app_id = %incoming_owner,
-            descriptive_name = %incoming_dn,
-            identity_hash = %identity_hash,
-            reason = "cross_schema_type",
             "classify_idempotent_repost: miss",
         );
         return None;

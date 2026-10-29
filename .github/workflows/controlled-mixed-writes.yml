@@ -1,0 +1,101 @@
+name: Controlled mixed-write layout investigation
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/benchmarks/controlled_mixed_writes.py'
+      - 'scripts/benchmarks/mixed_layout_support.py'
+      - 'scripts/benchmarks/mixed_native_stages.py'
+      - '.github/workflows/controlled-mixed-writes.yml'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Full baseline product SHA
+        type: string
+        default: '4139d566678d39f161f91056bbf192c5aae8e32a'
+      candidate:
+        description: Full product SHA (compatible with the stopped seed)
+        type: string
+        default: '0def0114be62c4084e00613cfc4c8dbd4108fea4'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: controlled-mixed-writes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/bench-build.yml
+    with:
+      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
+      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      driver: ${{ github.sha }}
+      profile: standard
+
+  compare:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha || '4139d566678d39f161f91056bbf192c5aae8e32a' }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha || '0def0114be62c4084e00613cfc4c8dbd4108fea4' }}
+      DRIVER_SHA: ${{ github.sha }}
+      BUILD_CONTEXT: ${{ needs.build.outputs.context }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+    steps:
+      - name: Prepare an absolute external result directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/mixed-write-results"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/mixed-write-results" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/mixed-build
+          merge-multiple: true
+      - name: Verify both programs, build recipe and runtime compatibility
+        run: |
+          mkdir -p "$BENCH_OUTPUT"
+          python3 driver/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/mixed-bins" --archive "$RUNNER_TEMP/mixed-build/programs.tar.gz"
+      - name: Compare independent histories and identical stopped copies
+        run: |
+          python3 driver/scripts/benchmarks/controlled_mixed_writes.py \
+            --baseline-binary "$RUNNER_TEMP/mixed-bins/$BASELINE_SHA/lastdbd" \
+            --baseline-revision "$BASELINE_SHA" \
+            --candidate-binary "$RUNNER_TEMP/mixed-bins/$CANDIDATE_SHA/lastdbd" \
+            --candidate-revision "$CANDIDATE_SHA" --output "$BENCH_OUTPUT"
+      - name: Upload raw measurements, observations and fingerprints
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlled-mixed-writes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify uploaded artifact and retain download receipt
+        id: receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/mixed-metadata.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/mixed-metadata.json" --output "$RUNNER_TEMP/mixed-receipt"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        with:
+          name: controlled-mixed-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mixed-receipt/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,4 +1,7 @@
 use thiserror::Error;
+#[path = "error/native_proof.rs"]
+mod native_proof;
+pub use native_proof::{NativeProofCause, NativeProofStage};
 
 /// Comprehensive storage error type supporting multiple backends
 #[derive(Debug, Error)]
@@ -8,6 +11,13 @@ pub enum StorageError {
 
     #[error("Storage backend error: {0}")]
     BackendError(String),
+
+    /// Closed stage/category diagnostics or a fixed source literal, never raw data.
+    #[error("native proof {stage}: {cause}")]
+    NativeProof {
+        stage: NativeProofStage,
+        cause: NativeProofCause,
+    },
 
     /// One bounded disk call exhausted its work limit. This is never a missing key.
     #[error("read resource limit exceeded: {detail}")]

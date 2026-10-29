@@ -2,45 +2,17 @@ use super::*;
 // lint:file-size-ok moved verbatim from add_schema.rs
 
 impl SchemaServiceState {
-    pub(super) fn cross_schema_type_conflict(
-        incoming: &Schema,
-        existing: &Schema,
-        existing_hash: String,
-        descriptive_name: String,
-        reason: String,
-    ) -> CandidateConflict {
-        tracing::warn!(
-            target: "schema_service::schema",
-            descriptive_name = %descriptive_name,
-            existing_canonical = %existing_hash,
-            old_schema_type = ?existing.schema_type,
-            new_schema_type = ?incoming.schema_type,
-            "Refusing cross-schema_type canonicalization candidate",
-        );
-        CandidateConflict {
-            conflict: crate::types::DescriptiveNameConflict {
-                existing_canonical: existing_hash,
-                descriptive_name,
-                reason,
-            },
-        }
-    }
-
     /// Collect every canonicalization candidate for `schema`, one seam at a
-    /// time. A cross-schema_type collision records a conflict and stops the
-    /// search.
+    /// time.
     pub(super) fn generate_canonicalization_candidates(
         &self,
         schema: &Schema,
         schema_name: &str,
     ) -> FoldDbResult<CandidateSet> {
         let mut set = CandidateSet::default();
-        if self.collect_identity_hash_candidate(schema, schema_name, &mut set)?
-            || self.collect_descriptive_name_candidate(schema, &mut set)?
-            || self.collect_field_overlap_candidate(schema, &mut set)?
-        {
-            return Ok(set);
-        }
+        self.collect_identity_hash_candidate(schema, schema_name, &mut set)?;
+        self.collect_descriptive_name_candidate(schema, &mut set)?;
+        self.collect_field_overlap_candidate(schema, &mut set)?;
         self.collect_multi_key_sibling_candidate(schema, &mut set)?;
         self.collect_purpose_reuse_candidate(schema, &mut set)?;
         Ok(set)

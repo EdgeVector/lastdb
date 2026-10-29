@@ -6,6 +6,7 @@ mod replay;
 
 use super::byte_backup::RunBackupProfile;
 use super::{StorageError, StorageResult};
+use crate::storage::error::{NativeProofCause, NativeProofStage as Stage};
 use cloud_backup_protocol::NativeRoot;
 use laststore::disk_run::home::RunRead;
 use std::path::Path;
@@ -50,6 +51,21 @@ impl RunRestoreGuard {
         self.native.check_binding()
     }
 
+    /// Match the authenticated client claim to the actual restored native cut.
+    /// This never loads a private signer or enrolls the recorded devices.
+    pub fn verify_logical_inclusion(
+        &mut self,
+        inclusion: &super::logical_capture::SnapshotInclusion,
+    ) -> StorageResult<()> {
+        self.check_binding()?;
+        super::logical_capture::verify_snapshot_inclusion(
+            &mut self.native.main,
+            &self.native.profile,
+            inclusion,
+        )?;
+        self.check_binding()
+    }
+
     pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
         if self.native.root != data_root {
             return Err(invalid("run restore publication root differs"));
@@ -67,9 +83,12 @@ pub fn verify(
     account_key: &[u8; 32],
     scratch_root: &Path,
 ) -> StorageResult<RunRestoreGuard> {
-    profile.validate_root(native_root)?;
-    files::directory(scratch_root)?;
-    let native = RunNodeGuard::open(data_root, account_key)?;
+    phase(Stage::Profile, profile.validate_root(native_root))?;
+    phase(Stage::Scratch, files::directory(scratch_root))?;
+    let native = phase(
+        Stage::PhysicalRoot,
+        RunNodeGuard::open(data_root, account_key),
+    )?;
     if native.profile != *profile {
         return Err(invalid("run restore captured profile differs"));
     }
@@ -81,7 +100,7 @@ pub fn verify(
         native.profile.version,
     )?;
     let guard = RunRestoreGuard { native, atoms };
-    guard.check_binding()?;
+    phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }
 
@@ -92,10 +111,32 @@ pub(crate) fn verify_readers_for_profile(
     scratch_root: &Path,
     version: u16,
 ) -> StorageResult<u64> {
-    files::directory(scratch_root)?;
+    phase(Stage::Scratch, files::directory(scratch_root))?;
     proof::verify(main, cas, account_key, scratch_root, version)
 }
 
-fn invalid(message: &str) -> StorageError {
-    StorageError::InvalidOperation(message.into())
+fn invalid(message: &'static str) -> StorageError {
+    StorageError::NativeProof {
+        stage: Stage::Validation,
+        cause: NativeProofCause::Static(message),
+    }
+}
+
+fn phase<T>(stage: Stage, result: StorageResult<T>) -> StorageResult<T> {
+    result.map_err(|error| error.at_native_proof(stage))
+}
+
+/// Classify native reader types before the ordinary adapter flattens their text.
+fn map(error: laststore::Error) -> StorageError {
+    let cause = match error {
+        laststore::Error::Corrupt(_) => NativeProofCause::NativeFormat,
+        laststore::Error::AeadAuthFail => NativeProofCause::Authentication,
+        laststore::Error::Config(_) => NativeProofCause::Configuration,
+        laststore::Error::NativeProof(code) => NativeProofCause::Static(code),
+        other => return super::map(other),
+    };
+    StorageError::NativeProof {
+        stage: Stage::NativeReader,
+        cause,
+    }
 }

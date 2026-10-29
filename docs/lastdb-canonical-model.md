@@ -162,6 +162,14 @@ bolted on by the app.
 
 Rules:
 
+- **Field identity decides membership (Tom, 2026-10-29).** Every field with the
+  same canonical field identity shares one protein across all schemas on the node.
+  Local field names, app ownership, key differences, and schema field overlap do
+  not decide membership. A schema can contain any other fields.
+  Each protein uses the stable identity `field:{field_identity}`. Schema load joins
+  existing memberships and their back-references in one native batch.
+  The change preserves current tips and author clocks. It does not copy historical
+  keys into a new molecule; that operation still requires explicit source keys.
 - **Two-way pointers.** The protein lists its members; **every member molecule
   stores its protein's UUID**. The whole set is reachable from any member.
 - **One atom set, shared.** Members are indexes into the same atoms, not
@@ -176,13 +184,20 @@ Rules:
   before one core publication. Its ack does not precede those related tips.
   A mixed create/delete call can also require a separate durable erasure phase.
   This does not promise one atomic change for every mutation verb.
-- **App view:** when two schemas share the same set of fields but index them
-  differently, their field molecules belong to one protein. A write through
-  either schema updates the shared atoms and re-indexes the related molecules
-  of the other — automatically, in core.
+- **App view:** each equal field binds independently. Schemas can use equal or
+  different keys and can contain different other fields. A write updates the
+  related molecules when the request supplies or resolves their required key fields.
+  A shared field name alone does not establish equal canonical field identity.
 - **Adding an access pattern = adding a member.** Register a molecule under
   the new key, add it to the member list, set its protein UUID, backfill its
-  tips once. This *replaces* "reindex" as a concept.
+  tips once. For existing personal data, the owner sends exact source keys to
+  `POST /api/db/backfill-protein-keys`. Each request accepts 1–64 keys and at most
+  4,096 source tips. It preserves the original atoms, author clocks, and key metadata
+  in one durable batch. Newer target tips and Delete barriers retain priority.
+  Schema load does not enumerate source keys or automatically backfill history.
+  The caller must supply every key that the new access path needs.
+  The operation refuses distinct sources that derive the same target slot.
+  It copies current visible tips; it does not replay historical source Delete barriers.
 - **Re-keying** (the one stateful op): when a member's key value changes, that
   member moves partitions (drop old key, insert new). The protein owns it.
 - **Not a general graph.** Protein membership is the only molecule→molecule

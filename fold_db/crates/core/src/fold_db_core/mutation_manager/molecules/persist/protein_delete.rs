@@ -58,6 +58,16 @@ impl MutationManager {
         if inputs.is_empty() {
             return Ok(inputs);
         }
+        let names: HashSet<_> = inputs
+            .iter()
+            .map(|mutation| mutation.schema_name.as_str())
+            .collect();
+        for name in names {
+            self.schema_manager
+                .apply_field_hash_coherence_on_load(name)
+                .await
+                .map_err(target_error)?;
+        }
         let erasures = self
             .expand_protein_member_deletes(inputs, scope)
             .await
@@ -121,7 +131,7 @@ impl MutationManager {
             .iter()
             .map(|mutation| mutation.key_value.clone())
             .collect();
-        let membership = crate::db_operations::logical_membership::logical_key_membership(
+        let mut membership = crate::db_operations::logical_membership::logical_key_membership(
             &self.db_ops,
             &schema,
             &keys,
@@ -129,6 +139,19 @@ impl MutationManager {
         )
         .await
         .map_err(target_error)?;
+        if !job.verb.is_delete() {
+            let history = crate::fold_db_core::purge::history_key_membership(
+                &self.db_ops,
+                &schema,
+                &keys,
+                job.storage_prefix.as_deref(),
+            )
+            .await
+            .map_err(target_error)?;
+            for (current, archived) in membership.iter_mut().zip(history) {
+                *current |= archived;
+            }
+        }
         if job.missing == crate::fold_db_core::purge::PurgeMissingPolicy::Refuse
             && !job.validated_present
         {

@@ -77,6 +77,19 @@ impl SearchOutboxSink {
         Self { inbox }
     }
 
+    /// Send one batch. A configured inbox wins. The env inbox is the fallback.
+    /// No inbox sends nothing.
+    pub(crate) async fn deliver(
+        inbox: Option<PathBuf>,
+        batch: IndexChangeBatch,
+    ) -> Result<(), SchemaError> {
+        let sink = inbox.map(Self::new).or_else(Self::from_env);
+        if let Some(sink) = sink {
+            sink.apply_change_batch(batch).await?;
+        }
+        Ok(())
+    }
+
     fn write_batch(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
         timing::count("search_changes", batch.changes.len() as u64);
         let name = format!("{}_{}.json", chrono_like_stamp(), Uuid::new_v4().simple());

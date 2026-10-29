@@ -147,6 +147,12 @@ An empty hash is valid for both initial key preload and later changes to the com
 4. Complete the disk commit through the one native disk queue.
 5. Publish the clean core change, then send the durable ack.
 
+Write preparation fetches the exact headers of its changed fields in one bounded batch.
+It batches their tip reads within each database scope, with at most 10,000 keys per fetch.
+The existing reader resolves generation shadows, current private changes, and Delete barriers for those exact keys.
+A missing exact-scope header retains the existing full-load fallback.
+The fetched values end with the private preparation. The write gate and durable ack rule stay unchanged.
+
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
 Delete, Purge, and idempotent repeats follow the same rule.
 The ID identifies the accepted input. It does not identify the atom that wins a field conflict.
@@ -154,6 +160,23 @@ Change notices use that exact input-to-ID association. They do not substitute an
 
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
+The logical path stage collects the bindings for all changed molecules first.
+It reads each distinct schema definition once from the current private view.
+Each molecule still requires its own complete binding counter and exact field-to-molecule checks.
+The definitions leave memory after that stage. A later stage reads its own current view.
+Within that preparation, repeated exact disk reads reuse the already authenticated result from the held root.
+The private result store has a 1 MiB key/value/entry allowance and at most 10,000 records.
+It omits individual values larger than 16 KiB and falls back to disk when its allowance is full.
+Every read checks the current private changes and the accepted prefix before these saved disk results.
+Each reuse still charges the complete call's key and returned-byte allowance before it copies a value.
+Errors never become saved absences. Ordinary queries do not allocate this result store.
+The result store ends with the write preparation. It holds no decoded storage blocks and creates no shared file or block cache.
+Ordinary create/update writes keep the registered schema definition and field
+molecule identities. They publish changed tips, values and molecule headers through
+the native transaction without storing or reloading the schema catalog. Schema
+declaration and definition updates retain their catalog publication boundary.
+Record writes retain the existing best-effort relationship-binding retry; that
+check does not store or reload the unchanged catalog definition.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
 Concurrent schema declarations cannot create competing proteins for the same unbound molecule.
@@ -280,7 +303,8 @@ The [engine README](../vendor/laststore/README.md) describes the run files.
 ## Engine boundary
 
 Normal FoldDB startup opens the disk format v2 engine. No selection flag is required.
-Factory options name the local encryption keyring and Search inbox.
+Factory options name offline maintenance and the Search inbox.
+The CAS wrapper uses the account E2E content key directly; no keyring option selects another key.
 The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
 An existing native home can reopen. An empty home can initialize directly.

@@ -1,6 +1,7 @@
 //! The Mini format and retained source of a byte backup of a disk format v2
 //! home: its run files, unchanged. Wire identities and saved capture records
 //! are independent of the cloud protocol's own version names.
+mod adoption;
 mod cancel;
 mod capture;
 mod codec;
@@ -15,6 +16,7 @@ mod store;
 mod terminal;
 
 use super::{PackRuntime, StorageError, StorageResult};
+pub use adoption::{SnapshotAdoptionCandidate, SnapshotAdoptionPlan};
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Begin,
@@ -73,6 +75,12 @@ impl ByteBackupCapture {
     }
     pub fn mutation_log_anchor(&self) -> StorageResult<Option<super::mutation_log::LogAnchor>> {
         Ok(self.lock()?.journal_anchor.clone())
+    }
+    /// Frozen exact-cut device positions; `None` identifies a legacy capture.
+    pub fn logical_inclusion(
+        &self,
+    ) -> StorageResult<Option<super::logical_capture::SnapshotInclusion>> {
+        Ok(self.lock()?.logical_inclusion.clone())
     }
     /// A run file read holds no lookup buffer, so every stream of the central
     /// backup allowance is available.

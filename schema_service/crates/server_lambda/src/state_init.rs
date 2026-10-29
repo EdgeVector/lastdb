@@ -104,10 +104,9 @@ pub(crate) async fn get_or_init_state() -> Result<Arc<SchemaServiceState>, Error
 /// Apply the env-driven gates to a freshly loaded state, then seed the
 /// service-owned canonical fields and built-in schemas.
 async fn configure_and_seed(state: &SchemaServiceState) -> Result<(), Error> {
-    // App identity, the mutation gate, and the canonicalization gates were
-    // loaded once in `SchemaConfig::from_env` before state construction.
-    // With no trusted roots, /v1/apps rejects every cert (401) and the
-    // /v1/schemas owner_app_id gate is a passthrough.
+    // App identity and the mutation gate were loaded once in
+    // `SchemaConfig::from_env` before state construction. With no trusted
+    // roots, new app, schema, and field registrations fail closed.
 
     // Seed the curated canonical field registry BEFORE seeding
     // schemas, so that schema field classification hits the

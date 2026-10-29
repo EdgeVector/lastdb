@@ -12,21 +12,14 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
     ) -> Result<(), SchemaError> {
-        let mut invalidations = self
+        let invalidations = self
             .build_guard_target_invalidations(guards, token, pub_key, storage_prefix)
             .await?;
         if invalidations.is_empty() {
             return Ok(());
         }
-        let clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, origin)
-            .await;
-        let receipt = Self::require_durable_receipt(result?, "invalidation")?;
-        let _ = receipt;
+        self.commit_clocked_mutations(invalidations, storage_prefix, origin, "invalidation", false)
+            .await?;
         self.verify_guard_invalidation_markers(guards, token, storage_prefix)
             .await?;
         self.delete_guard_grants(guards, storage_prefix).await?;
@@ -112,24 +105,12 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         for guard in guards {
-            let grant_key = Self::aggregate_repair_grant_key(
+            self.delete_aggregate_target_grants(
                 storage_prefix,
                 &guard.target_schema_name,
                 &guard.target_key,
-            );
-            self.db_ops
-                .metadata()
-                .delete_typed_durable(&grant_key)
-                .await?;
-            let finalized_key = Self::aggregate_finalized_grant_key(
-                storage_prefix,
-                &guard.target_schema_name,
-                &guard.target_key,
-            );
-            self.db_ops
-                .metadata()
-                .delete_typed_durable(&finalized_key)
-                .await?;
+            )
+            .await?;
         }
         Ok(())
     }
@@ -174,6 +155,31 @@ impl MutationManager {
         };
         self.reconcile_aggregate_guard(key, guard, storage_prefix)
             .await
+    }
+
+    /// The committed target owner must be this guard. `mismatch` is the refusal
+    /// text when a different source partition owns the target.
+    pub(super) async fn check_aggregate_target_owner(
+        &self,
+        guard: &AggregateGuard,
+        storage_prefix: Option<&str>,
+        mismatch: &str,
+    ) -> Result<(), SchemaError> {
+        let reverse_key = aggregate_target_guard_key(
+            storage_prefix,
+            &guard.target_schema_name,
+            &guard.target_key,
+        );
+        let reverse = self
+            .read_active_target_guard(&reverse_key, storage_prefix)
+            .await?
+            .ok_or_else(|| {
+                SchemaError::InvalidData("aggregate target has no committed owner".into())
+            })?;
+        if !super::rules::target_owner_matches(&reverse, guard) {
+            return Err(SchemaError::InvalidData(mismatch.into()));
+        }
+        Ok(())
     }
 
     /// Read a reverse target owner and discard an owner whose forward guard

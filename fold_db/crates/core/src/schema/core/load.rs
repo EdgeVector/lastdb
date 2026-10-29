@@ -86,54 +86,10 @@ impl SchemaCore {
         Ok(schema)
     }
 
-    /// Drop a schema's in-memory cache entry after a failed reload.
-    ///
-    /// The deferred resident-write persist path calls `store_schema` (durable)
-    /// and then `load_schema_internal` (refreshes this cache) as two separate
-    /// steps. If the durable store succeeds but the reload fails partway, the
-    /// cache keeps whatever it held before the attempt — silently stale
-    /// relative to the row that is now actually on disk. Evicting here makes
-    /// the next [`Self::get_schema_resolved`] call take its cache-miss branch,
-    /// which re-reads the durable row and repopulates the cache from it,
-    /// instead of drifting until the next full reload or process restart.
-    pub fn evict_stale_schema_cache(&self, schema_name: &str) -> Result<(), SchemaError> {
-        // A failed native scope discards its pending row and cache overlay.
-        // The shared cache still describes the previous complete root.
-        if crate::storage::disk_pack::transaction::publication::active(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
-        ) {
-            return Ok(());
-        }
-        write_map(&self.schemas, "schemas")?.remove(schema_name);
-        Ok(())
-    }
-
-    /// Update an existing schema in both the database and in-memory cache.
-    /// Used by ingestion to add Reference topologies after child schemas are resolved.
+    /// Publish definition updates through the same normalization, bindings and
+    /// cache-state boundary as schema declaration.
     pub async fn update_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
-        let mut schema = schema.clone();
-        if schema.runtime_fields.is_empty() {
-            schema.populate_runtime_fields()?;
-        }
-        schema.clear_runtime_molecules();
-        // Gated for the same reason as `load_schema_internal`: an identity
-        // minted by a newer algorithm must survive an older binary touching it.
-        if let IdentityRecompute::RefusedDowngrade { stored, binary } =
-            schema.recompute_identity_hash_unless_newer()
-        {
-            tracing::warn!(
-                schema = %schema.name,
-                stored_algo_version = stored,
-                binary_algo_version = binary,
-                "refusing to downgrade schema identity during update_schema; \
-                 keeping the stored identity",
-            );
-        }
-
-        let name = schema.name.clone();
-        self.db_ops.store_schema(&name, &schema).await?;
-        write_map(&self.schemas, "schemas")?.insert(name, schema);
-        Ok(())
+        self.load_schema_internal(schema.clone()).await
     }
 
     /// Fetches a schema by name, checking both in-memory cache and database,
@@ -277,7 +233,9 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
+        let predecessor = self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
+        self.resolve_typed_field_mappers(&mut schema, existing.as_ref().or(predecessor.as_ref()))
+            .await?;
         schema.sync_molecule_uuids();
         // Cache definitions only: retained UUIDs drive per-key molecule fetches.
         schema.clear_runtime_molecules();

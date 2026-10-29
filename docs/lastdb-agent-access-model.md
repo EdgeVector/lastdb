@@ -148,7 +148,11 @@ Two different product shapes share the “second access pattern” vocabulary:
 - Two schemas, **different key layouts**, same product (e.g. BoardCards by board vs MilestoneCards by milestone).
 - Shared **payload fields** share field identity and bind into **proteins**.
 - On **mutate**, the node **folds sibling tips** to the same atom — apps use one write path; both keys stay addressable.
-- History when a layout joins: node **tip backfill**, not app dual-write of every row.
+- Existing data when a layout joins: the owner supplies exact source keys to
+  `POST /api/db/backfill-protein-keys`. This personal-schema operation accepts
+  1–64 keys per request and preserves the original atoms and author clocks.
+  Schema load does not automatically backfill historical keys.
+  The operation refuses ambiguous target slots and does not replay historical source Delete barriers.
 
 #### B. Thin denormalized projection (app dual-write)
 

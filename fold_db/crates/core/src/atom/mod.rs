@@ -4,7 +4,6 @@ pub mod atom_key_codec;
 pub(crate) mod delete_barrier;
 pub mod file_pointer;
 pub mod history_event_memo;
-pub mod merkle;
 mod molecule_hash_range;
 pub(crate) use molecule_hash_range::keys::{
     CompactRangeKey, CoreStoredKey, KeyVisibility, MoleculeKeys,
@@ -21,7 +20,7 @@ pub use atom_entry::AtomEntry;
 pub use molecule_hash_range::{
     ImportedTip, MoleculeHashRange, PendingTipConflict, TipAuthor, TipConflictKind,
 };
-pub use molecule_key_codec::{HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError};
+pub use molecule_key_codec::{MoleculeKeyCodec, MoleculeKeyCodecError};
 pub use molecule_uuid::encode_molecule_uuid_bytes;
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,

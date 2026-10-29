@@ -7,8 +7,15 @@ PR 651 adds the corrections and the automatic checks to accepted main.
 
 ## Run boundary
 
-The required `ci-required` gate calls the reusable workflow on each PR.
-Relevant main pushes and manual dispatch also run the workflow.
+Every branch push runs the suite through `schema-canonical-properties.yml`.
+There is no path filter. Deleted branches and tag pushes do not execute the suite.
+The required `ci-required` gate calls that workflow on each PR and main push.
+It reuses only the exact repository, workflow, branch, and source revision's successful push run.
+For a PR, reuse also requires identical head and merge-candidate trees.
+Fork PRs and changed merge candidates run the isolated suite themselves.
+Missing, failed, cancelled, skipped, or timed-out producer runs fail the required gate.
+Each pushed revision has its own concurrency group; a later push does not cancel it.
+Manual dispatch remains available for a fresh run.
 Run the target in GitHub Actions:
 
 ```sh
@@ -94,3 +101,36 @@ Use fresh isolated homes for node operations. Never copy the primary or open its
 Service tests cannot establish a migration of existing data.
 Definition generation changes do not move existing atoms or files.
 Shared DEV load, cloud fault checks, deployment, and production activation require separate approval.
+
+## Authorized operational follow-ups
+
+Tom requested the follow-ups on 2026-10-28. The reusable
+`schema-operational-checks.yml` workflow runs once through required CI on PRs
+and main pushes. It does not add a second branch-push trigger.
+
+- Real node: nine cases use the actual daemon and fresh generated homes.
+  The CI network namespace blocks external requests. System seed setup bypasses
+  schema-service admission and app authentication. A durable-ack SIGKILL/reopen
+  check does not cover every crash cut. Refusal of an unsupported marker does
+  not prove a historical-data conversion.
+  Historical tips enter a new key layout only through the explicit owner
+  backfill operation with 1–64 known source keys. It preserves atoms and author
+  clocks, rejects ambiguous target slots, and retains newer target writes and
+  delete barriers. It does not enumerate history or replay absent source deletes.
+- Real model: the explicit `canonical_semantics` example uses the product
+  FastEmbed adapter, a fresh CI model cache, a curated corpus, and the bundled
+  file adapter. Reports identify the model snapshot and file checksums. These
+  finite cases cannot prove general language understanding.
+- S3 protocol: the explicit `s3_canonical_properties` target uses the production
+  definition adapter, an owned MinIO process, and a bounded fault relay.
+  These cases cover conditional-write conflicts, retry exhaustion, lost replies,
+  cold caches, and expansion faults. They do not prove AWS or Lambda behavior.
+- Actual AWS: only accepted main uses the separately approved dedicated role.
+  It creates one empty run-owned bucket, checks direct conditional writes and
+  service races, then removes only the known generated objects and that bucket.
+  AWS credentials never reach a PR. This does not execute the deployed Lambda,
+  DynamoDB identity/quota paths, or production schema service.
+
+Raw output stays in RUNNER_TEMP and seven-day CI artifacts. Source revision,
+case results, limits, checksums, artifact URL, and expiration appear in the run.
+The primary and production remain outside all follow-up checks.

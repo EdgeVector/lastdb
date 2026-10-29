@@ -1,10 +1,11 @@
-//! Mutation atom preparation and changed-key analysis.
+//! Mutation atom preparation and key normalization.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::super::MutationManager;
+use super::prepared::PreparedFieldAtom;
 use crate::atom::Atom;
-use crate::db_operations::{AtomStore, ChangedKey};
+use crate::db_operations::AtomStore;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -16,7 +17,7 @@ mod key_rules;
 /// Atom preparation outputs retain the mutation position for every field.
 pub(in crate::fold_db_core::mutation_manager) struct PreparedAtoms {
     pub mutation_key_values: Vec<KeyValue>,
-    pub atom_results: Vec<(usize, String, Atom)>,
+    pub atom_results: Vec<PreparedFieldAtom>,
     pub deferred_atoms: Option<Vec<Atom>>,
 }
 
@@ -89,7 +90,7 @@ impl MutationManager {
         schema_mutations: &mut [Mutation],
     ) -> Result<PreparedAtoms, SchemaError> {
         let mut atoms_to_store: Vec<Atom> = Vec::new();
-        let mut atom_results: Vec<(usize, String, Atom)> = Vec::new();
+        let mut atom_results = Vec::new();
         let mut mutation_key_values = Vec::with_capacity(schema_mutations.len());
 
         for (idx, mutation) in schema_mutations.iter_mut().enumerate() {
@@ -121,7 +122,11 @@ impl MutationManager {
                     mutation.metadata.clone(),
                 )?;
                 atoms_to_store.push(atom.clone());
-                atom_results.push((idx, field_name.clone(), atom));
+                atom_results.push(PreparedFieldAtom {
+                    mutation_index: idx,
+                    field_name: field_name.clone(),
+                    atom,
+                });
             }
         }
 
@@ -131,37 +136,5 @@ impl MutationManager {
             atom_results,
             deferred_atoms: Some(atoms_to_store),
         })
-    }
-
-    /// Build, per field this batch writes, the set of keys it will touch — the
-    /// O(changed) unit. Each mutation upserts every field in
-    /// `fields_and_values` at its `key_value`, so the touched key for a field is
-    /// derived from the supported Hash or HashRange field and the mutation's
-    /// key. The returned map drives the
-    /// O(changed) write-path molecule restore in
-    /// [`Self::restore_missing_molecules`].
-    pub(in crate::fold_db_core::mutation_manager) fn changed_keys_by_field(
-        schema: &Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[KeyValue],
-    ) -> HashMap<String, HashSet<ChangedKey>> {
-        let mut by_field: HashMap<String, HashSet<ChangedKey>> = HashMap::new();
-        for (mutation, key_value) in schema_mutations.iter().zip(mutation_key_values.iter()) {
-            // Delete is hard-erased outside this path; only Create/Update
-            // fields land here.
-            for field_name in mutation.fields_and_values.keys() {
-                let Some(field) = schema.runtime_fields.get(field_name) else {
-                    continue;
-                };
-                let Some(changed_key) = field.changed_key_for(key_value) else {
-                    continue;
-                };
-                by_field
-                    .entry(field_name.clone())
-                    .or_default()
-                    .insert(changed_key);
-            }
-        }
-        by_field
     }
 }

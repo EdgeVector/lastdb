@@ -79,6 +79,9 @@ impl SchemaServiceState {
     /// Refresh only for a new concept. Existing definitions are immutable;
     /// new declarations must work across warm Lambda instances without a deploy.
     pub async fn validate_schema_field_vocabulary(&self, schema: &Schema) -> FoldDbResult<()> {
+        // Both HTTP adapters call this before idempotent/cover fast paths.
+        // Loaded definitions and snapshots use their trusted validators.
+        Self::validate_proposal_shape(schema)?;
         let mut names: Vec<_> = crate::field_name_policy::schema_field_names(schema)
             .into_iter()
             .map(String::as_str)

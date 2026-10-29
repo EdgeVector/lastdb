@@ -211,46 +211,6 @@ impl AttributionRecord {
         }
     }
 
-    #[must_use]
-    pub fn residue(
-        epoch_id: impl Into<String>,
-        object_kind: AttributionObjectKind,
-        object_id: impl Into<String>,
-        source_sequence: u64,
-    ) -> Self {
-        Self {
-            version: ATTRIBUTION_VERSION,
-            epoch_id: epoch_id.into(),
-            object_kind,
-            object_id: object_id.into(),
-            classification: AttributionClass::UnattributedResidue,
-            root_count: 0,
-            path_set_digest: None,
-            size: None,
-            source_sequence,
-        }
-    }
-
-    #[must_use]
-    pub fn unknown(
-        epoch_id: impl Into<String>,
-        object_kind: AttributionObjectKind,
-        object_id: impl Into<String>,
-        source_sequence: u64,
-    ) -> Self {
-        Self {
-            version: ATTRIBUTION_VERSION,
-            epoch_id: epoch_id.into(),
-            object_kind,
-            object_id: object_id.into(),
-            classification: AttributionClass::Unknown,
-            root_count: 0,
-            path_set_digest: None,
-            size: None,
-            source_sequence,
-        }
-    }
-
     pub fn validate(&self) -> Result<(), SchemaError> {
         if self.version != ATTRIBUTION_VERSION {
             return Err(SchemaError::InvalidData(format!(

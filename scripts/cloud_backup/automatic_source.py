@@ -3,21 +3,124 @@
 import copy
 import hashlib
 import os
+import re
 import time
 
-from support import ACCOUNT, OperationError, canonical_uuid, read_json, require
+from support import ACCOUNT, OperationError, canonical_uuid, require
 
 MAX_CHECKPOINTS = 8
 MAX_DECLARED_BYTES = 64 * 1024 * 1024
 
 
-class Source:
-    def __init__(self, node, baseline, source):
-        self.node, self.expected, self.source = node, copy.deepcopy(baseline), source
-        self.completed, self.declared_bytes = {}, 0
+def completion(value, policy):
+    journal = value["mutation_log"]
+    head = journal["head"]
+    return {"enabled": bool(journal["enabled"]), "no_gap": journal["gap"] is None,
+            "no_snapshot_required": not journal["snapshot_required"],
+            "released": journal["retained_bytes"] == 0,
+            "acknowledged": head is not None and journal["acknowledged_through"] == head["sequence"],
+            "frontiers_equal": head is not None and policy["last_backed_up_frontiers"] == head["frontiers"]}
 
-    def cloud(self, *arguments, input_bytes=None):
-        return self.node.programs.command(self.node.home, ["cloud", "backup-v2", *arguments, "--json"], input_bytes)
+
+def number(value):
+    return value if type(value) is int and 0 <= value <= 2**64 - 1 else None
+
+
+def frontiers(value):
+    return None if not isinstance(value, dict) else {name: number(value.get(name)) for name in ("main", "cas")}
+
+
+def public(value, pattern):
+    return value if isinstance(value, str) and len(value) <= 64 and re.fullmatch(pattern, value) else None
+
+
+def paused(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return {"disposition": None, "reason": None}
+    dispositions = ("retry", "attention")
+    reasons = ("temporary", "disabled", "busy", "missing", "identity", "invalid", "disk", "source",
+               "unsupported", "resource_limit", "quota", "credentials", "authority", "refused",
+               "closing", "shutdown", "worker_panic")
+    return {"disposition": value.get("disposition") if value.get("disposition") in dispositions else None,
+            "reason": value.get("reason") if value.get("reason") in reasons else None}
+
+
+def checkpoint_identity(accepted):
+    return {"job": accepted["begin"]["job"], "commit_sha256": accepted["commit_sha256"],
+            "ordinal": accepted["ordinal"], "root_receipt_id": accepted["root_receipt_id"],
+            "inventory_root": {name: accepted["inventory_root"][name]
+                for name in ("sha256", "page_count", "object_count", "stored_bytes")}}
+
+
+def released_publication(value, policy):
+    accepted = value.get("last_accepted_backup")
+    return (value["phase"] == "published" and not value["running"]
+            and value["retained_source_bytes"] == 0 and accepted is not None
+            and policy["last_completed_request_id"] == value["request_id"]
+            and accepted["begin"]["job"]["commit_id"] == value["request_id"])
+
+
+def observation(value, policy, conditions, kind, through, count, declared_bytes):
+    uuid = r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}"
+    digest = r"[0-9a-f]{64}"
+    journal, accepted = value["mutation_log"], value.get("last_accepted_backup") or {}
+    head = journal["head"] or {}
+    job = accepted.get("begin", {}).get("job", {})
+    stream = job.get("stream", {})
+    generation = public(stream.get("scope", {}).get("account_generation"), r"0|[1-9][0-9]{0,19}")
+    generation = generation if generation is not None and int(generation) <= 2**64 - 1 else None
+    return {"requested_kind": kind if kind in ("snapshot", "mutation_log") else None,
+            "published": value["phase"] == "published",
+            "running": value["running"] if type(value["running"]) is bool else None,
+            "automatic_enabled": (value.get("automatic_backup_enabled")
+                                  if type(value.get("automatic_backup_enabled")) is bool else None),
+            "policy_enabled": policy.get("enabled") if type(policy.get("enabled")) is bool else None,
+            "policy_paused": paused(policy.get("paused")),
+            "log_interval_seconds": number(policy.get("log_interval_seconds")),
+            "snapshot_interval_seconds": number(policy.get("snapshot_interval_seconds")),
+            "retained_source_bytes": number(value["retained_source_bytes"]),
+            "request_id": public(value["request_id"], uuid),
+            "accepted_request_id": public(job.get("commit_id"), uuid),
+            "accepted_stream_id": public(stream.get("stream_id"), uuid),
+            "accepted_account_generation": generation,
+            "accepted_commit_sha256": public(accepted.get("commit_sha256"), digest),
+            "last_completed_request_id": public(policy["last_completed_request_id"], uuid),
+            "pending_request_id": public(policy["pending_request_id"], uuid),
+            "next_log_at": number(policy["next_log_at"]),
+            "requested_through": frontiers(through),
+            "last_backed_up_frontiers": frontiers(policy["last_backed_up_frontiers"]),
+            "journal": {"head_epoch": public(head.get("epoch"), uuid),
+                "head_sha256": public(head.get("sha256"), digest),
+                "head_sequence": number(head.get("sequence")),
+                "head_frontiers": frontiers(head.get("frontiers")),
+                "acknowledged_through": number(journal["acknowledged_through"]),
+                "retained_bytes": number(journal["retained_bytes"])},
+            "completion": conditions, "observed_checkpoints": count,
+            "declared_checkpoint_bytes": declared_bytes}
+
+
+class Source:
+    def __init__(self, node, baseline, source, summary):
+        self.node, self.expected, self.source = node, copy.deepcopy(baseline), source
+        self.summary = summary
+        self.completed, self.declared_bytes = {}, 0
+        self.publication_deadlines = {}
+
+    def cloud(self, *arguments, input_bytes=None, checkpoint=None):
+        value = self.node.programs.command(self.node.home, ["cloud", "backup-v2", *arguments, "--json"], input_bytes)
+        if (isinstance(value.get("automatic_backup"), dict)
+                and all(name in value for name in ("mutation_log", "last_accepted_backup"))):
+            policy = value["automatic_backup"]
+            conditions = completion(value, policy)
+            kind, through = checkpoint or (None, None)
+            try:
+                self.observe_checkpoint(value)
+            finally:
+                self.summary["automatic_checkpoint_observation"] = observation(
+                    value, policy, conditions, kind, through, len(self.completed), self.declared_bytes)
+        return value
 
     def connect(self, key):
         value = self.cloud("connect", "--existing", "--env", "dev", "--api-key-stdin",
@@ -43,13 +146,11 @@ class Source:
     def published(self, kind, previous=None, snapshot=86400, through=None):
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
-            value = self.cloud("status")
+            value = self.cloud("status", checkpoint=(kind, through))
             policy = self.policy(value, snapshot)
             accepted = value.get("last_accepted_backup")
-            if (value["phase"] == "published" and not value["running"]
-                    and value["retained_source_bytes"] == 0 and value["backup_kind"] == kind
-                    and policy["last_completed_request_id"] == value["request_id"]
-                    and accepted and accepted["commit_sha256"] != previous
+            if (released_publication(value, policy) and value["backup_kind"] == kind
+                    and accepted["commit_sha256"] != previous
                     and (through is None or all(policy["last_backed_up_frontiers"][name] >= frontier
                          for name, frontier in through.items()))):
                 request = accepted["begin"]["job"]["commit_id"]
@@ -58,15 +159,43 @@ class Source:
                         "daemon_initiated_request")
                 require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == ACCOUNT,
                         "accepted_dev_scope")
-                if request not in self.completed:
-                    self.completed[request] = accepted
-                    self.declared_bytes += int(accepted["inventory_root"]["stored_bytes"])
-                require(len(self.completed) <= MAX_CHECKPOINTS and self.declared_bytes <= MAX_DECLARED_BYTES,
-                        "bounded_ci_cloud_work")
                 self.node.health()
-                return value
+                require(time.monotonic() < deadline, "automatic_publication_deadline")
+                self.publication_deadlines[accepted["commit_sha256"]] = deadline
+                self.summary["frozen_backup_selection"] = {"kind": kind, "request_id": request,
+                    "commit_sha256": public(accepted["commit_sha256"], r"[0-9a-f]{64}")}
+                return copy.deepcopy(value)
             time.sleep(0.5)
         raise OperationError("automatic_publication_deadline")
+
+    def observe_checkpoint(self, value):
+        accepted = value.get("last_accepted_backup")
+        if accepted is None:
+            return
+        self.observe_accepted(accepted)
+
+    def observe_accepted(self, accepted):
+        job = accepted["begin"]["job"]
+        request = canonical_uuid(job["commit_id"])
+        require(request.startswith("a17dbac2-"), "daemon_initiated_request")
+        require(job["stream"]["scope"]["account_id"] == ACCOUNT, "accepted_dev_scope")
+        if self.node.ci_stream_id is not None:
+            require(job["stream"]["stream_id"] == self.node.ci_stream_id, "accepted_owned_ci_stream")
+        if self.node.terminal_r2:
+            require(accepted["begin"].get("r2_multipart") is True, "accepted_terminal_r2_mode")
+        if self.completed:
+            first = next(iter(self.completed.values()))
+            require(job["stream"] == first["begin"]["job"]["stream"], "one_owned_automatic_stream")
+        if request in self.completed:
+            require(checkpoint_identity(self.completed[request]) == checkpoint_identity(accepted),
+                    "immutable_published_checkpoint")
+        else:
+            declared = int(accepted["inventory_root"]["stored_bytes"])
+            require(declared > 0, "positive_checkpoint_bytes")
+            self.completed[request] = copy.deepcopy(accepted)
+            self.declared_bytes += declared
+        require(len(self.completed) <= MAX_CHECKPOINTS and self.declared_bytes <= MAX_DECLARED_BYTES,
+                "bounded_ci_cloud_work")
 
     def retired(self, request):
         canonical_uuid(request)
@@ -80,44 +209,25 @@ class Source:
             time.sleep(0.5)
         raise OperationError("previous_automatic_metadata_not_retired")
 
-    def caught_up(self, value):
-        journal, policy = value["mutation_log"], self.policy(value)
-        require(journal["enabled"] and journal["gap"] is None and not journal["snapshot_required"]
-                and journal["retained_bytes"] == 0
-                and journal["acknowledged_through"] == journal["head"]["sequence"]
-                and policy["last_backed_up_frontiers"] == journal["head"]["frontiers"],
-                "accepted_complete_journal_head")
-
-    def routes(self, value):
-        request = canonical_uuid(value["request_id"])
-        root = self.node.home / "data/cloud-byte-backup-v2/jobs" / request
-        plan = read_json(root / "log-plan.json")
-        require(plan["ready"] and 0 < plan["objects"] <= 4096
-                and 0 < plan["files"] <= 4096, "bounded_complete_log_plan")
-        destinations = {}
-        for number in range(plan["objects"]):
-            record = read_json(root / f"log-object-{number:08}.json")
-            receipt = record["receipt"]
-            require(receipt and receipt["object"] == record["input"]["object"], "accepted_log_receipt")
-            destination = receipt["object"]["destination"]
-            if record["payload"] is not None:
-                require(destination == "r2", "log_metadata_uses_r2")
-            destinations[receipt["receipt_id"]] = destination
-        roles = set()
-        for number in range(plan["files"]):
-            file = read_json(root / f"log-file-{number:08}.json")
-            path = file["path"].split("/")
-            require(len(path) == 5 and path[0] == "mutation-log"
-                    and path[3] in ("main", "cas-add", "cas-delete"), "native_log_file_role")
-            roles.add(path[3])
-            destination = "r2" if path[3] == "main" else "b2"
-            require(file["extents"] and all(destinations[e["receipt_id"]] == destination
-                    for e in file["extents"]), "main_r2_and_cas_b2_routes")
-        require({"main", "cas-add"} <= roles, "real_main_and_cas_log_bytes")
-        return {"main_r2": True, "cas_b2": True, "metadata_r2": True, "native_files": plan["files"]}
+    def caught_up(self, selected, snapshot=86400):
+        """Observe current progress without replacing the frozen recovery point."""
+        commit = selected["last_accepted_backup"]["commit_sha256"]
+        require(commit in self.publication_deadlines, "frozen_publication_deadline")
+        deadline = self.publication_deadlines[commit]
+        value = selected
+        while time.monotonic() < deadline:
+            policy = self.policy(value, snapshot)
+            if released_publication(value, policy) and all(completion(value, policy).values()):
+                self.node.health()
+                require(time.monotonic() < deadline, "accepted_complete_journal_head")
+                return
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+            if time.monotonic() < deadline:
+                value = self.cloud("status")
+        raise OperationError("accepted_complete_journal_head")
 
     def write(self, schema):
-        # Real native CAS bytes accompany the record updates in the next log.
+        # Automatic publication may split these real writes across several logs.
         payload = hashlib.shake_256(("Cloud automatic CI " + self.source).encode()).digest(65536)
         path = self.node.home.parent / "automatic-file.bin"
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)

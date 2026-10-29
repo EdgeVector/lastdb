@@ -220,6 +220,7 @@ impl AtomStore {
         let commit = measure(
             "tip_commit_us",
             self.commit_tip_changes(TipChangeSet {
+                history: crate::db_operations::atom_store::atom_history::HistoryMode::Capture,
                 scope: storage_prefix,
                 tips: winners.tips,
                 bodies,

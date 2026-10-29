@@ -6,10 +6,8 @@ use super::*;
 /// identities (brain `design-lastdb-declared-fields`).
 ///
 /// **Always gated** by `X-Exemem-Dev-Cert` + `X-Signature` (purpose
-/// `field_declare`). Unlike a local schema claim — which is cert-free because
-/// the node computes a content-addressed `identity_hash` itself — declaring a
-/// field claims a slot other schemas' writes will fold into, on a service
-/// shared by everyone. No verified identity → no owned field.
+/// `field_declare`). The cert must permit publication and match the registered
+/// app owner. New schema registrations use the same developer-account gate.
 ///
 /// Idempotent: re-declaring the same `(owner_app_id, handle)` returns the same
 /// declaration id and byte-identical identities, so a client may call it on
@@ -39,12 +37,15 @@ pub async fn declare_field(
     // owner, handle, and field list are all covered by the signature.
     let cert = header_value(&req, "X-Exemem-Dev-Cert");
     let sig = header_value(&req, "X-Signature");
-    if let Err(e) = state.authorize_field_declare(
-        &request.owner_app_id,
-        cert.as_deref(),
-        sig.as_deref(),
-        &body,
-    ) {
+    if let Err(e) = state
+        .authorize_field_declare(
+            &request.owner_app_id,
+            cert.as_deref(),
+            sig.as_deref(),
+            &body,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return json_status(status, body);
     }

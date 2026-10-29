@@ -64,7 +64,6 @@ mod construct;
 mod import;
 pub(crate) mod keys;
 mod loaded;
-mod merge;
 mod ops;
 mod overlay;
 mod verify;

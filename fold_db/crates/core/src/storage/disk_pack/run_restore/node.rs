@@ -1,6 +1,6 @@
 //! Read-only physical and account proof for an inactive disk V2 node.
-use super::{files, invalid, proof, RunBackupProfile, RunRestoreFile, StorageResult};
-use crate::storage::disk_pack::{byte_backup::RunBackupHome, map, run_node, NODE_MARKER};
+use super::{files, invalid, map, proof, RunBackupProfile, RunRestoreFile, StorageResult};
+use crate::storage::disk_pack::{byte_backup::RunBackupHome, run_node, NODE_MARKER};
 use laststore::disk_run::home::ReadBudget;
 use laststore::disk_run::home::RunRead;
 use std::fs::File;
@@ -88,7 +88,10 @@ impl RunNodeGuard {
         }];
         entries.extend(check_home(root, run_node::RUN_DIR, &main, &profile.main)?);
         entries.extend(check_home(root, run_node::CAS_DIR, &cas, &profile.cas)?);
-        proof::verify_account(&main, key, version)?;
+        super::phase(
+            super::Stage::Account,
+            proof::verify_account(&main, key, version),
+        )?;
         let guard = Self {
             root: root.to_path_buf(),
             directory,
@@ -155,6 +158,11 @@ fn reserve_pair(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {
         .and_then(|bytes| bytes.checked_add(inventories))
         .and_then(|bytes| {
             bytes.checked_add(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes)
+        })
+        .and_then(|bytes| {
+            bytes.checked_add(
+                crate::storage::disk_pack::logical_capture::SNAPSHOT_INCLUSION_WORK_BYTES,
+            )
         })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
     main.reserve_metadata(shared).map_err(map)?;

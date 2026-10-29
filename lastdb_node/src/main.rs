@@ -157,8 +157,12 @@ fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
         allocator = tuning.name,
         purge_delay_ms = ?tuning.purge_delay_ms,
         purge_delay_from_env = tuning.purge_delay_from_env,
+        transparent_huge_pages_disabled = ?tuning.transparent_huge_pages_disabled,
         "configured process allocator"
     );
+    if let Some(errno) = tuning.transparent_huge_pages_errno {
+        tracing::warn!(target: "lastdbd::allocator", errno, "could not configure Linux huge page policy");
+    }
 }
 
 fn init_resident_key_cap() -> Result<(), String> {
@@ -211,15 +215,20 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let note_fatal =
         |err: String| -> String { session::note_fatal(session_ledger.is_some(), &home, pid, err) };
 
-    let host = Arc::new(runtime.block_on(Host::boot(&home)).map_err(&note_fatal)?);
+    let mut host = runtime.block_on(Host::boot(&home)).map_err(&note_fatal)?;
     // Capture this process's own boot identity once, from the ledger entry
     // this same process just wrote — not from a re-read of the shared
     // per-home ledger file, which a different process sharing this home can
     // append a newer row to after this point
     // (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     if let Some(ledger) = &session_ledger {
-        let _ = host.own_boot_identity.set(ledger.own_record());
+        let record = ledger.own_record();
+        // Status, boot identity and shutdown receipts must use the same start,
+        // even when database boot crosses a clock second after ledger creation.
+        host.process_start_ts = record.start_ts;
+        let _ = host.own_boot_identity.set(record);
     }
+    let host = Arc::new(host);
     let shutdown_flag = Arc::new(AtomicBool::new(false));
 
     let socket = UdsSocket::bind_at(

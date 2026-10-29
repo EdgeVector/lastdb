@@ -24,6 +24,7 @@
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
+pub mod atom_history;
 mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
@@ -51,7 +52,7 @@ mod molecule_ref_edges;
 mod molecules;
 mod retention;
 mod schema_keys;
-mod time_queue;
+pub(crate) mod time_queue;
 mod types;
 mod writer_watch;
 
@@ -77,7 +78,7 @@ pub(crate) use molecule_drain::{
 };
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
-pub(crate) use molecules::MoleculeKeyDomain;
+pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 pub use types::MoleculeData;
@@ -156,8 +157,6 @@ pub struct AtomStore {
     /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
     /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
-    /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
-    key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
     molecule_keys: Option<crate::db_operations::MoleculeKeyStore>,
     /// Per-molecule commit guards: the SHORT critical section that makes
@@ -277,13 +276,7 @@ impl AtomStore {
         self.store_id
     }
 
-    /// HashKey encoding chokepoint (API hash → storage segment).
-    #[must_use]
-    pub(crate) fn key_codec(&self) -> &crate::atom::MoleculeKeyCodec {
-        &self.key_codec
-    }
-
-    /// Map API HashKey to storage form (identity when encoding=plain).
+    /// Map API HashKey to its blinded storage form.
     pub(crate) fn storage_hash(
         &self,
         molecule_uuid: &str,
@@ -294,7 +287,7 @@ impl AtomStore {
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
     }
 
-    /// Map API RangeKey to storage form (identity when range encoding=plain).
+    /// Map API RangeKey to its typed storage payload.
     pub(crate) fn storage_range(
         &self,
         molecule_uuid: &str,
@@ -312,7 +305,7 @@ impl AtomStore {
         let codec = self
             .molecule_keys
             .as_ref()
-            .map(|store| store.codec_for_molecule(molecule_uuid, &self.key_codec))
+            .map(|store| store.codec_for_molecule(molecule_uuid))
             .transpose()?
             .flatten();
         codec.ok_or_else(|| {

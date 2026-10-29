@@ -225,6 +225,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::NativeIndexAppVectorPut
         | DataRoute::NativeIndexKnn
         | DataRoute::MoleculeHistory
+        | DataRoute::AtomHistory
         | DataRoute::AtomContent
         // One in-memory catalog list plus at most one durable row per
         // colliding claimant. No store walk.
@@ -250,10 +251,12 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbMoleculeKeys
         | DataRoute::DbUnresolvedAtoms
         | DataRoute::DbSchemaRetention
+        | DataRoute::DbBackfillProteinKeys
         | DataRoute::DbRepairSchemaMoleculeMap
         | DataRoute::DbFetchFileBlob
         | DataRoute::DbPutBlobLocal
         | DataRoute::DeliverSnapshot
+        | DataRoute::SyncLogicalV1
         | DataRoute::LocalWatch
         | DataRoute::AppChanges
         | DataRoute::ProteinGet
