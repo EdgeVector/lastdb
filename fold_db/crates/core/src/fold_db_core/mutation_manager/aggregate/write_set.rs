@@ -249,24 +249,12 @@ impl MutationManager {
         )
         .await?;
         for guard in &invalidated_guards {
-            let grant_key = Self::aggregate_repair_grant_key(
+            self.delete_aggregate_target_grants(
                 storage_prefix,
                 &guard.target_schema_name,
                 &guard.target_key,
-            );
-            self.db_ops
-                .metadata()
-                .delete_typed_durable(&grant_key)
-                .await?;
-            let finalized_key = Self::aggregate_finalized_grant_key(
-                storage_prefix,
-                &guard.target_schema_name,
-                &guard.target_key,
-            );
-            self.db_ops
-                .metadata()
-                .delete_typed_durable(&finalized_key)
-                .await?;
+            )
+            .await?;
         }
         Ok(())
     }
