@@ -13,8 +13,13 @@ TRANSIENT = frozenset(("ci_control_transport_unknown", "ci_control_service_provi
 
 
 class Retirement:
-    def __init__(self, control, baseline):
+    def __init__(self, control, baseline, observe=None):
         self.control, self.baseline = control, baseline
+        self.observe = observe
+
+    def observation(self, state=None, transient=None):
+        if self.observe is not None:
+            self.observe(state, transient)
 
     def pending(self):
         value = self.control.post("pending", {})
@@ -26,6 +31,7 @@ class Retirement:
         return active
 
     def finish(self, active=None, request=None):
+        self.observation()
         validator = Status(self.control.scope, self.baseline)
         require((active is None) != (request is None), "ci_cleanup_one_request_origin")
         if active is not None:
@@ -33,6 +39,8 @@ class Retirement:
             request = state["input"]
         else:
             state = None
+        if state is not None:
+            self.observation(state=state)
         request_id = request["request_id"]
         for _step in range(10000):
             require(time.monotonic() < self.control.deadline, "ci_cleanup_deadline")
@@ -51,9 +59,11 @@ class Retirement:
                             value = self.control.post("status", {"request_id": request_id})
                         except OperationError as error:
                             if str(error) in TRANSIENT:
+                                self.observation(transient=str(error))
                                 continue
                             raise
                         state = validator.validate(value, request)
+                        self.observation(state=state)
                         continue
             if state is None or state["plan_sha256"] is None:
                 route = "plan"
@@ -66,6 +76,7 @@ class Retirement:
             except OperationError as error:
                 if str(error) not in TRANSIENT:
                     raise
+                self.observation(transient=str(error))
                 # A lost write reply never means failure or success. Read only
                 # this request; retry only its exact saved inputs if absent.
                 time.sleep(1)
@@ -75,9 +86,11 @@ class Retirement:
                     if str(read_error) in TRANSIENT or (
                         state is None and str(read_error) == "ci_control_service_missing_dependency"
                     ):
+                        self.observation(transient=str(read_error))
                         continue
                     raise
             state = validator.validate(value, request)
+            self.observation(state=state)
         raise OperationError("ci_cleanup_step_bound")
 
     def confirm(self, validator, state):
