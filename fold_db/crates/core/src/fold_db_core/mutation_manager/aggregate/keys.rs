@@ -48,6 +48,35 @@ impl MutationManager {
         Ok(receipt)
     }
 
+    /// Prepare author clocks, write the mutations, and require a durable receipt.
+    /// `stamp_revision` records the first mutation counter on that receipt.
+    pub(super) async fn commit_clocked_mutations(
+        &self,
+        mut mutations: Vec<Mutation>,
+        storage_prefix: Option<&str>,
+        origin: WriteOrigin,
+        label: &str,
+        stamp_revision: bool,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
+        let clock = self.prepare_mutation_author_clocks(&mut mutations)?;
+        let revision = if stamp_revision {
+            mutations.first().map(|mutation| mutation.logical_counter)
+        } else {
+            None
+        };
+        if let Some((reservation, state)) = clock {
+            reservation.submit_and_wait(state).await?;
+        }
+        let result = self
+            .write_mutations_batch_inner(mutations, storage_prefix, origin)
+            .await;
+        let mut receipt = Self::require_durable_receipt(result?, label)?;
+        if let Some(revision) = revision {
+            receipt.revision = Some(revision);
+        }
+        Ok(receipt)
+    }
+
     pub(super) fn aggregate_named_lock(&self, key: String) -> Arc<tokio::sync::RwLock<()>> {
         let mut locks = self
             .aggregate_locks

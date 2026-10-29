@@ -244,16 +244,13 @@ impl MutationManager {
             finalize.expected_guard_token,
             String::new(),
         );
-        let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
-        let revision = summary.logical_counter;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
-            .await;
-        let mut receipt = Self::require_durable_receipt(result?, "finalize marker")?;
-        receipt.revision = Some(revision);
-        Ok(receipt)
+        self.commit_clocked_mutations(
+            vec![summary],
+            storage_prefix,
+            WriteOrigin::Request,
+            "finalize marker",
+            true,
+        )
+        .await
     }
 }

@@ -240,14 +240,14 @@ impl MutationManager {
         if invalidations.is_empty() {
             return Ok(());
         }
-        let invalidation_clock = self.prepare_mutation_author_clocks(&mut invalidations)?;
-        if let Some((reservation, state)) = invalidation_clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, WriteOrigin::Replay)
-            .await;
-        Self::require_durable_receipt(result?, "ordinary source invalidation")?;
+        self.commit_clocked_mutations(
+            invalidations,
+            storage_prefix,
+            WriteOrigin::Replay,
+            "ordinary source invalidation",
+            false,
+        )
+        .await?;
         for guard in &invalidated_guards {
             let grant_key = Self::aggregate_repair_grant_key(
                 storage_prefix,

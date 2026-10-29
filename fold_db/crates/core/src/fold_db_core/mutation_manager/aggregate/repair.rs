@@ -209,16 +209,15 @@ impl MutationManager {
             repair_token.clone(),
             String::new(),
         );
-        let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
-        let revision = summary.logical_counter;
-        if let Some((reservation, state)) = clock {
-            reservation.submit_and_wait(state).await?;
-        }
-        let result = self
-            .write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request)
-            .await;
-        let mut receipt = Self::require_durable_receipt(result?, "repair summary")?;
-        receipt.revision = Some(revision);
+        let receipt = self
+            .commit_clocked_mutations(
+                vec![summary],
+                storage_prefix,
+                WriteOrigin::Request,
+                "repair summary",
+                true,
+            )
+            .await?;
         let grant = AggregateRepairGrant {
             version: 1,
             repair_token: repair_token.clone(),
