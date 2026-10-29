@@ -76,11 +76,11 @@ impl MutationManager {
             .collect();
         let ids: Vec<&str> = ids.into_iter().collect();
         let fetched = self.db_ops.atoms().get_atoms(&ids, None).await?;
-        let atoms: BTreeMap<&str, _> = ids
+        let atoms: BTreeMap<String, _> = ids
             .into_iter()
             .zip(fetched)
             .map(|(id, atom)| {
-                atom.map(|atom| (id, atom))
+                atom.map(|atom| (id.to_owned(), atom))
                     .ok_or_else(|| unsupported("a selected Search atom without a stored body"))
             })
             .collect::<Result<_, _>>()?;

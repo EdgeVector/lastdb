@@ -35,6 +35,7 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         let mut schemas = BTreeMap::new();
         let mut guards = BTreeSet::new();
+        let mut declared_fields = 0usize;
         for event in events {
             let mut slots = HashSet::new();
             for outcome in &event.outcomes {
@@ -42,6 +43,10 @@ impl MutationManager {
                     let schema = self
                         .load_schema_for_delta(&outcome.schema_name, None)
                         .await?;
+                    declared_fields = declared_fields
+                        .checked_add(schema.runtime_fields.len())
+                        .filter(|count| *count <= super::super::logical_capture::MAX_OUTCOMES)
+                        .ok_or_else(|| unsupported("more than 1024 declared fields in one page"))?;
                     super::super::logical_capture::require_plain_schema(&schema)?;
                     schemas.insert(outcome.schema_name.clone(), schema);
                 }
