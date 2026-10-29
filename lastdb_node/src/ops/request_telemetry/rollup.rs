@@ -18,7 +18,11 @@ const CALLS_TABLE_RIGHT: [bool; 10] = [
 
 /// The calls/time/error table shared by the "top by total time" and
 /// "top by call count" sections.
-fn calls_table(aggregates: &[OpAggregate], labels: &SchemaLabels, now: u64) -> Vec<String> {
+pub(super) fn calls_table(
+    aggregates: &[OpAggregate],
+    labels: &SchemaLabels,
+    now: u64,
+) -> Vec<String> {
     let rows: Vec<Vec<String>> = aggregates
         .iter()
         .take(10)
@@ -41,7 +45,7 @@ fn calls_table(aggregates: &[OpAggregate], labels: &SchemaLabels, now: u64) -> V
     aligned_table(&CALLS_TABLE_HEADERS, &rows, &CALLS_TABLE_RIGHT)
 }
 
-fn body_volume_table(aggregates: &[OpAggregate], labels: &SchemaLabels) -> Vec<String> {
+pub(super) fn body_volume_table(aggregates: &[OpAggregate], labels: &SchemaLabels) -> Vec<String> {
     let rows: Vec<Vec<String>> = aggregates
         .iter()
         .take(10)
@@ -77,7 +81,7 @@ fn body_volume_table(aggregates: &[OpAggregate], labels: &SchemaLabels) -> Vec<S
     )
 }
 
-fn idle_wait_table(aggregates: &[OpAggregate]) -> Vec<String> {
+pub(super) fn idle_wait_table(aggregates: &[OpAggregate]) -> Vec<String> {
     let rows: Vec<Vec<String>> = aggregates
         .iter()
         .take(10)
