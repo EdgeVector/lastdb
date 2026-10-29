@@ -250,6 +250,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbMoleculeKeys
         | DataRoute::DbUnresolvedAtoms
         | DataRoute::DbSchemaRetention
+        | DataRoute::DbBackfillProteinKeys
         | DataRoute::DbRepairSchemaMoleculeMap
         | DataRoute::DbFetchFileBlob
         | DataRoute::DbPutBlobLocal

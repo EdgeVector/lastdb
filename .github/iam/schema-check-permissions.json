@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateOnlyDisposableCheckBucketsInOregon",
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "arn:aws:s3:::lastdb-schema-ci-152335099025-*",
+      "Condition": {
+        "StringEquals": {
+          "s3:LocationConstraint": "us-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageOnlyOwnedCheckBuckets",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteBucket",
+        "s3:GetBucketLocation",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:ListBucket",
+        "s3:PutBucketTagging",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutEncryptionConfiguration"
+      ],
+      "Resource": "arn:aws:s3:::lastdb-schema-ci-152335099025-*",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "152335099025",
+          "aws:RequestedRegion": "us-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteOnlyOwnedCheckObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::lastdb-schema-ci-152335099025-*/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:ResourceAccount": "152335099025",
+          "aws:RequestedRegion": "us-west-2"
+        }
+      }
+    }
+  ]
+}

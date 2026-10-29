@@ -2,9 +2,9 @@
 
 use std::collections::{hash_map::Entry, HashMap};
 
-use crate::lock_helpers::write_lock;
-use schema_types::FoldDbResult;
+use crate::lock_helpers::{read_lock, write_lock};
 use schema_types::Schema;
+use schema_types::{FoldDbError, FoldDbResult};
 
 use super::state::SchemaServiceState;
 
@@ -27,9 +27,8 @@ impl SchemaServiceState {
         schema.field_molecule_uuids = None;
     }
 
-    /// Persist the expanded schema, mark the predecessor as superseded in
-    /// memory and on disk, and point the owner-namespaced descriptive_name
-    /// index at the expanded schema.
+    /// Commit the predecessor marker and successor in one definition image.
+    /// Publish both schema caches and the name index only after that commit.
     pub(super) async fn persist_expansion(
         &self,
         schema: &Schema,
@@ -37,32 +36,24 @@ impl SchemaServiceState {
         desc_name: &str,
     ) -> FoldDbResult<()> {
         let expanded_name = schema.name.clone();
-        self.persist_schema(schema).await?;
-
-        // Mark the old schema as superseded in memory and grab a clone for persistence
-        let old_clone = {
-            let mut schemas = write_lock(&self.schemas, "schemas")?;
-            let clone = if let Some(old_schema) = schemas.get_mut(old_name) {
-                old_schema.superseded_by = Some(expanded_name.clone());
-                Some(old_schema.clone())
-            } else {
-                None
-            };
-            schemas.insert(expanded_name.clone(), schema.clone());
-            clone
+        let mut predecessor = {
+            let schemas = read_lock(&self.schemas, "schemas")?;
+            schemas.get(old_name).cloned().ok_or_else(|| {
+                FoldDbError::Config(format!(
+                    "schema_expansion_write_conflict: predecessor '{old_name}' is absent"
+                ))
+            })?
         };
+        predecessor.superseded_by = Some(expanded_name.clone());
+        self.persist_schemas(&[predecessor.clone(), schema.clone()])
+            .await?;
 
-        // Persist the superseded marker (outside the lock)
-        if let Some(old_schema) = old_clone {
-            self.persist_schema(&old_schema).await?;
-        }
-
-        // Update descriptive_name index to point to expanded schema. The
-        // key is namespaced by `owner_app_id` (app_identity v3.1, Lane B2b)
-        // so the expansion target replaces only the matching same-owner
-        // entry, leaving any same-named seed/legacy entry intact.
+        // Match the schemas-then-index lock order used by index rebuilds.
         let key = super::state::descriptive_name_key(schema.owner_app_id.as_deref(), desc_name);
+        let mut schemas = write_lock(&self.schemas, "schemas")?;
         let mut index = write_lock(&self.descriptive_name_index, "descriptive_name_index")?;
+        schemas.insert(old_name.to_owned(), predecessor);
+        schemas.insert(expanded_name.clone(), schema.clone());
         index.insert(key, expanded_name);
         Ok(())
     }

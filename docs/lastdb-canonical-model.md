@@ -182,7 +182,14 @@ Rules:
   of the other — automatically, in core.
 - **Adding an access pattern = adding a member.** Register a molecule under
   the new key, add it to the member list, set its protein UUID, backfill its
-  tips once. This *replaces* "reindex" as a concept.
+  tips once. For existing personal data, the owner sends exact source keys to
+  `POST /api/db/backfill-protein-keys`. Each request accepts 1–64 keys and at most
+  4,096 source tips. It preserves the original atoms, author clocks, and key metadata
+  in one durable batch. Newer target tips and Delete barriers retain priority.
+  Schema load does not enumerate source keys or automatically backfill history.
+  The caller must supply every key that the new access path needs.
+  The operation refuses distinct sources that derive the same target slot.
+  It copies current visible tips; it does not replay historical source Delete barriers.
 - **Re-keying** (the one stateful op): when a member's key value changes, that
   member moves partitions (drop old key, insert new). The protein owns it.
 - **Not a general graph.** Protein membership is the only molecule→molecule

@@ -22,6 +22,7 @@ mod init_boot;
 mod lifecycle;
 mod local_file_blobs;
 mod maintenance_admission;
+mod protein_backfill;
 mod provenance;
 mod schema_drop;
 
@@ -32,6 +33,7 @@ pub use hashrange_key_repair::HashRangeKeyFieldRepairReport;
 pub use init::FoldDbInit;
 pub use local_file_blobs::LocalFileBlobPut;
 pub use maintenance_admission::LocalMutationAdmission;
+pub use protein_backfill::ProteinBackfillReport;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
 pub struct FoldDB {

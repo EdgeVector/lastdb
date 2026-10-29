@@ -41,6 +41,9 @@ impl SchemaServiceState {
         _mutation_mappers: &HashMap<String, String>,
         descriptive_name_override: Option<&str>,
     ) -> Option<Schema> {
+        if schema.superseded_by.is_some() {
+            return None;
+        }
         let mut probe = schema.clone();
         if let Some(desc_name) = descriptive_name_override {
             probe.descriptive_name = Some(desc_name.to_string());

@@ -53,3 +53,11 @@ idioms, feature flags, the security model, and gotchas, ask the brain
 See also: workspace-root `CLAUDE.md`, `README.md`, `../schema_service/openapi.yaml`.
 
 Do not write, restore, or run tests. Use product build, format, and lint checks.
+
+## Scoped canonical operational follow-up (Tom, 2026-10-28)
+
+Tom requested real-node molecule/protein, recovery, and migration-limit checks.
+The explicit scope is `scripts/schema_checks/` and its CI workflow. It runs the
+actual daemon against fresh generated homes with external network access disabled.
+Keep every other test target retired. No local build or benchmark, primary copy,
+archive access, production request, or deployment is authorized.
