@@ -282,24 +282,7 @@ pub async fn get_app(
         .app_identity_config()
         .revoked_dev_pubkeys
         .contains(&record.owner_dev_pubkey);
-    // Field parity with `list_live_apps` and the Lambda GET-by-id arm:
-    // install clients call this path and require `source` + SemVer `version`.
-    json_status(
-        200,
-        json!({
-            "app_id": record.app_id,
-            "owner_dev_pubkey": record.owner_dev_pubkey,
-            "metadata": record.metadata,
-            "version": record.version,
-            "registered_at": record.registered_at,
-            "tier": record.tier,
-            "code_signature": record.code_signature,
-            "source": record.source,
-            "artifact": record.artifact,
-            "uses": record.uses,
-            "revoked": revoked,
-        }),
-    )
+    json_status(200, record.to_public_json(revoked))
 }
 
 /// `GET /v1/apps` — public app shelf read.
