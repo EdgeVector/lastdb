@@ -48,9 +48,9 @@ jobs:
           git fetch --no-tags origin "$PROTEIN_BASELINE"
           git worktree add --detach "$RUNNER_TEMP/protein-baseline-src" "$PROTEIN_BASELINE"
           (cd "$RUNNER_TEMP/protein-baseline-src" && \
-            CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PROTEIN_BASELINE" \
+            CARGO_TARGET_DIR="$RUNNER_TEMP/protein-baseline-target" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PROTEIN_BASELINE" \
             cargo build --locked -p lastdb_node --bin lastdbd)
-          cp target/debug/lastdbd "$RUNNER_TEMP/protein-baseline-lastdbd"
+          cp "$RUNNER_TEMP/protein-baseline-target/debug/lastdbd" "$RUNNER_TEMP/protein-baseline-lastdbd"
           git worktree remove "$RUNNER_TEMP/protein-baseline-src"
       - name: Build the exact daemon in CI
         env:
