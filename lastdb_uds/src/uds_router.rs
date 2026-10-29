@@ -129,9 +129,12 @@ pub enum ControlRoute {
     /// verification posture, but no node state).
     MintBrowserPairingCode,
     /// The target path is a recognized control-socket path, but not for this
-    /// method. `allow` is the fixed set of methods the path supports, sent back
-    /// as the `Allow` header (the node's own data, never a caller byte).
-    MethodNotAllowed { allow: &'static str },
+    /// method.
+    MethodNotAllowed {
+        /// Methods the path supports, sent as the `Allow` header. This is the
+        /// node's own data, never a caller byte.
+        allow: &'static str,
+    },
     /// No recognized control-socket route matches the target path.
     NotFound,
 }

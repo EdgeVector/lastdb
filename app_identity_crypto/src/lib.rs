@@ -14,6 +14,7 @@
 //! envelope alone doesn't carry. Helpers for both are exposed:
 //! [`compute_payload_hash`] for the payload side and
 //! [`SignatureEnvelope::env`] for the deployment side.
+#![warn(missing_docs)]
 
 mod dev_cert;
 mod ed25519;

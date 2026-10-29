@@ -1,4 +1,5 @@
-//! Schema-mutation gate defaults and environment-driven configuration.
+//! Schema-mutation gate defaults. The process shell reads env into
+//! [`crate::SchemaConfig::mutation_gate`] once at startup.
 
 use super::*;
 
@@ -73,71 +74,4 @@ impl Default for SchemaMutationGateConfig {
             hmac_secret: DEFAULT_SCHEMA_MUTATION_GATE_HMAC_SECRET.to_vec(),
         }
     }
-}
-
-impl SchemaMutationGateConfig {
-    pub fn from_env() -> Self {
-        Self {
-            enforce_shared_mutations: env_bool("SCHEMA_MUTATION_GATE_ENFORCE"),
-            challenge_ttl: Duration::from_secs(env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_CHALLENGE_TTL_SECS",
-                DEFAULT_CHALLENGE_TTL_SECS,
-            )),
-            base_difficulty_bits: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_BASE_DIFFICULTY_BITS",
-                DEFAULT_BASE_DIFFICULTY_BITS,
-            ),
-            quota_window: Duration::from_secs(env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_QUOTA_WINDOW_SECS",
-                DEFAULT_QUOTA_WINDOW_SECS,
-            )),
-            node_quota: env_flag::var_or("SCHEMA_MUTATION_GATE_NODE_QUOTA", DEFAULT_NODE_QUOTA),
-            ip_quota: env_flag::var_or("SCHEMA_MUTATION_GATE_IP_QUOTA", DEFAULT_IP_QUOTA),
-            app_quota: env_flag::var_or("SCHEMA_MUTATION_GATE_APP_QUOTA", DEFAULT_APP_QUOTA),
-            dev_quota: env_flag::var_or("SCHEMA_MUTATION_GATE_DEV_QUOTA", DEFAULT_DEV_QUOTA),
-            novel_hour_window: Duration::from_secs(env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_NOVEL_HOUR_WINDOW_SECS",
-                DEFAULT_NOVEL_HOUR_WINDOW_SECS,
-            )),
-            novel_day_window: Duration::from_secs(env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_NOVEL_DAY_WINDOW_SECS",
-                DEFAULT_NOVEL_DAY_WINDOW_SECS,
-            )),
-            node_novel_hour_quota: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_NODE_NOVEL_HOUR_QUOTA",
-                DEFAULT_NODE_NOVEL_HOUR_QUOTA,
-            ),
-            node_novel_day_quota: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_NODE_NOVEL_DAY_QUOTA",
-                DEFAULT_NODE_NOVEL_DAY_QUOTA,
-            ),
-            dev_novel_hour_quota: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_DEV_NOVEL_HOUR_QUOTA",
-                DEFAULT_DEV_NOVEL_HOUR_QUOTA,
-            ),
-            dev_novel_day_quota: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_DEV_NOVEL_DAY_QUOTA",
-                DEFAULT_DEV_NOVEL_DAY_QUOTA,
-            ),
-            max_adaptive_difficulty_bits: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_MAX_ADAPTIVE_DIFFICULTY_BITS",
-                DEFAULT_MAX_ADAPTIVE_DIFFICULTY_BITS,
-            ),
-            max_catalog_difficulty_bits: env_flag::var_or(
-                "SCHEMA_MUTATION_GATE_MAX_CATALOG_DIFFICULTY_BITS",
-                DEFAULT_MAX_CATALOG_DIFFICULTY_BITS,
-            ),
-            hmac_secret: std::env::var("SCHEMA_MUTATION_GATE_HMAC_SECRET")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .map_or_else(
-                    || DEFAULT_SCHEMA_MUTATION_GATE_HMAC_SECRET.to_vec(),
-                    String::into_bytes,
-                ),
-        }
-    }
-}
-
-pub(super) fn env_bool(name: &str) -> bool {
-    env_flag::var_truthy(name)
 }

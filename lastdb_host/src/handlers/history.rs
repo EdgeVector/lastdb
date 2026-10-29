@@ -9,7 +9,9 @@ use super::*;
 /// Optional `?hash=`/`?range=` record-scope for the molecule-history route.
 #[derive(Default)]
 pub struct HistoryScope {
+    /// Optional hash-key filter from `?hash=`.
     pub hash: Option<String>,
+    /// Optional range-key filter from `?range=`.
     pub range: Option<String>,
 }
 

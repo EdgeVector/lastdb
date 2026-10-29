@@ -41,10 +41,15 @@ pub fn body_object(req: &UdsRequest) -> Result<serde_json::Map<String, Value>, U
 
 /// A typed query and its separate page controls. Decoding owns no host state.
 pub struct QueryRequest {
+    /// Typed query, after page controls have been removed from the body.
     pub query: Query,
+    /// Optional page size taken off the body before query decoding.
     pub limit: Option<usize>,
+    /// Optional page offset taken off the body before query decoding.
     pub offset: Option<usize>,
+    /// Optional page cursor taken off the body before query decoding.
     pub cursor: Option<QueryCursor>,
+    /// Reply shape for this query. The default is the full row.
     pub response_format: crate::handlers::QueryResponseFormat,
 }
 

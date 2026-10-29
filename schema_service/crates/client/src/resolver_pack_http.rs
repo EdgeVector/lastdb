@@ -32,6 +32,7 @@ impl HttpResolverPackStore {
         }
         let base_url = bootstrap.base_url.trim_end_matches('/').to_string();
         let timeout = Duration::from_secs(bootstrap.request_timeout_seconds.max(1));
+        // trace-egress: skip-3p (static pack object origin does not read traceparent)
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())

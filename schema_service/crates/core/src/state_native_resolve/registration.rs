@@ -15,7 +15,7 @@ impl SchemaServiceState {
         &self,
         schema: &Schema,
     ) -> FoldDbResult<Option<SchemaRegistrationComposition>> {
-        if !native_component_cover_resolve_enabled() {
+        if !self.native_component_cover_resolve_enabled() {
             return Ok(None);
         }
 

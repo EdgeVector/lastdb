@@ -64,7 +64,9 @@ irrelevant — only the field set and values must match.
 
 ## Config (exemem-infra must wire this)
 
-`schema_service_core::app_identity::AppIdentityConfig::from_env()` reads:
+`SchemaConfig::from_env()` (in `schema_service_server_shared`, trait
+`SchemaConfigEnv`) reads the process environment once at startup and
+stores app-identity on `SchemaConfig.app_identity`. The variables are:
 
 - `APP_IDENTITY_ROOT_PUBKEYS` — comma-separated base64 P-256
   SubjectPublicKeyInfo DER blobs. This is a **set** (versioning

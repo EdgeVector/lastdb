@@ -4675,7 +4675,6 @@ dependencies = [
  "blake3",
  "chrono",
  "ed25519-dalek",
- "env_flag",
  "hmac 0.12.1",
  "schema_core_resolver",
  "schema_types",
@@ -4765,6 +4764,8 @@ name = "schema_service_server_shared"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "app_identity_crypto",
+ "base64 0.22.1",
  "fastembed",
  "schema_service_core",
  "schema_types",

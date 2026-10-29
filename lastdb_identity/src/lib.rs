@@ -13,6 +13,7 @@
 //! same node home yields the same node public key and the same
 //! `user_hash` in either binary. Socket clients (fbrain, fkanban, …)
 //! would otherwise resolve a different owner identity per binary.
+#![warn(missing_docs)]
 
 use std::io;
 use std::path::{Path, PathBuf};
