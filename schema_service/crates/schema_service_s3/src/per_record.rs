@@ -14,7 +14,7 @@ use super::{error_code, is_precondition_failed, short_error, S3BlobPersistence};
 type StoredObject = aws_sdk_s3::operation::get_object::GetObjectOutput;
 type PutRequest = aws_sdk_s3::operation::put_object::builders::PutObjectFluentBuilder;
 
-struct PreparedPut<'a, T> {
+struct PreparedPut<'a, T: Clone> {
     record: Cow<'a, T>,
     conflict: Option<(u64, u64)>,
 }
