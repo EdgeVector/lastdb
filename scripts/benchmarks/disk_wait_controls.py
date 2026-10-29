@@ -73,7 +73,8 @@ def investigate(args):
         "programs": programs, "recipes": recipes, "runs": schedule(args.replica),
         "scope": "Fixed two-runner campaign; 16 ordinary runs and four separate native runs per runner",
         "limits": "Generated homes vary; OS pages uncontrolled; native timings are separate diagnostics",
-        "primary_cases": ["concurrent-write/1", "concurrent-write/4", "mixed/1/write", "mixed/4/write"]}
+        "primary_cases": ["concurrent-write/1", "concurrent-write/4",
+                          "concurrent-mixed/1/write", "concurrent-mixed/4/write"]}
     save(args.output / "controls.json", manifest)
     try:
         for entry in manifest["runs"]:

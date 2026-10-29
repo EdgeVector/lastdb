@@ -1,6 +1,6 @@
 name: PR 702 disk-wait controls
 
-# One historical diagnostic campaign; no replacement for benchmark-complete.
+# Report the fixed completed campaign. This revision cannot run more measurements.
 on:
   workflow_dispatch:
   pull_request:
@@ -17,30 +17,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  investigate:
+  report:
     if: >-
       github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false
       matrix:
-        replica: [0, 1]
+        include:
+          - replica: 0
+            artifact: 12874605466
+            bytes: 23451274
+            sha256: 9e01bbfe1a041997e04a8e3b52e7d0c4e31c7f4c86969f77e21a38595c3650fc
+          - replica: 1
+            artifact: 12874056857
+            bytes: 22444006
+            sha256: 36e56126c1c0f91ee5ccd8100c989183b0cab0ef12f31dbab86ebccabfabbbbd
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 15
     env:
       CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      BASELINE_SHA: 4898273d73b70c50fa7210d17116f7394dd3c129
-      CANDIDATE_SHA: 8def278b037d25a73a382c1366ac2822ab16cc3d
-      BUILD_CONTEXT: 269671646d3b8594616ed1dbd07727a8a75c922b42621f562175e9053e99636b
-      BUNDLE_SHA256: ff817f6bf5e14aa1dc1fdb01cf72c5848abb70c0424491d4862b03e32fd0d151
+      EXPECTED_CONTROLLER_SHA: 60ac7a210271fd92db5c04c1e9182cbe9ebda477
+      SOURCE_ARTIFACT_ID: ${{ matrix.artifact }}
+      SOURCE_ARCHIVE_SHA256: ${{ matrix.sha256 }}
+      SOURCE_ARCHIVE_BYTES: ${{ matrix.bytes }}
+      REPLICA: ${{ matrix.replica }}
     steps:
       - name: Prepare external CI output
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
-          result="$RUNNER_TEMP/disk-wait-controls-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          result="$RUNNER_TEMP/disk-wait-report-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir "$result"
           echo "BENCH_OUTPUT=$result" >> "$GITHUB_ENV"
-          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.CONTROLLER_SHA }}
@@ -51,46 +59,45 @@ jobs:
           ref: 9041e1521ad552dad274ab41ef896193b5ff0cf3
           path: historical
           persist-credentials: false
-      - name: Check diagnostic source syntax
+      - name: Check report source syntax
         run: python3 -m py_compile controller/scripts/benchmarks/disk_wait_controls*.py
-      - name: Retain original artifact metadata
+      - name: Require successful original measurements and exact archived evidence
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12872265708" > "$BENCH_OUTPUT/source-artifact.json"
-      - name: Download the original programs without another build
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: 12872265708
-          run-id: 40814490993
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/original-programs
-          merge-multiple: true
-      - name: Verify programs, hashes, build recipe and runtime dependencies
         run: |
-          python3 historical/scripts/benchmarks/programs.py unpack \
-            --root "$BENCH_BINARY_ROOT" --archive "$RUNNER_TEMP/original-programs/programs.tar.gz"
-      - name: Require space for generated homes and diagnostic logs
-        run: python3 historical/scripts/benchmarks/disk.py --profile standard --phase measure --require
-      - name: Run the fixed ordinary and native controls
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/40818427852/jobs" > "$BENCH_OUTPUT/source-jobs.json"
+          jq --exit-status --arg name "investigate ($REPLICA)" \
+            '.jobs | map(select(.name == $name)) | length == 1 and
+              (.[0].steps | any(.name == "Run the fixed ordinary and native controls" and .conclusion == "success"))' \
+            "$BENCH_OUTPUT/source-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID" > "$BENCH_OUTPUT/measurement-artifact.json"
+          jq --exit-status --argjson id "$SOURCE_ARTIFACT_ID" --argjson bytes "$SOURCE_ARCHIVE_BYTES" \
+            --arg digest "sha256:$SOURCE_ARCHIVE_SHA256" --arg revision "$EXPECTED_CONTROLLER_SHA" \
+            '.id == $id and .expired == false and .size_in_bytes == $bytes and .digest == $digest and
+              .workflow_run.id == 40818427852 and .workflow_run.head_sha == $revision and
+              .workflow_run.repository_id == 1412311495' "$BENCH_OUTPUT/measurement-artifact.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/original-controls.zip"
+          printf '%s %s\n' "$SOURCE_ARCHIVE_SHA256" "$RUNNER_TEMP/original-controls.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/original-controls.zip" -d "$BENCH_OUTPUT/replayed"
+      - name: Audit all saved samples and publish the corrected report
         run: |
-          timeout --signal=TERM --kill-after=120s 75m \
-            python3 controller/scripts/benchmarks/disk_wait_controls.py \
-              --driver "$GITHUB_WORKSPACE/historical" --programs "$BENCH_BINARY_ROOT" \
-              --source-metadata "$BENCH_OUTPUT/source-artifact.json" \
-              --replica ${{ matrix.replica }} --output "$BENCH_OUTPUT/investigation"
-      - name: Audit raw samples and publish the controls
-        if: always()
-        run: python3 controller/scripts/benchmarks/disk_wait_controls_report.py --output "$BENCH_OUTPUT/investigation"
-      - name: Upload the original identities and all measurements
+          python3 controller/scripts/benchmarks/disk_wait_controls_report.py \
+            --output "$BENCH_OUTPUT/replayed/investigation" > "$BENCH_OUTPUT/controls-summary.md"
+          cat "$BENCH_OUTPUT/controls-summary.md"
+      - name: Upload the report and original artifact identities
         if: always()
         id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: lastdb-disk-wait-controls-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.BENCH_OUTPUT }}/
+          name: lastdb-disk-wait-report-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.BENCH_OUTPUT }}/source-jobs.json
+            ${{ env.BENCH_OUTPUT }}/measurement-artifact.json
+            ${{ env.BENCH_OUTPUT }}/controls-summary.md
+            ${{ env.BENCH_OUTPUT }}/replayed/investigation/controls-summary.json
           retention-days: 14
           if-no-files-found: error
-      - name: Verify the uploaded artifact metadata
+      - name: Verify the uploaded report metadata
         if: always() && steps.upload.outcome == 'success'
         id: receipt
         env:
@@ -100,14 +107,14 @@ jobs:
           ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
           CANDIDATE_SHA: ${{ env.CONTROLLER_SHA }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/controls-artifact.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/report-artifact.json"
           python3 historical/scripts/benchmarks/artifact.py \
-            --metadata "$RUNNER_TEMP/controls-artifact.json" --output "$RUNNER_TEMP/controls-download"
+            --metadata "$RUNNER_TEMP/report-artifact.json" --output "$RUNNER_TEMP/report-download"
       - name: Retain the verified download receipt
         if: always() && steps.receipt.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: lastdb-disk-wait-controls-receipt-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/controls-download/artifact.json
+          name: lastdb-disk-wait-report-receipt-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/report-download/artifact.json
           retention-days: 14
           if-no-files-found: error

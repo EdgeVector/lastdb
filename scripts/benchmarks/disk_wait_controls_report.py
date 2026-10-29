@@ -10,7 +10,23 @@ import os
 from pathlib import Path
 from statistics import median
 
-from disk_wait_controls import schedule
+from disk_wait_controls import BASE, CANDIDATE, DRIVER, SOURCE_ARTIFACT, SOURCE_DIGEST, schedule
+
+
+def audit_origin(output, manifest):
+    source = json.loads((output.parent / "source-artifact.json").read_text())
+    transfer = json.loads((output.parent / "program-transfer.json").read_text())
+    if (manifest["controller_revision"] != os.environ["EXPECTED_CONTROLLER_SHA"]
+            or manifest["driver_revision"] != DRIVER or source["id"] != SOURCE_ARTIFACT
+            or source["digest"] != SOURCE_DIGEST
+            or transfer["bundle_sha256"] != "ff817f6bf5e14aa1dc1fdb01cf72c5848abb70c0424491d4862b03e32fd0d151"):
+        raise ValueError("The archived campaign or original program identity differs")
+    for label, name, revision in (("A", "baseline", BASE), ("B", "candidate", CANDIDATE)):
+        program = manifest["programs"][label]
+        verified = transfer["programs"][name]
+        keys = ("sha256", "cli_sha256", "version", "cli_version", "context", "revision")
+        if program["revision"] != revision or any(program[key] != verified[key] for key in keys):
+            raise ValueError("A measured program differs from the original verified transfer")
 
 
 def audit(directory):
@@ -28,7 +44,7 @@ def audit(directory):
             signatures[identity] = tuple(sample[key] for key in
                 ("kind", "records", "client", "client_request", "request_sha256"))
             samples[sample["case"]].append(sample["elapsed_ms"])
-            if sample["case"].startswith("mixed/"):
+            if sample["case"].startswith("concurrent-mixed/"):
                 samples[f"{sample['case']}/{sample['kind']}"].append(sample["elapsed_ms"])
     if len(signatures) != 4768 or set(samples) != set(metrics):
         raise ValueError("The full original standard workload did not complete")
@@ -68,6 +84,7 @@ def describe(value):
 
 def report(output):
     manifest = json.loads((output / "controls.json").read_text())
+    audit_origin(output, manifest)
     if manifest["complete"] is not True or len(manifest["runs"]) != 20:
         raise ValueError("The fixed 20-run campaign is incomplete; no source verdict")
     planned = schedule(manifest["replica"])
@@ -83,6 +100,9 @@ def report(output):
         signature = observed
         if entry["mode"] == "ordinary":
             runs.append((entry, metrics))
+    # The initial controller used short descriptive names for the two mixed primary cases.
+    primary = {name.replace("mixed/", "concurrent-mixed/", 1) if name.startswith("mixed/") else name
+               for name in manifest["primary_cases"]}
     lines = ["# PR #702 disk-wait controls", "", f"Runner: {manifest['runner']}",
         f"CPU: {manifest['host']['cpu_model']}", "",
         "A1/A2 use the same archived baseline binary; B1/B2 use the same archived candidate binary.",
@@ -101,7 +121,7 @@ def report(output):
         after = median(metrics[case]["p95_ms"] for entry, metrics in runs if entry["label"][0] == "B")
         results[case] = {"baseline_p95_ms": before, "candidate_p95_ms": after,
                          "p95": p95, "throughput": contrasts(runs, case, "requests_per_second")}
-        marker = " *" if case in manifest["primary_cases"] else ""
+        marker = " *" if case in primary else ""
         lines.append(f"| {case}{marker} | {before:.3f} | {after:.3f} | {describe(p95['source'])} | "
                      f"{describe(p95['same_A'])} | {describe(p95['same_B'])} |")
     lines.extend(["", "* marks the four previously confirmed write-tail warnings.", "",
@@ -114,7 +134,8 @@ def report(output):
         native = json.loads((output / entry["directory"] / "native-phases.json").read_text())
         if native["complete"] is not True:
             raise ValueError("Native timing coverage is incomplete")
-        for case in ("concurrent-write/1", "concurrent-write/4", "mixed/1", "mixed/4", "update/128"):
+        for case in ("concurrent-write/1", "concurrent-write/4", "concurrent-mixed/1",
+                     "concurrent-mixed/4", "update/128"):
             value = native["cases"][case]
             phases = sorted(value["physical_phases_us"].items(), key=lambda item: item[1]["mean"], reverse=True)[:3]
             text = "; ".join(f"{name}={phase['mean']:.1f}" for name, phase in phases)
