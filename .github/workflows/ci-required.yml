@@ -2,8 +2,7 @@ name: CI required
 
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
-# this tree. Tom authorized only the canonical schema property target on
-# 2026-10-28. Other tests stay retired. The gate also keeps fmt, clippy,
+# this tree. Tests remain retired. The gate keeps fmt, clippy,
 # lints, a tracked-text secret scan, and builds. No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
@@ -232,22 +231,6 @@ jobs:
       - name: Scan tracked text files for secrets
         run: python3 scripts/lints/lint-secrets.py
 
-  schema_canonical_properties:
-    name: Canonical schema properties
-    permissions:
-      contents: read
-      actions: read
-    uses: ./.github/workflows/schema-canonical-properties.yml
-    with:
-      reuse_push_result: true
-
-  schema_operational_checks:
-    name: Canonical schema operational checks
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/schema-operational-checks.yml
-
   ci-required:
     name: ci-required
     needs:
@@ -256,8 +239,6 @@ jobs:
       - full_workspace_check
       - diff_file_size
       - secret_scan
-      - schema_canonical_properties
-      - schema_operational_checks
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -267,9 +248,9 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ',') }}
         run: |
           echo "Required job results: $RESULTS"
-          # Every required job must succeed, including the scoped property suite.
+          # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

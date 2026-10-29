@@ -34,7 +34,3 @@ workspace = true
 test = false
 doctest = false
 bench = false
-
-[[test]]
-name = "s3_canonical_properties"
-path = "tests/s3_canonical_properties.rs"

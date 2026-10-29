@@ -2,6 +2,31 @@
 
 use super::*;
 
+/// Preserve finite operational causes without retaining caller-supplied text.
+fn diagnostic_reason(reason: Option<&str>, fallback: &'static str) -> Option<String> {
+    reason.map(|reason| {
+        // Match the existing restart classifier without retaining its input.
+        let lower = reason.to_ascii_lowercase();
+        if lower.contains("guard-memory") {
+            return "guard-memory".to_string();
+        }
+        if lower.contains("upgrade") {
+            return "upgrade".to_string();
+        }
+        if lower.contains("supersession") {
+            return "supersession".to_string();
+        }
+        match reason {
+            "startup_failed" => "startup_failed",
+            "shutdown_started" | "signal (graceful shutdown started)" => "shutdown_started",
+            "clean_shutdown" | "signal (graceful shutdown)" => "clean_shutdown",
+            "operator" => "operator",
+            _ => fallback,
+        }
+        .to_string()
+    })
+}
+
 /// Persist the supervisor's shutdown request before asynchronous drain work.
 ///
 /// This leaves `current-session.json` in place while the process is still
@@ -24,7 +49,7 @@ pub fn mark_shutdown_started_with_reason(
     {
         rec.end_ts = Some(end_ts);
         rec.exit = Some(EXIT_SHUTDOWN_STARTED.to_string());
-        rec.exit_reason = reason.map(str::to_string);
+        rec.exit_reason = diagnostic_reason(reason, "shutdown_started");
         rec.last_heartbeat_ts = last_heartbeat_ts.or(Some(end_ts));
         rewrite_ledger(home, &records)?;
     }
@@ -32,7 +57,7 @@ pub fn mark_shutdown_started_with_reason(
 }
 
 /// Record that this session is exiting because its own startup or serve path
-/// returned a fatal error, and say which one.
+/// returned a fatal error. Store a category, never the error's raw text.
 ///
 /// Without this stamp the ledger line stays open, and the next boot cannot tell
 /// a self-diagnosed startup failure from a SIGKILL / panic / power loss — so it
@@ -56,7 +81,7 @@ pub fn mark_startup_failed(home: &Path, pid: u32, reason: Option<&str>) -> std::
     {
         rec.end_ts = Some(end_ts);
         rec.exit = Some(EXIT_STARTUP_FAILED.to_string());
-        rec.exit_reason = reason.map(str::to_string);
+        rec.exit_reason = diagnostic_reason(reason, "startup_failed");
         rec.last_heartbeat_ts = last_heartbeat_ts.or(Some(end_ts));
         rewrite_ledger(home, &records)?;
     }
@@ -67,8 +92,7 @@ pub fn mark_startup_failed(home: &Path, pid: u32, reason: Option<&str>) -> std::
     Ok(())
 }
 
-/// [`mark_clean_shutdown`] carrying WHY the session is exiting ("quit (tray
-/// menu)", "startup: relaunched last-known-good", …). First stamp wins: a
+/// [`mark_clean_shutdown`] carrying a finite exit category. First stamp wins: a
 /// record already closed clean keeps its original reason, so a specific
 /// quit-path mark followed by a generic process-exit fallback never loses the
 /// specific reason.
@@ -95,7 +119,7 @@ pub fn mark_clean_shutdown_with_reason(
         rec.end_ts = Some(end_ts);
         rec.exit = Some(EXIT_CLEAN.to_string());
         if rec.exit_reason.is_none() {
-            rec.exit_reason = reason.map(str::to_string);
+            rec.exit_reason = diagnostic_reason(reason, "clean_shutdown");
         }
         rec.last_heartbeat_ts = last_heartbeat_ts.or(Some(end_ts));
         rewrite_ledger(home, &records)?;

@@ -18,7 +18,6 @@ mod shutdown_runtime;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use clap::Parser;
 use lastdb_uds::uds::UdsSocket;
 use lastdb_uds::uds_router;
 use lastdb_uds::worker_pool::UdsWorkerPool;
@@ -236,9 +235,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             data_dir.display()
         ))
     })?;
-    println!("lastdbd serving {}", socket.path().display());
-    println!("  Home:   {}", home.display());
-    println!("  Owner:  {}", host.user_hash);
+    println!("lastdbd serving the owner socket");
 
     register_shutdown_signals(&shutdown_flag).map_err(&note_fatal)?;
 
@@ -289,7 +286,18 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     Ok(())
 }
 
-fn main() -> Result<(), String> {
+fn main() -> std::process::ExitCode {
+    observability::crash::install_private_panic_hook();
+    if run().is_ok() {
+        std::process::ExitCode::SUCCESS
+    } else {
+        use std::io::Write;
+        let _ = writeln!(std::io::stderr().lock(), "lastdbd: daemon_failed");
+        std::process::ExitCode::FAILURE
+    }
+}
+
+fn run() -> Result<(), String> {
     let allocator_tuning = lastdb_node::allocator::configure();
     lastdb_node::log_rotation::spawn_stdio_log_rotators();
 
@@ -305,7 +313,7 @@ fn main() -> Result<(), String> {
 
     log_allocator_tuning(&allocator_tuning);
 
-    let cli = Cli::parse();
+    let cli = Cli::parse_private();
     if cli.enable_search {
         fold_db::db_operations::search_index::queue_policy::enable_for_process();
     }
