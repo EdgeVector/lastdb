@@ -96,12 +96,12 @@ pub(super) fn verify_coverage(
         let bytes = bytes
             .map_err(map)?
             .ok_or_else(|| invalid("snapshot identity common prefix proof is absent"))?;
-        verify_common(proof, &bytes)?;
+        verify_common(&proof, &bytes)?;
     }
     Ok(())
 }
 
-fn verify_common(proof: Common<'_>, bytes: &[u8]) -> StorageResult<()> {
+fn verify_common(proof: &Common<'_>, bytes: &[u8]) -> StorageResult<()> {
     match proof.kind {
         CommonKind::Authored => {
             let metadata: EventMetadata = decode(bytes)?;
