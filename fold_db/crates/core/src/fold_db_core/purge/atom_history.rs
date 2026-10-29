@@ -37,3 +37,15 @@ pub(super) async fn release_key_history(
         })
         .await
 }
+
+pub(super) async fn release_for_erase(
+    db: &Arc<DbOperations>,
+    loaded: &LoadedTargets,
+    spared: &HashSet<usize>,
+    options: super::erase::EraseOptions<'_>,
+) -> Result<TipCommit, SchemaError> {
+    if options.verb.is_delete() {
+        return Ok(TipCommit::default());
+    }
+    release_key_history(db, loaded, spared, options.storage_prefix).await
+}
