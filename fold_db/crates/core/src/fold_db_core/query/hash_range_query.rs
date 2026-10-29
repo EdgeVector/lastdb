@@ -21,7 +21,6 @@ use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{Schema, SchemaError};
 use futures::{stream, FutureExt, StreamExt};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
