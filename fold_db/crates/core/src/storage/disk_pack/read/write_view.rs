@@ -3,8 +3,9 @@
 use super::*;
 use transaction::{PendingBatch, PendingRecord};
 
-mod facts;
-mod stats;
+pub(super) mod direct;
+pub(super) mod facts;
+pub(super) mod stats;
 mod values;
 pub(super) use stats::{WriteView, WriteViewCounts};
 

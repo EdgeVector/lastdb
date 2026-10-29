@@ -26,8 +26,8 @@ mod tables;
 
 pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
-pub(crate) use memory::CoreRecordData;
 pub(crate) use memory::PreparedCoreMemory;
+pub(crate) use memory::{clone_record_value, CoreRecordData, TypedRecordValue};
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
 pub(crate) use model::{CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate};
 pub(crate) use records::CoreSourceRecord;

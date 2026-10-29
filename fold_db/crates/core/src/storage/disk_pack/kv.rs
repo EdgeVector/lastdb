@@ -127,6 +127,10 @@ pub(super) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
 
 #[async_trait::async_trait]
 impl KvStore for PackKvStore {
+    fn native_typed_view(&self) -> Option<(&Arc<PackRuntime>, &str)> {
+        Some((&self.runtime, &self.namespace))
+    }
+
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         Ok(self
             .values(vec![key.to_vec()])

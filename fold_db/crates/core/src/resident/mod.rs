@@ -39,8 +39,8 @@ pub use config::{
     RESIDENT_MAX_DEFERRED_ENV,
 };
 pub(crate) use core_set::CoreMemorySource;
-pub(crate) use core_set::CoreRecordData;
 pub(crate) use core_set::CoreSourceRecord;
+pub(crate) use core_set::{clone_record_value, CoreRecordData, TypedRecordValue};
 pub use core_set::{CoreMemoryStats, CoreMemoryValue, CoreWarmByteStats};
 pub(crate) use core_set::{
     CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,

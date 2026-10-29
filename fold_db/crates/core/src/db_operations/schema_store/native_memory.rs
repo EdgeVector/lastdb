@@ -6,6 +6,39 @@ use crate::storage::disk_pack::{core_memory_sources, transaction, CoreMemorySour
 use std::sync::Arc;
 
 impl crate::resident::CoreRecordData for SchemaReadSnapshot {
+    fn record_type(&self, collection: &str) -> std::any::TypeId {
+        if collection == "schemas" {
+            std::any::TypeId::of::<Schema>()
+        } else {
+            std::any::TypeId::of::<String>()
+        }
+    }
+    fn record_slot(&self, collection: &str) -> usize {
+        usize::from(collection == "schema_superseded_by")
+    }
+
+    fn clone_record(
+        &self,
+        collection: &str,
+        target: std::any::TypeId,
+    ) -> serde_json::Result<Option<crate::resident::TypedRecordValue>> {
+        match collection {
+            "schemas" if target == std::any::TypeId::of::<Schema>() => {
+                let schema = Schema::from(self.schema.as_ref().expect("present schema").to_wire());
+                Ok(Some(Box::new(schema)))
+            }
+            "schemas" => crate::resident::clone_record_value(
+                self.schema.as_ref().expect("present schema"),
+                target,
+            ),
+            "schema_superseded_by" => crate::resident::clone_record_value(
+                self.successor.as_ref().expect("present successor"),
+                target,
+            ),
+            _ => Ok(None),
+        }
+    }
+
     fn record_present(&self, collection: &str) -> Option<bool> {
         match collection {
             "schemas" => Some(self.schema.is_some()),

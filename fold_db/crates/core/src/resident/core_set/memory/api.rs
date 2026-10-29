@@ -37,6 +37,7 @@ impl CoreWarmSet {
         Arc::new(CoreMemoryValue {
             value,
             _charge: None,
+            wire_bytes: Default::default(),
         })
     }
 

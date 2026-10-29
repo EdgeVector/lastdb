@@ -46,6 +46,25 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
+        if let Some(runtime) = &runtime {
+            if let Some(values) = runtime
+                .direct_write_items("main", keys, decode_plain_atom_arc)
+                .await?
+            {
+                let mut out = Vec::with_capacity(values.len());
+                for (requested, atom) in keys.iter().zip(values) {
+                    if let Some(atom) = &atom {
+                        crate::storage::disk_pack::logical_paths::source::note_atom(
+                            Some(Arc::clone(runtime)),
+                            requested,
+                            atom,
+                        )?;
+                    }
+                    out.push(atom.map(|atom| atom.as_ref().clone()));
+                }
+                return Ok(out);
+            }
+        }
         let captured = runtime
             .as_ref()
             .map(|runtime| runtime.captured_atoms(keys))
@@ -96,6 +115,14 @@ impl AtomStore {
         }
         Ok(raw)
     }
+}
+
+fn decode_plain_atom_arc(
+    bytes: &[u8],
+) -> crate::storage::error::StorageResult<Arc<crate::atom::Atom>> {
+    decode_plain_atom(bytes)
+        .map(Arc::new)
+        .map_err(|error| crate::storage::StorageError::SerializationError(error.to_string()))
 }
 
 /// The plain row of a disk format v2 home: the atom JSON with sorted keys, no

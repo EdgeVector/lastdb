@@ -7,9 +7,36 @@ pub(crate) trait CoreRecordData: Send + Sync + 'static {
     /// None means this definition cannot answer that exact stored record.
     fn record_present(&self, collection: &str) -> Option<bool>;
     fn write_record(&self, collection: &str, out: &mut dyn Write) -> serde_json::Result<()>;
+    fn clone_record(
+        &self,
+        collection: &str,
+        target: std::any::TypeId,
+    ) -> serde_json::Result<Option<TypedRecordValue>>;
+    fn record_type(&self, collection: &str) -> std::any::TypeId;
+    fn record_slot(&self, _: &str) -> usize {
+        0
+    }
 }
 
-impl<T: serde::Serialize + Send + Sync + 'static> CoreRecordData for Option<T> {
+pub(crate) type TypedRecordValue = Box<dyn Any + Send + Sync>;
+
+pub(crate) fn clone_record_value<T: serde::Serialize + Clone + Send + Sync + 'static>(
+    value: &T,
+    target: std::any::TypeId,
+) -> serde_json::Result<Option<TypedRecordValue>> {
+    if target == std::any::TypeId::of::<T>() {
+        Ok(Some(Box::new(value.clone())))
+    } else if target == std::any::TypeId::of::<serde_json::Value>() {
+        serde_json::to_value(value).map(|value| Some(Box::new(value) as TypedRecordValue))
+    } else {
+        Ok(None)
+    }
+}
+
+impl<T: serde::Serialize + Clone + Send + Sync + 'static> CoreRecordData for Option<T> {
+    fn record_type(&self, _: &str) -> std::any::TypeId {
+        std::any::TypeId::of::<T>()
+    }
     fn record_present(&self, _: &str) -> Option<bool> {
         Some(self.is_some())
     }
@@ -17,20 +44,71 @@ impl<T: serde::Serialize + Send + Sync + 'static> CoreRecordData for Option<T> {
     fn write_record(&self, _: &str, out: &mut dyn Write) -> serde_json::Result<()> {
         serde_json::to_writer(out, self.as_ref().expect("present typed record"))
     }
+
+    fn clone_record(
+        &self,
+        _: &str,
+        target: std::any::TypeId,
+    ) -> serde_json::Result<Option<TypedRecordValue>> {
+        clone_record_value(self.as_ref().expect("present typed record"), target)
+    }
 }
 
 pub(crate) trait CoreRecordReader: Send + Sync {
     fn record_present(&self, collection: &str) -> Option<bool>;
     fn write_record(&self, collection: &str, out: &mut dyn Write) -> serde_json::Result<()>;
+    fn clone_record(
+        &self,
+        collection: &str,
+        target: std::any::TypeId,
+    ) -> serde_json::Result<Option<TypedRecordValue>>;
+    fn wire_bytes(&self, collection: &str) -> serde_json::Result<usize>;
+    fn record_type(&self, collection: &str) -> std::any::TypeId;
 }
 
 impl<T: CoreRecordData> CoreRecordReader for CoreMemoryValue<T> {
+    fn record_type(&self, collection: &str) -> std::any::TypeId {
+        self.value.record_type(collection)
+    }
     fn record_present(&self, collection: &str) -> Option<bool> {
         self.value.record_present(collection)
     }
 
     fn write_record(&self, collection: &str, out: &mut dyn Write) -> serde_json::Result<()> {
         self.value.write_record(collection, out)
+    }
+
+    fn clone_record(
+        &self,
+        collection: &str,
+        target: std::any::TypeId,
+    ) -> serde_json::Result<Option<TypedRecordValue>> {
+        self.value.clone_record(collection, target)
+    }
+
+    fn wire_bytes(&self, collection: &str) -> serde_json::Result<usize> {
+        let cached = &self.wire_bytes[self.value.record_slot(collection)];
+        if let Some(bytes) = cached.get() {
+            return Ok(*bytes);
+        }
+        let mut length = RecordLength(0);
+        self.value.write_record(collection, &mut length)?;
+        let _ = cached.set(length.0);
+        Ok(length.0)
+    }
+}
+
+struct RecordLength(usize);
+impl Write for RecordLength {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
+            .ok_or_else(|| std::io::Error::other("typed record length overflow"))?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 

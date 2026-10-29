@@ -19,6 +19,9 @@ pub(in super::super) struct WriteViewCounts {
     absences: u64,
     offered_records: u64,
     offered_bytes: u64,
+    direct_records: u64,
+    direct_bytes: u64,
+    direct_value_records: u64,
 }
 
 pub(in super::super) struct WriteView {
@@ -46,12 +49,44 @@ impl WriteViewCounts {
         body: Option<&[u8]>,
         owner: WriteOwner,
     ) {
+        self.note_size(
+            coordinate,
+            body.map_or(0, <[u8]>::len),
+            body.is_none(),
+            owner,
+        );
+    }
+
+    pub(in super::super) fn note_direct(
+        &mut self,
+        coordinate: &Coordinate,
+        bytes: usize,
+        absent: bool,
+        owner: WriteOwner,
+        value: bool,
+    ) {
+        if !laststore::commit_timing::enabled() {
+            return;
+        }
+        self.direct_records += 1;
+        self.direct_bytes += bytes as u64;
+        self.direct_value_records += u64::from(value);
+        self.note_size(coordinate, bytes, absent, owner);
+    }
+
+    fn note_size(
+        &mut self,
+        coordinate: &Coordinate,
+        bytes: usize,
+        absent: bool,
+        owner: WriteOwner,
+    ) {
         if !laststore::commit_timing::enabled() {
             return;
         }
         self.reused_records += 1;
-        self.reused_bytes += body.map_or(0, <[u8]>::len) as u64;
-        self.absences += u64::from(body.is_none());
+        self.reused_bytes += bytes as u64;
+        self.absences += u64::from(absent);
         self.shared_typed_records += u64::from(!matches!(owner, WriteOwner::Fact));
         match owner {
             WriteOwner::Fact => self.typed_fact_records += 1,
@@ -88,6 +123,9 @@ impl ReadContext {
         total.reused_records += counts.reused_records;
         total.reused_bytes += counts.reused_bytes;
         total.overlay_records += counts.overlay_records;
+        total.direct_records += counts.direct_records;
+        total.direct_bytes += counts.direct_bytes;
+        total.direct_value_records += counts.direct_value_records;
         total.shared_typed_records += counts.shared_typed_records;
         total.typed_fact_records += counts.typed_fact_records;
         total.typed_tips += counts.typed_tips;
@@ -129,7 +167,7 @@ impl ReadContext {
                 "LASTDB_SNAPSHOT_TIMING",
                 &serde_json::json!({
                     // Retain the wire kind for the existing CI comparison reader.
-                    "kind": "write_reads", "owner": "typed_common_write_view",
+                    "kind": "write_reads", "owner": "direct_typed_write_view",
                     "started_us": view.started_us,
                     "ended_us": laststore::commit_timing::unix_us(),
                     "counts": &*counts,

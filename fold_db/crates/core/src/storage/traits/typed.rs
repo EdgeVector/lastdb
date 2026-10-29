@@ -54,27 +54,34 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
     }
 
     /// Get a typed item
-    pub async fn get_item<T: DeserializeOwned + Send + Sync>(
+    pub async fn get_item<T: DeserializeOwned + Send + Sync + 'static>(
         &self,
         key: &str,
     ) -> StorageResult<Option<T>> {
-        let raw = self.inner.get(key.as_bytes()).await?;
-        raw.map(|bytes| {
-            serde_json::from_slice(&bytes)
-                .map_err(|error| StorageError::SerializationError(error.to_string()))
-        })
-        .transpose()
+        Ok(self
+            .get_items::<T>(&[key.to_owned()])
+            .await?
+            .pop()
+            .expect("one typed key"))
     }
 
     /// Get multiple typed items, preserving input order.
     ///
     /// Each supplied storage key is an exact identity.
-    pub async fn get_items<T: DeserializeOwned + Send + Sync>(
+    pub async fn get_items<T: DeserializeOwned + Send + Sync + 'static>(
         &self,
         keys: &[String],
     ) -> StorageResult<Vec<Option<T>>> {
         if keys.is_empty() {
             return Ok(Vec::new());
+        }
+        if let Some((runtime, namespace)) = self.inner.native_typed_view() {
+            if let Some(values) = runtime
+                .direct_write_items(namespace, keys, decode_item::<T>)
+                .await?
+            {
+                return Ok(values);
+            }
         }
         let primary = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
         let raw = self.inner.get_many(primary).await?;
@@ -237,4 +244,9 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         let selected = keys.into_iter().map(String::into_bytes).collect();
         self.inner.batch_delete(selected).await
     }
+}
+
+fn decode_item<T: DeserializeOwned>(bytes: &[u8]) -> StorageResult<T> {
+    serde_json::from_slice(bytes)
+        .map_err(|error| StorageError::SerializationError(error.to_string()))
 }

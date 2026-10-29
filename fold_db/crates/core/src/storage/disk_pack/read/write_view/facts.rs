@@ -8,7 +8,10 @@ static FACTS: u8 = 0;
 
 pub(super) enum WriteFact {
     Absent,
-    Counter(AtomCounter),
+    Counter {
+        value: AtomCounter,
+        wire_bytes: usize,
+    },
 }
 
 pub(super) fn get(
@@ -32,7 +35,10 @@ pub(super) fn retain(core: &mut CoreWarmSet, coordinate: &Coordinate, body: Opti
             let Ok(counter) = serde_json::from_slice(body) else {
                 return;
             };
-            WriteFact::Counter(counter)
+            WriteFact::Counter {
+                value: counter,
+                wire_bytes: body.len(),
+            }
         }
         Some(body) => {
             if coordinate.0 == "tips"
@@ -51,12 +57,52 @@ pub(super) fn retain(core: &mut CoreWarmSet, coordinate: &Coordinate, body: Opti
             return;
         }
     };
-    if get(core, coordinate).is_some() {
+    retain_fact(core, coordinate, fact);
+}
+
+pub(super) fn retain_typed(
+    core: &mut CoreWarmSet,
+    coordinate: &Coordinate,
+    value: Option<(&dyn std::any::Any, usize)>,
+) {
+    let fact = match value {
+        None => WriteFact::Absent,
+        Some((value, wire_bytes))
+            if coordinate.0 == "atoms"
+                && crate::atom::atom_key_codec::is_counter_key(&coordinate.1) =>
+        {
+            let Some(counter) = value.downcast_ref::<AtomCounter>() else {
+                return;
+            };
+            WriteFact::Counter {
+                value: counter.clone(),
+                wire_bytes,
+            }
+        }
+        Some((value, _)) => {
+            if let Some(tip) = value.downcast_ref::<PerKeyRecord>() {
+                core.authorize_tip_source(
+                    &coordinate.0,
+                    &coordinate.1,
+                    &tip.entry,
+                    tip.meta.as_ref(),
+                );
+            }
+            return;
+        }
+    };
+    retain_fact(core, coordinate, fact);
+}
+
+fn retain_fact(core: &mut CoreWarmSet, coordinate: &Coordinate, fact: WriteFact) {
+    if coordinate.0 == super::super::super::physical::CAS_COLLECTION
+        || get(core, coordinate).is_some()
+    {
         return;
     }
     let bytes = match &fact {
         WriteFact::Absent => std::mem::size_of::<WriteFact>(),
-        WriteFact::Counter(counter) => counter.blobs.iter().fold(
+        WriteFact::Counter { value: counter, .. } => counter.blobs.iter().fold(
             std::mem::size_of::<WriteFact>()
                 + counter.blobs.capacity() * std::mem::size_of::<String>()
                 + counter.source_schema.as_ref().map_or(0, String::capacity),

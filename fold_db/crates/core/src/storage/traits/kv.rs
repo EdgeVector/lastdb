@@ -9,6 +9,16 @@ use async_trait::async_trait;
 /// Operations are async so a backend can bridge blocking disk work.
 #[async_trait]
 pub trait KvStore: Send + Sync {
+    /// Native typed read capability. Encryption decorators keep the default.
+    fn native_typed_view(
+        &self,
+    ) -> Option<(
+        &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
+        &str,
+    )> {
+        None
+    }
+
     /// Get a value by key
     async fn get(&self, key: &[u8]) -> StorageResult<Option<Vec<u8>>>;
 

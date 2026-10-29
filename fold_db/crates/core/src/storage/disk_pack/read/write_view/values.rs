@@ -20,9 +20,11 @@ pub(super) fn read(
     if let Some(value) = facts::get(core, coordinate) {
         let body = match &**value {
             facts::WriteFact::Absent => absent(context, call, coordinate)?,
-            facts::WriteFact::Counter(counter) => encode(context, call, coordinate, |out| {
-                serde_json::to_writer(out, counter)
-            })?,
+            facts::WriteFact::Counter { value: counter, .. } => {
+                encode(context, call, coordinate, |out| {
+                    serde_json::to_writer(out, counter)
+                })?
+            }
         };
         return Ok(Some(WriteRecord::Core {
             body,
@@ -32,13 +34,13 @@ pub(super) fn read(
     let uuid = crate::atom::atom_key_codec::body_uuid_of(&coordinate.1);
     if let Some(value) = core.source_record(&coordinate.0, &coordinate.1, uuid) {
         let (body, owner) = match value {
-            CoreSourceRecord::Atom(atom) => (
+            CoreSourceRecord::Atom(atom, _) => (
                 encode(context, call, coordinate, |out| {
                     serde_json::to_writer(out, atom)
                 })?,
                 WriteOwner::Atom,
             ),
-            CoreSourceRecord::Tip(entry, meta) => (
+            CoreSourceRecord::Tip(entry, meta, _) => (
                 encode(context, call, coordinate, |out| {
                     serde_json::to_writer(out, &Tip { entry, meta })
                 })?,

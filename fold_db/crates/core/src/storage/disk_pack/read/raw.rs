@@ -34,7 +34,7 @@ impl PackRuntime {
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         trace_families(coordinates);
         laststore::record_requested_keys(coordinates.len() as u64);
-        let result = self.raw_many_inner(context, coordinates, pending);
+        let result = self.raw_many_inner(context, coordinates, pending, true);
         context.remember(&result);
         result
     }
@@ -44,6 +44,7 @@ impl PackRuntime {
         context: &Arc<ReadContext>,
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
+        shared: bool,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         context.validate_owner(pending)?;
         let maximum = if context.owns_write(pending) {
@@ -63,7 +64,7 @@ impl PackRuntime {
             // One immutable call and PendingBatch cover every ordered chunk.
             // Both engine batch readers retain their 10,000-slot input cap.
             for chunk in coordinates.chunks(10_000) {
-                out.extend(self.read_chunk(context, &mut call, chunk, pending)?);
+                out.extend(self.read_chunk(context, &mut call, chunk, pending, shared)?);
             }
             Ok(out)
         })();
@@ -77,10 +78,22 @@ impl PackRuntime {
         call: &mut PhysicalRead,
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
+        shared: bool,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {
         let mut out = vec![None; coordinates.len()];
         let mut misses = Vec::new();
-        let records = self.write_view_records(context, call, pending, coordinates)?;
+        let records = if shared {
+            self.write_view_records(context, call, pending, coordinates)?
+        } else {
+            coordinates
+                .iter()
+                .map(|(collection, key)| {
+                    context
+                        .overlay_record(pending, collection, key)
+                        .map(write_view::WriteRecord::Overlay)
+                })
+                .collect()
+        };
         let mut counts = write_view::WriteViewCounts::default();
         for (slot, selected) in records.into_iter().enumerate() {
             match selected {
@@ -117,11 +130,29 @@ impl PackRuntime {
             .zip(&values)
             .map(|(coordinate, value)| (coordinate, value.as_deref()))
             .collect();
-        self.remember_write_view(context, &observations)?;
+        if shared {
+            self.remember_write_view(context, &observations)?;
+        }
         for (slot, value) in misses.into_iter().zip(values) {
             out[slot] = value;
         }
         Ok(out)
+    }
+}
+
+impl PackRuntime {
+    /// Typed misses read the captured root directly; no warm value is encoded.
+    pub(super) fn raw_many_disk(
+        &self,
+        context: &Arc<ReadContext>,
+        coordinates: &[(String, String)],
+        pending: &Arc<transaction::PendingBatch>,
+    ) -> StorageResult<Vec<Option<Vec<u8>>>> {
+        trace_families(coordinates);
+        laststore::record_requested_keys(coordinates.len() as u64);
+        let result = self.raw_many_inner(context, coordinates, Some(pending), false);
+        context.remember(&result);
+        result
     }
 }
 

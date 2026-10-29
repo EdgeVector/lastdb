@@ -7,7 +7,7 @@ use std::ops::Deref;
 
 mod api;
 mod records;
-pub(crate) use records::{CoreRecordData, CoreRecordReader};
+pub(crate) use records::{clone_record_value, CoreRecordData, CoreRecordReader, TypedRecordValue};
 
 const MAX_ENTRIES: usize = 10_000;
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
@@ -36,6 +36,7 @@ impl PreparedCoreMemory {
 pub struct CoreMemoryValue<T> {
     value: T,
     _charge: Option<CoreKeyReservation>,
+    wire_bytes: [std::sync::OnceLock<usize>; 2],
 }
 
 impl<T> Deref for CoreMemoryValue<T> {
@@ -148,6 +149,7 @@ impl CoreMemory {
             value: Arc::new(CoreMemoryValue {
                 value,
                 _charge: Some(charge),
+                wire_bytes: Default::default(),
             }),
             sources: Arc::new(sources),
             reader: None,
@@ -268,6 +270,7 @@ impl CoreMemory {
         let value = Arc::new(CoreMemoryValue {
             value,
             _charge: charge,
+            wire_bytes: Default::default(),
         });
         if retained {
             self.install(key, value.clone(), sources);

@@ -32,7 +32,8 @@ const SOURCE_BASE: usize = 72;
 /// (about 620 bytes per slot with a small tip, 1.34 KB before).
 const SLOT_BASE: usize = 350;
 /// The exact source marker adds one optional interned source id to each slot.
-const TIP_SOURCE_BYTES: usize = std::mem::size_of::<Option<u32>>();
+const TIP_SOURCE_BYTES: usize =
+    std::mem::size_of::<Option<u32>>() + std::mem::size_of::<Option<usize>>();
 /// Copies of the slot hash and range strings: the interned slot key only.
 const SLOT_KEY_COPIES: usize = 1;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).

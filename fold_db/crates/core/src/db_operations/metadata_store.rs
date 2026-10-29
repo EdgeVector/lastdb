@@ -74,7 +74,7 @@ impl MetadataStore {
     /// Point-get one JSON value from the metadata namespace.
     ///
     /// Missing key → `Ok(None)`. This is not a prefix walk.
-    pub async fn get_typed<T: DeserializeOwned + Send + Sync>(
+    pub async fn get_typed<T: DeserializeOwned + Send + Sync + 'static>(
         &self,
         key: &str,
     ) -> Result<Option<T>, SchemaError> {

@@ -29,6 +29,7 @@ pub(super) struct SlotEntry {
     pub(super) metadata: Option<Box<KeyMetadata>>,
     /// Exact observed tip source; other invalidation edges grant no raw answer.
     pub(super) tip_source: Option<SourceId>,
+    pub(super) tip_wire_bytes: Option<usize>,
     pub(super) owned: Option<Arc<model::CoreModelSlot>>,
     /// Heap of the current molecule tip, charged once for all alias paths.
     pub(super) tip_charge: usize,
@@ -107,6 +108,7 @@ impl SlotTable {
             tip: None,
             metadata: None,
             tip_source: None,
+            tip_wire_bytes: None,
             owned: None,
             tip_charge: 0,
         };
