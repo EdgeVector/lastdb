@@ -1,7 +1,7 @@
 //! Persist-lane hard-erasure purge job.
 
 use super::*;
-use crate::db_operations::search_index::{IndexChangeBatch, IndexSink, SearchOutboxSink};
+use crate::db_operations::search_index::IndexChangeBatch;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn run_purge_job(
@@ -212,15 +212,7 @@ impl MutationManager {
         let inbox = self.search_outbox_inbox.clone();
         let batch = batch.clone();
         crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
-            let sink = inbox
-                .map(SearchOutboxSink::new)
-                .or_else(SearchOutboxSink::from_env);
-            if let Some(sink) = sink {
-                sink.apply_change_batch(batch).await.map_err(|error| {
-                    crate::storage::StorageError::BackendError(error.to_string())
-                })?;
-            }
-            Ok(())
+            MutationManager::deliver_search_outbox(inbox, batch).await
         })?;
         Ok(())
     }

@@ -2,7 +2,6 @@
 
 use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
-use crate::db_operations::search_index::{IndexSink, SearchOutboxSink};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
 use futures::FutureExt;
@@ -188,15 +187,7 @@ impl MutationManager {
         if let Some(batch) = job.search_batch.take() {
             let inbox = self.search_outbox_inbox.clone();
             transaction::after_commit(runtime, async move {
-                let sink = inbox
-                    .map(SearchOutboxSink::new)
-                    .or_else(SearchOutboxSink::from_env);
-                if let Some(sink) = sink {
-                    sink.apply_change_batch(batch).await.map_err(|error| {
-                        crate::storage::StorageError::BackendError(error.to_string())
-                    })?;
-                }
-                Ok(())
+                MutationManager::deliver_search_outbox(inbox, batch).await
             })?;
         }
         transaction::retain(runtime, pending_persist_task)?;

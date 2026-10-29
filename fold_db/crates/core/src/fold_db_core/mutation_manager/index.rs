@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::db_operations::search_index::inbox_fields::{inbox_fields, searchable_fields};
 use crate::db_operations::search_index::{
-    IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink, SearchOutboxSink,
+    IndexChange, IndexChangeBatch, IndexChangeKind, SearchOutboxSink,
 };
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
@@ -70,14 +70,16 @@ impl MutationManager {
         &self,
         batch: &IndexChangeBatch,
     ) -> Result<(), crate::schema::SchemaError> {
-        if let Some(inbox) = &self.search_outbox_inbox {
-            return SearchOutboxSink::new(inbox.clone())
-                .apply_change_batch(batch.clone())
-                .await;
-        }
-        if let Some(sink) = SearchOutboxSink::from_env() {
-            return sink.apply_change_batch(batch.clone()).await;
-        }
-        Ok(())
+        SearchOutboxSink::deliver(self.search_outbox_inbox.clone(), batch.clone()).await
+    }
+
+    /// Send one batch after a native commit. A sink error becomes a storage error.
+    pub(crate) async fn deliver_search_outbox(
+        inbox: Option<std::path::PathBuf>,
+        batch: IndexChangeBatch,
+    ) -> Result<(), crate::storage::StorageError> {
+        SearchOutboxSink::deliver(inbox, batch)
+            .await
+            .map_err(|error| crate::storage::StorageError::BackendError(error.to_string()))
     }
 }
