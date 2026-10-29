@@ -49,29 +49,6 @@ ignore = [
   { id = "RUSTSEC-2026-0095", reason = "wasmtime 29.0.1 — Winch sandbox escape; we don't use Winch, but bump tracked" },
   { id = "RUSTSEC-2026-0096", reason = "wasmtime 29.0.1 — aarch64 Cranelift miscompile sandbox escape; needs wasmtime 36+, breaking" },
 
-  # ---- rustls-webpki 0.101.7 (via aws-smithy-http-client legacy-rustls) ----
-  # Three webpki advisories hit the legacy rustls 0.21.x path that
-  # aws-smithy-http-client 1.1.12 still pins via `legacy-rustls`.
-  # Unblocking requires bumping the AWS SDK family past the version
-  # that retires legacy-rustls — scoped out as a follow-up since the
-  # AWS SDK upgrade is its own multi-crate change.
-  # Mitigation: webpki name-constraint paths are not on our request
-  # critical path; the schema_service Lambda terminates TLS at API
-  # Gateway, not at the rustls layer.
-  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
-  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
-  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7 via aws-smithy-http-client legacy-rustls; needs AWS SDK bump" },
-
-  # ---- lru 0.12.5 (via aws-sdk-s3 1.119.0) ----
-  # The IterMut Stacked-Borrows unsoundness is patched in lru >= 0.16.3,
-  # but aws-sdk-s3 1.119.0 pins lru `^0.12.2`, so the patched line is
-  # unreachable without a breaking AWS SDK bump (same anchor as the
-  # rustls-webpki entries above). We never call IterMut on this cache —
-  # it's the AWS SDK's internal in-memory LRU credential/endpoint cache,
-  # not data we touch. Revisit when the AWS SDK family is bumped to a
-  # version that allows lru >= 0.16.3. (Added 2026-06-18.)
-  { id = "RUSTSEC-2026-0002", reason = "lru 0.12.5 IterMut unsound; patched in lru >=0.16.3 but aws-sdk-s3 1.119.0 pins lru ^0.12.2 — needs AWS SDK bump; transitive in-mem LRU cache we don't IterMut" },
-
   # ---- Unmaintained / unsound — transitive, no direct consumer in our code ----
   { id = "RUSTSEC-2026-0105", reason = "core2 yanked; transitive via image → rav1e → bitstream-io; upstream owns the fix" },
   # Yanked-crate match for core2 (the unmaintained advisory above only

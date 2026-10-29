@@ -107,8 +107,10 @@ path = "examples/v2_registry_client_proof/main.rs"
 
 [dev-dependencies]
 ed25519-dalek = "2"
-aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
+# Workspace entries keep default features off. Turning them back on here
+# reintroduces the legacy hyper 0.14 / rustls 0.21 connector and SigV4A.
+aws-sdk-s3 = { workspace = true, features = ["behavior-version-latest"] }
+aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 schema_service_s3 = { path = "../schema_service/crates/schema_service_s3" }
 schema_service_server_shared = { path = "../schema_service/crates/server_shared", features = ["actix"] }
