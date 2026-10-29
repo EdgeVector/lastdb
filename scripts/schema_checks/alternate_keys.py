@@ -96,7 +96,7 @@ def alternate_field_reuse(node):
     expect_refusal(lambda: install(node, invalid))
     return {"equal_canonical_fields": True, "independent_values": True,
             "unknown_declared_field_refused": True}
-+
+
 def alternate_atomic_batch(node):
     name = install(node, task_definition("AtomicTask"))
     operations = []
