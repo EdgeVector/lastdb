@@ -86,28 +86,6 @@ impl SchemaCore {
         Ok(schema)
     }
 
-    /// Drop a schema's in-memory cache entry after a failed reload.
-    ///
-    /// The deferred resident-write persist path calls `store_schema` (durable)
-    /// and then `load_schema_internal` (refreshes this cache) as two separate
-    /// steps. If the durable store succeeds but the reload fails partway, the
-    /// cache keeps whatever it held before the attempt — silently stale
-    /// relative to the row that is now actually on disk. Evicting here makes
-    /// the next [`Self::get_schema_resolved`] call take its cache-miss branch,
-    /// which re-reads the durable row and repopulates the cache from it,
-    /// instead of drifting until the next full reload or process restart.
-    pub fn evict_stale_schema_cache(&self, schema_name: &str) -> Result<(), SchemaError> {
-        // A failed native scope discards its pending row and cache overlay.
-        // The shared cache still describes the previous complete root.
-        if crate::storage::disk_pack::transaction::publication::active(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
-        ) {
-            return Ok(());
-        }
-        write_map(&self.schemas, "schemas")?.remove(schema_name);
-        Ok(())
-    }
-
     /// Update an existing schema in both the database and in-memory cache.
     /// Used by ingestion to add Reference topologies after child schemas are resolved.
     pub async fn update_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
