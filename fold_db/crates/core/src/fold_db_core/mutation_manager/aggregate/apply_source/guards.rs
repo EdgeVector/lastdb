@@ -161,6 +161,16 @@ impl MutationManager {
         .await
     }
 
+    /// Invalidate the expected guard, then return `error`.
+    pub(super) async fn refuse_after_invalidate<T>(
+        &self,
+        ctx: &ApplyCtx<'_>,
+        error: SchemaError,
+    ) -> Result<T, SchemaError> {
+        self.invalidate_expected(ctx).await?;
+        Err(error)
+    }
+
     /// A late loser must not invalidate the unchanged target winner. It can
     /// only stale a different target already owned by this same source
     /// partition, and only while that reverse owner is current.
