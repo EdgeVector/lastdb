@@ -34,16 +34,17 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         let grant_key =
             Self::aggregate_repair_grant_key(storage_prefix, target_schema_name, target_key);
-        self.db_ops
-            .metadata()
-            .delete_typed_durable(&grant_key)
-            .await?;
         let finalized_key =
             Self::aggregate_finalized_grant_key(storage_prefix, target_schema_name, target_key);
-        self.db_ops
-            .metadata()
-            .delete_typed_durable(&finalized_key)
-            .await?;
+        self.delete_durable_copies([grant_key.as_str(), finalized_key.as_str()])
+            .await
+    }
+
+    /// Delete metadata keys in order. A failed key stops the rest.
+    pub(super) async fn delete_durable_copies(&self, keys: [&str; 2]) -> Result<(), SchemaError> {
+        for key in keys {
+            self.db_ops.metadata().delete_typed_durable(key).await?;
+        }
         Ok(())
     }
 
