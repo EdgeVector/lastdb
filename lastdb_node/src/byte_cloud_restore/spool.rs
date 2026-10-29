@@ -103,7 +103,7 @@ fn route_entry(folder: &str, path: &Path) -> Result<bool> {
         .or_else(|| name.strip_suffix(".pending"))
         .filter(|index| index.len() == 8 && index.bytes().all(|byte| byte.is_ascii_digit()))
         .and_then(|index| index.parse::<u32>().ok());
-    if !index.is_some_and(|index| index < super::logs::MAX_CHAIN) {
+    if index.is_none_or(|index| index >= super::logs::MAX_CHAIN) {
         return Err(RestoreError::Invalid("mutation route spool name"));
     }
     Ok(true)
