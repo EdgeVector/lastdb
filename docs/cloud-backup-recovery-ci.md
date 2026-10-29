@@ -175,6 +175,8 @@ The service also enforces the account quota and reservation rules before an allo
 The recipe adds no cloud encryption or native format change.
 An early restore failure or strict-stop failure does not retain API credentials.
 Cleanup removes only the known API credential files and clears the operation's key reference and credential environment variables.
+It also removes canonical private pending connection files after a bounded read of the two owned homes.
+Published consent records, identity files, and native files stay unchanged.
 Uncertain native data and recovery receipts stay private when the operation cannot confirm a clean stop.
 No secret values enter the summary.
 It accesses no primary, primary copy, archive, or PROD service.
@@ -254,6 +256,9 @@ Each pass also validates the complete saved metadata directory and allocation pl
 A shared 70-minute limit can expire after one request completes and before the next request finishes.
 The complete job has a 210-minute limit, which also covers the build and the existing recovery checks.
 An expired limit fails CI. The next run resumes the same saved request before it starts new work.
+The failure summary retains the last validated phase, allocation counts, headroom, fixed retry codes, and request count.
+Each request starts with an unobserved state until a saved state passes validation.
+These observations identify the last known progress. They do not claim a completed cleanup.
 
 CI must also acquire durable ownership before its first upload, so a failed restore cannot leave an unregistered stream.
 The worker supports a preassigned `LASTDB_CLOUD_CI_STREAM_ID` for the exact dedicated CI account.
