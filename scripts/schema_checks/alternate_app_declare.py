@@ -120,13 +120,13 @@ def declarations(node, publisher, port):
         repeated = node.call("/api/apps/declare-schema", body)[0]
         require(repeated["identity_hash"] == reply["identity_hash"], "repeat declare changed the definition identity")
         for name in (runtime, reply["identity_hash"]):
-            rows = node.call("/api/query", {"schema_name": name, "key_name": "by_group", "filter": {"HashKey": "g1"}})[0]["results"]
+            rows = node.call("/api/query", {"schema_name": name, "key_name": "by_group", "fields": [], "filter": {"HashKey": "g1"}})[0]["results"]
             require(len(rows) == 1 and rows[0]["fields"]["task_payload"] == body["app_id"],
                     "app values crossed namespaces or identity resolution lost the record")
     node.stop()
     node.start()
     for body in bodies:
-        rows = node.call("/api/query", {"schema_name": body["app_id"] + "/OwnedTask", "key_name": "by_group", "filter": {"HashKey": "g1"}})[0]["results"]
+        rows = node.call("/api/query", {"schema_name": body["app_id"] + "/OwnedTask", "key_name": "by_group", "fields": [], "filter": {"HashKey": "g1"}})[0]["results"]
         require(len(rows) == 1 and rows[0]["fields"]["task_payload"] == body["app_id"],
                 "public declaration values or alternate keys changed after reopen")
     result = {"real_schema_service": True, "check_writes_nothing": True,
