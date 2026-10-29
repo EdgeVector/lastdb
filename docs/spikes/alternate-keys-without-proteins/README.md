@@ -345,6 +345,9 @@ The SDK and CLI expose the selector and preserve the primary keys.
 Signed logical field events include the alternate declaration revision.
 The receiver refuses a revision mismatch before data or peer progress changes.
 It derives alternate changes from its accepted field winners in the same transaction as imported tips.
+Before a declaration change, deliver the old revision's signed events between the peers.
+Resume peer writes after each peer uses the same declarations.
+The owner route does not coordinate nodes or change remote schemas.
 The existing logical peer protocol still limits the supported mutation and sharing forms.
 
 ## Storage comparison rules

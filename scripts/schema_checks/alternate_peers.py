@@ -51,6 +51,10 @@ def peers(args, output):
         expected["group_id"] = "g4"
         check_rows(alternate(b, name, "by_group", "g4"), {"peer-1": expected})
         check_rows(alternate(b, name, "by_group", "g3"), {})
+        local = export(b)
+        require(len(local["events"]) == 1, "receiver lacks its original local key-field event")
+        ingest(a, local["events"])
+        check_rows(alternate(a, name, "by_group", "g4"), {"peer-1": expected})
         updated = {"by_group": {"hash_field": "owner_id", "range_field": "record_id", "missing": "reject"}}
         rebuild(a, name, updated, [key])
         write(a, name, key, {"payload": "third"}, "update")
@@ -64,6 +68,7 @@ def peers(args, output):
         result["retry_after_matching_backfill"] = ingest(b, new_revision["events"])
         expected["payload"] = "third"
         restart(b, crash=True)
+        check_rows(alternate(a, name, "by_group", "o1"), {"peer-1": expected})
         check_rows(alternate(b, name, "by_group", "o1"), {"peer-1": expected})
         result.update(declaration_revisions_signed=True, older_key_field_keeps_winner=True,
                       refused_revision_keeps_progress=True, crash_reopen_keeps_entries=True)
