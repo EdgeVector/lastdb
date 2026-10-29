@@ -146,7 +146,7 @@ impl AtomStore {
             .saturating_mul(8)
             .saturating_add(256);
         let sources = core_memory_sources("main", key.as_bytes());
-        let held = core_record_insert(runtime, owner, key.to_owned(), control, sources, bytes)?;
+        let held = core_record_insert(runtime, owner, key, control, sources, bytes)?;
         Ok(held.as_ref().as_ref().cloned())
     }
 }

@@ -62,7 +62,7 @@ impl DbOperations {
         let held = core_record_insert(
             runtime,
             owner,
-            key.clone(),
+            &key,
             index,
             core_memory_sources("main", key.as_bytes()),
             bytes,

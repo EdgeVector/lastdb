@@ -42,7 +42,8 @@ impl MoleculeKeyStore {
             let bytes = value.as_ref().map_or(256, |metadata| {
                 metadata.molecule_uuid.capacity().saturating_add(256)
             });
-            let held = core_record_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
+            let held =
+                core_record_insert(self.runtime.clone(), owner, &key, value, sources, bytes)?;
             output[at] = held.as_ref().as_ref().cloned();
         }
         Ok(output)

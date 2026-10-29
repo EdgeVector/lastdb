@@ -67,10 +67,10 @@ fn encode(
     write: impl Fn(&mut dyn Write) -> serde_json::Result<()>,
 ) -> StorageResult<Option<Vec<u8>>> {
     let mut length = EncodedLength(0);
-    write(&mut length).map_err(serialization)?;
+    write(&mut length).map_err(|error| serialization(&error))?;
     context.account_memory_record(call, coordinate.0.len() + coordinate.1.len(), length.0)?;
     let mut bytes = Vec::with_capacity(length.0);
-    write(&mut bytes).map_err(serialization)?;
+    write(&mut bytes).map_err(|error| serialization(&error))?;
     Ok(Some(bytes))
 }
 
@@ -89,6 +89,6 @@ impl Write for EncodedLength {
     }
 }
 
-fn serialization(error: serde_json::Error) -> StorageError {
+fn serialization(error: &serde_json::Error) -> StorageError {
     StorageError::SerializationError(format!("encode common typed write record: {error}"))
 }

@@ -112,7 +112,7 @@ impl SchemaCore {
         Ok(core_record_insert(
             runtime,
             cache,
-            name.to_string(),
+            name,
             snapshot,
             snapshot_sources(name),
             bytes,

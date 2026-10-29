@@ -34,7 +34,7 @@ impl DbCatalogStore {
         let retained = core_record_insert(
             self.runtime.clone(),
             owner,
-            key.to_owned(),
+            key,
             entry,
             core_memory_sources("db_catalog", key.as_bytes()),
             bytes,

@@ -121,12 +121,19 @@ fn lock_error() -> StorageError {
 pub(crate) fn core_record_insert<T: crate::resident::CoreRecordData>(
     runtime: Option<Arc<PackRuntime>>,
     owner: usize,
-    name: String,
+    name: &str,
     value: T,
     sources: Vec<CoreMemorySource>,
     bytes: usize,
 ) -> StorageResult<Arc<CoreMemoryValue<T>>> {
-    let held = core_memory_insert(runtime.clone(), owner, name.clone(), value, sources, bytes)?;
+    let held = core_memory_insert(
+        runtime.clone(),
+        owner,
+        name.to_owned(),
+        value,
+        sources,
+        bytes,
+    )?;
     if let Some(runtime) = runtime {
         if let Some(context) = super::ReadContext::captured(&runtime) {
             let view = runtime.view.read().map_err(|_| lock_error())?;
@@ -135,7 +142,7 @@ pub(crate) fn core_record_insert<T: crate::resident::CoreRecordData>(
                     .core
                     .lock()
                     .map_err(|_| lock_error())?
-                    .expose_memory_record(owner, &name, &held);
+                    .expose_memory_record(owner, name, &held);
             }
         }
     }
