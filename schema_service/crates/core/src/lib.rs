@@ -105,7 +105,7 @@ pub use app_identity::{
     SchemaClaimError,
 };
 pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
-pub use clock::{Clock, WallTime};
+pub use clock::{Clock, FrozenInstant};
 pub use declared_fields::{
     mint_declaration_id, DeclareFieldInput, DeclareFieldRequest, DeclaredField, DeclaredFieldError,
     DeclaredFieldRecord, DeclaredFieldRegistry,

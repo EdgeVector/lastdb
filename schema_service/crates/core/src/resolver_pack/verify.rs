@@ -196,8 +196,8 @@ fn validate_manifest_claims(
         return Err(ResolverPackVerifyError::WrongPurpose);
     }
     // Reject empty / unparseable pack expiry claims early.
-    chrono::DateTime::parse_from_rfc3339(&manifest.expires_at)
-        .map_err(|e| ResolverPackVerifyError::BadExpiresAt(e.to_string()))?;
+    schema_types::rfc3339::require_rfc3339(&manifest.expires_at)
+        .map_err(ResolverPackVerifyError::BadExpiresAt)?;
     validate_hash_field("resolver_config_hash", &manifest.resolver_config_hash)?;
     validate_hash_field("schema_snapshot_hash", &manifest.schema_snapshot_hash)?;
     validate_hash_field("embedding_artifact_hash", &manifest.embedding_artifact_hash)?;
