@@ -24,6 +24,8 @@ The public app declaration route installs one owned schema under `app_id/name`.
 Its `canonical` response names that runtime schema. Its `identity_hash` names the exact definition from Schema Service.
 The node also accepts that identity for record requests.
 Schema Service supplies the canonical field definitions, types, and classifications.
+The developer publishes those definitions through the existing signed publisher route.
+An owner node installs published definitions without a developer credential.
 The node keeps alternate declarations separate from that definition identity.
 It does not load a second data schema or bind service field mappers.
 An existing local schema needs an explicit conversion. A repeat declare cannot change its key or alternate declarations.

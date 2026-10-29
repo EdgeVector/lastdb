@@ -1,5 +1,10 @@
 # LastDB access model for agents
 
+**Protein deprecation, Tom, 2026-10-29:** New designs use one schema with named alternate keys for the same records.
+Canonical field reuse does not share record values.
+The [conversion rules](protein-deprecation.md) supersede the protein recommendations below.
+Existing protein descriptions document compatibility behavior until an explicit app conversion.
+
 > **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal, read this file.
 > Then `docs/lastdb-canonical-model.md` (the canonical model), `docs/lastdb-access-complexity-requirements.md`
 > (the complexity law), and, for data that grows or is large, the Shape rules below.

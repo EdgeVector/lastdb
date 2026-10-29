@@ -96,7 +96,9 @@ jobs:
           done
       - name: Prove existing-home compatibility, declaration backfill, and signed peer import
         run: |
-          python3 driver/scripts/schema_checks/alternate_compatibility.py \
+          python3 -m venv "$RUNNER_TEMP/alternate-python"
+          "$RUNNER_TEMP/alternate-python/bin/pip" install 'cryptography==50.0.2'
+          "$RUNNER_TEMP/alternate-python/bin/python" driver/scripts/schema_checks/alternate_compatibility.py \
             --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
             --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
             --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \

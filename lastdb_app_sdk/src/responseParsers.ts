@@ -365,6 +365,7 @@ export function parseLoadedSchema(schema: Record<string, JsonValue>): LoadedSche
     descriptiveName: stringOrNull(schema['descriptive_name']),
     ownerAppId: stringOrNull(schema['owner_app_id']),
     fields: stringArray(schema['fields']),
+    independentFields: schema['independent_fields'] === true,
   };
 }
 

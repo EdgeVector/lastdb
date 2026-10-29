@@ -11,6 +11,27 @@ fn client(host: &Host) -> Result<schema_service_client::SchemaServiceClient, Str
     )
 }
 
+/// Refuse an older caller before it can load a catalog schema that shadows an
+/// owned schema's identity alias. A later load refusal is already too late.
+pub(super) fn check_legacy(host: &Host, declare: &DirectDeclareProposal) -> Result<(), String> {
+    let schemas = host
+        .db
+        .schema_manager()
+        .get_schemas()
+        .map_err(|error| error.to_string())?;
+    let proposed = &declare.catalog_schema;
+    if schemas.values().any(|stored| {
+        stored.uses_independent_fields()
+            && (stored.name == declare.local_schema_id
+                || stored.identity_hash == proposed.identity_hash
+                || (stored.owner_app_id == proposed.owner_app_id
+                    && stored.descriptive_name == proposed.descriptive_name))
+    }) {
+        return Err("this app already owns independent values; repeat its independent declaration or use the explicit conversion command".into());
+    }
+    Ok(())
+}
+
 /// A repeat declare cannot convert old data, change its key, or discard a layout.
 fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<(), String> {
     let proposed = &declare.catalog_schema;
@@ -146,27 +167,26 @@ pub(super) async fn load(
         .await
         .map_err(|error| error.to_string())?;
     let reused = found.is_some();
-    let definition = match found {
-        Some(envelope) => envelope.schema,
-        None => {
-            let mut definition =
-                schema_types::DeclarativeSchemaDefinition::from(&declare.catalog_schema);
-            // Alternate declarations are node-owned and separately versioned.
-            // Older services can supply the same canonical field definitions.
-            definition.alternate_keys.clear();
-            definition.independent_fields = false;
-            definition.field_molecule_uuids = None;
-            client
-                .add_schema_with_match_source(
-                    &definition,
-                    HashMap::new(),
-                    "independent_definition",
-                    None,
-                )
-                .await
-                .map_err(|error| error.to_string())?
-                .schema
-        }
+    let definition = if let Some(envelope) = found {
+        envelope.schema
+    } else {
+        let mut definition =
+            schema_types::DeclarativeSchemaDefinition::from(&declare.catalog_schema);
+        // Alternate declarations are node-owned and separately versioned.
+        // Older services can supply the same canonical field definitions.
+        definition.alternate_keys.clear();
+        definition.independent_fields = false;
+        definition.field_molecule_uuids = None;
+        client
+            .add_schema_with_match_source(
+                &definition,
+                HashMap::new(),
+                "independent_definition",
+                None,
+            )
+            .await
+            .map_err(|error| error.to_string())?
+            .schema
     };
     let schema = owned_schema(declare, definition)?;
     host.db

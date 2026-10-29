@@ -1,5 +1,10 @@
 # LastDB access complexity requirements
 
+**Protein deprecation, Tom, 2026-10-29:** Use named alternate keys on one schema for the same records.
+Keep unrelated records in separate schemas. Keep canonical field reuse separate from record values.
+The [conversion rules](protein-deprecation.md) replace the protein recommendations below.
+The keyed-access complexity requirements remain in force.
+
 **Status:** product requirement (won't-undo)  
 **Audience:** engine, apps, agents  
 **Model:** Dynamo-style NoSQL — **not SQL**

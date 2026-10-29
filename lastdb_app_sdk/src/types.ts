@@ -592,7 +592,7 @@ export interface SearchResult {
  * intentionally not capability-scoped to an app's access set.
  */
 export interface LoadedSchema {
-  /** Canonical runtime schema name. On current nodes this is the identity hash. */
+  /** Runtime schema name. Independent app schemas use `app_id/name`. */
   name: string;
   /** Explicit identity hash when the node reports one; falls back to `name`. */
   identityHash: string | null;
@@ -602,6 +602,8 @@ export interface LoadedSchema {
   ownerAppId: string | null;
   /** Declared data field names. */
   fields: string[];
+  /** Field definitions can be shared without sharing this schema's values. */
+  independentFields?: boolean;
 }
 
 /** Descriptor used to resolve an app-owned loaded schema from `/api/schemas`. */

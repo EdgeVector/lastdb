@@ -15,6 +15,13 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
+## Proteins are deprecated (Tom, 2026-10-29)
+
+New designs use one schema with named alternate keys for the same records.
+Canonical field reuse supplies definitions; it does not share record values.
+Follow `docs/protein-deprecation.md`. It supersedes older protein recommendations here and in app guides.
+Preserve existing protein data until an explicit conversion. Source work does not authorize a primary data change.
+
 ## Builds and benchmarks run in CI (Tom, 2026-10-23)
 
 This rule supersedes the local build commands and coordination rules below.

@@ -237,6 +237,9 @@ pub struct SchemaListEntry {
     pub purpose_statement: Option<String>,
     /// Schema type ("Single" | "Hash" | "Range" | "HashRange").
     pub schema_type: DeclarativeSchemaType,
+    /// Effective record ownership, including schemas with named alternate keys.
+    #[serde(default)]
+    pub independent_fields: bool,
     /// Key configuration for keyed schemas.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyConfig>,
@@ -273,6 +276,7 @@ impl SchemaListEntry {
             descriptive_name: schema.descriptive_name.clone(),
             purpose_statement: schema.purpose_statement.clone(),
             schema_type: schema.schema_type.clone(),
+            independent_fields: schema.uses_independent_fields(),
             key: schema.key.clone(),
             fields: schema.fields.clone(),
             transform_fields: schema.transform_fields.clone(),
