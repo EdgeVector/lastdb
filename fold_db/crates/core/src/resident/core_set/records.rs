@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[derive(Clone, Copy)]
 pub(crate) enum CoreSourceRecord<'a> {
     Atom(&'a Arc<Atom>, usize),
     Tip(&'a AtomEntry, Option<&'a KeyMetadata>, usize),

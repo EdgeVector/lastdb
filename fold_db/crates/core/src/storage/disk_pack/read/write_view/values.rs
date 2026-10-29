@@ -36,7 +36,7 @@ pub(super) fn read(
         let (body, owner) = match value {
             CoreSourceRecord::Atom(atom, _) => (
                 encode(context, call, coordinate, |out| {
-                    serde_json::to_writer(out, atom)
+                    serde_json::to_writer(out, atom.as_ref())
                 })?,
                 WriteOwner::Atom,
             ),

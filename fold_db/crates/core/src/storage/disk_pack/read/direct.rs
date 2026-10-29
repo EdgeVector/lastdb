@@ -1,14 +1,13 @@
 //! Batched typed preparation reads share the captured root and publication epoch.
 
 use super::*;
-use serde::de::DeserializeOwned;
 use std::any::Any;
 use write_view::{Coordinate, WriteViewCounts};
 
 impl PackRuntime {
     /// Native preparation consumes typed hits directly. Other callers retain
     /// their existing read route, including the CAS encryption decorator.
-    pub(crate) async fn direct_write_items<T: DeserializeOwned + Send + Sync + 'static>(
+    pub(crate) async fn direct_write_items<T: Any + Send + Sync>(
         self: &Arc<Self>,
         namespace: &str,
         keys: &[String],
@@ -98,6 +97,7 @@ impl DirectRequest {
     }
 
     fn warm<T: Any + Send + Sync>(&self) -> StorageResult<Vec<Option<Option<T>>>> {
+        let overlays = self.overlays();
         let mut call = crate::read_receipts::lock(&self.context.call);
         self.context
             .require_room(&call, self.coordinates.len() as u64, 0)?;
@@ -109,12 +109,10 @@ impl DirectRequest {
         }
         let mut core = self.runtime.core.lock().map_err(|_| unavailable())?;
         let mut counts = WriteViewCounts::default();
-        for (coordinate, selected) in self.coordinates.iter().zip(&mut selected) {
-            if self
-                .context
-                .overlay_record(Some(&self.pending), &coordinate.0, &coordinate.1)
-                .is_none()
-            {
+        for ((coordinate, selected), overlay) in
+            self.coordinates.iter().zip(&mut selected).zip(overlays)
+        {
+            if !overlay {
                 *selected = write_view::direct::select(
                     &mut core,
                     &self.context,
@@ -137,6 +135,7 @@ impl DirectRequest {
         misses: &[usize],
         lengths: &[usize],
     ) -> StorageResult<()> {
+        let overlays = self.overlays();
         let view = self.runtime.view.read().map_err(|_| unavailable())?;
         if view.revision != self.context.revision {
             return Ok(());
@@ -145,15 +144,23 @@ impl DirectRequest {
         for (&at, &bytes) in misses.iter().zip(lengths) {
             let coordinate = &self.coordinates[at];
             // A private or accepted result is never a fact about the disk root.
-            if self
-                .context
-                .overlay_record(Some(&self.pending), &coordinate.0, &coordinate.1)
-                .is_none()
-            {
+            if !overlays[at] {
                 write_view::direct::retain(&mut core, coordinate, values[at].as_ref(), bytes);
             }
         }
         Ok(())
+    }
+
+    fn overlays(&self) -> Vec<bool> {
+        // Pending locks never nest under the publication or core locks.
+        self.coordinates
+            .iter()
+            .map(|coordinate| {
+                self.context
+                    .overlay_record(Some(&self.pending), &coordinate.0, &coordinate.1)
+                    .is_some()
+            })
+            .collect()
     }
 }
 
