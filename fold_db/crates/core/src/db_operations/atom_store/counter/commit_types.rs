@@ -19,6 +19,7 @@ pub(crate) struct RecordRefs {
     pub atoms: Vec<String>,
     /// File references stored only in an archived tip's metadata.
     pub files: Vec<String>,
+    pub history_slot: Option<String>,
     /// Rows that only a new record writes: its retention queue entry and its
     /// slot directory entry. A repeat of a decision writes none of them.
     pub new_rows: Vec<(String, Value)>,

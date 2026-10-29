@@ -67,6 +67,7 @@ pub(super) fn with_new_record_rows(
 /// What the planner found for the releases of one run.
 #[derive(Default)]
 pub(super) struct Released {
+    pub(super) history_slots: Vec<String>,
     files: Vec<String>,
     /// The atoms of each released history row, as the row names them.
     atoms: Vec<Vec<String>>,
@@ -176,8 +177,19 @@ impl AtomStore {
                     continue;
                 };
                 if super::super::atom_history::is_archive(&release.history) {
-                    match super::super::atom_history::files(&bytes) {
-                        Ok(files) => out.files.extend(files),
+                    match serde_json::from_slice::<super::super::atom_history::ArchiveRecord>(
+                        &bytes,
+                    ) {
+                        Ok(record) => {
+                            out.files.extend(super::super::blob_counter::tip_blobs(
+                                &record.archive.source,
+                            ));
+                            out.history_slots
+                                .push(super::super::atom_history::archive_slot(
+                                    &release.history,
+                                    &record,
+                                )?);
+                        }
                         Err(error) => {
                             tracing::error!(%error, "archive cannot decode; references stay");
                             continue;

@@ -109,6 +109,7 @@ impl AtomStore {
                 key: history_key,
                 atoms: vec![record.event.new_atom_uuid],
                 files: super::super::blob_counter::tip_blobs(previous),
+                history_slot: Some(key.clone()),
                 new_rows: rows,
                 molecule: molecule.to_string(),
             });

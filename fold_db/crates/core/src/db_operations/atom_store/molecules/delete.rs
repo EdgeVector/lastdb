@@ -46,7 +46,7 @@ impl AtomStore {
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
     ) -> Result<TipCommit, SchemaError> {
-        self.remove_slots(removals, Vec::new(), false, false).await
+        self.remove_slots(removals, Vec::new(), false, true).await
     }
 
     /// [`Self::remove_molecules_keys_batch`] for an erase (delete, purge, TTL

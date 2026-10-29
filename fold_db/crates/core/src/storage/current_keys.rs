@@ -22,6 +22,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
         family,
         "mk" | "mh"
             | "ahf"
+            | "ahk"
             | "ahp"
             | "ahq"
             | "ahb"
@@ -302,6 +303,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
         family,
         "atom"
             | "ahf"
+            | "ahk"
             | "ahp"
             | "ahq"
             | "ahb"

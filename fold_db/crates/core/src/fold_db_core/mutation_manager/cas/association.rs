@@ -110,6 +110,9 @@ impl MutationManager {
         if candidates.is_empty() {
             return Ok(candidates);
         }
+        // Peers can be cold after restart. Admit their existing typed profiles
+        // before field_slots/read logic asks the codec for those molecules.
+        self.prepare_batch_molecule_keys(&candidates).await?;
         let source_schema = self
             .schema_manager
             .get_schema_metadata(&source.schema_name)?

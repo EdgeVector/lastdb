@@ -102,6 +102,9 @@ An atom leaves only after its final reference goes.
 The sidecar uses tagged `history\0` records and the existing slot directory.
 It uses separate `ahq:v1` and `ahb:v1` queue families for expiry.
 The queue and directory hold pointers, with no atom reference.
+An `ahk:v1` record counts the history entries for one molecule key.
+The count joins each capture or release batch.
+Purge checks these counts in one batch, even after delete removes every tip.
 The expiry worker keeps bounded cursors and stops with the database.
 
 ## Backup and size

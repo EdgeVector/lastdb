@@ -12,7 +12,7 @@ pub(super) async fn apply_plan(
     plan: ErasePlan,
     options: EraseOptions<'_>,
 ) -> Result<BulkPurgeReport, SchemaError> {
-    let history =
+    let (history, mut erased_keys) =
         super::atom_history::release_for_erase(db_ops, &loaded, &plan.spared, options).await?;
     let LoadedTargets {
         schema,
@@ -35,7 +35,7 @@ pub(super) async fn apply_plan(
         .zip(keep)
         .filter_map(|(target, removed)| removed.then_some(target))
         .collect();
-    let erased_keys: HashSet<usize> = removed.iter().map(|target| target.key_index).collect();
+    erased_keys.extend(removed.iter().map(|target| target.key_index));
     tracing::debug!(
         schema = %schema_name,
         verb = options.verb.ledger_verb(),
@@ -46,7 +46,7 @@ pub(super) async fn apply_plan(
         spared_keys = spared_keys.len(),
         "erase plan"
     );
-    if removed.is_empty() && barrier_rows.is_empty() {
+    if removed.is_empty() && barrier_rows.is_empty() && erased_keys.is_empty() {
         return Ok(BulkPurgeReport {
             spared_keys,
             atom_rows_deleted: history.deleted.len(),

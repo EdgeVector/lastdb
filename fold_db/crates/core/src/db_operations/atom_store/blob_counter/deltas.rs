@@ -67,6 +67,11 @@ impl BlobDeltas {
                     Ok(record) => self.tip_replaced(Some(&record), None),
                     Err(_) => unreadable += 1,
                 }
+            } else if super::super::atom_history::is_archive(key) {
+                match super::super::atom_history::files(value) {
+                    Ok(files) => self.add(&files, -1),
+                    Err(_) => unreadable += 1,
+                }
             }
         }
         unreadable

@@ -130,6 +130,14 @@ def exercise(node, binary):
     require(history(node, {"op": "list"})["entries"] == [], "purge retained selected history")
     verify(node)
     print("off policy, bounded history purge, and final reference verification passed", flush=True)
+    cli(node, binary, "policy", "keep")
+    write(node, "before-delete")
+    write(node, operation="delete")
+    require(history(node, {"op": "list"})["entries"], "delete left no retained history")
+    write(node, operation="purge")
+    require(history(node, {"op": "list"})["entries"] == [], "compliance purge retained history-only key")
+    verify(node)
+    print("compliance purge of a key with only history and final reference verification passed", flush=True)
 
 
 def main():

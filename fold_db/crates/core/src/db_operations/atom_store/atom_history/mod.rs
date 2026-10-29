@@ -1,6 +1,7 @@
 //! Optional field history. Sidecar rows own counted atom and file references.
 
 mod capture;
+mod key_counts;
 mod policy;
 mod purge;
 mod read;
@@ -72,4 +73,19 @@ pub(crate) fn prefix(slot: &str) -> Result<String, crate::schema::SchemaError> {
 pub(crate) fn files(bytes: &[u8]) -> Result<Vec<String>, serde_json::Error> {
     let record: ArchiveRecord = serde_json::from_slice(bytes)?;
     Ok(super::blob_counter::tip_blobs(&record.archive.source))
+}
+
+pub(crate) fn archive_slot(
+    key: &str,
+    record: &ArchiveRecord,
+) -> Result<String, crate::schema::SchemaError> {
+    let scope = crate::storage::current_keys::exact_scope(key)?;
+    Ok(crate::schema::types::field::build_storage_key(
+        scope,
+        &crate::atom::molecule_key_codec::hash_range_record_key(
+            &record.event.molecule_uuid,
+            record.event.field_key.hash.as_deref().unwrap_or(""),
+            record.event.field_key.range.as_deref().unwrap_or(""),
+        ),
+    ))
 }

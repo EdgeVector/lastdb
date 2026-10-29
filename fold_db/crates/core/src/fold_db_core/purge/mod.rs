@@ -40,6 +40,7 @@ mod removals;
 mod retention_backfill;
 mod targets;
 
+pub(super) use atom_history::history_key_membership;
 pub(crate) use retention_backfill::retention_tip_clocks;
 
 pub(crate) use delete_candidates::plan_normal_delete_barriers;

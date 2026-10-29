@@ -55,6 +55,10 @@ impl AtomStore {
         let new_records = self.read_new_records(&records).await?;
         let released = self.read_released_records(releases).await?;
         let file_deltas = released.file_deltas(&records, &new_records);
+        let (key_rows, key_deletes) = self
+            .history_key_rows(&records, &new_records, &released.history_slots)
+            .await?;
+        rows.extend(key_rows);
         self.note_touched_atoms(&tips, &old, (&records, &new_records));
         self.note_released_atoms(&released);
         let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
@@ -64,6 +68,7 @@ impl AtomStore {
         let rows = with_new_record_rows(rows, &records, &new_records);
         let records_released = released.count();
         let mut deletes = deletes;
+        deletes.extend(key_deletes);
         deletes.extend(released.into_deletes());
         let guarded = self.guarded_delete_keys(guarded_deletes).await?;
         let guarded_deleted = guarded.len() as u64;
