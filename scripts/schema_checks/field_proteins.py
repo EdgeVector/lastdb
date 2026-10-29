@@ -29,12 +29,14 @@ def field_identity_membership(node):
     write(node, right, key, {"payload": "shared-second"}, "update")
     values["payload"] = "shared-second"
     same_atom(read(node, left, key, values),
-              read(node, right, key, {"payload": values["payload"]}, names=["payload"]))
+              read(node, right, key, {"record_id": "field-key", "payload": values["payload"]},
+                   names=["payload"]))
     restart(node)
     require(protein(node, first) == shared and protein(node, second) == shared,
             "reopen changed equal-field membership")
     read(node, left, key, values)
-    read(node, right, key, {"payload": values["payload"]}, names=["payload"])
+    read(node, right, key, {"record_id": "field-key", "payload": values["payload"]},
+         names=["payload"])
     return {"same_key_layout": True, "shared_fields": 1, "smaller_schema_fields": 5,
             "declared": False, "protein": shared, "separate_molecules": [first, second],
             "shared_atom_and_values_after_reopen": True}
