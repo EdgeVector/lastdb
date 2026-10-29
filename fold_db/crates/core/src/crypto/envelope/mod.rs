@@ -22,18 +22,15 @@ pub const ENVELOPE_VERSION: u8 = 0x01;
 /// Three properties v1 lacks (threat model §5.2):
 /// - **`key_id`** makes "which key sealed this?" a *lookup* (via
 ///   [`peek_envelope`]) instead of trial decryption — the precondition
-///   for the wrapped-DEK keyring and cheap key rotation (Gap G5).
+///   for a caller-managed key map and cheap key rotation (Gap G5).
 /// - **AAD** *can* bind each ciphertext to its location (namespace + storage
 ///   key), so that a ciphertext cannot be swapped to another slot within
 ///   the store and still decrypt. This is a capability of the codec — it
 ///   is only realized when the caller actually supplies that storage
-///   context as `aad`. The current production adapter
-///   ([`KeyringCryptoProvider`](super::keyring_provider::KeyringCryptoProvider))
-///   binds an **empty** AAD because the `CryptoProvider` seam is
-///   context-free, so location-binding is NOT yet enforced on the store;
-///   threading the per-record context through the seam is tracked with the
-///   seam-wiring effort. The codec and its tests exercise the binding so
-///   it is ready the moment the seam can supply context.
+///   context as `aad`. The account-key `CryptoProvider` seam is
+///   context-free and writes v1 envelopes, so it does not enforce location
+///   binding. The v2 codec remains available to callers that supply a key,
+///   key id and storage context explicitly.
 /// - **Nonce-misuse resistance** — v2 uses AES-GCM-SIV rather than plain
 ///   AES-GCM. With a random 96-bit nonce under a single long-lived DEK,
 ///   plain GCM hits the birthday bound (~2^-32 reuse at 2^32 seals), and

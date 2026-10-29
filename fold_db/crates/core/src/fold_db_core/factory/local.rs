@@ -4,9 +4,7 @@ mod boot_wiring;
 mod open_store;
 mod store_stack;
 
-use crate::crypto::keyring::{KeyPurpose, Keyring};
-use crate::crypto::keyring_provider::KeyringCryptoProvider;
-use crate::crypto::{CryptoProvider, E2eKeys, LocalCryptoProvider};
+use crate::crypto::E2eKeys;
 use crate::error::{FoldDbError, FoldDbResult};
 use crate::fold_db_core::fold_db::FoldDbInit;
 use crate::fold_db_core::FoldDB;
@@ -17,30 +15,6 @@ use super::boot::map_boot_decrypt_error;
 use super::FoldDbOptions;
 use boot_wiring::open_db_operations;
 
-/// Identify the key used for the local CAS storage envelope.
-/// Mini always uses the account E2E content key.
-pub fn at_rest_provider_label(at_rest_keyring: Option<&Arc<Keyring>>) -> &'static str {
-    match at_rest_keyring {
-        Some(_) => "keyring_store_dek",
-        None => "e2e_content_key",
-    }
-}
-
-/// Mini uses its portable account key for the CAS wrapper. An embedded caller
-/// can supply a separate keyring for that wrapper.
-pub(super) fn store_seam_crypto(
-    e2e_keys: &E2eKeys,
-    at_rest_keyring: Option<&Arc<Keyring>>,
-) -> Arc<dyn CryptoProvider> {
-    match at_rest_keyring {
-        Some(keyring) => Arc::new(KeyringCryptoProvider::new(
-            Arc::clone(keyring),
-            KeyPurpose::Store,
-        )),
-        None => Arc::new(LocalCryptoProvider::from_key(e2e_keys.encryption_key())),
-    }
-}
-
 pub(super) async fn create_local_fold_db(
     path: &std::path::Path,
     e2e_keys: &E2eKeys,
@@ -50,7 +24,6 @@ pub(super) async fn create_local_fold_db(
     let store_stack = store_stack::build_store_stack(
         open_store::open_primary_store(path, &e2e_keys.encryption_key())?,
         e2e_keys,
-        options.at_rest_keyring.as_ref(),
     );
     crate::db_operations::atom_store::counter::restore_validation::validate_pending(
         store_stack.store.as_ref(),

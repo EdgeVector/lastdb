@@ -8,8 +8,7 @@
 //! documented single-key-root path in fold_db core.
 //!
 //! **Portable same-key (Tom 2026-07-18):** Mini personal-data at-rest always
-//! uses that E2E content key — never a per-install keyring store DEK. Host passes
-//! `at_rest_keyring: None` (`design-portable-same-key-at-rest-cloud`).
+//! uses that E2E content key (`design-portable-same-key-at-rest-cloud`).
 //!
 //! Storage boot is local-only. Explicit byte backups read protected credentials
 //! separately; an old cloud configuration never attaches a background engine.
@@ -334,7 +333,7 @@ impl Host {
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         clear_last_boot_error(home);
         // Mini always boots with content-key at-rest (see module docs).
-        let at_rest_provider = fold_db::fold_db_core::factory::at_rest_provider_label(None);
+        let at_rest_provider = "e2e_content_key";
         tracing::info!(
             target: "lastdbd::boot",
             user_hash = %user_hash,
