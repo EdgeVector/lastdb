@@ -82,6 +82,28 @@ impl Head {
     }
 }
 
+impl EventMetadata {
+    pub(super) fn verify_prefix(
+        &self,
+        origin: &str,
+        sequence: u64,
+        sha256: &str,
+    ) -> StorageResult<()> {
+        verify::mutation_ids(&self.mutation_ids)?;
+        unhex::<32>(&self.previous_sha256)?;
+        if self.origin != origin
+            || self.sequence != sequence
+            || self.sha256 != sha256
+            || self.outcome_count > MAX_OUTCOMES
+            || self.encoded_event_bytes == 0
+            || self.encoded_event_bytes > (MAX_EVENT_BYTES - 2) as u64
+        {
+            return Err(invalid("logical capture authored prefix differs"));
+        }
+        Ok(())
+    }
+}
+
 impl CaptureEvent {
     pub(super) fn authored(
         identity: &identity::Identity,

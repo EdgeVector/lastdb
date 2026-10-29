@@ -8,11 +8,14 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use zeroize::Zeroizing;
 
-const FILE: &str = "logical-device-capture-v1";
+pub(super) const FILE: &str = "logical-device-capture-v1";
 const STAGED: &str = ".logical-device-capture-v1.prepared";
 const MARKER: &[u8] = b"lastdb-logical-device-capture-v1\n";
 const BODY_BYTES: usize = 81;
 const READY_OFFSET: u64 = (MARKER.len() + BODY_BYTES - 1) as u64;
+
+#[path = "identity_prepared.rs"]
+mod prepared;
 
 pub(super) struct Identity {
     seed: Zeroizing<[u8; 32]>,
@@ -25,6 +28,23 @@ pub(super) struct Identity {
 impl Identity {
     pub(super) fn load(v2: &physical::V2Home) -> StorageResult<Option<Self>> {
         let path = control_path(v2)?;
+        Self::load_at(&path, v2.home.identity(), v2.cas.identity())
+    }
+
+    pub(super) fn load_source(
+        data: &Path,
+        main: uuid::Uuid,
+        cas: uuid::Uuid,
+    ) -> StorageResult<Self> {
+        let identity = Self::load_at(&data.join(FILE), main, cas)?
+            .ok_or_else(|| invalid("snapshot identity source signer is absent"))?;
+        if !identity.ready {
+            return Err(invalid("snapshot identity source signer is not ready"));
+        }
+        Ok(identity)
+    }
+
+    fn load_at(path: &Path, main: uuid::Uuid, cas: uuid::Uuid) -> StorageResult<Option<Self>> {
         let mut file = match OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -69,12 +89,16 @@ impl Identity {
                 _ => return Err(invalid("logical capture enrollment state differs")),
             },
         };
-        if identity.main != v2.home.identity() || identity.cas != v2.cas.identity() {
+        if identity.main != main || identity.cas != cas {
             return Err(invalid(
                 "logical capture signer belongs to different native homes",
             ));
         }
         Ok(Some(identity))
+    }
+
+    pub(super) fn birth_homes(&self) -> (uuid::Uuid, uuid::Uuid) {
+        (self.main, self.cas)
     }
 
     pub(super) fn fresh(v2: &physical::V2Home) -> Self {

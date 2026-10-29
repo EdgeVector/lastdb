@@ -4,6 +4,7 @@ use super::super::model::Head;
 use super::*;
 
 pub(super) struct CapturedPositions {
+    pub version: u8,
     pub producer: String,
     pub positions: Vec<SnapshotDevicePosition>,
 }
@@ -44,6 +45,19 @@ pub(super) fn positions(
     if registry.as_deref() != Some(&[1u8][..]) {
         return Err(invalid("snapshot inclusion namespace registration differs"));
     }
+    #[derive(serde::Deserialize)]
+    struct Version {
+        version: u8,
+    }
+    if decode::<Version>(&head)?.version == 2 {
+        let (producer, positions) =
+            snapshot_identity::captured_positions(main, &head, roster.as_deref())?;
+        return Ok(Some(CapturedPositions {
+            version: 2,
+            producer,
+            positions,
+        }));
+    }
     let head: Head = decode(&head)?;
     let own_anchor = validate_head(&head, profile)?;
     let mut positions = peer::captured_positions(main, roster.as_deref(), &head.position.origin)?
@@ -53,6 +67,7 @@ pub(super) fn positions(
             anchor_sha256: peer.anchor.sha256,
             sequence: DecimalU64::new(peer.position.sequence),
             sha256: peer.position.sha256,
+            base: None,
         })
         .collect::<Vec<_>>();
     let producer = head.position.origin.clone();
@@ -61,9 +76,11 @@ pub(super) fn positions(
         anchor_sha256: own_anchor,
         sequence: DecimalU64::new(head.position.sequence),
         sha256: head.position.sha256,
+        base: None,
     });
     positions.sort_by(|a, b| a.origin.cmp(&b.origin));
     Ok(Some(CapturedPositions {
+        version: 1,
         producer,
         positions,
     }))

@@ -3,6 +3,7 @@ mod files;
 mod node;
 mod proof;
 mod replay;
+mod snapshot_identity;
 
 use super::byte_backup::RunBackupProfile;
 use super::{StorageError, StorageResult};
@@ -13,6 +14,7 @@ use std::path::Path;
 
 pub use node::{validate_restored_node, RunNodeGuard};
 pub use replay::{verify_replayed, MutationReplay};
+pub use snapshot_identity::{inspect_snapshot_identity, prepare_snapshot_identity};
 
 pub struct RunRestoreFile {
     pub path: String,
