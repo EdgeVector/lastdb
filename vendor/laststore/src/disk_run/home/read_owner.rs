@@ -15,6 +15,7 @@ pub struct RunReadOwner {
 }
 
 impl RunRead {
+    /// Close the read and its metadata while retaining the exclusive owner lock.
     pub fn into_owner_guard(self) -> RunReadOwner {
         RunReadOwner {
             _lock: self._owner_lock,
