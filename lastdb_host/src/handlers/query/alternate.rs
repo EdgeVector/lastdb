@@ -20,7 +20,7 @@ pub(super) async fn execute<H: HostNode>(
         ));
     }
     let limit = clamp_request_limit(limit);
-    let _permit = acquire_read_permit(host, Lane::Interactive).await?;
+    let _permit = acquire_read_permit(host, Lane::for_read_rows(limit)).await?;
     let page = host
         .fold_db()
         .query_executor()

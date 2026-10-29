@@ -14,7 +14,7 @@ import time
 from disk_usage import usage
 
 
-# The node marker of a format 4 home: disk format v2 with typed ranges. Every new home is format 4.
+# Exact v2 markers: this spike creates fenced format 5 homes; baseline programs create format 4 homes.
 RUN_NODE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 BASELINE_NODE_MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 

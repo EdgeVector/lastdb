@@ -14,11 +14,6 @@ impl MutationManager {
         origin: &str,
     ) -> Result<DeferredPersistJob, SchemaError> {
         let mut schema = self.load_schema_for_delta(name, None).await?;
-        if !schema.alternate_keys.is_empty() {
-            return Err(unsupported(
-                "alternate schemas require declaration-aware peer import; unavailable in the spike",
-            ));
-        }
         let modified_fields = peer_changed_keys(&schema, outcomes)?;
         self.reload_changed_for_prepare(&mut schema, &modified_fields)
             .await?;

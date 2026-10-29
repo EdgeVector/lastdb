@@ -43,6 +43,11 @@ impl MutationManager {
                     let schema = self
                         .load_schema_for_delta(&outcome.schema_name, None)
                         .await?;
+                    if !schema.alternate_keys.is_empty() {
+                        return Err(unsupported(
+                            "alternate schemas without a declaration-aware import contract",
+                        ));
+                    }
                     declared_fields = declared_fields
                         .checked_add(schema.runtime_fields.len())
                         .filter(|count| *count <= super::super::logical_capture::MAX_OUTCOMES)

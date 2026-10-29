@@ -39,6 +39,7 @@ def alternate_key_lifecycle(node):
     for key in ("t1", "t2"):
         write(node, name, {"hash": key},
               {"record_id": key, "group_id": "g1", "owner_id": "o1", "payload": key})
+    install(node, task_definition())  # An identical declaration preserves existing entries.
     page = query(node, name, "by_group", "g1", limit=1)
     first = page["results"][0]
     require(first["key"]["hash"] == "t1", "alternate response lost the primary mutation key")
