@@ -69,7 +69,10 @@ const API_VERSION_PATH: &str = "/api/version";
 /// `POST /api/db/reseal-at-rest` and `POST /api/db/reap-unsealed`. No
 /// app-socket route and no request key changed; `MIN_SUPPORTED_API_VERSION`
 /// stays `1`.
-pub const API_VERSION: u32 = 7;
+///
+/// `8` (2026-10-28) adds the owner-only `POST /api/sync/logical-v1` route.
+/// Existing requests remain compatible; `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 8;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

@@ -233,6 +233,8 @@ pub enum DataRoute {
     SyncByteBackupV2,
     /// `POST /api/sync/byte-backup-v2/connect` — import owner credentials for manual backup.
     SyncByteBackupV2Connect,
+    /// POST /api/sync/logical-v1: owner trust and bounded signed device events.
+    SyncLogicalV1,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
     /// byte breakdown. OWNER socket only.
     ///

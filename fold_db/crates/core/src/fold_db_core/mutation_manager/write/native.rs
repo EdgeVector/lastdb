@@ -146,7 +146,9 @@ impl MutationManager {
         Ok(committed)
     }
 
-    async fn stage_native_author_clock(&self) -> Result<(), SchemaError> {
+    pub(in crate::fold_db_core::mutation_manager) async fn stage_native_author_clock(
+        &self,
+    ) -> Result<(), SchemaError> {
         let key = crate::schema::types::author_clock::mutation_author_clock_key(
             &self.signer.public_key_base64(),
         );
