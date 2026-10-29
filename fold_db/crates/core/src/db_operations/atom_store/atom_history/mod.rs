@@ -11,6 +11,18 @@ mod types;
 pub(crate) use types::{ArchiveRecord, HistoryBinding, HistoryMode};
 pub use types::{AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation};
 
+impl super::AtomStore {
+    pub(crate) async fn atom_history_enabled(&self) -> Result<bool, crate::schema::SchemaError> {
+        let marker = self
+            .main_store
+            .inner()
+            .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
+            .await
+            .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))?;
+        Ok(marker.as_deref() == Some(crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT))
+    }
+}
+
 use super::time_queue::TimeQueue;
 use base64::Engine as _;
 use sha2::{Digest, Sha256};

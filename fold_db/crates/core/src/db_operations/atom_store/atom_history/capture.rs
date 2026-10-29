@@ -16,7 +16,7 @@ impl AtomStore {
         tips: &BTreeMap<String, Option<PerKeyRecord>>,
         old: &HashMap<String, PerKeyRecord>,
     ) -> Result<Recorded, SchemaError> {
-        if !matches!(mode, HistoryMode::Capture) {
+        if !matches!(mode, HistoryMode::Capture) || !self.atom_history_enabled().await? {
             return Ok(Recorded::default());
         }
         // Physical tip deltas still use the direct rows. History instead

@@ -47,6 +47,9 @@ impl AtomStore {
         &self,
         reader: &mut QueueReader,
     ) -> Result<u64, SchemaError> {
+        if !self.atom_history_enabled().await? {
+            return Ok(0);
+        }
         let now = self.retention_state().clock_nanos();
         reader.refresh(self, now).await?;
         if let Some(bucket) = reader.candidates(now).into_iter().next() {
