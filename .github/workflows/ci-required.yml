@@ -248,6 +248,15 @@ jobs:
       id-token: write
     uses: ./.github/workflows/schema-operational-checks.yml
 
+  atom_history:
+    name: Atom history product proof
+    permissions:
+      contents: read
+    uses: ./.github/workflows/atom-history.yml
+    with:
+      base_sha: ${{ github.event.pull_request.base.sha || '' }}
+      head_sha: ${{ github.event.pull_request.head.sha || '' }}
+
   ci-required:
     name: ci-required
     needs:
@@ -258,6 +267,7 @@ jobs:
       - secret_scan
       - schema_canonical_properties
       - schema_operational_checks
+      - atom_history
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -269,7 +279,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every required job must succeed, including the scoped property suite.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi
