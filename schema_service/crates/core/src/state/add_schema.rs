@@ -15,13 +15,9 @@ impl SchemaServiceState {
     /// 2026-05-30 fbrain dogfood found it).
     pub async fn add_schema(
         &self,
-        mut schema: Schema,
+        schema: Schema,
         mutation_mappers: HashMap<String, String>,
     ) -> FoldDbResult<SchemaAddOutcome> {
-        // Supersession is service-owned state. Decoding a stored schema must
-        // preserve it, but a new registration proposal cannot assign it.
-        // Exact public reposts return stored metadata before this write path.
-        schema.superseded_by = None;
         Self::validate_proposal_shape(&schema)?;
         self.validate_schema_field_vocabulary(&schema).await?;
         self.record_schema_write();
