@@ -16,14 +16,25 @@ impl MutationManager {
             guard.committed = false;
             guard
         };
-        self.db_ops
-            .metadata()
-            .put_typed_durable(&ctx.guard_pending_key, &provisional)
-            .await?;
-        self.db_ops
-            .metadata()
-            .put_typed_durable(&gs.target_pending_key, &provisional)
-            .await?;
+        self.put_durable_copies(
+            [
+                ctx.guard_pending_key.as_str(),
+                gs.target_pending_key.as_str(),
+            ],
+            &provisional,
+        )
+        .await
+    }
+
+    /// Write one value to each metadata key, in order. A failed key stops the rest.
+    async fn put_durable_copies<T: serde::Serialize + Send + Sync>(
+        &self,
+        keys: [&str; 2],
+        value: &T,
+    ) -> Result<(), SchemaError> {
+        for key in keys {
+            self.db_ops.metadata().put_typed_durable(key, value).await?;
+        }
         Ok(())
     }
 
@@ -114,13 +125,12 @@ impl MutationManager {
         plan: PublishPlan,
     ) -> Result<(), SchemaError> {
         let committed = plan.desired_guard.committed();
+        self.put_durable_copies(
+            [ctx.guard_key.as_str(), gs.target_guard_key.as_str()],
+            &committed,
+        )
+        .await?;
         let metadata = self.db_ops.metadata();
-        metadata
-            .put_typed_durable(&ctx.guard_key, &committed)
-            .await?;
-        metadata
-            .put_typed_durable(&gs.target_guard_key, &committed)
-            .await?;
         metadata
             .delete_typed_durable(&ctx.guard_pending_key)
             .await?;
