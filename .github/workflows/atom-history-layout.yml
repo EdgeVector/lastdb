@@ -23,6 +23,8 @@ jobs:
             revision: 71fb949a89d1ba77909ca9d57cfcfaf7d7418d45
           - label: after-708
             revision: 18bc31a40ea5253563aececc1a30fd030da0949b
+          - label: current
+            revision: ${{ github.event.pull_request.head.sha || github.sha }}
     env:
       CARGO_BUILD_JOBS: '2'
       RUSTFLAGS: '-Zprint-type-sizes'
