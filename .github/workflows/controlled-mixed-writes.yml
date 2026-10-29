@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/benchmarks/controlled_mixed_writes.py'
       - 'scripts/benchmarks/mixed_layout_support.py'
+      - 'scripts/benchmarks/mixed_native_stages.py'
       - '.github/workflows/controlled-mixed-writes.yml'
   workflow_dispatch:
     inputs:
