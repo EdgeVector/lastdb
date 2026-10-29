@@ -1,0 +1,170 @@
+name: Fresh writer and disk-flush investigation
+
+# One frozen diagnostic campaign. It does not replace benchmark-complete.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fresh-writer-controls.yml'
+      - 'scripts/benchmarks/fresh_writer_*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fresh-writer-controls-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  measure:
+    if: >-
+      github.repository == 'EdgeVector/lastdb' && github.event.repository.visibility == 'public' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [0, 1]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONTROLLER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASELINE_SHA: d87a37c4b0b46c5682a4bc9eebfeb425fe483848
+      CANDIDATE_SHA: b74a9f8d53034066b256186dce6fbce1a33736d4
+      BUILD_CONTEXT: 269671646d3b8594616ed1dbd07727a8a75c922b42621f562175e9053e99636b
+      BUNDLE_SHA256: cc92bb5bafbd5a8981a32691210c357e2834159f0631a216e979e8025862eced
+    steps:
+      - name: Prepare external measurement output
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          result="$RUNNER_TEMP/fresh-writer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$result"
+          echo "BENCH_OUTPUT=$result" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: d87a37c4b0b46c5682a4bc9eebfeb425fe483848
+          path: historical
+          persist-credentials: false
+      - name: Retain exact archived program metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12914130316" > "$BENCH_OUTPUT/source-artifact.json"
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 12914130316
+          run-id: 40909174018
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/archived-programs
+          merge-multiple: true
+      - name: Verify exact programs, hashes, recipe and runtime dependencies
+        run: |
+          python3 historical/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/fresh-programs" --archive "$RUNNER_TEMP/archived-programs/programs.tar.gz"
+          python3 historical/scripts/benchmarks/disk.py --profile standard --phase measure --require
+      - name: Run the fixed same-program and native controls
+        run: |
+          timeout --signal=TERM --kill-after=120s 80m \
+            python3 controller/scripts/benchmarks/fresh_writer_controls.py \
+              --driver "$GITHUB_WORKSPACE/historical" --programs "$RUNNER_TEMP/fresh-programs" \
+              --source-metadata "$BENCH_OUTPUT/source-artifact.json" \
+              --replica ${{ matrix.replica }} --output "$BENCH_OUTPUT/investigation"
+      - name: Upload exact identities and all raw measurements
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-writer-measurements-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify measurement upload and record its download
+        id: receipt
+        if: always() && steps.upload.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ env.CONTROLLER_SHA }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/measurement-metadata.json"
+          python3 historical/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/measurement-metadata.json" --output "$RUNNER_TEMP/measurement-download"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.receipt.outcome == 'success'
+        with:
+          name: fresh-writer-receipt-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/measurement-download/
+          retention-days: 14
+          if-no-files-found: error
+
+  report:
+    needs: measure
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [0, 1]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Download and checksum the completed measurement archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPLICA: ${{ matrix.replica }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          jq --arg prefix "fresh-writer-measurements-$REPLICA-$GITHUB_RUN_ID-" \
+            '.artifacts | map(select(.name | startswith($prefix))) | max_by(.created_at)' \
+            "$RUNNER_TEMP/artifacts.json" > "$RUNNER_TEMP/measurement-metadata.json"
+          jq --exit-status '.id > 0 and .expired == false and (.digest | startswith("sha256:"))' "$RUNNER_TEMP/measurement-metadata.json"
+          artifact_id=$(jq -r '.id' "$RUNNER_TEMP/measurement-metadata.json")
+          digest=$(jq -r '.digest | sub("^sha256:"; "")' "$RUNNER_TEMP/measurement-metadata.json")
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/measurements.zip"
+          printf '%s %s\n' "$digest" "$RUNNER_TEMP/measurements.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/measurements.zip" -d "$RUNNER_TEMP/fresh-writer-report"
+      - name: Audit every sample and report source effects beside A/A variation
+        run: |
+          python3 scripts/benchmarks/fresh_writer_report.py \
+            --output "$RUNNER_TEMP/fresh-writer-report/investigation"
+      - name: Retain audited comparisons and native flush details
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-writer-report-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fresh-writer-report/investigation/summary.md
+            ${{ runner.temp }}/fresh-writer-report/investigation/comparison.json
+            ${{ runner.temp }}/fresh-writer-report/investigation/*/*/flush-tails.json
+            ${{ runner.temp }}/measurement-metadata.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify the report upload
+        id: receipt
+        if: always() && steps.upload.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/report-metadata.json"
+          python3 scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/report-metadata.json" --output "$RUNNER_TEMP/report-download"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.receipt.outcome == 'success'
+        with:
+          name: fresh-writer-report-receipt-${{ matrix.replica }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/report-download/
+          retention-days: 14
+          if-no-files-found: error
