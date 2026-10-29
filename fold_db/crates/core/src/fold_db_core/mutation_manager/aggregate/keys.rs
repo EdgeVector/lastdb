@@ -25,6 +25,28 @@ impl MutationManager {
         )
     }
 
+    /// Drop the repair grant, then the finalized grant, for one target.
+    pub(super) async fn delete_aggregate_target_grants(
+        &self,
+        storage_prefix: Option<&str>,
+        target_schema_name: &str,
+        target_key: &str,
+    ) -> Result<(), SchemaError> {
+        let grant_key =
+            Self::aggregate_repair_grant_key(storage_prefix, target_schema_name, target_key);
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(&grant_key)
+            .await?;
+        let finalized_key =
+            Self::aggregate_finalized_grant_key(storage_prefix, target_schema_name, target_key);
+        self.db_ops
+            .metadata()
+            .delete_typed_durable(&finalized_key)
+            .await?;
+        Ok(())
+    }
+
     pub(super) fn aggregate_totals_fingerprint(totals: &BTreeMap<String, i64>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(b"lastdb-aggregate-totals-v1\0");
