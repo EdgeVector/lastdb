@@ -42,7 +42,11 @@ impl RunHome {
     ) -> Result<Arc<Manifest>> {
         let _publication = timing::stage("v2_current_publication_us");
         let staged = next.stage_with_space(&self.root, &self.key, space)?;
-        if let Err(error) = Manifest::replace(&self.root, &staged) {
+        self.publish_staged(next, &staged)
+    }
+
+    pub(super) fn publish_staged(&self, next: Manifest, staged: &Path) -> Result<Arc<Manifest>> {
+        if let Err(error) = Manifest::replace(&self.root, staged) {
             // The rename may or may not have happened: stop all writes.
             self.poisoned.store(true, Ordering::Release);
             return Err(error);
