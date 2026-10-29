@@ -12,6 +12,34 @@ The job receives no AWS or provider administration credential.
 PRs also read actual ownership archives with a read-only GitHub token and no cloud credentials.
 This operation uses the same archive reader as the protected main operation.
 
+## Daily check
+
+The `Daily cloud recovery check` workflow runs at 10:23 UTC each day.
+A manual run also requires main.
+It uses the short-lived GitHub token with Actions write permission and source read permission.
+It receives no DEV credential, recovery phrase, AWS credential, or provider credential.
+
+The driver first checks for an active or queued recovery on main.
+It does not add a second run while that recovery exists.
+It then checks successful main runs from the existing push and manual event paths.
+A fresh result requires the actual `Automatic DEV backup and recovery` job to succeed within the previous 24 hours.
+The exact attempt must also show successful client build, package, recovery, ownership archive, and durable ownership steps.
+Recipe syntax success alone does not count.
+
+The driver checks exact-attempt completion times, including a recent rerun of an old source.
+It checks at most 1000 records per directory, with an 80-request limit and a 180-second deadline.
+An incomplete active-run or job directory, an API error, or an unknown result fails the daily check.
+A history limit records a bounded lack of fresh proof. It does not establish complete historical absence.
+
+If the bounded search finds no fresh proof, the driver checks again before one dispatch to the existing workflow on main.
+An active recovery still prevents that dispatch.
+The summary states the search limit, examined counts, and whether the successful-run directory was complete.
+The dispatched event remains `workflow_dispatch`; the trusted ownership event contract stays unchanged.
+GitHub has no atomic check-and-dispatch operation.
+The existing recovery lane still serializes any concurrent main request.
+An uncertain dispatch outcome fails visibly and receives no automatic retry.
+A successful dispatch is not a cloud recovery result. The dispatched real DEV operation must succeed separately.
+
 ## Real operations
 
 The operation first restores the fixed accepted DEV backup through R2 and B2.
@@ -29,6 +57,13 @@ The selected automatic log chain must publish those writes.
 The current source must separately reach its complete journal head.
 The accepted native file extents across that chain must route main files to R2, CAS files to B2, and client metadata to R2.
 The log must leave both the last snapshot time and the next daily snapshot time unchanged.
+After the file and baseline changes, the source creates two keys that belong only to that CI stream.
+It updates one key and deletes the other, then deletes the remaining key.
+Each batch must return a durable ack with exact operation counts and unique mutation IDs.
+The source records the complete log position after each durable ack.
+The log restore verifies all three positions in the same complete selected chain.
+The source and every restored start must read both temporary keys as absent.
+Complete status also requires no pending request, no retry, and zero retained source bytes.
 The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
 Its next snapshot time must also remain unchanged after the restart.
 
@@ -138,6 +173,10 @@ The initial source must contain at most 24 MiB of native files.
 The operation limits its observed accepted checkpoints to eight and their total declared object bytes to 64 MiB.
 The service also enforces the account quota and reservation rules before an allocation.
 The recipe adds no cloud encryption or native format change.
+An early restore failure or strict-stop failure does not retain API credentials.
+Cleanup removes only the known API credential files and clears the operation's key reference and credential environment variables.
+Uncertain native data and recovery receipts stay private when the operation cannot confirm a clean stop.
+No secret values enter the summary.
 It accesses no primary, primary copy, archive, or PROD service.
 
 The workflow first resumes an earlier saved CI cleanup, before it registers a new stream.

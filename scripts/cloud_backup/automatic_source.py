@@ -62,6 +62,30 @@ def released_publication(value, policy):
             and accepted["begin"]["job"]["commit_id"] == value["request_id"])
 
 
+def durable_batch(node, mutations):
+    """Send one owned batch once; an uncertain result never permits a replay."""
+    require(isinstance(mutations, list) and 0 < len(mutations) <= 64
+            and all(item["durability"] == "durable"
+                    and item["mutation_type"] in ("create", "update", "delete") for item in mutations),
+            "bounded_durable_ci_mutations")
+    reply = node.call("/api/mutations/batch", {"mutations": mutations})
+    identifiers = reply.get("mutation_ids")
+    expected = {result: sum(item["mutation_type"] == verb for item in mutations)
+                for verb, result in (("create", "created"), ("update", "updated"), ("delete", "deleted"))}
+    expected.update(no_op=0, total=len(mutations))
+    require(reply.get("ok") is True and reply.get("user_hash") == ACCOUNT
+            and type(reply.get("count")) is int and reply["count"] == len(mutations)
+            and isinstance(identifiers, list) and len(identifiers) == len(mutations)
+            and all(isinstance(value, str) and value for value in identifiers)
+            and len(set(identifiers)) == len(identifiers)
+            and isinstance(reply.get("operations"), dict) and reply["operations"] == expected
+            and all(type(value) is int and value >= 0 for value in reply["operations"].values())
+            and reply.get("durability") == "durable", "exact_durable_ci_mutation_ack")
+    for value in identifiers:
+        canonical_uuid(value)
+    return reply
+
+
 def observation(value, policy, conditions, kind, through, count, declared_bytes):
     uuid = r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}"
     digest = r"[0-9a-f]{64}"
@@ -217,7 +241,9 @@ class Source:
         value = selected
         while time.monotonic() < deadline:
             policy = self.policy(value, snapshot)
-            if released_publication(value, policy) and all(completion(value, policy).values()):
+            if (released_publication(value, policy) and all(completion(value, policy).values())
+                    and policy["pending_request_id"] is None
+                    and policy["attempts"] == policy["retry_at"] == 0):
                 self.node.health()
                 require(time.monotonic() < deadline, "accepted_complete_journal_head")
                 return
@@ -248,9 +274,9 @@ class Source:
                 fields = {**record, "file": pointer}
             mutations.append({"type": "mutation", "schema": schema,
                 "key_value": {"hash": record["id"], "range": None}, "fields_and_values": fields,
-                "mutation_type": "delete" if deleted else "update", "durability": "durable"})
-        reply = self.node.call("/api/mutations/batch", {"mutations": mutations})
-        require(len(reply["mutation_ids"]) == len(mutations), "real_dev_mutations_acknowledged")
+                "mutation_type": "delete" if deleted else "update", "durability": "durable",
+                "must_exist": True})
+        durable_batch(self.node, mutations)
         self.expected.update(file_pointer=pointer, file_bytes=len(payload), file_sha256=hashlib.sha256(payload).hexdigest())
         self.node.verify_records(self.expected)
 
