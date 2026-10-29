@@ -9,10 +9,23 @@ const EVENT_BYTES: usize = 1024 * 1024;
 const HTTP_BYTES: usize = EVENT_BYTES + CONTROL_BYTES;
 
 enum Request {
-    Export { after: u64, limit: usize },
-    Enroll { anchor: Position },
-    Position { origin: Option<String> },
-    Import { events: Vec<CaptureEvent> },
+    Export {
+        after: u64,
+        limit: usize,
+    },
+    Enroll {
+        anchor: Position,
+    },
+    Position {
+        origin: Option<String>,
+    },
+    Import {
+        events: Vec<CaptureEvent>,
+    },
+    Snapshot {
+        action: crate::byte_cloud_backup::LocalSnapshotAction,
+        request_id: cloud_backup_protocol::Id,
+    },
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -22,6 +35,10 @@ enum Action {
     Enroll,
     Position,
     Import,
+    SnapshotPrepare,
+    SnapshotInspect,
+    SnapshotResume,
+    SnapshotRelease,
 }
 
 // A plain struct parses the event field directly. An internally tagged enum
@@ -35,6 +52,7 @@ struct WireRequest {
     anchor: Option<Position>,
     origin: Option<String>,
     events: Option<Events>,
+    request_id: Option<cloud_backup_protocol::Id>,
 }
 
 struct Events(Vec<CaptureEvent>);
@@ -56,14 +74,30 @@ impl TryFrom<WireRequest> for Request {
             wire.anchor,
             wire.origin,
             wire.events,
+            wire.request_id,
         ) {
-            (Action::Export, Some(after), Some(limit), None, None, None) => {
+            (Action::Export, Some(after), Some(limit), None, None, None, None) => {
                 Ok(Self::Export { after, limit })
             }
-            (Action::Enroll, None, None, Some(anchor), None, None) => Ok(Self::Enroll { anchor }),
-            (Action::Position, None, None, None, origin, None) => Ok(Self::Position { origin }),
-            (Action::Import, None, None, None, None, Some(Events(events))) => {
+            (Action::Enroll, None, None, Some(anchor), None, None, None) => {
+                Ok(Self::Enroll { anchor })
+            }
+            (Action::Position, None, None, None, origin, None, None) => {
+                Ok(Self::Position { origin })
+            }
+            (Action::Import, None, None, None, None, Some(Events(events)), None) => {
                 Ok(Self::Import { events })
+            }
+            (action, None, None, None, None, None, Some(request_id)) => {
+                use crate::byte_cloud_backup::LocalSnapshotAction;
+                let action = match action {
+                    Action::SnapshotPrepare => LocalSnapshotAction::Prepare,
+                    Action::SnapshotInspect => LocalSnapshotAction::Inspect,
+                    Action::SnapshotResume => LocalSnapshotAction::Resume,
+                    Action::SnapshotRelease => LocalSnapshotAction::Release,
+                    _ => return Err(()),
+                };
+                Ok(Self::Snapshot { action, request_id })
             }
             _ => Err(()),
         }
@@ -173,6 +207,11 @@ async fn perform(host: &Host, request: Request) -> Result<Value, String> {
             host.db
                 .mutation_manager()
                 .import_logical_events(events)
+                .await
+                .map_err(|error| error.to_string())?,
+        ),
+        Request::Snapshot { action, request_id } => encoded(
+            crate::byte_cloud_backup::local_snapshot(host, action, request_id)
                 .await
                 .map_err(|error| error.to_string())?,
         ),

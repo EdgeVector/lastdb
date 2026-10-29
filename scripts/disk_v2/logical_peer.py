@@ -10,6 +10,7 @@ from logical_capture import Node, file_hash, observed_resources, read, require, 
 from logical_peer_support import (add_model, author, check_values, export, ingest, item,
                                   own_head, position, record_key, records, refusals, request)
 import logical_peer_crash
+import logical_snapshot
 
 CRASH_PAGES = 8
 ENVIRONMENT = {
@@ -57,13 +58,14 @@ def run(candidate, output):
 def driver_sources():
     root = Path(__file__).resolve().parent
     paths = [root / name for name in ["logical_peer.py", "logical_peer_support.py", "logical_peer_crash.py",
-                                      "logical_capture.py", "node_proof.py"]]
+                                      "logical_capture.py", "node_proof.py", "logical_snapshot.py"]]
     paths.extend(root.parent / "benchmarks" / name for name in ["node.py", "disk_usage.py"])
     return {str(path.relative_to(root.parent)): file_hash(path) for path in paths}
 
 
 def operate(nodes, output, result):
     a, b = nodes
+    result["snapshot_sequence_zero"] = logical_snapshot.zero_positions(nodes, output / "snapshot-zero")
     batches = [author(a, "a"), author(b, "b")]
     pages = [export(a), export(b)]
     require(all(len(page["events"]) == 3 for page in pages), "authored requests lack original events")
@@ -97,6 +99,7 @@ def operate(nodes, output, result):
     require([own_head(node) for node in nodes] == heads, "two-way imports changed outgoing heads")
     result["resources_before_crash"] = [observed_resources(node) for node in nodes]
     verify_rosters(nodes, pages, result)
+    result["snapshot_inclusion"] = logical_snapshot.operate(nodes, pages, model, output / "snapshot-inclusion")
     crash_phase(a, b, model, output, result)
 
 
@@ -154,4 +157,5 @@ def summary(result):
         "A SIGKILL interrupts the receiver with an import request pending. Two reopens check the durable cursor and exact data prefix.",
         "Checkpoint disk and memory samples have finite safety caps. They do not establish universal peaks or power-loss behavior.",
         "The driver closes both owned nodes and removes only their generated homes. The primary and cloud stay unchanged.",
+        "Local byte snapshots retain signed inclusion maps across later writes, imports, restart, and exact resume; corruption is refused.",
         f"Detail: {result.get('error', 'complete')}", ""])

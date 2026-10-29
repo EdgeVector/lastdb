@@ -51,6 +51,21 @@ impl RunRestoreGuard {
         self.native.check_binding()
     }
 
+    /// Match the authenticated client claim to the actual restored native cut.
+    /// This never loads a private signer or enrolls the recorded devices.
+    pub fn verify_logical_inclusion(
+        &mut self,
+        inclusion: &super::logical_capture::SnapshotInclusion,
+    ) -> StorageResult<()> {
+        self.check_binding()?;
+        super::logical_capture::verify_snapshot_inclusion(
+            &mut self.native.main,
+            &self.native.profile,
+            inclusion,
+        )?;
+        self.check_binding()
+    }
+
     pub fn validate_context(&self, data_root: &Path, root: &NativeRoot) -> StorageResult<()> {
         if self.native.root != data_root {
             return Err(invalid("run restore publication root differs"));

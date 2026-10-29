@@ -36,6 +36,8 @@ pub(super) struct State {
     pub run: Option<super::RunBackupProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub journal_anchor: Option<super::super::mutation_log::LogAnchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_inclusion: Option<super::super::logical_capture::SnapshotInclusion>,
 }
 impl State {
     pub fn validate(&self) -> StorageResult<()> {
@@ -45,6 +47,9 @@ impl State {
             return Err(invalid("byte source stored profile phase"));
         };
         run.validate_root(&self.native_root)?;
+        if let Some(inclusion) = &self.logical_inclusion {
+            inclusion.validate_for(&self.native_root)?;
+        }
         if let Some(anchor) = &self.journal_anchor {
             anchor.position()?;
             if anchor.main_home != run.main.home_id
@@ -55,8 +60,10 @@ impl State {
                 return Err(invalid("snapshot mutation log anchor differs"));
             }
         }
-        if self.format != 2
-            || self.reference_id.is_nil()
+        if !matches!(
+            (self.format, &self.logical_inclusion),
+            (2, None) | (3, Some(_))
+        ) || self.reference_id.is_nil()
             || !self.current_bytes.is_empty()
             || self.objects > MAX_OBJECTS
             || self.verified > self.objects

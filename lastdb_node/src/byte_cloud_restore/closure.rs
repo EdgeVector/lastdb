@@ -5,11 +5,11 @@ use super::{
 };
 use cloud_backup_protocol::v2::access::ReadSelector;
 use fold_db::storage::disk_pack::byte_backup::{
-    ClientRoot, CLIENT_VERSION, CODEC_ENVELOPE_MAX_BYTES,
+    ClientRoot, CLIENT_VERSION, CODEC_ENVELOPE_MAX_BYTES, LEGACY_CLIENT_VERSION,
 };
 
 /// Only a backup of a disk format v2 home restores. Such a backup has a null
-/// client descriptor and a version 3 root with a run profile. A disk format v1
+/// client descriptor and a version 3 or 5 root with a run profile. A disk format v1
 /// home wrote a pack descriptor, or a null descriptor with a version 1 or 2
 /// record root; both return `Unsupported` before the strict root decode.
 pub(super) async fn restore(
@@ -30,7 +30,7 @@ pub(super) async fn restore(
         drop(inventory);
         return super::logs::restore(session, client, keys, root).await;
     }
-    if version != CLIENT_VERSION {
+    if !matches!(version, CLIENT_VERSION | LEGACY_CLIENT_VERSION) {
         return Err(RestoreError::Unsupported("backup of a disk format v1 home"));
     }
     let accepted = session.accepted();

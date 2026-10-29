@@ -10,7 +10,8 @@ The [completion design](cloud-v2-completion-plan.md) defines the release and ope
 
 ## Scope
 
-- Use client metadata version 3 for a disk V2 file backup.
+- Use client metadata version 5 for a new disk V2 file backup.
+- Read version 3 backups with unknown logical event coverage.
 - Keep the cloud descriptor null and require the R2 and B2 destinations.
 - Send the existing encrypted file bytes without another encryption or text conversion.
 - Send CAS run files to B2. Send all other captured files to R2.
@@ -59,7 +60,10 @@ Each binding contains its home ID, generation, frontier, descriptor hash, CURREN
 The encrypted client root binds this profile to the common native-root summary and recovery descriptor.
 The native file pages contain the original destination paths and exact receipt extents.
 They use the existing `ClientNativeFile` shape.
-Version 3 permits native files with a null cloud descriptor and no stored-record profile.
+Versions 3 and 5 permit native files with a null cloud descriptor and no stored-record profile.
+Version 5 adds the encrypted [snapshot inclusion map](snapshot-inclusion-map-v1.md).
+It records the producer and imported-device positions from the exact retained file cut.
+Version 3 has no certified inclusion map.
 
 The only installed native paths are:
 
@@ -73,7 +77,7 @@ The descriptor must identify the supported LDRHOME3 format.
 Both home identities and complete referenced run sets must match the captured profile.
 The common native-root summary uses the main identity, generation, and frontier.
 Its CURRENT hash binds the main CURRENT. Its home digest binds both home bindings.
-Version 3 validation requires this exact relationship and the supported native feature set.
+Both metadata versions require this exact relationship and the supported native feature set.
 It does not weaken the older native-root validator.
 
 ## Resume and release

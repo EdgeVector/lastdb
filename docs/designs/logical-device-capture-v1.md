@@ -140,6 +140,10 @@ These finite limits bound the first release until snapshot adoption defines safe
 They do not change the existing warm set or native memory limits.
 Encoded byte limits do not describe the exact Rust memory size.
 
+New native backups carry an encrypted [snapshot inclusion map](snapshot-inclusion-map-v1.md).
+It binds the producer and peer positions to the exact captured files.
+It does not authorize snapshot adoption or log removal.
+
 This release does not supply a complete cloud sync protocol, portable snapshot adoption, log pruning, or device replacement.
 Schema administration and other metadata changes also require a future protocol contract.
 CI uses fresh nodes for event transfer, duplicate requests, refused pages, conflict results, and crash recovery.
