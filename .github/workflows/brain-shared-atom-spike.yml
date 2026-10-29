@@ -44,11 +44,13 @@ jobs:
       CANDIDATE_SHA: ${{ github.sha }}
       BUILD_CONTEXT: ${{ needs.build.outputs.context }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
-      BENCH_BINARY_ROOT: ${{ runner.temp }}/programs
-      BENCH_OUTPUT: ${{ runner.temp }}/brain-results
       BRAIN_BASELINE: ${{ inputs.brain_baseline }}
       BRAIN_CANDIDATE: ${{ inputs.brain_candidate }}
     steps:
+      - name: Select runner-owned output directories
+        run: |
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/programs" >> "$GITHUB_ENV"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/brain-results" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           path: driver
