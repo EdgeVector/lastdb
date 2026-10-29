@@ -5,6 +5,7 @@ use budget::call_error;
 mod atoms;
 mod budget;
 mod core_holds;
+mod counter_memory;
 pub(super) mod memory;
 mod overlay;
 mod preload;

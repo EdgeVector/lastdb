@@ -89,6 +89,8 @@ impl PackRuntime {
                     record.body.as_ref().map_or(0, Vec::len),
                 )?;
                 out[slot] = record.body.clone();
+            } else if let Some(value) = self.reuse_counter_value(context, call, coordinate)? {
+                out[slot] = value;
             } else if let Some(value) = context.reuse_disk_value(call, coordinate)? {
                 out[slot] = value;
             } else {
@@ -104,7 +106,9 @@ impl PackRuntime {
             .map_err(|error| call_error(error, call))?;
         for (slot, result) in misses.into_iter().zip(results) {
             let value = result.map_err(|error| call_error(error, call))?;
-            context.remember_disk_value(&coordinates[slot], value.as_deref())?;
+            if !self.remember_counter_value(context, &coordinates[slot], value.as_deref())? {
+                context.remember_disk_value(&coordinates[slot], value.as_deref())?;
+            }
             out[slot] = value;
         }
         Ok(out)

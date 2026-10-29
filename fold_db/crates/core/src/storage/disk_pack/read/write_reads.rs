@@ -19,6 +19,8 @@ struct Saved {
     bytes: usize,
     reused_records: u64,
     reused_bytes: u64,
+    counter_memory_reused: u64,
+    counter_memory_offered: u64,
 }
 
 pub(super) struct WriteReads {
@@ -36,6 +38,18 @@ impl Default for WriteReads {
 }
 
 impl ReadContext {
+    pub(super) fn note_counter_memory(&self, reused: bool) -> StorageResult<()> {
+        if let Some(reads) = &self.write_reads {
+            let mut saved = reads.saved.lock().map_err(|_| poisoned())?;
+            if reused {
+                saved.counter_memory_reused += 1;
+            } else {
+                saved.counter_memory_offered += 1;
+            }
+        }
+        Ok(())
+    }
+
     /// Outer None is a miss; Some(None) is a confirmed disk absence.
     pub(super) fn reuse_disk_value(
         &self,
@@ -118,7 +132,9 @@ impl ReadContext {
                     "ended_us": laststore::commit_timing::unix_us(),
                     "counts": {"reused_records": saved.reused_records,
                         "reused_bytes": saved.reused_bytes, "saved_records": saved.values.len(),
-                        "saved_bytes": saved.bytes},
+                        "saved_bytes": saved.bytes,
+                        "counter_memory_reused": saved.counter_memory_reused,
+                        "counter_memory_offered": saved.counter_memory_offered},
                 }),
             );
         }

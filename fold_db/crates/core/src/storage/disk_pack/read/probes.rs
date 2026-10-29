@@ -18,8 +18,9 @@ impl PackRuntime {
             crate::storage::current_keys::validate("main", counter.as_bytes())?;
             crate::storage::current_keys::validate("main", body.as_bytes())?;
         }
+        let runtime = Arc::clone(self);
         super::super::run_blocking(move || {
-            let result = Self::disk_counter_body_probes(&context, &pending, &keys);
+            let result = runtime.disk_counter_body_probes(&context, &pending, &keys);
             context.remember(&result);
             result
         })
@@ -27,6 +28,7 @@ impl PackRuntime {
     }
 
     fn disk_counter_body_probes(
+        &self,
         context: &ReadContext,
         pending: &Arc<transaction::PendingBatch>,
         keys: &[(String, String)],
@@ -46,6 +48,7 @@ impl PackRuntime {
                     .overlay_record(Some(pending), &fallback.0, &fallback.1)
                     .is_some()
                 || context.has_disk_value(&primary)?
+                || self.counter_memory_value(context, &primary)?.is_some()
             {
                 continue;
             }
@@ -90,7 +93,9 @@ impl PackRuntime {
                 .sum(),
         );
         for ((position, pair), value) in selected.into_iter().zip(pairs).zip(values) {
-            context.remember_disk_value(&pair.primary, value.value.as_deref())?;
+            if !self.remember_counter_value(context, &pair.primary, value.value.as_deref())? {
+                context.remember_disk_value(&pair.primary, value.value.as_deref())?;
+            }
             if value.value.is_none() && !value.fallback_present {
                 context.remember_disk_value(&pair.fallback, None)?;
             }
