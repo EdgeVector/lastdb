@@ -124,9 +124,8 @@ impl SchemaServiceClient {
             mutation_mappers,
             schema_match_source: options.schema_match_source.to_string(),
             fallback_reason: options.fallback_reason.map(str::to_string),
-            // Local-claim path keeps `offer_to_shared_discovery = false`
-            // (cert-free). Shared-surface publish/attach sets it true and
-            // attaches the governance envelope.
+            // Local claims and shared offers both require a developer account
+            // for new registrations. This flag selects discovery intent only.
             offer_to_shared_discovery: options.offer_to_shared_discovery,
             shared_surface: options.shared_surface,
         };

@@ -10,6 +10,9 @@ use schema_service_server_shared::types::{
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+mod repost;
+use repost::idempotent_repost_response;
+
 pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
     event: &Request,
@@ -148,25 +151,6 @@ pub(crate) fn post_schemas_mutation_challenge(
     }
 }
 
-/// Cert-free echo of an already-published `owner_app_id` schema, if any.
-fn idempotent_repost_response(
-    state: &SchemaServiceState,
-    schema: &schema_types::Schema,
-    mutation_mappers: &HashMap<String, String>,
-) -> Option<Result<Response<Body>, Error>> {
-    schema.owner_app_id.as_deref().filter(|s| !s.is_empty())?;
-    let existing = state.classify_idempotent_repost(schema, mutation_mappers)?;
-    let system = state.is_system_schema(&existing.name);
-    Some(json_response(
-        200,
-        &json!({
-            "schema": existing,
-            "mutation_mappers": mutation_mappers,
-            "system": system,
-        }),
-    ))
-}
-
 /// Optional `mutation_mappers` map; a malformed value is logged and ignored.
 fn parse_mutation_mappers(request: &Value) -> HashMap<String, String> {
     match request.get("mutation_mappers") {
@@ -214,10 +198,8 @@ pub(crate) async fn post_schemas(
     }
     let mutation_mappers = parse_mutation_mappers(&request);
 
-    // Whether this is an OFFER into shared discovery (cert-gated) vs a
-    // local namespace CLAIM (cert-free, the default — local-first
-    // app-namespacing). Absent / non-bool → false (local claim), so an
-    // older client that omits the field is treated as a local claim.
+    // Absent / non-bool means a local namespace claim. Both a local claim
+    // and a shared discovery offer need developer authorization when new.
     let offer_to_shared_discovery = request
         .get("offer_to_shared_discovery")
         .and_then(serde_json::Value::as_bool)
@@ -227,22 +209,23 @@ pub(crate) async fn post_schemas(
         state.observe_schema_mutation_gate(&schema, &mutation_mappers, offer_to_shared_discovery);
 
     // Validation precedes the cert-free echo of a public existing schema.
-    if let Some(resp) = idempotent_repost_response(state, &schema, &mutation_mappers) {
+    if let Some(resp) = idempotent_repost_response(state, &schema, &mutation_mappers).await {
         return resp;
     }
 
-    // owner_app_id ↔ dev-cert gate. Un-namespaced submissions are
-    // accepted unconditionally; a namespaced submission is cert-free
-    // when it merely CLAIMS a local namespace and cert-gated only when
-    // it OFFERS the schema into shared discovery (see app_identity
-    // module docs + designs-local-first-app-namespacing).
-    if let Err(e) = state.authorize_schema_claim(
-        schema.owner_app_id.as_deref(),
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-        &schema_value,
-        offer_to_shared_discovery,
-    ) {
+    // Every new registration requires an Exemem developer account and the
+    // registered app owner, including local claims and un-namespaced proposals.
+    // Exact public reposts above remain reads and create no definitions.
+    if let Err(e) = state
+        .authorize_schema_claim(
+            schema.owner_app_id.as_deref(),
+            header_str(event, "x-exemem-dev-cert"),
+            header_str(event, "x-signature"),
+            &schema_value,
+            offer_to_shared_discovery,
+        )
+        .await
+    {
         let (status, body) = e.to_http();
         return json_response(status, &body);
     }

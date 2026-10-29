@@ -18,8 +18,7 @@ impl SchemaServiceState {
         env_label(self.app_identity_config().deployment_env).to_string()
     }
 
-    /// Replace the app-identity config. Called once at startup by the
-    /// binaries; tests use it to inject a test root key.
+    /// Replace the app-identity config. Called once at startup by the binaries.
     pub fn configure_app_identity(&self, config: AppIdentityConfig) {
         if let Ok(mut slot) = self.app_identity.write() {
             *slot = config;

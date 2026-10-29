@@ -4,7 +4,6 @@ pub mod atom_key_codec;
 pub(crate) mod delete_barrier;
 pub mod file_pointer;
 pub mod history_event_memo;
-pub mod merkle;
 mod molecule_hash_range;
 pub(crate) use molecule_hash_range::keys::{
     CompactRangeKey, CoreStoredKey, KeyVisibility, MoleculeKeys,
