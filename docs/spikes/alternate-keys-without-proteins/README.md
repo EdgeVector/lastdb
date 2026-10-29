@@ -1,7 +1,8 @@
 # One schema with alternate keys
 
 Status: design spike, 2026-10-29. Tom requested a plan and prohibited a merge.
-Source base: `b2419f5a8b510306411bb9c84a2fece0019ceec3`.
+Design source base: `b2419f5a8b510306411bb9c84a2fece0019ceec3`.
+Implementation control: `c08e7aa3a7210c3cd7b5cdf7ed22bfa864cd90c0`.
 The examples below describe the unmerged spike API. Accepted main does not support this API.
 
 ## Recommendation

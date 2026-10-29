@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      BASELINE_SHA: ${{ inputs.baseline || 'c08e7aa3a7210c3cd7b5cdf7ed22bfa864cd90c0' }}
       CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
