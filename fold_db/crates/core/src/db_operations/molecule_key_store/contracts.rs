@@ -1,7 +1,7 @@
 //! The node format and every schema must agree with the one stored profile.
 
 use super::{
-    schema_molecule_uuids, BundleMetadata, ConflictKeyIdentity, KeyAuthority, MoleculeKeyStore,
+    schema_molecule_profiles, BundleMetadata, ConflictKeyIdentity, KeyAuthority, MoleculeKeyStore,
     StorageError, StorageResult,
 };
 use crate::schema::Schema;
@@ -62,8 +62,7 @@ impl MoleculeKeyStore {
     }
 
     pub(super) fn require_schema_profiles(&self, schema: &Schema) -> StorageResult<()> {
-        let expected = self.schema_profile(schema)?;
-        for molecule in schema_molecule_uuids(schema) {
+        for (molecule, expected) in schema_molecule_profiles(schema)? {
             match self.cached_contract(&molecule)? {
                 Some(contract) if contract.range_profile == expected => {}
                 _ => return Err(invalid()),

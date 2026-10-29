@@ -5,6 +5,12 @@ use crate::schema::types::{Schema, SchemaError};
 /// Same-identity loads refresh metadata. Incoming mappers win; stored molecules
 /// fill only absent, unmapped fields. No hydrated molecule enters the cache.
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
+    if schema.alternate_keys != stored.alternate_keys {
+        return Err(SchemaError::InvalidData(
+            "alternate declarations are immutable in the spike; explicit backfill is required"
+                .into(),
+        ));
+    }
     let mapped_fields: std::collections::HashSet<String> = schema
         .field_mappers
         .as_ref()

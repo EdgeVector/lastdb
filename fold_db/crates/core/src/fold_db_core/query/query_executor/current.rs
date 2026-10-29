@@ -17,6 +17,11 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        if query.key_name.is_some() {
+            return Err(SchemaError::InvalidData(
+                "use the named alternate page reader".into(),
+            ));
+        }
         // Approved local callers read all local fields. Context is identity +
         // optional multi-DB storage_prefix (X-LastDB-Db → org cohabitation).
         let storage_prefix = match access_context {

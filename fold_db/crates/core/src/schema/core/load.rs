@@ -225,6 +225,9 @@ impl SchemaCore {
     /// Prepare definitions, keep local molecule ownership, write durable metadata,
     /// then publish the matching cache state and establish multi-key proteins.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
+        schema
+            .validate_alternate_keys()
+            .map_err(SchemaError::InvalidData)?;
         // Preserve runtime metadata supplied by callers; wire schemas need population.
         if schema.runtime_fields.is_empty() {
             schema.populate_runtime_fields()?;

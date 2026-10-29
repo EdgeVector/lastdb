@@ -26,6 +26,11 @@ impl QueryExecutor {
         query: &Query,
         access_context: &AccessContext,
     ) -> Result<Option<usize>, SchemaError> {
+        if query.key_name.is_some() {
+            return Err(SchemaError::InvalidData(
+                "alternate count requires the named key route".into(),
+            ));
+        }
         let scope = self.db_ops.read_scope().await?;
         let future = Box::pin(self.count_query_rows_scoped(query, access_context));
         scope.run_result(future).await

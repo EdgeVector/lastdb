@@ -177,6 +177,7 @@ export function parseQueryRow(raw: unknown): QueryRow {
   return {
     key,
     keyValue,
+    ...(isObject(raw['matched_key']) ? { matchedKey: parseRowKey(raw['matched_key']).keyValue } : {}),
     fields: fields as RowFields,
     metadata: 'metadata' in raw ? (raw['metadata'] as JsonValue) : null,
     authorPubKey: typeof author === 'string' && author.length > 0 ? author : null,

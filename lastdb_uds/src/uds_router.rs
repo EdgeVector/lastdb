@@ -78,7 +78,8 @@ const API_VERSION_PATH: &str = "/api/version";
 ///
 /// `10` (2026-10-29) adds read-only snapshot adoption plans on the owner route.
 /// Existing actions and the minimum API version remain unchanged.
-pub const API_VERSION: u32 = 10;
+/// 11 adds named alternate-key query pages in the unmerged spike.
+pub const API_VERSION: u32 = 11;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

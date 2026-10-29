@@ -1,0 +1,112 @@
+name: Alternate key spike comparison
+
+on:
+  pull_request:
+    paths:
+      - 'fold_db/**'
+      - 'schema_service/crates/schema_types/**'
+      - 'lastdb_host/**'
+      - 'lastdb_uds/**'
+      - 'scripts/benchmarks/alternate_key_compare.py'
+      - 'scripts/schema_checks/alternate_keys.py'
+      - '.github/workflows/alternate-keys-spike.yml'
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Exact baseline source revision
+        type: string
+        required: true
+      candidate:
+        description: Exact candidate source revision
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: alternate-keys-spike-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    if: github.repository == 'EdgeVector/lastdb'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
+      CARGO_BUILD_JOBS: '3'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Require exact source revisions
+        run: |
+          [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+      - uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+      - name: Build the two exact daemons in separate targets
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/alternate-bins"
+          for label in baseline candidate; do
+            cd "$GITHUB_WORKSPACE/$label"
+            revision=$(git rev-parse HEAD)
+            FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
+              CARGO_TARGET_DIR="$RUNNER_TEMP/alternate-target-$label" \
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/alternate-bins/$label"
+            rm -rf "$RUNNER_TEMP/alternate-target-$label"
+          done
+      - name: Compare equivalent records through both public APIs
+        env:
+          DRIVER_SHA: ${{ github.sha }}
+        run: |
+          python3 driver/scripts/benchmarks/alternate_key_compare.py \
+            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
+            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/alternate-key-comparison"
+      - name: Upload measurements
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alternate-key-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/alternate-key-comparison/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify the artifact upload
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/alternate-artifact.json"
+          python3 driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/alternate-artifact.json" --output "$RUNNER_TEMP/alternate-artifact-receipt"

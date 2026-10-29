@@ -235,7 +235,56 @@ pub(crate) fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
             })
         })
         .collect::<Vec<_>>();
+    molecules.extend(
+        schema
+            .alternate_keys
+            .keys()
+            .map(|name| crate::alternate_keys::molecule(schema, name)),
+    );
     molecules.sort();
     molecules.dedup();
     molecules
+}
+
+/// Every field and alternate owns its own declared range profile.
+pub(crate) fn schema_molecule_profiles(
+    schema: &Schema,
+) -> StorageResult<
+    Vec<(
+        String,
+        schema_types::molecule_range_profile::MoleculeRangeProfile,
+    )>,
+> {
+    use schema_types::molecule_range_profile::MoleculeRangeProfile;
+    let kind = schema
+        .key
+        .as_ref()
+        .and_then(|key| key.range_field.as_deref())
+        .map(|name| schema.key_field_type(name));
+    let primary = MoleculeRangeProfile::for_field_type(kind.as_ref())
+        .map_err(StorageError::InvalidOperation)?;
+    let mut result: Vec<_> = schema
+        .runtime_fields
+        .iter()
+        .map(|(name, field)| {
+            (
+                field.common().molecule_uuid().cloned().unwrap_or_else(|| {
+                    crate::atom::deterministic_molecule_uuid(&schema.name, name)
+                }),
+                primary,
+            )
+        })
+        .collect();
+    for (name, key) in &schema.alternate_keys {
+        let field_type = key
+            .range_field
+            .as_deref()
+            .map(|field| schema.key_field_type(field));
+        let profile = MoleculeRangeProfile::for_field_type(field_type.as_ref())
+            .map_err(StorageError::InvalidOperation)?;
+        result.push((crate::alternate_keys::molecule(schema, name), profile));
+    }
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result.dedup();
+    Ok(result)
 }

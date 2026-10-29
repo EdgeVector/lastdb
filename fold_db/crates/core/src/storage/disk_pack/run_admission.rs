@@ -11,7 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 pub(super) const TYPED_NODE_BYTES: &[u8] =
-    b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n";
+    b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n";
 
 pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     let marker = OpenOptions::new()

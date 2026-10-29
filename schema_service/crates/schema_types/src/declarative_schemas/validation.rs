@@ -4,7 +4,8 @@ impl DeclarativeSchemaDefinition {
     /// Shared admission checks for wire and programmatic definitions.
     pub fn validate_definition(&self) -> Result<(), String> {
         self.validate_field_names()?;
-        self.validate_key_field_types()
+        self.validate_key_field_types()?;
+        self.validate_alternate_keys()
     }
 
     /// Reject reserved names and characters that make field identities ambiguous.

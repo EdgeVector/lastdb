@@ -99,6 +99,11 @@ impl SchemaCore {
                 sources.insert(mapper.source_schema().to_owned(), source);
             }
             let source = &sources[mapper.source_schema()];
+            if !source.alternate_keys.is_empty() {
+                return Err(invalid(
+                    "alternate schemas cannot supply mutable field mappers in the spike",
+                ));
+            }
             if !same_coordinates(&current, source) {
                 let old = if first { stored } else { Some(&current) };
                 let molecule =

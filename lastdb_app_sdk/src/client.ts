@@ -982,6 +982,9 @@ export class LastDbClient {
     filter: QueryFilter,
   ): Record<string, unknown> {
     const body: Record<string, unknown> = { schema_name: resolved.nodeSchemaName };
+    if (filter.keyName !== undefined) {
+      body.key_name = filter.keyName;
+    }
     if (filter.fields !== undefined) {
       body.fields = filter.fields.map((field) =>
         mapFieldName(field, resolved.appToNodeFields),

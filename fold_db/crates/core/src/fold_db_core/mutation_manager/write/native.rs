@@ -189,7 +189,35 @@ impl MutationManager {
         self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
+        let alternate_keys: Vec<_> = if job.schema.alternate_keys.is_empty() {
+            Vec::new()
+        } else {
+            job.modified_fields
+                .values()
+                .flatten()
+                .map(|key| crate::schema::types::KeyValue::new(key.hash.clone(), key.range.clone()))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect()
+        };
+        let alternate_before = if alternate_keys.is_empty() {
+            Vec::new()
+        } else {
+            self.db_ops
+                .atoms()
+                .alternate_fields(&job.schema, &alternate_keys, job.storage_prefix.as_deref())
+                .await?
+        };
         measure("store_job_us", self.stage_native_job(&mut job)).await?;
+        self.db_ops
+            .atoms()
+            .stage_alternate_changes(
+                &job.schema,
+                &alternate_keys,
+                &alternate_before,
+                job.storage_prefix.as_deref(),
+            )
+            .await?;
         measure("logical_paths_us", self.stage_native_paths(&job, runtime)).await?;
         runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
         if let Some(batch) = job.search_batch.take() {

@@ -22,7 +22,8 @@ pub fn health_response() -> UdsResponse {
 /// The capability flags both `/health` and `/api/version` advertise. One
 /// literal so the two routes cannot disagree; a flag is a fixed `&'static str`
 /// (never a caller byte).
-pub(super) const CAPABILITIES_JSON: &str = r#"{"atomic_aggregate_set_v1":true}"#;
+pub(super) const CAPABILITIES_JSON: &str =
+    r#"{"atomic_aggregate_set_v1":true,"alternate_keys_v1":true}"#;
 
 /// The process-lifetime instance id shared by `/health` and `/api/version`, so
 /// a client can pair a version answer with the liveness probe it followed.

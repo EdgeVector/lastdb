@@ -106,6 +106,8 @@ export interface QueryRow {
    * has neither a hash nor a range.
    */
   keyValue: KeyValue | null;
+  /** Coordinates of the named alternate key; keyValue remains the primary mutation key. */
+  matchedKey?: KeyValue | null;
   /** The row's field values, keyed by field name. */
   fields: RowFields;
   /**
@@ -295,6 +297,8 @@ export interface RequestConsentResult {
  * schema.
  */
 export interface QueryFilter {
+  /** Named alternate key within the resolved schema. Omit for the primary key. */
+  keyName?: string;
   /**
    * Restrict to these field names. When omitted, the SDK requests every
    * field the schema declares (it cannot know them ahead of time, so a

@@ -19,6 +19,9 @@ impl SchemaCore {
         let Some(loaded) = self.get_schema_metadata(schema_name)? else {
             return Ok(());
         };
+        if !loaded.alternate_keys.is_empty() {
+            return Ok(());
+        }
         let bindings = {
             let schemas = read_map(&self.schemas, "schemas")?;
             let staged = self.staged_schemas()?;
@@ -90,6 +93,9 @@ fn field_bindings(
     definitions: &HashMap<&str, &Schema>,
     wanted: Option<&HashSet<String>>,
 ) -> Result<Vec<CoherenceBinding>, SchemaError> {
+    if !schema.alternate_keys.is_empty() {
+        return Ok(Vec::new());
+    }
     let layout = KeyLayoutFingerprint::from_schema(schema);
     let Some(hash_field) = layout.hash_field.filter(|hash| !hash.is_empty()) else {
         return Ok(Vec::new());

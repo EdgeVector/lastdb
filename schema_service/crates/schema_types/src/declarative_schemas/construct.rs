@@ -22,6 +22,7 @@ impl DeclarativeSchemaDefinition {
             purpose_statement: None,
             schema_type,
             key,
+            alternate_keys: Default::default(),
             fields,
             transform_fields,
             field_mappers,

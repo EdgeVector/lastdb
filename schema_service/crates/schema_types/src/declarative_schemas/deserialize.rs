@@ -16,6 +16,8 @@ struct DeclarativeSchemaDefinitionHelper {
     schema_type: Option<DeclarativeSchemaType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     key: Option<KeyConfig>,
+    #[serde(default)]
+    alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
@@ -130,6 +132,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.trust_domain = self.trust_domain;
         schema.owner_app_id = self.owner_app_id;
         schema.source = self.source;
+        schema.alternate_keys = self.alternate_keys;
 
         // Recompute identity_hash if owner_app_id is present and the helper
         // didn't carry an explicit one. owner_app_id participates in

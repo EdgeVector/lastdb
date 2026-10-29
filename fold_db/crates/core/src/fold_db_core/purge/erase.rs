@@ -79,13 +79,38 @@ async fn erase_planned(
     mutations: &[Mutation],
     options: EraseOptions<'_>,
 ) -> Result<BulkPurgeReport, SchemaError> {
+    let alternate_schema = target_plan.schema.clone_for_read_shared();
+    let alternate_keys: Vec<_> = mutations
+        .iter()
+        .map(|mutation| mutation.key_value.clone())
+        .collect();
+    let alternate_before = if alternate_schema.alternate_keys.is_empty() {
+        Vec::new()
+    } else {
+        db_ops
+            .atoms()
+            .alternate_fields(&alternate_schema, &alternate_keys, options.storage_prefix)
+            .await?
+    };
     let loaded = target_plan.read(db_ops, options.storage_prefix).await?;
     let plan = if options.verb.is_delete() {
         plan_delete(db_ops, &loaded, &planned).await?
     } else {
         plan_purge(&loaded, mutations)
     };
-    super::erase_apply::apply_plan(db_ops, schema_manager, schema_name, loaded, plan, options).await
+    let result =
+        super::erase_apply::apply_plan(db_ops, schema_manager, schema_name, loaded, plan, options)
+            .await?;
+    db_ops
+        .atoms()
+        .stage_alternate_changes(
+            &alternate_schema,
+            &alternate_keys,
+            &alternate_before,
+            options.storage_prefix,
+        )
+        .await?;
+    Ok(result)
 }
 
 /// The tips to remove and the delete barriers to write.

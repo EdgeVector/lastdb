@@ -3,6 +3,7 @@
 //! No storage, HTTP, fold_db, atom, or FieldVariant. Lambda and other
 //! fold_db-free consumers depend on this crate instead of `fold_db`.
 
+pub mod alternate_keys;
 pub mod clock;
 pub mod data_classification;
 pub mod declarative_schemas;
@@ -12,6 +13,7 @@ pub mod field_value_type;
 pub mod hex;
 pub mod key_comparison;
 pub mod key_config;
+pub use alternate_keys::{AlternateKey, MissingAlternateKey};
 pub mod molecule_range_profile;
 pub mod range_storage_profile;
 pub mod schema_type;
