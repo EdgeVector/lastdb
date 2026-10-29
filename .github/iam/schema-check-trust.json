@@ -10,7 +10,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:EdgeVector/lastdb:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:EdgeVector@271895127/lastdb@1412311495:ref:refs/heads/main"
         }
       }
     }
