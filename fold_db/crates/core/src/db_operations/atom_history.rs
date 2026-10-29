@@ -5,14 +5,13 @@ use crate::schema::SchemaError;
 
 pub struct AtomHistoryTarget {
     pub field_identity: String,
-    pub slot: String,
+    pub molecule: String,
 }
 
 impl DbOperations {
     pub async fn atom_history_target(
         &self,
         location: &HistoryLocation,
-        scope: Option<&str>,
     ) -> Result<AtomHistoryTarget, SchemaError> {
         let schema = self
             .get_schema(&location.schema)
@@ -28,13 +27,9 @@ impl DbOperations {
             .as_ref()
             .and_then(|m| m.get(&location.field))
             .ok_or_else(|| SchemaError::InvalidData("history field has no molecule".into()))?;
-        let slot = self
-            .atoms()
-            .atom_history_slot(molecule, &location.key, scope)
-            .await?;
         Ok(AtomHistoryTarget {
             field_identity,
-            slot,
+            molecule: molecule.clone(),
         })
     }
 

@@ -67,8 +67,10 @@ async fn execute(
     request.location.schema = handlers::resolve_schema_name(host, &request.location.schema)?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
     let db = host.db.db_ops();
-    let target = db.atom_history_target(&request.location, scope).await?;
+    let target = db.atom_history_target(&request.location).await?;
     let atoms = db.atoms();
+    // Policies belong to a field. Only a data action needs key coordinates.
+    let slot = atoms.atom_history_slot(&target.molecule, &request.location.key, scope);
     match request.action {
         Action::Policy { policy } => {
             if let Some(policy) = policy {
@@ -81,16 +83,16 @@ async fn execute(
         }
         Action::List { cursor, limit } => {
             let page = atoms
-                .atom_history_page(&target.slot, cursor.as_deref(), limit.unwrap_or(32))
+                .atom_history_page(&slot.await?, cursor.as_deref(), limit.unwrap_or(32))
                 .await?;
             serde_json::to_value(page).map_err(|e| HostError::new(500, e.to_string()))
         }
         Action::Get { id } => atoms
-            .atom_history_value(&target.slot, &id)
+            .atom_history_value(&slot.await?, &id)
             .await?
             .ok_or_else(|| HostError::new(404, "history entry is absent or expired")),
         Action::Purge { cursor } => Ok(atoms
-            .purge_atom_history(&target.slot, cursor.as_deref())
+            .purge_atom_history(&slot.await?, cursor.as_deref())
             .await?),
         Action::Restore {
             id,
@@ -104,7 +106,7 @@ async fn execute(
                 ));
             }
             let value = atoms
-                .atom_history_value(&target.slot, &id)
+                .atom_history_value(&slot.await?, &id)
                 .await?
                 .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
             let field = request.location.field.clone();

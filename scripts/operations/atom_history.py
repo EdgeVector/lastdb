@@ -76,8 +76,26 @@ def verify(node):
     raise RuntimeError("reference verification did not complete")
 
 
+def numeric_policy(node):
+    fields = ["number_bucket", "number", "number_value"]
+    node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
+        "source": "system_seed", "name": "HistoryByNumber", "descriptive_name": "HistoryByNumber",
+        "schema_type": "HashRange", "key": {"hash_field": "number_bucket", "range_field": "number"},
+        "fields": fields, "field_types": {f: "Integer" if f == "number" else "String" for f in fields},
+        "field_descriptions": {f: "Numeric history example " + f for f in fields},
+        "field_versions": {f: 1 for f in fields},
+    }})
+    result = node.call("/api/atom-history", {
+        "location": {"schema": "HistoryByNumber", "field": "number_value"},
+        "action": {"op": "policy", "policy": {"mode": "keep"}},
+    })[0]
+    require(result["policy"] == {"mode": "keep"}, "numeric range policy required key coordinates")
+    print("field policy without a key on a numeric range passed", flush=True)
+
+
 def exercise(node, binary):
     install(node)
+    numeric_policy(node)
     write(node, "first", "create")
     write(node, "second")
     require(history(node, {"op": "list"})["entries"] == [], "off policy retained a value")
