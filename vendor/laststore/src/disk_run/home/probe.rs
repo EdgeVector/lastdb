@@ -131,9 +131,12 @@ impl RunRead {
                         .filter(|&parent| at % 2 == 1 && open[parent] == at - 1)
                 })
                 .collect();
-            let hits = self
-                .reader(slot)?
-                .select_many(&keys, &presence, &parents, &mut scratch)?;
+            self.reader(slot)?;
+            let hits = self.runs[slot]
+                .1
+                .as_ref()
+                .expect("reader opened")
+                .select_many(&keys, &presence, &parents, &mut scratch, &mut self.metadata)?;
             for (at, hit) in open.into_iter().zip(hits) {
                 found[at] = hit;
             }

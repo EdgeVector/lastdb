@@ -8,6 +8,7 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use uuid::Uuid;
 
+mod compression;
 mod decode;
 mod stream;
 pub(crate) use stream::VerifiedFrameReader;
@@ -89,22 +90,7 @@ pub fn encode_frame_with_stats(
     payload: &[u8],
 ) -> Result<EncodedFrame> {
     let compression_timing = crate::commit_timing::stage("frame_compression_us");
-    let compressed = (payload.len() <= MAX_DECOMPRESSED_FRAME_BYTES)
-        .then(|| zstd::bulk::compress(payload, ZSTD_LEVEL))
-        .transpose()
-        .map_err(|e| Error::Config(format!("frame zstd compression failed: {e}")))?;
-    let use_compressed = compressed
-        .as_ref()
-        .is_some_and(|bytes| bytes.len().saturating_add(UNCOMPRESSED_LEN_SIZE) < payload.len());
-    let mut stored = if use_compressed {
-        let compressed = compressed.expect("compression selected");
-        let mut bytes = Vec::with_capacity(UNCOMPRESSED_LEN_SIZE + compressed.len());
-        bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(&compressed);
-        bytes
-    } else {
-        payload.to_vec()
-    };
+    let (mut stored, use_compressed) = compression::stored_payload(payload)?;
     drop(compression_timing);
     crate::commit_timing::count("frame_input_bytes", payload.len() as u64);
     crate::commit_timing::count("frame_stored_bytes", stored.len() as u64);

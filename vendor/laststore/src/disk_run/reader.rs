@@ -11,8 +11,11 @@ use crate::Result;
 use std::ops::Bound;
 use std::sync::Arc;
 use uuid::Uuid;
+#[path = "reader/metadata.rs"]
+mod metadata;
 #[path = "reader/open.rs"]
 mod open;
+pub(super) use metadata::MetadataMemo;
 #[path = "reader/probes.rs"]
 mod probes;
 #[path = "reader/stream.rs"]
@@ -128,6 +131,9 @@ impl RunReader {
         scratch: Option<&mut DecodeScratch>,
     ) -> Result<IndexBlock> {
         let _class = ReadClass::Footer.enter();
+        crate::read_receipt::update(|r| {
+            r.metadata_decodes = r.metadata_decodes.saturating_add(1);
+        });
         let entry = &self.top.indexes[number];
         let payload = self.read_frame_with(
             entry.offset,
@@ -198,14 +204,26 @@ impl RunReader {
     /// Looks up many keys with one read of each index and data block they
     /// need. Results come back in the order of `keys`.
     pub fn get_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<Found>>> {
-        self.lookup_many(keys, Found::clone)
+        self.get_many_with(keys, &mut MetadataMemo::new(0))
+    }
+
+    pub(in crate::disk_run) fn get_many_with(
+        &self,
+        keys: &[&[u8]],
+        metadata: &mut MetadataMemo,
+    ) -> Result<Vec<Option<Found>>> {
+        self.lookup_many(keys, Found::clone, metadata)
     }
 
     /// The stored size of many keys: key and value bytes, or the key alone
     /// for a tombstone. It returns no value; the lookup holds the decoded
     /// records of one data block at a time.
     pub fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
-        let sizes = self.lookup_many(keys, |found| found.value().map_or(0, <[u8]>::len))?;
+        let sizes = self.lookup_many(
+            keys,
+            |found| found.value().map_or(0, <[u8]>::len),
+            &mut MetadataMemo::new(0),
+        )?;
         Ok(sizes
             .into_iter()
             .zip(keys)
@@ -213,11 +231,16 @@ impl RunReader {
             .collect())
     }
 
-    fn lookup_many<T>(&self, keys: &[&[u8]], pick: impl Fn(&Found) -> T) -> Result<Vec<Option<T>>> {
+    fn lookup_many<T>(
+        &self,
+        keys: &[&[u8]],
+        pick: impl Fn(&Found) -> T,
+        metadata: &mut MetadataMemo,
+    ) -> Result<Vec<Option<T>>> {
         let mut order: Vec<usize> = (0..keys.len()).collect();
         order.sort_by(|a, b| keys[*a].cmp(keys[*b]));
         let mut out: Vec<Option<T>> = keys.iter().map(|_| None).collect();
-        let mut index: Option<(usize, IndexBlock)> = None;
+        let mut index: Option<(usize, Arc<IndexBlock>)> = None;
         let mut data: Option<(u64, BlockRecords)> = None;
         let mut scratch = DecodeScratch::default();
         for slot in order {
@@ -226,7 +249,7 @@ impl RunReader {
                 continue;
             };
             if index.as_ref().map(|(n, _)| *n) != Some(number) {
-                index = Some((number, self.read_index_with(number, Some(&mut scratch))?));
+                index = Some((number, metadata.read(self, number, &mut scratch)?));
             }
             let (_, block_index) = index.as_ref().expect("index loaded");
             if !block_index.may_hold(key_hash(key))? {

@@ -57,6 +57,11 @@ impl RunRead {
             key: self.key,
             budget,
             costs: RunReadCosts::default(),
+            metadata: super::super::reader::MetadataMemo::new(if self.bounded_streams {
+                0
+            } else {
+                budget.bytes
+            }),
             _owner_lock: Arc::clone(&self._owner_lock),
         }
     }
@@ -77,6 +82,7 @@ impl RunRead {
             key: self.key,
             budget,
             costs: RunReadCosts::default(),
+            metadata: super::super::reader::MetadataMemo::new(0),
             _owner_lock: Arc::clone(&self._owner_lock),
         })
     }
@@ -139,6 +145,11 @@ impl RunRead {
             key: *key,
             budget,
             costs: RunReadCosts::default(),
+            metadata: super::super::reader::MetadataMemo::new(if maximum.is_some() {
+                0
+            } else {
+                budget.bytes
+            }),
             _owner_lock: Arc::new(lock),
         })
     }
