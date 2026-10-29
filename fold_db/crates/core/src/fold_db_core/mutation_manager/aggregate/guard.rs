@@ -157,6 +157,31 @@ impl MutationManager {
             .await
     }
 
+    /// The committed target owner must be this guard. `mismatch` is the refusal
+    /// text when a different source partition owns the target.
+    pub(super) async fn check_aggregate_target_owner(
+        &self,
+        guard: &AggregateGuard,
+        storage_prefix: Option<&str>,
+        mismatch: &str,
+    ) -> Result<(), SchemaError> {
+        let reverse_key = aggregate_target_guard_key(
+            storage_prefix,
+            &guard.target_schema_name,
+            &guard.target_key,
+        );
+        let reverse = self
+            .read_active_target_guard(&reverse_key, storage_prefix)
+            .await?
+            .ok_or_else(|| {
+                SchemaError::InvalidData("aggregate target has no committed owner".into())
+            })?;
+        if !super::rules::target_owner_matches(&reverse, guard) {
+            return Err(SchemaError::InvalidData(mismatch.into()));
+        }
+        Ok(())
+    }
+
     /// Read a reverse target owner and discard an owner whose forward guard
     /// moved elsewhere before a crash.
     pub(super) async fn read_active_target_guard(

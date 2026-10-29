@@ -89,8 +89,12 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<AggregateRepairReceipt, SchemaError> {
-        self.check_repair_target_owner(guard, storage_prefix)
-            .await?;
+        self.check_aggregate_target_owner(
+            guard,
+            storage_prefix,
+            "aggregate target owner does not match the repair source partition",
+        )
+        .await?;
         self.check_repair_guard_token(&repair, &target_key, guard, storage_prefix)
             .await?;
         let repair_token = format!("repair:{}", uuid::Uuid::new_v4());
