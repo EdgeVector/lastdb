@@ -19,11 +19,8 @@ use crate::db_operations::ChangeFeedEvent;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
-use crate::schema::types::operations::{FieldPredicate, QueryOrderBy};
 use crate::schema::{Schema, SchemaError};
-use chrono::{DateTime, Utc};
 use futures::{stream, FutureExt, StreamExt};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -49,8 +46,11 @@ mod shares;
 mod watch;
 
 use cokey::CokeySelection;
-use condition_rules::*;
-pub use filter::FieldQueryOptions;
+pub use condition_rules::FieldQueryOptions;
+use condition_rules::{
+    condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
+    order_condition_keys,
+};
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
 
