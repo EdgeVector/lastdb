@@ -25,8 +25,9 @@ The daemon must publish a new snapshot and release its retained source bytes.
 
 The source stores a new 64 KiB file through the ordinary file command.
 One batch updates 15 records to reference that file and deletes the other record.
-The automatic mutation log must publish those writes and cover the complete current journal head.
-Its accepted native file extents must route main files to R2, CAS files to B2, and client metadata to R2.
+The selected automatic log chain must publish those writes.
+The current source must separately reach its complete journal head.
+The accepted native file extents across that chain must route main files to R2, CAS files to B2, and client metadata to R2.
 The log must leave both the last snapshot time and the next daily snapshot time unchanged.
 The source then stops and restarts with automatic backup enabled. Its saved policy must remain enabled with the same intervals and revision.
 Its next snapshot time must also remain unchanged after the restart.
@@ -52,10 +53,52 @@ Every destination must return the exact live key, shared field value, and comple
 TTL stays off on every restored daemon, so a later local purge cannot conceal a missed cloud deletion.
 The operation uses real owner commands and native TTL mutations, without a service substitute.
 
-The log restore checks its frozen base, exact selected head, completed replay cursor, and expected journal position.
+The log restore checks its frozen base, exact selected head, completed replay cursor, and authenticated selected journal position.
 It records hashes for the final native files and checks the product receipt and complete native file count and size.
 The snapshot restore also compares every file with the original authenticated per-file proof.
 These checks use the real product and DEV services. They use no service substitute or fixture system.
+
+## Fixed backup selections
+
+The recipe freezes each accepted backup that meets the requested kind and minimum native frontiers.
+Later source status reads never replace that selection.
+Publication and catch-up share one 900-second deadline.
+Catch-up requires all six journal conditions, an idle published request, zero retained source bytes, and matching completed/current/accepted request identities.
+Every status read passes through the same checkpoint and byte-budget checks.
+
+File creation and record updates can enter separate automatic logs.
+CI checks the complete selected log chain, which excludes the base snapshot from its positive main/CAS log-byte requirement.
+It does not require both writes in one final log.
+Automatic backup and the mutation journal stay enabled during those writes.
+
+Before log selection, CI saves the full written journal position: epoch, sequence, hash, and native frontiers.
+The restore checks that exact position within the authenticated selected prefix.
+Its expected final position comes from the selected cloud chain, not a later source status head.
+The frozen selection remains the restore target even if source catch-up needs another automatic log.
+
+The restore client saves one small private route receipt for each accepted log link.
+It saves that receipt only after every page, file, object receipt, destination, and complete extent coverage passes verification.
+The receipt binds the link index, commit hash, root receipt, inventory root, native totals, and role counts.
+It also retains the link boundaries and at most 128 authenticated entry hashes.
+An existing receipt must equal the recomputed receipt on resume.
+The receipt alone does not prove a complete replay.
+
+Object counts are unique within each accepted inventory.
+The chain total can count a shared receipt more than once.
+It does not claim the provider's unique object count or fresh storage allocation.
+Older completed sessions receive no receipt backfill.
+
+CI requires every selected link's receipt, the exact base and head, a completed replay cursor, and the final restore receipt.
+It also keeps all native file hashes, keyed reads, file-byte checks, deletion checks, two boots, and strict clean stops.
+Route evidence is product-validated; the Python recipe does not independently decode encrypted manifests.
+It no longer reads temporary source upload plans that the next automatic backup can retire.
+The existing eight-checkpoint and 64 MiB limits include accepted ancestors found during restore.
+Dependency inspection rejects more than eight retained points before the selected restore starts.
+
+These receipts stay in the owned restore session, outside Git.
+The old temporary-file count allowance and total byte allowance stay unchanged.
+A separate count permits only the new canonical route receipt names within the existing chain limit.
+Native files, cloud payloads, encryption, and the primary stay unchanged.
 
 ## Protected inputs
 
