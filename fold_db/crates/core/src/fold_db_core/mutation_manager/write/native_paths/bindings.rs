@@ -11,7 +11,7 @@ impl MutationManager {
         schema: &crate::schema::types::Schema,
         molecules: &std::collections::BTreeSet<String>,
     ) -> Result<BindingBatch, SchemaError> {
-        let sources = futures::future::try_join_all(molecules.iter().map(|molecule| async {
+        let sources = futures::future::try_join_all(molecules.iter().map(|molecule| async move {
             let edges = self
                 .db_ops
                 .atoms()
