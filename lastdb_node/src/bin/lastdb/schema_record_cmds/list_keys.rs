@@ -52,6 +52,16 @@ pub(crate) fn list_record_keys(
         .get("list")
         .cloned()
         .ok_or_else(|| "response missing list field".to_string())?;
+    if let Some(name) = args.key_name.as_deref() {
+        if report["key_name"].as_str() != Some(name) {
+            return Err("node did not honor the requested alternate key; upgrade LastDB".into());
+        }
+        let keys = report["keys"].as_array();
+        let primary = report["primary_keys"].as_array();
+        if keys.is_none() || keys.map(Vec::len) != primary.map(Vec::len) {
+            return Err("alternate list lost its primary mutation keys".into());
+        }
+    }
     if args.json {
         println!(
             "{}",

@@ -23,11 +23,14 @@ function keys(values: unknown, body: unknown): ListRecordKey[] {
   });
 }
 
-export function parseListResponse(body: unknown): ListResult {
+export function parseListResponse(body: unknown, expectedKeyName?: string): ListResult {
   if (!record(body) || !record(body['list'])) {
     throw new UnexpectedResponseError('list returned an invalid envelope', 200, body);
   }
   const page = body['list'];
+  if (expectedKeyName !== undefined && page['key_name'] !== expectedKeyName) {
+    throw new UnexpectedResponseError('node did not honor the requested alternate key; upgrade LastDB', 200, body);
+  }
   const schema = page['schema'];
   const nextCursor = page['next_cursor'];
   const hasMore = page['has_more'];

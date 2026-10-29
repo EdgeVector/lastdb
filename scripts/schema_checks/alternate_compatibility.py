@@ -13,7 +13,7 @@ from node_ops import ENVIRONMENT, install, require, schema, write
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
 from alternate_key_compare import FIELDS, check_rows, declare, mutation, query, values
 from node import Node, file_hash, save
-from alternate_changes import change, converted, owned_values, primary_rows, refused
+from alternate_changes import change, converted, list_cli, owned_values, primary_rows, refused
 from alternate_peers import peers
 
 FOUR = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
@@ -70,6 +70,7 @@ def legacy_home(args, output):
                      for key, fields in list(model.items())[offset:offset + 32]]
             require(node.call("/api/mutations/batch", batch)[0].get("durability") == "durable", "legacy write is not durable")
         before = primary_rows(node, "ExistingTask", model)
+        result["older_node_key_list"] = list_cli(args.candidate_cli, node, "ExistingTask")
         node.stop()
         node.binary, node.revision = args.candidate, args.candidate_revision
         node.start()
@@ -94,7 +95,7 @@ def legacy_home(args, output):
         check_rows(node.call("/api/query", query(False, "by_group",
                    {"HashRangeKey": {"hash": "g0", "range": "legacy-after"}}))[0],
                    {"legacy-after": values("legacy-after")})
-        result["conversion"] = converted(node, model, before)
+        result["conversion"] = converted(node, model, before, args.candidate_cli)
         result["legacy_protein_read_write"] = True
         result["encrypted_file_count_unchanged_by_activation"] = len(original)
         result["baseline"] = args.baseline_revision

@@ -1,5 +1,8 @@
 """Real owner requests for bounded alternate declaration backfill and retirement."""
 
+import json
+import os
+import subprocess
 from urllib.parse import urlencode
 
 from alternate_keys import task_definition
@@ -63,7 +66,26 @@ def alternate(node, name, key_name, hash_value, **options):
                                    "filter": {"HashKey": hash_value}, **options})[0]
 
 
-def converted(node, model, before):
+def list_cli(program, node, name, expected=None):
+    command = [str(program), "--data-dir", str(node.home), "list", name,
+               "--key-name", "by_group", "--key-hash", "g0", "--json"]
+    reply = subprocess.run(command, env={**os.environ, "LASTDB_SOCKET_PATH": str(node.socket)},
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+    require(len(reply.stdout) <= 128 * 1024 and len(reply.stderr) <= 128 * 1024, "key-list CLI exceeded its output bound")
+    if expected is None:
+        require(reply.returncode != 0 and "did not honor" in reply.stderr,
+                "new CLI accepted an older node's primary-key fallback")
+        return {"older_node_refused": True}
+    require(reply.returncode == 0, f"named key-list CLI failed: {reply.stderr[:600]}")
+    report = json.loads(reply.stdout)
+    require(report["key_name"] == "by_group" and not report["has_more"]
+            and sorted(key["range"] for key in report["keys"]) == sorted(expected)
+            and sorted(key["hash"] for key in report["primary_keys"]) == sorted(expected),
+            "named key-list CLI changed alternate or primary keys")
+    return {"keys": len(expected), "alternate_and_primary_keys": True}
+
+
+def converted(node, model, before, cli):
     name = "ExistingTask"
     declarations = task_definition()["alternate_keys"]
     state = change(node, name, "status")
@@ -86,6 +108,7 @@ def converted(node, model, before):
     check_rows(alternate(node, name, "by_group", "g0"), expected)
     count = alternate(node, name, "by_group", "g0", response_format="count")
     require(count["exact"] is True and count["total_count"] == len(expected), "alternate count differs")
+    cli_keys = list_cli(cli, node, name, expected)
     listed, cursor = [], None
     for _ in range(32):
         params = {"schema": name, "key_name": "by_group", "hash": "g0", "limit": 7}
@@ -117,7 +140,7 @@ def converted(node, model, before):
     return {"records": len(model), "resumed_after_reopen": True, "duplicate_page": True,
             "primary_atoms_and_clocks_unchanged": True, "count_and_key_list": True,
             "declaration_replacement_and_removal": True, "separate_field_reuse_after_removal": True,
-            "completed": completed, "abort": aborted}
+            "completed": completed, "abort": aborted, "cli": cli_keys}
 
 
 def abort_partial(node, declarations):

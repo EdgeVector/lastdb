@@ -31,7 +31,10 @@ impl ListRecordKeysRequest {
             limit,
             cursor: query_value(target, "cursor").filter(|cursor| !cursor.is_empty()),
             hash_filter: query_value(target, "hash"),
-            key_name: query_value(target, "key_name").filter(|name| !name.is_empty()),
+            key_name: match query_value(target, "key_name") {
+                Some(name) if name.is_empty() => return Err("key_name must not be empty"),
+                name => name,
+            },
         })
     }
 }

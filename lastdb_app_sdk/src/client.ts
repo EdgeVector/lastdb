@@ -547,7 +547,7 @@ export class LastDbClient {
     );
     if (res.status === 200) {
       return {
-        ...parseListResponse(res.body),
+        ...parseListResponse(res.body, opts.keyName),
         schema: resolved.appSchemaName,
       };
     }
