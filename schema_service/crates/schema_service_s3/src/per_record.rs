@@ -6,12 +6,18 @@ use schema_service_core::snapshot::AppRecord;
 use schema_types::{FoldDbError, FoldDbResult};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use super::{error_code, is_precondition_failed, short_error, S3BlobPersistence};
 
 type StoredObject = aws_sdk_s3::operation::get_object::GetObjectOutput;
 type PutRequest = aws_sdk_s3::operation::put_object::builders::PutObjectFluentBuilder;
+
+struct PreparedPut<'a, T> {
+    record: Cow<'a, T>,
+    conflict: Option<(u64, u64)>,
+}
 
 impl S3BlobPersistence {
     pub(crate) async fn put_single_object<T>(
@@ -228,17 +234,18 @@ impl S3BlobPersistence {
         key: &str,
         record: &ReleaseRecord,
     ) -> FoldDbResult<()> {
-        if let Some((existing, etag)) = self.get_record_with_etag::<ReleaseRecord>(key).await? {
+        self.replace_or_create(key, record, |existing, record| {
             let mut final_record = record.clone();
             if existing.revoked_at.is_some() {
                 final_record.revoked_at = existing.revoked_at;
                 final_record.revocation_reason = existing.revocation_reason;
             }
-            self.put_if_match(key, &final_record, &etag, None).await?;
-        } else {
-            self.put_single_object(key, record, true).await?;
-        }
-        Ok(())
+            Ok(PreparedPut {
+                record: Cow::Owned(final_record),
+                conflict: None,
+            })
+        })
+        .await
     }
 
     pub(crate) async fn put_channel_with_generation_check(
@@ -246,7 +253,7 @@ impl S3BlobPersistence {
         key: &str,
         record: &ChannelRecord,
     ) -> FoldDbResult<()> {
-        if let Some((existing, etag)) = self.get_record_with_etag::<ChannelRecord>(key).await? {
+        self.replace_or_create(key, record, |existing, record| {
             let expected = record.generation.checked_sub(1).ok_or_else(|| {
                 FoldDbError::Config(format!(
                     "generation underflow: new generation {} must be at least 1",
@@ -259,17 +266,33 @@ impl S3BlobPersistence {
                     supplied: record.generation,
                 });
             }
-            self.put_if_match(
-                key,
-                record,
-                &etag,
-                Some((existing.generation, record.generation)),
-            )
-            .await?;
+            Ok(PreparedPut {
+                record: Cow::Borrowed(record),
+                conflict: Some((existing.generation, record.generation)),
+            })
+        })
+        .await
+    }
+
+    /// Replace one record when it exists. Create it when the key is absent.
+    /// The caller prepares the stored record and any generation clash.
+    async fn replace_or_create<'a, T, F>(
+        &'a self,
+        key: &str,
+        record: &'a T,
+        prepare: F,
+    ) -> FoldDbResult<()>
+    where
+        T: Serialize + DeserializeOwned + Clone,
+        F: FnOnce(T, &'a T) -> FoldDbResult<PreparedPut<'a, T>>,
+    {
+        if let Some((existing, etag)) = self.get_record_with_etag::<T>(key).await? {
+            let prepared = prepare(existing, record)?;
+            self.put_if_match(key, prepared.record.as_ref(), &etag, prepared.conflict)
+                .await
         } else {
-            self.put_single_object(key, record, true).await?;
+            self.put_single_object(key, record, true).await
         }
-        Ok(())
     }
 
     pub(crate) async fn list_and_load_compat_rows(
