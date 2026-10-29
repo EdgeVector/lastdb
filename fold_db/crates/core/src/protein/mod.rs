@@ -11,7 +11,7 @@ mod keys;
 mod ops;
 mod types;
 
-pub(crate) use ops::FieldProteinBinding;
+pub(crate) use ops::{FieldProteinBinding, LoadedProteinSiblingUpdate};
 
 pub use keys::{member_backref_key, protein_record_key};
 pub(crate) use keys::{MEMBER_BACKREF_PREFIX, PROTEIN_RECORD_PREFIX};

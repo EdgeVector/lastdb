@@ -11,6 +11,7 @@ use super::keys::{member_backref_key, protein_record_key};
 use super::types::{Protein, ProteinMember};
 
 mod batch;
+pub(crate) use batch::LoadedProteinSiblingUpdate;
 mod field_identity;
 pub(crate) use field_identity::FieldProteinBinding;
 mod release;
