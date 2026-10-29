@@ -119,35 +119,19 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<BTreeMap<String, serde_json::Value>, SchemaError> {
-        let probe = Self::aggregate_probe(finalize.target_schema_name.clone(), target_key.clone());
         let mut summary_field_names = guard.metric_fields.clone();
         summary_field_names.push(AGGREGATE_VALID_FIELD.to_string());
         summary_field_names.push(AGGREGATE_GUARD_TOKEN_FIELD.to_string());
-        let status = match self
-            .read_current_row_fields(&probe, &summary_field_names, storage_prefix)
-            .await?
-        {
-            CurrentRowFields::Absent => {
-                return Err(SchemaError::InvalidData(
-                    "aggregate finalize summary is absent".into(),
-                ));
-            }
-            CurrentRowFields::Present(fields) => fields,
-            CurrentRowFields::Corrupt { field, atom_uuid } => {
-                self.invalidate_guard_targets_durable(
-                    &[guard],
-                    &format!("finalize-corrupt:{}", uuid::Uuid::new_v4()),
-                    "",
-                    storage_prefix,
-                    WriteOrigin::Replay,
-                )
-                .await?;
-                return Err(SchemaError::InvalidData(format!(
-                    "aggregate finalize found unresolved summary field '{field}' atom '{atom_uuid}'"
-                )));
-            }
-        };
-        Ok(status)
+        self.read_summary_fields(
+            finalize.target_schema_name.clone(),
+            target_key,
+            &summary_field_names,
+            guard,
+            storage_prefix,
+            "finalize",
+        )
+        .await?
+        .ok_or_else(|| SchemaError::InvalidData("aggregate finalize summary is absent".into()))
     }
 
     /// Write the `valid=1` marker mutation and return its durable receipt.

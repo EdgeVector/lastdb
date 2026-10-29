@@ -219,4 +219,38 @@ impl MutationManager {
             Ok(None)
         }
     }
+
+    /// Read summary fields for `kind`. `None` means the row is absent.
+    /// A corrupt field invalidates the guard, then returns the same refusal.
+    pub(super) async fn read_summary_fields(
+        &self,
+        schema_name: String,
+        target_key: &KeyValue,
+        field_names: &[String],
+        guard: &AggregateGuard,
+        storage_prefix: Option<&str>,
+        kind: &str,
+    ) -> Result<Option<BTreeMap<String, serde_json::Value>>, SchemaError> {
+        let probe = Self::aggregate_probe(schema_name, target_key.clone());
+        match self
+            .read_current_row_fields(&probe, field_names, storage_prefix)
+            .await?
+        {
+            CurrentRowFields::Absent => Ok(None),
+            CurrentRowFields::Present(fields) => Ok(Some(fields)),
+            CurrentRowFields::Corrupt { field, atom_uuid } => {
+                self.invalidate_guard_targets_durable(
+                    &[guard],
+                    &format!("{kind}-corrupt:{}", uuid::Uuid::new_v4()),
+                    "",
+                    storage_prefix,
+                    WriteOrigin::Replay,
+                )
+                .await?;
+                Err(SchemaError::InvalidData(format!(
+                    "aggregate {kind} found unresolved summary field '{field}' atom '{atom_uuid}'"
+                )))
+            }
+        }
+    }
 }
