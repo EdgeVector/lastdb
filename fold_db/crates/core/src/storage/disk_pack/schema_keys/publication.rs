@@ -164,7 +164,7 @@ impl PackRuntime {
         state.changes.clear();
         state.has_generation = None;
         state.reason = Some(reason.to_owned());
-        self.core
+        self.core()
             .lock()
             .expect("key publication detach")
             .detach_keys(entry.id.0.as_deref(), &entry.id.1);

@@ -27,7 +27,7 @@ impl PackRuntime {
         let Some(held) = open_current_selection(self, scope, molecule, key)? else {
             return Ok(false);
         };
-        let mut core = self.core.lock().map_err(|_| selection_lock_error())?;
+        let mut core = self.core().lock().map_err(|_| selection_lock_error())?;
         if !core.path_authorized(&held.path) {
             return Ok(false);
         }
@@ -83,7 +83,7 @@ impl PackRuntime {
             self.schema_keys.hits.fetch_add(1, Ordering::Relaxed);
             return Some(held.as_ref().clone());
         }
-        let lease = self.core.lock().ok()?.key_lease(scope, molecule)?;
+        let lease = self.core().lock().ok()?.key_lease(scope, molecule)?;
         let held = read_snapshot_insert(Some(Arc::clone(self)), tag, name, lease).ok()?;
         self.schema_keys.hits.fetch_add(1, Ordering::Relaxed);
         Some(held.as_ref().clone())
@@ -101,7 +101,7 @@ impl PackRuntime {
             return Ok(None);
         };
         let mut call = crate::read_receipts::lock(&held.context.call);
-        let mut core = self.core.lock().map_err(|_| selection_lock_error())?;
+        let mut core = self.core().lock().map_err(|_| selection_lock_error())?;
         if !core.path_authorized(&held.path) {
             return Ok(None);
         }

@@ -2,11 +2,13 @@
 use super::*;
 
 impl ReadContext {
-    pub(in crate::storage::disk_pack) fn preload_page(
+    /// `charge` is the caller's work charge. The page keeps it until it drops.
+    pub(in crate::storage::disk_pack) fn preload_page<C: std::any::Any + Send + Sync>(
         runtime: &Arc<PackRuntime>,
         base: &Arc<Self>,
-        charge: &Arc<crate::resident::core_keys::CoreKeyReservation>,
+        charge: &Arc<C>,
     ) -> StorageResult<PackReadScope> {
+        let charge: Arc<dyn std::any::Any + Send + Sync> = Arc::<C>::clone(charge);
         let call = runtime.physical_read(
             &base.current,
             super::physical::ReadMode::Ordinary(ReadBudget {
@@ -21,7 +23,7 @@ impl ReadContext {
                 call: Arc::new(Mutex::new(call)),
                 identity: base.identity,
                 failure: Arc::new(Mutex::new(None)),
-                core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
+                core_holds: runtime.memory.call_holds(),
                 accepted: base.accepted.clone(),
                 hidden_prefix: base.hidden_prefix,
                 snapshots: Arc::new(snapshots::ReadSnapshots::default()),
@@ -29,7 +31,7 @@ impl ReadContext {
                 current: base.current.clone(),
                 write_owner: None,
                 write_reads: None,
-                _preload_charge: Some(Arc::clone(charge)),
+                _preload_charge: Some(charge),
             }),
         })
     }

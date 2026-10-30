@@ -35,7 +35,7 @@ pub(crate) fn stage_core_memory<T: Any + Send + Sync>(
     let pending = current(runtime)?;
     let key = (owner, name.clone());
     let prepared = runtime
-        .core
+        .core()
         .lock()
         .expect("native typed definition preparation")
         .prepare_memory(owner, name, value, sources, bytes);

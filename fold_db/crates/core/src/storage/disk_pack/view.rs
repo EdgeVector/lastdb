@@ -2,35 +2,34 @@
 
 use super::*;
 
-/// A read-only operational boundary; this method never wakes a flush worker.
-#[derive(serde::Serialize)]
-pub struct NativeDiskStatus {
-    pub cleanup: NativeCleanupStatus,
-    pub generation: u64,
-    pub frontier: u64,
-    pub accepted_batch: bool,
-    pub accepted_batches: usize,
-    pub accepted_sequence: u64,
-    pub completed_sequence: u64,
-    pub writer_failed: bool,
-    pub cas_delete_recovery: Option<CasDeleteRecovery>,
-    pub warm_records: usize,
-    /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
-    pub warm_record_limit: usize,
-    pub core_warm_paths: usize,
-    pub core_warm_tip_only_paths: usize,
-    pub core_warm_molecules: usize,
-    pub core_warm_atoms: usize,
-    pub core_warm_held: usize,
-    pub core_warm_dirty: usize,
-    pub core_warm_hits: u64,
-    pub core_warm_misses: u64,
-    pub core_warm_purged: u64,
-    /// Warm set byte charge and the enforced clean-record retention limit.
-    pub core_warm_bytes: crate::resident::CoreWarmByteStats,
-    pub core_memory: crate::resident::CoreMemoryStats,
-    pub(crate) core_model: crate::resident::CoreModelStats,
-    pub schema_keys: schema_keys::SchemaKeyStatus,
+/// The database memory that a committed root publishes into. The store calls
+/// it at fixed points of a commit and a read. It does not own or read the
+/// records behind it; the database opens the store with its owner.
+pub trait MemoryPublication: Send + Sync {
+    /// Drop the memory records that depend on these changed coordinates.
+    /// The store calls this under the view write lock, so no capture sees a
+    /// new root until these raw records and their epochs agree with the
+    /// newly visible complete mutation.
+    fn invalidate(&self, changes: &[(String, String)]);
+
+    /// A new owner of one read call's memory holds. The read context keeps
+    /// it and drops it after its other fields.
+    fn call_holds(&self) -> Arc<dyn std::any::Any + Send + Sync>;
+
+    /// The database owner, for database code that reads its own memory.
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+/// The disk facts of one status read. The memory owner adds its own facts.
+pub(super) struct DiskStatus {
+    pub(super) cleanup: NativeCleanupStatus,
+    pub(super) generation: u64,
+    pub(super) frontier: u64,
+    pub(super) accepted_batches: usize,
+    pub(super) accepted_sequence: u64,
+    pub(super) completed_sequence: u64,
+    pub(super) writer_failed: bool,
+    pub(super) cas_delete_recovery: Option<CasDeleteRecovery>,
 }
 
 #[derive(Clone)]
@@ -81,7 +80,10 @@ impl PackRuntime {
         self.failed.load(Ordering::Acquire)
     }
 
-    pub fn status_native(&self) -> NativeDiskStatus {
+    /// Read the disk facts of one status read. `memory` reads the memory
+    /// owner's facts while the queue lock is held, and the view read lock when
+    /// it is free, so both sets of facts come from one status read.
+    pub(super) fn status_disk<M>(&self, memory: impl FnOnce() -> M) -> (DiskStatus, M) {
         let queue = self.queue.lock().expect("native accepted queue");
         // A status read must not wait behind an install, so it reports the
         // last installed root while the view lock is busy.
@@ -90,42 +92,19 @@ impl PackRuntime {
             || self.last_root.get(),
             |view| (view.current.generation(), view.current.frontier()),
         );
-        let accepted = queue.request_count();
-        let (core, core_bytes, core_memory, core_model) = {
-            let mut core = self.core.lock().expect("native core status");
-            (
-                core.stats(),
-                core.byte_stats(),
-                core.memory_stats(),
-                core.model_stats(),
-            )
-        };
-        NativeDiskStatus {
+        let accepted_batches = queue.request_count();
+        let facts = memory();
+        let disk = DiskStatus {
             cleanup: self.status_cleanup(),
             generation,
             frontier,
-            accepted_batch: accepted > 0,
-            accepted_batches: accepted,
+            accepted_batches,
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.requires_recovery(),
             cas_delete_recovery: self.physical.cas_delete_recovery,
-            warm_records: core.paths,
-            warm_record_limit: 0,
-            core_warm_paths: core.paths,
-            core_warm_tip_only_paths: core.tip_only_paths,
-            core_warm_molecules: core.molecules,
-            core_warm_atoms: core.atoms,
-            core_warm_held: core.held,
-            core_warm_dirty: core.dirty,
-            core_warm_hits: core.hits,
-            core_warm_misses: core.misses,
-            core_warm_purged: core.purged,
-            core_warm_bytes: core_bytes,
-            core_memory,
-            core_model,
-            schema_keys: self.schema_keys.status(),
-        }
+        };
+        (disk, facts)
     }
 
     /// The caller owns the write gate and complete physical/logical reservations.
@@ -144,7 +123,7 @@ impl PackRuntime {
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
             if requests.is_empty() {
-                self.invalidate_changed_records(hidden_changes);
+                self.memory.invalidate(hidden_changes);
             }
             laststore::commit_timing::during("memory_schema_keys_us", || {
                 self.publish_schema_key_changes(key_changes.iter().map(
@@ -157,7 +136,7 @@ impl PackRuntime {
             // Later raw effects invalidate an earlier request's clean cache
             // even when the later request uses the disk-only memory fallback.
             laststore::commit_timing::during("memory_invalidation_us", || {
-                self.invalidate_changed_records(&request.changed_coordinates());
+                self.memory.invalidate(&request.changed_coordinates());
             });
             if let Some(protection) = request
                 .path_protection
@@ -178,15 +157,6 @@ impl PackRuntime {
         // this install; take its root now, not at the next read.
         laststore::commit_timing::during("memory_merge_adoption_us", || self.adopt_merged_root());
         Ok(())
-    }
-
-    /// The view write lock excludes captures until these raw records and their
-    /// epochs agree with the newly visible complete mutation.
-    fn invalidate_changed_records(&self, changes: &[(String, String)]) {
-        logical_paths::controls::invalidate(
-            &mut self.core.lock().expect("core publication invalidation"),
-            changes,
-        );
     }
 }
 

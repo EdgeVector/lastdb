@@ -153,7 +153,11 @@ impl PackNamespacedStore {
     /// Create a new format v2 node home in `path` and open it. The home must
     /// be absent, empty, or a creation that stopped before its node marker;
     /// this creation replaces the partial run homes of a stopped creation.
-    pub fn create_run(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
+    pub fn create_run(
+        path: &Path,
+        node_key: &[u8; 32],
+        memory: Arc<dyn MemoryPublication>,
+    ) -> StorageResult<Self> {
         std::fs::create_dir_all(path)?;
         // The folder handle is the creation lock and the directory barrier.
         let folder = std::fs::File::open(path)?;
@@ -188,19 +192,24 @@ impl PackNamespacedStore {
             folder.sync_all()?;
         }
         // Keep the lock until the runtime holds the run home locks.
-        let store = Self::open_run(path, Some(node_key));
+        let store = Self::open_run(path, Some(node_key), memory);
         drop(folder);
         store
     }
 
-    pub(super) fn open_run(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
-        Self::open_run_with_merges(path, node_key, true)
+    pub(super) fn open_run(
+        path: &Path,
+        node_key: Option<&[u8; 32]>,
+        memory: Arc<dyn MemoryPublication>,
+    ) -> StorageResult<Self> {
+        Self::open_run_with_merges(path, node_key, true, memory)
     }
 
     pub(super) fn open_run_with_merges(
         path: &Path,
         node_key: Option<&[u8; 32]>,
         resume_merges: bool,
+        memory: Arc<dyn MemoryPublication>,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
         super::run_admission::admit(path, node_key)?;
@@ -221,7 +230,7 @@ impl PackNamespacedStore {
         let logical_capture = logical_capture::open(&v2, &policy, resume_merges)?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
-        let store = Self::assemble(v2, root, initializing, policy, logical_capture);
+        let store = Self::assemble(v2, root, initializing, policy, logical_capture, memory);
         if resume_merges {
             store.runtime.resume_merges();
         }

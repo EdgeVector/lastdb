@@ -16,7 +16,8 @@ pub(super) async fn run() -> Result<()> {
 }
 
 async fn seed(node: &Path, node_key: &[u8; 32]) -> Result<PackNamespacedStore> {
-    let store = PackNamespacedStore::create_run(node, node_key)?;
+    let store =
+        PackNamespacedStore::create_run(node, node_key, Arc::new(NativeWarmSet::default()))?;
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
     for name in [MAIN, CAS] {

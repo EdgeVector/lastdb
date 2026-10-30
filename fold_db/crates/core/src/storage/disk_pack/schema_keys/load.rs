@@ -32,7 +32,7 @@ impl PackRuntime {
             if let Some(domain) = state.domain.take() {
                 domain.retire("encoding_change").map_err(key_error)?;
             }
-            self.core
+            self.core()
                 .lock()
                 .expect("key encoding detach")
                 .detach_keys(entry.id.0.as_deref(), &entry.id.1);
@@ -120,7 +120,7 @@ impl PackRuntime {
             state.domain = Some(Arc::clone(&domain));
             state.reason = None;
         }
-        self.core
+        self.core()
             .lock()
             .expect("key load molecule")
             .attach_keys(Arc::clone(&domain));
@@ -258,7 +258,7 @@ impl PackRuntime {
             if let Some(domain) = state.domain.take() {
                 domain.retire("key_purge").map_err(key_error)?;
             }
-            self.core
+            self.core()
                 .lock()
                 .expect("key purge core")
                 .detach_keys(victim.id.0.as_deref(), &victim.id.1);
@@ -345,7 +345,7 @@ impl PackRuntime {
         // Preload is optional. Discard incomplete membership and let the
         // required disk read report its own I/O or decoding errors.
         let _ = domain.retire("load_refused");
-        self.core
+        self.core()
             .lock()
             .expect("key load detach")
             .detach_keys(entry.id.0.as_deref(), &entry.id.1);

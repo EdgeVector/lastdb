@@ -1,7 +1,7 @@
 //! Shared core definitions are reusable only at the captured logical boundary.
 
 use super::super::*;
-use crate::resident::{CoreMemorySource, CoreMemoryValue, CoreWarmSet};
+use crate::resident::{CoreMemorySource, CoreMemoryValue, CorePath, CoreWarmSet};
 use std::any::Any;
 
 impl PackRuntime {
@@ -19,6 +19,21 @@ impl super::ReadContext {
         self.validate_owner(Some(pending))?;
         let call = crate::read_receipts::lock(&self.call);
         self.require_room(&call, 0, 0)
+    }
+
+    /// Hold these paths for this call in the database's call hold owner.
+    pub(in crate::storage::disk_pack) fn hold_core(
+        &self,
+        core: &mut CoreWarmSet,
+        paths: &[CorePath],
+    ) -> StorageResult<()> {
+        let holds: &(dyn Any + Send + Sync) = &*self.core_holds;
+        holds
+            .downcast_ref::<super::core_holds::CoreCallHolds>()
+            .ok_or_else(|| {
+                StorageError::BackendError("native call holds belong to another memory".into())
+            })?
+            .hold(core, paths)
     }
 }
 
@@ -154,7 +169,7 @@ fn lock_current_core(
     if view.revision != revision {
         return Ok(None);
     }
-    let core = runtime.core.lock().map_err(|_| lock_error())?;
+    let core = runtime.core().lock().map_err(|_| lock_error())?;
     Ok(Some(CurrentCore { core, _view: view }))
 }
 
