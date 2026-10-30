@@ -169,18 +169,22 @@ impl RunSource {
         cas.reserve_metadata(retained).map_err(super::super::map)?;
         Ok((main, cas))
     }
+    /// Open the paired readers and keep the main reader. The cas reader closes first.
+    pub(super) fn read_main(&self) -> StorageResult<RunRead> {
+        let (main, cas) = self.reads(super::super::budget())?;
+        drop(cas);
+        Ok(main)
+    }
     pub fn logical_inclusion(
         &self,
         profile: &RunBackupProfile,
     ) -> StorageResult<SnapshotInclusion> {
-        let (mut main, cas) = self.reads(super::super::budget())?;
-        drop(cas);
+        let mut main = self.read_main()?;
         self.runtime.snapshot_inclusion(&mut main, profile)
     }
     pub fn verify_logical_inclusion(&self, expected: &SnapshotInclusion) -> StorageResult<()> {
         let profile = self.profile()?;
-        let (mut main, cas) = self.reads(super::super::budget())?;
-        drop(cas);
+        let mut main = self.read_main()?;
         super::super::logical_capture::verify_snapshot_inclusion(&mut main, &profile, expected)
     }
     pub fn snapshot_adoption_plan(
@@ -189,8 +193,7 @@ impl RunSource {
         candidate: &super::SnapshotAdoptionCandidate,
     ) -> StorageResult<super::SnapshotAdoptionPlan> {
         let profile = self.profile()?;
-        let (mut main, cas) = self.reads(super::super::budget())?;
-        drop(cas);
+        let mut main = self.read_main()?;
         super::super::logical_capture::snapshot_adoption_plan(&mut main, &profile, local, candidate)
     }
     fn retained_bytes(&self) -> u64 {
