@@ -95,6 +95,9 @@ impl FoldDB {
         let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
 
         Ok(Self {
+            app_schema_conversion_active: Arc::new(std::sync::atomic::AtomicBool::new(
+                super::app_schema_conversion::active(&db_ops).await?,
+            )),
             schema_manager,
             db_ops: Arc::clone(&db_ops),
             query_executor,

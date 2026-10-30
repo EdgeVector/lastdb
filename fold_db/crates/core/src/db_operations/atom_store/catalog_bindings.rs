@@ -29,6 +29,7 @@ impl AtomStore {
         schema: &Schema,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
+        self.require_catalog_conversion_unfrozen().await?;
         let edges = catalog_edges(db_locator, schema_name, schema);
         self.add_molecule_bindings(&edges, storage_prefix)
             .await
@@ -44,10 +45,31 @@ impl AtomStore {
         schema: &Schema,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
+        self.require_catalog_conversion_unfrozen().await?;
         let edges = catalog_edges(db_locator, schema_name, schema);
         self.remove_molecule_bindings(&edges, storage_prefix)
             .await
             .map(|_| ())
+    }
+
+    async fn require_catalog_conversion_unfrozen(&self) -> Result<(), SchemaError> {
+        use crate::fold_db_core::fold_db::app_schema_conversion::{authorized, ACTIVE, NAMESPACE};
+        if !authorized() {
+            if let Some(store) = &self.namespaced_store {
+                if store
+                    .open_namespace(NAMESPACE)
+                    .await?
+                    .get(ACTIVE)
+                    .await?
+                    .is_some()
+                {
+                    return Err(SchemaError::Blocked(
+                        "app schema conversion freezes database bindings".into(),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 

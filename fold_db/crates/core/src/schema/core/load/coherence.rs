@@ -16,6 +16,9 @@ impl SchemaCore {
         &self,
         schema_name: &str,
     ) -> Result<(), SchemaError> {
+        if crate::fold_db_core::fold_db::app_schema_conversion::active(&self.db_ops).await? {
+            return Ok(());
+        }
         let Some(loaded) = self.get_schema_metadata(schema_name)? else {
             return Ok(());
         };
