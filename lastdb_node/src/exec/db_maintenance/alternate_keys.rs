@@ -21,11 +21,14 @@ pub(in crate::exec) async fn execute_db_alternate_keys_route(
         .as_deref()
         .is_some_and(|action| action.starts_with("app_"))
     {
-        let Ok(request) = serde_json::from_slice::<
+        let Ok(mut request) = serde_json::from_slice::<
             fold_db::fold_db_core::fold_db::AppSchemaConversion,
         >(&req.body) else {
             return error_response(400, "invalid app schema conversion request", ctx);
         };
+        if let Err(error) = super::app_conversion_definitions::resolve(&mut request).await {
+            return error_response(409, &error, ctx);
+        }
         return match host.db.convert_app_schemas(request).await {
             Ok(report) => json_ok(&envelope(
                 &serde_json::json!({ "app_schema_conversion": report }),

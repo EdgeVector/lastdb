@@ -64,3 +64,20 @@ After publication, the owner resumes forward.
 
 This bounded converter refuses mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
 It does not change the primary on a machine.
+
+An explicit field transition also requires the `app_schema_field_mapping_v1` capability.
+Each kept schema supplies `target_definition_identity` and `field_map` together.
+The map names every source field and one distinct target field for each source field.
+Both source and target identities must be exact published identities.
+The host fetches the target definition from Schema Service before the maintenance freeze.
+The request cannot supply the target definition itself.
+
+The transition preserves the app owner, record type, runtime schema address, field types, primary key roles, and child schema references.
+Data classifications cannot weaken. The `secret` and `no_index` labels cannot disappear.
+Membership rules still use source field names. Named alternate keys use target field names.
+The copy preserves atom references, author clocks, and stored values.
+An ordinary independent source can use this explicit transition too.
+
+The durable conversion scope and every status reply retain the target identity and complete map.
+The app must preserve this scope across a restart and save the new definition identity before the finish action.
+Requests without these optional properties keep the original conversion contract.

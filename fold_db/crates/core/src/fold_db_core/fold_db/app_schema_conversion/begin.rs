@@ -133,7 +133,7 @@ async fn prepare(
                 "conversion source identity or availability differs",
             ));
         }
-        targets.push(target(db, source, request.alternate_keys, request.membership, id).await?);
+        targets.push(target(db, source, request, id).await?);
     }
     Ok(Prepared {
         targets,
@@ -145,11 +145,10 @@ async fn prepare(
 async fn target(
     db: &FoldDB,
     source: &Schema,
-    alternate_keys: BTreeMap<String, schema_types::AlternateKey>,
-    membership: Option<SchemaMembership>,
+    request: OwnedSchemaConversion,
     id: &str,
 ) -> Result<Target, SchemaError> {
-    if source.uses_independent_fields()
+    if (source.uses_independent_fields() && request.field_map.is_empty())
         || source
             .field_mappers
             .as_ref()
@@ -159,7 +158,7 @@ async fn target(
             .as_ref()
             .is_some_and(|fields| !fields.is_empty())
     {
-        return Err(invalid("conversion requires an ordinary legacy source; independent values and mapped authorities need a separate plan"));
+        return Err(invalid("conversion requires ordinary fields; an independent source also requires an explicit field transition"));
     }
     let mut source = source.clone_for_read_shared();
     source.populate_runtime_fields()?;
@@ -168,13 +167,13 @@ async fn target(
         return Err(invalid("conversion source exceeds 128 fields"));
     }
     source.ensure_field_hashes();
-    membership::validate(db, &source, membership.as_ref()).await?;
+    membership::validate(db, &source, request.membership.as_ref()).await?;
     let expected = counts(db, &source).await?;
-    let mut target = source.clone_for_read_shared();
+    let mut target = mapped_fields::definition(&source, &request)?;
     target.independent_fields = true;
-    target.alternate_keys = alternate_keys;
+    target.alternate_keys = request.alternate_keys;
     target.field_molecule_uuids = Some(
-        source
+        target
             .runtime_fields
             .keys()
             .map(|field| {
@@ -205,8 +204,10 @@ async fn target(
         observed,
         processed: 0,
         after: None,
-        membership,
+        membership: request.membership,
         selected: 0,
+        target_definition_identity: request.target_definition_identity,
+        field_map: request.field_map,
     })
 }
 
