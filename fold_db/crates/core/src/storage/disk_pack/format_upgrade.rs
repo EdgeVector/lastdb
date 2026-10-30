@@ -55,10 +55,11 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
     if std::fs::read(root.join(NODE_MARKER))? != bytes {
         return Err(invalid("node marker changed during activation"));
     }
-    if profile == 3 {
+    let previous_format = profile + 2;
+    if profile == 4 {
         return Ok(FormatUpgrade {
-            previous_format: 5,
-            current_format: 5,
+            previous_format,
+            current_format: 6,
             changed: false,
             encrypted_files_unchanged: true,
         });
@@ -69,7 +70,9 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
     Read::by_ref(&mut file)
         .take(129)
         .read_to_end(&mut previous)?;
-    if !run_admission::TYPED_NODE_BYTES.starts_with(&previous) {
+    if !run_admission::TYPED_NODE_BYTES.starts_with(&previous)
+        && !run_admission::FORMAT_FIVE_BYTES.starts_with(&previous)
+    {
         return Err(invalid("format activation has an unknown pending marker"));
     }
     file.set_len(0)?;
@@ -79,8 +82,8 @@ pub fn enable_alternate_keys(root: &Path, key: &[u8; 32]) -> StorageResult<Forma
     std::fs::rename(&pending, root.join(NODE_MARKER))?;
     folder.sync_all()?;
     Ok(FormatUpgrade {
-        previous_format: 4,
-        current_format: 5,
+        previous_format,
+        current_format: 6,
         changed: true,
         encrypted_files_unchanged: true,
     })
@@ -116,13 +119,16 @@ fn marker_file(path: &Path, create: bool) -> StorageResult<File> {
 }
 
 impl PackRuntime {
-    pub(crate) fn require_alternate_format(&self) -> StorageResult<()> {
+    pub(crate) fn require_alternate_format(&self, compound: bool) -> StorageResult<()> {
         let root = self
             .physical
             .path()
             .parent()
             .ok_or_else(|| invalid("native node parent is absent"))?;
-        if std::fs::read(root.join(NODE_MARKER))? != run_admission::TYPED_NODE_BYTES {
+        let bytes = std::fs::read(root.join(NODE_MARKER))?;
+        if bytes != run_admission::TYPED_NODE_BYTES
+            && (compound || bytes != run_admission::FORMAT_FIVE_BYTES)
+        {
             return Err(invalid("stop this node and run lastdb db enable-alternate-keys before alternate declarations"));
         }
         Ok(())

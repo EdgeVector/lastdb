@@ -15,8 +15,15 @@ pub(crate) fn is_false(value: &bool) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AlternateKey {
+    #[serde(default)]
     pub hash_field: String,
     pub range_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash_literal: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub range_parts: Vec<crate::alternate_parts::RangePart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_separator: Option<String>,
     #[serde(default)]
     pub missing: MissingAlternateKey,
 }
@@ -31,7 +38,24 @@ pub enum MissingAlternateKey {
 
 impl AlternateKey {
     pub fn fields(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.hash_field.as_str()).chain(self.range_field.as_deref())
+        (!self.hash_field.is_empty())
+            .then_some(self.hash_field.as_str())
+            .into_iter()
+            .chain(self.range_field.as_deref())
+            .chain(self.range_parts.iter().map(|part| part.field.as_str()))
+    }
+
+    pub fn range_type(
+        &self,
+        schema: &DeclarativeSchemaDefinition,
+    ) -> Option<crate::FieldValueType> {
+        if self.range_parts.is_empty() {
+            self.range_field
+                .as_deref()
+                .map(|field| schema.key_field_type(field))
+        } else {
+            Some(crate::FieldValueType::String)
+        }
     }
 }
 
@@ -48,15 +72,18 @@ impl DeclarativeSchemaDefinition {
         if self.alternate_keys.len() > MAX_ALTERNATE_KEYS {
             return Err("a schema permits at most 16 alternate keys".into());
         }
-        if self.schema_type != DeclarativeSchemaType::Hash
-            || self.field_mappers.as_ref().is_some_and(|m| !m.is_empty())
+        if !matches!(
+            self.schema_type,
+            DeclarativeSchemaType::Hash | DeclarativeSchemaType::HashRange
+        ) || self.field_mappers.as_ref().is_some_and(|m| !m.is_empty())
             || self
                 .transform_fields
                 .as_ref()
                 .is_some_and(|m| !m.is_empty())
         {
             return Err(
-                "alternate keys require an ordinary Hash schema without field mappers".into(),
+                "independent values require a Hash or HashRange schema without field mappers"
+                    .into(),
             );
         }
         let primary = self
@@ -68,11 +95,15 @@ impl DeclarativeSchemaDefinition {
         if !fields.iter().any(|name| name == primary) {
             return Err("the primary key must name a declared field".into());
         }
+        if self.schema_type == DeclarativeSchemaType::HashRange && !self.alternate_keys.is_empty() {
+            return Err("alternate keys currently require a Hash primary key".into());
+        }
         for (name, key) in &self.alternate_keys {
             Self::validate_field_name(name)?;
             if name == "primary" {
                 return Err("primary is reserved as an alternate key name".into());
             }
+            crate::alternate_parts::validate(key, self)?;
             if !key.fields().any(|field| field == primary) {
                 return Err("each alternate key must include the primary key field".into());
             }

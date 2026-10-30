@@ -151,7 +151,7 @@ fn read_source(
     marker
         .try_lock()
         .map_err(|_| invalid("snapshot identity source is owned"))?;
-    if !matches!(files::profile_version(root)?, Some(2 | 3)) {
+    if !matches!(files::profile_version(root)?, Some(2 | 3 | 4)) {
         return Err(invalid("snapshot identity source format differs"));
     }
     let bindings = source_bindings(root)?;

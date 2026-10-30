@@ -273,10 +273,7 @@ pub(crate) fn schema_molecule_profiles(
         })
         .collect();
     for (name, key) in &schema.alternate_keys {
-        let field_type = key
-            .range_field
-            .as_deref()
-            .map(|field| schema.key_field_type(field));
+        let field_type = key.range_type(&schema_types::DeclarativeSchemaDefinition::from(schema));
         let profile = MoleculeRangeProfile::for_field_type(field_type.as_ref())
             .map_err(StorageError::InvalidOperation)?;
         result.push((crate::alternate_keys::molecule(schema, name), profile));

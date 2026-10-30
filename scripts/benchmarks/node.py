@@ -15,7 +15,8 @@ from disk_usage import usage
 
 
 # Exact v2 markers: this spike creates fenced format 5 homes; baseline programs create format 4 homes.
-RUN_NODE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+RUN_NODE_MARKER = "format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
+FORMAT_FIVE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 BASELINE_NODE_MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 
 
@@ -183,7 +184,7 @@ class Node:
     def disk_format(self):
         """2 for a v2 run home, 1 for any other marker; the marker exists after the first start."""
         marker = (self.home / "data" / "laststore-pack-node-v1").read_text()
-        return 2 if marker in (RUN_NODE_MARKER, BASELINE_NODE_MARKER) else 1
+        return 2 if marker in (RUN_NODE_MARKER, FORMAT_FIVE_MARKER, BASELINE_NODE_MARKER) else 1
 
     def disk_bytes(self):
         return self.disk_usage()["logical_bytes"]

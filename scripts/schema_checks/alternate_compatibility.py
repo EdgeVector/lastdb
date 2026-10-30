@@ -19,6 +19,7 @@ from alternate_app_declare import app_declare
 
 FOUR = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 FIVE = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+SIX = "format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
 
 
 def native_files(home):
@@ -63,7 +64,9 @@ def legacy_home(args, output):
     result = {}
     try:
         node.start()
-        require((node.home / "data/laststore-pack-node-v1").read_text() == FOUR, "baseline did not create format 4")
+        marker = (node.home / "data/laststore-pack-node-v1").read_text()
+        require(marker in (FOUR, FIVE), "baseline did not create an older supported format")
+        previous_format = 4 if marker == FOUR else 5
         declare(node, False)
         install(node, schema("ExistingTask", "existing compatibility", fields=FIELDS))
         for offset in range(0, 192, 32):
@@ -76,11 +79,13 @@ def legacy_home(args, output):
         node.binary, node.revision = args.candidate, args.candidate_revision
         node.start()
         require(primary_rows(node, "ExistingTask", model) == before, "format 4 open changed fields or atom metadata")
-        refused(lambda: install(node, task_definition("NeedsUpgrade")), "enable-alternate-keys")
+        needs_upgrade = task_definition("NeedsUpgrade")
+        needs_upgrade["alternate_keys"]["all"] = {"hash_literal": "all", "range_field": "record_id"}
+        refused(lambda: install(node, needs_upgrade), "enable-alternate-keys")
         node.stop()
         original = native_files(node.home)
         result["activation"] = cli(args, node)
-        require(result["activation"] == {"previous_format": 4, "current_format": 5, "changed": True,
+        require(result["activation"] == {"previous_format": previous_format, "current_format": 6, "changed": True,
                                          "encrypted_files_unchanged": True}, "offline activation receipt differs")
         require(native_files(node.home) == original, "format activation changed an encrypted native file")
         result["repeat_activation"] = cli(args, node)
@@ -88,7 +93,7 @@ def legacy_home(args, output):
         refuse_old_writer(args, node, output)
         require(native_files(node.home) == original, "refused older writer changed native data")
         node.start()
-        require((node.home / "data/laststore-pack-node-v1").read_text() == FIVE, "activation lacks the format 5 fence")
+        require((node.home / "data/laststore-pack-node-v1").read_text() == SIX, "activation lacks the format 6 fence")
         require(primary_rows(node, "ExistingTask", model) == before, "activation changed stored fields or atom metadata")
         check_rows(node.call("/api/query", query(False, "by_group", {"HashKey": "g0"}))[0],
                    {f"t{i:04}": values(f"t{i:04}") for i in range(256)})
@@ -134,7 +139,7 @@ def main():
     text = ("## Alternate-key compatibility\n\n"
             f"Sources: `{args.baseline_revision}` → `{args.candidate_revision}`.\n\n"
             "Existing format 4 data opens unchanged. Explicit format activation preserves native file hashes.\n"
-            "The older writer refuses the enabled format 5 home. Legacy protein reads and writes remain valid.\n"
+            "The older writer refuses the enabled format 6 home. Legacy protein reads and writes remain valid.\n"
             "Declaration backfill resumes after reopen; early publication and blocked writes receive errors.\n"
             "Primary values, atom identities, and metadata survive activation. Counts and named key lists match.\n"
             "Changes retire old entries; abort restores the old schema. Field reuse stays separate after removal.\n"

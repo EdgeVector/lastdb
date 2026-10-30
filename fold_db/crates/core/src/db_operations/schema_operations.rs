@@ -63,7 +63,12 @@ impl DbOperations {
     ) -> Result<(), SchemaError> {
         if schema.uses_independent_fields() {
             if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
-                runtime.require_alternate_format()?;
+                let compound = schema.schema_type == crate::schema::types::SchemaType::HashRange
+                    || schema
+                        .alternate_keys
+                        .values()
+                        .any(|key| key.hash_literal.is_some() || !key.range_parts.is_empty());
+                runtime.require_alternate_format(compound)?;
             }
         }
         schema

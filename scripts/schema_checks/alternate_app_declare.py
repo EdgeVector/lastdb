@@ -10,6 +10,7 @@ import time
 from node_ops import ENVIRONMENT, metadata, molecule, protein, require, write
 from node import Node, save
 from ci_publisher import CiPublisher
+from compound_keys import compound_declarations
 
 
 def app_declare(args, output):
@@ -48,6 +49,7 @@ def app_declare(args, output):
                     temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
         node.start()
         result = declarations(node, publisher, port)
+        result["compound_keys"] = compound_declarations(node, publisher, port)
         save(output / "result.json", result)
         return result
     finally:

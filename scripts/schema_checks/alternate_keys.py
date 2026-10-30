@@ -33,7 +33,7 @@ def expect_refusal(operation, status=400):
 
 def alternate_key_lifecycle(node):
     marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-    require(marker == "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n",
+    require(marker == "format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n",
             "alternate home lacks its older-writer refusal fence")
     name = install(node, task_definition())
     require(protein(node, molecule(node, name)) is None, "alternate fields joined a protein")
