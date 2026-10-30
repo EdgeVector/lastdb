@@ -2,6 +2,7 @@
 
 import time
 
+from automatic_source import durable_batch
 from support import OperationError, require
 
 
@@ -40,8 +41,7 @@ class Lifecycle:
             "fields_and_values": {"bucket": "lifecycle", "id": key,
                                   "note": "shared immutable lifecycle value", "file": self.pointer}}
             for key in keys]
-        reply = self.source.node.call("/api/mutations/batch", {"mutations": mutations})
-        require(len(reply["mutation_ids"]) == len(keys), "lifecycle_writes_acknowledged")
+        durable_batch(self.source.node, mutations)
 
     def replies(self, node):
         keys = [*self.expired, self.live]

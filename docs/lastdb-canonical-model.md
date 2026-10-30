@@ -297,6 +297,9 @@ An internal file change clears affected core records before a later call can use
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
 The obsolete `LASTDB_RESIDENT_PERSIST_MS` setting has no effect, including at startup.
+There is no periodic mutation flusher or delayed durability mode.
+`LASTDB_MUTATION_SYNC_FLUSH` and `LASTDB_BACKGROUND_FLUSH_MS` also have no effect.
+Explicit flush and the final shutdown barrier remain.
 The warm byte budget, definition allowance, selected-key allowance, and write allowance cover separate owners.
 They do not define one whole-process memory cap.
 Native writes publish clean records after disk commit. They create no dirty warm-record state.

@@ -34,6 +34,7 @@ mod writer;
 pub use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
 pub use range::RunRange;
 pub use reader::RunReader;
+pub(crate) use writer::PreparedRun;
 pub use writer::{RunSummary, RunWriter};
 
 /// Native schema writers maintain runtime record-R reverse edges.

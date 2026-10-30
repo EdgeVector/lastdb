@@ -13,7 +13,7 @@ import re
 import stat
 
 from support import dev_endpoint, require, read_json, hash_file
-from restore_log import verified as verified_log_routes
+from restore_log import position, verified as verified_log_routes
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
@@ -137,9 +137,31 @@ def inventory(home, root):
     return sorted(files, key=lambda item: item["path"])
 
 
+def verified_prefixes(root, replay, accepted, observe):
+    read = lambda path: read_json(owned(root, path))
+    chain_names = names(owned(root, "chain/plan.json").parent)
+    routes = verified_log_routes(read, chain_names, replay, accepted, observe)
+    if "prefixes" not in replay:
+        return routes
+    stages = ("created", "updated_and_deleted", "both_deleted")
+    values = replay["prefixes"]
+    require(isinstance(values, dict) and set(values) == set(stages), "three_restored_mutation_prefixes")
+    ordered = [position(values[name]) for name in stages]
+    require(ordered[0]["epoch"] == ordered[1]["epoch"] == ordered[2]["epoch"]
+            and ordered[0]["sequence"] < ordered[1]["sequence"] < ordered[2]["sequence"]
+            and ordered[-1] == replay["minimum"], "ordered_restored_mutation_prefixes")
+    proofs = {}
+    for name, minimum in zip(stages, ordered):
+        proof = verified_log_routes(read, chain_names, {"base": replay["base"], "minimum": minimum},
+                                    accepted, observe)
+        require(proof == routes, "same_complete_selected_chain_for_every_prefix")
+        proofs[name] = {"sequence": minimum["sequence"], "sha256": minimum["sha256"],
+                        "written_prefix_verified": proof["written_prefix_verified"]}
+    return {**routes, "written_prefixes": proofs}
+
+
 def replayed_inventory(home, root, replay, accepted, observe):
-    routes = verified_log_routes(lambda path: read_json(owned(root, path)),
-                                 names(owned(root, "chain/plan.json").parent), replay, accepted, observe)
+    routes = verified_prefixes(root, replay, accepted, observe)
     paths = ["laststore-pack-node-v1"]
     for name in ("disk-run", "disk-cas"):
         paths.extend(name + "/" + control for control in ("CURRENT", "laststore-run-home-v2"))

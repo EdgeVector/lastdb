@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 
 from node import OwnedNode
 from automatic import Automatic
+from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
 from ownership import run_identity
 from programs import Programs
@@ -157,18 +158,22 @@ class Operation:
         finally:
             del phrase
             self.api_key = None
-            (credentials / "cloud_sync.json.paused").unlink()
         self.summary.update(result="passed", restored_boots=2, strict_clean_stops=2,
                             keyed_reads=boots, file_bytes=self.baseline["file_bytes"],
                             file_sha256=self.baseline["file_sha256"])
 
     def cleanup(self):
-        if self.node is not None and self.node.process is not None:
-            try:
-                self.node.stop()
-            except BaseException:
-                self.preserve = True
-                self.node.cleanup_stop()
+        try:
+            if self.node is not None and self.node.process is not None:
+                try:
+                    self.node.stop()
+                except BaseException:
+                    self.preserve = True
+                    self.node.cleanup_stop()
+        finally:
+            # The outer cleanup covers failures before Automatic.run(), too.
+            # Retaining uncertain native data must never retain its API key.
+            clear_credentials(self)
         if self.root is None:
             return
         info = private_directory(self.root)
@@ -200,7 +205,7 @@ class Operation:
 
 def cleanup_observation(summary):
     terminal = summary.get("retirement", {})
-    quota = summary.get("ci_quota", {})
+    quota = summary.get("ci_quota", summary.get("ci_cleanup_headroom", {}))
     # These fields already passed the status/usage validators. Never copy a
     # raw service reply, input, archive, recovery recipe or provider grant.
     return {"retirement": {name: terminal.get(name) for name in (
@@ -208,7 +213,9 @@ def cleanup_observation(summary):
                 "protected_allocations", "protected_uncertain_bytes", "released_bytes")},
             "quota": {name: quota.get(name) for name in (
                 "quota_bytes", "reserved_bytes", "retained_bytes", "available_bytes", "minimum_bytes")},
-            "terminal_repeat_checked": summary.get("terminal_repeat_checked")}
+            "terminal_repeat_checked": summary.get("terminal_repeat_checked"),
+            "diagnostics": summary.get("retirement_diagnostics", {"state_observed": False}),
+            "backup_service_requests": summary.get("backup_service_requests")}
 
 
 def step_summary(summary):

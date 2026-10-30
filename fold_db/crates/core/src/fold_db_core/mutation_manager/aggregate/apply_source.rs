@@ -28,6 +28,13 @@ struct ApplyCtx<'a> {
     guard_pending_key: String,
 }
 
+/// Drop the aggregate plan and wait for the source write.
+fn prepare_aggregate_source(mut source: Mutation) -> Mutation {
+    source.aggregate_set = None;
+    source.synchronous = Some(true);
+    source
+}
+
 impl MutationManager {
     /// Apply one already-signed source and reconstruct its local member/summary.
     pub(in crate::fold_db_core::mutation_manager) async fn apply_aggregate_source(
@@ -66,13 +73,12 @@ impl MutationManager {
 
     async fn apply_guarded_source(
         &self,
-        mut source: Mutation,
+        source: Mutation,
         ctx: &ApplyCtx<'_>,
         gs: GuardState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let expected = &ctx.expected_guard;
-        let migration_winner =
-            gs.source_conflict(expected).is_some() || gs.target_conflict(expected).is_some();
+        let migration_winner = gs.has_association_conflict(expected);
         rules::reject_request_migration(ctx.origin, migration_winner)?;
         if gs.loses_replay_conflict(expected) {
             return self.apply_losing_replay(source, ctx, &gs).await;
@@ -135,8 +141,7 @@ impl MutationManager {
             self.put_provisional_guards(ctx, &gs, &plan).await?;
         }
 
-        source.aggregate_set = None;
-        source.synchronous = Some(true);
+        let source = prepare_aggregate_source(source);
         let (data_mutations, derived_clock) =
             self.build_data_mutations(source, ctx, &incoming, apply, &summary.guard_token)?;
         let data_receipt = self

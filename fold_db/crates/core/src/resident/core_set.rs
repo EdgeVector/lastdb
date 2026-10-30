@@ -6,7 +6,7 @@
 //! There is no second molecule copy (measured 2026-10-20: the copy cost about
 //! 2.5 KB of each 7 KB small record, in text-keyed maps and key copies).
 
-use crate::atom::{Atom, AtomEntry, KeyMetadata, MoleculeHashRange};
+use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
@@ -27,7 +27,7 @@ pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
 pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
-pub(crate) use model::{CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate};
+pub(crate) use model::{CoreModelChange, CoreModelStats, CoreModelUpdate};
 
 /// Stable identity of one used field path. Its current atom is not its key.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

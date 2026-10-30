@@ -16,7 +16,6 @@ pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
 pub mod molecule_drain;
-pub mod mutation_flush;
 pub mod orchestration;
 pub mod pending_task_tracker;
 pub mod protein_reaper;
@@ -34,10 +33,6 @@ pub use conflict_janitor_policy::{
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
 pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
-pub use mutation_flush::{
-    BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV, DEFAULT_BACKGROUND_FLUSH_MS,
-    MUTATION_SYNC_FLUSH_ENV,
-};
 pub use mutation_manager::{MutationManager, PurgeStats};
 pub use protein_reaper::{
     BackgroundProteinReaperTask, ProteinReaperPolicy, DEFAULT_PROTEIN_REAPER_MS,

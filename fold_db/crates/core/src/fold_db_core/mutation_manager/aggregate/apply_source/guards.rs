@@ -176,7 +176,7 @@ impl MutationManager {
     /// partition, and only while that reverse owner is current.
     pub(super) async fn apply_losing_replay(
         &self,
-        mut source: Mutation,
+        source: Mutation,
         ctx: &ApplyCtx<'_>,
         gs: &GuardState,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
@@ -205,8 +205,7 @@ impl MutationManager {
             ctx.origin,
         )
         .await?;
-        source.aggregate_set = None;
-        source.synchronous = Some(true);
+        let source = super::prepare_aggregate_source(source);
         let receipt = self
             .write_mutations_batch_inner(vec![source], prefix, ctx.origin)
             .await?;

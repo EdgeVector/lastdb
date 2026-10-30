@@ -15,6 +15,7 @@ from ownership import run_identity
 from ownership_history import History
 from recover import Operation
 from retirement import Retirement
+from retirement_observation import Observation
 from support import OperationError, require
 
 
@@ -42,7 +43,7 @@ class Preflight(Operation):
             capabilities = control.context(require_open=False, startup=True)
             require(capabilities.get("retirement") is True and capabilities.get("headroom") is True,
                     "ci_retirement_capabilities")
-            retirement = Retirement(control, self.baseline)
+            retirement = Retirement(control, self.baseline, observe=Observation(self.summary))
             active = retirement.pending()
             if active is not None:
                 resumed = retirement.finish(active=active)
@@ -80,6 +81,7 @@ class Preflight(Operation):
             self.summary["backup_service_requests"] = control.calls
             self.summary["result"] = "passed"
         finally:
+            self.summary["backup_service_requests"] = control.calls
             del phrase
             control.close()
             self.api_key = None

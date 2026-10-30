@@ -5,6 +5,12 @@ on:
     paths:
       - 'scripts/benchmarks/controlled_writers.py'
       - '.github/workflows/controlled-writers.yml'
+      - 'vendor/laststore/src/disk_run/writer.rs'
+      - 'vendor/laststore/src/disk_run/writer/**'
+      - 'vendor/laststore/src/disk_run/home/commit.rs'
+      - 'vendor/laststore/src/disk_run/home/parallel_publication.rs'
+      - 'vendor/laststore/src/disk_run/home/publication.rs'
+      - 'vendor/laststore/src/commit_timing.rs'
   workflow_dispatch:
     inputs:
       baseline:
@@ -25,22 +31,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      baseline: ${{ steps.plan.outputs.baseline }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      driver: ${{ steps.plan.outputs.driver }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select the actual merge parent and candidate
+        id: plan
+        env:
+          BASE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.candidate || github.sha }}
+        run: python3 scripts/benchmarks/plan.py --always --output "$RUNNER_TEMP/writer-plan.json"
+
   build:
+    needs: plan
     uses: ./.github/workflows/bench-build.yml
     with:
-      baseline: ${{ inputs.baseline || github.event.pull_request.base.sha }}
-      candidate: ${{ inputs.candidate || github.event.pull_request.head.sha }}
-      driver: ${{ github.sha }}
+      baseline: ${{ needs.plan.outputs.baseline }}
+      candidate: ${{ needs.plan.outputs.candidate }}
+      driver: ${{ needs.plan.outputs.driver }}
       profile: standard
 
   compare:
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      BASELINE_SHA: ${{ inputs.baseline || github.event.pull_request.base.sha }}
-      CANDIDATE_SHA: ${{ inputs.candidate || github.event.pull_request.head.sha }}
-      DRIVER_SHA: ${{ github.sha }}
+      BASELINE_SHA: ${{ needs.plan.outputs.baseline }}
+      CANDIDATE_SHA: ${{ needs.plan.outputs.candidate }}
+      DRIVER_SHA: ${{ needs.plan.outputs.driver }}
       BUILD_CONTEXT: ${{ needs.build.outputs.context }}
       BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
     steps:

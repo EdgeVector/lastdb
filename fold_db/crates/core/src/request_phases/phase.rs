@@ -332,7 +332,7 @@ pub enum RequestPhase {
     PersistSchema,
     /// Mutation: storing the idempotency record for the applied batch.
     PersistIdempotency,
-    /// Store flush (near zero unless `LASTDB_MUTATION_SYNC_FLUSH=1`).
+    /// Explicit store durability barrier; native commits report their own phases.
     Flush,
     /// The handler's bounded wait for background index tasks.
     IndexWait,
