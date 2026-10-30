@@ -71,49 +71,18 @@ pub fn parse_db_locator(raw: &str) -> Result<DbLocator, String> {
     // bare org/db shorthand: edgevector/state-machine or edgevector
     if !s.starts_with("lastdb://") {
         let parts: Vec<&str> = s.split('/').filter(|p| !p.is_empty()).collect();
-        return match parts.as_slice() {
-            [org] => {
-                assert_slug(org, "org slug")?;
-                Ok(DbLocator::Org {
-                    org_slug: org.to_ascii_lowercase(),
-                    db_slug: None,
-                })
-            }
-            [org, db] => {
-                assert_slug(org, "org slug")?;
-                assert_slug(db, "db slug")?;
-                Ok(DbLocator::Org {
-                    org_slug: org.to_ascii_lowercase(),
-                    db_slug: Some(db.to_ascii_lowercase()),
-                })
-            }
-            _ => Err(format!(
+        return org_locator(
+            &parts,
+            format!(
                 "invalid DB locator: {raw:?} (use lastdb://personal or lastdb://org/<slug>[/<db>])"
-            )),
-        };
+            ),
+        );
     }
 
     // lastdb://org/<org>[/<db>]
     if let Some(rest) = s.strip_prefix("lastdb://org/") {
         let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
-        return match parts.as_slice() {
-            [org] => {
-                assert_slug(org, "org slug")?;
-                Ok(DbLocator::Org {
-                    org_slug: org.to_ascii_lowercase(),
-                    db_slug: None,
-                })
-            }
-            [org, db] => {
-                assert_slug(org, "org slug")?;
-                assert_slug(db, "db slug")?;
-                Ok(DbLocator::Org {
-                    org_slug: org.to_ascii_lowercase(),
-                    db_slug: Some(db.to_ascii_lowercase()),
-                })
-            }
-            _ => Err(format!("invalid org DB locator: {raw:?}")),
-        };
+        return org_locator(&parts, format!("invalid org DB locator: {raw:?}"));
     }
 
     Err(format!(
@@ -142,6 +111,27 @@ pub fn resolve_db_handle_header(raw: Option<&str>) -> Result<(String, Option<Str
     let canonical = locator.canonical();
     let prefix = storage_prefix_for(&locator);
     Ok((canonical, prefix))
+}
+
+fn org_locator(parts: &[&str], invalid: String) -> Result<DbLocator, String> {
+    match parts {
+        [org] => {
+            assert_slug(org, "org slug")?;
+            Ok(DbLocator::Org {
+                org_slug: org.to_ascii_lowercase(),
+                db_slug: None,
+            })
+        }
+        [org, db] => {
+            assert_slug(org, "org slug")?;
+            assert_slug(db, "db slug")?;
+            Ok(DbLocator::Org {
+                org_slug: org.to_ascii_lowercase(),
+                db_slug: Some(db.to_ascii_lowercase()),
+            })
+        }
+        _ => Err(invalid),
+    }
 }
 
 fn parse_db_hash(raw: &str) -> Result<String, String> {
