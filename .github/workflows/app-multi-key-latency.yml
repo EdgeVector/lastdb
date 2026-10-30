@@ -26,7 +26,7 @@ jobs:
       # daemons read this one value, so they always name the same registry.
       ENVIRONMENT: dev
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      BASELINE_SHA: 084dfe803afaf956e225a593f77dc4388afd7f93
+      BASELINE_SHA: c81caa6f5a98e1fbf19027cb726f2866481fa61c
     steps:
       - uses: actions/checkout@v5
         with:
