@@ -35,12 +35,15 @@ pub(super) fn admit(
     let path = binding
         .path(scope, molecule, key, &selected.entry.atom_uuid)
         .core();
-    let view = runtime.view.read().expect("tip admission captured view");
-    if view.revision != context.revision {
+    let Some(mut held) = super::lock_current_model(
+        &runtime,
+        &context,
+        "tip admission captured view",
+        "tip admission core model",
+    ) else {
         return Ok(());
-    }
-    let mut core = runtime.core.lock().expect("tip admission core model");
-    let Ok(preserved) = core.admit_tip(
+    };
+    let Ok(preserved) = held.core.admit_tip(
         &path,
         CoreWarmTip {
             entry: selected.entry.clone(),
@@ -50,7 +53,10 @@ pub(super) fn admit(
         return Ok(());
     };
     let body = if preserved {
-        body_sources(core.source_coordinates(&path), &selected.entry.atom_uuid)?
+        body_sources(
+            held.core.source_coordinates(&path),
+            &selected.entry.atom_uuid,
+        )?
     } else {
         let expected = crate::schema::types::field::build_storage_key(
             scope,
@@ -63,13 +69,13 @@ pub(super) fn admit(
     }
     let mut sources = sources.clone();
     sources.extend(body);
-    if !core.replace_sources(&path, &sources) {
+    if !held.core.replace_sources(&path, &sources) {
         if !preserved {
-            core.invalidate_slot(&path);
+            held.core.invalidate_slot(&path);
         }
         return Ok(());
     }
-    core.authorize_path(&path);
+    held.core.authorize_path(&path);
     Ok(())
 }
 
