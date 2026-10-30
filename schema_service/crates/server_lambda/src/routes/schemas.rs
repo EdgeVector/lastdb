@@ -215,6 +215,7 @@ pub(crate) async fn post_schemas(
 
     // Every new registration requires an Exemem developer account and the
     // registered app owner, including local claims and un-namespaced proposals.
+    // A DEV deployment with SCHEMA_OPEN_REGISTRATION skips the account check.
     // Exact public reposts above remain reads and create no definitions.
     if let Err(e) = state
         .authorize_schema_claim(

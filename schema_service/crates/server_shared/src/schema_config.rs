@@ -71,6 +71,8 @@ fn app_identity_from_env() -> AppIdentityConfig {
         verifier_pubkey: std::env::var("APP_REGISTRY_VERIFIER_PUBKEY")
             .ok()
             .and_then(|raw| parse_verifier_pubkey(&raw)),
+        // DEV only. `AppIdentityConfig::registration_is_open` ignores it in PROD.
+        open_registration: var_truthy("SCHEMA_OPEN_REGISTRATION"),
     }
 }
 

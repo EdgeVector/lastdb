@@ -29,6 +29,11 @@
 //! registered app's owner. Local claims have no exemption. A public exact
 //! repost creates no definitions and may return before the account gate.
 //!
+//! DEV exception (Tom, 2026-10-30): a DEV deployment with
+//! `SCHEMA_OPEN_REGISTRATION=true` accepts new registrations without a
+//! developer account. PROD ignores the flag and keeps the gate. Proof of
+//! work, quotas and the vocabulary policy still apply in DEV.
+//!
 //! Cert verification requires the exemem root public key baked into
 //! config (`APP_IDENTITY_ROOT_PUBKEYS`). When **no** trusted roots are
 //! configured, new registrations fail loudly with
@@ -83,6 +88,9 @@ pub struct AppIdentityConfig {
     /// on `POST /v2/releases/{release_id}/compat`. Set from
     /// `APP_REGISTRY_VERIFIER_PUBKEY` env var.
     pub verifier_pubkey: Option<String>,
+    /// Requested DEV open registration (`SCHEMA_OPEN_REGISTRATION`). Read it
+    /// through [`Self::registration_is_open`], which refuses it in PROD.
+    pub open_registration: bool,
 }
 
 impl Default for AppIdentityConfig {
@@ -92,6 +100,7 @@ impl Default for AppIdentityConfig {
             trusted_roots: HashMap::new(),
             revoked_dev_pubkeys: HashSet::new(),
             verifier_pubkey: None,
+            open_registration: false,
         }
     }
 }
@@ -101,6 +110,13 @@ impl AppIdentityConfig {
     /// configured). See module docs.
     pub fn is_active(&self) -> bool {
         !self.trusted_roots.is_empty()
+    }
+
+    /// Whether new schema and field registrations skip the developer-account
+    /// gate. Only a DEV deployment opens registration. PROD keeps the gate
+    /// even when the flag is set, so a copied DEV config cannot open PROD.
+    pub fn registration_is_open(&self) -> bool {
+        self.open_registration && self.deployment_env == Env::Dev
     }
 }
 
