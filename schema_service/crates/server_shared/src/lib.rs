@@ -23,7 +23,7 @@ pub mod fastembed_adapter;
 #[cfg(feature = "actix")]
 pub mod handlers;
 
-pub use blocking_runtime::{block_on_current_thread, DedicatedThreadRuntime};
+pub use blocking_runtime::DedicatedThreadRuntime;
 pub use clock::SystemClock;
 #[cfg(any(feature = "fastembed", feature = "fastembed-layer"))]
 pub use fastembed_adapter::FoldDbFastEmbedder;

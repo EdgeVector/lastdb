@@ -143,16 +143,6 @@ impl S3BlobPersistence {
         }
     }
 
-    /// Access the S3 client (for test/example use).
-    pub fn client(&self) -> &S3Client {
-        &self.client
-    }
-
-    /// Access the bucket name (for test/example use).
-    pub fn bucket(&self) -> &str {
-        &self.bucket
-    }
-
     /// Encode a `Vec<f32>` into a `Blob` for DynamoDB. Little-endian
     /// so byte order is portable across architectures. 384 floats
     /// × 4 bytes = 1536 bytes — well under DDB's 400KB item cap.

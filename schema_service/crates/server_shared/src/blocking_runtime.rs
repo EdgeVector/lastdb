@@ -6,8 +6,6 @@
 //! runtime when the task finishes. That is the same schedule state init and
 //! snapshot import used before the port.
 
-use std::future::Future;
-
 use schema_service_core::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
 use schema_types::FoldDbResult;
 
@@ -43,17 +41,4 @@ fn run_current_thread(
         .build()
         .map_err(BlockingRuntimeError::Build)?;
     Ok(runtime.block_on(future))
-}
-
-/// Drive `future` on a fresh current-thread runtime on this thread.
-///
-/// Canonical property tests use this so the core crate does not construct a
-/// runtime. Callers that may already be inside a runtime use
-/// [`DedicatedThreadRuntime`] instead.
-pub fn block_on_current_thread<F: Future>(future: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime")
-        .block_on(future)
 }
