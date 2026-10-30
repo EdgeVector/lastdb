@@ -22,11 +22,7 @@ impl MutationLogCapture {
         {
             return Err(invalid("mutation capture commit phase or identity"));
         }
-        let mut saved = state.clone();
-        saved.commit = Some(commit.clone());
-        store::write(&self.inner.directory.join("capture.json"), &saved)?;
-        *state = saved;
-        Ok(())
+        self.write_capture_state(&mut state, |saved| saved.commit = Some(commit.clone()))
     }
 
     pub fn terminal(&self, result: &JobResult) -> StorageResult<()> {
@@ -51,10 +47,9 @@ impl MutationLogCapture {
             return Ok(());
         }
         if state.terminal.is_none() {
-            let mut saved = state.clone();
-            saved.terminal = Some(result.clone());
-            store::write(&self.inner.directory.join("capture.json"), &saved)?;
-            *state = saved;
+            self.write_capture_state(&mut state, |saved| {
+                saved.terminal = Some(result.clone());
+            })?;
         }
         if matches!(result.status, JobStatus::Published { .. }) {
             self.inner
@@ -62,21 +57,7 @@ impl MutationLogCapture {
                 .mutation_log
                 .acknowledge(&state.through)?;
         }
-        for file in &state.files {
-            store::remove_part(
-                &self
-                    .inner
-                    .directory
-                    .join(format!("{}.ldrun", file.run_id.as_str())),
-                file.bytes,
-            )?;
-        }
-        File::open(&self.inner.directory)?.sync_all()?;
-        let mut saved = state.clone();
-        saved.released = true;
-        store::write(&self.inner.directory.join("capture.json"), &saved)?;
-        *state = saved;
-        Ok(())
+        self.release_capture_files(&mut state)
     }
 
     /// Only the coordinator's durable never-submitted branch can use this path.
@@ -95,10 +76,25 @@ impl MutationLogCapture {
         if state.released {
             return Ok(());
         }
+        self.write_capture_state(&mut state, |saved| saved.local_cancelled = true)?;
+        self.release_capture_files(&mut state)
+    }
+
+    /// Write one changed copy. A failed write leaves the locked state unchanged.
+    fn write_capture_state(
+        &self,
+        state: &mut FrozenLogCapture,
+        change: impl FnOnce(&mut FrozenLogCapture),
+    ) -> StorageResult<()> {
         let mut saved = state.clone();
-        saved.local_cancelled = true;
+        change(&mut saved);
         store::write(&self.inner.directory.join("capture.json"), &saved)?;
         *state = saved;
+        Ok(())
+    }
+
+    /// Remove the captured parts, then record the release.
+    fn release_capture_files(&self, state: &mut FrozenLogCapture) -> StorageResult<()> {
         for file in &state.files {
             store::remove_part(
                 &self
@@ -109,10 +105,6 @@ impl MutationLogCapture {
             )?;
         }
         File::open(&self.inner.directory)?.sync_all()?;
-        let mut saved = state.clone();
-        saved.released = true;
-        store::write(&self.inner.directory.join("capture.json"), &saved)?;
-        *state = saved;
-        Ok(())
+        self.write_capture_state(state, |saved| saved.released = true)
     }
 }
