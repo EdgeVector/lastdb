@@ -1,6 +1,8 @@
 # Compound alternate keys
 
 A schema owns its values. Canonical field identities can match across schemas without shared values or proteins.
+Schema Service keeps different key layouts as separate definitions and does not create value aliases between them.
+Existing published definitions retain their metadata until an explicit compatible conversion. Registration does not rewrite existing values.
 
 An alternate key uses a declared hash field or an explicit `hash_literal`. It uses one range field or ordered `range_parts`.
 Each alternate key retains the exact primary field without formatting. The primary schema still uses a Hash key.
