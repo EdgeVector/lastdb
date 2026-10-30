@@ -68,10 +68,13 @@ async function setup() {
   console.log(JSON.stringify({phase:"seeded",app:a.app,label:a.label,logical_records:count,payload_bytes:count*body(0).length}));
 }
 async function kanbanSeed(node,cfg,root=old) {
-  const r=await load(root,"record"), lists=await load(root,"card-list-index");
+  const r=await load(root,"record");
   const board={slug:"bench",title:"Benchmark",body:"Generated CI board",columns:["todo","doing","done"],created_at:time(0),updated_at:time(0)};
   await node.createRecord({schemaHash:cfg.schemaHashes.board,keyHash:board.slug,fields:r.boardToFields(board)});
-  if(!cfg.storageModel)await lists.writeBoardListIndex(node,cfg,[r.toBoardSummary(board)]);
+  if(!cfg.storageModel) {
+    const lists=await load(root,"card-list-index");
+    await lists.writeBoardListIndex(node,cfg,[r.toBoardSummary(board)]);
+  }
   for(let n=0;n<2;n++) await r.upsertMilestoneRecord(node,cfg,{slug:"milestone-"+n,title:"Milestone "+n,
     body:"Generated CI milestone",board:"bench",state:"active",position:String(n),north_star:"",driver:"",
     deps:[],proof_card:"",proof_status:"not_required",block_reason:"",created_at:time(0),updated_at:time(0),completed_at:""},false);
@@ -100,7 +103,11 @@ async function brainSeed(node,cfg,root=old) {
   }
 }
 async function kanbanMeasure(node,cfg) {
-  const r=await load(active,"record"),m=await load(active,"milestone-cards");
+  const r=await load(active,"record"),m=await load(active,a.label==="baseline"?"milestone-cards":"card-keys");
+  const {CARD_FIELDS}=await load(active,"schemas");
+  const milestoneRows=(slug)=>a.label==="baseline"
+    ?m.listMilestoneCardsPartition(node,cfg,slug)
+    :m.listCardsByMilestoneKey(node,cfg,slug,CARD_FIELDS.filter(field=>field!=="body"));
   const expected=new Map();
   for(let n=0;n<count;n++) expected.set(slug(n),{column:["todo","doing","done"][n%3],position:String(n*10)});
   for(let n=0;n<iterations;n++) {
@@ -126,7 +133,7 @@ async function kanbanMeasure(node,cfg) {
       const found=heads.get("bench\0"+key.column);
       require(found&&JSON.stringify(found.cards.map((card)=>card.slug))===JSON.stringify(window),"The displayed column window differs");
     }
-    const members=await measure("milestone_summary",()=>m.listMilestoneCardsPartition(node,cfg,"milestone-1"));
+    const members=await measure("milestone_summary",()=>milestoneRows("milestone-1"));
     require(members.length===count/2&&members.every((card)=>Number(card.slug.slice(6))%2===1),"Milestone membership differs");
   }
   if(a.label==="candidate") {
@@ -153,8 +160,15 @@ async function kanbanMeasure(node,cfg) {
     const probe={...template,slug:"delete-probe-"+n};
     await r.createCardRecord({node,cfg},probe);
     await measure("delete",()=>r.deleteCardRecord({node,cfg},probe));
-    const [point,board,members]=await Promise.all([r.findCard(node,cfg,probe.slug),r.listCardsOnBoard(node,cfg,"bench"),m.listMilestoneCardsPartition(node,cfg,probe.milestone)]);
+    const [point,board,members]=await Promise.all([r.findCard(node,cfg,probe.slug),r.listCardsOnBoard(node,cfg,"bench"),milestoneRows(probe.milestone)]);
     require(point===null&&board.length===count&&!board.some((card)=>card.slug===probe.slug)&&!members.some((card)=>card.slug===probe.slug),"A deleted card remains addressable or changed membership");
+  }
+  if(a.label!=="baseline") {
+    const {parityCheckResult}=await load(candidate,"commands/parity_named_keys");
+    const parity=await parityCheckResult({node,cfg});
+    require(parity.ok&&parity.reads_completed===2&&parity.rows_checked===count+2,
+      "The normal named-key parity command did not verify the complete generated Card and Milestone cohort");
+    writeFileSync(a.output+"/named-key-parity.json",JSON.stringify(parity,null,2)+"\n");
   }
   return {logical_records:count,body_bytes:count*body(0).length,guarded_competitions:a.label==="candidate"?16:0};
 }

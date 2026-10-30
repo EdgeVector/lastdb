@@ -107,7 +107,7 @@ def main():
             lines.extend(["", mode + ": candidate broad ranges complete for both received sources, their overlap, and local duplicates.",
                 "Reopen, source-specific Delete/Purge, current local values, API boundaries, and exclusive cursors return the complete expected values.",
                 "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, source values, and continuation.",
-                "A legitimate mapped alternate schema supplies a 640-key excluded prefix and a 576-key all-hidden tail. Local primary precedence prevents peer exposure.",
+                "An independent schema supplies 640 prefix keys and 576 tail keys. The target schema keeps its own values and membership.",
                 "Actual preload selection verified per run: " + str([value["preload"]["actual_ready_selection_verified"] for value in candidate]) + "."])
         lines.extend(["", "Latency cells are medians of two per-run statistics; independent requests are not pooled.",
             "Raw requests, complete responses, storage read receipts, errors, and individual samples accompany this artifact.",
