@@ -104,14 +104,9 @@ impl Identity {
 }
 
 fn discard_prepared_stage(path: &Path) -> StorageResult<()> {
-    let Some(meta) = stage_metadata(path)? else {
-        return Ok(());
-    };
-    if !private_owned_file(&meta) || meta.len() > (MARKER2.len() + BODY2_BYTES) as u64 {
-        return Err(invalid(
-            "prepared snapshot identity stage ownership differs",
-        ));
-    }
-    std::fs::remove_file(path)?;
-    Ok(())
+    discard_private_stage(
+        path,
+        (MARKER2.len() + BODY2_BYTES) as u64,
+        "prepared snapshot identity stage ownership differs",
+    )
 }
