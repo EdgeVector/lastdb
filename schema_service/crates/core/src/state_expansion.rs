@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::lock_helpers::read_lock;
 use schema_types::Schema;

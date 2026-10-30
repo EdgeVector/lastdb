@@ -78,6 +78,8 @@ The map names every source field and one distinct target field for each source f
 Both source and target identities must be exact published identities.
 The host fetches the target definition from Schema Service before the maintenance freeze.
 The request cannot supply the target definition itself.
+The target uses published field metadata only. Legacy catalog value aliases never become local record authorities.
+This rule also applies to a normal owned declaration. Existing local mapped authorities still require a separate reviewed conversion.
 
 The transition preserves the app owner, record type, runtime schema address, field types, primary key roles, and child schema references.
 Data classifications cannot weaken. The `secret` and `no_index` labels cannot disappear.
