@@ -18,7 +18,11 @@ from restore_log import position, verified as verified_log_routes
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-NODE = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+# Existing homes stay format 4. Kept recovery restores a previous green snapshot
+# and hashes those bytes in place; it does not upgrade the marker.
+NODE_V4 = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
+NODE_V5 = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+NODE_PROFILE = {NODE_V4: (2, 4), NODE_V5: (3, 5)}
 MAX_FILES = 4096
 
 
@@ -115,9 +119,18 @@ def selection(home, baseline):
     return root, identifier
 
 
-def inventory(home, root):
+def matched_node_marker(size, expected, node_markers):
+    matched = None
+    for marker in node_markers:
+        if size == len(marker) and expected == hashlib.sha256(marker).hexdigest():
+            matched = marker
+    require(matched in NODE_PROFILE, "format_five_marker")
+    return matched
+
+
+def inventory(home, root, node_markers=(NODE_V5,)):
     entries = owned(root, "entries/placeholder").parent
-    files, seen = [], set()
+    files, seen, matched = [], set(), None
     for name in sorted(names(entries)):
         digest(name)
         item = read_json(owned(root, "entries/" + name))
@@ -128,13 +141,13 @@ def inventory(home, root):
                 "native_proof_identity")
         require(hash_file(owned(home, "data/" + path), size) == expected, "restored_full_native_hash")
         if path == "laststore-pack-node-v1":
-            require(size == len(NODE) and expected == hashlib.sha256(NODE).hexdigest(), "format_five_marker")
+            matched = matched_node_marker(size, expected, node_markers)
         elif path.endswith("/laststore-run-home-v2"):
             require(size == 64, "restored_descriptor_length")
         seen.add(path)
         files.append({"path": path, "native_sha256": expected, "native_bytes": size})
     closure(home, files)
-    return sorted(files, key=lambda item: item["path"])
+    return sorted(files, key=lambda item: item["path"]), matched
 
 
 def verified_prefixes(root, replay, accepted, observe):
@@ -178,7 +191,8 @@ def replayed_inventory(home, root, replay, accepted, observe):
     return files, routes
 
 
-def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None) -> dict:
+def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None,
+             node_markers=(NODE_V5,)) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -204,15 +218,19 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             and not os.path.lexists(owned(home, "data/folddb.sock")), "restore_before_normal_boot")
     routes = None
     if replay is None:
-        files = inventory(home, root)
+        files, marker = inventory(home, root, node_markers)
     else:
+        # Replay restores a fresh format 5 run. Only kept recovery allows format 4.
         files, routes = replayed_inventory(home, root, replay,
             read_json(owned(root, "selection.json"))["accepted"], observe)
+        marker = NODE_V5
     require(len(files) == report["native_files"]
             and sum(item["native_bytes"] for item in files) == report["native_bytes"], "restore_native_totals")
+    profile_version, node_format = NODE_PROFILE[marker]
     result = {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
             "native_files": len(files), "native_bytes": report["native_bytes"], "files": files,
-            "receipt_sha256": hash_file(receipt_path), "profile_version": 3, "node_format": 5,
+            "receipt_sha256": hash_file(receipt_path), "profile_version": profile_version,
+            "node_format": node_format,
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
             "independent_native_file_hashes_verified": replay is None,
             "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,
