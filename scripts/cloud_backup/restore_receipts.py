@@ -18,7 +18,19 @@ from restore_log import position, verified as verified_log_routes
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-NODE = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+NODE_FORMATS = {
+    b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n": (4, 2),
+    b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n": (5, 3),
+    b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n": (6, 4),
+}
+
+
+def node_marker(home):
+    path = owned(home, "data/laststore-pack-node-v1")
+    require(path.stat().st_size <= 128, "node_marker_bound")
+    value = path.read_bytes()
+    require(value in NODE_FORMATS, "unsupported_node_marker")
+    return value
 MAX_FILES = 4096
 
 
@@ -128,7 +140,8 @@ def inventory(home, root):
                 "native_proof_identity")
         require(hash_file(owned(home, "data/" + path), size) == expected, "restored_full_native_hash")
         if path == "laststore-pack-node-v1":
-            require(size == len(NODE) and expected == hashlib.sha256(NODE).hexdigest(), "format_five_marker")
+            marker = node_marker(home)
+            require(size == len(marker) and expected == hashlib.sha256(marker).hexdigest(), "node_format_marker")
         elif path.endswith("/laststore-run-home-v2"):
             require(size == 64, "restored_descriptor_length")
         seen.add(path)
@@ -212,7 +225,8 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
             and sum(item["native_bytes"] for item in files) == report["native_bytes"], "restore_native_totals")
     result = {"schema": "lastdb.run-v2-restored-files.v1", "accepted_commit_sha256": commit,
             "native_files": len(files), "native_bytes": report["native_bytes"], "files": files,
-            "receipt_sha256": hash_file(receipt_path), "profile_version": 3, "node_format": 5,
+            "receipt_sha256": hash_file(receipt_path), "profile_version": NODE_FORMATS[node_marker(home)][1],
+            "node_format": NODE_FORMATS[node_marker(home)][0],
             "required_destinations": ["r2", "b2"], "product_inventory_closure_verified": True,
             "independent_native_file_hashes_verified": replay is None,
             "final_native_file_hashes_recorded": True, "selected_log_chain_verified": replay is not None,

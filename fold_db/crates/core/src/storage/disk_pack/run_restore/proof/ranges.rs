@@ -36,10 +36,9 @@ pub(super) fn verify(
         if version < 4
             && ((schema.uses_independent_fields()
                 && schema.schema_type == crate::schema::types::SchemaType::HashRange)
-                || schema
-                    .alternate_keys
-                    .values()
-                    .any(|key| key.hash_literal.is_some() || !key.range_parts.is_empty()))
+                || schema.alternate_keys.values().any(|key| {
+                    key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash
+                }))
         {
             return Err(invalid("compound alternate declarations require format 6"));
         }

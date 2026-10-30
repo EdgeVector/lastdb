@@ -29,6 +29,13 @@ pub(crate) fn validate(
     if key.hash_field.is_empty() == key.hash_literal.is_none() {
         return Err("an alternate key needs exactly one hash field or literal".into());
     }
+    if key.omit_empty_hash
+        && (key.missing != crate::MissingAlternateKey::Omit
+            || key.hash_literal.is_some()
+            || schema.key_field_type(&key.hash_field) != FieldValueType::String)
+    {
+        return Err("omit_empty_hash requires an optional text hash field".into());
+    }
     if key
         .hash_literal
         .as_ref()

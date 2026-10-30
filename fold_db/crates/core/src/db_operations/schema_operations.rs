@@ -64,10 +64,11 @@ impl DbOperations {
         if schema.uses_independent_fields() {
             if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
                 let compound = schema.schema_type == crate::schema::types::SchemaType::HashRange
-                    || schema
-                        .alternate_keys
-                        .values()
-                        .any(|key| key.hash_literal.is_some() || !key.range_parts.is_empty());
+                    || schema.alternate_keys.values().any(|key| {
+                        key.hash_literal.is_some()
+                            || !key.range_parts.is_empty()
+                            || key.omit_empty_hash
+                    });
                 runtime.require_alternate_format(compound)?;
             }
         }

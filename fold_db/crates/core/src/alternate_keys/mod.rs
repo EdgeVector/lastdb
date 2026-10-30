@@ -71,6 +71,11 @@ pub(crate) fn derive_key(
     definition: &schema_types::AlternateKey,
     fields: &RecordFields,
 ) -> Result<Option<KeyValue>, SchemaError> {
+    if definition.omit_empty_hash
+        && fields.get(&definition.hash_field).and_then(Value::as_str) == Some("")
+    {
+        return Ok(None);
+    }
     let mut coordinates = BTreeMap::new();
     for field in definition.fields() {
         match fields.get(field) {

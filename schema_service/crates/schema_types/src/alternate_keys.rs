@@ -24,6 +24,8 @@ pub struct AlternateKey {
     pub range_parts: Vec<crate::alternate_parts::RangePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub range_separator: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub omit_empty_hash: bool,
     #[serde(default)]
     pub missing: MissingAlternateKey,
 }

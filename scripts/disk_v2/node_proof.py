@@ -51,7 +51,7 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
+RUN_NODE = b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
 # The settings of the primary's launchd job that the node reads: the
 # compression of the at-rest envelopes, the atom size limit, the memory
 # budget, and the admin timeout.
