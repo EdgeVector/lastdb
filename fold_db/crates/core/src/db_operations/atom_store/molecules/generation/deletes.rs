@@ -48,27 +48,8 @@ impl AtomStore {
             )
             .await?;
         let cost = deletes.cost;
-        let strip = build_storage_key(storage_prefix, "");
-        let deletes: HashMap<String, MoleculeGenerationDelete> = deletes
-            .rows
-            .into_iter()
-            .filter_map(|(key, deletion)| {
-                let bare = key.strip_prefix(&strip).unwrap_or(&key);
-                molecule_key_codec::molecule_record_key_from_generation_delete_key(
-                    molecule_uuid,
-                    bare,
-                )
-                .map(|key| (key, deletion))
-            })
-            .collect();
         Ok((
-            rows.into_iter()
-                .filter(|(key, record)| {
-                    deletes.get(key).is_none_or(|deletion| {
-                        incoming_wins_lww(record.entry.lww_key(), deletion.shadow.lww_key())
-                    })
-                })
-                .collect(),
+            Self::rows_after_generation_deletes(molecule_uuid, storage_prefix, rows, deletes.rows),
             cost,
         ))
     }
@@ -104,8 +85,23 @@ impl AtomStore {
                     "scan generation delete range {start}..{end}: {error}"
                 ))
             })?;
+        Ok(Self::rows_after_generation_deletes(
+            molecule_uuid,
+            storage_prefix,
+            rows,
+            deletes,
+        ))
+    }
+
+    /// Keep the scanned row order. A later delete for one key replaces an earlier one.
+    fn rows_after_generation_deletes(
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+        rows: Vec<(String, PerKeyRecord)>,
+        scanned: Vec<(String, MoleculeGenerationDelete)>,
+    ) -> Vec<(String, PerKeyRecord)> {
         let strip = build_storage_key(storage_prefix, "");
-        let deletes: HashMap<String, MoleculeGenerationDelete> = deletes
+        let deletes: HashMap<String, MoleculeGenerationDelete> = scanned
             .into_iter()
             .filter_map(|(key, deletion)| {
                 let bare = key.strip_prefix(&strip).unwrap_or(&key);
@@ -116,13 +112,11 @@ impl AtomStore {
                 .map(|key| (key, deletion))
             })
             .collect();
-        Ok(rows
-            .into_iter()
-            .filter(|(key, record)| {
-                deletes.get(key).is_none_or(|deletion| {
-                    incoming_wins_lww(record.entry.lww_key(), deletion.shadow.lww_key())
-                })
+        rows.into_iter()
+            .filter_map(|(key, record)| {
+                Self::apply_generation_delete(Some(record), deletes.get(&key).cloned())
+                    .map(|record| (key, record))
             })
-            .collect())
+            .collect()
     }
 }
