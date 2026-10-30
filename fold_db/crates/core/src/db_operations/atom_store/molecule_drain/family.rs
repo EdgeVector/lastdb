@@ -90,48 +90,49 @@ pub(super) fn closing_keys(candidate: &Candidate) -> Vec<Vec<u8>> {
     ]
 }
 
-impl AtomStore {
-    /// Whether the molecule has at least one tip record in the scope: a range read
-    /// of at most one row.
-    pub(super) async fn tip_present(&self, candidate: &Candidate) -> Result<bool, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(&tip_prefix(candidate));
-        let found = self
-            .main_store
-            .inner()
-            .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("read molecule tips: {error}")))?;
-        Ok(!found.is_empty())
-    }
+/// Whether the molecule has at least one tip record in the scope: a range read
+/// of at most one row.
+pub(super) async fn tip_present(
+    store: &AtomStore,
+    candidate: &Candidate,
+) -> Result<bool, SchemaError> {
+    let (start, end) = crate::kind_partition::exact_prefix_bounds(&tip_prefix(candidate));
+    let found = store
+        .raw()
+        .inner()
+        .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
+        .await
+        .map_err(|error| SchemaError::InvalidData(format!("read molecule tips: {error}")))?;
+    Ok(!found.is_empty())
+}
 
-    /// Read the header, the `bindings` counter and the binding records of a
-    /// molecule. The caller holds the write gate, so the reads see every accepted
-    /// batch and the pending batch. Two reads by key and one range read of at
-    /// most one row.
-    pub(super) async fn read_molecule_reads(
-        &self,
-        candidate: &Candidate,
-    ) -> Result<MoleculeReads, SchemaError> {
-        let scope = candidate.scope.as_deref();
-        let molecule = &candidate.molecule;
-        let header_row = build_storage_key(scope, &header_key(molecule));
-        let header = self
-            .main_store
-            .get_items::<Value>(std::slice::from_ref(&header_row))
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("read molecule header: {error}")))?
-            .pop()
-            .flatten();
-        let bindings = self
-            .read_binding_counters(std::slice::from_ref(molecule), scope)
-            .await?
-            .pop()
-            .flatten();
-        let binding_records = self.binding_record_present(molecule, scope).await?;
-        Ok(MoleculeReads {
-            header,
-            bindings,
-            binding_records,
-        })
-    }
+/// Read the header, the `bindings` counter and the binding records of a
+/// molecule. The caller holds the write gate, so the reads see every accepted
+/// batch and the pending batch. Two reads by key and one range read of at
+/// most one row.
+pub(super) async fn read_molecule_reads(
+    store: &AtomStore,
+    candidate: &Candidate,
+) -> Result<MoleculeReads, SchemaError> {
+    let scope = candidate.scope.as_deref();
+    let molecule = &candidate.molecule;
+    let header_row = build_storage_key(scope, &header_key(molecule));
+    let header = store
+        .raw()
+        .get_items::<Value>(std::slice::from_ref(&header_row))
+        .await
+        .map_err(|error| SchemaError::InvalidData(format!("read molecule header: {error}")))?
+        .pop()
+        .flatten();
+    let bindings = store
+        .read_binding_counters(std::slice::from_ref(molecule), scope)
+        .await?
+        .pop()
+        .flatten();
+    let binding_records = store.binding_record_present(molecule, scope).await?;
+    Ok(MoleculeReads {
+        header,
+        bindings,
+        binding_records,
+    })
 }

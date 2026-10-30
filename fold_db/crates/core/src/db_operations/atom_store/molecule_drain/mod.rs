@@ -21,6 +21,20 @@
 //!   candidate and is reported.
 //! - **No raw writer.** Every write goes through the planner (`commit_tip_changes`).
 //!   This module holds no write verb of its own.
+//! - **Owner.** [`MoleculeDrain`] owns the memory state of the drain: the report
+//!   and the wake signal of its task. `AtomStore` holds one owner by composition
+//!   and hands it out; no `impl AtomStore` block lives in this module, and no
+//!   other code reads or writes the state. The drain works on a store that the
+//!   caller names (`&AtomStore`) and uses only the store interface: the write
+//!   scopes, the bounded range reads, the binding reads, the release plan of the
+//!   retention module, and the planner. Each batch of the drain is a
+//!   `TipChangeSet` value that the planner writes as one batch.
+//! - **Rows and wake from other writers.** The unbind that takes `bindings` to
+//!   zero adds the candidate row to its own batch as a value (`Candidate::row`).
+//!   It then asks the owner to wake the task after that batch commits
+//!   ([`MoleculeDrain::wake_after_commit`]). The owner subscribes its wake signal
+//!   to the commit of the current request through
+//!   `AtomStore::notify_after_commit`, which knows nothing about the drain.
 //!
 //! Design: `docs/design-lastdb-counter-lifecycle.md` section 12.
 //! Contract: `docs/lastdb-molecule-drain.md`.
@@ -37,49 +51,61 @@ mod step;
 pub(crate) use candidate::{valid_candidate_key, Candidate};
 pub(crate) use cursor::DrainCursor;
 pub use enqueue::MoleculeDrainVerdict;
-pub(crate) use state::DrainState;
 pub use state::{MoleculeDrainReport, RefusedMolecule};
 pub(crate) use step::{DrainLimits, OutcomeKind};
 
 use super::AtomStore;
+use state::DrainState;
 use std::sync::Arc;
 
-impl AtomStore {
-    /// The report of the drain and the wake signal of its task.
-    pub(crate) fn drain_state(&self) -> &DrainState {
-        &self.molecule_drain
-    }
+/// The owner of the molecule drain.
+///
+/// It holds the memory state of the drain: the totals and gauges of the report,
+/// the refused sample, and the wake signal of the task. The state is private to
+/// this module. Clones share one state through `Arc`, so every clone of the
+/// store that holds the owner sees the same report and wakes the same task.
+#[derive(Debug, Clone, Default)]
+pub struct MoleculeDrain {
+    state: Arc<DrainState>,
+}
 
+impl MoleculeDrain {
     /// The drain report now.
     #[must_use]
-    pub fn molecule_drain_report(&self) -> MoleculeDrainReport {
-        self.molecule_drain.snapshot()
+    pub fn report(&self) -> MoleculeDrainReport {
+        self.state.snapshot()
     }
 
-    /// Wake the drain task when the batch of the current request is committed.
-    /// Outside a native request scope the task wakes at once.
-    pub(crate) fn wake_drain_after_commit(&self) {
-        let signal: Arc<tokio::sync::Notify> = self.molecule_drain.wake_signal();
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
-        let Some(runtime) = runtime else {
-            signal.notify_one();
-            return;
-        };
-        let later = Arc::clone(&signal);
-        let queued = crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
-            later.notify_one();
-            Ok::<(), crate::storage::StorageError>(())
-        });
-        if queued.is_err() {
-            signal.notify_one();
-        }
+    /// The signal that the drain task waits on.
+    pub(crate) fn wake_signal(&self) -> Arc<tokio::sync::Notify> {
+        self.state.wake_signal()
     }
 
-    /// The wake signal, for the task.
-    pub(crate) fn drain_wake_signal(&self) -> Arc<tokio::sync::Notify> {
-        self.molecule_drain.wake_signal()
+    /// Wake the drain task when the batch of the current request on `store`
+    /// commits. Outside a native request scope the task wakes at once.
+    pub(crate) fn wake_after_commit(&self, store: &AtomStore) {
+        store.notify_after_commit(&self.state.wake_signal());
+    }
+
+    /// True when no drain task runs: the interval was never set.
+    pub(crate) fn task_is_off(&self) -> bool {
+        self.state.task_is_off()
+    }
+
+    /// The interval of the drain task, set when the task starts.
+    pub(crate) fn set_interval_ms(&self, interval_ms: u64) {
+        self.state.set_interval_ms(interval_ms);
+    }
+
+    /// One wake of the task ended.
+    pub(crate) fn note_run(&self, error: Option<String>, failures: u64, retry_in_ms: Option<u64>) {
+        self.state.note_run(error, failures, retry_in_ms);
+    }
+
+    /// Put the gauges and the refused molecules of the task cursor in the report.
+    pub(crate) fn publish(&self, cursor: &DrainCursor) {
+        let (pending, waiting, refused) = cursor.gauges();
+        self.state.set_gauges(pending, waiting, refused);
+        self.state.set_refused_sample(cursor.refused());
     }
 }

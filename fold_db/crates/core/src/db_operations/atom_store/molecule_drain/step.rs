@@ -28,11 +28,14 @@
 //!    zero counters. It reads as dead and the candidate row is still there, so
 //!    the next wake finishes it.
 
-use super::batch::{Batch, Gate};
+use super::batch::{
+    delete_rows_batch, finish_batch, release_records_batch, tips_batch, Batch, Gate,
+};
 use super::candidate::Candidate;
 use super::cursor::{records_walk, row_walk, tip_walk, Active, DrainCursor, ParkWhy, Phase};
 use super::family::{closing_keys, row_prefixes};
 use super::judge::Refusal;
+use super::MoleculeDrain;
 use crate::db_operations::atom_store::retention::RELEASE_RECORD_CAP;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
@@ -117,15 +120,17 @@ enum Move {
     Done(OutcomeKind),
 }
 
-impl AtomStore {
-    /// Run one step: one batch of the molecule in work, or of the next candidate.
-    /// `None` when no candidate is left to work on in this pass of the list.
-    pub(crate) async fn molecule_drain_step(
+impl MoleculeDrain {
+    /// Run one step on `store`: one batch of the molecule in work, or of the next
+    /// candidate. `None` when no candidate is left to work on in this pass of the
+    /// list.
+    pub(crate) async fn step(
         &self,
+        store: &AtomStore,
         cursor: &mut DrainCursor,
         limits: DrainLimits,
     ) -> Result<Option<DrainOutcome>, SchemaError> {
-        let (step, cost) = measure(self.unmeasured_step(cursor, limits)).await;
+        let (step, cost) = measure(self.unmeasured_step(store, cursor, limits)).await;
         Ok(step?.map(|outcome| DrainOutcome {
             blocked: cost.blocked,
             scopes: cost.scopes,
@@ -133,22 +138,23 @@ impl AtomStore {
         }))
     }
 
-    /// The work of [`Self::molecule_drain_step`], without the measure of the time it
-    /// keeps writers waiting.
+    /// The work of [`Self::step`], without the measure of the time it keeps
+    /// writers waiting.
     async fn unmeasured_step(
         &self,
+        store: &AtomStore,
         cursor: &mut DrainCursor,
         limits: DrainLimits,
     ) -> Result<Option<DrainOutcome>, SchemaError> {
         loop {
-            if cursor.active.is_none() && !self.take_next_candidate(cursor, limits).await? {
+            if cursor.active.is_none() && !take_next_candidate(store, cursor, limits).await? {
                 return Ok(None);
             }
             let Some(mut active) = cursor.active.take() else {
                 continue;
             };
             let candidate = active.candidate.clone();
-            match self.step_active(&mut active, limits).await {
+            match self.step_active(store, &mut active, limits).await {
                 Ok(Move::Continue) => cursor.active = Some(active),
                 Ok(Move::Batch(kind)) => {
                     cursor.active = Some(active);
@@ -172,49 +178,26 @@ impl AtomStore {
         }
     }
 
-    /// Make the next candidate of the list the molecule in work. Reads pages of
-    /// the list until it finds one that is not parked.
-    async fn take_next_candidate(
-        &self,
-        cursor: &mut DrainCursor,
-        limits: DrainLimits,
-    ) -> Result<bool, SchemaError> {
-        loop {
-            if let Some(candidate) = cursor.pop() {
-                cursor.active = Some(Active::new(candidate, limits.tips));
-                return Ok(true);
-            }
-            if cursor.list_done() {
-                return Ok(false);
-            }
-            let step = self.walk_step(cursor.list_walk()).await?;
-            for (key, _) in step.rows {
-                if let Some(candidate) = Candidate::parse(&key) {
-                    cursor.offer(candidate);
-                }
-            }
-        }
-    }
-
     async fn step_active(
         &self,
+        store: &AtomStore,
         active: &mut Active,
         limits: DrainLimits,
     ) -> Result<Move, SchemaError> {
         let candidate = active.candidate.clone();
         match &mut active.phase {
             Phase::Tips(walk) => {
-                let keys = self.next_keys(walk, limits.tips).await?;
+                let keys = next_keys(store, walk, limits.tips).await?;
                 if keys.is_empty() {
                     active.phase = Phase::Records(records_walk(&candidate, RELEASE_RECORD_CAP));
                     return Ok(Move::Continue);
                 }
                 active.found_tips += keys.len() as u64;
-                match self.tips_batch(&candidate, &keys).await? {
+                match tips_batch(store, &candidate, &keys).await? {
                     Batch::Ran(commit) => {
                         let tips = commit.previous.len() as u64;
                         let atoms_deleted = commit.deleted.len() as u64;
-                        self.drain_state().note_batch(tips, 0, atoms_deleted);
+                        self.state.note_batch(tips, 0, atoms_deleted);
                         Ok(Move::Batch(OutcomeKind::Erased {
                             tips,
                             atoms_deleted,
@@ -227,26 +210,26 @@ impl AtomStore {
                 // The tip phase released up to a cap of records with the tips it
                 // erased and left a marker for the rest. The drain does not wait
                 // for the janitor: it releases what the directory still names.
-                let rows = self.next_rows(walk, RELEASE_RECORD_CAP).await?;
+                let rows = next_rows(store, walk, RELEASE_RECORD_CAP).await?;
                 if rows.is_empty() {
                     active.phase = rows_phase(&candidate, 0, limits);
                     return Ok(Move::Continue);
                 }
-                let releases = self.directory_release_requests(&rows);
+                let releases = store.directory_release_requests(&rows);
                 if releases.is_empty() {
                     return Ok(Move::Continue);
                 }
-                match self.release_records_batch(&candidate, releases).await? {
+                match release_records_batch(store, &candidate, releases).await? {
                     Batch::Ran(records) => {
-                        self.drain_state().note_batch(0, 0, 0);
-                        self.drain_state().note_records(records);
+                        self.state.note_batch(0, 0, 0);
+                        self.state.note_records(records);
                         Ok(Move::Batch(OutcomeKind::Released { records }))
                     }
                     Batch::Stopped(gate) => Ok(self.stopped(gate)),
                 }
             }
             Phase::Rows { index, walk } => {
-                let keys = self.next_keys(walk, limits.rows).await?;
+                let keys = next_keys(store, walk, limits.rows).await?;
                 if keys.is_empty() {
                     let next = *index + 1;
                     active.phase = if next < row_prefixes(&candidate).len() {
@@ -257,20 +240,20 @@ impl AtomStore {
                     return Ok(Move::Continue);
                 }
                 let rows = keys.len() as u64;
-                match self.delete_rows_batch(&candidate, keys).await? {
+                match delete_rows_batch(store, &candidate, keys).await? {
                     Batch::Ran(()) => {
-                        self.drain_state().note_batch(0, rows, 0);
+                        self.state.note_batch(0, rows, 0);
                         Ok(Move::Batch(OutcomeKind::Removed { rows }))
                     }
                     Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
                     Batch::Stopped(gate) => Ok(self.stopped(gate)),
                 }
             }
-            Phase::Finish => match self.finish_batch(&candidate).await? {
+            Phase::Finish => match finish_batch(store, &candidate).await? {
                 Batch::Ran(()) => {
-                    self.drain_state()
+                    self.state
                         .note_batch(0, closing_keys(&candidate).len() as u64, 0);
-                    self.drain_state().note_drained();
+                    self.state.note_drained();
                     Ok(Move::Done(OutcomeKind::Finished))
                 }
                 Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
@@ -283,7 +266,7 @@ impl AtomStore {
     fn stopped(&self, gate: Gate) -> Move {
         match gate {
             Gate::Rebound => {
-                self.drain_state().note_rebound();
+                self.state.note_rebound();
                 Move::Done(OutcomeKind::Rebound)
             }
             Gate::Absent => Move::Done(OutcomeKind::Absent),
@@ -292,31 +275,55 @@ impl AtomStore {
             Gate::Go | Gate::BackToKeys => Move::Continue,
         }
     }
+}
 
-    /// The next page of keys of a walk, up to `want`. Empty only when the walk is
-    /// done. A span that holds only deleted keys is passed inside the walk.
-    async fn next_keys(
-        &self,
-        walk: &mut RangeWalk,
-        want: usize,
-    ) -> Result<Vec<Vec<u8>>, SchemaError> {
-        let rows = self.next_rows(walk, want).await?;
-        Ok(rows.into_iter().map(|(key, _)| key).collect())
-    }
-
-    /// The next rows of a walk, up to `want`. Empty only when the walk is done.
-    async fn next_rows(
-        &self,
-        walk: &mut RangeWalk,
-        want: usize,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
-        let mut rows = Vec::new();
-        while rows.len() < want && !walk.done() {
-            walk.set_limit(want - rows.len());
-            rows.extend(self.walk_step(walk).await?.rows);
+/// Make the next candidate of the list the molecule in work. Reads pages of
+/// the list until it finds one that is not parked.
+async fn take_next_candidate(
+    store: &AtomStore,
+    cursor: &mut DrainCursor,
+    limits: DrainLimits,
+) -> Result<bool, SchemaError> {
+    loop {
+        if let Some(candidate) = cursor.pop() {
+            cursor.active = Some(Active::new(candidate, limits.tips));
+            return Ok(true);
         }
-        Ok(rows)
+        if cursor.list_done() {
+            return Ok(false);
+        }
+        let step = store.walk_step(cursor.list_walk()).await?;
+        for (key, _) in step.rows {
+            if let Some(candidate) = Candidate::parse(&key) {
+                cursor.offer(candidate);
+            }
+        }
     }
+}
+
+/// The next page of keys of a walk, up to `want`. Empty only when the walk is
+/// done. A span that holds only deleted keys is passed inside the walk.
+async fn next_keys(
+    store: &AtomStore,
+    walk: &mut RangeWalk,
+    want: usize,
+) -> Result<Vec<Vec<u8>>, SchemaError> {
+    let rows = next_rows(store, walk, want).await?;
+    Ok(rows.into_iter().map(|(key, _)| key).collect())
+}
+
+/// The next rows of a walk, up to `want`. Empty only when the walk is done.
+async fn next_rows(
+    store: &AtomStore,
+    walk: &mut RangeWalk,
+    want: usize,
+) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
+    let mut rows = Vec::new();
+    while rows.len() < want && !walk.done() {
+        walk.set_limit(want - rows.len());
+        rows.extend(store.walk_step(walk).await?.rows);
+    }
+    Ok(rows)
 }
 
 /// The gate still counts tip records after the tip phase. When the pass found

@@ -171,7 +171,8 @@ impl AtomStore {
                     SchemaError::InvalidData(format!("write molecule bindings: {error}"))
                 })?;
             if candidates > 0 {
-                self.wake_drain_after_commit();
+                // The drain owner subscribes its wake to the commit of this batch.
+                self.molecule_drain().wake_after_commit(self);
             }
             tracing::debug!(
                 target: "fold_db::molecule_bindings",

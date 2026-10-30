@@ -49,6 +49,7 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
         return error_response(400, &error.to_string(), ctx);
     }
     let atoms = host.db.db_ops().atoms();
+    let drain = atoms.molecule_drain();
     if body.cleanup_delete_markers {
         if !ctx.is_owner {
             return error_response(403, "delete-marker cleanup is owner-only", ctx);
@@ -70,8 +71,8 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
     let verdict = if body.molecule.trim().is_empty() {
         None
     } else {
-        match atoms
-            .molecule_drain_enqueue(body.scope.as_deref(), body.molecule.trim())
+        match drain
+            .enqueue(atoms, body.scope.as_deref(), body.molecule.trim())
             .await
         {
             Ok(verdict) => Some(verdict),
@@ -86,16 +87,13 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
     };
     // A call that names no molecule only reports. It does not wake the task: a wake
     // ends the back-off of a failed wake, and a poller would cancel it. Queueing a
-    // molecule wakes the task after its batch commits (`molecule_drain_enqueue`).
+    // molecule wakes the task after its batch commits (`MoleculeDrain::enqueue`).
     // The durable candidate rows, counted up to 10,000 with bounded reads.
-    let (candidates, capped) = atoms
-        .molecule_drain_candidates(10_000)
-        .await
-        .unwrap_or((0, false));
+    let (candidates, capped) = drain.candidates(atoms, 10_000).await.unwrap_or((0, false));
     json_ok(&envelope(
         &serde_json::json!({
             "molecule_drain": {
-                "report": atoms.molecule_drain_report(),
+                "report": drain.report(),
                 "verdict": verdict,
                 "candidate_rows": candidates,
                 "candidate_rows_capped": capped,

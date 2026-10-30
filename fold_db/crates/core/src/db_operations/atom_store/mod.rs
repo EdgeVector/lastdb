@@ -76,7 +76,9 @@ pub(crate) use molecule_drain::{
     valid_candidate_key as valid_drain_candidate_key, DrainCursor, DrainLimits,
     OutcomeKind as DrainOutcomeKind,
 };
-pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
+pub use molecule_drain::{
+    MoleculeDrain, MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule,
+};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
 pub use retention::ConflictRetentionReport;
@@ -220,8 +222,9 @@ pub struct AtomStore {
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
-    /// The report and the wake signal of the molecule drain. Memory only.
-    molecule_drain: Arc<molecule_drain::DrainState>,
+    /// The owner of the molecule drain. Its report and its wake signal are
+    /// private to it; this store only hands the owner out.
+    molecule_drain: MoleculeDrain,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
@@ -265,6 +268,58 @@ impl AtomStore {
     /// The verifier state: the run in progress, the last result, the watch.
     pub(crate) fn counter_verify(&self) -> &counter::VerifyState {
         &self.counter_verify
+    }
+
+    /// The owner of the molecule drain.
+    #[must_use]
+    pub fn molecule_drain(&self) -> &MoleculeDrain {
+        &self.molecule_drain
+    }
+
+    /// Fire `signal` once the batch of the current native request commits.
+    /// Outside a native request scope it fires at once. The store knows the
+    /// request scope, not who listens: a concept owner subscribes its own signal.
+    pub(crate) fn notify_after_commit(&self, signal: &Arc<tokio::sync::Notify>) {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        let Some(runtime) = runtime else {
+            signal.notify_one();
+            return;
+        };
+        let later = Arc::clone(signal);
+        let queued = crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
+            later.notify_one();
+            Ok::<(), crate::storage::StorageError>(())
+        });
+        if queued.is_err() {
+            signal.notify_one();
+        }
+    }
+
+    /// Check the scope that a verb names. The only scopes a verb may name are the
+    /// personal scope (no value) and a database scope: exactly 64 lowercase hex
+    /// characters. A mistyped scope reads an empty range and looks like a clean
+    /// scope, so the verbs that take a scope check it before they read. The check is
+    /// narrower than the key validation of the storage layer on purpose: a verb
+    /// never needs a `cloud:` or `from:` scope or a reserved name.
+    pub fn validate_scope(scope: Option<&str>) -> Result<(), crate::schema::SchemaError> {
+        let Some(scope) = scope else {
+            return Ok(());
+        };
+        let lower_hex = scope.len() == 64
+            && scope
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        if lower_hex {
+            return Ok(());
+        }
+        let shown: String = scope.chars().take(80).collect();
+        Err(crate::schema::SchemaError::InvalidData(format!(
+            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
+             or a database scope of exactly 64 lowercase hex characters"
+        )))
     }
 
     /// Totals of the bounded range reads of the admin walks.

@@ -129,12 +129,13 @@ impl DbOperations {
         if added.is_empty() {
             return Ok(());
         }
-        let found = self.atoms().molecules_draining(None, &added).await?;
+        let atoms = self.atoms();
+        let found = atoms.molecule_drain().draining(atoms, None, &added).await?;
         let molecules = found.erasing + found.waiting_records;
         if molecules == 0 {
             return Ok(());
         }
-        let reason = if self.atoms().drain_task_is_off() {
+        let reason = if atoms.molecule_drain().task_is_off() {
             "drain_task_off"
         } else if found.erasing > 0 {
             "draining"
