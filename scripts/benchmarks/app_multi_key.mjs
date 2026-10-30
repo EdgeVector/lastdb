@@ -41,10 +41,11 @@ async function setup() {
       Object.assign(schemaFieldAliases,vocabulary.profilesFor(entry.schema.schema,[receipt.canonical,receipt.schema]));
     }
   }
-  const cfg={configVersion:1,nodeUrl:"http://127.0.0.1",schemaServiceUrl:"registered-definition-service",
+  const config=await load(candidate,"config");
+  const cfg={configVersion:config.CONFIG_VERSION,nodeUrl:"http://127.0.0.1",schemaServiceUrl:"registered-definition-service",
     userHash,nodeSocketPath:a.socket,schemaHashes,schemaFieldAliases,appIdentityEnforce:false,
     designSchemaHash:schemaHashes.design,taskSchemaHash:schemaHashes.task,enforceLivePrMilestone:false};
-  const config=await load(candidate,"config");config.writeConfig(cfg,a.config);
+  config.writeConfig(cfg,a.config);
   node=await client(old,cfg);
   if(a.app==="fkanban") await kanbanSeed(node,cfg);
   else await brainSeed(node,cfg);
@@ -67,7 +68,7 @@ async function kanbanSeed(node,cfg) {
   // Repeated single-record app creates are the workload; no production bulk loop is introduced.
   for(let n=0;n<count;n++) {
     const card={...r.emptyStructuredFields(),slug:slug(n),title:"Record "+n,body:body(n),board:"bench",
-      column:n%2?"todo":"doing",position:String(n*10),assignee:"",created_by:"ci",tags:[],deps:[],surfaces:[],
+      column:["todo","doing","done"][n%3],position:String(n*10),assignee:"",created_by:"ci",tags:[],deps:[],surfaces:[],
       created_at:time(n),updated_at:time(n),done_at:"",first_doing_at:"",kind:"meta",milestone:"milestone-"+n%2};
     await r.createCardRecord({node,cfg},card);
   }
@@ -91,7 +92,7 @@ async function brainSeed(node,cfg) {
 async function kanbanMeasure(node,cfg) {
   const r=await load(active,"record"),m=await load(active,"milestone-cards");
   const expected=new Map();
-  for(let n=0;n<count;n++) expected.set(slug(n),{column:n%2?"todo":"doing",position:String(n*10)});
+  for(let n=0;n<count;n++) expected.set(slug(n),{column:["todo","doing","done"][n%3],position:String(n*10)});
   for(let n=0;n<iterations;n++) {
     const id=slug(n%count);
     const point=await measure("point_read",()=>r.findCard(node,cfg,id));
@@ -104,6 +105,17 @@ async function kanbanMeasure(node,cfg) {
     for(const card of board)require(JSON.stringify({column:card.column,position:card.position})===JSON.stringify(expected.get(card.slug)),"Board fields are stale");
     const ordered=board.map((card)=>card.column+"#"+card.position.padStart(8,"0")+"#"+card.slug);
     require(JSON.stringify(ordered)===JSON.stringify([...ordered].sort()),"Board order differs");
+    const keys=["todo","doing","done"].map((column)=>({board:"bench",column}));
+    const headModule=await load(active,a.label==="baseline"?"list-head":"named-column-heads");
+    const heads=await measure("column_windows",()=>a.label==="baseline"
+      ?headModule.readColumnHeads(node,cfg.schemaHashes.kanban_list_head,keys)
+      :headModule.namedColumnHeads(node,cfg,keys));
+    for(const key of keys) {
+      const eligible=[...expected].filter(([,value])=>value.column===key.column).sort((a,b)=>Number(a[1].position)-Number(b[1].position));
+      const window=(key.column==="done"?eligible.slice(-20):eligible.slice(0,20)).map(([id])=>id);
+      const found=heads.get("bench\0"+key.column);
+      require(found&&JSON.stringify(found.cards.map((card)=>card.slug))===JSON.stringify(window),"The displayed column window differs");
+    }
     const members=await measure("milestone_summary",()=>m.listMilestoneCardsPartition(node,cfg,"milestone-1"));
     require(members.length===count/2&&members.every((card)=>Number(card.slug.slice(6))%2===1),"Milestone membership differs");
   }

@@ -36,7 +36,7 @@ def compare(args):
             for label in order:
                 output = args.output / app / str(pair) / label
                 output.mkdir(parents=True)
-                node = Node(args.binary, args.revision, output, environment={
+                node = Node(args.binary, args.revision, output, full_socket_name="folddb-full.sock", environment={
                     "APP_IDENTITY_ENFORCE": "false", "LASTDB_SELF_METRICS_TO_DB": "false",
                     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_TTL_SWEEP": "0"})
                 try:

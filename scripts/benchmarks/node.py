@@ -45,7 +45,7 @@ class UnixConnection(http.client.HTTPConnection):
 
 class Node:
     def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None,
-                 start_seconds=120, arguments=(), temporary_directory=None):
+                 start_seconds=120, arguments=(), temporary_directory=None, full_socket_name="f.sock"):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
@@ -56,6 +56,7 @@ class Node:
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir=temporary_directory or "/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
+        self.full_socket = self.root / full_socket_name
         self.home.mkdir(mode=0o700)
         self.owner = {"pid": os.getpid(), "uid": os.getuid(), "root": str(self.root),
                       "inode": self.root.stat().st_ino, "generated_data_only": True}
@@ -107,7 +108,7 @@ class Node:
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
-             "--full-socket-path", str(self.root / "f.sock"), *self.arguments],
+             "--full-socket-path", str(self.full_socket), *self.arguments],
             # Arguments are explicit driver inputs, never inherited from the host.
             env=environment, stdin=subprocess.DEVNULL, stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + self.start_seconds

@@ -56,8 +56,8 @@ pub(crate) fn validate(
         .range_separator
         .as_deref()
         .ok_or("a compound range needs a separator")?;
-    if separator.is_empty() || separator.len() > 16 {
-        return Err("a compound separator must contain 1 to 16 bytes".into());
+    if separator.len() != 1 || !separator.as_bytes()[0].is_ascii_punctuation() {
+        return Err("a compound separator must be one ASCII punctuation byte".into());
     }
     for part in &key.range_parts {
         let kind = schema.key_field_type(&part.field);

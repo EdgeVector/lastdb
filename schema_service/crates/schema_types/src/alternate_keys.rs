@@ -106,8 +106,16 @@ impl DeclarativeSchemaDefinition {
                 return Err("primary is reserved as an alternate key name".into());
             }
             crate::alternate_parts::validate(key, self)?;
-            if !key.fields().any(|field| field == primary) {
-                return Err("each alternate key must include the primary key field".into());
+            let exact_primary = key.hash_field == primary
+                || key.range_field.as_deref() == Some(primary)
+                || key.range_parts.iter().any(|part| {
+                    part.field == primary && part.format == crate::alternate_parts::PartFormat::Text
+                });
+            if !exact_primary {
+                return Err(
+                    "each alternate key must retain the exact primary key field without formatting"
+                        .into(),
+                );
             }
             for field in key.fields() {
                 if !fields.iter().any(|name| name == field) {
