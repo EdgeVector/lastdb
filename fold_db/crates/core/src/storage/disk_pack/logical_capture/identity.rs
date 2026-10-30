@@ -56,12 +56,7 @@ impl Identity {
         };
         let meta = file.metadata()?;
         let expected = MARKER.len() + BODY_BYTES;
-        if !meta.is_file()
-            || meta.mode() & 0o777 != 0o600
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.len() != expected as u64
-        {
+        if !private_owned_file(&meta) || meta.len() != expected as u64 {
             return Err(invalid(
                 "logical capture control must be an exact private owned file",
             ));
@@ -209,19 +204,28 @@ fn require_absent(path: &Path) -> StorageResult<()> {
     }
 }
 
+/// A capture file is regular, mode 0600, one link, and owned by this user.
+fn private_owned_file(meta: &std::fs::Metadata) -> bool {
+    meta.is_file()
+        && meta.mode() & 0o777 == 0o600
+        && meta.nlink() == 1
+        && meta.uid() == unsafe { libc::geteuid() }
+}
+
+fn stage_metadata(path: &Path) -> StorageResult<Option<std::fs::Metadata>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Only this fixed enrollment stage can be discarded; no directory walk occurs.
 fn discard_staged(path: &Path) -> StorageResult<()> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+    let Some(meta) = stage_metadata(path)? else {
+        return Ok(());
     };
-    if !meta.is_file()
-        || meta.mode() & 0o777 != 0o600
-        || meta.nlink() != 1
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.len() > (MARKER.len() + BODY_BYTES) as u64
-    {
+    if !private_owned_file(&meta) || meta.len() > (MARKER.len() + BODY_BYTES) as u64 {
         return Err(invalid(
             "logical capture stage is not a private owned partial control",
         ));
