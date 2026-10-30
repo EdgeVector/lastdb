@@ -2,9 +2,9 @@ name: CI required
 
 # Required merge gate on GitHub Actions (decision-2026-09-29-fold-venue-back-to-github).
 # GitHub owns the required gate. The retired Forgejo workflows are absent from
-# this tree. Tom authorized only the canonical schema property target on
-# 2026-10-28. Other tests stay retired. The gate also keeps fmt, clippy,
-# lints, a tracked-text secret scan, and builds. No coverage check is required.
+# this tree. Tests stay retired. The gate keeps fmt, clippy, lints, a
+# tracked-text secret scan, builds, and the atom history product proof.
+# No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
 on:

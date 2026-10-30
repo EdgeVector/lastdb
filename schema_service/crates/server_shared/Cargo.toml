@@ -48,7 +48,3 @@ workspace = true
 test = false
 doctest = false
 bench = false
-
-[dev-dependencies]
-sha2 = { workspace = true }
-tokio = { workspace = true }
