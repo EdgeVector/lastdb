@@ -14,8 +14,8 @@
       "exemem_api": "https://jdsx4ixk2i.execute-api.us-east-1.amazonaws.com",
       "schema_service": "https://axo709qs11.execute-api.us-east-1.amazonaws.com",
       "portal": "https://exemem.com",
-      "release_log_url": "https://release-log.invalid/prod",
-      "release_log_keys": []
+      "release_log_url": "https://d1ycd4qq5eqtw6.cloudfront.net",
+      "release_log_keys": ["E/nGNTzMnSiYiXy6AA4Mv1UGOZnmHIpPSwoPL2YBPOk="]
     }
   }
 }
