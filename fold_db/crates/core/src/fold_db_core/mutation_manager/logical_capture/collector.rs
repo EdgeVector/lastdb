@@ -51,11 +51,8 @@ impl MutationManager {
         if !runtime.logical_capture_enabled() {
             return Ok(());
         }
-        if !delta.share_prefixes.is_empty()
-            || !delta.sibling_updates.is_empty()
-            || !delta.sibling_moves.is_empty()
-        {
-            return Err(unsupported("share or protein effects"));
+        if !delta.share_prefixes.is_empty() {
+            return Err(unsupported("share effects"));
         }
         let (identity, alternate_revision) = capture_schema_contract(&delta.schema)?;
         CANDIDATES

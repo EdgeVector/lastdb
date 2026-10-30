@@ -153,8 +153,6 @@ pub struct AtomStore {
     /// Legacy constructors leave this unset. Production construction and the
     /// drain tests attach it explicitly.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
-    /// Serialize protein membership selection and orphan reclamation across clones.
-    protein_membership_gate: Arc<tokio::sync::Mutex<()>>,
     /// The account key that seals a local CAS file blob (see
     /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
     /// JSON, and the block encryption of each run file protects it at rest.

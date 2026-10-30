@@ -61,9 +61,10 @@ pub(crate) enum Verdict {
     /// Nothing names the molecule and every counter is trusted. `slots` and
     /// `records` are what the header says. The keys of the molecule may go. The
     /// family may go when both are zero.
-    Dead { slots: u64, records: u64 },
-    /// The `bindings` counter is above zero: a schema, a protein or a database
-    /// catalog names the molecule.
+    Dead {
+        slots: u64,
+        records: u64,
+    },
     Bound,
     /// A counter or a record is in a state that no removal may rely on.
     Refused(Refusal),

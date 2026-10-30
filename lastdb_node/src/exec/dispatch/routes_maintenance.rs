@@ -17,7 +17,6 @@ pub(super) async fn dispatch_maintenance_gc(
         DataRoute::DbNativeStatus => {
             heap_route!(execute_db_native_status_route, req, ctx, host).await
         }
-        DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
         _ => return None,
     })
 }
@@ -46,9 +45,6 @@ pub(super) async fn dispatch_maintenance_repair(
         }
         DataRoute::DbSchemaRetention => {
             heap_route!(execute_db_schema_retention_route, req, ctx, host).await
-        }
-        DataRoute::DbBackfillProteinKeys => {
-            heap_route!(execute_db_backfill_protein_keys_route, req, ctx, host).await
         }
         DataRoute::DbAlternateKeys => {
             heap_route!(execute_db_alternate_keys_route, req, ctx, host).await

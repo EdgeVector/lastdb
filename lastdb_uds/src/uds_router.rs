@@ -226,16 +226,6 @@ fn route_special(path: &str, method: &str, owner: bool) -> Option<ControlRoute> 
         "/control/browser-pairing-code" if owner => {
             single_method(method, "POST", ControlRoute::MintBrowserPairingCode)
         }
-        // Retired app-facing protein writes. Proteins are bound by the node on
-        // schema load and folded on the mutation path, so these have no caller
-        // left inside the engine and must not have one outside it either.
-        // Answered as NotFound rather than MethodNotAllowed on purpose: a
-        // pre-cutover client probes for the routes and treats their absence as
-        // "this node has no protein API", which is its cue to fall back to its
-        // own writes instead of failing the user's mutation.
-        "/api/protein" | "/api/protein/member" | "/api/protein/write" | "/api/protein/fold" => {
-            ControlRoute::NotFound
-        }
         _ => return None,
     };
     Some(route)
@@ -268,22 +258,6 @@ fn route_prefixed(path: &str, method: &str, owner: bool) -> Option<ControlRoute>
         if let Some(route) = route_owner_prefixed(path, method) {
             return Some(route);
         }
-    }
-    // Before the `{uuid}` arm below: a two-segment tail would fail that
-    // arm's one-segment guard and fall through to NotFound.
-    if one_segment(path, "/api/protein/of-molecule/").is_some() {
-        return Some(single_method(
-            method,
-            "GET",
-            ControlRoute::Data(DataRoute::ProteinOfMolecule),
-        ));
-    }
-    if one_segment(path, "/api/protein/").is_some() {
-        return Some(single_method(
-            method,
-            "GET",
-            ControlRoute::Data(DataRoute::ProteinGet),
-        ));
     }
     if one_segment(path, "/api/schema/").is_some() {
         return Some(single_method(

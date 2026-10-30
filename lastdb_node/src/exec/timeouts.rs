@@ -184,7 +184,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
         | DataRoute::DbClearHistory
-        | DataRoute::DbGcProteins
         | DataRoute::DbDeleteLedger
         | DataRoute::DbRepairHashRangeKeyFields
         | DataRoute::SyncByteBackupV2
@@ -251,7 +250,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbMoleculeKeys
         | DataRoute::DbUnresolvedAtoms
         | DataRoute::DbSchemaRetention
-        | DataRoute::DbBackfillProteinKeys
         | DataRoute::DbAlternateKeys
         | DataRoute::DbRepairSchemaMoleculeMap
         | DataRoute::DbFetchFileBlob
@@ -259,8 +257,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DeliverSnapshot
         | DataRoute::SyncLogicalV1
         | DataRoute::LocalWatch
-        | DataRoute::AppChanges
-        | DataRoute::ProteinGet
-        | DataRoute::ProteinOfMolecule => handler_timeout(),
+        | DataRoute::AppChanges => handler_timeout(),
     }
 }

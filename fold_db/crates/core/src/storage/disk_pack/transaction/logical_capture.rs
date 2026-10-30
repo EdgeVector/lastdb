@@ -39,7 +39,7 @@ pub(in crate::storage::disk_pack) fn require_captured_changes(
 }
 
 fn changes_logical_data(operation: &HomeMutation) -> StorageResult<bool> {
-    if !matches!(operation.collection.as_str(), "tips" | "proteins") {
+    if !matches!(operation.collection.as_str(), "tips") {
         return Ok(false);
     }
     let key = super::super::native_routing::decode(&operation.key)?;
@@ -51,8 +51,5 @@ fn changes_logical_data(operation: &HomeMutation) -> StorageResult<bool> {
         return Ok(false);
     };
     let family = key.split([':', '\0']).next().unwrap_or_default();
-    Ok(matches!(
-        family,
-        "mk" | "rdel" | "mgp" | "mgr" | "mgd" | "protein" | "molprot" | "fldprot" | "pfq"
-    ))
+    Ok(matches!(family, "mk" | "rdel" | "mgp" | "mgr" | "mgd"))
 }

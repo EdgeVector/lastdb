@@ -44,7 +44,6 @@ pub enum AttributionObjectKind {
     Blob,
     Molecule,
     Tip,
-    Protein,
     DerivedIndex,
 }
 
@@ -55,7 +54,6 @@ impl AttributionObjectKind {
             Self::Blob => "blob",
             Self::Molecule => "molecule",
             Self::Tip => "tip",
-            Self::Protein => "protein",
             Self::DerivedIndex => "derived-index",
         }
     }

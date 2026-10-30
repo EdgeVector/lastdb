@@ -21,11 +21,13 @@ impl SchemaCore {
             retired_name_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             db_ops: db_ops.clone(),
             catalog_ready: AtomicBool::new(false),
-            coherence_bound: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
 
         // Hydrate from durable store (may take minutes on large post-rekey homes).
         let stored_schemas = db_ops.get_all_schemas().await?;
+        for schema in stored_schemas.values() {
+            super::load::owned::require_owned_schema(schema)?;
+        }
         let schema_states = db_ops.get_all_schema_states().await?;
         let superseded_by = db_ops.get_all_superseded_by().await?;
         let retired_name_claims = db_ops.list_retired_name_claims().await?;

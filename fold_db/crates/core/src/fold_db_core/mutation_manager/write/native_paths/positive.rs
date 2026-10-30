@@ -38,7 +38,6 @@ impl MutationManager {
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
         scope: Option<&str>,
-        siblings: bool,
     ) -> Result<(), SchemaError> {
         for name in job.modified_fields.keys() {
             let Some(field) = job.schema.runtime_fields.get(name) else {
@@ -53,13 +52,6 @@ impl MutationManager {
             self.db_ops
                 .atoms()
                 .stage_molecule_header(runtime, molecule, data, scope)?;
-        }
-        if siblings {
-            for (molecule, data, _) in &job.sibling_updates {
-                self.db_ops
-                    .atoms()
-                    .stage_molecule_header(runtime, molecule, data, scope)?;
-            }
         }
         Ok(())
     }

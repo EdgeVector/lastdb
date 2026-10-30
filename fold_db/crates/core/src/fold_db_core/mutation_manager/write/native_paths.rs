@@ -49,12 +49,12 @@ impl MutationManager {
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
     ) -> Result<(), SchemaError> {
-        self.stage_native_scope(job, runtime, job.storage_prefix.as_deref(), true)
+        self.stage_native_scope(job, runtime, job.storage_prefix.as_deref())
             .boxed()
             .await?;
         if job.storage_prefix.is_none() {
             for scope in &job.share_prefixes {
-                self.stage_native_scope(job, runtime, Some(scope), false)
+                self.stage_native_scope(job, runtime, Some(scope))
                     .boxed()
                     .await?;
             }
@@ -67,15 +67,14 @@ impl MutationManager {
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
         scope: Option<&str>,
-        siblings: bool,
     ) -> Result<(), SchemaError> {
-        self.stage_native_headers(job, runtime, scope, siblings)?;
-        // Schema-field/protein definitions are global. The logical records
+        self.stage_native_headers(job, runtime, scope)?;
+        // Schema-field definitions are global. The logical records
         // below use this request's scope.
-        let tips = changed_tips(job, siblings);
+        let tips = changed_tips(job);
         measure(
             "path_controls_us",
-            self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings)),
+            self.stage_native_controls(runtime, scope, &changed_molecules(job)),
         )
         .boxed()
         .await?;
@@ -96,8 +95,7 @@ impl MutationManager {
             }
             result => result?,
         }
-        self.stage_removed_job_paths(job, runtime, scope, siblings)
-            .await
+        self.stage_removed_job_paths(job, runtime, scope).await
     }
 
     /// Name the exact tip key and the current atom placement.
@@ -166,7 +164,7 @@ impl MutationManager {
     }
 }
 
-fn changed_molecules(job: &DeferredPersistJob, include_siblings: bool) -> Vec<String> {
+fn changed_molecules(job: &DeferredPersistJob) -> Vec<String> {
     job.modified_fields
         .keys()
         .filter_map(|name| {
@@ -176,19 +174,13 @@ fn changed_molecules(job: &DeferredPersistJob, include_siblings: bool) -> Vec<St
                 .common()
                 .molecule_uuid()
         })
-        .chain(
-            job.sibling_updates
-                .iter()
-                .filter(|_| include_siblings)
-                .map(|(molecule, _, _)| molecule),
-        )
         .cloned()
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()
 }
 
-fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<ChangedTip> {
+fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
     let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
         let field = job.schema.runtime_fields.get(name)?;
         Some((
@@ -197,13 +189,8 @@ fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<Changed
             keys,
         ))
     });
-    let siblings = job
-        .sibling_updates
-        .iter()
-        .filter(|_| include_siblings)
-        .map(|(molecule, data, keys)| (molecule.as_str(), data, keys));
     let mut tips = BTreeMap::new();
-    for (molecule, data, keys) in entry.chain(siblings) {
+    for (molecule, data, keys) in entry {
         for key in keys {
             let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
             if let Some(entry) = data.get_atom_entry(hash, range) {

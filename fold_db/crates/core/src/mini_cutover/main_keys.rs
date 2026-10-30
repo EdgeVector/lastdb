@@ -13,13 +13,6 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
         Some("molecule_ref_edges")
     } else if bare.starts_with("bref:v3:") {
         Some("atoms")
-    } else if bare.starts_with("protein:")
-        || bare.starts_with("molprot:")
-        || bare.starts_with("fldprot:")
-        || bare.starts_with("pfq:")
-    {
-        // Ideal plane: first-class proteins collection (docs/lastdb-ideal-storage-shape.md).
-        Some("proteins")
     } else if colon_prefix_matches(bare, "schemaidx:") {
         Some("indexes")
     } else if bare.starts_with("fdep:v1:")

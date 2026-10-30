@@ -49,10 +49,4 @@ pub struct SchemaCore {
     /// false — clients (and the safe-upgrade smoke bar) treat empty-ok as a
     /// finished empty brain, which false-REDs a hydrating post-rekey home.
     catalog_ready: AtomicBool,
-    /// Exact field memberships this process established in a durable native scope.
-    /// A restart re-establishes the memo. New schemas join the same field protein
-    /// directly; app names, key differences and schema overlap do not select peers.
-    coherence_bound: Arc<Mutex<HashMap<String, Vec<CoherenceBinding>>>>,
 }
-
-pub(super) use crate::protein::FieldProteinBinding as CoherenceBinding;

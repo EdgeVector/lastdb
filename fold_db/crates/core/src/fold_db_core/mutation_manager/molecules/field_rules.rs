@@ -1,9 +1,7 @@
-//! Storage-free field validation, changed-key loads, and accepted protein sources.
+//! Storage-free field validation and changed-key load plans.
 
 use std::collections::{HashMap, HashSet};
 
-use super::prepared::{AcceptedSources, PreparedFieldAtom};
-use crate::atom::Atom;
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -16,18 +14,17 @@ pub(super) struct FieldLoadPlan<'a> {
     pub(super) changed_keys: &'a HashSet<ChangedKey>,
 }
 
-/// Non-schema protein key values stay on the mutation but produce no atom.
+/// Only a declared field can receive a value.
 pub(super) fn validate_field_value(
     schema_name: &str,
     schema: &Schema,
     field_name: &str,
     value: &serde_json::Value,
 ) -> Result<bool, SchemaError> {
-    // Extra keys (e.g. sibling partition values for field_hash
-    // protein fold) are not schema fields — keep them on the
-    // mutation for fold field maps, but do not create atoms.
     if !schema.runtime_fields.contains_key(field_name) {
-        return Ok(false);
+        return Err(SchemaError::InvalidData(format!(
+            "field '{field_name}' is not declared in schema '{schema_name}'"
+        )));
     }
     let field_type = schema.get_field_type(field_name);
     if let Err(type_err) = field_type.validate(value) {
@@ -99,42 +96,4 @@ pub(super) fn cold_field_loads<'a>(
         });
     }
     plans
-}
-
-/// Only the accepted authored source can update related protein molecules.
-pub(super) fn eligible_protein_atoms<'a>(
-    schema: &'a Schema,
-    mutation_key_values: &[KeyValue],
-    atom_results: &'a [PreparedFieldAtom],
-    accepted: &AcceptedSources,
-) -> Vec<(usize, &'a Atom, &'a str)> {
-    let mut eligible = Vec::new();
-    for PreparedFieldAtom {
-        mutation_index: idx,
-        field_name,
-        atom,
-    } in atom_results
-    {
-        let key_value = &mutation_key_values[*idx];
-        let Some(field) = schema.runtime_fields.get(field_name) else {
-            continue;
-        };
-        let Some(mol_uuid) = field.common().molecule_uuid() else {
-            continue;
-        };
-        let source = (*idx, mol_uuid.clone(), atom.uuid().to_string());
-        let Some(accepted) = accepted.get(&source) else {
-            continue;
-        };
-        // A UUID identifies value bytes, not the authored write. An equal
-        // value can lose its clock, or a later batch write can replace it.
-        if field
-            .atom_entry_at_key(key_value)
-            .is_none_or(|entry| entry.lww_key() != accepted.lww_key())
-        {
-            continue;
-        }
-        eligible.push((*idx, atom, mol_uuid.as_str()));
-    }
-    eligible
 }

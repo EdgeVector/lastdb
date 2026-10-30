@@ -77,10 +77,6 @@ impl MutationManager {
             .flat_map(|schema| schema.runtime_fields.values())
             .filter_map(|field| field.common().molecule_uuid().cloned())
             .collect();
-        let proteins = self.db_ops.atoms().protein_of_molecules(&molecules).await?;
-        if proteins.into_iter().any(|owner| owner.is_some()) {
-            return Err(unsupported("protein members"));
-        }
         let pointers = molecules
             .iter()
             .map(|molecule| {

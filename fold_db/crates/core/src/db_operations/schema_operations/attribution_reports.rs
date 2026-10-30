@@ -2,12 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The catalog-root part of an attribution epoch.
-///
-/// This is deliberately only the schema-to-molecule layer. The next walk
-/// reads each molecule's bounded tip pages and classifies atoms, history,
-/// blobs, proteins, and remaining physical residue. A root row by itself does
-/// not authorize any deletion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SchemaRootAttributionReport {
     pub schemas_read: u64,
@@ -17,10 +11,6 @@ pub struct SchemaRootAttributionReport {
     /// yet a complete report. The walker never turns this into residue.
     pub size_complete: bool,
     pub missing_molecule_counters: u64,
-    /// Retired: the protein fold queue is removed. Always 0. Kept so
-    /// installed clients can still parse this report.
-    #[serde(default)]
-    pub pending_protein_folds: u64,
     pub logical_value_bytes: u64,
     pub structure_bytes: u64,
     pub retained_history_bytes: u64,

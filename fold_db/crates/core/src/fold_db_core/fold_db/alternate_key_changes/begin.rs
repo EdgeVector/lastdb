@@ -88,18 +88,6 @@ async fn source_counts(db: &FoldDB, source: &Schema) -> Result<BTreeMap<String, 
             Ok(id)
         })
         .collect::<Result<_, _>>()?;
-    if db
-        .db_ops
-        .atoms()
-        .protein_of_molecules(&molecules)
-        .await?
-        .iter()
-        .any(Option::is_some)
-    {
-        return Err(invalid(
-            "classify and separate existing protein relationships before this schema conversion",
-        ));
-    }
     let counters = db
         .db_ops
         .atoms()

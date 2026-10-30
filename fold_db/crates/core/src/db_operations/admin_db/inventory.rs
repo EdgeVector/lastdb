@@ -137,7 +137,7 @@ impl AtomStore {
             .await?;
 
         let scan = self.range_walks().snapshot().since(walks_before);
-        let notes = inventory_notes(&main_classes);
+        let notes = inventory_notes();
         let molecule_counters = self.inventory_molecule_counters(storage_prefix).await?;
 
         Ok(DbInventory {
@@ -187,30 +187,12 @@ impl AtomStore {
 }
 
 /// Human-readable caveats and residue warnings for a finished inventory.
-fn inventory_notes(main_classes: &[MainKeyClass]) -> Vec<String> {
-    let mut notes = vec![
+fn inventory_notes() -> Vec<String> {
+    let notes = vec![
         "Sizes count live keys and values; physical file sizes can differ.".into(),
         "History contains current mutation events and conflict records.".into(),
         "atom: holds two records for each atom: the body (atom:{uuid}\\0b) and its counter (atom:{uuid}\\0c). atom_counters reports the counters.".into(),
     ];
-    // A protein is reachable only through some molecule's `molprot:` back-ref,
-    // and at most one back-ref points at each protein a client created for a
-    // single molecule. So `protein:` rows far exceeding `molprot:` rows means
-    // proteins were created and never bound — orphans, which nothing reclaims.
-    let class_keys = |class: &str| {
-        main_classes
-            .iter()
-            .find(|c| c.class == class)
-            .map_or(0, |c| c.keys)
-    };
-    let proteins = class_keys("protein_record");
-    let backrefs = class_keys("protein_member_backref");
-    if proteins > backrefs.saturating_mul(2) && proteins.saturating_sub(backrefs) > 1_000 {
-        notes.push(format!(
-                "ORPHAN PROTEINS LIKELY: {proteins} protein: rows vs {backrefs} molprot: back-refs (~{} unbound). A client that creates a protein before checking `GET /api/protein/of-molecule/{{mol}}` leaks one per call, and no code path deletes protein: rows.",
-                proteins.saturating_sub(backrefs)
-            ));
-    }
 
     notes
 }

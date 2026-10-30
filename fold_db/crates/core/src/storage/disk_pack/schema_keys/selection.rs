@@ -19,8 +19,6 @@ impl PackRuntime {
         (view.revision == context.revision).then(select)
     }
 
-    /// A selected row can keep the body's real location, including a protein
-    /// sibling's copy. A mismatched row never changes the selected-tip receipt.
     pub(crate) fn schema_key_tip_for_record(
         self: &Arc<Self>,
         scope: Option<&str>,

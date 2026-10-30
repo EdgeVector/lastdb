@@ -6,7 +6,7 @@ use futures::FutureExt;
 
 impl MutationManager {
     /// The lane owns the native gate. A concurrent key move cannot change the
-    /// source between its peer-key read and the complete destructive batch.
+    /// target between its keyed read and the complete destructive batch.
     pub(super) async fn attempt_current_erasure_stages(
         &self,
         job: &mut PurgeEnvelope,
@@ -14,11 +14,11 @@ impl MutationManager {
     ) -> Result<Vec<String>, PurgeAttemptError> {
         if !transaction::publication::active(Some(Arc::clone(runtime))) {
             return Err(PurgeAttemptError::Retry(SchemaError::InvalidData(
-                "protein erasure resolution requires a complete native write scope".into(),
+                "erasure requires a complete native write scope".into(),
             )));
         }
         // Caller conditions pass at the shared erasure entry point. Only the
-        // caller's keys carry the must-exist requirement; peers are idempotent.
+        // caller's keys carry the must-exist requirement.
         let inputs = self.current_logical_erasure_inputs(job).await?;
         self.validate_purge_job_targets(job).await?;
         let ids = job
@@ -26,9 +26,7 @@ impl MutationManager {
             .iter()
             .map(|mutation| mutation.uuid.clone())
             .collect();
-        let erasures = self
-            .current_erasure_targets(inputs, job.storage_prefix.as_deref())
-            .await?;
+        let erasures = self.prepare_erasure_targets(inputs).await?;
         let (order, mut grouped) = super::super::super::write::group_mutations_by_schema(erasures);
         for schema in order {
             let erasures = grouped.remove(&schema).expect("prepared Delete schema");
@@ -50,36 +48,14 @@ impl MutationManager {
         Ok(ids)
     }
 
-    async fn current_erasure_targets(
+    async fn prepare_erasure_targets(
         &self,
         inputs: Vec<crate::schema::types::Mutation>,
-        scope: Option<&str>,
     ) -> Result<Vec<crate::schema::types::Mutation>, PurgeAttemptError> {
         if inputs.is_empty() {
             return Ok(inputs);
         }
-        let names: HashSet<_> = inputs
-            .iter()
-            .map(|mutation| mutation.schema_name.as_str())
-            .collect();
-        for name in names {
-            self.schema_manager
-                .apply_field_hash_coherence_on_load(name)
-                .await
-                .map_err(target_error)?;
-        }
-        let erasures = self
-            .expand_protein_member_deletes(inputs, scope)
-            .await
-            .map_err(target_error)?;
-        // This pass also handles scoped HashRange peers and can reach an
-        // extra peer through fields declared only on a first-pass sibling.
-        // Neither pass changes the source clock. Purge reaches its reverse
-        // HashRange peers here too, after the native boundary is acquired.
-        let erasures = self
-            .expand_protein_hashrange_erasures(erasures, scope)
-            .await
-            .map_err(target_error)?;
+        let erasures = inputs;
         let mut seen = HashSet::new();
         let erasures: Vec<_> = erasures
             .into_iter()
@@ -94,7 +70,7 @@ impl MutationManager {
         if erasures.len() > 10_000 {
             return Err(PurgeAttemptError::Rejected(
                 SchemaError::WriteResourceLimit {
-                    detail: "Delete peer expansion exceeds 10000 keys".into(),
+                    detail: "Delete request exceeds 10000 keys".into(),
                 },
             ));
         }

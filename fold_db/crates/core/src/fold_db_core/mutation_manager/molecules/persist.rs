@@ -25,9 +25,6 @@ pub(crate) struct DeferredPersistJob {
     pub retention_write: Option<Vec<crate::schema::types::KeyValue>>,
     pub retention_hash_partitions: Option<Vec<crate::schema::types::KeyValue>>,
     pub schema_name: String,
-    /// Protein sibling tips staged in the same native transaction as the source.
-    pub sibling_updates: Vec<(String, MoleculeData, HashSet<ChangedKey>)>,
-    pub(in crate::fold_db_core::mutation_manager) sibling_moves: Vec<super::prepared::SiblingMove>,
 }
 
 impl MutationManager {
@@ -239,14 +236,12 @@ impl MutationManager {
 }
 
 mod deferred_job;
-mod key_moves;
+mod erasure;
 mod lane_writer;
-mod protein_delete;
 mod purge_job;
 mod purge_resident;
 mod purge_types;
 mod quarantine_records;
-mod sibling;
 pub(in crate::fold_db_core::mutation_manager) use lane_writer::*;
 pub(crate) use purge_types::*;
 pub(crate) use quarantine_records::*;

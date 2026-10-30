@@ -7,7 +7,6 @@ use super::storage_breakdown::{SchemaStorage, StorageBreakdown};
 use super::AtomStore;
 use crate::atom::{molecule_key_codec, MutationEvent};
 
-use crate::protein::{Protein, MEMBER_BACKREF_PREFIX, PROTEIN_RECORD_PREFIX};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use chrono::{DateTime, Utc};
@@ -25,4 +24,3 @@ mod inventory_key_classes;
 mod inventory_molecule_keys;
 mod inventory_molecules;
 pub use inventory_molecules::MoleculeCounterTotals;
-mod orphan_proteins;

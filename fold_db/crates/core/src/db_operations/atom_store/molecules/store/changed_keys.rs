@@ -146,33 +146,7 @@ impl AtomStore {
         );
     }
 
-    /// Persist changed keys for several molecules through one durable batch.
-    ///
-    /// Each molecule computes its changed `mk:` record and header. The planner
-    /// writes the winning tips, the bodies of atoms that gain their first
-    /// reference, and every counter change in one batch with the headers.
-    ///
-    /// One molecule may legitimately appear SEVERAL times here: the protein
-    /// sibling fold runs once per record, so a mutation carrying N records
-    /// hands one sibling molecule N single-key updates in the same batch (see
-    /// `fold_protein_siblings_after_write`). Nothing is committed until the
-    /// single planner call below.
-    pub(crate) async fn store_molecules_changed_keys_batch(
-        &self,
-        molecules: &[(String, MoleculeData, std::collections::HashSet<ChangedKey>)],
-        bodies: &[crate::atom::Atom],
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let borrowed: Vec<(&str, &MoleculeData, &std::collections::HashSet<ChangedKey>)> =
-            molecules
-                .iter()
-                .map(|(uuid, data, changed)| (uuid.as_str(), data, changed))
-                .collect();
-        self.store_molecules_changed_keys_batch_ref(&borrowed, bodies, storage_prefix)
-            .await
-    }
-
-    /// Borrowed-input form of [`Self::store_molecules_changed_keys_batch`].
+    /// Store all selected changed keys in one counted batch.
     ///
     /// Nothing in the batch path needs to OWN a molecule —
     /// [`Self::changed_key_store_items`] takes `&MoleculeData` — so the owning

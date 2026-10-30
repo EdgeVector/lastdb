@@ -28,9 +28,6 @@ pub(crate) use db_ledger_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
-#[path = "db_reclaim_cmds.rs"]
-mod db_reclaim_cmds;
-pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;

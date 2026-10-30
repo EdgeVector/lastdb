@@ -58,7 +58,6 @@ pub(super) fn admit(
         );
         vec![super::super::kv::coordinate("main", expected.as_bytes())]
     };
-    // An existing full value keeps its actual copy, including protein siblings.
     if body.is_empty() {
         return Ok(());
     }

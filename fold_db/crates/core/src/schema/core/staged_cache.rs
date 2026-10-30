@@ -1,7 +1,7 @@
 //! Native schema reloads keep their cache state private until disk publication.
 
 use super::locks::{lock_map, read_map, write_map};
-use super::{CoherenceBinding, Schema, SchemaCore, SchemaState};
+use super::{Schema, SchemaCore, SchemaState};
 use crate::schema::types::SchemaError;
 use crate::storage::disk_pack::transaction::publication;
 use crate::storage::error::StorageResult;
@@ -57,45 +57,6 @@ impl SchemaCore {
                     lock_map(&states, "schema_states").map_err(|error| cache_error(&error))?;
                 schemas.insert(name.clone(), schema);
                 states.insert(name, state);
-                Ok(())
-            },
-        )?;
-        Ok(())
-    }
-
-    pub(super) fn coherence_memo(
-        &self,
-        name: &str,
-    ) -> Result<Option<Vec<CoherenceBinding>>, SchemaError> {
-        let staged = publication::get::<Vec<CoherenceBinding>>(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
-            Arc::as_ptr(&self.coherence_bound) as usize,
-            name,
-        )?;
-        match staged {
-            Some(bindings) => Ok(Some((*bindings).clone())),
-            None => Ok(lock_map(&self.coherence_bound, "coherence_bound")?
-                .get(name)
-                .cloned()),
-        }
-    }
-
-    pub(super) fn publish_coherence_memo(
-        &self,
-        name: &str,
-        bindings: Vec<CoherenceBinding>,
-    ) -> Result<(), SchemaError> {
-        let cache = Arc::clone(&self.coherence_bound);
-        let name = name.to_string();
-        publication::publish(
-            self.db_ops.namespaced_store().disk_pack_runtime(),
-            Arc::as_ptr(&cache) as usize,
-            name.clone(),
-            bindings.clone(),
-            move || -> StorageResult<()> {
-                lock_map(&cache, "coherence_bound")
-                    .map_err(|error| cache_error(&error))?
-                    .insert(name, bindings);
                 Ok(())
             },
         )?;

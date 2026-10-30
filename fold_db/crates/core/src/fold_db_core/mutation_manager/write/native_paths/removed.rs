@@ -67,7 +67,6 @@ impl MutationManager {
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
         scope: Option<&str>,
-        include_siblings: bool,
     ) -> Result<(), SchemaError> {
         let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
             let field = job.schema.runtime_fields.get(name)?;
@@ -77,22 +76,8 @@ impl MutationManager {
                 keys,
             ))
         });
-        let siblings = job
-            .sibling_updates
-            .iter()
-            .filter(|_| include_siblings)
-            .map(|(molecule, data, keys)| (molecule.as_str(), data, keys));
         let mut slots = Vec::new();
-        if include_siblings {
-            for movement in &job.sibling_moves {
-                slots.push((
-                    movement.molecule_uuid.clone(),
-                    movement.old_key.hash.clone().unwrap_or_default(),
-                    movement.old_key.range.clone().unwrap_or_default(),
-                ));
-            }
-        }
-        for (molecule, data, keys) in entry.chain(siblings) {
+        for (molecule, data, keys) in entry {
             for key in keys {
                 let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 if data.get_atom_entry(hash, range).is_none() {
