@@ -13,7 +13,7 @@ Independent HashRange schemas can store separate relationship records, without a
     "range_separator": "#",
     "range_parts": [
       {"field": "column"},
-      {"field": "position", "format": {"decimal": {"width": 8}}},
+      {"field": "position", "format": {"padded_text": {"width": 8}}},
       {"field": "slug"}
     ]
   },
@@ -28,8 +28,8 @@ Independent HashRange schemas can store separate relationship records, without a
 }
 ```
 
-The board range preserves `column#position#slug`. Decimal width specifies minimum zero padding.
-Decimal values use nonnegative integers within u64. Text values cannot contain the separator.
+The board range preserves `column#position#slug`. Padded text preserves the existing minimum zero padding.
+Padded text preserves lexical positions and counts UTF-16 units, as the app does. Text values cannot contain the separator.
 The reverse time format uses RFC 3339 input, millisecond precision, and a fixed 20-digit descending UTC order.
 Equal timestamps use the following slug part. The time order covers signed Unix millisecond values.
 

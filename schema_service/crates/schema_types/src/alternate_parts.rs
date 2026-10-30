@@ -16,7 +16,7 @@ pub struct RangePart {
 pub enum PartFormat {
     #[default]
     Text,
-    Decimal {
+    PaddedText {
         width: u8,
     },
     ReverseTimeMillis,
@@ -56,9 +56,8 @@ pub(crate) fn validate(
         let kind = schema.key_field_type(&part.field);
         match part.format {
             PartFormat::Text if kind == FieldValueType::String => {}
-            PartFormat::Decimal { width }
-                if (1..=20).contains(&width)
-                    && matches!(kind, FieldValueType::String | FieldValueType::Integer) => {}
+            PartFormat::PaddedText { width }
+                if (1..=64).contains(&width) && kind == FieldValueType::String => {}
             PartFormat::ReverseTimeMillis
                 if matches!(kind, FieldValueType::String | FieldValueType::DateTime) => {}
             _ => return Err("compound range format does not match its field type".into()),
@@ -82,13 +81,11 @@ pub fn render(
     }
     match part.format {
         PartFormat::Text => Ok(text),
-        PartFormat::Decimal { width } => {
-            if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err("a decimal range part requires a nonnegative decimal integer".into());
-            }
-            let number: u64 = text.parse().map_err(|_| "decimal range part exceeds u64")?;
-            Ok(format!("{number:0width$}", width = usize::from(width)))
-        }
+        PartFormat::PaddedText { width } => Ok(format!(
+            "{}{}",
+            "0".repeat(usize::from(width).saturating_sub(text.encode_utf16().count())),
+            text
+        )),
         PartFormat::ReverseTimeMillis => {
             let millis = crate::rfc3339::parse_utc(&text)?.timestamp_millis();
             let ordered = (millis as u64) ^ (1 << 63);

@@ -13,7 +13,7 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if !matches!(version, 2 | 3 | 4) {
+    if !matches!(version, 2..=4) {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
