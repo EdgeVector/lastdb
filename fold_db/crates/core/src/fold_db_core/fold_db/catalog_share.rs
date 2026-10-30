@@ -71,23 +71,9 @@ impl FoldDB {
             .get_schema_metadata(schema_name)?
             .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
         let storage_prefix = target_entry.instance_id.clone();
-        let mut molecule_uuids: Vec<String> = schema
-            .field_molecule_uuids
-            .as_ref()
-            .into_iter()
-            .flat_map(|molecules| molecules.values().cloned())
-            .collect();
-        molecule_uuids.sort_unstable();
-        molecule_uuids.dedup();
-        let mut _molecule_guards = Vec::with_capacity(molecule_uuids.len());
-        for molecule_uuid in &molecule_uuids {
-            _molecule_guards.push(
-                self.db_ops()
-                    .atoms()
-                    .lock_molecule_commit(molecule_uuid, storage_prefix.as_deref())
-                    .await,
-            );
-        }
+        let _molecule_guards = self
+            .lock_schema_molecules(Some(&schema), storage_prefix.as_deref())
+            .await;
         let molecules_wrapped = self
             .db_ops()
             .molecule_keys()
