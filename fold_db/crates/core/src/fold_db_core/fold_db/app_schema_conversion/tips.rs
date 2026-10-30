@@ -30,7 +30,7 @@ pub(super) async fn keys(
         }
         start = format!("{after}\0");
     }
-    let limit = (4096 / target.source.runtime_fields.len().max(1)).min(64);
+    let limit = (1024 / target.source.runtime_fields.len().max(1)).min(32);
     let rows = atoms
         .raw()
         .inner()
@@ -85,13 +85,16 @@ pub(super) async fn keys(
 
 pub(super) async fn copy(
     db: &FoldDB,
+    store: &dyn KvStore,
+    id: &str,
     target: &mut Target,
     keys: &[KeyValue],
 ) -> Result<(), SchemaError> {
     let atoms = db.db_ops.atoms();
+    let selected = membership::mask(db, target, keys).await?;
     let mut sources = Vec::new();
     let mut destinations = Vec::new();
-    for key in keys {
+    for (ordinal, key) in keys.iter().enumerate() {
         for (name, source) in &target.source.runtime_fields {
             let destination = target
                 .target
@@ -99,7 +102,11 @@ pub(super) async fn copy(
                 .get(name)
                 .ok_or_else(|| invalid("target field is absent"))?;
             sources.push(slot(atoms, source, key)?);
-            destinations.push((name.clone(), slot(atoms, destination, key)?));
+            destinations.push((
+                name.clone(),
+                slot(atoms, destination, key)?,
+                selected[ordinal],
+            ));
         }
     }
     if sources.len() > 4096 {
@@ -110,15 +117,32 @@ pub(super) async fn copy(
         return Err(invalid("source tip batch is incomplete"));
     }
     let mut tips = Vec::new();
-    for ((field, key), record) in destinations.into_iter().zip(records) {
+    let mut values = Vec::new();
+    for ((field, key, selected), record) in destinations.into_iter().zip(records) {
         if let Some(record) = record {
+            let identity = target
+                .source
+                .field_hashes
+                .get(&field)
+                .ok_or_else(|| invalid("source field identity is absent"))?;
+            values.push((identity.clone(), record.entry.atom_uuid.clone(), selected));
             *target.observed.entry(field).or_default() += 1;
-            tips.push(TipChange {
-                key,
-                new: Some(record),
-            });
+            if selected {
+                tips.push(TipChange {
+                    key,
+                    new: Some(record),
+                });
+            }
         }
     }
+    audit::observe(store, id, values).await?;
+    let kept: Vec<_> = keys
+        .iter()
+        .zip(&selected)
+        .filter(|(_, selected)| **selected)
+        .map(|(key, _)| key.clone())
+        .collect();
+    target.selected += kept.len() as u64;
     atoms
         .commit_tip_changes(TipChangeSet {
             tips,
@@ -128,15 +152,15 @@ pub(super) async fn copy(
     atoms
         .stage_alternate_changes(
             &target.target,
-            keys,
-            &vec![BTreeMap::new(); keys.len()],
+            &kept,
+            &vec![BTreeMap::new(); kept.len()],
             None,
         )
         .await?;
     Ok(())
 }
 
-fn slot(
+pub(super) fn slot(
     atoms: &crate::db_operations::atom_store::AtomStore,
     field: &crate::schema::types::field::FieldVariant,
     key: &KeyValue,

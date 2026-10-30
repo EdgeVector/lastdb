@@ -8,11 +8,14 @@ use crate::storage::{disk_pack::transaction, traits::KvStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod audit;
 mod begin;
 mod cleanup;
 mod finish;
+mod membership;
 mod page;
 mod tips;
+pub use membership::{MembershipCountGuard, SchemaMembership};
 
 pub(crate) const NAMESPACE: &str = "app_schema_conversion";
 pub(crate) const ACTIVE: &[u8] = b"active";
@@ -36,6 +39,8 @@ pub struct OwnedSchemaConversion {
     pub schema: String,
     pub expected_identity: Option<String>,
     pub alternate_keys: BTreeMap<String, schema_types::AlternateKey>,
+    #[serde(default)]
+    pub membership: Option<SchemaMembership>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,6 +75,8 @@ pub struct AppSchemaConversionReport {
     pub phase: String,
     pub processed_keys: u64,
     pub expected_keys: u64,
+    pub selected_keys: u64,
+    pub expected_selected_keys: u64,
     pub converted_schemas: Vec<String>,
     pub retired_schemas: Vec<String>,
     pub durable: bool,
@@ -83,6 +90,8 @@ struct Target {
     observed: BTreeMap<String, u64>,
     processed: u64,
     after: Option<String>,
+    membership: Option<SchemaMembership>,
+    selected: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -95,12 +104,15 @@ struct Change {
     position: usize,
     retired: usize,
     cleaned: usize,
+    audit_after: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Phase {
     Backfill,
+    Verifying,
+    Verified,
     Retiring,
     Ready,
     Aborting,
@@ -118,6 +130,14 @@ impl Change {
                 .ok_or_else(|| invalid("conversion phase"))?
                 .into(),
             processed_keys: self.targets.iter().map(|target| target.processed).sum(),
+            selected_keys: self.targets.iter().map(|target| target.selected).sum(),
+            expected_selected_keys: self
+                .targets
+                .iter()
+                .map(membership::expected)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .sum(),
             expected_keys: self
                 .targets
                 .iter()

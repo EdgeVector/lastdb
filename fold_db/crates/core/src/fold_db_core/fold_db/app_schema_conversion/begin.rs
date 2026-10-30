@@ -86,6 +86,7 @@ pub(super) async fn execute(
         position: 0,
         retired: 0,
         cleaned: 0,
+        audit_after: None,
     };
     db.db_ops
         .atoms()
@@ -132,7 +133,7 @@ async fn prepare(
                 "conversion source identity or availability differs",
             ));
         }
-        targets.push(target(db, source, request.alternate_keys, id).await?);
+        targets.push(target(db, source, request.alternate_keys, request.membership, id).await?);
     }
     Ok(Prepared {
         targets,
@@ -145,6 +146,7 @@ async fn target(
     db: &FoldDB,
     source: &Schema,
     alternate_keys: BTreeMap<String, schema_types::AlternateKey>,
+    membership: Option<SchemaMembership>,
     id: &str,
 ) -> Result<Target, SchemaError> {
     if source.uses_independent_fields()
@@ -165,6 +167,8 @@ async fn target(
     if source.runtime_fields.len() > 128 {
         return Err(invalid("conversion source exceeds 128 fields"));
     }
+    source.ensure_field_hashes();
+    membership::validate(db, &source, membership.as_ref()).await?;
     let expected = counts(db, &source).await?;
     let mut target = source.clone_for_read_shared();
     target.independent_fields = true;
@@ -201,6 +205,8 @@ async fn target(
         observed,
         processed: 0,
         after: None,
+        membership,
+        selected: 0,
     })
 }
 

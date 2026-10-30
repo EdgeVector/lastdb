@@ -8,7 +8,7 @@ pub(super) async fn commit(
     if matches!(change.phase, Phase::Retiring | Phase::Ready) {
         return Ok(change);
     }
-    if change.phase != Phase::Backfill || change.position != change.targets.len() {
+    if change.phase != Phase::Verified || change.position != change.targets.len() {
         return Err(invalid(
             "conversion must cover all frozen source keys before publication",
         ));
@@ -70,7 +70,7 @@ pub(super) async fn retire(db: &FoldDB, id: &str) -> Result<(), SchemaError> {
             return Err(invalid("conversion phase changed during retirement"));
         }
         current.retired = current.retired.max(change.retired + names.len());
-        if current.retired == current.retire.len() {
+        if current.retired == current.retire.len() && audit::cleanup(store.as_ref(), id).await? {
             db.db_ops
                 .atoms()
                 .remove_molecule_bindings(&current.edges(), None)
@@ -87,14 +87,17 @@ pub(super) async fn abort(
     store: &dyn KvStore,
     mut change: Change,
 ) -> Result<Change, SchemaError> {
-    if !matches!(change.phase, Phase::Backfill | Phase::Aborting) {
+    if !matches!(
+        change.phase,
+        Phase::Backfill | Phase::Verifying | Phase::Verified | Phase::Aborting
+    ) {
         return Err(invalid(
             "a published conversion cannot be aborted; finish it",
         ));
     }
     change.phase = Phase::Aborting;
     let done = super::cleanup::shadow(db, &mut change).await?;
-    if done {
+    if done && audit::cleanup(store, &change.id).await? {
         db.db_ops
             .atoms()
             .remove_molecule_bindings(&change.edges(), None)
