@@ -193,11 +193,10 @@ impl MutationManager {
                 .alternate_fields(&delta.schema, &alternate_keys, scope.as_deref())
                 .await?
         };
-        let modified_fields = measure(
-            "rebase_us",
-            self.rebase_delta_for_publish(&mut delta, heads),
-        )
-        .await?;
+        let modified_fields = measure("rebase_us", async {
+            self.rebase_delta_for_publish(&mut delta, heads)
+        })
+        .await;
         heads.record(&delta);
         self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();

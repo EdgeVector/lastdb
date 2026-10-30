@@ -108,7 +108,6 @@ impl DbOperations {
             .filter(|old| !new_edges.contains(old))
             .collect();
         self.atoms().remove_molecule_bindings(&stale, None).await?;
-        if !stale.is_empty() {}
         Ok(())
     }
 

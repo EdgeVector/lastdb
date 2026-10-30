@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use crate::atom::{AtomEntry, KeyMetadata, MoleculeHashRange};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::Schema;
-use crate::schema::SchemaError;
 
 use super::super::MutationManager;
 use super::delta::PreparedSchemaDelta;
@@ -152,11 +151,11 @@ fn empty_molecule(uuid: &str, version: u64) -> MoleculeHashRange {
 }
 
 impl MutationManager {
-    pub(in crate::fold_db_core::mutation_manager) async fn rebase_delta_for_publish(
+    pub(in crate::fold_db_core::mutation_manager) fn rebase_delta_for_publish(
         &self,
         delta: &mut PreparedSchemaDelta,
         heads: &mut BatchSlotHeads,
-    ) -> Result<super::super::helpers::ModifiedFieldKeys, SchemaError> {
+    ) -> super::super::helpers::ModifiedFieldKeys {
         heads.overlay_schema(delta);
         let mut prospective = delta.schema.clone();
         let modified = self.apply_mutations_to_molecules(
@@ -167,6 +166,6 @@ impl MutationManager {
         );
         heads.record_schema(&prospective, &delta.changed_keys);
         delta.schema = prospective;
-        Ok(modified)
+        modified
     }
 }

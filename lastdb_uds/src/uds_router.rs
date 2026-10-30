@@ -80,7 +80,7 @@ const API_VERSION_PATH: &str = "/api/version";
 /// Existing actions and the minimum API version remain unchanged.
 /// 11 adds named alternate-key query pages in the unmerged spike.
 /// 12 adds owner-directed alternate changes, named key lists/counts, and signed declaration revisions.
-pub const API_VERSION: u32 = 12;
+pub const API_VERSION: u32 = 13;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

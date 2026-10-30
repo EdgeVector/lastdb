@@ -4,7 +4,6 @@ use super::locks::{lock_map, read_map, write_map};
 use super::{Schema, SchemaCore, SchemaState};
 use crate::schema::types::SchemaError;
 use crate::storage::disk_pack::transaction::publication;
-use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use std::sync::Arc;
 
