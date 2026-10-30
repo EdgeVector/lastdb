@@ -219,3 +219,23 @@ pub fn exemem_api_url_for(env: Environment) -> &'static str {
         Environment::Prod => gen::PROD_EXEMEM_API,
     }
 }
+
+/// Base URL of the environment's release log: the signed, hash-chained
+/// record of verifier results that a node reads before it installs an app
+/// release. The node reads `{url}/head.json` and `{url}/tiles/<t>.jsonl`.
+pub fn release_log_url_for(env: Environment) -> &'static str {
+    match env {
+        Environment::Dev => gen::DEV_RELEASE_LOG_URL,
+        Environment::Prod => gen::PROD_RELEASE_LOG_URL,
+    }
+}
+
+/// The verifier's release-log signing keys for the environment, as base64
+/// raw 32-byte Ed25519 public keys. An empty list means the environment has
+/// no release log yet, and a node refuses every app install.
+pub fn release_log_keys_for(env: Environment) -> &'static [&'static str] {
+    match env {
+        Environment::Dev => gen::DEV_RELEASE_LOG_KEYS,
+        Environment::Prod => gen::PROD_RELEASE_LOG_KEYS,
+    }
+}

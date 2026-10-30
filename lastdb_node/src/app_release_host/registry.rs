@@ -21,6 +21,11 @@ pub struct ChannelRead {
 }
 
 /// A release read: the manifest plus its registry annotations.
+///
+/// The registry is not on the trust path. `revoked` is the registry's own
+/// note and decides nothing; the release log decides. `manifest_value` is
+/// the manifest exactly as served, so the installer can check that it
+/// hashes to the release id.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReleaseRead {
     pub release_id: String,
@@ -28,6 +33,8 @@ pub struct ReleaseRead {
     pub publisher_dev_pubkey: String,
     #[serde(default)]
     pub revoked: bool,
+    #[serde(skip)]
+    pub manifest_value: serde_json::Value,
 }
 
 /// One compat row from the verifier: a contract version proved compatible.
@@ -103,7 +110,11 @@ impl ReleaseRegistryClient {
     /// Returns the transport or status failure.
     pub async fn get_release(&self, release_id: &str) -> Result<ReleaseRead, String> {
         let url = format!("{}/v2/releases/{release_id}", self.base_url);
-        Self::get_json(&url).await
+        let body: serde_json::Value = Self::get_json(&url).await?;
+        let mut release = ReleaseRead::deserialize(&body)
+            .map_err(|e| format!("GET {url}: release does not parse: {e}"))?;
+        release.manifest_value = body.get("manifest").cloned().unwrap_or_default();
+        Ok(release)
     }
 
     /// Download the artifact bytes. A `file://` URL reads from disk so a

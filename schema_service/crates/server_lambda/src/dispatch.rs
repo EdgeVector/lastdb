@@ -35,6 +35,13 @@ pub(crate) fn dispatch_stateless(method: &str, path: &str) -> RouteResult {
         // Gateway root see the service identity without needing to
         // know the version prefix.
         ("GET" | "POST", "/") => Some(json_response(200, &root_listing())),
+
+        // Redirect to the verifier result for one release. It reads only
+        // the environment, and it must match before the broader
+        // `/v2/releases/{release_id}` read below.
+        ("GET", _) if path.starts_with("/v2/releases/") && path.ends_with("/verification") => {
+            Some(routes::v2::get_release_verification(path))
+        }
         _ => None,
     }
 }
@@ -59,6 +66,7 @@ fn root_listing() -> serde_json::Value {
             "GET /v1/apps/{app_id}": "Read a registered app incl. tier (public; lookup-by-known-id)",
             "PUT /v1/apps/{app_id}": "Update app metadata (owner-only; display_name immutable)",
             "POST /v1/apps/{app_id}/promote": "Promote a sandbox app to live (owner-only; authorized_publisher required)",
+            "GET /v2/releases/{release_id}/verification": "Redirect to the release verifier result (public)",
             "POST /v1/schemas/batch-check-reuse": "Batch lookup of reusable schemas by descriptive name + field list",
             "POST /v1/schemas/resolve": "Stateless read-only schema dedup for cache misses",
             "POST /v1/schemas/reload": "Reload schemas from storage",

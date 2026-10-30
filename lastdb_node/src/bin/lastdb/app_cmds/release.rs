@@ -44,11 +44,11 @@ pub(crate) fn resolve_desired(
     }
 }
 
-/// One check cycle: read the channel, read the active release's revocation,
-/// run the four-way check, and restore the prior verified release on drift.
+/// One check cycle: read the channel, sync the release log, run the
+/// four-way check, and restore the prior verified release on drift.
 ///
-/// This is the unit `--watch` repeats every `PROBE_INTERVAL`. The revocation
-/// read rides the same cycle as the channel read, so a revoked active
+/// This is the unit `--watch` repeats every `PROBE_INTERVAL`. Revocations
+/// come from the release log, not from the registry, so a revoked active
 /// release runs the drift path without a second mechanism.
 pub(crate) fn release_check_cycle(
     host: &lastdb_node::app_release_host::HostTrack,
@@ -58,9 +58,50 @@ pub(crate) fn release_check_cycle(
     schema_url: Option<String>,
     env: Option<&str>,
 ) -> Result<lastdb_node::app_release_host::DriftOutcome, String> {
-    let desired = resolve_desired(desired, app_id, channel, schema_url.clone(), env)?;
-    let active_revoked = active_release_is_revoked(host, schema_url, env)?;
-    lastdb_node::app_release_host::check_drift_and_restore(host, app_id, desired, active_revoked)
+    let desired = resolve_desired(desired, app_id, channel, schema_url, env)?;
+    let log = synced_release_log(host, env)?;
+    lastdb_node::app_release_host::check_drift_and_restore(
+        host,
+        app_id,
+        desired,
+        &|release_id: &str| {
+            log.installed_release_revocation(release_id, app_id)
+                .map(lastdb_node::app_release_host::LogEntry::summary)
+        },
+    )
+}
+
+/// The release log for `--env`: the `dev` log unless `prod` is named, the
+/// same default as the registry URL.
+pub(crate) fn release_log_config_for(
+    env: Option<&str>,
+) -> Result<lastdb_node::app_release_host::ReleaseLogConfig, String> {
+    use folddb_profile::endpoints::Environment;
+    let env = match env {
+        Some("dev") | None => Environment::Dev,
+        Some("prod") => Environment::Prod,
+        Some(other) => return Err(format!("unknown --env '{other}' (expected dev or prod)")),
+    };
+    Ok(lastdb_node::app_release_host::ReleaseLogConfig::for_environment(env))
+}
+
+/// The kept release log under the Host Track root, synced once. A sync
+/// that fails leaves the kept entries in use: revocations only add, so the
+/// kept log never hides a revocation it already holds.
+pub(crate) fn synced_release_log(
+    host: &lastdb_node::app_release_host::HostTrack,
+    env: Option<&str>,
+) -> Result<lastdb_node::app_release_host::ReleaseLog, String> {
+    let config = release_log_config_for(env)?;
+    let mut log = lastdb_node::app_release_host::ReleaseLog::open(host.root(), config)?;
+    let synced = block_on_app(async { Ok(log.sync().await) })?;
+    if let Err(e) = synced {
+        eprintln!(
+            "note: release log sync failed ({e}); using the {} kept entries",
+            log.seq()
+        );
+    }
+    Ok(log)
 }
 
 pub(crate) fn print_drift_outcome(
@@ -81,28 +122,11 @@ pub(crate) fn print_drift_outcome(
     if let Some(after) = &outcome.after {
         println!("after restore: {}", after.status.label());
     }
-}
-
-/// Is the currently active release revoked? One anonymous release read on
-/// the same cycle as the channel read. A read that fails leaves the answer
-/// `false` — an unreachable registry is not evidence of a revocation.
-pub(crate) fn active_release_is_revoked(
-    host: &lastdb_node::app_release_host::HostTrack,
-    schema_url: Option<String>,
-    env: Option<&str>,
-) -> Result<bool, String> {
-    let Some(active) = host.active_release_id() else {
-        return Ok(false);
-    };
-    let url = resolve_schema_service_url(schema_url, env)?;
-    let registry = lastdb_node::app_release_host::ReleaseRegistryClient::new(&url);
-    let read = block_on_app(async { Ok(registry.get_release(&active).await) })?;
-    match read {
-        Ok(release) => Ok(release.revoked),
-        Err(e) => {
-            eprintln!("note: revocation read failed ({e}); treating the release as not revoked");
-            Ok(false)
-        }
+    if let Some(deactivated) = &outcome.deactivated {
+        println!("deactivated revoked release: {deactivated} (no prior verified release)");
+    }
+    if !outcome.removed.is_empty() {
+        println!("removed revoked releases: {}", outcome.removed.join(", "));
     }
 }
 
@@ -158,8 +182,12 @@ pub(crate) fn app_release_install(
     let schema_service = resolve_schema_service_url(schema_url, env.as_deref())?;
     let host = host_track_for(app_id, host_track_root);
     let registry = lastdb_node::app_release_host::ReleaseRegistryClient::new(&schema_service);
+    let mut log = lastdb_node::app_release_host::ReleaseLog::open(
+        host.root(),
+        release_log_config_for(env.as_deref())?,
+    )?;
     let outcome = block_on_app(lastdb_node::app_release_host::install_and_activate(
-        &registry, &host, app_id, channel,
+        &registry, &mut log, &host, app_id, channel,
     ))?;
     if json {
         print_pretty_json(&outcome);
@@ -168,6 +196,12 @@ pub(crate) fn app_release_install(
         println!("  identity: {}", outcome.execution_identity);
         println!("  version dir: {}", outcome.version_dir);
         println!("  channel generation: {}", outcome.channel_generation);
+        println!(
+            "  release log: pass at entry {} for {}, head {}",
+            outcome.log.pass_seq,
+            lastdb_node::app_release_host::NODE_CONTRACT_VERSION,
+            outcome.log.head_seq
+        );
         if !outcome.pruned.is_empty() {
             println!("  pruned: {}", outcome.pruned.join(", "));
         }
@@ -214,7 +248,7 @@ pub(crate) fn app_release_check(
     let interval = lastdb_node::app_release_host::check_interval(interval_secs);
     // Without `--watch` this is one cycle, which is what it always
     // was. With it, the same cycle repeats on the operator interval:
-    // the channel read, the revocation read, the four-way check, and
+    // the channel read, the release log sync, the four-way check, and
     // the restore all ride one cadence.
     let limit = if watch { cycles } else { Some(1) };
     let mut run = 0u64;

@@ -45,7 +45,7 @@ pub(crate) fn app_release_publish(
     let exemem = resolve_exemem_url(api_url, env.as_deref())?;
     let key = require_dev_api_key(api_key)?;
     let crypto_env = crypto_env_for(env.as_deref())?;
-    let response = block_on_app(app_publish::publish_release(
+    let mut response = block_on_app(app_publish::publish_release(
         &schema_service,
         &exemem,
         &key,
@@ -53,19 +53,36 @@ pub(crate) fn app_release_publish(
         crypto_env,
         &release,
     ))?;
+    let release_id = response
+        .get("release_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<none>")
+        .to_string();
+    // The registry only stores the release. The verifier decides whether a
+    // node may install it, and this URL redirects to its result.
+    let verification_url = format!(
+        "{}/v2/releases/{release_id}/verification",
+        schema_service.trim_end_matches('/')
+    );
     if json {
+        if let Some(object) = response.as_object_mut() {
+            object.insert(
+                "verification_url".to_string(),
+                serde_json::Value::String(verification_url),
+            );
+        }
         print_pretty_json(&response);
     } else {
-        println!(
-            "release published: {}",
-            response
-                .get("release_id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("<none>")
-        );
+        println!("release published: {release_id}");
         println!("  artifact_digest: {}", release.artifact_digest);
         println!("  source_commit: {}", release.source_commit);
         println!("  locked schemas: {}", release.schemas.len());
+        println!(
+            "  contract_range: {}",
+            release.contract_range.as_deref().unwrap_or("-")
+        );
+        println!("  verification: {verification_url}");
+        println!("  A node installs the release only after the verifier passes it.");
     }
     Ok(())
 }

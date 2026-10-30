@@ -199,6 +199,11 @@ fn v2_scope() -> actix_web::Scope {
             "/releases/{release_id}",
             web::get().to(handlers::get_release),
         )
+        // Anonymous redirect to the release verifier's result.
+        .route(
+            "/releases/{release_id}/verification",
+            web::get().to(handlers::get_release_verification),
+        )
         // Compat-row write and read — verifier-signed compatibility attestations.
         .service(
             web::resource("/releases/{release_id}/compat")

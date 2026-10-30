@@ -97,6 +97,8 @@ impl SchemaServiceState {
         let manifest: ReleaseManifest = serde_json::from_value(manifest_value.clone())
             .map_err(|e| ReleaseError::InvalidManifest(format!("malformed manifest: {e}")))?;
         validate_manifest(&manifest).map_err(ReleaseError::InvalidManifest)?;
+        validate_manifest_round_trip(&manifest, &manifest_value)
+            .map_err(ReleaseError::InvalidManifest)?;
         if manifest.app_id != app_id {
             return Err(ReleaseError::AppIdMismatch);
         }
@@ -156,6 +158,9 @@ impl SchemaServiceState {
             if let Some(existing) = releases.get(&release_id) {
                 return Ok(ReleasePublishOutcome::Idempotent(existing.clone()));
             }
+            // Counted under the same lock as the insert, after the
+            // idempotent return, so a repeat publish never counts.
+            check_publish_rate(&releases, &record.publisher_dev_pubkey, self.clock.as_ref())?;
             releases.insert(release_id, record.clone());
             record
         };

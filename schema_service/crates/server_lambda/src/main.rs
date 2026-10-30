@@ -18,7 +18,8 @@
 //!
 //! Layout: `dispatch` matches method + path, `routes` holds the stateful
 //! handlers, `http` holds request/response helpers, `snapshot` holds the
-//! API-key-gated export routes, and `state_init` builds the cold-start state.
+//! API-key-gated export routes, `state_init` builds the cold-start state,
+//! and `verifier_queue` sends release verifier jobs.
 
 // The `lambda_http::Error` type wraps a boxed error that Clippy's
 // result_large_err lint flags. The whole Lambda uses this error
@@ -33,6 +34,7 @@ mod http;
 mod routes;
 mod snapshot;
 mod state_init;
+mod verifier_queue;
 
 use lambda_http::{run, service_fn};
 use lambda_http::{Body, Error, Request, Response};

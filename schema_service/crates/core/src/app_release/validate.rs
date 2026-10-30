@@ -55,5 +55,54 @@ pub(super) fn validate_manifest(manifest: &ReleaseManifest) -> Result<(), String
             "manifest artifact_signature must be 1..={ARTIFACT_SIGNATURE_MAX_LEN} characters"
         ));
     }
+    if let Some(range) = &manifest.contract_range {
+        validate_contract_range(range).map_err(|e| format!("manifest {e}"))?;
+    }
     Ok(())
+}
+
+/// Refuse a manifest whose signed JSON holds more than the registry stores.
+///
+/// The release id is the digest of the signed manifest, but the registry
+/// stores and serves the parsed [`ReleaseManifest`]. A node hashes the
+/// served manifest and refuses a mismatch, so a field this registry does not
+/// know would make the release uninstallable. Refuse it at publish instead.
+pub(super) fn validate_manifest_round_trip(
+    manifest: &ReleaseManifest,
+    signed: &Value,
+) -> Result<(), String> {
+    let stored =
+        serde_json::to_value(manifest).map_err(|e| format!("manifest does not serialize: {e}"))?;
+    if stored == *signed {
+        Ok(())
+    } else {
+        Err("manifest carries fields or values this registry does not store".to_string())
+    }
+}
+
+/// Refuse a new release when its publisher key already published
+/// [`PUBLISH_RATE_LIMIT`] releases in the last [`PUBLISH_RATE_WINDOW_SECS`].
+///
+/// Counts the in-memory release store, so a registry instance counts the
+/// releases it loaded at start and the ones it accepted since. A record
+/// whose `published_at` does not parse does not count.
+pub(super) fn check_publish_rate(
+    releases: &HashMap<String, ReleaseRecord>,
+    publisher_dev_pubkey: &str,
+    clock: &dyn crate::clock::Clock,
+) -> Result<(), ReleaseError> {
+    let recent = releases
+        .values()
+        .filter(|record| record.publisher_dev_pubkey == publisher_dev_pubkey)
+        .filter(|record| {
+            clock
+                .whole_seconds_since_rfc3339(&record.published_at, None)
+                .is_ok_and(|age| age < PUBLISH_RATE_WINDOW_SECS)
+        })
+        .count();
+    if recent >= PUBLISH_RATE_LIMIT {
+        Err(ReleaseError::PublishRateLimited)
+    } else {
+        Ok(())
+    }
 }

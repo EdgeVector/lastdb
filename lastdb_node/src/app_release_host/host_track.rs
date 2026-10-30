@@ -142,6 +142,20 @@ impl HostTrack {
             .map_err(|e| format!("failed to write prior-verified: {e}"))
     }
 
+    /// Forget the rollback target. Called when the release log revokes it.
+    ///
+    /// # Errors
+    /// Returns the filesystem error.
+    pub fn clear_prior_verified(&self) -> Result<(), String> {
+        remove_file_if_present(&self.prior_verified_path(), "prior-verified")
+    }
+
+    /// The **root** this tree lives under: the release log is kept here too.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Write this process's observation. A release process calls this on
     /// start and on every heartbeat; the host reads the whole set.
     ///
@@ -235,6 +249,47 @@ impl HostTrack {
         Ok(unix_secs())
     }
 
+    /// Take the app out of service: remove the `current` pointer. The app
+    /// then has no active release until the next install.
+    ///
+    /// # Errors
+    /// Returns the filesystem error.
+    pub fn deactivate(&self) -> Result<(), String> {
+        remove_file_if_present(&self.current_link(), "the current pointer")
+    }
+
+    /// Delete the version directory of every release that `is_revoked`
+    /// names, except the active one: the `current` pointer never names bytes
+    /// that are not on disk. Returns the removed release ids.
+    ///
+    /// # Errors
+    /// Returns the filesystem error.
+    pub fn remove_revoked_versions(
+        &self,
+        is_revoked: &dyn Fn(&str) -> bool,
+    ) -> Result<Vec<String>, String> {
+        let active = self.active_release_id();
+        let Ok(entries) = std::fs::read_dir(self.versions_dir()) else {
+            return Ok(Vec::new());
+        };
+        let mut removed = Vec::new();
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !is_sha256_hex(&name) || active.as_deref() == Some(name.as_str()) {
+                continue;
+            }
+            if is_revoked(&name) {
+                std::fs::remove_dir_all(entry.path())
+                    .map_err(|e| format!("failed to remove {name}: {e}"))?;
+                removed.push(name);
+            }
+        }
+        removed.sort();
+        Ok(removed)
+    }
+
     /// Delete every version directory except the newest
     /// [`RELEASE_RETENTION`], never deleting the active release or the
     /// prior verified one.
@@ -280,6 +335,17 @@ impl HostTrack {
         }
         Ok(removed)
     }
+}
+
+/// Remove one file. A file that is already absent is not an error.
+fn remove_file_if_present(path: &Path, what: &str) -> Result<(), String> {
+    std::fs::remove_file(path).or_else(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Ok(())
+        } else {
+            Err(format!("failed to remove {what}: {e}"))
+        }
+    })
 }
 
 /// Is `pid` a live process? `kill(pid, 0)` answers without signalling.
