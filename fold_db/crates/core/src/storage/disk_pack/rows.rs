@@ -5,6 +5,13 @@ use std::collections::VecDeque;
 
 pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
 
+/// Decode each stored key. The row order stays the same.
+pub(super) fn decode_native_rows(rows: NativeRows) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    rows.into_iter()
+        .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
+        .collect()
+}
+
 /// Exclusive upper bound for a walk of a whole collection.
 ///
 /// Product keys are ASCII prefixes (`atom:`, `mk:`, `aloc:`, …). Four `0xFF`
@@ -65,9 +72,7 @@ impl PackKvStore {
                         detail: "native prefix result requires a bounded continuation".into(),
                     });
                 }
-                for (key, body) in rows {
-                    combined.push((native_routing::decode(&key)?, body));
-                }
+                combined.extend(decode_native_rows(rows)?);
             }
             finish_rows(combined, limit, require_end)
         })
@@ -132,9 +137,7 @@ impl PackKvStore {
                         detail: "native range requires a bounded continuation".into(),
                     });
                 }
-                for (key, body) in rows {
-                    out.push((native_routing::decode(&key)?, body));
-                }
+                out.extend(decode_native_rows(rows)?);
             }
             finish_rows(out, limit, require_end)
         })
