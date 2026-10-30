@@ -165,7 +165,7 @@ The schema types also fetch their own data.
 
 The engine reads env vars in constructors and in hot paths:
 
-- `FoldDB` boot reads three task policies: protein reaper, conflict janitor, and molecule drain
+- `FoldDB` boot reads the conflict janitor and molecule drain task policies
   ([init_boot.rs:50, :74, :101](../../fold_db/crates/core/src/fold_db_core/fold_db/init_boot.rs#L50)).
 - The `MutationManager` constructor reads `ResidentPolicy::from_env()`
   ([mutation_manager/mod.rs:185](../../fold_db/crates/core/src/fold_db_core/mutation_manager/mod.rs#L185)).
@@ -278,7 +278,6 @@ pub struct EngineConfig {
     pub resident: ResidentPolicy,
     pub drain: MoleculeDrainPolicy,
     pub janitor: ConflictJanitorPolicy,
-    pub reaper: ProteinReaperPolicy,
     pub disk: SpacePolicy,
     pub at_rest: AtRestConfig,
     pub search: SearchConfig,
@@ -325,7 +324,7 @@ Steps 1 to 4 follow the `schema_service_core` sequence.
 | PR | Change |
 |---|---|
 | 2a | Add `EngineConfig` to `FoldDbOptions`. The host builds it from env vars and logs it once. Move the three `OnceLock` budgets: process memory, warm set bytes, and atom content limit. |
-| 2b | Move the task policies: molecule drain, conflict janitor, protein reaper, lane breaker cooldown, writer watch, `keep_small` interval, blob dwell, and conflict retention. |
+| 2b | Move the task policies: molecule drain, conflict janitor, lane breaker cooldown, writer watch, `keep_small` interval, blob dwell, and conflict retention. |
 | 2c | Move the storage settings: disk cap, logical capture, schema preload, at-rest compression, and the inflate limit. Move the query and search settings: query concurrency, search inbox and queue, manifest TTL, `LASTDB_ENGINE`, attribution events, and the conflict index flags. |
 | 2d | Move the other process state into the `FoldDB` instance (appendix list). Keep a static only with a written reason, for example the process start time in `footprint.rs`. |
 
@@ -369,7 +368,7 @@ A call to `Uuid::new_v4` or `Utc::now` in the model then fails to compile.
 
 ### Step 6 (optional, D4): the host owns the task schedule
 
-The engine spawns 13 tasks: molecule drain, conflict janitor, protein reaper, atom history,
+The engine owns tasks for molecule drain, conflict janitor, atom history,
 the author clock queue, the flush lanes, the cleanup worker, the change feed, the schema key load,
 the disk queue, and three `spawn_blocking` calls.
 Step 6 changes each periodic task to `run_once(budget, now)`, and the host calls it on its schedule.
