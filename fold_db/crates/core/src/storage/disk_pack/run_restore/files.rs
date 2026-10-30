@@ -1,3 +1,5 @@
+use super::super::byte_backup::RunBackupProfile;
+use super::super::run_node;
 use super::{invalid, RunRestoreFile, StorageResult};
 use crate::storage::disk_pack::{byte_backup::RunBackupHome, NODE_MARKER};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
@@ -272,6 +274,28 @@ pub(super) fn source_profile_home(
     reader: &RunRead,
 ) -> StorageResult<RunBackupHome> {
     profile(root, name, reader, true)
+}
+
+/// Build one paired profile and validate it. `captured` selects the source home.
+pub(super) fn backup_profile(
+    root: &Path,
+    version: u16,
+    main: &RunRead,
+    cas: &RunRead,
+    captured: bool,
+) -> StorageResult<RunBackupProfile> {
+    let home = if captured {
+        source_profile_home
+    } else {
+        profile_home
+    };
+    let profile = RunBackupProfile {
+        version,
+        main: home(root, run_node::RUN_DIR, main)?,
+        cas: home(root, run_node::CAS_DIR, cas)?,
+    };
+    profile.validate()?;
+    Ok(profile)
 }
 
 fn profile(
