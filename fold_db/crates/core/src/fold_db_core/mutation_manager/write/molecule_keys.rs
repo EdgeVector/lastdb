@@ -13,12 +13,7 @@ impl MutationManager {
         schema_names.sort_unstable();
         schema_names.dedup();
         for schema_name in schema_names {
-            let schema = self
-                .schema_manager
-                .get_schema_metadata(schema_name)?
-                .ok_or_else(|| {
-                    SchemaError::InvalidData(format!("Schema '{schema_name}' not found"))
-                })?;
+            let schema = self.schema_manager.require_schema_metadata(schema_name)?;
             let keys = self.db_ops.molecule_keys();
             keys.ensure_schema(&schema).await.map_err(|error| {
                 SchemaError::InvalidData(format!(

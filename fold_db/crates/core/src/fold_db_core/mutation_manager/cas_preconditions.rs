@@ -97,15 +97,9 @@ impl MutationManager {
         mutation: &Mutation,
         storage_prefix: Option<&str>,
     ) -> Result<bool, SchemaError> {
-        let Some(schema) = self
+        let schema = self
             .schema_manager
-            .get_schema_metadata(&mutation.schema_name)?
-        else {
-            return Err(SchemaError::InvalidData(format!(
-                "Schema '{}' not found",
-                mutation.schema_name
-            )));
-        };
+            .require_schema_metadata(&mutation.schema_name)?;
 
         // Probe the written fields first — their molecules are already
         // restored by this write, so a live row usually answers here.

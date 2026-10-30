@@ -108,10 +108,7 @@ impl FoldDB {
         &self,
         schema_name: &str,
     ) -> Result<(crate::schema::types::Schema, String, String), SchemaError> {
-        let mut schema = self
-            .schema_manager
-            .get_schema_metadata(schema_name)?
-            .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
+        let mut schema = self.schema_manager.require_schema_metadata(schema_name)?;
         if !matches!(schema.schema_type, DeclarativeSchemaType::HashRange) {
             return Err(SchemaError::InvalidData(format!(
                 "Schema '{schema_name}' is not HashRange"

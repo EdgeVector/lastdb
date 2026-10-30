@@ -169,10 +169,7 @@ impl MutationManager {
     ) -> Result<Vec<(String, Vec<Mutation>)>, SchemaError> {
         let mut result = Vec::new();
         for (name, mutations) in groups {
-            let schema = self
-                .schema_manager
-                .get_schema_metadata(&name)?
-                .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{name}' not found")))?;
+            let schema = self.schema_manager.require_schema_metadata(&name)?;
             let mut keys = std::collections::HashSet::new();
             let mut current = Vec::new();
             for mutation in mutations {

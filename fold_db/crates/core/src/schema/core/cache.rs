@@ -84,6 +84,13 @@ impl SchemaCore {
             .cloned())
     }
 
+    /// The named schema, or `Schema '{name}' not found`.
+    /// This uses the raw lookup and does not follow supersession.
+    pub(crate) fn require_schema_metadata(&self, schema_name: &str) -> Result<Schema, SchemaError> {
+        self.get_schema_metadata(schema_name)?
+            .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))
+    }
+
     /// TH6a — return the cached identity hash for a registered schema,
     /// computed at registration time by `Schema::compute_identity_hash`.
     /// `None` for unknown schemas. Used by the firing-snapshot capture
