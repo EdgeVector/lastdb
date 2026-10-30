@@ -2,7 +2,6 @@ use super::physical::{PhysicalRead, PhysicalRoot};
 use super::*;
 use budget::call_error;
 
-mod atoms;
 mod budget;
 mod core_holds;
 pub(super) mod memory;
@@ -17,7 +16,6 @@ pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<PhysicalRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
-    pub(super) core_model: crate::resident::CoreModelSnapshot,
     // Only private write preparation can inspect the existing flush log.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     pub(super) hidden_prefix: bool,
@@ -27,7 +25,7 @@ pub(super) struct ReadContext {
     write_owner: Option<Arc<transaction::PendingBatch>>,
     write_reads: Option<Arc<write_reads::WriteReads>>,
     _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
-    // Fields drop in declaration order. Drop captured model/source owners
+    // Fields drop in declaration order. Drop call-local value/source owners
     // before the final holds owner trims paths, so dead call allocations do
     // not force the purge to discard unrelated live records.
     core_holds: Arc<core_holds::CoreCallHolds>,
@@ -86,11 +84,6 @@ impl ReadContext {
         };
         let call = runtime.physical_read(&view.current, mode);
         let accepted = preparation;
-        let core_model = runtime
-            .core
-            .lock()
-            .expect("captured typed core model")
-            .dirty_snapshot();
         let revision = view.revision;
         let current = view.current.clone();
         drop(view);
@@ -101,7 +94,6 @@ impl ReadContext {
             call: Arc::new(Mutex::new(call)),
             accepted,
             hidden_prefix,
-            core_model,
             revision,
             current,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
@@ -131,7 +123,6 @@ impl ReadContext {
                     core_holds: Arc::clone(&context.core_holds),
                     accepted: context.accepted.clone(),
                     hidden_prefix: context.hidden_prefix,
-                    core_model: context.core_model.clone(),
                     snapshots: Arc::clone(&context.snapshots),
                     revision: context.revision,
                     current: context.current.clone(),
@@ -180,7 +171,7 @@ impl ReadContext {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<()> {
         // Only private preparation reads the flush log and binds its budget
-        // to one write owner. Ordinary reads use their captured typed core view.
+        // to one write owner. Ordinary reads use their held disk root and call values.
         if (self.write_owner.is_none() && pending.is_none()) || self.owns_write(pending) {
             return Ok(());
         }

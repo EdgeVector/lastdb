@@ -81,7 +81,9 @@ impl FoldDB {
             offline_maintenance,
         )
         .await;
-        let background_flush = Self::start_background_flush(&db_ops, offline_maintenance);
+        if !offline_maintenance {
+            info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
+        }
 
         Self::log_memory_budget();
 
@@ -98,7 +100,6 @@ impl FoldDB {
             query_executor,
             mutation_manager,
             pending_tasks,
-            background_flush,
             background_protein_reaper,
             background_conflict_janitor,
             background_atom_history,

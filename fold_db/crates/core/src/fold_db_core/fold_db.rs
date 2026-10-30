@@ -46,9 +46,6 @@ pub struct FoldDB {
     pub(crate) mutation_manager: Arc<MutationManager>,
     /// Tracker for pending background tasks
     pub(crate) pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
-    /// Periodic storage flusher (memory-first mutation durability).
-    /// See [`super::mutation_flush`].
-    pub(crate) background_flush: super::mutation_flush::BackgroundFlushTask,
     /// Periodic orphan `protein:` reaper. See [`super::protein_reaper`].
     pub(crate) background_protein_reaper: super::protein_reaper::BackgroundProteinReaperTask,
     /// Periodic release of kept conflict records. See [`super::conflict_janitor`].
@@ -66,7 +63,6 @@ impl Drop for FoldDB {
         // Request cancellation before the storage fields drop. Graceful
         // shutdown awaits this task; Drop cannot await from a synchronous
         // destructor and uses the best-effort fallback.
-        self.background_flush.abort();
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();

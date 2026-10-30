@@ -77,7 +77,6 @@ impl AtomStore {
                 ))
             })?;
 
-        let keys = self.merge_captured_tip_keys(storage_prefix, molecule_uuid, keys)?;
         let candidates = keys.iter().filter_map(|k| {
             let suffix = k.strip_prefix(&scan_prefix).unwrap_or(k.as_str());
             let (hash, range) = molecule_key_codec::decode_hash_range_suffix(suffix)?;

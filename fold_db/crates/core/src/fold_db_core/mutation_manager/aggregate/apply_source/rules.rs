@@ -11,17 +11,26 @@ pub(super) struct GuardState {
     pub(super) recovering_first_enrollment: bool,
 }
 
+fn different_association<'a>(
+    guard: &'a Option<AggregateGuard>,
+    expected: &AggregateGuard,
+) -> Option<&'a AggregateGuard> {
+    guard
+        .as_ref()
+        .filter(|current| !current.same_association(expected))
+}
+
 impl GuardState {
     pub(super) fn source_conflict(&self, expected: &AggregateGuard) -> Option<&AggregateGuard> {
-        self.current
-            .as_ref()
-            .filter(|current| !current.same_association(expected))
+        different_association(&self.current, expected)
     }
 
     pub(super) fn target_conflict(&self, expected: &AggregateGuard) -> Option<&AggregateGuard> {
-        self.target_owner
-            .as_ref()
-            .filter(|current| !current.same_association(expected))
+        different_association(&self.target_owner, expected)
+    }
+
+    pub(super) fn has_association_conflict(&self, expected: &AggregateGuard) -> bool {
+        self.source_conflict(expected).is_some() || self.target_conflict(expected).is_some()
     }
 
     pub(super) fn loses_replay_conflict(&self, expected: &AggregateGuard) -> bool {

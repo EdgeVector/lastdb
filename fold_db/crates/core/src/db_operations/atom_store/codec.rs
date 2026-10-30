@@ -34,10 +34,9 @@ impl AtomStore {
     /// Batch-load atoms by full storage keys (`atom:{uuid}` or
     /// `{prefix}:atom:{uuid}`).
     ///
-    /// **Must** be used instead of `raw().get_items::<Atom>(…)`: it returns
-    /// the atoms that the request scope captured in memory, decodes the other
-    /// rows with the strict plain-row decoder, and notes the logical path of
-    /// each atom that it returns.
+    /// **Must** be used instead of `raw().get_items::<Atom>(…)`: it uses the
+    /// captured storage boundary, strictly decodes plain atom rows, and notes
+    /// the logical path of each atom that it returns.
     pub(super) async fn get_atoms_by_storage_keys_captured(
         &self,
         keys: &[String],
@@ -46,21 +45,15 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        let captured = runtime
-            .as_ref()
-            .map(|runtime| runtime.captured_atoms(keys))
-            .transpose()?
-            .unwrap_or_else(|| vec![None; keys.len()]);
-        let raw = self.load_cold_atom_bytes(keys, &captured).await?;
+        let lookup = keys.iter().map(|key| key.as_bytes().to_vec()).collect();
+        let mut raw = self.main_store.inner().get_many(lookup).await?.into_iter();
         let mut out = Vec::with_capacity(keys.len());
-        for ((requested, raw), captured) in keys.iter().zip(raw).zip(captured) {
-            let atom = match captured {
-                Some(atom) => Some(atom.as_ref().clone()),
-                None => match raw {
-                    Some(value) => Some(decode_plain_atom(&value)?),
-                    None => None,
-                },
-            };
+        for requested in keys {
+            let atom = raw
+                .next()
+                .flatten()
+                .map(|value| decode_plain_atom(&value))
+                .transpose()?;
             if let Some(atom) = &atom {
                 crate::storage::disk_pack::logical_paths::source::note_atom(
                     runtime.clone(),
@@ -71,30 +64,6 @@ impl AtomStore {
             out.push(atom);
         }
         Ok(out)
-    }
-
-    /// Read the exact current keys that the caller selected.
-    async fn load_cold_atom_bytes(
-        &self,
-        keys: &[String],
-        captured: &[Option<Arc<crate::atom::Atom>>],
-    ) -> Result<Vec<Option<Vec<u8>>>, crate::schema::SchemaError> {
-        let cold: Vec<_> = captured
-            .iter()
-            .enumerate()
-            .filter(|(_, atom)| atom.is_none())
-            .map(|(index, _)| index)
-            .collect();
-        let lookup = cold
-            .iter()
-            .map(|&index| keys[index].as_bytes().to_vec())
-            .collect();
-        let values = self.main_store.inner().get_many(lookup).await?;
-        let mut raw = vec![None; keys.len()];
-        for (index, value) in cold.into_iter().zip(values) {
-            raw[index] = value;
-        }
-        Ok(raw)
     }
 }
 

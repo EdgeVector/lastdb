@@ -81,7 +81,7 @@ impl Drop for Capture {
     }
 }
 
-/// Capture only this thread's work; concurrent compaction cannot enter its totals.
+/// Capture this thread and explicitly joined work, excluding unrelated compaction.
 pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
     if !enabled() || ACTIVE.with(|active| active.borrow().is_some()) {
         return (action(), None);
@@ -106,6 +106,26 @@ pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
     });
     drop(capture);
     (result, report)
+}
+
+/// Import one joined prerequisite. The parent's enclosing stage already covers
+/// its wall interval, so importing covered_us would double-count parallel work.
+pub(crate) fn absorb_joined(report: Option<Report>, overlap: std::time::Duration) {
+    let Some(report) = report else { return };
+    ACTIVE.with(|active| {
+        if let Some(parent) = active.borrow_mut().as_mut() {
+            for (name, value) in report.phases_us {
+                *parent.phases_us.entry(name).or_default() += value;
+            }
+            for (name, value) in report.counts {
+                *parent.counts.entry(name).or_default() += value;
+            }
+            *parent
+                .phases_us
+                .entry("v2_run_current_overlap_us")
+                .or_default() += overlap.as_micros().try_into().unwrap_or(u64::MAX);
+        }
+    });
 }
 
 fn note_reads(reads: crate::read_receipt::DiskReadReceipt) {

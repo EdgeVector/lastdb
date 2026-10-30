@@ -46,6 +46,7 @@ mod maintenance;
 mod manifest;
 mod mutation_counts;
 mod owner;
+mod parallel_publication;
 mod plan;
 mod publication;
 mod range;

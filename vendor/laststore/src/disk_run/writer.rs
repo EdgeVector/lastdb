@@ -2,14 +2,12 @@
 
 use super::bloom::{key_hash, put_filter};
 use super::codec::{corrupt, put_record, record_len};
-use super::footer::{put_refs, BlockRef, Footer, Top};
+use super::footer::{put_refs, BlockRef};
 use super::space::MergeSpace;
 use super::{
     RunOptions, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
-    MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
 };
 use crate::commit_timing as timing;
-use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::{encode_frame, FrameHeader};
 use crate::{Error, Result};
 use std::fs::{self, File, OpenOptions};
@@ -17,6 +15,9 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+mod finish;
+pub(crate) use finish::PreparedRun;
 
 /// What a finished run holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -289,76 +290,8 @@ impl RunWriter {
     /// directory sync comes after the rename: the run file is complete but
     /// its name may not be durable, so the caller must treat that run as
     /// unknown rather than absent and must not publish it.
-    pub fn finish(mut self) -> Result<RunSummary> {
-        self.refuse_after_failure()?;
-        if !self.block.is_empty() {
-            self.flush_block()?;
-        }
-        if !self.index.is_empty() {
-            self.flush_index()?;
-        }
-        let max_payload =
-            u32::try_from(self.max_payload).map_err(|_| corrupt("block over 4 GiB"))?;
-        let data_blocks =
-            u32::try_from(self.data_blocks).map_err(|_| corrupt("too many data blocks"))?;
-        let top = Top {
-            records: self.records,
-            data_blocks: self.data_blocks,
-            max_payload: u64::from(max_payload),
-            indexes: std::mem::take(&mut self.top),
-            last_key: self.last_key.clone().unwrap_or_default(),
-        };
-        let top_entries = top.indexes.len();
-        let top = timing::during("v2_top_encoding_us", || top.encode());
-        if top.len() > MAX_TOP_BYTES || top_entries > MAX_INDEX_ENTRIES {
-            return Err(Error::WriteCapacity(
-                "disk run: top block over its read limit; write smaller runs".into(),
-            ));
-        }
-        let (top_offset, top_len) = self.write_frame(TOP_COUNTER, &top)?;
-        timing::count("v2_run_top_blocks", 1);
-        let footer = Footer {
-            run_id: self.run_id,
-            top_offset,
-            top_len,
-            records: self.records,
-            max_payload,
-            data_blocks,
-        };
-        if let Some(space) = &self.space {
-            space.admit_run(super::footer::FOOTER_BYTES as u64)?;
-        }
-        timing::during("v2_run_write_us", || self.file.write_all(&footer.encode()))?;
-        if let Some(space) = &self.space {
-            space.materialize(super::footer::FOOTER_BYTES as u64)?;
-        }
-        timing::count("v2_run_written_bytes", super::footer::FOOTER_BYTES as u64);
-        timing::count("v2_run_file_flushes", 1);
-        timing::during("v2_run_file_flush_us", || sync_dirty_file(&self.file))?;
-        let path = self.dir.join(format!("{}{RUN_SUFFIX}", self.run_id));
-        timing::during("v2_run_rename_us", || fs::rename(&self.tmp, &path))?;
-        if let Some(space) = &self.space {
-            space.output(&path);
-        }
-        timing::count("v2_run_directory_flushes", 1);
-        timing::during("v2_run_directory_flush_us", || {
-            sync_directory(&File::open(&self.dir)?)
-        })?;
-        self.finished = true;
-        timing::count("v2_run_records", self.records);
-        timing::count("v2_run_tombstones", self.tombstones);
-        timing::count("v2_run_record_bytes", self.record_bytes);
-        Ok(RunSummary {
-            path,
-            run_id: self.run_id,
-            records: self.records,
-            tombstones: self.tombstones,
-            record_bytes: self.record_bytes,
-            tombstone_bytes: self.tombstone_bytes,
-            file_bytes: self.offset + super::footer::FOOTER_BYTES as u64,
-            first_key: self.first_key.take(),
-            last_key: self.last_key.take(),
-        })
+    pub fn finish(self) -> Result<RunSummary> {
+        self.prepare_finish()?.finish()
     }
 }
 
