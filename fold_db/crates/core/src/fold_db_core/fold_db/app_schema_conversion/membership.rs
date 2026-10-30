@@ -32,7 +32,7 @@ pub(super) fn expected(target: &Target) -> Result<u64, SchemaError> {
     let field = match &target.membership {
         Some(SchemaMembership::Directory { expected_keys, .. }) => return Ok(*expected_keys),
         Some(SchemaMembership::FieldExists { field }) => field.as_str(),
-        None => primary(&target.source)?,
+        None => return target.source_keys(),
     };
     target
         .expected

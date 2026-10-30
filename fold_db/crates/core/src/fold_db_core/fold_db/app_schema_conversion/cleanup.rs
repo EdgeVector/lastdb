@@ -4,6 +4,10 @@ use crate::db_operations::atom_store::counter::{TipChange, TipChangeSet};
 pub(super) async fn shadow(db: &FoldDB, change: &mut Change) -> Result<bool, SchemaError> {
     let mut molecules = BTreeMap::new();
     for target in &change.targets {
+        if target.retained_coordinates {
+            // These are original source tips, never unpublished shadows.
+            continue;
+        }
         db.db_ops
             .molecule_keys()
             .load_schema(&target.target)

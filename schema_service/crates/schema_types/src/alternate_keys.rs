@@ -88,11 +88,20 @@ impl DeclarativeSchemaDefinition {
                     .into(),
             );
         }
-        let primary = self
-            .key
-            .as_ref()
-            .and_then(|k| k.hash_field.as_deref())
-            .ok_or("alternate keys require a declared primary hash field")?;
+        let primary = self.key.as_ref().and_then(|key| key.hash_field.as_deref());
+        if primary.is_none()
+            && self.alternate_keys.is_empty()
+            && self.schema_type == DeclarativeSchemaType::Hash
+            && self
+                .key
+                .as_ref()
+                .is_none_or(|key| key.range_field.is_none())
+        {
+            // A plain owned Hash can use the request's external coordinate.
+            // Named alternate keys still need the primary value in a field.
+            return Ok(());
+        }
+        let primary = primary.ok_or("alternate keys require a declared primary hash field")?;
         let fields = self.fields.as_deref().unwrap_or_default();
         if !fields.iter().any(|name| name == primary) {
             return Err("the primary key must name a declared field".into());
