@@ -7,9 +7,10 @@ mod snapshot_identity;
 
 use super::byte_backup::RunBackupProfile;
 use super::{StorageError, StorageResult};
+use crate::storage::disk_pack::run_node;
 use crate::storage::error::{NativeProofCause, NativeProofStage as Stage};
 use cloud_backup_protocol::NativeRoot;
-use laststore::disk_run::home::RunRead;
+use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::path::Path;
 
 pub use node::{validate_restored_node, RunNodeGuard};
@@ -140,5 +141,41 @@ fn map(error: laststore::Error) -> StorageError {
     StorageError::NativeProof {
         stage: Stage::NativeReader,
         cause,
+    }
+}
+
+/// Open the main run first. The cas run then uses the remaining memory budget.
+fn open_paired_runs(
+    root: &Path,
+    key: &[u8; 32],
+    admission_detail: &'static str,
+) -> StorageResult<(RunRead, RunRead)> {
+    let maximum = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+    let main = RunRead::open_existing_bounded(
+        &root.join(run_node::RUN_DIR),
+        &run_node::home_key(key),
+        read_budget(),
+        maximum,
+    )
+    .map_err(map)?;
+    let remaining = maximum
+        .checked_sub(main.retained_bytes())
+        .ok_or_else(|| invalid(admission_detail))?;
+    let cas = RunRead::open_existing_bounded(
+        &root.join(run_node::CAS_DIR),
+        &run_node::cas_key(key),
+        read_budget(),
+        remaining,
+    )
+    .map_err(map)?;
+    Ok((main, cas))
+}
+
+fn read_budget() -> ReadBudget {
+    ReadBudget {
+        pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
+        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
+        bytes: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES,
+        keys: 10000,
     }
 }

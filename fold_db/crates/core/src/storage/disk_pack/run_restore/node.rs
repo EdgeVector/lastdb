@@ -1,7 +1,6 @@
 //! Read-only physical and account proof for an inactive disk V2 node.
 use super::{files, invalid, map, proof, RunBackupProfile, RunRestoreFile, StorageResult};
 use crate::storage::disk_pack::{byte_backup::RunBackupHome, run_node, NODE_MARKER};
-use laststore::disk_run::home::ReadBudget;
 use laststore::disk_run::home::RunRead;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -100,24 +99,8 @@ impl RunNodeGuard {
             files::prepare_home(root, run_node::RUN_DIR)?,
             files::prepare_home(root, run_node::CAS_DIR)?,
         ];
-        let maximum = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
-        let mut main = RunRead::open_existing_bounded(
-            &root.join(run_node::RUN_DIR),
-            &run_node::home_key(key),
-            read_budget(),
-            maximum,
-        )
-        .map_err(map)?;
-        let remaining = maximum
-            .checked_sub(main.retained_bytes())
-            .ok_or_else(|| invalid("paired run metadata exceeds memory admission"))?;
-        let mut cas = RunRead::open_existing_bounded(
-            &root.join(run_node::CAS_DIR),
-            &run_node::cas_key(key),
-            read_budget(),
-            remaining,
-        )
-        .map_err(map)?;
+        let (mut main, mut cas) =
+            super::open_paired_runs(root, key, "paired run metadata exceeds memory admission")?;
         reserve_pair(&mut main, &mut cas)?;
         let profile = RunBackupProfile {
             version,
@@ -173,15 +156,6 @@ fn check_home(
         return Err(invalid("run restore captured home differs"));
     }
     files::home(root, name, reader, expected)
-}
-
-fn read_budget() -> ReadBudget {
-    ReadBudget {
-        pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
-        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-        bytes: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES,
-        keys: 10000,
-    }
 }
 
 fn reserve_pair(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {

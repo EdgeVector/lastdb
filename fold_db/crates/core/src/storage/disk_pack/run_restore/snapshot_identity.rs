@@ -7,7 +7,7 @@ use crate::storage::disk_pack::{
     },
     physical, run_node, transaction, NativeCloudWorkGuard, NODE_MARKER,
 };
-use laststore::disk_run::home::{ReadBudget, RunRead, RunReadOwner};
+use laststore::disk_run::home::{RunRead, RunReadOwner};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -83,7 +83,7 @@ pub fn prepare_snapshot_identity(
     let policy = super::super::space::policy_from_env()?;
     let reserve = v2
         .home
-        .read(read_budget())
+        .read(super::read_budget())
         .retained_bytes()
         .checked_add(logical_bytes)
         .and_then(|bytes| bytes.checked_add(2 * WORK_BYTES))
@@ -156,24 +156,11 @@ fn read_source(
     }
     let bindings = source_bindings(root)?;
     let control = files::regular(&root.join(logical::CONTROL_FILE), false)?;
-    let maximum = lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
-    let mut main = RunRead::open_existing_bounded(
-        &root.join(run_node::RUN_DIR),
-        &run_node::home_key(key),
-        read_budget(),
-        maximum,
-    )
-    .map_err(map)?;
-    let remaining = maximum
-        .checked_sub(main.retained_bytes())
-        .ok_or_else(|| invalid("snapshot identity source exceeds memory admission"))?;
-    let mut cas = RunRead::open_existing_bounded(
-        &root.join(run_node::CAS_DIR),
-        &run_node::cas_key(key),
-        read_budget(),
-        remaining,
-    )
-    .map_err(map)?;
+    let (mut main, mut cas) = super::open_paired_runs(
+        root,
+        key,
+        "snapshot identity source exceeds memory admission",
+    )?;
     let shared = main
         .retained_bytes()
         .checked_add(cas.retained_bytes())
@@ -246,8 +233,8 @@ fn reader_profile(root: &Path, main: &RunRead, cas: &RunRead) -> StorageResult<R
 fn writer_profile(root: &Path, v2: &physical::V2Home) -> StorageResult<RunBackupProfile> {
     reader_profile(
         root,
-        &v2.home.read(read_budget()),
-        &v2.cas.read(read_budget()),
+        &v2.home.read(super::read_budget()),
+        &v2.cas.read(super::read_budget()),
     )
 }
 
@@ -301,13 +288,4 @@ fn source_entry(path: &Path, directory: bool) -> StorageResult<File> {
     }
     files::same_entry(&file, path)?;
     Ok(file)
-}
-
-fn read_budget() -> ReadBudget {
-    ReadBudget {
-        pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
-        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-        bytes: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES,
-        keys: 10000,
-    }
 }
