@@ -10,6 +10,7 @@
 //! - [`pending_task_tracker`] — background task bookkeeping
 
 mod atom_history;
+mod background_task;
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
