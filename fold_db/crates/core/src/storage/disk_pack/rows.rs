@@ -12,6 +12,22 @@ pub(super) fn decode_native_rows(rows: NativeRows) -> StorageResult<Vec<(Vec<u8>
         .collect()
 }
 
+fn extend_bounded_rows(
+    out: &mut Vec<(Vec<u8>, Vec<u8>)>,
+    rows: NativeRows,
+    exhausted: bool,
+    require_end: bool,
+    detail: &'static str,
+) -> StorageResult<()> {
+    if require_end && !exhausted {
+        return Err(StorageError::ReadResourceLimit {
+            detail: detail.into(),
+        });
+    }
+    out.extend(decode_native_rows(rows)?);
+    Ok(())
+}
+
 /// Exclusive upper bound for a walk of a whole collection.
 ///
 /// Product keys are ASCII prefixes (`atom:`, `mk:`, `aloc:`, …). Four `0xFF`
@@ -67,12 +83,13 @@ impl PackKvStore {
                     limit,
                     pending.as_ref(),
                 )?;
-                if require_end && !exhausted {
-                    return Err(StorageError::ReadResourceLimit {
-                        detail: "native prefix result requires a bounded continuation".into(),
-                    });
-                }
-                combined.extend(decode_native_rows(rows)?);
+                extend_bounded_rows(
+                    &mut combined,
+                    rows,
+                    exhausted,
+                    require_end,
+                    "native prefix result requires a bounded continuation",
+                )?;
             }
             finish_rows(combined, limit, require_end)
         })
@@ -132,12 +149,13 @@ impl PackKvStore {
                     limit,
                     pending.as_ref(),
                 )?;
-                if require_end && !exhausted {
-                    return Err(StorageError::ReadResourceLimit {
-                        detail: "native range requires a bounded continuation".into(),
-                    });
-                }
-                out.extend(decode_native_rows(rows)?);
+                extend_bounded_rows(
+                    &mut out,
+                    rows,
+                    exhausted,
+                    require_end,
+                    "native range requires a bounded continuation",
+                )?;
             }
             finish_rows(out, limit, require_end)
         })
