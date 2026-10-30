@@ -178,7 +178,10 @@ fn validate(
     Ok(())
 }
 
-fn key_field(name: &str, fields: &BTreeMap<String, String>) -> Result<String, SchemaError> {
+pub(super) fn key_field(
+    name: &str,
+    fields: &BTreeMap<String, String>,
+) -> Result<String, SchemaError> {
     if let Some(mapped) = fields.get(name) {
         return Ok(mapped.clone());
     }

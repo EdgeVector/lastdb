@@ -8,6 +8,7 @@ use crate::storage::{disk_pack::transaction, traits::KvStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod alias_retirement;
 mod audit;
 mod begin;
 mod cleanup;

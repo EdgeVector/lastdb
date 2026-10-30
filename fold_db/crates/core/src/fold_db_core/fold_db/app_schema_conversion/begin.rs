@@ -54,6 +54,7 @@ pub(super) async fn execute(
                 "conversion does not retire an existing independent schema",
             ));
         }
+        alias_retirement::validate(schema, &targets)?;
     }
     if db
         .db_ops

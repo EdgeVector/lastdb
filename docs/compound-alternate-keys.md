@@ -57,6 +57,9 @@ Unknown unique values cause refusal before publication.
 
 After verification, the commit action publishes all target schemas in one native transaction.
 Cleanup retires the exact reviewed legacy schemas through the normal binding and molecule lifecycle.
+Retirement requires `app_schema_alias_retirement_v1` and a fully mapped alias of one kept source.
+Before the freeze, the transaction checks every alias field, actual molecule, field type, and primary key role.
+An ordinary old layout must become a separate owned historical record type. Its values cannot disappear during this conversion.
 The app writes its config to disk before the finish action restores schema states.
 A restart preserves the maintenance state and the page cursor.
 Before publication, the abort action removes unpublished tips and restores the source state.
