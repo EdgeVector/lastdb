@@ -36,24 +36,12 @@ impl QueryExecutor {
         context: &AccessContext,
     ) -> Result<usize, SchemaError> {
         let schema = self
-            .prepare_query_schema(query)
-            .await?
-            .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
-        let scope = self
-            .db_ops
-            .db_catalog()
-            .resolve_storage_prefix(
-                context.db_locator.as_deref(),
-                &schema.name,
-                context.storage_prefix.as_deref(),
+            .personal_alternate_schema(
+                query,
+                context,
+                "alternate counts require the personal database",
             )
             .await?;
-        if scope.is_some() {
-            return Err(alternate_keys::invalid(
-                "alternate counts require the personal database",
-            ));
-        }
-        validate_controls(query)?;
         let name = query
             .key_name
             .as_deref()
@@ -125,24 +113,12 @@ impl QueryExecutor {
         context: &AccessContext,
     ) -> Result<AlternatePage, SchemaError> {
         let schema = self
-            .prepare_query_schema(&query)
-            .await?
-            .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
-        let scope = self
-            .db_ops
-            .db_catalog()
-            .resolve_storage_prefix(
-                context.db_locator.as_deref(),
-                &schema.name,
-                context.storage_prefix.as_deref(),
+            .personal_alternate_schema(
+                &query,
+                context,
+                "alternate reads require the personal database scope",
             )
             .await?;
-        if scope.is_some() {
-            return Err(alternate_keys::invalid(
-                "alternate reads require the personal database scope",
-            ));
-        }
-        validate_controls(&query)?;
         let name = query
             .key_name
             .take()
@@ -206,6 +182,32 @@ impl QueryExecutor {
             has_more,
             comparison,
         })
+    }
+
+    async fn personal_alternate_schema(
+        &self,
+        query: &Query,
+        context: &AccessContext,
+        scoped_message: &str,
+    ) -> Result<crate::schema::Schema, SchemaError> {
+        let schema = self
+            .prepare_query_schema(query)
+            .await?
+            .ok_or_else(|| alternate_keys::invalid("alternate schema is absent"))?;
+        let scope = self
+            .db_ops
+            .db_catalog()
+            .resolve_storage_prefix(
+                context.db_locator.as_deref(),
+                &schema.name,
+                context.storage_prefix.as_deref(),
+            )
+            .await?;
+        if scope.is_some() {
+            return Err(alternate_keys::invalid(scoped_message));
+        }
+        validate_controls(query)?;
+        Ok(schema)
     }
 }
 
