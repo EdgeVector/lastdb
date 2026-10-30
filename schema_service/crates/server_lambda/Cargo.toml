@@ -45,7 +45,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 http = { workspace = true }
 
 # AWS SDK (S3 for schema persistence; DynamoDB for `X-API-Key`
-# validation on `GET /v1/snapshot`).
+# validation on `GET /v1/snapshot`; SQS for release verifier jobs).
 # Diet cut #5: drop aws-config default features that pull SSO / external
 # credential-process clients — Lambda uses the execution role + env only.
 # Not `workspace = true`: Cargo refuses to turn off workspace-dep defaults
@@ -57,6 +57,7 @@ aws-config = { version = "1", default-features = false, features = [
 ] }
 aws-sdk-s3 = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 
 serde_json = { workspace = true }
 

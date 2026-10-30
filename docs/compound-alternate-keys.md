@@ -80,6 +80,15 @@ The field coverage, membership, atom, author, and count checks still apply. No v
 This bounded converter refuses other mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
 It does not change the primary on a machine.
 
+A plain owned Hash can use the external hash supplied by a request when it has no named alternate keys.
+Adding alternate keys still requires a declared primary field. No key field is inferred from a payload.
+The `app_schema_opaque_hash_ownership_v1` conversion preserves the reviewed one-field form, such as Brain's compact locator.
+The source must retain its exact deterministic stored private molecule. Every binding must be its own schema field or an atomically verified retired alias.
+Other schema users, unknown binding owners, mappings, transforms, references, membership filters, field transitions, and alternate keys cause refusal.
+Bounded pages audit every current tip and atom against the frozen field count. Publication changes ownership metadata only.
+The blinded storage coordinates, molecule, current atoms, author clocks, and values remain in place. The key is never deblinded or reconstructed.
+Abort removes only the temporary conversion binding and leaves every original tip intact.
+
 An explicit field transition also requires the `app_schema_field_mapping_v1` capability.
 Each kept schema supplies `target_definition_identity` and `field_map` together.
 The map names every source field and one distinct target field for each source field.

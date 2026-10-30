@@ -183,6 +183,7 @@ fn manifest(source_commit: &str, schemas: &[(&str, &str)]) -> Value {
         artifact_digest: sha256_hex(source_commit.as_bytes()),
         artifact_url: format!("artifact://baseline/{source_commit}"),
         artifact_signature: "baseline-artifact-signature".to_string(),
+        contract_range: None,
     };
     json!({ "manifest": manifest })
 }

@@ -176,7 +176,7 @@ fn compose_report(ctx: &CrashContext, info: &PanicHookInfo<'_>, rfc3339: &str) -
 }
 
 /// Drop build suffixes and reject arbitrary version text.
-fn numeric_version(release: &str) -> Option<&str> {
+pub(crate) fn numeric_version(release: &str) -> Option<&str> {
     let version = release
         .strip_prefix('v')
         .unwrap_or(release)

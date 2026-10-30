@@ -22,10 +22,23 @@ pub(super) async fn execute(
         .molecule_keys()
         .load_schema(&target.target)
         .await?;
-    let (keys, after) = tips::keys(db, target).await?;
-    if keys.is_empty() {
+    let done = if target.retained_coordinates {
+        opaque_hash::page(db, store, &change.id, target).await?
+    } else {
+        let (keys, after) = tips::keys(db, target).await?;
+        if !keys.is_empty() {
+            tips::copy(db, store, &change.id, target, &keys).await?;
+            target.processed += keys.len() as u64;
+            target.after = after;
+        }
+        keys.is_empty()
+    };
+    if target.processed > target.source_keys()? {
+        return Err(invalid("conversion exceeds the frozen source key count"));
+    }
+    if done {
         if target.observed != target.expected
-            || target.processed != target.expected[primary(&target.source)?]
+            || target.processed != target.source_keys()?
             || target.selected != membership::expected(target)?
         {
             return Err(invalid(
@@ -33,13 +46,6 @@ pub(super) async fn execute(
             ));
         }
         change.position += 1;
-    } else {
-        tips::copy(db, store, &change.id, target, &keys).await?;
-        target.processed += keys.len() as u64;
-        target.after = after;
-        if target.processed > target.expected[primary(&target.source)?] {
-            return Err(invalid("conversion exceeds the frozen primary key count"));
-        }
     }
     save(store, &change).await?;
     Ok(change)

@@ -170,6 +170,27 @@ pub async fn get_release(
     }
 }
 
+/// `GET /v2/releases/{release_id}/verification` — anonymous redirect to the
+/// release verifier's result for one release, under `RELEASE_LOG_URL`.
+/// 503 `verifier_not_configured` when the variable is unset.
+#[allow(
+    clippy::unused_async,
+    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
+)]
+pub async fn get_release_verification(path: web::Path<String>) -> impl Responder {
+    let release_id = path.into_inner();
+    let release_log_url = std::env::var("RELEASE_LOG_URL").ok();
+    match schema_service_core::app_release::release_verification_location(
+        release_log_url.as_deref(),
+        &release_id,
+    ) {
+        Ok(location) => HttpResponse::TemporaryRedirect()
+            .insert_header((actix_web::http::header::LOCATION, location.clone()))
+            .json(json!({ "location": location })),
+        Err((status, body)) => json_status(status, body),
+    }
+}
+
 /// `GET /v2/apps/{app_id}/channels/{channel}` — anonymous read of the
 /// desired release id and the channel generation.
 #[allow(

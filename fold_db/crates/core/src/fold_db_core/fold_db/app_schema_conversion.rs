@@ -15,6 +15,7 @@ mod cleanup;
 mod finish;
 mod mapped_fields;
 mod membership;
+mod opaque_hash;
 mod page;
 mod source_authority;
 mod tips;
@@ -107,6 +108,8 @@ struct Target {
     target_definition_identity: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     field_map: BTreeMap<String, String>,
+    #[serde(default)]
+    retained_coordinates: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -158,13 +161,7 @@ impl Change {
             expected_keys: self
                 .targets
                 .iter()
-                .map(|target| {
-                    target
-                        .expected
-                        .get(primary(&target.source)?)
-                        .copied()
-                        .ok_or_else(|| invalid("conversion source count is absent"))
-                })
+                .map(Target::source_keys)
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .sum(),
@@ -268,6 +265,7 @@ async fn load(store: &dyn KvStore, id: &str) -> Result<Change, SchemaError> {
         target.source.populate_runtime_fields()?;
         target.target.populate_runtime_fields()?;
         mapped_fields::validate_stored(target)?;
+        opaque_hash::validate_stored(target)?;
     }
     Ok(change)
 }

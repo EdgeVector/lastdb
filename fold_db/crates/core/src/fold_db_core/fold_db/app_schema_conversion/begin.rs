@@ -56,6 +56,7 @@ pub(super) async fn execute(
         }
         alias_retirement::validate(schema, &targets)?;
     }
+    opaque_hash::validate_owners(db, &all, &targets, &retired).await?;
     if db
         .db_ops
         .db_catalog()
@@ -169,27 +170,32 @@ async fn target(
         return Err(invalid("conversion source exceeds 128 fields"));
     }
     source.ensure_field_hashes();
+    let retained_coordinates = opaque_hash::requested(&source, &request)?;
     membership::validate(db, &source, request.membership.as_ref()).await?;
     let expected = counts(db, &source).await?;
     let mut target = mapped_fields::definition(&source, &request)?;
     target.field_mappers = None;
     target.independent_fields = true;
     target.alternate_keys = request.alternate_keys;
-    target.field_molecule_uuids = Some(
-        target
-            .runtime_fields
-            .keys()
-            .map(|field| {
-                (
-                    field.clone(),
-                    crate::atom::deterministic_molecule_uuid(
-                        &format!("{}:owned:{id}", source.name),
-                        field,
-                    ),
-                )
-            })
-            .collect(),
-    );
+    target.field_molecule_uuids = if retained_coordinates {
+        source.field_molecule_uuids.clone()
+    } else {
+        Some(
+            target
+                .runtime_fields
+                .keys()
+                .map(|field| {
+                    (
+                        field.clone(),
+                        crate::atom::deterministic_molecule_uuid(
+                            &format!("{}:owned:{id}", source.name),
+                            field,
+                        ),
+                    )
+                })
+                .collect(),
+        )
+    };
     target.runtime_fields.clear();
     target.populate_runtime_fields()?;
     target
@@ -211,6 +217,7 @@ async fn target(
         selected: 0,
         target_definition_identity: request.target_definition_identity,
         field_map: request.field_map,
+        retained_coordinates,
     })
 }
 

@@ -8,9 +8,14 @@ use super::*;
 /// returned during development. This copies them without change and adds no
 /// lockfile field — the release binds identities that already exist.
 ///
+/// The app manifest's `contract_range` goes into the release manifest
+/// unchanged. The release verifier reads it to choose the contract versions
+/// it checks the release on, so a release without one cannot pass.
+///
 /// # Errors
 /// Returns an error when a manifest schema has no locked identity, which is
-/// exactly the "release references an unresolved schema" case.
+/// exactly the "release references an unresolved schema" case, and when the
+/// app manifest has no valid `contract_range`.
 pub fn build_release_manifest(
     manifest: &AppManifest,
     manifest_path: &Path,
@@ -20,6 +25,15 @@ pub fn build_release_manifest(
     artifact_url: &str,
     dev_key: &SigningKey,
 ) -> Result<ReleaseManifest, String> {
+    let contract_range = manifest.contract_range.clone().ok_or_else(|| {
+        format!(
+            "{} has no contract_range — add the LastDB versions the app works with, \
+             for example \"contract_range\": \">=0.1.0-0\"",
+            manifest_path.display()
+        )
+    })?;
+    validate_contract_range(&contract_range)
+        .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let locked = load_lockfile(manifest_path);
     let mut schemas = std::collections::BTreeMap::new();
     for raw in &manifest.schemas {
@@ -50,6 +64,7 @@ pub fn build_release_manifest(
         artifact_digest,
         artifact_url: artifact_url.to_string(),
         artifact_signature,
+        contract_range: Some(contract_range),
     })
 }
 
