@@ -60,6 +60,8 @@ Cleanup retires the exact reviewed legacy schemas through the normal binding and
 Retirement requires `app_schema_alias_retirement_v1` and a fully mapped alias of one kept source.
 Before the freeze, the transaction checks every alias field, actual molecule, field type, and primary key role.
 An ordinary old layout must become a separate owned historical record type. Its values cannot disappear during this conversion.
+The durable job records this retirement audit. Older active jobs with retirements cannot publish, delete, or finish without that audit.
+An owner can still abort an older job before publication. An older published job requires review before the upgrade.
 The app writes its config to disk before the finish action restores schema states.
 A restart preserves the maintenance state and the page cursor.
 Before publication, the abort action removes unpublished tips and restores the source state.

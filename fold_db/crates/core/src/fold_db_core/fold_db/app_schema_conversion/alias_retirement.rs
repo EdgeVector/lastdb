@@ -2,6 +2,13 @@
 
 use super::*;
 
+pub(super) fn require_audit(change: &Change) -> Result<(), SchemaError> {
+    if !change.retire.is_empty() && change.retirement_audit_version != 1 {
+        return Err(invalid("this active conversion predates verified alias retirement; abort before publication or review the committed job before upgrade"));
+    }
+    Ok(())
+}
+
 pub(super) fn validate(alias: &Schema, targets: &[Target]) -> Result<(), SchemaError> {
     let mut alias = alias.clone_for_read_shared();
     alias.populate_runtime_fields()?;

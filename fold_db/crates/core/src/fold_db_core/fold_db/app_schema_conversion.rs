@@ -119,6 +119,8 @@ struct Change {
     retired: usize,
     cleaned: usize,
     audit_after: Option<String>,
+    #[serde(default)]
+    retirement_audit_version: u8,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
