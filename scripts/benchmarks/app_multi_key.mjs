@@ -16,13 +16,22 @@ const measure=async(name,operation)=>{const start=performance.now();const result
 const body=(n)=>createHash("sha256").update(String(n)).digest("hex").repeat(32);
 const time=(n)=>new Date(1700000000000+n*1000).toISOString();
 const slug=(n)=>"bench-"+String(n).padStart(6,"0");
-const count=256, iterations=128;
+const count=256, iterations=a.label==="fresh"?16:128;
 async function client(root,cfg,canonicalVocabulary=false) {
   const {newNodeClient}=await load(root,"client");
   return newNodeClient({baseUrl:"http://127.0.0.1",userHash:cfg?.userHash??"",
     socketPath:a.socket,schemaFieldAliases:cfg?.schemaFieldAliases,canonicalVocabulary,timeoutMs:120000});
 }
 async function setup() {
+  if(a.label==="fresh") {
+    const init=await load(candidate,"commands/init"),config=await load(candidate,"config");
+    const result=await init.runInit({configPath:a.config,nodeUrl:"http://127.0.0.1",nodeSocketPath:a.socket,
+      bootstrapName:"CI fresh multi-key app",print:quiet});
+    require(result.config.storageModel==="multi-key-v1","Normal init did not select multi-key schemas");
+    const cfg=config.readConfig(a.config),node=await client(candidate,cfg);
+    if(a.app==="fkanban")await kanbanSeed(node,cfg,candidate);else await brainSeed(node,cfg,candidate);
+    return;
+  }
   let node=await client(old);
   let identity=await node.autoIdentity();
   const userHash=identity.provisioned?identity.userHash:(await node.bootstrap("CI app latency")).userHash;
@@ -57,11 +66,11 @@ async function setup() {
   }
   console.log(JSON.stringify({phase:"seeded",app:a.app,label:a.label,logical_records:count,payload_bytes:count*body(0).length}));
 }
-async function kanbanSeed(node,cfg) {
-  const r=await load(old,"record"), lists=await load(old,"card-list-index");
+async function kanbanSeed(node,cfg,root=old) {
+  const r=await load(root,"record"), lists=await load(root,"card-list-index");
   const board={slug:"bench",title:"Benchmark",body:"Generated CI board",columns:["todo","doing","done"],created_at:time(0),updated_at:time(0)};
   await node.createRecord({schemaHash:cfg.schemaHashes.board,keyHash:board.slug,fields:r.boardToFields(board)});
-  await lists.writeBoardListIndex(node,cfg,[r.toBoardSummary(board)]);
+  if(!cfg.storageModel)await lists.writeBoardListIndex(node,cfg,[r.toBoardSummary(board)]);
   for(let n=0;n<2;n++) await r.upsertMilestoneRecord(node,cfg,{slug:"milestone-"+n,title:"Milestone "+n,
     body:"Generated CI milestone",board:"bench",state:"active",position:String(n),north_star:"",driver:"",
     deps:[],proof_card:"",proof_status:"not_required",block_reason:"",created_at:time(0),updated_at:time(0),completed_at:""},false);
@@ -80,13 +89,13 @@ async function brainWrite(root,node,cfg,type,previous,next) {
   const result=await p.commitResidentWritePlan({node,plan,type,slug:next.slug,durable:true,failOnIndexPartial:true});
   require(result.durability==="durable","The app mutation lacks a durable receipt");
 }
-async function brainSeed(node,cfg) {
-  const {RECORDS}=await load(old,"schemas");
+async function brainSeed(node,cfg,root=old) {
+  const {RECORDS}=await load(root,"schemas");
   for(let n=0;n<count;n++) {
     const type=n%2?"task":"design";
     const record={slug:slug(n),title:"Record "+n,body:body(n),status:RECORDS[type].defaultStatus,tags:["benchmark"],
       created_at:time(n),updated_at:time(n),...(type==="task"?{design_slug:slug(0)}:{})};
-    await brainWrite(old,node,cfg,type,null,record);
+    await brainWrite(root,node,cfg,type,null,record);
   }
 }
 async function kanbanMeasure(node,cfg) {

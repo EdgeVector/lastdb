@@ -12,7 +12,9 @@ from node import Node, file_hash, save
 
 def run_app(args, app, label, node, output, mode):
     environment = dict(os.environ, FOLDDB_SOCKET_PATH=str(node.socket),
-                       FBRAIN_APP_IDENTITY_ENFORCE="off")
+                       FBRAIN_APP_IDENTITY_ENFORCE="off",
+                       FBRAIN_FOLDDB_SOCKET=str(node.socket), BRAIN_CONFIG=str(output / "config.json"),
+                       KANBAN_CONFIG=str(output / "config.json"))
     command = ["bun", str(args.driver), "--app", app,
                "--baseline", str(args.apps / app / "baseline"),
                "--candidate", str(args.apps / app / "candidate"),
@@ -32,7 +34,7 @@ def compare(args):
                 ["git", "-C", str(args.apps / app / label), "rev-parse", "HEAD"], text=True).strip()
             if observed != revision:
                 raise RuntimeError("App checkout differs from its selected revision")
-        for pair, order in enumerate([["baseline", "candidate"], ["candidate", "baseline"]]):
+        for pair, order in enumerate([["baseline", "candidate"], ["candidate", "baseline"], ["fresh"]]):
             for label in order:
                 output = args.output / app / str(pair) / label
                 output.mkdir(parents=True)
