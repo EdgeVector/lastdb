@@ -29,6 +29,11 @@ impl FoldDB {
             mutation_log_capture,
             offline_maintenance,
         } = init;
+        let app_schema_conversion_active = Arc::clone(&db_ops.atoms().app_schema_conversion_active);
+        app_schema_conversion_active.store(
+            super::app_schema_conversion::active(&db_ops).await?,
+            std::sync::atomic::Ordering::Release,
+        );
         if !offline_maintenance {
             db_ops.atoms().freeze_replay_cutoff().await?;
         }
@@ -95,6 +100,7 @@ impl FoldDB {
         let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
 
         Ok(Self {
+            app_schema_conversion_active,
             schema_manager,
             db_ops: Arc::clone(&db_ops),
             query_executor,

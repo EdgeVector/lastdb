@@ -101,3 +101,5 @@ fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|f
 
 fold_db/crates/core/src/alternate_keys/write.rs|stage_alternate_changes|-|writes only ak: typed primary-key references inside the native request; creates no atom, field tip, history or reference counter
 fold_db/crates/core/src/fold_db_core/fold_db/alternate_key_changes/finish.rs|cleanup|-|deletes bounded ak: pages only for an unbound retired generation or this change's unpublished generation; receipt cleanup uses alternate_changes; atom and field-tip lifecycle stays in the existing planner
+# Conversion coverage lives in its own namespace, never the atom store.
+fold_db/crates/core/src/fold_db_core/fold_db/app_schema_conversion/audit.rs|cleanup|-|Deletes only seen/covered audit metadata from the app_schema_conversion namespace.

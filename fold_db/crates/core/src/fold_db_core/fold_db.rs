@@ -13,6 +13,8 @@ use crate::schema::SchemaCore;
 mod accessors;
 pub(crate) mod alternate_key_changes;
 pub use alternate_key_changes::{AlternateKeyChange, AlternateKeyChangeReport};
+pub(crate) mod app_schema_conversion;
+pub use app_schema_conversion::{AppSchemaConversion, AppSchemaConversionReport};
 mod admin_db;
 mod catalog_gc;
 mod catalog_membership;
@@ -39,6 +41,7 @@ pub use protein_backfill::ProteinBackfillReport;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.
 pub struct FoldDB {
+    app_schema_conversion_active: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) schema_manager: Arc<SchemaCore>,
     /// Shared database operations with storage abstraction
     pub(crate) db_ops: Arc<DbOperations>,

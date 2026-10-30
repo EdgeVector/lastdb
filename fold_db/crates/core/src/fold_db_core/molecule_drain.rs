@@ -310,7 +310,9 @@ async fn run_wake(
         shrank: false,
     };
     for _ in 0..policy.batches {
-        if stop.load(Ordering::Relaxed) {
+        if stop.load(Ordering::Relaxed)
+            || atoms.app_schema_conversion_active.load(Ordering::Acquire)
+        {
             break;
         }
         let started = std::time::Instant::now();
@@ -330,7 +332,7 @@ async fn run_wake(
                     rest(pause, watch).await;
                 }
             }
-            Ok(None) => break,
+            Ok(None) | Err(crate::schema::SchemaError::AppSchemaConversionActive) => break,
             Err(failure) if *tips > MIN_TIPS && is_read_limit(&failure) => {
                 // The batch read more pages than one call may spend: halve it. The
                 // failed molecule went to the back of the line.

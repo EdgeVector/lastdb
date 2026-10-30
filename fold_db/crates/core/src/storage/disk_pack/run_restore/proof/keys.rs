@@ -32,7 +32,7 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("run backup logical marker is absent"))?;
-    if !matches!(version, 2 | 3) || !crate::atom::molecule_key_codec::current_key_format(marker) {
+    if !matches!(version, 2..=4) || !crate::atom::molecule_key_codec::current_key_format(marker) {
         return Err(invalid(
             "run backup logical marker differs from its node profile",
         ));

@@ -40,7 +40,7 @@ export interface KeyValue {
 /** Pass the complete cursor back unchanged. Values stay strings, including large integers and dates. */
 export interface QueryCursor extends KeyValue {
   /** Opaque schema, field-type, key-format, and query compatibility identifier. */
-  comparison?: string;
+  comparison?: string | null;
 }
 
 /** Options for the keys-only {@link LastDbClient.list} membership page. */

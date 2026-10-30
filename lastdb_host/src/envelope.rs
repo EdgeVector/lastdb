@@ -116,6 +116,7 @@ pub fn status_reason(status: u16) -> &'static str {
         409 => "Conflict",
         413 => "Payload Too Large",
         422 => "Unprocessable Entity",
+        423 => "Locked",
         429 => "Too Many Requests",
         503 => "Service Unavailable",
         507 => "Insufficient Storage",
@@ -144,7 +145,7 @@ pub fn status_reason(status: u16) -> &'static str {
 /// careful classification upstream never reaches the wire. That is what
 /// happened to `422` (file-blob verification): the caller read `500 Internal
 /// Server Error`. Keep this list in step with the statuses handlers return.
-const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 503, 507];
+const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 403, 404, 409, 413, 422, 423, 503, 507];
 
 /// Render an error: the OWNER caller gets `message` in the body (developer
 /// diagnostics like a schema-resolution failure), every non-owner caller gets

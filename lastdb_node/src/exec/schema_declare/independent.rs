@@ -33,7 +33,7 @@ pub(super) fn check_legacy(host: &Host, declare: &DirectDeclareProposal) -> Resu
 }
 
 /// A repeat declare cannot convert old data, change its key, or discard a layout.
-fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<(), String> {
+fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<Schema>, String> {
     let proposed = &declare.catalog_schema;
     proposed.validate_alternate_keys()?;
     let schemas = host
@@ -41,23 +41,31 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<(), Strin
         .schema_manager()
         .get_schemas()
         .map_err(|error| error.to_string())?;
+    let mut installed = None;
     for stored in schemas.values() {
-        if stored.name == declare.local_schema_id {
-            if !stored.uses_independent_fields()
-                || stored.identity_hash != proposed.identity_hash
-                || stored.alternate_keys != proposed.alternate_keys
-                || stored.field_descriptions != proposed.field_descriptions
-            {
-                return Err("existing app data requires an explicit schema conversion or alternate-key change; declare cannot replace it".into());
-            }
-        } else if stored.identity_hash == proposed.identity_hash
+        let related = stored.name == declare.local_schema_id
+            || stored.identity_hash == proposed.identity_hash
             || (stored.owner_app_id == proposed.owner_app_id
-                && stored.descriptive_name == proposed.descriptive_name)
-        {
-            return Err("this definition already has a local data schema; use its runtime name or explicitly convert the existing data".into());
+                && stored.descriptive_name == proposed.descriptive_name);
+        if !related {
+            continue;
         }
+        if !stored.uses_independent_fields()
+            || stored.identity_hash != proposed.identity_hash
+            || stored.owner_app_id != proposed.owner_app_id
+            || stored.descriptive_name != proposed.descriptive_name
+            || stored.schema_type != proposed.schema_type
+            || stored.key != proposed.key
+            || stored.alternate_keys != proposed.alternate_keys
+            || stored.field_descriptions != proposed.field_descriptions
+            || stored.field_types != proposed.field_types
+            || installed.is_some()
+        {
+            return Err("existing app data requires an explicit schema conversion or alternate-key change; declare cannot replace it".into());
+        }
+        installed = Some(stored.clone_for_read_shared());
     }
-    Ok(())
+    Ok(installed)
 }
 
 /// Keep exact field meanings and the primary key. Resolver expansions and
@@ -65,6 +73,7 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<(), Strin
 fn owned_schema(
     declare: &DirectDeclareProposal,
     definition: schema_types::DeclarativeSchemaDefinition,
+    installed: Option<&Schema>,
 ) -> Result<Schema, String> {
     let requested = &declare.catalog_schema;
     let mut actual_fields = definition.fields.clone().unwrap_or_default();
@@ -96,7 +105,10 @@ fn owned_schema(
     schema.field_data_classifications = definition.field_data_classifications;
     schema.field_interest_categories = definition.field_interest_categories;
     schema.independent_fields = true;
-    schema.field_molecule_uuids = None;
+    schema.field_molecule_uuids = installed.and_then(|schema| schema.field_molecule_uuids.clone());
+    if let Some(installed) = installed {
+        schema.name = installed.name.clone();
+    }
     schema
         .populate_runtime_fields()
         .map_err(|error| error.to_string())?;
@@ -104,16 +116,16 @@ fn owned_schema(
     Ok(schema)
 }
 
-fn resolution(declare: &DirectDeclareProposal, reused: bool) -> DirectDeclareResolution {
+fn resolution(runtime: &str, reused: bool) -> DirectDeclareResolution {
     if reused {
         DirectDeclareResolution::Reuse {
-            catalog_hash: declare.local_schema_id.clone(),
+            catalog_hash: runtime.to_string(),
             field_mappers: HashMap::new(),
             confidence: None,
         }
     } else {
         DirectDeclareResolution::Register {
-            catalog_hash: declare.local_schema_id.clone(),
+            catalog_hash: runtime.to_string(),
             field_mappers: HashMap::new(),
             replaced_schema: None,
         }
@@ -124,7 +136,12 @@ pub(super) async fn plan(
     host: &Host,
     declare: &DirectDeclareProposal,
 ) -> Result<DirectDeclarePlan, String> {
-    check_local(host, declare)?;
+    let installed = check_local(host, declare)?;
+    let runtime = installed
+        .as_ref()
+        .map_or(declare.local_schema_id.as_str(), |schema| {
+            schema.name.as_str()
+        });
     let identity = declare
         .proposal
         .identity_hash
@@ -135,11 +152,11 @@ pub(super) async fn plan(
         .await
         .map_err(|error| error.to_string())?;
     if let Some(envelope) = &found {
-        owned_schema(declare, envelope.schema.clone())?;
+        owned_schema(declare, envelope.schema.clone(), installed.as_ref())?;
     }
-    precheck_declare_retention(host, declare, &declare.local_schema_id).await?;
+    precheck_declare_retention(host, declare, runtime).await?;
     Ok(DirectDeclarePlan {
-        resolution: resolution(declare, found.is_some()),
+        resolution: resolution(runtime, found.is_some()),
         register_reason: found.is_none().then_some("independent_definition"),
     })
 }
@@ -154,8 +171,13 @@ pub(super) async fn load(
         .anchor_lock
         .hold("independent-app-declarations")
         .await;
-    check_local(host, declare)?;
-    precheck_declare_retention(host, declare, &declare.local_schema_id).await?;
+    let installed = check_local(host, declare)?;
+    let runtime = installed
+        .as_ref()
+        .map_or(declare.local_schema_id.as_str(), |schema| {
+            schema.name.as_str()
+        });
+    precheck_declare_retention(host, declare, runtime).await?;
     let identity = declare
         .proposal
         .identity_hash
@@ -188,11 +210,11 @@ pub(super) async fn load(
             .map_err(|error| error.to_string())?
             .schema
     };
-    let schema = owned_schema(declare, definition)?;
+    let schema = owned_schema(declare, definition, installed.as_ref())?;
     host.db
         .schema_manager()
         .load_schema_internal(schema)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(resolution(declare, reused))
+    Ok(resolution(runtime, reused))
 }

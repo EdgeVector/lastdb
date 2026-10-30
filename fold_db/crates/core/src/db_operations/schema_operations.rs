@@ -61,9 +61,17 @@ impl DbOperations {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
+        crate::fold_db_core::fold_db::app_schema_conversion::require_load_allowed(self, schema)
+            .await?;
         if schema.uses_independent_fields() {
             if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
-                runtime.require_alternate_format()?;
+                let compound = schema.schema_type == crate::schema::types::SchemaType::HashRange
+                    || schema.alternate_keys.values().any(|key| {
+                        key.hash_literal.is_some()
+                            || !key.range_parts.is_empty()
+                            || key.omit_empty_hash
+                    });
+                runtime.require_alternate_format(compound)?;
             }
         }
         schema
@@ -153,6 +161,14 @@ impl DbOperations {
         schema_name: &str,
         state: &SchemaState,
     ) -> Result<(), SchemaError> {
+        if !crate::fold_db_core::fold_db::app_schema_conversion::authorized()
+            && crate::fold_db_core::fold_db::app_schema_conversion::active(self).await?
+            && self.schemas().get_schema_state(schema_name).await?.as_ref() != Some(state)
+        {
+            return Err(SchemaError::Blocked(
+                "app schema conversion freezes availability changes".into(),
+            ));
+        }
         self.schemas().store_schema_state(schema_name, state).await
     }
 
@@ -235,6 +251,7 @@ impl DbOperations {
     }
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        crate::fold_db_core::fold_db::app_schema_conversion::require_unfrozen(self).await?;
         let old = self.schemas().get_schema(schema_name).await?;
         if old
             .as_ref()
