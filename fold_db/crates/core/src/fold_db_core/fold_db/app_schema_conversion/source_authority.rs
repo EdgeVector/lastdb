@@ -61,7 +61,7 @@ pub(super) fn validate(
             .ok_or_else(|| invalid("mapped authority field is absent"))?;
         let identity = source.field_hashes.get(name).filter(|id| !id.is_empty());
         if source.owner_app_id != reference.owner_app_id
-            || crate::schema::SchemaCore::same_coordinates(&source, reference)
+            || same_coordinates(&source, reference)
             || field.common().molecule_uuid().is_none()
             || referenced.common().molecule_uuid().is_none()
             || field.common().molecule_uuid() == referenced.common().molecule_uuid()
@@ -79,4 +79,36 @@ pub(super) fn validate(
         }
     }
     Ok(())
+}
+
+// Keep this legacy-coordinate rule inside explicit conversion. The compatible
+// release's loader has the same rule; the removal release deletes that loader.
+fn same_coordinates(target: &Schema, source: &Schema) -> bool {
+    let names = |schema: &Schema| {
+        schema
+            .key
+            .as_ref()
+            .map(|key| (key.hash_field.clone(), key.range_field.clone()))
+            .unwrap_or_default()
+    };
+    let (target_hash, target_range) = names(target);
+    let (source_hash, source_range) = names(source);
+    let same =
+        |target_path: Option<&str>, source_path: Option<&str>| match (target_path, source_path) {
+            (None, None) => true,
+            (Some(target_path), Some(source_path)) => {
+                let mapped = target
+                    .field_mappers
+                    .as_ref()
+                    .and_then(|m| m.get(target_path));
+                let name = mapped
+                    .filter(|m| m.source_schema() == source.name)
+                    .map_or(target_path, schema_types::FieldMapper::source_field);
+                name == source_path
+                    && target.key_field_type(target_path) == source.key_field_type(source_path)
+            }
+            _ => false,
+        };
+    same(target_hash.as_deref(), source_hash.as_deref())
+        && same(target_range.as_deref(), source_range.as_deref())
 }

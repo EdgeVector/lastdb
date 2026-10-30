@@ -104,7 +104,7 @@ impl SchemaCore {
                     "alternate schemas cannot supply mutable field mappers in the spike",
                 ));
             }
-            if !Self::same_coordinates(&current, source) {
+            if !same_coordinates(&current, source) {
                 let old = if first { stored } else { Some(&current) };
                 let molecule =
                     cross_key_molecule(&current, &field, source, mapper.source_field(), old)?;
@@ -119,37 +119,34 @@ impl SchemaCore {
 
 /// Translate app aliases before comparing key names. Payload field types do not
 /// decide molecule order; the hash/range fields and their types do.
-impl SchemaCore {
-    pub(crate) fn same_coordinates(target: &Schema, source: &Schema) -> bool {
-        let names = |schema: &Schema| {
-            schema
-                .key
-                .as_ref()
-                .map(|key| (key.hash_field.clone(), key.range_field.clone()))
-                .unwrap_or_default()
+fn same_coordinates(target: &Schema, source: &Schema) -> bool {
+    let names = |schema: &Schema| {
+        schema
+            .key
+            .as_ref()
+            .map(|key| (key.hash_field.clone(), key.range_field.clone()))
+            .unwrap_or_default()
+    };
+    let (target_hash, target_range) = names(target);
+    let (source_hash, source_range) = names(source);
+    let same =
+        |target_path: Option<&str>, source_path: Option<&str>| match (target_path, source_path) {
+            (None, None) => true,
+            (Some(target_path), Some(source_path)) => {
+                let mapped = target
+                    .field_mappers
+                    .as_ref()
+                    .and_then(|m| m.get(target_path));
+                let name = mapped
+                    .filter(|m| m.source_schema() == source.name)
+                    .map_or(target_path, schema_types::FieldMapper::source_field);
+                name == source_path
+                    && target.key_field_type(target_path) == source.key_field_type(source_path)
+            }
+            _ => false,
         };
-        let (target_hash, target_range) = names(target);
-        let (source_hash, source_range) = names(source);
-        let same =
-            |target_path: Option<&str>, source_path: Option<&str>| match (target_path, source_path)
-            {
-                (None, None) => true,
-                (Some(target_path), Some(source_path)) => {
-                    let mapped = target
-                        .field_mappers
-                        .as_ref()
-                        .and_then(|m| m.get(target_path));
-                    let name = mapped
-                        .filter(|m| m.source_schema() == source.name)
-                        .map_or(target_path, schema_types::FieldMapper::source_field);
-                    name == source_path
-                        && target.key_field_type(target_path) == source.key_field_type(source_path)
-                }
-                _ => false,
-            };
-        same(target_hash.as_deref(), source_hash.as_deref())
-            && same(target_range.as_deref(), source_range.as_deref())
-    }
+    same(target_hash.as_deref(), source_hash.as_deref())
+        && same(target_range.as_deref(), source_range.as_deref())
 }
 
 fn cross_key_molecule(
@@ -159,7 +156,7 @@ fn cross_key_molecule(
     source_field: &str,
     stored: Option<&Schema>,
 ) -> Result<String, SchemaError> {
-    if stored.is_some_and(|old| !SchemaCore::same_coordinates(target, old)) {
+    if stored.is_some_and(|old| !same_coordinates(target, old)) {
         return Err(invalid(
             "existing molecule coordinates require explicit conversion",
         ));
