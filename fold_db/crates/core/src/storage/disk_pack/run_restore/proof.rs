@@ -118,18 +118,23 @@ fn reserve_cursor(main: &RunRead, cas: &RunRead) -> StorageResult<Option<(RunRea
     {
         return Ok(None);
     }
-    let mut main = match main.fork_bounded(main.budget()) {
-        Ok(read) => read,
-        Err(laststore::Error::ReadBudgetExceeded) => return Ok(None),
-        Err(error) => return Err(map(error)),
+    let Some(mut main) = fork_or_skip(main)? else {
+        return Ok(None);
     };
-    let mut cas = match cas.fork_bounded(cas.budget()) {
-        Ok(read) => read,
-        Err(laststore::Error::ReadBudgetExceeded) => return Ok(None),
-        Err(error) => return Err(map(error)),
+    let Some(mut cas) = fork_or_skip(cas)? else {
+        return Ok(None);
     };
     super::reserve_paired_metadata(&mut main, &mut cas, shared)?;
     Ok(Some((main, cas)))
+}
+
+/// A budget miss skips the optional cursor. Any other fork error stays mapped.
+fn fork_or_skip(read: &RunRead) -> StorageResult<Option<RunRead>> {
+    match read.fork_bounded(read.budget()) {
+        Ok(read) => Ok(Some(read)),
+        Err(laststore::Error::ReadBudgetExceeded) => Ok(None),
+        Err(error) => Err(map(error)),
+    }
 }
 
 /// Account admission is separate from the complete atom and file proof.
