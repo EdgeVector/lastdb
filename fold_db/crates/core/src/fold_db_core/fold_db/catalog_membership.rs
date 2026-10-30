@@ -14,6 +14,11 @@ use crate::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use crate::error::FoldDbResult;
 use crate::schema::SchemaError;
 
+enum CatalogMoleculeChange {
+    Bind,
+    Unbind,
+}
+
 impl FoldDB {
     /// Write one catalog row, and bind the field molecules of its schema in the
     /// scope of the row. A row that moves to another instance first unbinds the
@@ -35,9 +40,11 @@ impl FoldDB {
             .as_ref()
             .filter(|old| old.instance_id != entry.instance_id)
         {
-            self.unbind_catalog_entry(old).await?;
+            self.change_catalog_molecules(old, CatalogMoleculeChange::Unbind)
+                .await?;
         }
-        self.bind_catalog_entry(entry).await?;
+        self.change_catalog_molecules(entry, CatalogMoleculeChange::Bind)
+            .await?;
         catalog.put(entry).await?;
         Ok(())
     }
@@ -59,7 +66,8 @@ impl FoldDB {
             .in_write_scope(async {
                 let catalog = self.db_ops().db_catalog();
                 if let Some(existing) = catalog.get(db_locator, schema_name).await? {
-                    self.bind_catalog_entry(&existing).await?;
+                    self.change_catalog_molecules(&existing, CatalogMoleculeChange::Bind)
+                        .await?;
                     return Ok(existing);
                 }
                 let entry = DbCatalogEntry {
@@ -74,39 +82,34 @@ impl FoldDB {
             .await?)
     }
 
-    async fn bind_catalog_entry(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {
-        if let Some(schema) = self
+    /// Bind or unbind the field molecules of one catalog row.
+    /// A missing schema still does nothing.
+    async fn change_catalog_molecules(
+        &self,
+        entry: &DbCatalogEntry,
+        change: CatalogMoleculeChange,
+    ) -> Result<(), SchemaError> {
+        let Some(schema) = self
             .schema_manager()
             .get_schema_metadata(&entry.schema_name)?
-        {
-            self.db_ops()
-                .atoms()
-                .bind_catalog_molecules(
-                    &entry.db_locator,
-                    &entry.schema_name,
-                    &schema,
-                    entry.instance_id.as_deref(),
-                )
-                .await?;
+        else {
+            return Ok(());
+        };
+        let atoms = self.db_ops().atoms();
+        let db = entry.db_locator.as_str();
+        let name = entry.schema_name.as_str();
+        let prefix = entry.instance_id.as_deref();
+        match change {
+            CatalogMoleculeChange::Bind => {
+                atoms
+                    .bind_catalog_molecules(db, name, &schema, prefix)
+                    .await
+            }
+            CatalogMoleculeChange::Unbind => {
+                atoms
+                    .unbind_catalog_molecules(db, name, &schema, prefix)
+                    .await
+            }
         }
-        Ok(())
-    }
-
-    async fn unbind_catalog_entry(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {
-        if let Some(schema) = self
-            .schema_manager()
-            .get_schema_metadata(&entry.schema_name)?
-        {
-            self.db_ops()
-                .atoms()
-                .unbind_catalog_molecules(
-                    &entry.db_locator,
-                    &entry.schema_name,
-                    &schema,
-                    entry.instance_id.as_deref(),
-                )
-                .await?;
-        }
-        Ok(())
     }
 }
