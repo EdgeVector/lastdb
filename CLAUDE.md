@@ -177,9 +177,10 @@ their clean core memory publication before the ack. No collection timer delays t
   `docs/lastdb-rehydrate.md` before a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
-- Empty homes initialize directly as format 5. Existing format 4 homes keep their records and legacy schema behavior.
-  `lastdb db enable-alternate-keys` explicitly activates format 5 on a stopped home without rewriting encrypted data files.
-  Older formats receive an error. Startup does not convert data. Cloud activation stays disabled for this round.
+- Empty homes initialize directly as format 6. Existing format 4 and 5 homes retain their records.
+  `lastdb db enable-alternate-keys` explicitly activates format 6 on a stopped home without rewriting encrypted data files.
+  Convert shared-value schemas on a compatible release before the engine removal upgrade.
+  This release refuses unconverted shared-value schemas. Startup does not convert data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 
