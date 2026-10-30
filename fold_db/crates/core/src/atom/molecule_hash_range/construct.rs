@@ -86,27 +86,7 @@ impl MoleculeHashRange {
         updated_at: DateTime<Utc>,
         records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
     ) -> Self {
-        let mut atom_uuids: HashMap<String, BTreeMap<String, AtomEntry>> = HashMap::new();
-        let mut key_metadata: HashMap<String, BTreeMap<String, KeyMetadata>> = HashMap::new();
-        for (hash, range, entry, meta) in records {
-            if let Some(meta) = meta {
-                key_metadata
-                    .entry(hash.clone())
-                    .or_default()
-                    .insert(range.clone(), meta);
-            }
-            atom_uuids.entry(hash).or_default().insert(range, entry);
-        }
-        Self {
-            uuid,
-            atom_uuids,
-            updated_at,
-            order_is_tail: false,
-            loaded_is_partial: false,
-            version,
-            key_metadata,
-            pending_tip_conflicts: Vec::new(),
-        }
+        Self::from_records(uuid, version, updated_at, records, false)
     }
 
     /// Rebuild a write-only molecule from just the touched records.
@@ -119,6 +99,16 @@ impl MoleculeHashRange {
         version: u64,
         updated_at: DateTime<Utc>,
         records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
+    ) -> Self {
+        Self::from_records(uuid, version, updated_at, records, true)
+    }
+
+    fn from_records(
+        uuid: String,
+        version: u64,
+        updated_at: DateTime<Utc>,
+        records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
+        order_is_tail: bool,
     ) -> Self {
         let mut atom_uuids: HashMap<String, BTreeMap<String, AtomEntry>> = HashMap::new();
         let mut key_metadata: HashMap<String, BTreeMap<String, KeyMetadata>> = HashMap::new();
@@ -135,7 +125,7 @@ impl MoleculeHashRange {
             uuid,
             atom_uuids,
             updated_at,
-            order_is_tail: true,
+            order_is_tail,
             loaded_is_partial: false,
             version,
             key_metadata,
