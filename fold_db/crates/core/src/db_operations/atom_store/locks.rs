@@ -60,18 +60,9 @@ impl AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> tokio::sync::OwnedRwLockWriteGuard<()> {
-        let lock_key = format!(
-            "{}\u{1f}{molecule_uuid}",
-            storage_prefix.unwrap_or_default()
-        );
-        let mutex = {
-            let mut map = self
-                .molecule_commit_locks
-                .lock()
-                .expect("molecule_commit_locks poisoned");
-            Arc::clone(map.entry(lock_key).or_default())
-        };
-        mutex.write_owned().await
+        self.molecule_commit_lock(molecule_uuid, storage_prefix)
+            .write_owned()
+            .await
     }
 
     /// Share the molecule barrier across ordinary sparse-log appends.
@@ -85,18 +76,26 @@ impl AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> tokio::sync::OwnedRwLockReadGuard<()> {
+        self.molecule_commit_lock(molecule_uuid, storage_prefix)
+            .read_owned()
+            .await
+    }
+
+    /// The map lock ends before the caller waits on the molecule lock.
+    fn molecule_commit_lock(
+        &self,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Arc<tokio::sync::RwLock<()>> {
         let lock_key = format!(
             "{}\u{1f}{molecule_uuid}",
             storage_prefix.unwrap_or_default()
         );
-        let mutex = {
-            let mut map = self
-                .molecule_commit_locks
-                .lock()
-                .expect("molecule_commit_locks poisoned");
-            Arc::clone(map.entry(lock_key).or_default())
-        };
-        mutex.read_owned().await
+        let mut map = self
+            .molecule_commit_locks
+            .lock()
+            .expect("molecule_commit_locks poisoned");
+        Arc::clone(map.entry(lock_key).or_default())
     }
 
     /// Share append barriers for a multi-molecule sparse-log batch.
