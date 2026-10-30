@@ -33,7 +33,7 @@ pub(crate) async fn require_unfrozen(db: &DbOperations) -> Result<(), SchemaErro
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnedSchemaConversion {
     pub schema: String,
@@ -79,6 +79,7 @@ pub struct AppSchemaConversionReport {
     pub expected_selected_keys: u64,
     pub converted_schemas: Vec<String>,
     pub retired_schemas: Vec<String>,
+    pub schemas: Vec<OwnedSchemaConversion>,
     pub durable: bool,
 }
 
@@ -157,6 +158,16 @@ impl Change {
                 .map(|target| target.target.name.clone())
                 .collect(),
             retired_schemas: self.retire.clone(),
+            schemas: self
+                .targets
+                .iter()
+                .map(|target| OwnedSchemaConversion {
+                    schema: target.source.name.clone(),
+                    expected_identity: target.source.identity_hash.clone(),
+                    alternate_keys: target.target.alternate_keys.clone(),
+                    membership: target.membership.clone(),
+                })
+                .collect(),
             durable: true,
         })
     }
