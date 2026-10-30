@@ -28,6 +28,11 @@ pub(in crate::storage::disk_pack) fn provenance_current() -> bool {
     CURRENT_PROVENANCE.try_with(|_| ()).is_ok()
 }
 
+/// A pending batch or missing provenance skips path admission.
+pub(in crate::storage::disk_pack) fn provenance_admits(runtime: &PackRuntime) -> bool {
+    provenance_current() && transaction::PendingBatch::current(runtime).is_none()
+}
+
 impl FieldScope {
     pub(crate) fn new(schema: &Schema, name: &str) -> StorageResult<Self> {
         Ok(Self {
@@ -83,7 +88,7 @@ pub(crate) fn lookup(
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {
         return Ok(None);
     };
-    if !provenance_current() || transaction::PendingBatch::current(&runtime).is_some() {
+    if !provenance_admits(&runtime) {
         return Ok(None);
     }
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;

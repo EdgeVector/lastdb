@@ -165,7 +165,7 @@ fn open_current_selection<'a>(
     molecule: &str,
     key: &KeyValue,
 ) -> StorageResult<Option<CurrentSelection<'a>>> {
-    if transaction::PendingBatch::current(runtime).is_some() || !field::provenance_current() {
+    if !field::provenance_admits(runtime) {
         return Ok(None);
     }
     let Some(context) = ReadContext::captured(runtime) else {
@@ -194,7 +194,7 @@ fn captured_selection_view(
     Arc<ReadContext>,
     std::sync::RwLockReadGuard<'_, super::super::view::NativeReadView>,
 )> {
-    if transaction::PendingBatch::current(runtime).is_some() || !field::provenance_current() {
+    if !field::provenance_admits(runtime) {
         return None;
     }
     let context = ReadContext::captured(runtime)?;

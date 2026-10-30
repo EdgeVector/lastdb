@@ -11,7 +11,7 @@ impl PackRuntime {
         facts: source::AtomFacts,
         hint_key: &KeyValue,
     ) -> StorageResult<()> {
-        if !field::provenance_current() || transaction::PendingBatch::current(self).is_some() {
+        if !field::provenance_admits(self) {
             return Ok(());
         }
         let selected = core_read::selected_tip(
