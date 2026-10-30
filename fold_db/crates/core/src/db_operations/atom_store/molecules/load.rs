@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 
 use super::super::helpers::strip_record_prefix;
-use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
+use super::super::types::{MoleculeData, MoleculeHeader, PerKeyRecord};
 use super::super::AtomStore;
 use super::generation::MaterializeReadCost;
 

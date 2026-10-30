@@ -1,6 +1,6 @@
 # Compound alternate keys
 
-A schema owns its values. Canonical field identities can match across schemas without shared values or proteins.
+A schema owns its values. Canonical field identities can match across schemas while their record values remain separate.
 
 An alternate key uses a declared hash field or an explicit `hash_literal`. It uses one range field or ordered `range_parts`.
 Each alternate key retains the exact primary field without formatting. The primary schema still uses a Hash key.

@@ -15,12 +15,12 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
-## Proteins are deprecated (Tom, 2026-10-29)
+## Owned values and named alternate keys
 
-New designs use one schema with named alternate keys for the same records.
-Canonical field reuse supplies definitions; it does not share record values.
-Follow `docs/protein-deprecation.md`. It supersedes older protein recommendations here and in app guides.
-Preserve existing protein data until an explicit conversion. Source work does not authorize a primary data change.
+Use one schema with named alternate keys for the same records.
+Canonical field reuse supplies definitions and types. It does not share record values.
+Follow `docs/multi-key-schema-conversion.md`.
+Convert older data with the previous release before the upgrade. Source work does not authorize a primary data change.
 
 ## Builds and benchmarks run in CI (Tom, 2026-10-23)
 
@@ -53,9 +53,8 @@ This rule supersedes the local build commands and coordination rules below.
 > Storage ladder: **schema → field → molecule → atom → file**. A schema is a
 > catalog, not a table; each *field* has its own molecule (an index from key
 > coordinates to the current atom); a "row" is assembled at read time from the
-> field molecules sharing the same key. Secondary access patterns are protein
-> member molecules for shared fields (dual-write only a thin projection),
-> never a filter over everything.
+> field molecules at the same key. A named alternate key finds the same records
+> through declared fields. A relationship with different data uses its own schema.
 >
 > **Read before you design:**
 > - `docs/lastdb-canonical-model.md` — CANONICAL. If any other doc or code

@@ -31,7 +31,7 @@ whole design before a line is written:
 Before designing or planning anything against LastDB, read:
 
 - `docs/lastdb-canonical-model.md` — CANONICAL (schema → field → molecule →
-  atom → file, proteins, the no-scan contract). If another doc or a code
+  atom → file, named keys, and the no-scan contract). If another doc or a code
   comment disagrees with it, it wins; fix the other.
 - `docs/lastdb-agent-access-model.md` — day-to-day do / don't rules.
 - `docs/lastdb-access-complexity-requirements.md` — the complexity law.

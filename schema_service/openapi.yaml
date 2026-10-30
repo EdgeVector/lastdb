@@ -1070,8 +1070,8 @@ components:
         identity:
           type: string
           description: |
-            The derived identity a schema stamps into `field_hashes`. This is
-            also the protein id — there is no separate protein UUID.
+            The derived identity a schema stamps into `field_hashes`. It identifies
+            the field definition. Local schemas own their record values.
 
     DeclaredFieldRecord:
       type: object
