@@ -46,26 +46,10 @@ impl Identity {
         let bytes = self.prepared_bytes(main, cas, prepared_root);
         let path = data.join(FILE);
         let staged = data.join(STAGED2);
-        require_absent(&path)?;
-        discard_prepared_stage(&staged)?;
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&staged)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            require_absent(&path)?;
-            std::fs::rename(&staged, &path)?;
+        install_private_file(&path, &staged, &bytes, discard_prepared_stage, || {
             File::open(data)?.sync_all()?;
             Ok(())
-        })();
-        if result.is_err() {
-            let _ = discard_prepared_stage(&staged);
-        }
-        result
+        })
     }
 
     pub(in crate::storage::disk_pack::logical_capture) fn verify_prepared(
