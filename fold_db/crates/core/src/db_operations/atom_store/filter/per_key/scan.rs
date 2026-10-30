@@ -17,12 +17,19 @@ impl AtomStore {
         base_prefix: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        if let Some(rows) = self
-            .preloaded_per_key_prefix(base_prefix, storage_prefix)
-            .await?
-        {
-            return Ok(rows);
-        }
+        super::super::prefer_preloaded_rows(
+            self.preloaded_per_key_prefix(base_prefix, storage_prefix)
+                .await,
+            || self.scan_stored_per_key_prefix(base_prefix, storage_prefix),
+        )
+        .await
+    }
+
+    async fn scan_stored_per_key_prefix(
+        &self,
+        base_prefix: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let scan_prefix = build_storage_key(storage_prefix, base_prefix);
         let scanned: Vec<(String, PerKeyRecord)> = self
             .main_store
@@ -85,12 +92,20 @@ impl AtomStore {
         base_end: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        if let Some(rows) = self
-            .preloaded_per_key_range(base_start, base_end, storage_prefix)
-            .await?
-        {
-            return Ok(rows);
-        }
+        super::super::prefer_preloaded_rows(
+            self.preloaded_per_key_range(base_start, base_end, storage_prefix)
+                .await,
+            || self.scan_stored_per_key_range(base_start, base_end, storage_prefix),
+        )
+        .await
+    }
+
+    async fn scan_stored_per_key_range(
+        &self,
+        base_start: &str,
+        base_end: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let start = build_storage_key(storage_prefix, base_start);
         let end = build_storage_key(storage_prefix, base_end);
         let scanned: Vec<(String, PerKeyRecord)> = self
