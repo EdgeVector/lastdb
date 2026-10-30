@@ -84,15 +84,9 @@ impl MutationManager {
         mutation: &Mutation,
         storage_prefix: Option<&str>,
     ) -> Result<crate::schema::Schema, SchemaError> {
-        let Some(mut schema) = self
+        let mut schema = self
             .schema_manager
-            .get_schema_metadata(&mutation.schema_name)?
-        else {
-            return Err(SchemaError::InvalidData(format!(
-                "Schema '{}' not found",
-                mutation.schema_name
-            )));
-        };
+            .require_schema_metadata(&mutation.schema_name)?;
         super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         Ok(schema)
     }

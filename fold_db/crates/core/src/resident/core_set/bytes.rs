@@ -3,6 +3,7 @@
 //! Atoms are tracked by allocation (`Arc` pointer) with a weak reference, so an
 //! atom stays charged while any holder keeps it, including a running call that
 //! outlived the path's purge. A dead entry leaves the gauge at the next sweep.
+//! Only atoms without a current slot can die, so sweeps visit that subset.
 
 use super::charge::{atom_charge, path_charge, slot_charge, source_charge, tip_heap_charge};
 use super::*;
@@ -15,11 +16,15 @@ const SWEEP_BEFORE_PURGE: usize = 64;
 pub(super) struct TrackedAtom {
     atom: Weak<Atom>,
     bytes: usize,
+    slots: usize,
+    pending: Option<usize>,
 }
 
 #[derive(Default)]
 pub(super) struct WarmBytes {
     atoms: HashMap<usize, TrackedAtom>,
+    /// Unique allocation keys with no current slot; entries keep their position.
+    pending: Vec<usize>,
     atom_bytes: usize,
     path_bytes: usize,
     slot_bytes: usize,
@@ -77,15 +82,18 @@ impl WarmBytes {
     }
 
     pub(super) fn sweep(&mut self) {
-        let mut freed = 0;
-        self.atoms.retain(|_, tracked| {
-            let alive = tracked.atom.strong_count() > 0;
-            if !alive {
-                freed += tracked.bytes;
+        let _timing = laststore::commit_timing::stage("memory_atom_sweep_us");
+        laststore::commit_timing::count("memory_atom_sweep_calls", 1);
+        laststore::commit_timing::count("memory_atom_sweep_entries", self.pending.len() as u64);
+        let mut index = 0;
+        while let Some(&key) = self.pending.get(index) {
+            let tracked = self.atoms.get(&key).expect("tracked pending atom");
+            if tracked.atom.strong_count() == 0 {
+                self.remove_atom(key);
+            } else {
+                index += 1;
             }
-            alive
-        });
-        self.atom_bytes -= freed;
+        }
         self.tracks_since_sweep = 0;
         // Dead atoms leave first, so a freed allocation never inflates the peak.
         self.note_peak();
@@ -105,9 +113,47 @@ impl WarmBytes {
             .get(&key)
             .is_some_and(|tracked| tracked.atom.strong_count() == 0)
         {
-            if let Some(tracked) = self.atoms.remove(&key) {
-                self.atom_bytes -= tracked.bytes;
-            }
+            self.remove_atom(key);
+        }
+    }
+
+    /// One count per actual slot, regardless of how many paths own that slot.
+    pub(super) fn attach_atom(&mut self, key: usize) {
+        self.remove_pending(key);
+        let tracked = self.atoms.get_mut(&key).expect("tracked slot atom");
+        tracked.slots = tracked.slots.checked_add(1).expect("atom slot count");
+    }
+
+    pub(super) fn detach_atom(&mut self, key: usize) {
+        let tracked = self.atoms.get_mut(&key).expect("tracked slot atom");
+        tracked.slots = tracked.slots.checked_sub(1).expect("atom slot count");
+        if tracked.slots == 0 && tracked.pending.is_none() {
+            tracked.pending = Some(self.pending.len());
+            self.pending.push(key);
+        }
+    }
+
+    fn remove_pending(&mut self, key: usize) {
+        let Some(index) = self
+            .atoms
+            .get_mut(&key)
+            .and_then(|atom| atom.pending.take())
+        else {
+            return;
+        };
+        self.pending.swap_remove(index);
+        if let Some(&moved) = self.pending.get(index) {
+            self.atoms
+                .get_mut(&moved)
+                .expect("tracked pending atom")
+                .pending = Some(index);
+        }
+    }
+
+    fn remove_atom(&mut self, key: usize) {
+        self.remove_pending(key);
+        if let Some(tracked) = self.atoms.remove(&key) {
+            self.atom_bytes -= tracked.bytes;
         }
     }
 }
@@ -183,14 +229,18 @@ impl CoreWarmSet {
             if tracked.atom.strong_count() > 0 {
                 return;
             }
-            self.bytes.atom_bytes -= tracked.bytes;
+            self.bytes.remove_atom(key);
         }
         let bytes = atom_charge(atom);
+        let pending = self.bytes.pending.len();
+        self.bytes.pending.push(key);
         self.bytes.atoms.insert(
             key,
             TrackedAtom {
                 atom: Arc::downgrade(atom),
                 bytes,
+                slots: 0,
+                pending: Some(pending),
             },
         );
         self.bytes.atom_bytes += bytes;

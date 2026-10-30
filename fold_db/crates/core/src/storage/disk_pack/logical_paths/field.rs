@@ -90,15 +90,17 @@ pub(crate) fn lookup(
     let (key, atom, metadata, writer) = selection.entry;
     let path = binding.path(scope, &molecule, key, atom);
     let tip = core_read::selected_tip(Some(Arc::clone(&runtime)), scope, &molecule, key, atom)?;
-    let view = runtime.view.read().expect("native current core lookup");
-    if view.revision != context.revision {
+    let Some(mut held) = super::lock_current_receipt(
+        &runtime,
+        &context,
+        "native current core lookup",
+        "native shared core model",
+    ) else {
         return Ok(None);
-    }
-    let mut call = crate::read_receipts::lock(&context.call);
-    let mut core = runtime.core.lock().expect("native shared core model");
+    };
     let path_key = path.core();
-    context.hold_core(&mut core, std::slice::from_ref(&path_key))?;
-    let Some(selected) = core.lookup(&path_key).into_value() else {
+    context.hold_core(&mut held.core, std::slice::from_ref(&path_key))?;
+    let Some(selected) = held.core.lookup(&path_key).into_value() else {
         laststore::record_logical_warm_misses(1);
         return Ok(None);
     };
@@ -106,14 +108,14 @@ pub(crate) fn lookup(
         laststore::record_logical_warm_misses(1);
         return Ok(None);
     }
-    if !source::body_matches(&core, &path_key, &selection.primary) {
+    if !source::body_matches(&held.core, &path_key, &selection.primary) {
         laststore::record_logical_warm_misses(1);
         return Ok(None);
     }
     if let Some(tip) = tip {
-        super::read::refresh_tip(&mut core, &path_key, tip, &selection.primary);
+        super::read::refresh_tip(&mut held.core, &path_key, tip, &selection.primary);
     }
-    context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
+    context.account_memory_record(&mut held.call, path.id()?.len(), selected.bytes)?;
     crate::read_receipts::warm_hit();
     Ok(Some(crate::schema::types::field::field_value_from_atom(
         &selected.atom,

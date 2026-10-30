@@ -55,12 +55,7 @@ impl MutationManager {
             let schema = match schemas.entry(name) {
                 std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    let schema =
-                        self.schema_manager
-                            .get_schema_metadata(name)?
-                            .ok_or_else(|| {
-                                SchemaError::InvalidData(format!("Schema '{name}' not found"))
-                            })?;
+                    let schema = self.schema_manager.require_schema_metadata(name)?;
                     crate::schema::require_logical_layout(&schema.schema_type)?;
                     entry.insert(schema)
                 }
