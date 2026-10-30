@@ -154,11 +154,6 @@ pub(in crate::handlers) fn format_rows(
             if let Some(field) = sort_helper {
                 record.metadata.remove(field);
             }
-            let author_pub_key = record
-                .metadata
-                .values()
-                .find_map(|m| m.writer_pubkey.as_deref())
-                .filter(|s| !s.is_empty());
             let mut row = serde_json::Map::new();
             row.insert("key".into(), serde_json::json!(key));
             // These values already own their JSON. Serializing them through
@@ -186,6 +181,11 @@ pub(in crate::handlers) fn format_rows(
                     ),
                 );
             } else {
+                let author_pub_key = record
+                    .metadata
+                    .values()
+                    .find_map(|m| m.writer_pubkey.as_deref())
+                    .filter(|s| !s.is_empty());
                 row.insert("metadata".into(), serde_json::json!(record.metadata));
                 row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
             }
