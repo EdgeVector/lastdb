@@ -185,11 +185,11 @@ function parseQueryCursor(raw: unknown): QueryCursor | null {
     }
   }
   const comparison = raw['comparison'];
-  if (comparison === null || comparison === undefined) return key;
-  if (typeof comparison !== 'string' || comparison.length === 0) {
+  if (comparison !== null && comparison !== undefined
+      && (typeof comparison !== 'string' || comparison.length === 0)) {
     throw new UnexpectedResponseError('query returned an invalid comparison cursor', 200, raw);
   }
-  return { ...key, comparison };
+  return { ...raw, ...key };
 }
 
 /** Parse a successful `POST /api/app/changes` cursor page. */

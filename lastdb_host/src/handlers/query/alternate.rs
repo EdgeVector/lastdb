@@ -40,8 +40,9 @@ pub(super) async fn execute<H: HostNode>(
         .query_alternate_page(query, limit, cursor, context)
         .await
         .map_err(HostError::from)?;
+    let compact = QueryResponseFormat::current() == QueryResponseFormat::Values;
     let mut rows = HashMap::new();
-    for row in format_rows(page.values, None, false) {
+    for row in format_rows(page.values, None, compact) {
         let key: KeyValue = serde_json::from_value(row["key"].clone())
             .map_err(|_| HostError::internal("alternate response has an invalid primary key"))?;
         rows.insert(key, row);
@@ -58,7 +59,7 @@ pub(super) async fn execute<H: HostNode>(
         results.push(row);
     }
     let conflict_flags = annotate_conflict_flags(host, &mut results).await;
-    if QueryResponseFormat::current() == QueryResponseFormat::Values {
+    if compact {
         output::compact_rows(&mut results, conflict_flags);
     }
     let next = if page.has_more {
