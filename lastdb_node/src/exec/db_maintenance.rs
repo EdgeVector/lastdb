@@ -3,6 +3,7 @@
 use super::*;
 
 mod alternate_keys;
+mod app_conversion_definitions;
 mod gc;
 mod molecule_drain;
 mod molecule_map_candidates;
