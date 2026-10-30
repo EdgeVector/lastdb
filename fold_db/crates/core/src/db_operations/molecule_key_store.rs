@@ -217,6 +217,17 @@ pub(crate) fn metadata_key(molecule_uuid: &str) -> String {
     format!("mkb:{molecule_uuid}")
 }
 
+fn metadata_memory_owner(cache: &MoleculeKeyCache) -> usize {
+    Arc::as_ptr(cache) as usize
+}
+
+/// Absent metadata charges 256. A present record charges the molecule id capacity plus 256.
+fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
+    metadata.map_or(256, |value| {
+        value.molecule_uuid.capacity().saturating_add(256)
+    })
+}
+
 pub(crate) fn wrap_key_for(molecule_uuid: &str, domain: &str) -> String {
     let domain_hash = Sha256::digest(domain.as_bytes());
     format!("mkw:{molecule_uuid}:{domain_hash:x}")

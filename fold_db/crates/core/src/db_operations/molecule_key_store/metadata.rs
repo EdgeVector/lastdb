@@ -1,8 +1,10 @@
 //! Existing molecule-key metadata, including confirmed absence, in core memory.
 
-use super::{metadata_key, BundleMetadata, MoleculeKeyStore, StorageError, StorageResult};
+use super::{
+    metadata_key, metadata_memory_bytes, metadata_memory_owner, BundleMetadata, MoleculeKeyStore,
+    StorageError, StorageResult,
+};
 use crate::storage::disk_pack::core_memory_sources;
-use std::sync::Arc;
 
 impl MoleculeKeyStore {
     /// Stage metadata, never plaintext key material, from the final private view.
@@ -31,12 +33,10 @@ impl MoleculeKeyStore {
                 ));
             }
             self.validate_metadata(&molecule, metadata.as_ref())?;
-            let bytes = metadata.as_ref().map_or(256, |value| {
-                value.molecule_uuid.capacity().saturating_add(256)
-            });
+            let bytes = metadata_memory_bytes(metadata.as_ref());
             crate::storage::disk_pack::transaction::stage_core_memory(
                 runtime,
-                Arc::as_ptr(&self.cache) as usize,
+                metadata_memory_owner(&self.cache),
                 key.clone(),
                 metadata,
                 core_memory_sources("molecule_keys", key.as_bytes()),

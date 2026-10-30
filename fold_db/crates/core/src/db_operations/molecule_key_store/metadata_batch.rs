@@ -1,15 +1,17 @@
 //! Retain positive and confirmed-absent metadata under the existing core owner.
 
-use super::{metadata_key, BundleMetadata, MoleculeKeyStore, StorageError, StorageResult};
+use super::{
+    metadata_key, metadata_memory_bytes, metadata_memory_owner, BundleMetadata, MoleculeKeyStore,
+    StorageError, StorageResult,
+};
 use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
-use std::sync::Arc;
 
 impl MoleculeKeyStore {
     pub(super) async fn metadata_batch_from_memory(
         &self,
         molecules: &[&str],
     ) -> StorageResult<Vec<Option<BundleMetadata>>> {
-        let owner = Arc::as_ptr(&self.cache) as usize;
+        let owner = metadata_memory_owner(&self.cache);
         let mut output = vec![None; molecules.len()];
         let mut missing = Vec::new();
         let mut keys = Vec::new();
@@ -39,9 +41,7 @@ impl MoleculeKeyStore {
         }
         for (((at, _), key), value) in missing.into_iter().zip(keys).zip(metadata) {
             let sources = core_memory_sources("molecule_keys", key.as_bytes());
-            let bytes = value.as_ref().map_or(256, |metadata| {
-                metadata.molecule_uuid.capacity().saturating_add(256)
-            });
+            let bytes = metadata_memory_bytes(value.as_ref());
             let held = core_memory_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
             output[at] = held.as_ref().as_ref().cloned();
         }
