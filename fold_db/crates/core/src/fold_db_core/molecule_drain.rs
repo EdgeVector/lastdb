@@ -30,7 +30,9 @@
 //! | `LASTDB_MOLECULE_DRAIN_BATCHES` | Batches one wake runs, at most. Default 1024. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use super::background_task::BackgroundTask;
 use std::time::Duration;
 
 use super::conflict_janitor_pace::{rest, rest_after_cost};
@@ -141,8 +143,7 @@ fn parse_number(raw: Option<&str>, env: &str, default: u64) -> u64 {
 
 /// Handle for the periodic drain task. Aborted on shutdown and on Drop.
 pub struct BackgroundMoleculeDrainTask {
-    join: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    stop: Arc<AtomicBool>,
+    task: BackgroundTask,
 }
 
 impl BackgroundMoleculeDrainTask {
@@ -150,8 +151,7 @@ impl BackgroundMoleculeDrainTask {
     #[must_use]
     pub fn disabled() -> Self {
         Self {
-            join: Mutex::new(None),
-            stop: Arc::new(AtomicBool::new(true)),
+            task: BackgroundTask::disabled(),
         }
     }
 
@@ -222,17 +222,13 @@ impl BackgroundMoleculeDrainTask {
             }
         });
         Self {
-            join: Mutex::new(Some(handle)),
-            stop,
+            task: BackgroundTask::started(handle, stop),
         }
     }
 
     /// Signal the loop to exit and abort the task.
     pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.join.lock().expect("molecule drain join lock").take() {
-            handle.abort();
-        }
+        self.task.stop("molecule drain join lock");
     }
 }
 

@@ -18,7 +18,9 @@
 //! | `LASTDB_PROTEIN_REAPER_MS` | Interval for the background reaper. Unset or `0` disables it. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use super::background_task::BackgroundTask;
 use std::time::Duration;
 
 use crate::db_operations::DbOperations;
@@ -73,18 +75,14 @@ pub fn parse_protein_reaper_interval(raw: Option<String>) -> Option<Duration> {
 /// Aborted on [`super::fold_db::FoldDB::shutdown`] before the final
 /// durability flush, and on Drop so tests do not leak tasks.
 pub struct BackgroundProteinReaperTask {
-    join: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// Set when we intentionally stop; the loop checks this so abort races
-    /// do not log spurious reaper errors mid-shutdown.
-    stop: Arc<AtomicBool>,
+    task: BackgroundTask,
 }
 
 impl BackgroundProteinReaperTask {
     /// No-op handle when the background reaper is disabled.
     pub fn disabled() -> Self {
         Self {
-            join: Mutex::new(None),
-            stop: Arc::new(AtomicBool::new(true)),
+            task: BackgroundTask::disabled(),
         }
     }
 
@@ -129,22 +127,13 @@ impl BackgroundProteinReaperTask {
             }
         });
         Self {
-            join: Mutex::new(Some(handle)),
-            stop,
+            task: BackgroundTask::started(handle, stop),
         }
     }
 
     /// Signal the loop to exit and abort the task (best-effort).
     pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self
-            .join
-            .lock()
-            .expect("background protein reaper join lock")
-            .take()
-        {
-            handle.abort();
-        }
+        self.task.stop("background protein reaper join lock");
     }
 }
 
