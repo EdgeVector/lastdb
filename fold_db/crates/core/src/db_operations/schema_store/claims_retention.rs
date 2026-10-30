@@ -124,16 +124,10 @@ impl SchemaStore {
         if ages.is_empty() {
             return Ok(());
         }
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
-        if self
-            .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-            .await?
-            .is_none()
-        {
+        let Some(anchor) = self.retention_anchor_with_policy(schema_name).await? else {
             return Ok(());
-        }
+        };
+        let schema_name = anchor.as_str();
         let mut clocks = std::collections::HashMap::<KeyValue, u64>::new();
         for (key, written_at) in ages {
             clocks
@@ -217,16 +211,10 @@ impl SchemaStore {
         if keys.is_empty() {
             return Ok(());
         }
-        let anchor = self.retention_anchor(schema_name).await?;
-        let schema_name = anchor.as_str();
-        if self
-            .schema_states_store
-            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(schema_name))
-            .await?
-            .is_none()
-        {
+        let Some(anchor) = self.retention_anchor_with_policy(schema_name).await? else {
             return Ok(());
-        }
+        };
+        let schema_name = anchor.as_str();
         let mut hashes: Vec<_> = keys.iter().filter_map(|key| key.hash.clone()).collect();
         hashes.sort();
         hashes.dedup();
@@ -245,6 +233,23 @@ impl SchemaStore {
         self.schema_states_store.batch_put_items(entries).await?;
         self.schema_states_store.inner().flush().await?;
         Ok(())
+    }
+
+    /// The anchor is present only when a retention policy exists for it.
+    async fn retention_anchor_with_policy(
+        &self,
+        schema_name: &str,
+    ) -> Result<Option<String>, SchemaError> {
+        let anchor = self.retention_anchor(schema_name).await?;
+        if self
+            .schema_states_store
+            .get_item::<SchemaRetentionPolicy>(&retention_policy_key(&anchor))
+            .await?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        Ok(Some(anchor))
     }
 
     /// Read observed HashRange partitions for one retained schema.
