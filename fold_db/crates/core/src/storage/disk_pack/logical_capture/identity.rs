@@ -118,26 +118,8 @@ impl Identity {
         bytes.push(u8::from(self.ready));
         let path = control_path(v2)?;
         let staged = path.with_file_name(STAGED);
-        require_absent(&path)?;
-        discard_staged(&staged)?;
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&staged)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            // Both native owner locks exclude another legitimate enrollment creator.
-            require_absent(&path)?;
-            std::fs::rename(&staged, &path)?;
-            sync_parent(v2)
-        })();
-        if result.is_err() {
-            let _ = discard_staged(&staged);
-        }
-        result
+        // Both native owner locks exclude another legitimate enrollment creator.
+        install_private_file(&path, &staged, &bytes, discard_staged, || sync_parent(v2))
     }
 
     /// Enrollment is not exposed until its ready byte and filename are durable.
@@ -194,6 +176,36 @@ pub(super) fn anchor_for(origin: &str, main: uuid::Uuid, cas: uuid::Uuid) -> Sto
         main,
         cas,
     ))?)))
+}
+
+/// Write one private stage, then rename it onto a path that is still absent.
+/// A failed install discards the stage and returns the first error.
+fn install_private_file(
+    path: &Path,
+    staged: &Path,
+    bytes: &[u8],
+    discard: impl Fn(&Path) -> StorageResult<()>,
+    sync_dir: impl FnOnce() -> StorageResult<()>,
+) -> StorageResult<()> {
+    require_absent(path)?;
+    discard(staged)?;
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(staged)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        require_absent(path)?;
+        std::fs::rename(staged, path)?;
+        sync_dir()
+    })();
+    if result.is_err() {
+        let _ = discard(staged);
+    }
+    result
 }
 
 fn require_absent(path: &Path) -> StorageResult<()> {
