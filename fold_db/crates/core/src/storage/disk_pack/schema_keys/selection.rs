@@ -28,33 +28,22 @@ impl PackRuntime {
         key: &KeyValue,
         expected: &PerKeyRecord,
     ) -> StorageResult<bool> {
-        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
-            return Ok(false);
-        }
-        let Some(context) = ReadContext::captured(self) else {
+        let Some(held) = open_current_selection(self, scope, molecule, key)? else {
             return Ok(false);
         };
-        let Some(binding) = field::FieldScope::current() else {
-            return Ok(false);
-        };
-        let view = self.view.read().map_err(|_| selection_lock_error())?;
-        if view.revision != context.revision {
-            return Ok(false);
-        }
-        let path = binding.path(scope, molecule, key, "").core();
         let mut core = self.core.lock().map_err(|_| selection_lock_error())?;
-        if !core.path_authorized(&path) {
+        if !core.path_authorized(&held.path) {
             return Ok(false);
         }
-        let Some(selected) = core.lookup(&path).into_tip() else {
+        let Some(selected) = core.lookup(&held.path).into_tip() else {
             return Ok(false);
         };
         if selected.entry != expected.entry || selected.metadata != expected.meta {
             return Ok(false);
         }
-        let sources = core.source_coordinates(&path);
+        let sources = core.source_coordinates(&held.path);
         drop(core);
-        drop(view);
+        drop(held);
         if !super::super::logical_paths::source::body_present_in_coordinates(
             &sources,
             &expected.entry.atom_uuid,
@@ -119,31 +108,20 @@ impl PackRuntime {
         molecule: &str,
         api_key: &KeyValue,
     ) -> StorageResult<Option<Option<PerKeyRecord>>> {
-        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
-            return Ok(None);
-        }
-        let Some(context) = ReadContext::captured(self) else {
+        let Some(held) = open_current_selection(self, scope, molecule, api_key)? else {
             return Ok(None);
         };
-        let Some(binding) = field::FieldScope::current() else {
-            return Ok(None);
-        };
-        let view = self.view.read().map_err(|_| selection_lock_error())?;
-        if view.revision != context.revision {
-            return Ok(None);
-        }
-        let path = binding.path(scope, molecule, api_key, "").core();
-        let mut call = crate::read_receipts::lock(&context.call);
+        let mut call = crate::read_receipts::lock(&held.context.call);
         let mut core = self.core.lock().map_err(|_| selection_lock_error())?;
-        if !core.path_authorized(&path) {
+        if !core.path_authorized(&held.path) {
             return Ok(None);
         }
-        let selection = core.lookup(&path);
+        let selection = core.lookup(&held.path);
         if selection.is_unknown() {
             return Ok(None);
         }
         if selection.is_absent() {
-            context.account_memory_record(
+            held.context.account_memory_record(
                 &mut call,
                 api_key.hash.as_ref().map_or(0, String::len)
                     + api_key.range.as_ref().map_or(0, String::len),
@@ -157,14 +135,14 @@ impl PackRuntime {
         };
         if !super::super::logical_paths::source::body_present(
             &core,
-            &path,
+            &held.path,
             &selection.entry.atom_uuid,
         )? {
             return Ok(None);
         }
-        context.account_memory_record(
+        held.context.account_memory_record(
             &mut call,
-            path.hash.len() + path.range.len(),
+            held.path.hash.len() + held.path.range.len(),
             tip_metadata_bytes(&selection.entry, selection.metadata.as_ref())?,
         )?;
         if !super::super::logical_paths::core_read::note_core_tip(
@@ -182,6 +160,41 @@ impl PackRuntime {
             meta: selection.metadata,
         })))
     }
+}
+
+/// The published view for one matching revision, and the core path.
+/// A newer view returns none and does not take the core lock.
+struct CurrentSelection<'a> {
+    context: std::sync::Arc<ReadContext>,
+    path: crate::resident::CorePath,
+    _view: std::sync::RwLockReadGuard<'a, super::super::view::NativeReadView>,
+}
+
+fn open_current_selection<'a>(
+    runtime: &'a PackRuntime,
+    scope: Option<&str>,
+    molecule: &str,
+    key: &KeyValue,
+) -> StorageResult<Option<CurrentSelection<'a>>> {
+    if transaction::PendingBatch::current(runtime).is_some() || !field::provenance_current() {
+        return Ok(None);
+    }
+    let Some(context) = ReadContext::captured(runtime) else {
+        return Ok(None);
+    };
+    let Some(binding) = field::FieldScope::current() else {
+        return Ok(None);
+    };
+    let view = runtime.view.read().map_err(|_| selection_lock_error())?;
+    if view.revision != context.revision {
+        return Ok(None);
+    }
+    let path = binding.path(scope, molecule, key, "").core();
+    Ok(Some(CurrentSelection {
+        context,
+        path,
+        _view: view,
+    }))
 }
 
 fn selection_lock_error() -> StorageError {
