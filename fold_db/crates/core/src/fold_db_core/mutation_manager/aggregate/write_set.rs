@@ -206,15 +206,8 @@ impl MutationManager {
             // data that feeds the target; skipping invalidation here would
             // let the source write land while the target keeps a live
             // `valid=1` marker that no longer reflects it.
-            let target_schema = self
-                .schema_manager
-                .get_schema_metadata(&guard.target_schema_name)?
-                .ok_or_else(|| {
-                    SchemaError::InvalidData(format!(
-                        "aggregate target schema '{}' not found",
-                        guard.target_schema_name
-                    ))
-                })?;
+            let target_schema =
+                self.require_aggregate_schema("target", &guard.target_schema_name)?;
             invalidation_rules::check_target_fields(&target_schema, &guard.target_schema_name)?;
             let invalidation = summary_mutation(
                 guard.target_schema_name.clone(),

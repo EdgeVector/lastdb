@@ -63,11 +63,9 @@ impl MutationManager {
             // may legitimately lose to a newer tip, so it is exempt here.
             if mutation.imported_written_at.is_none() && mutation.provenance.is_none() {
                 let written = schema_field.current_atom_uuid(key_value);
-                debug_assert_eq!(
-                    written.as_deref(),
-                    Some(atom.uuid()),
-                    "in-memory apply must take the written atom for field '{field_name}' of schema '{}'",
-                    schema.name
+                debug_assert!(
+                    written.as_deref() == Some(atom.uuid()),
+                    "in-memory field write must take the written atom"
                 );
             }
 
@@ -134,6 +132,9 @@ impl MutationManager {
         mutation_key_values: &[KeyValue],
         eligible: &[(usize, &Atom, &str)],
     ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
+        if schema.uses_independent_fields() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
         let store = self.db_ops.atoms();
         let mut sibling_updates = Vec::new();
         let mut sibling_origins = Vec::new();

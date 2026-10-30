@@ -225,6 +225,9 @@ impl SchemaCore {
     /// Prepare definitions, keep local molecule ownership, write durable metadata,
     /// then publish the matching cache state and establish multi-key proteins.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
+        schema
+            .validate_alternate_keys()
+            .map_err(SchemaError::InvalidData)?;
         // Preserve runtime metadata supplied by callers; wire schemas need population.
         if schema.runtime_fields.is_empty() {
             schema.populate_runtime_fields()?;
@@ -233,10 +236,32 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
+        if existing
+            .as_ref()
+            .is_some_and(|schema| schema.uses_independent_fields())
+            && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
+        {
+            crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
+                &self.db_ops,
+                &schema.name,
+            )
+            .await?;
+        }
         let predecessor = self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
         self.resolve_typed_field_mappers(&mut schema, existing.as_ref().or(predecessor.as_ref()))
             .await?;
         schema.sync_molecule_uuids();
+        if schema.uses_independent_fields()
+            && schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
+                ids.iter().any(|(field, id)| {
+                    *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                })
+            })
+        {
+            return Err(SchemaError::InvalidData(
+                "alternate keys require this schema's owned field molecules".into(),
+            ));
+        }
         // Cache definitions only: retained UUIDs drive per-key molecule fetches.
         schema.clear_runtime_molecules();
         Self::stamp_identity_for_load(&mut schema, existing.as_ref());

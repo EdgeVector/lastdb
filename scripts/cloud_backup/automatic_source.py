@@ -54,6 +54,16 @@ def checkpoint_identity(accepted):
                 for name in ("sha256", "page_count", "object_count", "stored_bytes")}}
 
 
+def packed_snapshot(value):
+    counts = {name: number(value.get(name))
+              for name in ("metadata_pack_objects", "multi_file_pack_objects")}
+    require(all(count is not None and count > 0 for count in counts.values())
+            and counts["multi_file_pack_objects"] <= counts["metadata_pack_objects"],
+            "selected_snapshot_uses_multi_file_packs")
+    accepted = value["last_accepted_backup"]
+    return {"request_id": value["request_id"], "commit_sha256": accepted["commit_sha256"], **counts}
+
+
 def released_publication(value, policy):
     accepted = value.get("last_accepted_backup")
     return (value["phase"] == "published" and not value["running"]
@@ -183,6 +193,8 @@ class Source:
                         "daemon_initiated_request")
                 require(accepted["begin"]["job"]["stream"]["scope"]["account_id"] == ACCOUNT,
                         "accepted_dev_scope")
+                if kind == "snapshot" and previous is None:
+                    self.summary["packed_snapshot"] = packed_snapshot(value)
                 self.node.health()
                 require(time.monotonic() < deadline, "automatic_publication_deadline")
                 self.publication_deadlines[accepted["commit_sha256"]] = deadline

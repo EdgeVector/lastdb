@@ -50,6 +50,9 @@ That restored home then becomes the explicitly connected DEV source.
 The connection uses the existing account and performs no enrollment.
 Automatic backup uses a 60-second log interval and a separate 86400-second snapshot interval.
 The daemon must publish a new snapshot and release its retained source bytes.
+That exact selected snapshot must report at least one metadata pack and one pack with more than one file.
+CI records those counts with the selected request and commit, then restores that same snapshot.
+No exact pack count or minimum per-log pack count is required.
 
 The source stores a new 64 KiB file through the ordinary file command.
 One batch updates 15 records to reference that file and deletes the other record.

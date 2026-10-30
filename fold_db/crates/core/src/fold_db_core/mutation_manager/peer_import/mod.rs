@@ -99,7 +99,27 @@ impl MutationManager {
             let mut job = self
                 .prepare_peer_job(name, &outcomes, &event.origin)
                 .await?;
+            let mut seen = std::collections::HashSet::new();
+            let keys: Vec<_> = outcomes
+                .iter()
+                .map(|fact| fact.key.clone())
+                .filter(|key| seen.insert(key.clone()))
+                .collect();
+            let before = if job.schema.alternate_keys.is_empty() {
+                Vec::new()
+            } else {
+                self.db_ops
+                    .atoms()
+                    .alternate_fields(&job.schema, &keys, None)
+                    .await?
+            };
             self.stage_native_job(&mut job).await?;
+            if !job.schema.alternate_keys.is_empty() {
+                self.db_ops
+                    .atoms()
+                    .stage_alternate_changes(&job.schema, &keys, &before, None)
+                    .await?;
+            }
             self.reload_changed_for_prepare(&mut job.schema, &job.modified_fields)
                 .await?;
             self.stage_native_paths(&job, runtime).await?;

@@ -521,8 +521,8 @@ export class LastDbClient {
   // -------------------------------------------------------------------------
 
   /**
-   * `GET /api/list` — return one page of live record keys without hydrating
-   * atom bodies. Use this for membership, then point-read the keys whose
+   * `GET /api/list` — return one page of live primary or alternate keys.
+   * Named lists also return primary_keys for mutations. Read the keys whose
    * fields you need. A page is not a census: follow `next_cursor` while
    * `has_more` is true.
    */
@@ -532,6 +532,8 @@ export class LastDbClient {
   ): Promise<ListResult> {
     const resolved = await this.resolveDataPathSchema(schemaName);
     const params = new URLSearchParams({ schema: resolved.nodeSchemaName });
+    if (opts.keyName !== undefined) params.set('key_name', opts.keyName);
+    if (opts.hash !== undefined) params.set('hash', opts.hash);
     if (opts.limit !== undefined) {
       params.set('limit', String(opts.limit));
     }
@@ -545,7 +547,7 @@ export class LastDbClient {
     );
     if (res.status === 200) {
       return {
-        ...parseListResponse(res.body),
+        ...parseListResponse(res.body, opts.keyName),
         schema: resolved.appSchemaName,
       };
     }
@@ -982,6 +984,9 @@ export class LastDbClient {
     filter: QueryFilter,
   ): Record<string, unknown> {
     const body: Record<string, unknown> = { schema_name: resolved.nodeSchemaName };
+    if (filter.keyName !== undefined) {
+      body.key_name = filter.keyName;
+    }
     if (filter.fields !== undefined) {
       body.fields = filter.fields.map((field) =>
         mapFieldName(field, resolved.appToNodeFields),

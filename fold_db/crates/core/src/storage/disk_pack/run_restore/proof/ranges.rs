@@ -13,7 +13,7 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if version != 2 {
+    if !matches!(version, 2 | 3) {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
@@ -27,6 +27,12 @@ pub(super) fn verify(
         schema
             .validate_key_field_types()
             .map_err(|_| invalid("run backup key fields are invalid"))?;
+        schema
+            .validate_alternate_keys()
+            .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
+        if version == 2 && schema.uses_independent_fields() {
+            return Err(invalid("format 4 cannot contain alternate declarations"));
+        }
         let range = schema
             .key
             .as_ref()
@@ -49,6 +55,13 @@ pub(super) fn verify(
         molecules.dedup();
         for chunk in molecules.chunks(128) {
             batch(main, account_key, profile, chunk)?;
+        }
+        for (molecule, alternate_profile) in
+            crate::db_operations::molecule_key_store::schema_molecule_profiles(&schema)?
+        {
+            if !molecules.contains(&molecule.as_str()) {
+                batch(main, account_key, alternate_profile, &[molecule.as_str()])?;
+            }
         }
     }
     Ok(())

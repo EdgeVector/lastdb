@@ -12,6 +12,17 @@ pub(super) fn resolve_exact_alias(
     requested: &str,
     schemas: &[SchemaWithState],
 ) -> Result<Option<String>, HostError> {
+    // An independent app schema has one owned runtime name. Its service
+    // identity is a name alias, not a second schema with shared molecules.
+    if let Some(canonical) = resolve_matches(
+        requested,
+        schemas.iter().filter(|entry| {
+            entry.schema.uses_independent_fields()
+                && entry.schema.identity_hash.as_deref() == Some(requested)
+        }),
+    )? {
+        return Ok(Some(canonical));
+    }
     if let Some((owner, local)) = requested.split_once('/') {
         if !owner.is_empty() && !local.is_empty() {
             let matches = schemas

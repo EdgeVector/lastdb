@@ -5,6 +5,14 @@ use crate::schema::types::{Schema, SchemaError};
 /// Same-identity loads refresh metadata. Incoming mappers win; stored molecules
 /// fill only absent, unmapped fields. No hydrated molecule enters the cache.
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
+    if schema.alternate_keys != stored.alternate_keys
+        || schema.uses_independent_fields() != stored.uses_independent_fields()
+    {
+        return Err(SchemaError::InvalidData(
+            "alternate declarations and field independence require the explicit alternate-key change command"
+                .into(),
+        ));
+    }
     let mapped_fields: std::collections::HashSet<String> = schema
         .field_mappers
         .as_ref()

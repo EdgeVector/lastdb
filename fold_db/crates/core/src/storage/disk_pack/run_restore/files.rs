@@ -107,7 +107,7 @@ pub(super) fn profile_version(root: &Path) -> StorageResult<Option<u16>> {
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file).take(129).read_to_end(&mut bytes)?;
-    Ok((bytes == super::super::run_admission::TYPED_NODE_BYTES).then_some(2))
+    Ok(super::super::run_admission::profile(&bytes))
 }
 
 pub(super) fn require_root_members(root: &Path) -> StorageResult<()> {

@@ -51,7 +51,7 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
+RUN_NODE = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 # The settings of the primary's launchd job that the node reads: the
 # compression of the at-rest envelopes, the atom size limit, the memory
 # budget, and the admin timeout.
@@ -70,8 +70,9 @@ CASE = "new-home"
 # cases of the conversion proof, so the seed data stays the same.
 SEED_NUMBER = 2
 PROFILE = {
-    # Keep the generated corpus above MINIMUM_LOGICAL on the current format.
-    # The earlier 3,000-record base reached only 14.4 MiB on the current format.
+    # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
+    # This qualifies the generic engine capacity check; fewer stored atoms are
+    # not evidence of lost data. Alternate-key savings use a fixed-input pass.
     "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
 }
@@ -372,7 +373,8 @@ class Case:
         share of acknowledged mutations."""
         if min(start, end) < MINIMUM_LOGICAL:
             self.failures.append(f"{name}: the node reports {mib(min(start, end))} of logical "
-                                 "atoms, under the 16 MiB that the limit check needs")
+                                 "atoms, under the 16 MiB that the capacity check needs; "
+                                 "this is insufficient measurement volume, not a data-loss finding")
         worst = None
         for sample in window["samples"]:
             logical = start + (end - start) * sample["progress"]

@@ -19,7 +19,7 @@ from nightly_package import MAX_BINARY_BYTES, TARGETS, digest, validate_architec
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
-MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
+MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 
 
 class UnixConnection(http.client.HTTPConnection):

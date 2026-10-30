@@ -2,11 +2,13 @@
 
 use super::*;
 
+mod alternate_keys;
 mod gc;
 mod molecule_drain;
 mod molecule_map_candidates;
 mod molecule_map_repair;
 mod protein_backfill;
+pub(super) use alternate_keys::*;
 mod reclaim;
 mod schema_maps;
 mod verify_refs;
