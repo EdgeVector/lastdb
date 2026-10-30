@@ -79,12 +79,10 @@ fn batch(
             node_bundle_storage_keys(molecule)?.map(|key| ("molecule_keys".to_owned(), key)),
         );
     }
-    let mut read = main
-        .fork_bounded(read_budget(
-            budget::ATOM_INVENTORY_READ_BYTES,
-            coordinates.len() as u64,
-        ))
-        .map_err(map)?;
+    let mut read = super::fork_mapped(
+        main,
+        read_budget(budget::ATOM_INVENTORY_READ_BYTES, coordinates.len() as u64),
+    )?;
     let values = read
         .get_many_bounded(&coordinates, NODE_KEY_ROW_MAX_BYTES)
         .map_err(map)?

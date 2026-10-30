@@ -32,10 +32,10 @@ pub(super) fn verify(proof: &Proof<'_>, dependency: &files::FileDependency) -> S
         let key =
             crate::storage::disk_pack::native_routing::encode(dependency.blob_ref().as_bytes());
         let copied = {
-            let mut read = proof
-                .cas
-                .fork_bounded(read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1))
-                .map_err(map)?;
+            let mut read = super::fork_mapped(
+                proof.cas,
+                read_budget(budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1),
+            )?;
             read.copy_body_to("cas_blobs", key.as_bytes(), &mut output)
                 .map_err(map)?
                 .ok_or_else(|| invalid("run backup remote-only file source unsupported"))?

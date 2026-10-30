@@ -3,9 +3,13 @@ use laststore::disk_run::home::{RunHashRange, RunRead};
 
 pub(super) fn read(source: &RunRead, key_heads: bool) -> StorageResult<Option<RunRead>> {
     key_heads
-        .then(|| source.fork_bounded(read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000)))
+        .then(|| {
+            super::fork_mapped(
+                source,
+                read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000),
+            )
+        })
         .transpose()
-        .map_err(map)
 }
 
 enum Mode<'a> {
@@ -84,9 +88,10 @@ fn stateless_page(
     collection: &str,
     after: Option<&str>,
 ) -> StorageResult<laststore::disk_run::home::RunRangePage> {
-    let mut read = source
-        .fork_bounded(read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000))
-        .map_err(map)?;
+    let mut read = super::fork_mapped(
+        source,
+        read_budget(budget::ATOM_INVENTORY_READ_BYTES, 10000),
+    )?;
     let mut cursor = match after {
         Some(after) => read.administrative_range_after(collection, after.as_bytes(), &[0xff]),
         None => read.administrative_range(collection, &[], &[0xff]),
