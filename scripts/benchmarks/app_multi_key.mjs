@@ -27,7 +27,7 @@ async function setup() {
   if(a.label==="fresh") {
     const init=await load(candidate,"commands/init"),config=await load(candidate,"config");
     const result=await init.runInit({configPath:a.config,nodeUrl:"http://127.0.0.1",nodeSocketPath:a.socket,
-      bootstrapName:"CI fresh multi-key app",print:quiet});
+      bootstrapName:"CI fresh multi-key app",grantConsent:true,print:quiet});
     require(result.config.storageModel==="multi-key-v1","Normal init did not select multi-key schemas");
     const cfg=config.readConfig(a.config),node=await client(candidate,cfg);
     if(a.app==="fkanban")await kanbanSeed(node,cfg,candidate);else await brainSeed(node,cfg,candidate);
@@ -53,9 +53,14 @@ async function setup() {
   }
   const config=await load(candidate,"config");
   const cfg={configVersion:config.CONFIG_VERSION,nodeUrl:"http://127.0.0.1",schemaServiceUrl:"registered-definition-service",
-    userHash,nodeSocketPath:a.socket,schemaHashes,schemaFieldAliases,appIdentityEnforce:false,
+    userHash,nodeSocketPath:a.socket,schemaHashes,schemaFieldAliases,
     designSchemaHash:schemaHashes.design,taskSchemaHash:schemaHashes.task,enforceLivePrMilestone:false};
   config.writeConfig(cfg,a.config);
+  if(a.app==="brain") {
+    const {establishConsentInline}=await load(old,"commands/init-consent");
+    await establishConsentInline({nodeUrl:cfg.nodeUrl,userHash,socketPath:a.socket,
+      nonInteractiveGrant:true,print:quiet});
+  }
   node=await client(old,cfg);
   if(a.app==="fkanban") await kanbanSeed(node,cfg);
   else await brainSeed(node,cfg);

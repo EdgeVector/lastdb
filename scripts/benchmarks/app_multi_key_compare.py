@@ -39,7 +39,7 @@ def finish_setup(node, output):
 
 def run_app(args, app, label, node, output, mode):
     environment = dict(os.environ, FOLDDB_SOCKET_PATH=str(node.socket),
-                       FBRAIN_APP_IDENTITY_ENFORCE="off",
+                       FBRAIN_APP_IDENTITY_ENFORCE="on",
                        FBRAIN_FOLDDB_SOCKET=str(node.socket), BRAIN_CONFIG=str(output / "config.json"),
                        KANBAN_CONFIG=str(output / "config.json"))
     command = ["bun", str(args.driver), "--app", app,
@@ -51,6 +51,18 @@ def run_app(args, app, label, node, output, mode):
     with (output / f"{mode}.log").open("w") as log:
         subprocess.run(command, env=environment, stdout=log, stderr=log, check=True,
                        timeout=3600)
+
+
+def require_cloud_off(node, output, phase):
+    status = node.call("/api/sync/byte-backup-v2", {"action": "status"})[0]
+    if (status.get("enabled") is not False
+            or status.get("automatic_backup_enabled") is not False
+            or status.get("running") is not False
+            or status.get("manual_connection") is not None):
+        raise RuntimeError("The generated comparison node must keep cloud backup off")
+    save(output / f"cloud-off-{phase}.json", {
+        key: status.get(key) for key in
+        ("enabled", "automatic_backup_enabled", "running", "manual_connection")})
 
 
 def compare(args):
@@ -69,12 +81,14 @@ def compare(args):
                 setup_binary, setup_revision = ((args.binary, args.revision) if label == "fresh"
                                                else (args.baseline_binary, args.baseline_revision))
                 node = Node(setup_binary, setup_revision, output, full_socket_name="folddb-full.sock", environment={
-                    "APP_IDENTITY_ENFORCE": "false", "LASTDB_SELF_METRICS_TO_DB": "false",
+                    "APP_IDENTITY_ENFORCE": "true", "LASTDB_SELF_METRICS_TO_DB": "false",
                     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_TTL_SWEEP": "0"},
                     temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
                 try:
                     node.start()
+                    require_cloud_off(node, output, "before-setup")
                     run_app(args, app, label, node, output, "setup")
+                    require_cloud_off(node, output, "after-setup")
                     finish_setup(node, output)
                     save(output / "setup-daemon.json", {"revision": setup_revision,
                          "sha256": file_hash(setup_binary), "version": node.call("/api/version")[0]})
@@ -84,7 +98,9 @@ def compare(args):
                         # New-release startup must independently admit every installed schema.
                         node.binary, node.revision = args.binary, args.revision
                     node.start()
+                    require_cloud_off(node, output, "before-measure")
                     run_app(args, app, label, node, output, "measure")
+                    require_cloud_off(node, output, "after-measure")
                     results.append(json.loads((output / "result.json").read_text()))
                     save(output / "disk.json", node.disk_breakdown())
                 finally:
