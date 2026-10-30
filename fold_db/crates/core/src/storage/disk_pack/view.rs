@@ -138,29 +138,34 @@ impl PackRuntime {
         key_changes: &[(String, String, bool)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        let mut view = self.view.write().expect("native complete read view");
+        let mut view = laststore::commit_timing::during("memory_view_lock_wait_us", || {
+            self.view.write().expect("native complete read view")
+        });
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
             if requests.is_empty() {
                 self.invalidate_changed_records(hidden_changes);
             }
-            self.publish_schema_key_changes(
-                key_changes.iter().map(|(collection, key, deleted)| {
-                    (collection.as_str(), key.as_str(), *deleted)
-                }),
-            );
+            laststore::commit_timing::during("memory_schema_keys_us", || {
+                self.publish_schema_key_changes(key_changes.iter().map(
+                    |(collection, key, deleted)| (collection.as_str(), key.as_str(), *deleted),
+                ));
+            });
             view.revision = revision;
         }
         for request in requests {
             // Later raw effects invalidate an earlier request's clean cache
             // even when the later request uses the disk-only memory fallback.
-            self.invalidate_changed_records(&request.changed_coordinates());
+            laststore::commit_timing::during("memory_invalidation_us", || {
+                self.invalidate_changed_records(&request.changed_coordinates());
+            });
             if let Some(protection) = request
                 .path_protection
                 .lock()
                 .expect("committed core paths")
                 .as_ref()
             {
+                let _timing = laststore::commit_timing::stage("memory_typed_install_us");
                 protection.publish_clean()?;
             }
         }
@@ -168,10 +173,10 @@ impl PackRuntime {
         drop(view);
         // The last drop of a root deletes its retired run files, so it
         // happens after the view lock.
-        drop(replaced);
+        laststore::commit_timing::during("memory_old_root_release_us", || drop(replaced));
         // A merge can publish between the caller's read of `current` and
         // this install; take its root now, not at the next read.
-        self.adopt_merged_root();
+        laststore::commit_timing::during("memory_merge_adoption_us", || self.adopt_merged_root());
         Ok(())
     }
 

@@ -298,6 +298,7 @@ impl CoreWarmSet {
             variants.push(Arc::downgrade(&atom));
             atom
         });
+        self.bytes.attach_atom(Arc::as_ptr(&atom.value) as usize);
         slot.atom = Some(atom);
     }
 }
