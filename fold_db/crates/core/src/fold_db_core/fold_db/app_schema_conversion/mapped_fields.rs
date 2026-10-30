@@ -166,7 +166,7 @@ fn validate(
         ));
     }
     for (before, after) in fields {
-        if source.field_types.get(before).is_none()
+        if !source.field_types.contains_key(before)
             || source.field_types.get(before) != target.field_types.get(after)
         {
             return Err(invalid(
