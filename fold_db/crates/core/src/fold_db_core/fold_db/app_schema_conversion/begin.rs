@@ -29,31 +29,11 @@ pub(super) async fn execute(
         ));
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let mut targets = Vec::new();
-    let mut selected = BTreeSet::new();
-    let mut owners = BTreeSet::new();
-    for request in requests {
-        if !selected.insert(request.schema.clone()) {
-            return Err(invalid("conversion repeats a kept schema"));
-        }
-        let source = all
-            .get(&request.schema)
-            .ok_or_else(|| invalid("conversion source is absent"))?;
-        let owner = source
-            .owner_app_id
-            .as_ref()
-            .filter(|owner| !owner.is_empty())
-            .ok_or_else(|| invalid("conversion source is not app-owned"))?;
-        owners.insert(owner.clone());
-        if source.identity_hash != request.expected_identity
-            || db.schema_manager.get_schema_state_cached(&source.name)? != SchemaState::Available
-        {
-            return Err(invalid(
-                "conversion source identity or availability differs",
-            ));
-        }
-        targets.push(target(db, source, request.alternate_keys, &id).await?);
-    }
+    let Prepared {
+        targets,
+        selected,
+        owners,
+    } = prepare(db, &all, requests, &id).await?;
     let retired: BTreeSet<_> = retire.into_iter().collect();
     for name in &retired {
         let schema = all
@@ -115,6 +95,50 @@ pub(super) async fn execute(
     store.put(ACTIVE, change.id.as_bytes()).await?;
     db.publish_conversion_flag(true)?;
     Ok(change)
+}
+
+struct Prepared {
+    targets: Vec<Target>,
+    selected: BTreeSet<String>,
+    owners: BTreeSet<String>,
+}
+
+async fn prepare(
+    db: &FoldDB,
+    all: &std::collections::HashMap<String, Schema>,
+    requests: Vec<OwnedSchemaConversion>,
+    id: &str,
+) -> Result<Prepared, SchemaError> {
+    let mut targets = Vec::new();
+    let mut selected = BTreeSet::new();
+    let mut owners = BTreeSet::new();
+    for request in requests {
+        if !selected.insert(request.schema.clone()) {
+            return Err(invalid("conversion repeats a kept schema"));
+        }
+        let source = all
+            .get(&request.schema)
+            .ok_or_else(|| invalid("conversion source is absent"))?;
+        let owner = source
+            .owner_app_id
+            .as_ref()
+            .filter(|owner| !owner.is_empty())
+            .ok_or_else(|| invalid("conversion source is not app-owned"))?;
+        owners.insert(owner.clone());
+        if source.identity_hash != request.expected_identity
+            || db.schema_manager.get_schema_state_cached(&source.name)? != SchemaState::Available
+        {
+            return Err(invalid(
+                "conversion source identity or availability differs",
+            ));
+        }
+        targets.push(target(db, source, request.alternate_keys, id).await?);
+    }
+    Ok(Prepared {
+        targets,
+        selected,
+        owners,
+    })
 }
 
 async fn target(
