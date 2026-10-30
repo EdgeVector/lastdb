@@ -137,6 +137,11 @@ fn fork_or_skip(read: &RunRead) -> StorageResult<Option<RunRead>> {
     }
 }
 
+/// Fork one reader with the caller's budget. The error mapping stays here.
+fn fork_mapped(read: &RunRead, budget: ReadBudget) -> StorageResult<RunRead> {
+    read.fork_bounded(budget).map_err(map)
+}
+
 /// Account admission is separate from the complete atom and file proof.
 pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
     keys::verify(main, key, version)

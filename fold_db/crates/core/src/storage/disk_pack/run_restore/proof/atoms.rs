@@ -78,10 +78,8 @@ pub(super) fn directories(
         )
     });
     let rows = {
-        let mut read = proof
-            .main
-            .fork_bounded(read_budget(budget::DIRECTORY_READ_BYTES, 3))
-            .map_err(map)?;
+        let mut read =
+            super::fork_mapped(proof.main, read_budget(budget::DIRECTORY_READ_BYTES, 3))?;
         read.get_many_bounded(&coordinates, files::DIRECTORY_MAX_BYTES * 2)
             .map_err(map)?
     };

@@ -18,9 +18,7 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
         )
     });
     let values = {
-        let mut read = main
-            .fork_bounded(read_budget(budget::DIRECTORY_READ_BYTES, 3))
-            .map_err(map)?;
+        let mut read = super::fork_mapped(main, read_budget(budget::DIRECTORY_READ_BYTES, 3))?;
         read.get_many_bounded(&coordinates, 8192).map_err(map)?
     };
     let values = values
@@ -40,9 +38,7 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
         ));
     }
     let stored = {
-        let mut read = main
-            .fork_bounded(read_budget(budget::DIRECTORY_READ_BYTES, 1))
-            .map_err(map)?;
+        let mut read = super::fork_mapped(main, read_budget(budget::DIRECTORY_READ_BYTES, 1))?;
         read.get_bounded(
             content_key_proof::NAMESPACE,
             &native_routing::encode(content_key_proof::KEY),
