@@ -21,7 +21,7 @@ pub(crate) fn matches(
     else {
         return Ok(None);
     };
-    if !field::provenance_current() || transaction::PendingBatch::current(&runtime).is_some() {
+    if !field::provenance_admits(&runtime) {
         return Ok(None);
     }
     let Some(keys) = exact_keys(kind, filter) else {

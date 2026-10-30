@@ -28,10 +28,7 @@ pub(super) fn admit_bound(
     let Some(runtime) = runtime else {
         return Ok(());
     };
-    if !field::provenance_current()
-        || transaction::PendingBatch::current(&runtime).is_some()
-        || candidates.is_empty()
-    {
+    if !field::provenance_admits(&runtime) || candidates.is_empty() {
         return Ok(());
     }
     let Some(context) = ReadContext::captured(&runtime) else {
