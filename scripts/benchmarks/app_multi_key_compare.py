@@ -17,6 +17,8 @@ import cleanup
 
 
 def finish_setup(node, output):
+    print(json.dumps({"phase": "setup-drain", "state": "started",
+                      "output": str(output)}), flush=True)
     # Cutover reclamation is a one-time cost, outside the steady-state requests.
     flushed, _, _ = node.call("/api/db/flush", {})
     if flushed.get("durable") is not True:
@@ -35,9 +37,14 @@ def finish_setup(node, output):
         time.sleep(0.5)
     save(output / "setup-drain.json", status)
     save(output / "setup-cleanup.json", cleanup.request_and_wait(node))
+    print(json.dumps({"phase": "setup-drain", "state": "complete",
+                      "output": str(output)}), flush=True)
 
 
 def run_app(args, app, label, node, output, mode):
+    started = time.monotonic()
+    print(json.dumps({"app": app, "label": label, "phase": mode,
+                      "state": "started", "output": str(output)}), flush=True)
     environment = dict(os.environ, FOLDDB_SOCKET_PATH=str(node.socket),
                        FBRAIN_FOLDDB_SOCKET=str(node.socket), BRAIN_CONFIG=str(output / "config.json"),
                        KANBAN_CONFIG=str(output / "config.json"))
@@ -50,6 +57,8 @@ def run_app(args, app, label, node, output, mode):
     with (output / f"{mode}.log").open("w") as log:
         subprocess.run(command, env=environment, stdout=log, stderr=log, check=True,
                        timeout=3600)
+    print(json.dumps({"app": app, "label": label, "phase": mode,
+                      "state": "complete", "wall_seconds": time.monotonic() - started}), flush=True)
 
 
 def require_cloud_off(node, output, phase):
