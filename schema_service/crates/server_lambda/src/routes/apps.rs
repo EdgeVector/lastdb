@@ -3,7 +3,6 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::ReleasePublishOutcome;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
 
@@ -225,11 +224,10 @@ pub(crate) async fn post_apps_releases(
     };
     match state.publish_release(app_id, cert, sig, &body_value).await {
         Ok(outcome) => {
-            // Only a new release goes to the verifier; a repeat publish is
-            // the same release id, already queued once.
-            if let ReleasePublishOutcome::Created(record) = &outcome {
-                verifier_queue::send_publish_job(state, record, cert, sig, &body_value).await;
-            }
+            // A repeat publish (same release id) is queued again too: it is
+            // how a developer recovers a lost job, and the verifier skips
+            // contract versions that already have a result.
+            verifier_queue::send_publish_job(state, outcome.record(), cert, sig, &body_value).await;
             let (status, body) = outcome.to_http();
             json_response(status, &body)
         }

@@ -6,8 +6,8 @@
       "exemem_api": "https://ygyu7ritx8.execute-api.us-west-2.amazonaws.com",
       "schema_service": "https://y0q3m6vk75.execute-api.us-west-2.amazonaws.com",
       "portal": "https://d3t6377alb85xe.cloudfront.net",
-      "release_log_url": "https://release-log.invalid/dev",
-      "release_log_keys": []
+      "release_log_url": "https://d13j91l3z4xnb6.cloudfront.net",
+      "release_log_keys": ["3It7yXEJTRSawpm8R+7f6Q2dO55sU+wAbsYeYVrvo60="]
     },
     "prod": {
       "region": "us-east-1",

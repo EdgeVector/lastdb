@@ -2,8 +2,8 @@
 //!
 //! The registry is not on the install trust path: a node installs a release
 //! only when the verifier's release log passes it. The registry's part is to
-//! hand the verifier each new release and each owner revocation, as one SQS
-//! message on the queue in `RELEASE_VERIFIER_QUEUE_URL`. The verifier checks
+//! hand the verifier each accepted publish and each owner revocation, as one
+//! SQS message on the queue in `RELEASE_VERIFIER_QUEUE_URL`. The verifier checks
 //! every signature itself, so a job carries the raw `X-Exemem-Dev-Cert` and
 //! `X-Signature` headers and the signed body, not the registry's reading of
 //! them.
@@ -38,7 +38,7 @@ async fn queue() -> Option<&'static (aws_sdk_sqs::Client, String)> {
         .as_ref()
 }
 
-/// `publish` job: one new release for the verifier to check.
+/// `publish` job: one accepted publish (new or repeated) for the verifier to check.
 pub(crate) async fn send_publish_job(
     state: &SchemaServiceState,
     record: &ReleaseRecord,
