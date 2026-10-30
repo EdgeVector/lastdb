@@ -41,15 +41,15 @@ async function setup() {
   const entries=a.app==="fkanban"?[...schemas.UNIQUE_SCHEMAS,...schemas.EXTRA_SCHEMAS]:schemas.UNIQUE_SCHEMAS;
   const schemaHashes={},schemaFieldAliases={};
   // Catalog setup uses the real Mini declaration route and registered app definitions.
-  for(let start=0;start<entries.length;start+=4) {
-    const resolved=await Promise.all(entries.slice(start,start+4).map(async(entry)=>({
-      entry,receipt:await node.declareAppSchema(schemas.OWNER_APP_ID,entry.schema.schema)})));
-    for(const {entry,receipt} of resolved) {
-      require(receipt.canonical,"App declaration lacks its canonical address");
-      const keys=a.app==="fkanban"?[entry.key]:schemas.schemaConfigKeys(entry);
-      for(const key of keys)schemaHashes[key]=receipt.canonical;
-      Object.assign(schemaFieldAliases,vocabulary.profilesFor(entry.schema.schema,[receipt.canonical,receipt.schema]));
-    }
+  // Declare one at a time in the app's own order, as its init does. A registered
+  // definition can map fields from an earlier entry (MilestoneCards maps BoardCards),
+  // so a concurrent batch can load a mapper before its source is installed.
+  for(const entry of entries) {
+    const receipt=await node.declareAppSchema(schemas.OWNER_APP_ID,entry.schema.schema);
+    require(receipt.canonical,"App declaration lacks its canonical address");
+    const keys=a.app==="fkanban"?[entry.key]:schemas.schemaConfigKeys(entry);
+    for(const key of keys)schemaHashes[key]=receipt.canonical;
+    Object.assign(schemaFieldAliases,vocabulary.profilesFor(entry.schema.schema,[receipt.canonical,receipt.schema]));
   }
   const config=await load(candidate,"config");
   const cfg={configVersion:config.CONFIG_VERSION,nodeUrl:"http://127.0.0.1",schemaServiceUrl:"registered-definition-service",
