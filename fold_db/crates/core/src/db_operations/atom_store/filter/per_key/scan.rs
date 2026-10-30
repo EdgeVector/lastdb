@@ -1,5 +1,16 @@
 use super::*;
 
+/// The generation merge for one stored key scan.
+enum StoredKeyMerge<'a> {
+    Prefix {
+        base_prefix: &'a str,
+    },
+    Range {
+        base_start: &'a str,
+        base_end: &'a str,
+    },
+}
+
 impl AtomStore {
     pub(crate) fn strip_per_key_storage_prefix(
         storage_prefix: Option<&str>,
@@ -38,17 +49,13 @@ impl AtomStore {
             .map_err(|e| {
                 SchemaError::InvalidData(format!("scan per-key prefix {scan_prefix}: {e}"))
             })?;
-        let rows = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
-        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_prefix)
-        else {
-            return self
-                .filter_delete_barriers_for_records(rows, storage_prefix)
-                .await;
-        };
-        let rows = self
-            .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
-            .await?;
-        self.ordered_molecule_rows(rows, storage_prefix).await
+        self.finish_stored_key_scan(
+            base_prefix,
+            storage_prefix,
+            scanned,
+            StoredKeyMerge::Prefix { base_prefix },
+        )
+        .await
     }
 
     /// Scan **at most `limit`** per-key records under the molecule's record
@@ -115,17 +122,54 @@ impl AtomStore {
             .map_err(|e| {
                 SchemaError::InvalidData(format!("scan per-key range {start}..{end}: {e}"))
             })?;
-        let live = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
-        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_start)
+        self.finish_stored_key_scan(
+            base_start,
+            storage_prefix,
+            scanned,
+            StoredKeyMerge::Range {
+                base_start,
+                base_end,
+            },
+        )
+        .await
+    }
+
+    /// Strip the storage prefix, merge one molecule generation, then order the keys.
+    /// A key with no molecule still drops Delete barriers and keeps scan order.
+    async fn finish_stored_key_scan(
+        &self,
+        identity_key: &str,
+        storage_prefix: Option<&str>,
+        scanned: Vec<(String, PerKeyRecord)>,
+        merge: StoredKeyMerge<'_>,
+    ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
+        let rows = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
+        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(identity_key)
         else {
             return self
-                .filter_delete_barriers_for_records(live, storage_prefix)
+                .filter_delete_barriers_for_records(rows, storage_prefix)
                 .await;
         };
-        let merged = self
-            .merge_generation_range_rows(molecule_uuid, base_start, base_end, storage_prefix, live)
-            .await?;
-        self.ordered_molecule_rows(merged, storage_prefix).await
+        let rows = match merge {
+            StoredKeyMerge::Prefix { base_prefix } => {
+                self.merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
+                    .await?
+            }
+            StoredKeyMerge::Range {
+                base_start,
+                base_end,
+            } => {
+                self.merge_generation_range_rows(
+                    molecule_uuid,
+                    base_start,
+                    base_end,
+                    storage_prefix,
+                    rows,
+                )
+                .await?
+            }
+        };
+        self.ordered_molecule_rows(rows, storage_prefix).await
     }
 
     /// Keep the last record for one key, then return the keys in order.
