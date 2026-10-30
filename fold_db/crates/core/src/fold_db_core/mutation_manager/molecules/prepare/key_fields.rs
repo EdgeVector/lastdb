@@ -20,13 +20,7 @@ impl MutationManager {
             if !schemas.contains_key(&mutation.schema_name) {
                 let mut schema = self
                     .schema_manager
-                    .get_schema_metadata(&mutation.schema_name)?
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData(format!(
-                            "Schema '{}' not found",
-                            mutation.schema_name
-                        ))
-                    })?;
+                    .require_schema_metadata(&mutation.schema_name)?;
                 if schema.runtime_fields.is_empty() {
                     schema.populate_runtime_fields()?;
                 }
