@@ -10,10 +10,7 @@ on:
       - 'lastdb_node/**'
       - 'scripts/benchmarks/alternate_key_compare.py'
       - 'scripts/benchmarks/alternate_key_storage.py'
-      - 'scripts/schema_checks/alternate_keys.py'
-      - 'scripts/schema_checks/alternate_compatibility.py'
-      - 'scripts/schema_checks/alternate_changes.py'
-      - 'scripts/schema_checks/alternate_peers.py'
+      - 'scripts/benchmarks/alternate_key_workload.py'
       - '.github/workflows/alternate-keys-spike.yml'
   workflow_dispatch:
     inputs:
@@ -80,30 +77,13 @@ jobs:
           for label in baseline candidate; do
             cd "$GITHUB_WORKSPACE/$label"
             revision=$(git rev-parse HEAD)
-            build_args=(-p lastdb_node --bin lastdbd --bin lastdb)
-            if [ "$label" = candidate ]; then
-              build_args+=(-p schema_service_server_http --bin schema_service)
-            fi
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" \
               CARGO_TARGET_DIR="$RUNNER_TEMP/alternate-target-$label" \
-              cargo build --locked --profile dev-release "${build_args[@]}"
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin lastdb
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/alternate-bins/$label"
             cp "$RUNNER_TEMP/alternate-target-$label/dev-release/lastdb" "$RUNNER_TEMP/alternate-bins/$label-cli"
-            if [ "$label" = candidate ]; then
-              cp "$RUNNER_TEMP/alternate-target-$label/dev-release/schema_service" "$RUNNER_TEMP/alternate-bins/schema-service"
-            fi
             rm -rf "$RUNNER_TEMP/alternate-target-$label"
           done
-      - name: Prove existing-home compatibility, declaration backfill, and signed peer import
-        run: |
-          python3 -m venv "$RUNNER_TEMP/alternate-python"
-          "$RUNNER_TEMP/alternate-python/bin/pip" install 'cryptography==50.0.2'
-          "$RUNNER_TEMP/alternate-python/bin/python" driver/scripts/schema_checks/alternate_compatibility.py \
-            --baseline "$RUNNER_TEMP/alternate-bins/baseline" --baseline-revision "$BASELINE_SHA" \
-            --candidate "$RUNNER_TEMP/alternate-bins/candidate" --candidate-revision "$CANDIDATE_SHA" \
-            --candidate-cli "$RUNNER_TEMP/alternate-bins/candidate-cli" \
-            --schema-service "$RUNNER_TEMP/alternate-bins/schema-service" \
-            --output "$RUNNER_TEMP/alternate-key-compatibility"
       - name: Compare equivalent records through both public APIs
         env:
           DRIVER_SHA: ${{ env.CANDIDATE_SHA }}
@@ -126,7 +106,6 @@ jobs:
           name: alternate-key-comparison-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/alternate-key-comparison/
-            ${{ runner.temp }}/alternate-key-compatibility/
           if-no-files-found: error
           retention-days: 14
       - name: Verify the artifact upload

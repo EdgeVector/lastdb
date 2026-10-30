@@ -8,13 +8,10 @@ import os
 from pathlib import Path
 import platform
 import statistics
-import sys
 import time
 
 from node import Node, save
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "schema_checks"))
-from alternate_keys import task_definition
-from node_ops import ENVIRONMENT, install, require
+from alternate_key_workload import ENVIRONMENT, install, require, task_definition
 
 FIELDS = ["record_id", "group_id", "owner_id", "payload"]
 PAYLOAD = "p" * 4096
