@@ -3,12 +3,13 @@
 use super::super::molecules::DeferredPersistJob;
 use super::*;
 use crate::atom::{AtomEntry, KeyMetadata};
+use crate::db_operations::{ChangedKey, MoleculeData};
 use crate::storage::disk_pack::logical_paths::source::CertifiedAtom;
 use crate::storage::disk_pack::logical_paths::{schema_identity, LogicalPath, LogicalPathRecord};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
 use futures::FutureExt;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 mod bindings;
@@ -180,17 +181,23 @@ fn changed_molecules(job: &DeferredPersistJob) -> Vec<String> {
         .collect()
 }
 
-fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
-    let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
+/// Slots that have molecule data.
+fn changed_field_slots<'a>(
+    job: &'a DeferredPersistJob,
+) -> impl Iterator<Item = (&'a str, &'a MoleculeData, &'a HashSet<ChangedKey>)> + 'a {
+    job.modified_fields.iter().filter_map(|(name, keys)| {
         let field = job.schema.runtime_fields.get(name)?;
         Some((
             field.common().molecule_uuid()?.as_str(),
             field.molecule_data()?,
             keys,
         ))
-    });
+    })
+}
+
+fn changed_tips(job: &DeferredPersistJob) -> Vec<ChangedTip> {
     let mut tips = BTreeMap::new();
-    for (molecule, data, keys) in entry {
+    for (molecule, data, keys) in changed_field_slots(job) {
         for key in keys {
             let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
             if let Some(entry) = data.get_atom_entry(hash, range) {

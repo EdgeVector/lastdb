@@ -20,8 +20,7 @@ impl PackRuntime {
         }
         super::super::run_blocking(move || {
             let result = Self::disk_counter_body_probes(&context, &pending, &keys);
-            context.remember(&result);
-            result
+            context.remembered(result)
         })
         .await
     }

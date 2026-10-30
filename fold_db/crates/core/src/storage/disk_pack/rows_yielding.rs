@@ -1,6 +1,6 @@
 //! Range reads that continue across a budget stop in a run of deleted keys.
 
-use super::rows::{cursor, NativeRows};
+use super::rows::{cursor, decode_native_rows, require_page_limit, NativeRows};
 use super::*;
 
 impl PackKvStore {
@@ -20,14 +20,7 @@ impl PackKvStore {
         limit: usize,
         keys_per_row: usize,
     ) -> StorageResult<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
-        let collections: Vec<String> = if self.namespace == "main" {
-            native_routing::range_collections(start, end)
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        } else {
-            vec![self.namespace.clone()]
-        };
+        let collections = self.owned_range_collections(start, end);
         let simple = limit > 0
             && start < end
             && collections.len() == 1
@@ -55,16 +48,12 @@ impl PackKvStore {
                 limit,
                 keys_per_row,
             )?;
-            let rows = rows
-                .into_iter()
-                .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
-                .collect::<StorageResult<Vec<_>>>()?;
+            let rows = decode_native_rows(rows)?;
             let resume = resume.map(|key| native_routing::decode(&key)).transpose()?;
             Ok((rows, resume))
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
     }
 }
 
@@ -85,8 +74,7 @@ impl PackRuntime {
     ) -> StorageResult<(NativeRows, Option<String>)> {
         let result =
             self.raw_rows_yielding_inner(context, collection, start, end, limit, keys_per_row);
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn raw_rows_yielding_inner(
@@ -99,11 +87,7 @@ impl PackRuntime {
         keys_per_row: usize,
     ) -> StorageResult<(NativeRows, Option<String>)> {
         context.validate_owner(None)?;
-        if limit > 10000 {
-            return Err(StorageError::ReadResourceLimit {
-                detail: "native page exceeds 10000 records".into(),
-            });
-        }
+        require_page_limit(limit)?;
         let mut call = crate::read_receipts::lock(&context.call);
         let mut cursor = cursor(&mut call, collection, start, end)?;
         let mut out: NativeRows = Vec::new();

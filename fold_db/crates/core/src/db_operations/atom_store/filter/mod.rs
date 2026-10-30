@@ -62,3 +62,20 @@ impl PageFill {
         }
     }
 }
+
+/// A ready key page replaces the stored scan. A miss still runs that scan.
+async fn prefer_preloaded_rows<Fut>(
+    preloaded: Result<Option<Vec<(String, PerKeyRecord)>>, crate::schema::SchemaError>,
+    scan: impl FnOnce() -> Fut,
+) -> Result<Vec<(String, PerKeyRecord)>, crate::schema::SchemaError>
+where
+    Fut: std::future::Future<
+        Output = Result<Vec<(String, PerKeyRecord)>, crate::schema::SchemaError>,
+    >,
+{
+    if let Some(rows) = preloaded? {
+        Ok(rows)
+    } else {
+        scan().await
+    }
+}

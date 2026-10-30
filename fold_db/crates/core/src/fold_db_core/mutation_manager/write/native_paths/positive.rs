@@ -39,16 +39,7 @@ impl MutationManager {
         runtime: &PackRuntime,
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
-        for name in job.modified_fields.keys() {
-            let Some(field) = job.schema.runtime_fields.get(name) else {
-                continue;
-            };
-            let Some(molecule) = field.common().molecule_uuid() else {
-                continue;
-            };
-            let Some(data) = field.molecule_data() else {
-                continue;
-            };
+        for (molecule, data, _) in super::changed_field_slots(job) {
             self.db_ops
                 .atoms()
                 .stage_molecule_header(runtime, molecule, data, scope)?;

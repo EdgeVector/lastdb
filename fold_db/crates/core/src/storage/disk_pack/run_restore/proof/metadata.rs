@@ -4,11 +4,10 @@ struct Source<'a, 'b>(&'a Proof<'b>);
 
 impl files::MetadataRead for Source<'_, '_> {
     fn get(&mut self, collection: &str, key: &str) -> StorageResult<Option<Vec<u8>>> {
-        let mut read = self
-            .0
-            .main
-            .fork_bounded(read_budget(budget::ATOM_INVENTORY_READ_BYTES, 1))
-            .map_err(map)?;
+        let mut read = super::fork_mapped(
+            self.0.main,
+            read_budget(budget::ATOM_INVENTORY_READ_BYTES, 1),
+        )?;
         read.get_bounded(collection, key, budget::ATOM_BODY_MAX_BYTES)
             .map_err(map)
     }

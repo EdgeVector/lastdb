@@ -151,6 +151,12 @@ impl ReadContext {
         }
     }
 
+    /// Record a failure, then return the same result.
+    pub(super) fn remembered<T>(&self, result: StorageResult<T>) -> StorageResult<T> {
+        self.remember(&result);
+        result
+    }
+
     pub(super) fn hold_core(
         &self,
         core: &mut crate::resident::CoreWarmSet,
@@ -175,11 +181,9 @@ impl ReadContext {
         if (self.write_owner.is_none() && pending.is_none()) || self.owns_write(pending) {
             return Ok(());
         }
-        let result = Err(StorageError::InvalidOperation(
+        self.remembered(Err(StorageError::InvalidOperation(
             "native read scope cannot change its complete write owner".into(),
-        ));
-        self.remember(&result);
-        result
+        )))
     }
 
     fn error(&self) -> Option<StorageError> {

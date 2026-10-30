@@ -12,6 +12,7 @@ mod audit;
 mod begin;
 mod cleanup;
 mod finish;
+mod mapped_fields;
 mod membership;
 mod page;
 mod tips;
@@ -41,6 +42,13 @@ pub struct OwnedSchemaConversion {
     pub alternate_keys: BTreeMap<String, schema_types::AlternateKey>,
     #[serde(default)]
     pub membership: Option<SchemaMembership>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_definition_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub field_map: BTreeMap<String, String>,
+    /// Resolved by the host through Schema Service, never accepted from JSON.
+    #[serde(skip)]
+    pub resolved_definition: Option<schema_types::DeclarativeSchemaDefinition>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +101,10 @@ struct Target {
     after: Option<String>,
     membership: Option<SchemaMembership>,
     selected: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_definition_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    field_map: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -166,6 +178,9 @@ impl Change {
                     expected_identity: target.source.identity_hash.clone(),
                     alternate_keys: target.target.alternate_keys.clone(),
                     membership: target.membership.clone(),
+                    target_definition_identity: target.target_definition_identity.clone(),
+                    field_map: target.field_map.clone(),
+                    resolved_definition: None,
                 })
                 .collect(),
             durable: true,
@@ -248,6 +263,7 @@ async fn load(store: &dyn KvStore, id: &str) -> Result<Change, SchemaError> {
     for target in &mut change.targets {
         target.source.populate_runtime_fields()?;
         target.target.populate_runtime_fields()?;
+        mapped_fields::validate_stored(target)?;
     }
     Ok(change)
 }

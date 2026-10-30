@@ -15,18 +15,10 @@ impl DbOperations {
         let Ok(index) = self.atoms().raw().get_item::<HomeConflictIndex>(&key).await else {
             return crate::storage::disk_pack::transaction::require_durable(runtime);
         };
-        let bytes = serde_json::to_vec(&index)
-            .map_err(|_| {
-                crate::storage::StorageError::SerializationError(
-                    "cannot account for typed conflict control".into(),
-                )
-            })?
-            .len()
-            .saturating_mul(8)
-            .saturating_add(1024);
+        let bytes = conflict_control_bytes(&index)?;
         crate::storage::disk_pack::transaction::stage_core_memory(
             runtime,
-            std::ptr::from_ref(&CONFLICT_MEMORY) as usize,
+            conflict_memory_owner(),
             key.clone(),
             index,
             core_memory_sources("main", key.as_bytes()),
@@ -40,7 +32,7 @@ impl DbOperations {
     ) -> Option<HomeConflictIndex> {
         let key = build_storage_key(storage_prefix, HOME_CONFLICT_INDEX_KEY);
         let runtime = self.namespaced_store().disk_pack_runtime();
-        let owner = std::ptr::from_ref(&CONFLICT_MEMORY) as usize;
+        let owner = conflict_memory_owner();
         if let Some(value) =
             core_memory_get::<Option<HomeConflictIndex>>(runtime.clone(), owner, &key).ok()?
         {
@@ -54,11 +46,7 @@ impl DbOperations {
             .get_item::<HomeConflictIndex>(&key)
             .await
             .ok()?;
-        let bytes = serde_json::to_vec(&index)
-            .ok()?
-            .len()
-            .saturating_mul(8)
-            .saturating_add(1024);
+        let bytes = conflict_control_bytes(&index).ok()?;
         let held = core_memory_insert(
             runtime,
             owner,
@@ -70,4 +58,23 @@ impl DbOperations {
         .ok()?;
         held.as_ref().as_ref().cloned()
     }
+}
+
+fn conflict_memory_owner() -> usize {
+    std::ptr::from_ref(&CONFLICT_MEMORY) as usize
+}
+
+/// The charge stays the encoded length times 8, plus 1024.
+fn conflict_control_bytes(
+    index: &Option<HomeConflictIndex>,
+) -> Result<usize, crate::storage::StorageError> {
+    Ok(serde_json::to_vec(index)
+        .map_err(|_| {
+            crate::storage::StorageError::SerializationError(
+                "cannot account for typed conflict control".into(),
+            )
+        })?
+        .len()
+        .saturating_mul(8)
+        .saturating_add(1024))
 }

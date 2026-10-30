@@ -22,8 +22,7 @@ impl PackRuntime {
             context.validate_owner(Some(&pending))?;
             let mut call = crate::read_receipts::lock(&context.call);
             let result = certify_bodies(&context, &pending, &mut call, &keys);
-            context.remember(&result);
-            result
+            context.remembered(result)
         })
         .await
     }

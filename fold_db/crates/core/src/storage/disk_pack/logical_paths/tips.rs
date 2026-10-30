@@ -16,7 +16,7 @@ pub(super) fn admit(
     let Some((runtime, binding)) = runtime.zip(field::FieldScope::current()) else {
         return Ok(());
     };
-    if !field::provenance_current() || transaction::PendingBatch::current(&runtime).is_some() {
+    if !field::provenance_admits(&runtime) {
         return Ok(());
     }
     let Some(sources) = &selected.sources else {

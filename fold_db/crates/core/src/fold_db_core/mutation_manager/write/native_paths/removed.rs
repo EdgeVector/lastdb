@@ -68,16 +68,8 @@ impl MutationManager {
         runtime: &PackRuntime,
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
-        let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
-            let field = job.schema.runtime_fields.get(name)?;
-            Some((
-                field.common().molecule_uuid()?.as_str(),
-                field.molecule_data()?,
-                keys,
-            ))
-        });
         let mut slots = Vec::new();
-        for (molecule, data, keys) in entry {
+        for (molecule, data, keys) in super::changed_field_slots(job) {
             for key in keys {
                 let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 if data.get_atom_entry(hash, range).is_none() {

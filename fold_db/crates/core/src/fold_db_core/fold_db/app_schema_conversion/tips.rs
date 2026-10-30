@@ -99,7 +99,7 @@ pub(super) async fn copy(
             let destination = target
                 .target
                 .runtime_fields
-                .get(name)
+                .get(target.field_map.get(name).unwrap_or(name))
                 .ok_or_else(|| invalid("target field is absent"))?;
             sources.push(slot(atoms, source, key)?);
             destinations.push((
