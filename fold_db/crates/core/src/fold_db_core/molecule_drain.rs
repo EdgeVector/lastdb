@@ -336,8 +336,7 @@ async fn run_wake(
                     rest(pause, watch).await;
                 }
             }
-            Ok(None) => break,
-            Err(crate::schema::SchemaError::AppSchemaConversionActive) => break,
+            Ok(None) | Err(crate::schema::SchemaError::AppSchemaConversionActive) => break,
             Err(failure) if *tips > MIN_TIPS && is_read_limit(&failure) => {
                 // The batch read more pages than one call may spend: halve it. The
                 // failed molecule went to the back of the line.
