@@ -30,6 +30,15 @@ impl AtomStore {
         set: TipChangeSet<'_>,
     ) -> Result<TipCommit, SchemaError> {
         self.require_atomic_scope()?;
+        if self
+            .app_schema_conversion_active
+            .load(std::sync::atomic::Ordering::Acquire)
+            && !crate::fold_db_core::fold_db::app_schema_conversion::authorized()
+        {
+            return Err(SchemaError::InvalidData(
+                "app schema conversion maintenance is active".into(),
+            ));
+        }
         let TipChangeSet {
             history,
             scope,
