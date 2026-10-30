@@ -39,17 +39,5 @@ pub(super) fn event(source: &Event<'_>) -> Event<'static> {
 
 /// Retain only a numeric package version, never operator-defined suffixes.
 fn package_version(release: &str) -> Option<String> {
-    let version = release
-        .strip_prefix('v')
-        .unwrap_or(release)
-        .split('-')
-        .next()?;
-    let mut parts = version.split('.');
-    for _ in 0..3 {
-        let part = parts.next()?;
-        if part.is_empty() || part.len() > 6 || !part.bytes().all(|byte| byte.is_ascii_digit()) {
-            return None;
-        }
-    }
-    parts.next().is_none().then(|| version.to_string())
+    crate::crash::numeric_version(release).map(str::to_string)
 }
