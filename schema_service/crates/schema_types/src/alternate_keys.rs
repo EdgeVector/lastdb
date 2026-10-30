@@ -97,8 +97,15 @@ impl DeclarativeSchemaDefinition {
                 .as_ref()
                 .is_none_or(|key| key.range_field.is_none())
         {
-            // A plain owned Hash can use the request's external coordinate.
-            // Named alternate keys still need the primary value in a field.
+            // A plain owned Hash can use the request's external coordinate as
+            // its only key; its one field holds the value. More fields or named
+            // alternate keys still need the primary value in a declared field.
+            if self.fields.as_deref().unwrap_or_default().len() != 1 {
+                return Err(
+                    "an owned Hash without a primary hash field must declare exactly one field"
+                        .into(),
+                );
+            }
             return Ok(());
         }
         let primary = primary.ok_or("alternate keys require a declared primary hash field")?;
