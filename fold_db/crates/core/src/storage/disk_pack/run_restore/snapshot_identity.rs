@@ -171,12 +171,7 @@ fn read_source(
     let version = files::profile_version(root)?
         .ok_or_else(|| invalid("snapshot identity source profile is absent"))?;
     proof::verify_account(&main, key, version)?;
-    let profile = RunBackupProfile {
-        version,
-        main: files::source_profile_home(root, run_node::RUN_DIR, &main)?,
-        cas: files::source_profile_home(root, run_node::CAS_DIR, &cas)?,
-    };
-    profile.validate()?;
+    let profile = files::backup_profile(root, version, &main, &cas, true)?;
     let source = logical::read_source(root, &mut main, &profile)?;
     files::same_entry(&directory, root)?;
     files::same_entry(&marker, &root.join(NODE_MARKER))?;
@@ -220,14 +215,9 @@ fn source_bindings(root: &Path) -> StorageResult<Vec<(PathBuf, File)>> {
 }
 
 fn reader_profile(root: &Path, main: &RunRead, cas: &RunRead) -> StorageResult<RunBackupProfile> {
-    let profile = RunBackupProfile {
-        version: files::profile_version(root)?
-            .ok_or_else(|| invalid("snapshot identity reader profile is absent"))?,
-        main: files::profile_home(root, run_node::RUN_DIR, main)?,
-        cas: files::profile_home(root, run_node::CAS_DIR, cas)?,
-    };
-    profile.validate()?;
-    Ok(profile)
+    let version = files::profile_version(root)?
+        .ok_or_else(|| invalid("snapshot identity reader profile is absent"))?;
+    files::backup_profile(root, version, main, cas, false)
 }
 
 fn writer_profile(root: &Path, v2: &physical::V2Home) -> StorageResult<RunBackupProfile> {

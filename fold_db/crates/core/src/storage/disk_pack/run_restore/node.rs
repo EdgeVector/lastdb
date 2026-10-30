@@ -102,12 +102,7 @@ impl RunNodeGuard {
         let (mut main, mut cas) =
             super::open_paired_runs(root, key, "paired run metadata exceeds memory admission")?;
         reserve_pair(&mut main, &mut cas)?;
-        let profile = RunBackupProfile {
-            version,
-            main: files::profile_home(root, run_node::RUN_DIR, &main)?,
-            cas: files::profile_home(root, run_node::CAS_DIR, &cas)?,
-        };
-        profile.validate()?;
+        let profile = files::backup_profile(root, version, &main, &cas, false)?;
         let mut entries = vec![RunRestoreFile {
             path: NODE_MARKER.into(),
             bytes: profile.node_marker()?.len() as u64,
