@@ -2,10 +2,10 @@ use super::*;
 
 impl SchemaServiceState {
     /// The descriptive_name index already points at the incoming identity hash.
-    /// Returns `AlreadyExists` for a true duplicate, or `None` (after mapping
-    /// fields) for a multi-key sibling so the caller falls through to registration.
+    /// Returns `AlreadyExists` for a true duplicate. A different key layout
+    /// falls through to a distinct definition without new value authorities.
     fn race_same_hash_outcome(
-        schema: &mut Schema,
+        schema: &Schema,
         existing_hash: &str,
         existing: &Schema,
         desc_name: &str,
@@ -19,15 +19,13 @@ impl SchemaServiceState {
         // Defense: if key layout ever fails to participate in
         // identity_hash, same hash + different keys must NOT
         // AlreadyExists-discard the new layout (that was the
-        // multi-key silent-discard bug). Map fields and fall
+        // multi-key silent-discard bug). Keep the fields and fall
         // through to de-collide / register a second identity.
         if crate::state_expansion::is_cross_key_layout_expansion(schema, existing) {
-            let shared = crate::state_expansion::shared_field_names(schema, existing);
-            crate::state_expansion::apply_shared_field_mappers(schema, existing_hash, &shared);
             tracing::warn!(
                 target: "schema_service::schema",
                 "Race-condition guard: identity_hash '{}' collides across key layouts \
-                 — multi-key sibling (map fields; will de-collide / re-hash)",
+                 — register a distinct definition without value aliases",
                 existing_hash,
             );
             // Fall through; do not return AlreadyExists.
@@ -129,12 +127,10 @@ impl SchemaServiceState {
             .await;
         if race_gate == CanonicalizationGateOutcome::Merge {
             if crate::state_expansion::is_cross_key_layout_expansion(schema, &existing) {
-                let shared = crate::state_expansion::shared_field_names(schema, &existing);
-                crate::state_expansion::apply_shared_field_mappers(schema, &existing_hash, &shared);
                 tracing::warn!(
                     target: "schema_service::schema",
                     "Race condition: descriptive_name '{}' already registered as '{}' \
-                     with different key layout — multi-key sibling (map fields, new id)",
+                     with different key layout — retain a distinct definition without value aliases",
                     desc_name_owned,
                     existing_hash
                 );

@@ -61,21 +61,18 @@ pub(super) fn definition(
     })?;
     identity(definition, expected)?;
     if definition
-        .field_mappers
+        .transform_fields
         .as_ref()
         .is_some_and(|map| !map.is_empty())
-        || definition
-            .transform_fields
-            .as_ref()
-            .is_some_and(|map| !map.is_empty())
     {
         return Err(invalid(
             "a field transition requires an ordinary published target",
         ));
     }
     let mut target = source.clone_for_read_shared();
-    // Copy definition metadata only. No remote molecule, mapper, transform, or
-    // alternate declaration acquires authority over these local record values.
+    // Match native owned_schema: legacy catalog mappers are value authorities,
+    // not field definitions. They never enter this explicit independent target.
+    // Every target value comes from the checked local source and total field map.
     target.fields = definition.fields.clone();
     target.key = definition.key.clone();
     target.field_types = definition.field_types.clone();
@@ -178,7 +175,10 @@ fn validate(
     Ok(())
 }
 
-fn key_field(name: &str, fields: &BTreeMap<String, String>) -> Result<String, SchemaError> {
+pub(super) fn key_field(
+    name: &str,
+    fields: &BTreeMap<String, String>,
+) -> Result<String, SchemaError> {
     if let Some(mapped) = fields.get(name) {
         return Ok(mapped.clone());
     }

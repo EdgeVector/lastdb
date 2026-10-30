@@ -39,12 +39,8 @@ pub fn key_layout_fingerprint(schema: &Schema) -> KeyLayoutFingerprint {
 
 /// True when incoming and existing use **different lookup keys**.
 ///
-/// Same-product multi-key indexes (e.g. BoardCards `board` vs MilestoneCards
-/// `milestone`) must **not** go through classic `expand_schema` (which
-/// supersedes the old identity and can rewrite the live key). They register
-/// as a multi-key sibling with field mappers + background tip reindex instead.
-///
-/// Preference: `preference-schema-expand-same-product-different-keys`.
+/// A different key layout must not supersede an existing definition or
+/// rewrite its key. Canonical field reuse does not share record values.
 #[must_use]
 pub fn is_cross_key_layout(incoming: &Schema, existing: &Schema) -> bool {
     key_layout_fingerprint(incoming) != key_layout_fingerprint(existing)
@@ -54,43 +50,6 @@ pub fn is_cross_key_layout(incoming: &Schema, existing: &Schema) -> bool {
 #[must_use]
 pub(super) fn is_cross_key_layout_expansion(incoming: &Schema, existing: &Schema) -> bool {
     is_cross_key_layout(incoming, existing)
-}
-
-/// Shared field names present on both schemas (for field_mapper linkage).
-#[must_use]
-pub fn shared_field_names(incoming: &Schema, existing: &Schema) -> Vec<String> {
-    let a: HashSet<String> = incoming
-        .fields
-        .as_ref()
-        .map(|f| f.iter().cloned().collect())
-        .unwrap_or_default();
-    let b: HashSet<String> = existing
-        .fields
-        .as_ref()
-        .map(|f| f.iter().cloned().collect())
-        .unwrap_or_default();
-    let mut shared: Vec<String> = a.intersection(&b).cloned().collect();
-    shared.sort();
-    shared
-}
-
-/// Attach field mappers for every shared field so payload molecules stay shared
-/// while the incoming schema keeps its own key layout (multi-key sibling).
-pub fn apply_shared_field_mappers(
-    incoming: &mut Schema,
-    existing_hash: &str,
-    shared_fields: &[String],
-) {
-    use schema_types::FieldMapper;
-    let mut mappers = incoming.field_mappers().cloned().unwrap_or_default();
-    for field in shared_fields {
-        mappers
-            .entry(field.clone())
-            .or_insert_with(|| FieldMapper::new(existing_hash.to_string(), field.clone()));
-    }
-    if !mappers.is_empty() {
-        incoming.field_mappers = Some(mappers);
-    }
 }
 
 impl SchemaServiceState {

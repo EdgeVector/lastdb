@@ -1,6 +1,8 @@
 # Compound alternate keys
 
 A schema owns its values. Canonical field identities can match across schemas while their record values remain separate.
+Schema Service keeps different key layouts as separate definitions and does not create value aliases between them.
+Existing published definitions retain their metadata until an explicit compatible conversion. Registration does not rewrite existing values.
 
 An alternate key uses a declared hash field or an explicit `hash_literal`. It uses one range field or ordered `range_parts`.
 Each alternate key retains the exact primary field without formatting. The primary schema still uses a Hash key.
@@ -57,6 +59,11 @@ Unknown unique values cause refusal before publication.
 
 After verification, the commit action publishes all target schemas in one native transaction.
 Cleanup retires the exact reviewed legacy schemas through the normal binding and molecule lifecycle.
+Retirement requires `app_schema_alias_retirement_v1` and a fully mapped alias of one kept source.
+Before the freeze, the transaction checks every alias field, actual molecule, field type, and primary key role.
+An ordinary old layout must become a separate owned historical record type. Its values cannot disappear during this conversion.
+The durable job records this retirement audit. Older active jobs with retirements cannot publish, delete, or finish without that audit.
+An owner can still abort an older job before publication. An older published job requires review before the upgrade.
 The app writes its config to disk before the finish action restores schema states.
 A restart preserves the maintenance state and the page cursor.
 Before publication, the abort action removes unpublished tips and restores the source state.
@@ -71,6 +78,8 @@ The map names every source field and one distinct target field for each source f
 Both source and target identities must be exact published identities.
 The host fetches the target definition from Schema Service before the maintenance freeze.
 The request cannot supply the target definition itself.
+The target uses published field metadata only. Legacy catalog value aliases never become local record authorities.
+This rule also applies to a normal owned declaration. Existing local mapped authorities still require a separate reviewed conversion.
 
 The transition preserves the app owner, record type, runtime schema address, field types, primary key roles, and child schema references.
 Data classifications cannot weaken. The `secret` and `no_index` labels cannot disappear.

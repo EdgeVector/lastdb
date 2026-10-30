@@ -90,10 +90,7 @@ mod state_expansion_persist;
 mod state_fields;
 mod state_matching;
 mod state_native_resolve;
-pub use state_expansion::{
-    apply_shared_field_mappers, is_cross_key_layout, key_layout_fingerprint, shared_field_names,
-    KeyLayoutFingerprint,
-};
+pub use state_expansion::{is_cross_key_layout, key_layout_fingerprint, KeyLayoutFingerprint};
 pub use state_native_resolve::{
     field_context_text, proposal_field_id, FieldMatchProbeHit, FieldMatchProbeItem,
     FieldMatchProbeRequest, FieldMatchProbeResponse,

@@ -5,6 +5,7 @@ pub(super) async fn commit(
     store: &dyn KvStore,
     mut change: Change,
 ) -> Result<Change, SchemaError> {
+    alias_retirement::require_audit(&change)?;
     if matches!(change.phase, Phase::Retiring | Phase::Ready) {
         return Ok(change);
     }
@@ -43,6 +44,7 @@ pub(super) async fn commit(
 pub(super) async fn retire(db: &FoldDB, id: &str) -> Result<(), SchemaError> {
     let store = db.db_ops.open_namespace(NAMESPACE).await?;
     let change = load(store.as_ref(), id).await?;
+    alias_retirement::require_audit(&change)?;
     if change.phase == Phase::Ready {
         return Ok(());
     }
@@ -119,6 +121,7 @@ pub(super) async fn complete(
     if change.phase == Phase::Complete {
         return Ok(change);
     }
+    alias_retirement::require_audit(&change)?;
     if change.phase != Phase::Ready {
         return Err(invalid(
             "finish requires published keys and completed legacy retirement",

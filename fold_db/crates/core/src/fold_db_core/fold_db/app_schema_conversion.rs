@@ -8,6 +8,7 @@ use crate::storage::{disk_pack::transaction, traits::KvStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod alias_retirement;
 mod audit;
 mod begin;
 mod cleanup;
@@ -118,6 +119,8 @@ struct Change {
     retired: usize,
     cleaned: usize,
     audit_after: Option<String>,
+    #[serde(default)]
+    retirement_audit_version: u8,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
