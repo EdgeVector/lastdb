@@ -15,7 +15,6 @@ pub mod delete_ledger;
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
 pub mod keep_small;
-pub mod lineage_index;
 pub(crate) mod logical_membership;
 pub mod metadata_store;
 pub mod molecule_key_store;
@@ -78,7 +77,6 @@ pub use core::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
     with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,
 };
-pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;
 pub use molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use public_key_store::PublicKeyStore;

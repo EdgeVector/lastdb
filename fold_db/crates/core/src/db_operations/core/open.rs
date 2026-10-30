@@ -2,7 +2,6 @@ use super::super::atom_store::AtomStore;
 use super::super::attribution_ledger::AttributionLedger;
 use super::super::change_feed::ChangeFeedStore;
 use super::super::db_catalog_store::DbCatalogStore;
-use super::super::lineage_index::LineageIndex;
 use super::super::metadata_store::MetadataStore;
 use super::super::molecule_key_store::MoleculeKeyStore;
 use super::super::public_key_store::PublicKeyStore;
@@ -23,8 +22,6 @@ struct CoreNamespaces {
     public_keys_kv: Arc<dyn KvStore>,
     idempotency_kv: Arc<dyn KvStore>,
     superseded_by_kv: Arc<dyn KvStore>,
-    lineage_forward_kv: Arc<dyn KvStore>,
-    lineage_reverse_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
     attribution_ledger_kv: Arc<dyn KvStore>,
     keep_small_kv: Arc<dyn KvStore>,
@@ -56,13 +53,6 @@ impl CoreNamespaces {
         let public_keys_kv = store.open_namespace("public_keys").await?;
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
-        // `lineage_forward` / `lineage_reverse` back the derived-molecule
-        // lineage index; rebuildable from replay (project 2). Both namespaces
-        // are in the main run home, which the V2 byte backup copies when on.
-        // No production writers exist until
-        // `projects/view-compute-as-mutations` wires them in.
-        let lineage_forward_kv = store.open_namespace("lineage_forward").await?;
-        let lineage_reverse_kv = store.open_namespace("lineage_reverse").await?;
         let change_feed_kv = store.open_namespace("change_feed").await?;
         let attribution_ledger_kv = store.open_namespace("attribution_ledger").await?;
         // The keep-small snapshot gets its own plane (2026-09-21). The snapshot
@@ -85,8 +75,6 @@ impl CoreNamespaces {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            lineage_forward_kv,
-            lineage_reverse_kv,
             change_feed_kv,
             attribution_ledger_kv,
             keep_small_kv,
@@ -150,8 +138,6 @@ impl DbOperations {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            lineage_forward_kv,
-            lineage_reverse_kv,
             change_feed_kv,
             attribution_ledger_kv,
             keep_small_kv,
@@ -193,7 +179,6 @@ impl DbOperations {
         let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
         let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;
         let change_feed = ChangeFeedStore::new(change_feed_kv, store.disk_pack_runtime()).await?;
-        let lineage_index = LineageIndex::new(lineage_forward_kv, lineage_reverse_kv);
 
         Ok(Self {
             store,
@@ -205,7 +190,6 @@ impl DbOperations {
             metadata_store,
             attribution_ledger,
             change_feed,
-            lineage_index,
             persist_metrics,
         })
     }
