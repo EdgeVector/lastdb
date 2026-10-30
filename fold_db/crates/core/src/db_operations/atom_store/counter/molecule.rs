@@ -19,9 +19,6 @@ use crate::schema::SchemaError;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// The native get-many API accepts at most this many keys per call.
-const READ_CHUNK: usize = 10_000;
-
 const SLOTS: &str = "slots";
 const RECORDS: &str = "records";
 const SUSPECT: &str = "suspect";
@@ -182,17 +179,6 @@ impl AtomStore {
 
     /// The stored header of each key, as raw JSON, in the order given.
     async fn read_header_values(&self, keys: &[String]) -> Result<Vec<Option<Value>>, SchemaError> {
-        let mut out = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            out.extend(
-                self.main_store
-                    .get_items::<Value>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule headers: {error}"))
-                    })?,
-            );
-        }
-        Ok(out)
+        self.read_stored_values(keys, "read molecule headers").await
     }
 }

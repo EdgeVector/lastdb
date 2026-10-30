@@ -29,6 +29,7 @@ mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
 mod catalog_bindings;
+mod chunk_read;
 mod codec;
 mod conflict_record;
 mod construct;

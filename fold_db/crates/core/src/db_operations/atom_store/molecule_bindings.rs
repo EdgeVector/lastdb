@@ -93,18 +93,8 @@ impl AtomStore {
             .iter()
             .map(|molecule| molecule_bindings_key(molecule, storage_prefix))
             .collect();
-        let mut out = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            out.extend(
-                self.main_store
-                    .get_items::<MoleculeBindings>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule bindings: {error}"))
-                    })?,
-            );
-        }
-        Ok(out)
+        self.read_stored_values(&keys, "read molecule bindings")
+            .await
     }
 
     async fn flip_molecule_bindings(
