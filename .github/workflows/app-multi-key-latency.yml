@@ -22,6 +22,9 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
+      # CI uses the DEV Schema Service. The definition check and both release
+      # daemons read this one value, so they always name the same registry.
+      ENVIRONMENT: dev
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       BASELINE_SHA: 34e6d312efadd10bade667895be7356cfddc48f8
     steps:
