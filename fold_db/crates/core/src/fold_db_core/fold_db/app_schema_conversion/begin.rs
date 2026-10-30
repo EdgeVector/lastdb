@@ -113,12 +113,15 @@ async fn prepare(
     id: &str,
 ) -> Result<Prepared, SchemaError> {
     let mut targets = Vec::new();
-    let mut selected = BTreeSet::new();
+    let selected: BTreeSet<_> = requests
+        .iter()
+        .map(|request| request.schema.clone())
+        .collect();
+    if selected.len() != requests.len() {
+        return Err(invalid("conversion repeats a kept schema"));
+    }
     let mut owners = BTreeSet::new();
     for request in requests {
-        if !selected.insert(request.schema.clone()) {
-            return Err(invalid("conversion repeats a kept schema"));
-        }
         let source = all
             .get(&request.schema)
             .ok_or_else(|| invalid("conversion source is absent"))?;
@@ -135,6 +138,7 @@ async fn prepare(
                 "conversion source identity or availability differs",
             ));
         }
+        source_authority::validate(source, all, &selected)?;
         targets.push(target(db, source, request, id).await?);
     }
     Ok(Prepared {
@@ -152,10 +156,6 @@ async fn target(
 ) -> Result<Target, SchemaError> {
     if (source.uses_independent_fields() && request.field_map.is_empty())
         || source
-            .field_mappers
-            .as_ref()
-            .is_some_and(|fields| !fields.is_empty())
-        || source
             .transform_fields
             .as_ref()
             .is_some_and(|fields| !fields.is_empty())
@@ -172,6 +172,7 @@ async fn target(
     membership::validate(db, &source, request.membership.as_ref()).await?;
     let expected = counts(db, &source).await?;
     let mut target = mapped_fields::definition(&source, &request)?;
+    target.field_mappers = None;
     target.independent_fields = true;
     target.alternate_keys = request.alternate_keys;
     target.field_molecule_uuids = Some(

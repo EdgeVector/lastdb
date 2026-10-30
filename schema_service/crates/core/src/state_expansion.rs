@@ -131,8 +131,8 @@ impl SchemaServiceState {
         if is_cross_key_layout(schema, existing) {
             return Err(FoldDbError::Config(format!(
                 "refusing expand_schema across different key layouts \
-                 (incoming {:?}/{:?} vs existing {:?}/{:?}); use multi-key sibling \
-                 registration with field mappers + tip reindex instead",
+                 (incoming {:?}/{:?} vs existing {:?}/{:?}); use named alternate keys \
+                 on one schema, or register separate schema-owned record types",
                 key_layout_fingerprint(schema).hash_field,
                 key_layout_fingerprint(schema).range_field,
                 key_layout_fingerprint(existing).hash_field,
