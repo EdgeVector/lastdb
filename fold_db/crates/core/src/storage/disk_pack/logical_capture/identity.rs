@@ -232,18 +232,25 @@ fn stage_metadata(path: &Path) -> StorageResult<Option<std::fs::Metadata>> {
     }
 }
 
-/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
-fn discard_staged(path: &Path) -> StorageResult<()> {
+/// Discard one absent or private stage. No directory walk occurs.
+fn discard_private_stage(path: &Path, max_len: u64, message: &str) -> StorageResult<()> {
     let Some(meta) = stage_metadata(path)? else {
         return Ok(());
     };
-    if !private_owned_file(&meta) || meta.len() > (MARKER.len() + BODY_BYTES) as u64 {
-        return Err(invalid(
-            "logical capture stage is not a private owned partial control",
-        ));
+    if !private_owned_file(&meta) || meta.len() > max_len {
+        return Err(invalid(message));
     }
     std::fs::remove_file(path)?;
     Ok(())
+}
+
+/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
+fn discard_staged(path: &Path) -> StorageResult<()> {
+    discard_private_stage(
+        path,
+        (MARKER.len() + BODY_BYTES) as u64,
+        "logical capture stage is not a private owned partial control",
+    )
 }
 
 fn sync_parent(v2: &physical::V2Home) -> StorageResult<()> {
