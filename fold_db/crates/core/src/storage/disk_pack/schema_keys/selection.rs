@@ -11,12 +11,8 @@ static KEY_LEASES: u8 = 0;
 impl PackRuntime {
     /// Domain membership remains mutable, so selection holds the view boundary.
     pub(crate) fn with_schema_key_selection<T>(&self, select: impl FnOnce() -> T) -> Option<T> {
-        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
-            return None;
-        }
-        let context = ReadContext::captured(self)?;
-        let view = self.view.read().ok()?;
-        (view.revision == context.revision).then(select)
+        let (_context, _view) = captured_selection_view(self)?;
+        Some(select())
     }
 
     /// A selected row can keep the body's real location, including a protein
@@ -66,14 +62,7 @@ impl PackRuntime {
         scope: Option<&str>,
         molecule: &str,
     ) -> Option<CoreKeyLease> {
-        if transaction::PendingBatch::current(self).is_some() || !field::provenance_current() {
-            return None;
-        }
-        let context = ReadContext::captured(self)?;
-        let view = self.view.read().ok()?;
-        if view.revision != context.revision {
-            return None;
-        }
+        let (_context, _view) = captured_selection_view(self)?;
         if let Some(entry) = self
             .schema_keys
             .entries
@@ -195,6 +184,22 @@ fn open_current_selection<'a>(
         path,
         _view: view,
     }))
+}
+
+/// A pending batch, stale provenance, a poisoned view, or a newer view returns none.
+/// The caller holds both values, so the view lock stays through the rest of the call.
+fn captured_selection_view(
+    runtime: &PackRuntime,
+) -> Option<(
+    Arc<ReadContext>,
+    std::sync::RwLockReadGuard<'_, super::super::view::NativeReadView>,
+)> {
+    if transaction::PendingBatch::current(runtime).is_some() || !field::provenance_current() {
+        return None;
+    }
+    let context = ReadContext::captured(runtime)?;
+    let view = runtime.view.read().ok()?;
+    (view.revision == context.revision).then_some((context, view))
 }
 
 fn selection_lock_error() -> StorageError {
