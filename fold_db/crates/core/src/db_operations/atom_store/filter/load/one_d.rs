@@ -39,14 +39,7 @@ impl AtomStore {
         // Range stops at the filled window (one `mk:{M}:\0` partition).
         // Hash decodes every `mk:` body and
         // then truncates. Those are not the same body bound.
-        let page_window = match filter {
-            F::Page { offset, limit } => Some((*offset, *limit)),
-            F::SampleN(n) => Some((
-                0usize,
-                (*n).min(crate::schema::types::field::SAMPLE_PEEK_CAP),
-            )),
-            _ => None,
-        };
+        let page_window = page_sample_window(filter);
         if let Some((offset, limit)) = page_window {
             let want = offset.saturating_add(limit);
             let records = self
