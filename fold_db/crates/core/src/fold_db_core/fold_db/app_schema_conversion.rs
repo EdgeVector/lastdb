@@ -177,7 +177,7 @@ fn primary(schema: &Schema) -> Result<&str, SchemaError> {
         .ok_or_else(|| invalid("conversion requires a primary hash field"))
 }
 
-pub(crate) async fn active(db: &DbOperations) -> Result<bool, SchemaError> {
+pub(crate) async fn active(db: &DbOperations) -> crate::storage::error::StorageResult<bool> {
     Ok(db
         .open_namespace(NAMESPACE)
         .await?
@@ -226,7 +226,7 @@ async fn save(store: &dyn KvStore, change: &Change) -> Result<(), SchemaError> {
     if bytes.len() > 4 * 1024 * 1024 {
         return Err(invalid("app conversion declaration budget exceeds 4 MiB"));
     }
-    store.put(JOB, &bytes).await?;
+    store.put(JOB, bytes).await?;
     Ok(())
 }
 

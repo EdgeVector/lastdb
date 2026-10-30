@@ -59,7 +59,9 @@ pub(super) async fn retire(db: &FoldDB, id: &str) -> Result<(), SchemaError> {
         .cloned()
         .collect();
     for name in &names {
-        db.drop_schema_and_bindings(name).await?;
+        db.drop_schema_and_bindings(name)
+            .await
+            .map_err(|error| invalid(&format!("retire legacy schema: {error}")))?;
     }
     transaction::scope(db.db_ops.namespaced_store().disk_pack_runtime(), async {
         let store = db.db_ops.open_namespace(NAMESPACE).await?;

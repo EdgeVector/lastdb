@@ -92,7 +92,7 @@ pub(super) async fn execute(
         .add_molecule_bindings(&change.edges(), None)
         .await?;
     save(store, &change).await?;
-    store.put(ACTIVE, change.id.as_bytes()).await?;
+    store.put(ACTIVE, change.id.as_bytes().to_vec()).await?;
     db.publish_conversion_flag(true)?;
     Ok(change)
 }
