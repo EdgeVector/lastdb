@@ -128,7 +128,7 @@ pub(super) fn gate_outcome_for_candidate(
 /// has, so they veto a similarity merge. An exact identity-hash match
 /// cannot carry two names, and names that differ only in ASCII case are
 /// treated as the same name. A multi-key sibling (same product, different
-/// lookup keys) is decided before this check and keeps its field mapping.
+/// lookup keys) is decided before this check and keeps its separate definition.
 pub(super) fn same_app_distinct_name_veto(incoming: &Schema, candidate: &MatchCandidate) -> bool {
     if candidate.seam == MatchSeam::IdentityHash {
         return false;

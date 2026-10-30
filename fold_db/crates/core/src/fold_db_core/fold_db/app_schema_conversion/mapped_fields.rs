@@ -74,6 +74,7 @@ pub(super) fn definition(
     // not field definitions. They never enter this explicit independent target.
     // Every target value comes from the checked local source and total field map.
     target.fields = definition.fields.clone();
+    target.field_mappers = None;
     target.key = definition.key.clone();
     target.field_types = definition.field_types.clone();
     target.field_descriptions = definition.field_descriptions.clone();
@@ -192,7 +193,12 @@ pub(super) fn key_field(
     ))
 }
 
-fn privacy(source: &Schema, target: &Schema, before: &str, after: &str) -> Result<(), SchemaError> {
+pub(super) fn privacy(
+    source: &Schema,
+    target: &Schema,
+    before: &str,
+    after: &str,
+) -> Result<(), SchemaError> {
     if let Some(old) = source.field_data_classifications.get(before) {
         if target
             .field_data_classifications

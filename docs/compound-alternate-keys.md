@@ -69,7 +69,15 @@ A restart preserves the maintenance state and the page cursor.
 Before publication, the abort action removes unpublished tips and restores the source state.
 After publication, the owner resumes forward.
 
-This bounded converter refuses mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
+Legacy cross-key metadata can name values that already occupy separate molecules at this schema's own key coordinates.
+The `app_schema_private_mapper_conversion_v1` capability permits that exact case.
+Each mapped field must retain a stored private molecule UUID, distinct from its referenced field's actual UUID.
+Both fields must retain the same app owner, canonical field identity, and type. Their complete key coordinates must differ.
+Every referenced schema must be explicitly kept in the same conversion. Missing or shared molecule authority causes refusal.
+The target copies the existing current tips at the source's own keys and removes every mapper.
+The field coverage, membership, atom, author, and count checks still apply. No value comes from another schema by inference.
+
+This bounded converter refuses other mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
 It does not change the primary on a machine.
 
 An explicit field transition also requires the `app_schema_field_mapping_v1` capability.
@@ -79,7 +87,7 @@ Both source and target identities must be exact published identities.
 The host fetches the target definition from Schema Service before the maintenance freeze.
 The request cannot supply the target definition itself.
 The target uses published field metadata only. Legacy catalog value aliases never become local record authorities.
-This rule also applies to a normal owned declaration. Existing local mapped authorities still require a separate reviewed conversion.
+This rule also applies to a normal owned declaration. Existing local mappers require the private-source checks above.
 
 The transition preserves the app owner, record type, runtime schema address, field types, primary key roles, and child schema references.
 Data classifications cannot weaken. The `secret` and `no_index` labels cannot disappear.
