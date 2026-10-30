@@ -11,8 +11,8 @@ pub use recovery::{
 /// Parse a 24-word BIP39 recovery phrase into the account's 32-byte Ed25519
 /// seed — the same derivation as the full node's `identity_from_phrase`.
 pub fn seed_from_phrase(words: &str) -> Result<[u8; 32], String> {
-    let mnemonic = bip39::Mnemonic::parse(words.trim())
-        .map_err(|e| format!("Invalid recovery phrase: {e}"))?;
+    let mnemonic =
+        bip39::Mnemonic::parse(words.trim()).map_err(|_| "Invalid recovery phrase".to_string())?;
     let entropy = mnemonic.to_entropy();
     let seed: [u8; 32] = entropy.as_slice().try_into().map_err(|_| {
         format!(
@@ -73,7 +73,8 @@ pub(super) fn signed_register_request(
     Ok(SignedRegisterRequest {
         url,
         body,
-        expected_user_hash: host::user_hash_from_pubkey(&keypair.public_key_base64())?,
+        expected_user_hash: host::user_hash_from_pubkey(&keypair.public_key_base64())
+            .map_err(|_| "Cannot derive native account identity".to_string())?,
     })
 }
 

@@ -3,11 +3,16 @@ use super::*;
 
 #[path = "cloud_cmds/byte_backup.rs"]
 mod byte_backup;
+#[path = "cloud_cmds/payments.rs"]
+mod payments;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
     let action = match action {
+        CloudCommand::Payments { action, json } => {
+            return payments::command(data_dir.as_deref(), action, json);
+        }
         CloudCommand::BackupV2 { action } if byte_backup::is_setup(&action) => {
             return byte_backup::setup(data_dir.as_deref(), action);
         }
@@ -26,7 +31,8 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         CloudCommand::BackupV2 { action } => byte_backup::run(&home, action),
         CloudCommand::PrepareRecoveryHome { .. }
         | CloudCommand::RecoverCredentialsHome { .. }
-        | CloudCommand::RecoverDevCredentialsHome { .. } => {
+        | CloudCommand::RecoverDevCredentialsHome { .. }
+        | CloudCommand::Payments { .. } => {
             unreachable!("handled before home resolution")
         }
     }
