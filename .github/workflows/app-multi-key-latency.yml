@@ -23,7 +23,7 @@ jobs:
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      BASELINE_SHA: 858aa4e19300d3413ab7bf24d5a443c4d08fb4b0
+      BASELINE_SHA: 98bc32bf3d59fd562150b882f462a7ec8ec42d38
     steps:
       - uses: actions/checkout@v5
         with:
