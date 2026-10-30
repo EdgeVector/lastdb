@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// `POST /api/apps/declare-schema` — resolve an app-owned schema proposal to
-/// the global catalog and load the reused catalog identity locally.
+/// `POST /api/apps/declare-schema` — obtain canonical definitions and load
+/// one schema that owns its values.
 ///
 /// Request: `{ "app_id": "<namespace>", "schema": <DeclarativeSchemaDefinition>,
 /// "intent"?: "catalog_sync" | "check" }`
@@ -12,14 +12,10 @@ use super::*;
 /// `intent` defaults to `catalog_sync` (described below). `check` is the
 /// read-only plan: see [`execute_catalog_schema_check`].
 ///
-/// This is the one catalog registration/bind/load route for app schemas.
-/// Single-schema **reuse** and multi-schema **compose** (embedding-beam
-/// UseComponents / candidate_equivalent with ≥2 catalog hashes) both bind after
-/// loading catalog identities. Novel and under-covered proposals register once
-/// with Schema Service, anchored to any same-name predecessor's mapper sources,
-/// then load the exact returned identity. If live resolution is unavailable,
-/// the already-loaded catalog predecessor supplies the same expansion anchor
-/// before Schema Service registration. No local identity mint exists.
+/// Every declaration uses owned fields, including an omitted independence flag.
+/// Schema Service supplies the exact canonical definition. It never supplies a
+/// second schema's molecule addresses. Existing data requires an explicit
+/// conversion before any incompatible declaration.
 ///
 /// Served on the owner data socket AND the full-surface setup socket so Mini
 /// first-run init can load exact catalog identities without storing a local

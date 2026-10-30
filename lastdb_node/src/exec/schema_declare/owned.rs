@@ -2,6 +2,11 @@
 
 use super::*;
 
+pub(super) struct DirectDeclarePlan {
+    pub(super) resolution: DirectDeclareResolution,
+    pub(super) register_reason: Option<&'static str>,
+}
+
 fn client(host: &Host) -> Result<schema_service_client::SchemaServiceClient, String> {
     crate::schema_resolver_host::schema_service_client_with_node_identity(
         &host.home,
@@ -9,27 +14,6 @@ fn client(host: &Host) -> Result<schema_service_client::SchemaServiceClient, Str
             &folddb_profile::endpoints::schema_service_url(),
         ),
     )
-}
-
-/// Refuse an older caller before it can load a catalog schema that shadows an
-/// owned schema's identity alias. A later load refusal is already too late.
-pub(super) fn check_legacy(host: &Host, declare: &DirectDeclareProposal) -> Result<(), String> {
-    let schemas = host
-        .db
-        .schema_manager()
-        .get_schemas()
-        .map_err(|error| error.to_string())?;
-    let proposed = &declare.catalog_schema;
-    if schemas.values().any(|stored| {
-        stored.uses_independent_fields()
-            && (stored.name == declare.local_schema_id
-                || stored.identity_hash == proposed.identity_hash
-                || (stored.owner_app_id == proposed.owner_app_id
-                    && stored.descriptive_name == proposed.descriptive_name))
-    }) {
-        return Err("this app already owns independent values; repeat its independent declaration or use the explicit conversion command".into());
-    }
-    Ok(())
 }
 
 /// A repeat declare cannot convert old data, change its key, or discard a layout.
@@ -116,22 +100,6 @@ fn owned_schema(
     Ok(schema)
 }
 
-fn resolution(runtime: &str, reused: bool) -> DirectDeclareResolution {
-    if reused {
-        DirectDeclareResolution::Reuse {
-            catalog_hash: runtime.to_string(),
-            field_mappers: HashMap::new(),
-            confidence: None,
-        }
-    } else {
-        DirectDeclareResolution::Register {
-            catalog_hash: runtime.to_string(),
-            field_mappers: HashMap::new(),
-            replaced_schema: None,
-        }
-    }
-}
-
 pub(super) async fn plan(
     host: &Host,
     declare: &DirectDeclareProposal,
@@ -143,7 +111,7 @@ pub(super) async fn plan(
             schema.name.as_str()
         });
     let identity = declare
-        .proposal
+        .catalog_schema
         .identity_hash
         .as_deref()
         .ok_or("missing definition identity")?;
@@ -156,7 +124,10 @@ pub(super) async fn plan(
     }
     precheck_declare_retention(host, declare, runtime).await?;
     Ok(DirectDeclarePlan {
-        resolution: resolution(runtime, found.is_some()),
+        resolution: DirectDeclareResolution {
+            runtime_schema: runtime.to_string(),
+            reused: found.is_some(),
+        },
         register_reason: found.is_none().then_some("independent_definition"),
     })
 }
@@ -165,12 +136,6 @@ pub(super) async fn load(
     host: &Host,
     declare: &DirectDeclareProposal,
 ) -> Result<DirectDeclareResolution, String> {
-    // Serialize all independent declarations, including a second local name
-    // for one definition. Legacy declaration locks retain their own anchors.
-    declare
-        .anchor_lock
-        .hold("independent-app-declarations")
-        .await;
     let installed = check_local(host, declare)?;
     let runtime = installed
         .as_ref()
@@ -179,7 +144,7 @@ pub(super) async fn load(
         });
     precheck_declare_retention(host, declare, runtime).await?;
     let identity = declare
-        .proposal
+        .catalog_schema
         .identity_hash
         .as_deref()
         .ok_or("missing definition identity")?;
@@ -216,5 +181,8 @@ pub(super) async fn load(
         .load_schema_internal(schema)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(resolution(runtime, reused))
+    Ok(DirectDeclareResolution {
+        runtime_schema: runtime.to_string(),
+        reused,
+    })
 }
