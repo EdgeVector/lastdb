@@ -140,6 +140,21 @@ async function kanbanMeasure(node,cfg) {
       (samples.native_guarded_competition??=[]).push(performance.now()-start);
     }
   }
+  if(a.label!=="baseline") {
+    for(let n=0;n<16;n++) {
+      const cards=await measure("native_full_body_read",()=>r.listCardsWithBodies(node,cfg));
+      require(cards.length===count&&new Set(cards.map((card)=>card.slug)).size===count,"The full body read lost card membership");
+      for(const card of cards)require(card.body===body(Number(card.slug.slice(6))),"The full body read changed a body");
+    }
+  }
+  const template=await r.findCard(node,cfg,slug(0));
+  for(let n=0;n<16;n++) {
+    const probe={...template,slug:"delete-probe-"+n};
+    await r.createCardRecord({node,cfg},probe);
+    await measure("delete",()=>r.deleteCardRecord({node,cfg},probe));
+    const [point,board,members]=await Promise.all([r.findCard(node,cfg,probe.slug),r.listCardsOnBoard(node,cfg,"bench"),m.listMilestoneCardsPartition(node,cfg,probe.milestone)]);
+    require(point===null&&board.length===count&&!board.some((card)=>card.slug===probe.slug)&&!members.some((card)=>card.slug===probe.slug),"A deleted card remains addressable or changed membership");
+  }
   return {logical_records:count,body_bytes:count*body(0).length,guarded_competitions:a.label==="candidate"?16:0};
 }
 async function brainMeasure(node,cfg) {
@@ -172,13 +187,37 @@ async function brainMeasure(node,cfg) {
     require(all.length===count&&new Set(all.map((item)=>item.type+"/"+item.slug)).size===count,"App cursor membership differs");
     const children=await named.namedRecordPage(node,cfg,{type:"task",design:slug(0)},500);
     require(children.items.length===count/2,"Task design membership differs");
+    const removal=await load(candidate,"commands/delete");
+    let refused;
+    try {await removal.deleteRecord({cfg,slug:slug(0),type:"design",print:quiet});}catch(error){refused=error.code;}
+    require(refused==="design_has_linked_tasks","The design delete lost its child guard");
+    require(await r.hasAnyLiveRecord(node,cfg),"The populated brain reports no live record");
+    const hints=await r.listLiveSlugsPage(node,cfg.schemaHashes.task,100,cfg);
+    require(hints.length>0&&hints.every((id)=>Number(id.slice(6))%2===1),"Native slug hints lack their named key");
     // The same canonical field may hold different values in separate record kinds.
     const next={slug:"shared-slug",title:"Design only",body:body(500),status:types.RECORDS.design.defaultStatus,tags:[],created_at:time(500),updated_at:time(500)};
     await brainWrite(candidate,node,cfg,"design",null,next);
     await brainWrite(candidate,node,cfg,"task",null,{...next,title:"Task only",body:body(501),status:types.RECORDS.task.defaultStatus,design_slug:slug(0)});
     const rows=await Promise.all(["design","task"].map((type)=>r.findBySlug(node,type,cfg.schemaHashes[type],"shared-slug",cfg)));
     require(rows[0].title==="Design only"&&rows[1].title==="Task only"&&rows[0].body!==rows[1].body,"Canonical field reuse shared record values");
+    await removal.deleteRecord({cfg,slug:"shared-slug",type:"task",print:quiet});
+    await removal.deleteRecord({cfg,slug:"shared-slug",type:"design",print:quiet});
   }
+  const removal=await load(active,"commands/delete");
+  for(let n=0;n<16;n++) {
+    const probe={slug:"delete-probe-"+n,title:"Delete workload",body:body(600+n),status:types.RECORDS.task.defaultStatus,
+      tags:[],created_at:time(600+n),updated_at:time(600+n),design_slug:slug(0)};
+    await brainWrite(active,node,cfg,"task",null,probe);
+    await measure("delete",()=>removal.deleteRecord({cfg,slug:probe.slug,type:"task",print:quiet}));
+    require(await r.findBySlug(node,"task",cfg.schemaHashes.task,probe.slug,cfg)===null,"A deleted Brain record remains addressable");
+    if(a.label!=="baseline") {
+      const named=await load(candidate,"named-records");
+      const children=await named.namedRecordPage(node,cfg,{type:"task",design:slug(0)},500);
+      require(!children.items.some((item)=>item.slug===probe.slug),"A deleted task remains in its design key");
+    }
+  }
+  await l.listCmd({cfg,count:true,json:true,print:quiet,printErr:quiet,onResult:(value)=>{total=value.count}});
+  require(total===count,"The delete workload changed the seeded Brain count");
   return {logical_records:count,body_bytes:count*body(0).length,cursor_records:a.label==="candidate"?count:null};
 }
 function describe(values) {

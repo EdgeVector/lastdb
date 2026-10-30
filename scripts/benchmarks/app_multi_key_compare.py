@@ -6,8 +6,34 @@ import os
 from pathlib import Path
 import statistics
 import subprocess
+import sys
+import time
 
 from node import Node, file_hash, save
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disk_v2"))
+import cleanup
+
+
+def finish_setup(node, output):
+    # Cutover reclamation is a one-time cost, outside the steady-state requests.
+    flushed, _, _ = node.call("/api/db/flush", {})
+    if flushed.get("durable") is not True:
+        raise RuntimeError("The app setup lacks a durable flush")
+    until = time.monotonic() + 600
+    while True:
+        status = node.call("/api/db/molecule-drain", {})[0]["molecule_drain"]
+        report = status["report"]
+        if report["refused"] or report["last_error"]:
+            raise RuntimeError(f"App setup reclamation failed: {status}")
+        if (status["candidate_rows"] == 0 and not status["candidate_rows_capped"]
+                and all(report[key] == 0 for key in ("pending", "parked", "waiting_records"))):
+            break
+        if time.monotonic() >= until:
+            raise RuntimeError(f"App setup reclamation did not finish: {status}")
+        time.sleep(0.5)
+    save(output / "setup-drain.json", status)
+    save(output / "setup-cleanup.json", cleanup.request_and_wait(node))
 
 
 def run_app(args, app, label, node, output, mode):
@@ -44,6 +70,7 @@ def compare(args):
                 try:
                     node.start()
                     run_app(args, app, label, node, output, "setup")
+                    finish_setup(node, output)
                     node.stop()
                     node.start()
                     run_app(args, app, label, node, output, "measure")

@@ -1,10 +1,10 @@
 {
   "fkanban": {
     "baseline": "a2ba941e2deff18920e1f3293b273ce95a8d4d15",
-    "candidate": "44c53fae4ee6ec741289cd54183f95626fa8dc61"
+    "candidate": "0ccff528b0d9a33e3cddc89b1534578f43d7a250"
   },
   "brain": {
     "baseline": "648cef807fcd9e08615eb8d9065649baf8a2f0f3",
-    "candidate": "e23d29fc898580398acb4f43375b480f4af5f92d"
+    "candidate": "5a46a639fddcecf9e9e3b5296bf4a71497ae4d8d"
   }
 }
