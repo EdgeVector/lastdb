@@ -26,26 +26,8 @@ impl AtomStore {
             .collect();
         keys.sort();
         keys.dedup();
-        let values = self
-            .main_store
-            .get_items::<super::super::MoleculeGenerationPointer>(&keys)
-            .await?;
-        for (key, value) in keys.into_iter().zip(values) {
-            let bytes = serde_json::to_vec(&value)
-                .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-                .len()
-                .saturating_mul(8)
-                .saturating_add(256);
-            crate::storage::disk_pack::transaction::stage_core_memory(
-                runtime,
-                std::ptr::from_ref(&HEADER_MEMORY) as usize,
-                key.clone(),
-                value,
-                core_memory_sources("main", key.as_bytes()),
-                bytes,
-            )?;
-        }
-        Ok(())
+        self.stage_loaded_controls::<super::super::MoleculeGenerationPointer>(runtime, keys)
+            .await
     }
 
     pub(crate) async fn stage_current_molecule_headers(
@@ -63,23 +45,8 @@ impl AtomStore {
                 )
             })
             .collect();
-        let values = self.main_store.get_items::<MoleculeHeader>(&keys).await?;
-        for (key, header) in keys.into_iter().zip(values) {
-            let bytes = serde_json::to_vec(&header)
-                .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-                .len()
-                .saturating_mul(8)
-                .saturating_add(256);
-            crate::storage::disk_pack::transaction::stage_core_memory(
-                runtime,
-                std::ptr::from_ref(&HEADER_MEMORY) as usize,
-                key.clone(),
-                header,
-                core_memory_sources("main", key.as_bytes()),
-                bytes,
-            )?;
-        }
-        Ok(())
+        self.stage_loaded_controls::<MoleculeHeader>(runtime, keys)
+            .await
     }
 
     pub(crate) fn stage_molecule_header(
@@ -97,20 +64,7 @@ impl AtomStore {
             version: data.version(),
             updated_at: data.updated_at(),
         });
-        let bytes = serde_json::to_vec(&header)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-            .len()
-            .saturating_mul(8)
-            .saturating_add(256);
-        crate::storage::disk_pack::transaction::stage_core_memory(
-            runtime,
-            std::ptr::from_ref(&HEADER_MEMORY) as usize,
-            key.clone(),
-            header,
-            core_memory_sources("main", key.as_bytes()),
-            bytes,
-        )?;
-        Ok(())
+        stage_header_control(runtime, key, header)
     }
 
     pub(super) async fn header_from_memory(
@@ -132,7 +86,7 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        let owner = std::ptr::from_ref(&HEADER_MEMORY) as usize;
+        let owner = header_memory_owner();
         if !crate::storage::disk_pack::read_snapshot_active(runtime.clone()) {
             return Ok(self.main_store.get_item::<T>(key).await?);
         }
@@ -140,13 +94,58 @@ impl AtomStore {
             return Ok(value.as_ref().as_ref().cloned());
         }
         let control = self.main_store.get_item::<T>(key).await?;
-        let bytes = serde_json::to_vec(&control)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-            .len()
-            .saturating_mul(8)
-            .saturating_add(256);
+        let bytes = header_control_bytes(&control)?;
         let sources = core_memory_sources("main", key.as_bytes());
         let held = core_memory_insert(runtime, owner, key.to_owned(), control, sources, bytes)?;
         Ok(held.as_ref().as_ref().cloned())
     }
+
+    /// Load these storage keys in input order and stage each value.
+    async fn stage_loaded_controls<T>(
+        &self,
+        runtime: &crate::storage::disk_pack::PackRuntime,
+        keys: Vec<String>,
+    ) -> Result<(), SchemaError>
+    where
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+    {
+        let values = self.main_store.get_items::<T>(&keys).await?;
+        for (key, value) in keys.into_iter().zip(values) {
+            stage_header_control(runtime, key, value)?;
+        }
+        Ok(())
+    }
+}
+
+fn header_memory_owner() -> usize {
+    std::ptr::from_ref(&HEADER_MEMORY) as usize
+}
+
+/// The charge stays the encoded length times 8, plus 256.
+fn header_control_bytes<T: Serialize>(value: &T) -> Result<usize, SchemaError> {
+    Ok(serde_json::to_vec(value)
+        .map_err(|error| SchemaError::InvalidData(error.to_string()))?
+        .len()
+        .saturating_mul(8)
+        .saturating_add(256))
+}
+
+fn stage_header_control<T>(
+    runtime: &crate::storage::disk_pack::PackRuntime,
+    key: String,
+    value: T,
+) -> Result<(), SchemaError>
+where
+    T: std::any::Any + Send + Sync + Serialize,
+{
+    let bytes = header_control_bytes(&value)?;
+    crate::storage::disk_pack::transaction::stage_core_memory(
+        runtime,
+        header_memory_owner(),
+        key.clone(),
+        value,
+        core_memory_sources("main", key.as_bytes()),
+        bytes,
+    )?;
+    Ok(())
 }
