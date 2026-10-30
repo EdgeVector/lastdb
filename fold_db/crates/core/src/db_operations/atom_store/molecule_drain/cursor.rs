@@ -184,7 +184,7 @@ impl DrainCursor {
 
     /// The numbers for the report: pending, waiting for records, refused. A
     /// parked candidate whose time is over counts as pending again.
-    pub(crate) fn gauges(&self) -> (u64, u64, u64) {
+    pub(super) fn gauges(&self) -> (u64, u64, u64) {
         let now = Instant::now();
         let mut waiting = 0u64;
         let mut refused = 0u64;
@@ -199,7 +199,7 @@ impl DrainCursor {
     }
 
     /// The refused candidates now, for the report, sorted so the sample is stable.
-    pub(crate) fn refused(&self) -> Vec<(String, String, Refusal)> {
+    pub(super) fn refused(&self) -> Vec<(String, String, Refusal)> {
         let now = Instant::now();
         let mut seen = HashSet::new();
         let mut out: Vec<(String, String, Refusal)> = self

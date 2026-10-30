@@ -5,7 +5,7 @@
 //! (`commit_tip_changes`): this file holds no write verb of its own.
 
 use super::candidate::Candidate;
-use super::family::closing_keys;
+use super::family::{closing_keys, read_molecule_reads, tip_present};
 use super::judge::{judge, Refusal, Verdict};
 use crate::atom::molecule_key_codec::decode_hash_range;
 use crate::db_operations::atom_store::counter::{
@@ -42,83 +42,77 @@ pub(super) enum Batch<T> {
     Stopped(Gate),
 }
 
-impl AtomStore {
-    /// Decide inside the write gate, from the reads of this gate hold. A molecule
-    /// that is bound again, or that has nothing left, loses its candidate row in
-    /// this same hold.
-    pub(super) async fn decide(
-        &self,
-        candidate: &Candidate,
-        need: Need,
-    ) -> Result<Gate, SchemaError> {
-        let verdict = judge(&self.read_molecule_reads(candidate).await?);
-        match verdict {
-            Verdict::Bound => {
-                self.drop_candidate_row(candidate).await?;
-                Ok(Gate::Rebound)
-            }
-            Verdict::Absent => {
-                // No header and no counter: nothing authorizes a removal. If tip
-                // records exist anyway, the molecule has no counters at all: report
-                // it and keep the candidate.
-                if self.tip_present(candidate).await? {
-                    return Ok(Gate::Refused(Refusal::CountersUnset));
-                }
-                self.drop_candidate_row(candidate).await?;
-                Ok(Gate::Absent)
-            }
-            Verdict::Refused(why) => Ok(Gate::Refused(why)),
-            Verdict::Dead { .. } if need == Need::Keys => Ok(Gate::Go),
-            Verdict::Dead { slots, records } => match (slots, records) {
-                (0, 0) => Ok(Gate::Go),
-                (0, _) => Ok(Gate::Waiting),
-                _ => Ok(Gate::BackToKeys),
-            },
+/// Decide inside the write gate, from the reads of this gate hold. A molecule
+/// that is bound again, or that has nothing left, loses its candidate row in
+/// this same hold.
+async fn decide(store: &AtomStore, candidate: &Candidate, need: Need) -> Result<Gate, SchemaError> {
+    let verdict = judge(&read_molecule_reads(store, candidate).await?);
+    match verdict {
+        Verdict::Bound => {
+            drop_candidate_row(store, candidate).await?;
+            Ok(Gate::Rebound)
         }
+        Verdict::Absent => {
+            // No header and no counter: nothing authorizes a removal. If tip
+            // records exist anyway, the molecule has no counters at all: report
+            // it and keep the candidate.
+            if tip_present(store, candidate).await? {
+                return Ok(Gate::Refused(Refusal::CountersUnset));
+            }
+            drop_candidate_row(store, candidate).await?;
+            Ok(Gate::Absent)
+        }
+        Verdict::Refused(why) => Ok(Gate::Refused(why)),
+        Verdict::Dead { .. } if need == Need::Keys => Ok(Gate::Go),
+        Verdict::Dead { slots, records } => match (slots, records) {
+            (0, 0) => Ok(Gate::Go),
+            (0, _) => Ok(Gate::Waiting),
+            _ => Ok(Gate::BackToKeys),
+        },
     }
+}
 
-    pub(super) async fn drop_candidate_row(
-        &self,
-        candidate: &Candidate,
-    ) -> Result<(), SchemaError> {
-        self.commit_tip_changes(TipChangeSet {
+async fn drop_candidate_row(store: &AtomStore, candidate: &Candidate) -> Result<(), SchemaError> {
+    store
+        .commit_tip_changes(TipChangeSet {
             deletes: vec![candidate.key().into_bytes()],
             ..TipChangeSet::default()
         })
         .await
         .map(|_| ())
-    }
+}
 
-    /// Erase a page of tip records. The planner lowers the atom counters and
-    /// deletes a body at zero, in this same batch.
-    pub(super) async fn tips_batch(
-        &self,
-        candidate: &Candidate,
-        keys: &[Vec<u8>],
-    ) -> Result<Batch<TipCommit>, SchemaError> {
-        let scope = candidate.scope.as_deref();
-        let slots = decode_slots(candidate, keys);
-        let tips = keys
-            .iter()
-            .map(|key| {
-                String::from_utf8(key.clone())
-                    .map(|key| TipChange { key, new: None })
-                    .map_err(|_| SchemaError::InvalidData("tip key is not UTF-8".into()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Keys).await? {
+/// Erase a page of tip records. The planner lowers the atom counters and
+/// deletes a body at zero, in this same batch.
+pub(super) async fn tips_batch(
+    store: &AtomStore,
+    candidate: &Candidate,
+    keys: &[Vec<u8>],
+) -> Result<Batch<TipCommit>, SchemaError> {
+    let scope = candidate.scope.as_deref();
+    let slots = decode_slots(candidate, keys);
+    let tips = keys
+        .iter()
+        .map(|key| {
+            String::from_utf8(key.clone())
+                .map(|key| TipChange { key, new: None })
+                .map_err(|_| SchemaError::InvalidData("tip key is not UTF-8".into()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    store
+        .in_background_scope(async {
+            match decide(store, candidate, Need::Keys).await? {
                 Gate::Go => {}
                 gate => return Ok(Batch::Stopped(gate)),
             }
-            let releases = self
+            let releases = store
                 .slot_release_requests(
                     scope,
                     &[(candidate.molecule.as_str(), slots.as_slice())],
                     false,
                 )
                 .await?;
-            let commit = self
+            let commit = store
                 .commit_tip_changes(TipChangeSet {
                     scope,
                     tips,
@@ -130,25 +124,26 @@ impl AtomStore {
             Ok(Batch::Ran(commit))
         })
         .await
-    }
+}
 
-    /// Release a page of the kept conflict records that the slot directory of the
-    /// molecule names. The planner reads each history row inside the gate, lowers
-    /// the references of the atoms it names (an atom at zero goes by the
-    /// delete-on-zero rule), lowers `records`, and deletes the record, its conflict
-    /// row, its directory entry and its queue entry in this one batch. This is the
-    /// release that a client purge does for the slots it removes.
-    pub(super) async fn release_records_batch(
-        &self,
-        candidate: &Candidate,
-        releases: Vec<ReleaseRequest>,
-    ) -> Result<Batch<u64>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Keys).await? {
+/// Release a page of the kept conflict records that the slot directory of the
+/// molecule names. The planner reads each history row inside the gate, lowers
+/// the references of the atoms it names (an atom at zero goes by the
+/// delete-on-zero rule), lowers `records`, and deletes the record, its conflict
+/// row, its directory entry and its queue entry in this one batch. This is the
+/// release that a client purge does for the slots it removes.
+pub(super) async fn release_records_batch(
+    store: &AtomStore,
+    candidate: &Candidate,
+    releases: Vec<ReleaseRequest>,
+) -> Result<Batch<u64>, SchemaError> {
+    store
+        .in_background_scope(async {
+            match decide(store, candidate, Need::Keys).await? {
                 Gate::Go => {}
                 gate => return Ok(Batch::Stopped(gate)),
             }
-            let commit = self
+            let commit = store
                 .commit_tip_changes(TipChangeSet {
                     scope: candidate.scope.as_deref(),
                     releases,
@@ -158,51 +153,54 @@ impl AtomStore {
             Ok(Batch::Ran(commit.records_released))
         })
         .await
-    }
+}
 
-    /// Delete a page of rows that carry no count.
-    pub(super) async fn delete_rows_batch(
-        &self,
-        candidate: &Candidate,
-        keys: Vec<Vec<u8>>,
-    ) -> Result<Batch<()>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Family).await? {
+/// Delete a page of rows that carry no count.
+pub(super) async fn delete_rows_batch(
+    store: &AtomStore,
+    candidate: &Candidate,
+    keys: Vec<Vec<u8>>,
+) -> Result<Batch<()>, SchemaError> {
+    store
+        .in_background_scope(async {
+            match decide(store, candidate, Need::Family).await? {
                 Gate::Go => {}
                 gate => return Ok(Batch::Stopped(gate)),
             }
-            self.commit_tip_changes(TipChangeSet {
-                scope: candidate.scope.as_deref(),
-                deletes: keys,
-                ..TipChangeSet::default()
-            })
-            .await?;
+            store
+                .commit_tip_changes(TipChangeSet {
+                    scope: candidate.scope.as_deref(),
+                    deletes: keys,
+                    ..TipChangeSet::default()
+                })
+                .await?;
             Ok(Batch::Ran(()))
         })
         .await
-    }
+}
 
-    /// The final batch: the pointer, the conflict id list, the header and the
-    /// candidate row.
-    pub(super) async fn finish_batch(
-        &self,
-        candidate: &Candidate,
-    ) -> Result<Batch<()>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Family).await? {
+/// The final batch: the pointer, the conflict id list, the header and the
+/// candidate row.
+pub(super) async fn finish_batch(
+    store: &AtomStore,
+    candidate: &Candidate,
+) -> Result<Batch<()>, SchemaError> {
+    store
+        .in_background_scope(async {
+            match decide(store, candidate, Need::Family).await? {
                 Gate::Go => {}
                 gate => return Ok(Batch::Stopped(gate)),
             }
-            self.commit_tip_changes(TipChangeSet {
-                scope: candidate.scope.as_deref(),
-                deletes: closing_keys(candidate),
-                ..TipChangeSet::default()
-            })
-            .await?;
+            store
+                .commit_tip_changes(TipChangeSet {
+                    scope: candidate.scope.as_deref(),
+                    deletes: closing_keys(candidate),
+                    ..TipChangeSet::default()
+                })
+                .await?;
             Ok(Batch::Ran(()))
         })
         .await
-    }
 }
 
 /// The storage-form `(hash, range)` of each tip key, for the release of the kept

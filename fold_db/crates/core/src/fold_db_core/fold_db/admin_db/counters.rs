@@ -11,7 +11,7 @@ impl FoldDB {
         let atoms = self.db_ops().atoms();
         let mut report = atoms.counter_report().snapshot();
         report.verify_refs = Some(atoms.verify_refs_summary());
-        report.molecule_drain = Some(atoms.molecule_drain_report());
+        report.molecule_drain = Some(atoms.molecule_drain().report());
         report
     }
 

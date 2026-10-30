@@ -9,9 +9,11 @@
 //! the same checks.
 
 use super::candidate::Candidate;
+use super::family::{read_molecule_reads, tip_present};
 use super::judge::{judge, Refusal, Verdict};
+use super::MoleculeDrain;
 use crate::db_operations::atom_store::counter::TipChangeSet;
-use crate::db_operations::atom_store::AtomStore;
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 
@@ -40,35 +42,13 @@ pub(crate) struct DrainingMolecules {
     pub waiting_records: u64,
 }
 
-impl AtomStore {
-    /// Check the scope that a verb names. The only scopes a verb may name are the
-    /// personal scope (no value) and a database scope: exactly 64 lowercase hex
-    /// characters. A mistyped scope reads an empty range and looks like a clean
-    /// scope, so the verbs that take a scope check it before they read. The check is
-    /// narrower than the key validation of the storage layer on purpose: a verb
-    /// never needs a `cloud:` or `from:` scope or a reserved name.
-    pub fn validate_scope(scope: Option<&str>) -> Result<(), SchemaError> {
-        let Some(scope) = scope else {
-            return Ok(());
-        };
-        let lower_hex = scope.len() == 64
-            && scope
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
-        if lower_hex {
-            return Ok(());
-        }
-        let shown: String = scope.chars().take(80).collect();
-        Err(SchemaError::InvalidData(format!(
-            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
-             or a database scope of exactly 64 lowercase hex characters"
-        )))
-    }
-
-    /// Read the molecule inside the write gate and queue it for the drain when it
-    /// is dead or refused. Wakes the drain task after the batch commits.
-    pub async fn molecule_drain_enqueue(
+impl MoleculeDrain {
+    /// Read the molecule inside the write gate of `store` and queue it for the
+    /// drain when it is dead or refused. Wakes the drain task after the batch
+    /// commits.
+    pub async fn enqueue(
         &self,
+        store: &AtomStore,
         scope: Option<&str>,
         molecule: &str,
     ) -> Result<MoleculeDrainVerdict, SchemaError> {
@@ -77,32 +57,31 @@ impl AtomStore {
                 "molecule must be a canonical molecule uuid".into(),
             ));
         }
-        Self::validate_scope(scope)?;
+        AtomStore::validate_scope(scope)?;
         let candidate = Candidate::new(scope, molecule);
-        let verdict = self
+        let verdict = store
             .in_write_scope(async {
-                let mut verdict = judge(&self.read_molecule_reads(&candidate).await?);
-                if verdict == Verdict::Absent && self.tip_present(&candidate).await? {
+                let mut verdict = judge(&read_molecule_reads(store, &candidate).await?);
+                if verdict == Verdict::Absent && tip_present(store, &candidate).await? {
                     // Tip records and no header: the molecule has no counters.
                     verdict = Verdict::Refused(Refusal::CountersUnset);
                 }
                 let queue = matches!(verdict, Verdict::Dead { .. } | Verdict::Refused(_));
                 if queue {
-                    self.commit_tip_changes(TipChangeSet {
-                        rows: vec![candidate.row_json()],
-                        ..TipChangeSet::default()
-                    })
-                    .await?;
-                    self.wake_drain_after_commit();
+                    store
+                        .commit_tip_changes(TipChangeSet {
+                            rows: vec![candidate.row_json()],
+                            ..TipChangeSet::default()
+                        })
+                        .await?;
+                    self.wake_after_commit(store);
                 }
                 Ok(report(&candidate, verdict, queue))
             })
             .await?;
         Ok(verdict)
     }
-}
 
-impl AtomStore {
     /// The molecules of `molecules` that the drain still removes in `scope`: each
     /// has a candidate row and reads dead. An install of a schema that binds such a
     /// molecule again would stop the drain with part of the keys erased, so the
@@ -113,17 +92,18 @@ impl AtomStore {
     /// the slot directory does not name is not counted either: no drain step
     /// releases them, and they end with their own window. One bounded range read
     /// for each molecule, all at once.
-    pub(crate) async fn molecules_draining(
+    pub(crate) async fn draining(
         &self,
+        store: &AtomStore,
         scope: Option<&str>,
         molecules: &[String],
     ) -> Result<DrainingMolecules, SchemaError> {
         let checks = molecules.iter().map(|molecule| async move {
             let candidate = Candidate::new(scope, molecule);
-            if !self.rows_under(&candidate.key()).await? {
+            if !rows_under(store, &candidate.key()).await? {
                 return Ok::<Option<bool>, SchemaError>(None);
             }
-            let reads = self.read_molecule_reads(&candidate).await?;
+            let reads = read_molecule_reads(store, &candidate).await?;
             let Verdict::Dead { slots, records } = judge(&reads) else {
                 return Ok(None);
             };
@@ -132,10 +112,11 @@ impl AtomStore {
             }
             // Only kept records are left: count the molecule while the directory
             // names a record that the drain will release.
-            Ok(self
-                .rows_under(&super::family::records_prefix(&candidate))
-                .await?
-                .then_some(true))
+            Ok(
+                rows_under(store, &super::family::records_prefix(&candidate))
+                    .await?
+                    .then_some(true),
+            )
         });
         let mut found = DrainingMolecules::default();
         for kind in futures::future::try_join_all(checks)
@@ -152,29 +133,19 @@ impl AtomStore {
         Ok(found)
     }
 
-    /// Whether at least one row begins with `prefix`: a range read of one row.
-    async fn rows_under(&self, prefix: &str) -> Result<bool, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
-        let mut walk =
-            crate::db_operations::atom_store::RangeWalk::new(start.as_bytes(), end.as_bytes(), 1);
-        Ok(!self.walk_step(&mut walk).await?.rows.is_empty())
-    }
-
-    /// Whether the drain task is off (`LASTDB_MOLECULE_DRAIN_MS=0`): nothing erases
-    /// the keys of a dropped schema then.
-    pub(crate) fn drain_task_is_off(&self) -> bool {
-        self.drain_state().task_is_off()
-    }
-
-    /// The candidate rows now, counted up to `cap` with bounded range reads (a
-    /// deleted key does not make the read fail). The second value is true when the
-    /// count stopped at the cap.
-    pub async fn molecule_drain_candidates(&self, cap: usize) -> Result<(u64, bool), SchemaError> {
+    /// The candidate rows of `store` now, counted up to `cap` with bounded range
+    /// reads (a deleted key does not make the read fail). The second value is true
+    /// when the count stopped at the cap.
+    pub async fn candidates(
+        &self,
+        store: &AtomStore,
+        cap: usize,
+    ) -> Result<(u64, bool), SchemaError> {
         let (start, end) = super::candidate::list_bounds();
-        let mut walk = crate::db_operations::atom_store::RangeWalk::new(&start, &end, 256);
+        let mut walk = RangeWalk::new(&start, &end, 256);
         let mut count = 0u64;
         while !walk.done() {
-            let step = self.walk_step(&mut walk).await?;
+            let step = store.walk_step(&mut walk).await?;
             count += step.rows.len() as u64;
             if count >= cap as u64 {
                 return Ok((count, true));
@@ -182,6 +153,13 @@ impl AtomStore {
         }
         Ok((count, false))
     }
+}
+
+/// Whether at least one row begins with `prefix`: a range read of one row.
+async fn rows_under(store: &AtomStore, prefix: &str) -> Result<bool, SchemaError> {
+    let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+    let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), 1);
+    Ok(!store.walk_step(&mut walk).await?.rows.is_empty())
 }
 
 fn report(candidate: &Candidate, verdict: Verdict, queued: bool) -> MoleculeDrainVerdict {

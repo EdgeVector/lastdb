@@ -126,7 +126,7 @@ impl AtomStore {
             .await?;
             totals.drain_candidates = candidates;
         }
-        totals.drained_since_start = self.drain_state().snapshot().drained;
+        totals.drained_since_start = self.molecule_drain().report().drained;
         Ok(totals)
     }
 }

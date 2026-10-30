@@ -59,10 +59,10 @@ pub struct MoleculeDrainReport {
     pub refused_sample: Vec<RefusedMolecule>,
 }
 
-/// The shared state of one store's drain: counters, the wake signal, and the
-/// samples. Cloned by reference through `Arc`.
+/// The memory state of the drain: counters, the wake signal, and the samples.
+/// Only the owner (`MoleculeDrain`) and the steps of this module reach it.
 #[derive(Debug, Default)]
-pub(crate) struct DrainState {
+pub(super) struct DrainState {
     interval_ms: AtomicU64,
     runs: AtomicU64,
     last_run_unix_ms: AtomicU64,
@@ -85,21 +85,21 @@ pub(crate) struct DrainState {
 
 impl DrainState {
     /// The signal that tells the drain task to look at the candidate list now.
-    pub(crate) fn wake_signal(&self) -> Arc<tokio::sync::Notify> {
+    pub(super) fn wake_signal(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.wake)
     }
 
     /// True when no drain task runs: the interval was never set.
-    pub(crate) fn task_is_off(&self) -> bool {
+    pub(super) fn task_is_off(&self) -> bool {
         self.interval_ms.load(Ordering::Relaxed) == 0
     }
 
-    pub(crate) fn set_interval_ms(&self, interval_ms: u64) {
+    pub(super) fn set_interval_ms(&self, interval_ms: u64) {
         self.interval_ms.store(interval_ms, Ordering::Relaxed);
     }
 
     /// One batch of the drain.
-    pub(crate) fn note_batch(&self, tips: u64, rows: u64, atoms_deleted: u64) {
+    pub(super) fn note_batch(&self, tips: u64, rows: u64, atoms_deleted: u64) {
         self.batches.fetch_add(1, Ordering::Relaxed);
         self.tips_erased.fetch_add(tips, Ordering::Relaxed);
         self.rows_removed.fetch_add(rows, Ordering::Relaxed);
@@ -108,20 +108,20 @@ impl DrainState {
     }
 
     /// Kept conflict records released by the records phase.
-    pub(crate) fn note_records(&self, records: u64) {
+    pub(super) fn note_records(&self, records: u64) {
         self.records_released.fetch_add(records, Ordering::Relaxed);
     }
 
-    pub(crate) fn note_drained(&self) {
+    pub(super) fn note_drained(&self) {
         self.drained.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn note_rebound(&self) {
+    pub(super) fn note_rebound(&self) {
         self.rebound.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The numbers of the candidates the drain holds after a pass.
-    pub(crate) fn set_gauges(&self, pending: u64, waiting_records: u64, refused: u64) {
+    pub(super) fn set_gauges(&self, pending: u64, waiting_records: u64, refused: u64) {
         self.pending.store(pending, Ordering::Relaxed);
         self.waiting_records
             .store(waiting_records, Ordering::Relaxed);
@@ -129,7 +129,7 @@ impl DrainState {
     }
 
     /// Keep the first refused molecules for the report.
-    pub(crate) fn set_refused_sample(&self, sample: Vec<(String, String, Refusal)>) {
+    pub(super) fn set_refused_sample(&self, sample: Vec<(String, String, Refusal)>) {
         let sample = sample
             .into_iter()
             .take(REFUSED_SAMPLE)
@@ -143,7 +143,7 @@ impl DrainState {
     }
 
     /// One wake of the task ended.
-    pub(crate) fn note_run(&self, error: Option<String>, failures: u64, retry_in_ms: Option<u64>) {
+    pub(super) fn note_run(&self, error: Option<String>, failures: u64, retry_in_ms: Option<u64>) {
         self.runs.fetch_add(1, Ordering::Relaxed);
         self.last_run_unix_ms
             .store(crate::clock::unix_millis(), Ordering::Relaxed);
@@ -156,7 +156,7 @@ impl DrainState {
     }
 
     /// The report now.
-    pub(crate) fn snapshot(&self) -> MoleculeDrainReport {
+    pub(super) fn snapshot(&self) -> MoleculeDrainReport {
         let waiting = self.waiting_records.load(Ordering::Relaxed);
         let refused = self.refused.load(Ordering::Relaxed);
         MoleculeDrainReport {

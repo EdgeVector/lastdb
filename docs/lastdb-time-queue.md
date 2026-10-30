@@ -216,7 +216,7 @@ it. `storage::disk_pack::transaction::blocked::measure` runs a step and adds up 
 time of every write scope the step opens in its own task. The steps of the retention
 janitor (`release_step`, `drain_step`, `net_step`), of the dwell pass
 (`blob_dwell_step`, `blob_dwell_net_step`) and of the molecule drain
-(`molecule_drain_step`, `docs/lastdb-molecule-drain.md`) return it in `blocked`. The three
+(`MoleculeDrain::step`, `docs/lastdb-molecule-drain.md`) return it in `blocked`. The three
 users share the meter, the watch, the quiet period and the rest (`conflict_janitor_pace.rs`).
 The drain keeps its own duty knob (`LASTDB_MOLECULE_DRAIN_DUTY_PCT`, 10 percent).
 

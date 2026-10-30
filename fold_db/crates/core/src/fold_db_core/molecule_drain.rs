@@ -163,11 +163,11 @@ impl BackgroundMoleculeDrainTask {
     ) -> Self {
         db_ops
             .atoms()
-            .drain_state()
+            .molecule_drain()
             .set_interval_ms(u64::try_from(interval.as_millis()).unwrap_or(u64::MAX));
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&stop);
-        let wake = db_ops.atoms().drain_wake_signal();
+        let wake = db_ops.atoms().molecule_drain().wake_signal();
         // lint:spawn-bare-ok process-lifetime drain loop, not request-scoped.
         let handle = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
@@ -214,7 +214,7 @@ impl BackgroundMoleculeDrainTask {
                 failures = if error.is_some() { failures + 1 } else { 0 };
                 let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
                 retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
-                db_ops.atoms().drain_state().note_run(
+                db_ops.atoms().molecule_drain().note_run(
                     error,
                     failures,
                     retry_in.map(|wait| u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)),
@@ -319,12 +319,13 @@ async fn run_wake(
         }
         let started = std::time::Instant::now();
         match atoms
-            .molecule_drain_step(cursor, DrainLimits::new(*tips))
+            .molecule_drain()
+            .step(atoms, cursor, DrainLimits::new(*tips))
             .await
         {
             Ok(Some(outcome)) => {
                 let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
-                publish(atoms, cursor);
+                atoms.molecule_drain().publish(cursor);
                 // The watch takes the scopes of this step off its count after every
                 // step, also after one that wrote no batch.
                 let pause =
@@ -357,15 +358,8 @@ async fn run_wake(
             }
         }
     }
-    publish(atoms, cursor);
+    atoms.molecule_drain().publish(cursor);
     result
-}
-
-/// Put the gauges and the refused molecules of the cursor in the report.
-fn publish(atoms: &AtomStore, cursor: &DrainCursor) {
-    let (pending, waiting, refused) = cursor.gauges();
-    atoms.drain_state().set_gauges(pending, waiting, refused);
-    atoms.drain_state().set_refused_sample(cursor.refused());
 }
 
 /// Log one step. Returns true when the step wrote a batch.
