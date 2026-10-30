@@ -1,7 +1,9 @@
 //! App registry routes (`/v1/apps/*` and `/v2/apps/*`, releases, channels, revocations).
 
 use crate::http::*;
+use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::app_release::ReleasePublishOutcome;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
 
@@ -223,6 +225,11 @@ pub(crate) async fn post_apps_releases(
     };
     match state.publish_release(app_id, cert, sig, &body_value).await {
         Ok(outcome) => {
+            // Only a new release goes to the verifier; a repeat publish is
+            // the same release id, already queued once.
+            if let ReleasePublishOutcome::Created(record) = &outcome {
+                verifier_queue::send_publish_job(state, record, cert, sig, &body_value).await;
+            }
             let (status, body) = outcome.to_http();
             json_response(status, &body)
         }
@@ -253,7 +260,12 @@ pub(crate) async fn post_apps_revocations(
         Err(r) => return r,
     };
     match state.revoke_release(app_id, cert, sig, &body_value).await {
-        Ok(record) => json_response(200, &record.to_public_json()),
+        Ok(record) => {
+            // The registry flag is not what a node reads; the verifier's
+            // revoke entry in the release log is.
+            verifier_queue::send_revoke_job(state, &record, cert, sig, &body_value).await;
+            json_response(200, &record.to_public_json())
+        }
         Err(e) => {
             let (status, body) = e.to_http();
             json_response(status, &body)

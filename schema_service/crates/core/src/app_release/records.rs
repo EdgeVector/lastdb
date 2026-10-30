@@ -26,6 +26,13 @@ pub struct ReleaseManifest {
     pub artifact_url: String,
     /// Base64 Ed25519 signature over `artifact_digest`, by the publisher.
     pub artifact_signature: String,
+    /// The LastDB contract versions the publisher claims, as comma-separated
+    /// comparators (`>=0.1.0-0, <0.2.0`). The verifier checks the release on
+    /// each supported contract version in the range. Manifests from before
+    /// the release log have none; `None` is not serialized, so their JCS
+    /// bytes and release ids do not change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_range: Option<String>,
 }
 
 /// A published release: the immutable manifest plus registry bookkeeping.
@@ -109,6 +116,29 @@ impl ChannelRecord {
 pub fn compute_release_id_from_value(manifest: &Value) -> Result<String, String> {
     let bytes = canonicalize(manifest).map_err(|e| format!("manifest canonicalize failed: {e}"))?;
     Ok(schema_types::hex::sha256_hex(&bytes))
+}
+
+/// Where the verifier result for a release lives: `{release_log_url}/results/{release_id}.json`.
+///
+/// `release_log_url` is the deployment's configured log base URL. `None`
+/// means no verifier is configured. A malformed id is refused before any
+/// URL is built, so the redirect never carries caller text.
+///
+/// # Errors
+/// Returns the HTTP status and body: 400 for an id that is not 64 lowercase
+/// hex, 503 when no log URL is configured.
+pub fn release_verification_location(
+    release_log_url: Option<&str>,
+    release_id: &str,
+) -> Result<String, (u16, Value)> {
+    if !is_sha256_hex(release_id) {
+        return Err((400, json!({ "reason": "invalid_release_id" })));
+    }
+    let base = release_log_url
+        .map(|url| url.trim().trim_end_matches('/'))
+        .filter(|url| !url.is_empty())
+        .ok_or_else(|| (503, json!({ "reason": "verifier_not_configured" })))?;
+    Ok(format!("{base}/results/{release_id}.json"))
 }
 
 /// `SHA-256` hex of raw bytes — the artifact-digest check an installer runs

@@ -435,7 +435,7 @@ thiserror = "1"
 # omits `default-features = false` turns the old connector back on for the
 # whole resolve. Use `workspace = true` for these crates.
 #
-# Keep aws-sdk-s3, aws-sdk-dynamodb, and aws-config on one smithy release.
+# Keep aws-sdk-s3, aws-sdk-dynamodb, aws-sdk-sqs, and aws-config on one smithy release.
 # They publish together; updating one crate's lock entry without the others
 # duplicates aws-smithy-http, aws-smithy-json, and the HTTP stack under them.
 # `http-1x` selects the http 1 types. `http-02x` is the optional http 0.2
@@ -457,6 +457,12 @@ aws-sdk-s3 = { version = "1", default-features = false, features = [
     "rt-tokio",
 ] }
 aws-sdk-dynamodb = { version = "1", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+] }
+# The schema service Lambda sends release verifier jobs. Same feature set and
+# smithy release as aws-sdk-dynamodb.
+aws-sdk-sqs = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }

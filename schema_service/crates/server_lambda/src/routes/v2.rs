@@ -2,8 +2,28 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::app_release::release_verification_location;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
+
+/// The release log base URL the verification redirect points into.
+const RELEASE_LOG_URL_ENV: &str = "RELEASE_LOG_URL";
+
+// Anonymous: redirect to the verifier's result for one release. Needs no
+// state, so it is served before the cold-start state is touched.
+pub(crate) fn get_release_verification(p: &str) -> Result<Response<Body>, Error> {
+    let release_id = p
+        .trim_start_matches("/v2/releases/")
+        .trim_end_matches("/verification");
+    let release_log_url = std::env::var(RELEASE_LOG_URL_ENV).ok();
+    match release_verification_location(release_log_url.as_deref(), release_id) {
+        Ok(location) => cors_builder(307, "application/json")
+            .header("Location", location.as_str())
+            .body(Body::from(json!({ "location": location }).to_string()))
+            .map_err(|e| Error::from(format!("Failed to build response: {e}"))),
+        Err((status, body)) => json_response(status, &body),
+    }
+}
 
 // Anonymous read: list all apps (ordered by app_id).
 pub(crate) async fn list_apps_v2(state: &SchemaServiceState) -> Result<Response<Body>, Error> {

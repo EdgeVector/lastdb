@@ -24,9 +24,11 @@ cd "$REPO_ROOT"
 # billing, verify-email, marketing), not a unique opaque gateway. Scanning
 # it would wrongly flag every legitimate exemem.com literal across the
 # codebase. The drift this lint guards against is gateway-host drift; the
-# public host is well-known and stable.
+# public host is well-known and stable. `strings` drops non-string values
+# such as the `release_log_keys` list: a key is not a host, and an empty
+# list would print `[]`, which matches nearly every file.
 HOSTNAMES=$(
-    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region" and .key != "portal") | .value' \
+    jq -r '.environments | to_entries[] | .value | to_entries[] | select(.key != "region" and .key != "portal") | .value | strings' \
         folddb_profile/environments.json \
     | sed -E 's|^https?://||; s|/.*$||' \
     | sort -u
