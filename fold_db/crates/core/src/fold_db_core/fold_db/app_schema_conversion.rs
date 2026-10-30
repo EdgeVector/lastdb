@@ -16,6 +16,7 @@ mod finish;
 mod mapped_fields;
 mod membership;
 mod page;
+mod source_authority;
 mod tips;
 use membership::SchemaMembership;
 

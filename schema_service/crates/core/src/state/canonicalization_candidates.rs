@@ -24,10 +24,9 @@ impl SchemaServiceState {
         incoming_hash: &str,
         candidate: &MatchCandidate,
     ) -> CanonicalizationGateOutcome {
-        // Multi-key siblings (same product fields, different lookup keys) always
-        // take the map-fields + new-identity path. A purpose-signal veto must
-        // not drop auto field_mappers and leave two unmapped keyed schemas.
-        // Classic expand is still refused separately inside the Merge arm.
+        // Different keys always retain separate definitions. The Merge arm
+        // recognizes this layout and registers it without value aliases;
+        // classic expansion is refused there and in the race-condition guard.
         if crate::state_expansion::is_cross_key_layout(incoming, &candidate.existing) {
             return CanonicalizationGateOutcome::Merge;
         }

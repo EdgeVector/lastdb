@@ -53,12 +53,14 @@ pub(super) fn validate(alias: &Schema, targets: &[Target]) -> Result<(), SchemaE
         if mapper.source_schema() != source.name
             || from.common().molecule_uuid().is_none()
             || from.common().molecule_uuid() != to.common().molecule_uuid()
-            || alias.get_field_type(name) != source.get_field_type(mapper.source_field())
+            || !alias.field_types.contains_key(name)
+            || alias.field_types.get(name) != source.field_types.get(mapper.source_field())
         {
             return Err(invalid(
                 "a retired alias has an unverified molecule, field type, or source authority",
             ));
         }
+        mapped_fields::privacy(&alias, source, name, mapper.source_field())?;
         fields.insert(name.clone(), mapper.source_field().to_string());
     }
     let mut key = alias.key.clone();
