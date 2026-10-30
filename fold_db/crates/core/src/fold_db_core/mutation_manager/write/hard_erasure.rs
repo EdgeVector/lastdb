@@ -150,7 +150,7 @@ impl MutationManager {
             super::super::super::purge::budget::check_erase_size(
                 verb.is_delete(),
                 erasures.len(),
-                schema.runtime_fields.len(),
+                super::super::super::purge::budget::EraseShape::of(&schema),
                 limit,
             )?;
         }

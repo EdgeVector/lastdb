@@ -25,7 +25,16 @@
 //! more for each tip of a delete (the target tips, the peer expansion, the counters and the
 //! body records). The read budget, not the operation limit, is the smaller
 //! bound for a purge of more than 6 fields on a fresh home.
+//!
+//! A schema with named alternate keys costs more for each key. The erase
+//! deletes at most one entry for each alternate key. It reads the fields that
+//! derive those keys twice, before and after the tip removal, and each read is
+//! a tip and its atom. One request also holds at most
+//! [`MAX_ALTERNATE_ENTRIES`] of those field reads and of those entry changes,
+//! across all its chunks.
 
+use crate::alternate_keys::MAX_ALTERNATE_ENTRIES;
+use crate::schema::types::Schema;
 use crate::storage::StorageError;
 
 /// Keys in one chunk of an erase. A chunk reads its tips, plans, and stages.
@@ -45,6 +54,39 @@ pub const WRITE_REQUEST_READ_KEYS: usize = 40_000;
 pub const PURGE_READS_PER_TIP: usize = 12;
 /// Examined keys for each tip of a delete, at most (one more than a purge).
 pub const DELETE_READS_PER_TIP: usize = 13;
+/// Examined keys for each alternate source field of each key, at most: the tip
+/// and its atom, read before and after the erase.
+pub const ALTERNATE_READS_PER_FIELD: usize = 4;
+
+/// The parts of a schema that set the cost of erasing one key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EraseShape {
+    /// Fields of the schema. Each key costs one tip for each field.
+    pub fields: usize,
+    /// Named alternate keys. Each key costs one entry delete for each.
+    pub alternates: usize,
+    /// Fields that derive the alternate keys, with the primary hash field.
+    /// Zero when the schema has no alternate key.
+    pub alternate_fields: usize,
+}
+
+impl EraseShape {
+    /// The shape of `schema` as an erase reads and writes it.
+    #[must_use]
+    pub fn of(schema: &Schema) -> Self {
+        let alternates = schema.alternate_keys.len();
+        let alternate_fields = if alternates == 0 {
+            0
+        } else {
+            schema.alternate_dependency_fields().len()
+        };
+        Self {
+            fields: schema.runtime_fields.len(),
+            alternates,
+            alternate_fields,
+        }
+    }
+}
 
 fn per_tip(delete: bool) -> usize {
     if delete {
@@ -54,50 +96,61 @@ fn per_tip(delete: bool) -> usize {
     }
 }
 
-/// The most operations that an erase of `keys` keys of a schema with `fields`
-/// fields stages in one request.
+fn reads_per_tip(delete: bool) -> usize {
+    if delete {
+        DELETE_READS_PER_TIP
+    } else {
+        PURGE_READS_PER_TIP
+    }
+}
+
+/// The most operations that an erase of `keys` keys of a schema with `shape`
+/// stages in one request.
 #[must_use]
-pub fn erase_operations_upper_bound(delete: bool, keys: usize, fields: usize) -> usize {
+pub fn erase_operations_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> usize {
     let chunks = keys.div_ceil(ERASE_CHUNK_KEYS);
-    keys.saturating_mul(fields)
+    keys.saturating_mul(shape.fields)
         .saturating_mul(per_tip(delete))
-        .saturating_add(chunks.saturating_mul(fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(keys.saturating_mul(shape.alternates))
 }
 
-/// The most examined keys that an erase of `keys` keys of a schema with
-/// `fields` fields reads in one request.
+/// The most examined keys that an erase of `keys` keys of a schema with `shape`
+/// reads in one request.
 #[must_use]
-pub fn erase_reads_upper_bound(delete: bool, keys: usize, fields: usize) -> usize {
-    let per_tip = if delete {
-        DELETE_READS_PER_TIP
-    } else {
-        PURGE_READS_PER_TIP
-    };
+pub fn erase_reads_upper_bound(delete: bool, keys: usize, shape: EraseShape) -> usize {
     let chunks = keys.div_ceil(ERASE_CHUNK_KEYS);
-    keys.saturating_mul(fields)
-        .saturating_mul(per_tip)
-        .saturating_add(chunks.saturating_mul(fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+    keys.saturating_mul(shape.fields)
+        .saturating_mul(reads_per_tip(delete))
+        .saturating_add(chunks.saturating_mul(shape.fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(
+            keys.saturating_mul(shape.alternate_fields)
+                .saturating_mul(ALTERNATE_READS_PER_FIELD),
+        )
 }
 
-fn fits(delete: bool, keys: usize, fields: usize, limit: usize) -> bool {
-    erase_operations_upper_bound(delete, keys, fields) <= limit
-        && erase_reads_upper_bound(delete, keys, fields) <= WRITE_REQUEST_READ_KEYS
+fn fits_alternate_caps(keys: usize, shape: EraseShape) -> bool {
+    keys.saturating_mul(shape.alternate_fields) <= MAX_ALTERNATE_ENTRIES
+        && keys.saturating_mul(shape.alternates) <= MAX_ALTERNATE_ENTRIES
 }
 
-/// The most keys of a schema with `fields` fields that one request can erase
-/// within `limit` operations and the read budget. Zero means that not even one
-/// key fits.
+fn fits(delete: bool, keys: usize, shape: EraseShape, limit: usize) -> bool {
+    erase_operations_upper_bound(delete, keys, shape) <= limit
+        && erase_reads_upper_bound(delete, keys, shape) <= WRITE_REQUEST_READ_KEYS
+        && fits_alternate_caps(keys, shape)
+}
+
+/// The most keys of a schema with `shape` that one request can erase within
+/// `limit` operations, the read budget, and the alternate entry caps. Zero
+/// means that not even one key fits.
 #[must_use]
-pub fn max_erase_keys(delete: bool, fields: usize, limit: usize) -> usize {
-    let reads_per_tip = if delete {
-        DELETE_READS_PER_TIP
-    } else {
-        PURGE_READS_PER_TIP
-    };
-    let width = fields.max(1);
+pub fn max_erase_keys(delete: bool, shape: EraseShape, limit: usize) -> usize {
+    let width = shape.fields.max(1);
     let mut keys = (limit / width.saturating_mul(per_tip(delete)))
-        .min(WRITE_REQUEST_READ_KEYS / width.saturating_mul(reads_per_tip));
-    while keys > 0 && !fits(delete, keys, fields, limit) {
+        .min(WRITE_REQUEST_READ_KEYS / width.saturating_mul(reads_per_tip(delete)))
+        .min(MAX_ALTERNATE_ENTRIES / shape.alternate_fields.max(1))
+        .min(MAX_ALTERNATE_ENTRIES / shape.alternates.max(1));
+    while keys > 0 && !fits(delete, keys, shape, limit) {
         keys -= 1;
     }
     keys
@@ -108,26 +161,33 @@ pub fn max_erase_keys(delete: bool, fields: usize, limit: usize) -> usize {
 pub(crate) fn check_erase_size(
     delete: bool,
     keys: usize,
-    fields: usize,
+    shape: EraseShape,
     limit: usize,
 ) -> Result<(), StorageError> {
-    if fits(delete, keys, fields, limit) {
+    if fits(delete, keys, shape, limit) {
         return Ok(());
     }
-    let needed = erase_operations_upper_bound(delete, keys, fields);
-    let reads = erase_reads_upper_bound(delete, keys, fields);
+    let needed = erase_operations_upper_bound(delete, keys, shape);
+    let reads = erase_reads_upper_bound(delete, keys, shape);
     let verb = if delete { "delete" } else { "purge" };
-    let max = max_erase_keys(delete, fields, limit);
-    let advice = if max == 0 {
-        format!("a schema of {fields} fields is too wide for one {verb} request")
+    let max = max_erase_keys(delete, shape, limit);
+    let fields = shape.fields;
+    let size = if shape.alternates == 0 {
+        format!("{fields} fields")
     } else {
-        format!("send at most {max} keys of {fields} fields in one request")
+        format!("{fields} fields and {} alternate keys", shape.alternates)
+    };
+    let advice = if max == 0 {
+        format!("a schema of {size} is too wide for one {verb} request")
+    } else {
+        format!("send at most {max} keys of {size} in one request")
     };
     Err(StorageError::MutationLimit {
         detail: format!(
-            "this {verb} of {keys} keys of {fields} fields needs up to {needed} storage \
-             operations and {reads} reads; one request holds at most {limit} operations \
-             and {WRITE_REQUEST_READ_KEYS} reads; {advice}"
+            "this {verb} of {keys} keys of {size} needs up to {needed} storage \
+             operations and {reads} reads; one request holds at most {limit} operations, \
+             {WRITE_REQUEST_READ_KEYS} reads and {MAX_ALTERNATE_ENTRIES} alternate \
+             entries; {advice}"
         ),
     })
 }
