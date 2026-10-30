@@ -75,7 +75,7 @@ impl PackRuntime {
     ) -> Result<(), SchemaError> {
         // Serialize transient builds before source capture. Another load's
         // page buffers must not cause a permanent key-capacity refusal.
-        let permit = Arc::clone(&self.schema_keys.load_slots)
+        let permit = Arc::clone(&self.schema_keys().load_slots)
             .acquire_owned()
             .await
             .map_err(|_| SchemaError::InvalidData("schema preload owner closed".into()))?;
@@ -106,7 +106,7 @@ impl PackRuntime {
         let domain = match CoreKeyDomain::new_loading(
             identity,
             codec.range_profile(),
-            Arc::clone(&self.schema_keys.budget),
+            Arc::clone(&self.schema_keys().budget),
         ) {
             Ok(domain) => domain,
             Err(error) => {
@@ -125,8 +125,8 @@ impl PackRuntime {
             .expect("key load molecule")
             .attach_keys(Arc::clone(&domain));
         entry.phase.send_replace(Phase::Loading);
-        self.schema_keys.loads.fetch_add(1, Ordering::Relaxed);
-        self.schema_keys.active.fetch_add(1, Ordering::Relaxed);
+        self.schema_keys().loads.fetch_add(1, Ordering::Relaxed);
+        self.schema_keys().active.fetch_add(1, Ordering::Relaxed);
         let runtime = Arc::clone(self);
         tokio::spawn(async move {
             let _permit = permit;
@@ -143,7 +143,7 @@ impl PackRuntime {
             if let Err(error) = result {
                 runtime.fail_key_load(&entry, &domain, &error);
             }
-            runtime.schema_keys.active.fetch_sub(1, Ordering::Relaxed);
+            runtime.schema_keys().active.fetch_sub(1, Ordering::Relaxed);
         });
         Ok(())
     }
@@ -230,10 +230,18 @@ impl PackRuntime {
     /// and are not purge victims. DiskOnly refuses repeated automatic retries.
     fn reserve_key_work(&self, loading: &DomainId) -> StorageResult<CoreKeyReservation> {
         loop {
-            if let Ok(charge) = self.schema_keys.budget.reserve_temporary(64 * 1024 * 1024) {
+            if let Ok(charge) = self
+                .schema_keys()
+                .budget
+                .reserve_temporary(64 * 1024 * 1024)
+            {
                 return Ok(charge);
             }
-            let entries = self.schema_keys.entries.lock().expect("key purge entries");
+            let entries = self
+                .schema_keys()
+                .entries
+                .lock()
+                .expect("key purge entries");
             let victim = entries
                 .values()
                 .filter(|entry| &entry.id != loading)

@@ -1,8 +1,9 @@
 //! The store's narrow interface to the database memory it publishes into.
 //!
-//! The database owns the warm set and the typed effects of each request. The
-//! store holds them only through these traits and calls them at fixed points
-//! of a read and a commit. It does not read or interpret what they hold.
+//! The database owns the warm set, its complete key domains, and the typed
+//! effects of each request. The store holds them only through these traits
+//! and calls them at fixed points of a read and a commit. It does not read or
+//! interpret what they hold.
 
 use super::*;
 
@@ -14,6 +15,11 @@ pub trait MemoryPublication: Send + Sync {
     /// new root until these raw records and their epochs agree with the
     /// newly visible complete mutation.
     fn invalidate(&self, changes: &[(String, String)]);
+
+    /// Publish the changed membership keys of a committed root:
+    /// `(collection, encoded key, deleted)`. The store calls this under the
+    /// view write lock, before it installs the root.
+    fn publish_key_changes(&self, changes: &[(String, String, bool)]);
 
     /// A new owner of one read call's memory holds. The read context keeps
     /// it and drops it after its other fields.

@@ -84,7 +84,6 @@ pub struct PackRuntime {
     /// The database memory that commits publish into. The database owns it;
     /// the store calls it only at fixed commit and read points.
     memory: Arc<dyn MemoryPublication>,
-    schema_keys: schema_keys::SchemaKeys,
     failed: AtomicBool,
     initializing: AtomicBool,
     restore_blocked: AtomicBool,
@@ -229,7 +228,6 @@ impl PackNamespacedStore {
                 completed: tokio::sync::watch::channel(0).0,
                 persist_metrics: metrics,
                 memory,
-                schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),

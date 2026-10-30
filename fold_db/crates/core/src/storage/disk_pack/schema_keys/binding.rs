@@ -12,7 +12,7 @@ impl PackRuntime {
         schema: &Schema,
         name: &str,
     ) -> Result<(), SchemaError> {
-        if !self.schema_keys.selected(schema) {
+        if !self.schema_keys().selected(schema) {
             return Ok(());
         }
         let Some(field) = schema.runtime_fields.get(name) else {
@@ -34,7 +34,7 @@ impl PackRuntime {
         };
         let (name, hash) = binding.schema_binding_identity()?;
         if !self
-            .schema_keys
+            .schema_keys()
             .policy
             .iter()
             .any(|selected| selected == "*" || selected == &name || hash.as_ref() == Some(selected))

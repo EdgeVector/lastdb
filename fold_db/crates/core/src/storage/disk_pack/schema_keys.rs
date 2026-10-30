@@ -162,7 +162,8 @@ impl PackRuntime {
         db_ops: Arc<DbOperations>,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
-        if !self.schema_keys.selected(schema) || transaction::PendingBatch::current(self).is_some()
+        if !self.schema_keys().selected(schema)
+            || transaction::PendingBatch::current(self).is_some()
         {
             return Ok(());
         }
@@ -201,7 +202,7 @@ impl PackRuntime {
             return Err(SchemaError::InvalidData("invalid schema key domain".into()));
         };
         let Some(entry) = self
-            .schema_keys
+            .schema_keys()
             .entry((scope.map(str::to_owned), uid.to_owned()))
         else {
             return Ok(());

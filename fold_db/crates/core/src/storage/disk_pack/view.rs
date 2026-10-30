@@ -108,9 +108,7 @@ impl PackRuntime {
                 self.memory.invalidate(hidden_changes);
             }
             laststore::commit_timing::during("memory_schema_keys_us", || {
-                self.publish_schema_key_changes(key_changes.iter().map(
-                    |(collection, key, deleted)| (collection.as_str(), key.as_str(), *deleted),
-                ));
+                self.memory.publish_key_changes(key_changes);
             });
             view.revision = revision;
         }

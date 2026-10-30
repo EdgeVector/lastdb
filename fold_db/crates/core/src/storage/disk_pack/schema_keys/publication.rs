@@ -10,7 +10,7 @@ use crate::atom::molecule_key_codec::{
 use crate::resident::core_keys::KeyVisibility;
 use crate::storage::disk_pack::native_routing;
 
-impl PackRuntime {
+impl NativeWarmSet {
     /// The caller holds the view write lock and publishes the corresponding
     /// values/root before it releases that lock. Optional key capacity never
     /// rejects an otherwise valid accepted write.
@@ -164,7 +164,7 @@ impl PackRuntime {
         state.changes.clear();
         state.has_generation = None;
         state.reason = Some(reason.to_owned());
-        self.core()
+        self.core
             .lock()
             .expect("key publication detach")
             .detach_keys(entry.id.0.as_deref(), &entry.id.1);

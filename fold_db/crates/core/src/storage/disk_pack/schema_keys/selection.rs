@@ -64,14 +64,14 @@ impl PackRuntime {
     ) -> Option<CoreKeyLease> {
         let (_context, _view) = captured_selection_view(self)?;
         if let Some(entry) = self
-            .schema_keys
+            .schema_keys()
             .entries
             .lock()
             .ok()?
             .get(&(scope.map(str::to_owned), molecule.to_owned()))
         {
             entry.tick.store(
-                self.schema_keys.clock.fetch_add(1, Ordering::Relaxed),
+                self.schema_keys().clock.fetch_add(1, Ordering::Relaxed),
                 Ordering::Relaxed,
             );
         }
@@ -80,12 +80,12 @@ impl PackRuntime {
         if let Some(held) =
             read_snapshot_get::<CoreKeyLease>(Some(Arc::clone(self)), tag, &name).ok()?
         {
-            self.schema_keys.hits.fetch_add(1, Ordering::Relaxed);
+            self.schema_keys().hits.fetch_add(1, Ordering::Relaxed);
             return Some(held.as_ref().clone());
         }
         let lease = self.core().lock().ok()?.key_lease(scope, molecule)?;
         let held = read_snapshot_insert(Some(Arc::clone(self)), tag, name, lease).ok()?;
-        self.schema_keys.hits.fetch_add(1, Ordering::Relaxed);
+        self.schema_keys().hits.fetch_add(1, Ordering::Relaxed);
         Some(held.as_ref().clone())
     }
 

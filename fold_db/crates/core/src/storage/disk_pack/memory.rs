@@ -5,11 +5,21 @@
 use super::*;
 use crate::resident::CoreWarmSet;
 
-/// The owner of one native runtime's warm set. The database creates it and
-/// opens the store with it. The store holds it only as a [`MemoryPublication`].
-#[derive(Default)]
+/// The owner of one native runtime's warm set and its complete key domains.
+/// The database creates it and opens the store with it. The store holds it
+/// only as a [`MemoryPublication`].
 pub struct NativeWarmSet {
-    core: Arc<Mutex<CoreWarmSet>>,
+    pub(super) core: Arc<Mutex<CoreWarmSet>>,
+    pub(super) schema_keys: schema_keys::SchemaKeys,
+}
+
+impl Default for NativeWarmSet {
+    fn default() -> Self {
+        Self {
+            core: Arc::default(),
+            schema_keys: schema_keys::SchemaKeys::new(),
+        }
+    }
 }
 
 impl MemoryPublication for NativeWarmSet {
@@ -17,6 +27,14 @@ impl MemoryPublication for NativeWarmSet {
         logical_paths::controls::invalidate(
             &mut self.core.lock().expect("core publication invalidation"),
             changes,
+        );
+    }
+
+    fn publish_key_changes(&self, changes: &[(String, String, bool)]) {
+        self.publish_schema_key_changes(
+            changes
+                .iter()
+                .map(|(collection, key, deleted)| (collection.as_str(), key.as_str(), *deleted)),
         );
     }
 
@@ -89,14 +107,22 @@ pub struct NativeMemoryPurgeReport {
 }
 
 impl PackRuntime {
-    /// The warm set behind this runtime's memory publication.
-    pub(super) fn core(&self) -> &Arc<Mutex<CoreWarmSet>> {
-        &self
-            .memory
+    /// The LastDB owner behind this runtime's memory publication.
+    fn warm_set(&self) -> &NativeWarmSet {
+        self.memory
             .as_any()
             .downcast_ref::<NativeWarmSet>()
             .expect("native runtime memory is the LastDB warm set")
-            .core
+    }
+
+    /// The warm set behind this runtime's memory publication.
+    pub(super) fn core(&self) -> &Arc<Mutex<CoreWarmSet>> {
+        &self.warm_set().core
+    }
+
+    /// The complete key domains behind this runtime's memory publication.
+    pub(super) fn schema_keys(&self) -> &schema_keys::SchemaKeys {
+        &self.warm_set().schema_keys
     }
 
     pub fn status_native(&self) -> NativeDiskStatus {
@@ -113,7 +139,7 @@ impl PackRuntime {
                 };
                 // Key status locks key entries, and a lease takes those
                 // before the core, so it runs after the core lock is free.
-                (core, bytes, memory, model, self.schema_keys.status())
+                (core, bytes, memory, model, self.schema_keys().status())
             });
         NativeDiskStatus {
             cleanup: disk.cleanup,
@@ -149,7 +175,7 @@ impl PackRuntime {
         let mut core = self.core().lock().map_err(|_| unavailable())?;
         let measured = measure_core(&mut core);
         drop(core);
-        Ok(measured.finish(self.schema_keys.status().bytes))
+        Ok(measured.finish(self.schema_keys().status().bytes))
     }
 
     /// Keep held paths, unflushed paths, definitions, and complete key domains.
@@ -167,7 +193,7 @@ impl PackRuntime {
             bytes_after: after as u64,
             target_bytes,
             target_met: after as u64 <= target_bytes,
-            remaining: measured.finish(self.schema_keys.status().bytes),
+            remaining: measured.finish(self.schema_keys().status().bytes),
         })
     }
 }
