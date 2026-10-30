@@ -53,6 +53,7 @@ pub async fn create_s3_state(
         trusted_roots: HashMap::new(),
         revoked_dev_pubkeys: Default::default(),
         verifier_pubkey: Some(verifier_pubkey.to_string()),
+        open_registration: false,
     });
 
     let loaded_apps = backend.load_all_apps().await.unwrap_or_default();

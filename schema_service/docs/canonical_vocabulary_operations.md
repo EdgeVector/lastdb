@@ -7,6 +7,8 @@ New schemas, schema expansions, and field declarations require an Exemem develop
 The environment-bound developer certificate must permit publication and match the registered app owner.
 The developer signs the schema or declaration with its distinct request purpose.
 Local namespace claims have no account exemption.
+DEV is the exception: `SCHEMA_OPEN_REGISTRATION=true` accepts registrations without a developer account.
+PROD ignores that flag and keeps the account requirement.
 Exact public schema reposts remain reads and create no definitions.
 The existing app identity, permission, mutation, and quota checks remain active.
 

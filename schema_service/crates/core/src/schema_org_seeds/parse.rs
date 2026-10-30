@@ -278,7 +278,3 @@ pub(super) fn infer_field_type_from_ranges(ranges: &[String]) -> FieldValueType 
         FieldValueType::String
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────
-//  Tests
-// ─────────────────────────────────────────────────────────────────────
