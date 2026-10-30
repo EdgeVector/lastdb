@@ -80,7 +80,7 @@ The field coverage, membership, atom, author, and count checks still apply. No v
 This bounded converter refuses other mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
 It does not change the primary on a machine.
 
-A plain owned Hash can use the external hash supplied by a request when it has no named alternate keys.
+A plain owned Hash can use the external hash supplied by a request when it declares exactly one field and no named alternate keys.
 Adding alternate keys still requires a declared primary field. No key field is inferred from a payload.
 The `app_schema_opaque_hash_ownership_v1` conversion preserves the reviewed one-field form, such as Brain's compact locator.
 The source must retain its exact deterministic stored private molecule. Every binding must be its own schema field or an atomically verified retired alias.
