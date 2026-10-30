@@ -10,6 +10,12 @@ const registry=JSON.parse(readFileSync(new URL("../../folddb_profile/environment
 const service=registry.environments[environment]?.schema_service;
 if(!service)throw Error("Set ENVIRONMENT to the Schema Service environment the comparison daemons use");
 const revisions=JSON.parse(readFileSync(revisionsPath,"utf8"));
+const stable=(value)=>JSON.stringify(order(value));
+function order(value) {
+  if(Array.isArray(value))return value.map(order);
+  if(value&&typeof value==="object")return Object.fromEntries(Object.keys(value).sort().map(key=>[key,order(value[key])]));
+  return value;
+}
 let refused=false;
 for(const app of Object.keys(revisions)) {
   const root=resolve(sources,app,"baseline");
@@ -28,10 +34,13 @@ for(const app of Object.keys(revisions)) {
       const stored=body.schema??body;
       // The service stores an absent key part as null; the app source omits it.
       const match=response.status===200&&stored.owner_app_id===schema.owner_app_id
+        &&stored.descriptive_name===schema.descriptive_name&&/^[a-f0-9]{64}$/.test(stored.identity_hash??"")
         &&stored.schema_type===schema.schema_type
         &&(stored.key?.hash_field??null)===(schema.key?.hash_field??null)
         &&(stored.key?.range_field??null)===(schema.key?.range_field??null)
-        &&JSON.stringify([...(stored.fields??[])].sort())===JSON.stringify([...schema.fields].sort());
+        &&stable([...(stored.fields??[])].sort())===stable([...schema.fields].sort())
+        &&schema.fields.every(field=>stable(stored.field_types?.[field])===stable(schema.field_types[field])
+          &&stored.field_descriptions?.[field]===schema.field_descriptions[field]);
       console.log(JSON.stringify({app,environment,schema:schema.descriptive_name,status:response.status,exact_definition:match}));
       if(!match)refused=true;
     }));

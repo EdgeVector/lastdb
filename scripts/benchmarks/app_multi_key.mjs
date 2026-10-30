@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { join, resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { captureKeyedSnapshot, assertSnapshotsEqual } from "./app_snapshot.mjs";
 const {values:a}=parseArgs({options:Object.fromEntries(
   ["app","baseline","candidate","socket","config","output","mode","label","records"].map((name)=>[name,{type:"string"}]))});
 for(const key of ["app","baseline","candidate","socket","config","output","mode","label"]) if(!a[key]) throw Error("Missing "+key);
@@ -18,6 +19,36 @@ const time=(n)=>new Date(1700000000000+n*1000).toISOString();
 const slug=(n)=>"bench-"+String(n).padStart(6,"0");
 const count=Number(a.records??256), iterations=a.label==="fresh"?16:128;
 require([256,1000,10000].includes(count),"The app corpus must contain 256, 1000, or 10000 records");
+const historical=["board_cards","milestone_cards","board_milestones","card_list_index","kanban_list_head"];
+const preservationPath=join(a.output,"fkanban-preservation-before.json");
+
+async function kanbanSnapshot(node,cfg,only) {
+  const {columnHeadHash,LIST_HEAD_RANGE}=await load(old,"list-head");
+  const {BOARD_LIST_INDEX_KEY,CARD_LIST_INDEX_KEY}=await load(old,"card-list-index");
+  const hash=(name,values,expected)=>({name,expected,filters:values.map((HashKey)=>({HashKey}))});
+  const scopes=[hash("card",Array.from({length:count},(_,n)=>slug(n)),count),hash("board",["bench"],1),
+    hash("milestone",["milestone-0","milestone-1"],2),hash("feature_flow_events",["milestone-0","milestone-1"],0)];
+  if(a.label!=="fresh")scopes.push(hash("board_cards",["bench"],count),
+    hash("milestone_cards",["milestone-0","milestone-1"],count),hash("board_milestones",["bench"],2),
+    hash("card_list_index",[BOARD_LIST_INDEX_KEY,CARD_LIST_INDEX_KEY],1),
+    {name:"kanban_list_head",expected:3,filters:[{HashRangeKeys:["todo","doing","done"].map((column)=>
+      [columnHeadHash("bench",column),LIST_HEAD_RANGE])}]});
+  require(Object.keys(cfg.schemaHashes).length===(a.label==="fresh"?4:9),"The persisted app schema scope is incomplete");
+  return captureKeyedSnapshot(node,cfg,only?scopes.filter(({name})=>only.includes(name)):scopes,"fkanban");
+}
+
+function requirePersistedHistory(cfg,snapshot) {
+  require(cfg.storageModel==="multi-key-v1"&&historical.every((key)=>
+    cfg.schemaHashes[key]===snapshot.schemas[key]?.runtime&&/^[0-9a-f]{64}$/.test(cfg.schemaIdentities?.[key]??"")
+    &&cfg.schemaIdentities[key]===snapshot.identities[key]),"The persisted historical bindings are incomplete");
+}
+
+async function kanbanReopenProof(node,cfg) {
+  const before=JSON.parse(readFileSync(preservationPath,"utf8")),after=await kanbanSnapshot(node,cfg);
+  assertSnapshotsEqual(before,after);
+  if(a.label==="candidate")requirePersistedHistory(cfg,after);
+  writeFileSync(join(a.output,"fkanban-preservation-reopened.json"),JSON.stringify(after)+"\n");
+}
 async function client(root,cfg,canonicalVocabulary=false) {
   const {newNodeClient}=await load(root,"client");
   return newNodeClient({baseUrl:"http://127.0.0.1",userHash:cfg?.userHash??"",
@@ -30,7 +61,10 @@ async function setup() {
       bootstrapName:"CI fresh multi-key app",print:quiet});
     require(result.config.storageModel==="multi-key-v1","Normal init did not select multi-key schemas");
     const cfg=config.readConfig(a.config),node=await client(candidate,cfg);
-    if(a.app==="fkanban")await kanbanSeed(node,cfg,candidate);else await brainSeed(node,cfg,candidate);
+    if(a.app==="fkanban") {
+      await kanbanSeed(node,cfg,candidate);
+      writeFileSync(preservationPath,JSON.stringify(await kanbanSnapshot(node,cfg))+"\n");
+    } else await brainSeed(node,cfg,candidate);
     return;
   }
   let node=await client(old);
@@ -62,10 +96,18 @@ async function setup() {
   node=await client(old,cfg);
   if(a.app==="fkanban") await kanbanSeed(node,cfg);
   else await brainSeed(node,cfg);
+  const before=a.app==="fkanban"?await kanbanSnapshot(node,cfg):null;
+  if(before)writeFileSync(preservationPath,JSON.stringify(before)+"\n");
   if(a.label==="candidate") {
     const {convertMultiKey}=await load(candidate,"commands/multi-key-convert");
     const report=await convertMultiKey(await client(candidate,cfg),cfg,{apply:true,maintenance:true,configPath:a.config});
     require(report.phase==="complete"&&report.selected_keys===report.expected_selected_keys,"App conversion is incomplete");
+    if(before) {
+      require(report.converted_schemas?.length===9&&report.schemas?.length===9,"All nine app layouts must convert");
+      const persisted=config.readConfig(a.config),after=await kanbanSnapshot(await client(candidate,persisted),persisted);
+      requirePersistedHistory(persisted,after);assertSnapshotsEqual(before,after);
+      writeFileSync(join(a.output,"fkanban-preservation-converted.json"),JSON.stringify(after)+"\n");
+    }
     writeFileSync(a.output+"/conversion.json",JSON.stringify(report,null,2)+"\n");
   }
   console.log(JSON.stringify({phase:"seeded",app:a.app,label:a.label,logical_records:count,payload_bytes:count*body(0).length}));
@@ -245,7 +287,13 @@ function describe(values) {
 if(a.mode==="setup")await setup();
 else if(a.mode==="measure") {
   const cfg=JSON.parse(readFileSync(a.config,"utf8")),node=await client(active,cfg);
+  if(a.app==="fkanban")await kanbanReopenProof(node,cfg);
   const membership=a.app==="fkanban"?await kanbanMeasure(node,cfg):await brainMeasure(node,cfg);
+  if(a.app==="fkanban"&&a.label==="candidate") {
+    const after=await kanbanSnapshot(node,cfg,historical);
+    assertSnapshotsEqual(JSON.parse(readFileSync(preservationPath,"utf8")),after,historical);
+    writeFileSync(join(a.output,"fkanban-preservation-after-native-writes.json"),JSON.stringify(after)+"\n");
+  }
   const result={app:a.app,label:a.label,membership,metrics:Object.fromEntries(Object.entries(samples).map(([name,values])=>[name,describe(values)]))};
   writeFileSync(a.output+"/samples.json",JSON.stringify(samples)+"\n");
   writeFileSync(a.output+"/result.json",JSON.stringify(result,null,2)+"\n");
