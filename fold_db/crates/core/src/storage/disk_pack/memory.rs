@@ -29,22 +29,9 @@ impl PackRuntime {
     pub fn memory_status(&self) -> StorageResult<NativeMemoryStatus> {
         let _view = self.view.read().map_err(|_| unavailable())?;
         let mut core = self.core.lock().map_err(|_| unavailable())?;
-        let (warm, stats, definitions, model) = (
-            core.byte_stats(),
-            core.stats(),
-            core.memory_stats(),
-            core.model_stats(),
-        );
+        let measured = measure_core(&mut core);
         drop(core);
-        Ok(NativeMemoryStatus {
-            warm,
-            logical_records: stats.paths,
-            held_logical_records: stats.held,
-            unflushed_logical_records: stats.dirty,
-            definition_bytes: definitions.used_bytes,
-            complete_key_bytes: self.schema_keys.status().bytes,
-            write_metadata_bytes: model.metadata_used_bytes,
-        })
+        Ok(measured.finish(self.schema_keys.status().bytes))
     }
 
     /// Keep held paths, unflushed paths, definitions, and complete key domains.
@@ -54,12 +41,7 @@ impl PackRuntime {
         let mut core = self.core.lock().map_err(|_| unavailable())?;
         let target = usize::try_from(target_bytes).unwrap_or(usize::MAX);
         let (purged, before, after) = core.purge_clean_to_bytes(target);
-        let (warm, stats, definitions, model) = (
-            core.byte_stats(),
-            core.stats(),
-            core.memory_stats(),
-            core.model_stats(),
-        );
+        let measured = measure_core(&mut core);
         drop(core);
         Ok(NativeMemoryPurgeReport {
             logical_records_purged: purged as u64,
@@ -67,16 +49,48 @@ impl PackRuntime {
             bytes_after: after as u64,
             target_bytes,
             target_met: after as u64 <= target_bytes,
-            remaining: NativeMemoryStatus {
-                warm,
-                logical_records: stats.paths,
-                held_logical_records: stats.held,
-                unflushed_logical_records: stats.dirty,
-                definition_bytes: definitions.used_bytes,
-                complete_key_bytes: self.schema_keys.status().bytes,
-                write_metadata_bytes: model.metadata_used_bytes,
-            },
+            remaining: measured.finish(self.schema_keys.status().bytes),
         })
+    }
+}
+
+/// Core stats only. Complete key bytes stay outside this value: that status
+/// locks schema key entries, and a lease holds those entries before the core.
+struct MeasuredMemory {
+    warm: crate::resident::CoreWarmByteStats,
+    logical_records: usize,
+    held_logical_records: usize,
+    unflushed_logical_records: usize,
+    definition_bytes: usize,
+    write_metadata_bytes: usize,
+}
+
+fn measure_core(core: &mut crate::resident::CoreWarmSet) -> MeasuredMemory {
+    let warm = core.byte_stats();
+    let stats = core.stats();
+    let definitions = core.memory_stats();
+    let model = core.model_stats();
+    MeasuredMemory {
+        warm,
+        logical_records: stats.paths,
+        held_logical_records: stats.held,
+        unflushed_logical_records: stats.dirty,
+        definition_bytes: definitions.used_bytes,
+        write_metadata_bytes: model.metadata_used_bytes,
+    }
+}
+
+impl MeasuredMemory {
+    fn finish(self, complete_key_bytes: usize) -> NativeMemoryStatus {
+        NativeMemoryStatus {
+            warm: self.warm,
+            logical_records: self.logical_records,
+            held_logical_records: self.held_logical_records,
+            unflushed_logical_records: self.unflushed_logical_records,
+            definition_bytes: self.definition_bytes,
+            complete_key_bytes,
+            write_metadata_bytes: self.write_metadata_bytes,
+        }
     }
 }
 
