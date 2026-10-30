@@ -139,12 +139,13 @@ where
     T: std::any::Any + Send + Sync + Serialize,
 {
     let bytes = header_control_bytes(&value)?;
+    let sources = core_memory_sources("main", key.as_bytes());
     crate::storage::disk_pack::transaction::stage_core_memory(
         runtime,
         header_memory_owner(),
-        key.clone(),
+        key,
         value,
-        core_memory_sources("main", key.as_bytes()),
+        sources,
         bytes,
     )?;
     Ok(())
