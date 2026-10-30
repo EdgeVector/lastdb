@@ -35,7 +35,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use schema_service_client::{SchemaServiceClient, SCHEMA_SERVICE_HTTP_CONNECT_TIMEOUT};
 use schema_service_core::app_identity::{app_version_is_greater, validate_app_version};
-use schema_service_core::app_release::{sha256_hex, ReleaseManifest};
+use schema_service_core::app_release::{sha256_hex, validate_contract_range, ReleaseManifest};
 use schema_service_core::snapshot::{AppArtifact, AppMetadata, AppRecord, AppTier};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

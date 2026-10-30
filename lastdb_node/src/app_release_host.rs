@@ -24,13 +24,24 @@
 //!
 //! ## Activation order
 //!
-//! Read the channel and keep its generation → read the release manifest by
-//! release id → download the artifact, compare the byte digest, verify the
-//! signature → unpack into the version directory → move the `current`
-//! pointer → observe the live process and prove the four-way match.
+//! 1. Read the channel and keep its generation.
+//! 2. Sync the release log ([`ReleaseLog`]) and apply its install rule:
+//!    a head signed within [`RELEASE_LOG_MAX_HEAD_AGE`], a `pass` as the
+//!    latest verdict for the release on this node's contract version, and
+//!    no revocation of the release, its app, or its dev key. A channel move
+//!    to a release first passed before the active one is refused, unless
+//!    the active one is revoked. Then read the release manifest by release
+//!    id: it must hash to the release id, and its publisher key must be the
+//!    dev key of the `pass`.
+//! 3. Download the artifact, compare the byte digest, verify the signature.
+//! 4. Unpack into the version directory.
+//! 5. Move the `current` pointer.
+//! 6. Observe the live process and prove the four-way match.
 //!
-//! A digest fault or a signature fault stops at step 3. The `current`
-//! pointer never moves for a faulty artifact.
+//! A log refusal stops at step 2. A digest fault or a signature fault stops
+//! at step 3. The `current` pointer never moves for a refused release or a
+//! faulty artifact. The registry `revoked` flag decides nothing: the
+//! recurring drift check reads revocations from the synced release log.
 //!
 //! ## Nothing here writes a schema
 //!
@@ -47,7 +58,9 @@ use std::time::Duration;
 use app_identity_crypto::{verify, verifying_key_from_base64};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use schema_service_core::app_release::{is_sha256_hex, sha256_hex, ReleaseManifest};
+use schema_service_core::app_release::{
+    compute_release_id_from_value, is_sha256_hex, sha256_hex, ReleaseManifest,
+};
 use serde::{Deserialize, Serialize};
 
 // ─── Operator-settled constants ───────────────────────────────────────────
@@ -62,8 +75,8 @@ pub const RELEASE_RETENTION: usize = 3;
 /// How often the host re-checks the channel, the revocations, and the
 /// four-way match after activation.
 ///
-/// One cycle reads the channel, reads the active release's revocation, runs
-/// the four-way check, and restores the prior verified release on drift.
+/// One cycle reads the channel, syncs the release log, runs the four-way
+/// check, and restores the prior verified release on drift or revocation.
 /// `lastdb app release-check --watch` runs that cycle on this interval;
 /// [`check_interval`] is what resolves it.
 pub const PROBE_INTERVAL: Duration = Duration::from_secs(60);
@@ -97,6 +110,7 @@ mod host_track;
 mod identity;
 mod proof;
 mod registry;
+mod release_log;
 
 pub use activation::*;
 pub use artifact::*;
@@ -104,3 +118,4 @@ pub use host_track::*;
 pub use identity::*;
 pub use proof::*;
 pub use registry::*;
+pub use release_log::*;

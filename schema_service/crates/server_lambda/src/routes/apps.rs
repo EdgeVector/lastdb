@@ -1,6 +1,7 @@
 //! App registry routes (`/v1/apps/*` and `/v2/apps/*`, releases, channels, revocations).
 
 use crate::http::*;
+use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
@@ -223,6 +224,10 @@ pub(crate) async fn post_apps_releases(
     };
     match state.publish_release(app_id, cert, sig, &body_value).await {
         Ok(outcome) => {
+            // A repeat publish (same release id) is queued again too: it is
+            // how a developer recovers a lost job, and the verifier skips
+            // contract versions that already have a result.
+            verifier_queue::send_publish_job(state, outcome.record(), cert, sig, &body_value).await;
             let (status, body) = outcome.to_http();
             json_response(status, &body)
         }
@@ -253,7 +258,12 @@ pub(crate) async fn post_apps_revocations(
         Err(r) => return r,
     };
     match state.revoke_release(app_id, cert, sig, &body_value).await {
-        Ok(record) => json_response(200, &record.to_public_json()),
+        Ok(record) => {
+            // The registry flag is not what a node reads; the verifier's
+            // revoke entry in the release log is.
+            verifier_queue::send_revoke_job(state, &record, cert, sig, &body_value).await;
+            json_response(200, &record.to_public_json())
+        }
         Err(e) => {
             let (status, body) = e.to_http();
             json_response(status, &body)

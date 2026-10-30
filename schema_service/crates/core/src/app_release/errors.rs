@@ -35,6 +35,9 @@ pub enum ReleaseError {
         expected: u64,
         supplied: u64,
     },
+    /// The publisher's dev key published [`PUBLISH_RATE_LIMIT`] new releases
+    /// in the last [`PUBLISH_RATE_WINDOW_SECS`].
+    PublishRateLimited,
     Internal(String),
 }
 
@@ -71,6 +74,14 @@ impl ReleaseError {
                     "supplied_generation": supplied,
                 }),
             ),
+            Self::PublishRateLimited => (
+                429,
+                json!({
+                    "reason": "publish_rate_limited",
+                    "limit": PUBLISH_RATE_LIMIT,
+                    "window_secs": PUBLISH_RATE_WINDOW_SECS,
+                }),
+            ),
             Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
         }
     }
@@ -89,6 +100,7 @@ impl ReleaseError {
             Self::UnresolvedSchema(_) => "unresolved_schema",
             Self::UnknownRelease(_) => "unknown_release",
             Self::GenerationConflict { .. } => "generation_conflict",
+            Self::PublishRateLimited => "publish_rate_limited",
             Self::Internal(_) => "internal",
         }
     }

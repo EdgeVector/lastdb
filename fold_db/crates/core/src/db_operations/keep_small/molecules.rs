@@ -37,46 +37,30 @@ impl KeepSmallMeters {
         new_tip_bytes: u64,
         old_tip_bytes: u64,
     ) {
-        if molecule_uuid.is_empty() {
-            return;
-        }
-        let Ok(mut counters) = self.molecules.lock() else {
-            self.molecule_counters_complete
-                .store(false, Ordering::Relaxed);
-            return;
-        };
-        let counter = counters
-            .entry(molecule_uuid.to_string())
-            .or_insert_with(|| MoleculeStorageCounter {
-                molecule_uuid: molecule_uuid.to_string(),
-                ..MoleculeStorageCounter::default()
-            });
-        if old_tip_bytes == 0 {
-            counter.active_slot_count = counter.active_slot_count.saturating_add(1);
-        }
-        if old_tip_bytes > 0 && old_source.is_none() {
-            self.molecule_counters_complete
-                .store(false, Ordering::Relaxed);
-        }
-        if let Some(old) = old_source {
+        self.update_molecule_counter(molecule_uuid, |counter, incomplete| {
+            if old_tip_bytes == 0 {
+                counter.active_slot_count = counter.active_slot_count.saturating_add(1);
+            }
+            if old_tip_bytes > 0 && old_source.is_none() {
+                incomplete.store(false, Ordering::Relaxed);
+            }
+            if let Some(old) = old_source {
+                counter.active_atom_value_bytes = counter
+                    .active_atom_value_bytes
+                    .saturating_sub(old.atom_value_bytes);
+                counter.active_blob_reference_bytes = counter
+                    .active_blob_reference_bytes
+                    .saturating_sub(old.blob_reference_bytes);
+            }
             counter.active_atom_value_bytes = counter
                 .active_atom_value_bytes
-                .saturating_sub(old.atom_value_bytes);
+                .saturating_add(new_atom_bytes);
             counter.active_blob_reference_bytes = counter
                 .active_blob_reference_bytes
-                .saturating_sub(old.blob_reference_bytes);
-        }
-        counter.active_atom_value_bytes = counter
-            .active_atom_value_bytes
-            .saturating_add(new_atom_bytes);
-        counter.active_blob_reference_bytes = counter
-            .active_blob_reference_bytes
-            .saturating_add(new_blob_bytes);
-        counter.tip_index_bytes =
-            apply_delta(counter.tip_index_bytes, new_tip_bytes, old_tip_bytes);
-        counter.counter_epoch = counter.counter_epoch.saturating_add(1);
-        drop(counters);
-        self.mark_schema_dirty(self.molecule_schema(molecule_uuid).as_deref());
+                .saturating_add(new_blob_bytes);
+            counter.tip_index_bytes =
+                apply_delta(counter.tip_index_bytes, new_tip_bytes, old_tip_bytes);
+        });
     }
 
     /// Attribute one molecule-local structural row.  Tip rows use
@@ -88,12 +72,24 @@ impl KeepSmallMeters {
         new_bytes: u64,
         old_bytes: u64,
     ) {
+        self.update_molecule_counter(molecule_uuid, |counter, _incomplete| {
+            counter.molecule_metadata_bytes =
+                apply_delta(counter.molecule_metadata_bytes, new_bytes, old_bytes);
+        });
+    }
+
+    /// The counter lock covers the caller action and the epoch bump.
+    fn update_molecule_counter(
+        &self,
+        molecule_uuid: &str,
+        update: impl FnOnce(&mut MoleculeStorageCounter, &std::sync::atomic::AtomicBool),
+    ) {
         if molecule_uuid.is_empty() {
             return;
         }
+        let incomplete = &self.molecule_counters_complete;
         let Ok(mut counters) = self.molecules.lock() else {
-            self.molecule_counters_complete
-                .store(false, Ordering::Relaxed);
+            incomplete.store(false, Ordering::Relaxed);
             return;
         };
         let counter = counters
@@ -102,8 +98,7 @@ impl KeepSmallMeters {
                 molecule_uuid: molecule_uuid.to_string(),
                 ..MoleculeStorageCounter::default()
             });
-        counter.molecule_metadata_bytes =
-            apply_delta(counter.molecule_metadata_bytes, new_bytes, old_bytes);
+        update(counter, incomplete);
         counter.counter_epoch = counter.counter_epoch.saturating_add(1);
         drop(counters);
         self.mark_schema_dirty(self.molecule_schema(molecule_uuid).as_deref());
