@@ -41,8 +41,7 @@ impl ReadContext {
                 call.account_memory_record(key_bytes, body_bytes)
                     .map_err(|error| call_error(error, call))
             });
-        self.remember(&result);
-        result
+        self.remembered(result)
     }
 
     pub(super) fn require_room(

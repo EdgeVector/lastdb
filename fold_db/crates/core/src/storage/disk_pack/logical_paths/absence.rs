@@ -28,10 +28,7 @@ pub(super) fn admit_bound(
     let Some(runtime) = runtime else {
         return Ok(());
     };
-    if !field::provenance_current()
-        || transaction::PendingBatch::current(&runtime).is_some()
-        || candidates.is_empty()
-    {
+    if !field::provenance_admits(&runtime) || candidates.is_empty() {
         return Ok(());
     }
     let Some(context) = ReadContext::captured(&runtime) else {
@@ -39,23 +36,27 @@ pub(super) fn admit_bound(
     };
     let sources = dependencies::tip_sources(scope, molecule, candidates);
     let path = binding.path(scope, molecule, key, "").core();
-    let view = runtime.view.read().expect("missing key captured view");
-    if view.revision != context.revision {
+    let Some(mut held) = super::lock_current_model(
+        &runtime,
+        &context,
+        "missing key captured view",
+        "missing key core model",
+    ) else {
         return Ok(());
-    }
-    let mut core = runtime.core.lock().expect("missing key core model");
-    context.hold_core(&mut core, std::slice::from_ref(&path))?;
-    core.admit_absent(&path)
+    };
+    context.hold_core(&mut held.core, std::slice::from_ref(&path))?;
+    held.core
+        .admit_absent(&path)
         .map_err(|error| StorageError::ReadResourceLimit {
             detail: error.to_string(),
         })?;
     if sources
         .iter()
-        .all(|(collection, key)| core.link_source(&path, collection, key))
+        .all(|(collection, key)| held.core.link_source(&path, collection, key))
     {
-        core.authorize_path(&path);
+        held.core.authorize_path(&path);
     } else {
-        core.invalidate_slot(&path);
+        held.core.invalidate_slot(&path);
     }
     Ok(())
 }

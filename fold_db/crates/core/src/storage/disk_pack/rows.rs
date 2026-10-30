@@ -5,6 +5,29 @@ use std::collections::VecDeque;
 
 pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
 
+/// Decode each stored key. The row order stays the same.
+pub(super) fn decode_native_rows(rows: NativeRows) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    rows.into_iter()
+        .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
+        .collect()
+}
+
+fn extend_bounded_rows(
+    out: &mut Vec<(Vec<u8>, Vec<u8>)>,
+    rows: NativeRows,
+    exhausted: bool,
+    require_end: bool,
+    detail: &'static str,
+) -> StorageResult<()> {
+    if require_end && !exhausted {
+        return Err(StorageError::ReadResourceLimit {
+            detail: detail.into(),
+        });
+    }
+    out.extend(decode_native_rows(rows)?);
+    Ok(())
+}
+
 /// Exclusive upper bound for a walk of a whole collection.
 ///
 /// Product keys are ASCII prefixes (`atom:`, `mk:`, `aloc:`, …). Four `0xFF`
@@ -60,20 +83,30 @@ impl PackKvStore {
                     limit,
                     pending.as_ref(),
                 )?;
-                if require_end && !exhausted {
-                    return Err(StorageError::ReadResourceLimit {
-                        detail: "native prefix result requires a bounded continuation".into(),
-                    });
-                }
-                for (key, body) in rows {
-                    combined.push((native_routing::decode(&key)?, body));
-                }
+                extend_bounded_rows(
+                    &mut combined,
+                    rows,
+                    exhausted,
+                    require_end,
+                    "native prefix result requires a bounded continuation",
+                )?;
             }
             finish_rows(combined, limit, require_end)
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
+    }
+
+    /// A main namespace spans the routed collections. Any other namespace stays one collection.
+    pub(super) fn owned_range_collections(&self, start: &[u8], end: &[u8]) -> Vec<String> {
+        if self.namespace == "main" {
+            native_routing::range_collections(start, end)
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        } else {
+            vec![self.namespace.clone()]
+        }
     }
 
     pub(super) async fn range_rows(
@@ -103,14 +136,7 @@ impl PackKvStore {
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
-        let collections = if self.namespace == "main" {
-            native_routing::range_collections(&start, &end)
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        } else {
-            vec![self.namespace.clone()]
-        };
+        let collections = self.owned_range_collections(&start, &end);
         let observed = Arc::clone(&context);
         let result = run_blocking(move || {
             let mut out = Vec::new();
@@ -123,20 +149,18 @@ impl PackKvStore {
                     limit,
                     pending.as_ref(),
                 )?;
-                if require_end && !exhausted {
-                    return Err(StorageError::ReadResourceLimit {
-                        detail: "native range requires a bounded continuation".into(),
-                    });
-                }
-                for (key, body) in rows {
-                    out.push((native_routing::decode(&key)?, body));
-                }
+                extend_bounded_rows(
+                    &mut out,
+                    rows,
+                    exhausted,
+                    require_end,
+                    "native range requires a bounded continuation",
+                )?;
             }
             finish_rows(out, limit, require_end)
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
     }
 }
 
@@ -212,6 +236,16 @@ pub(super) fn cursor<'a>(
         .map_err(map)
 }
 
+/// Both row readers reject a page above 10000 records.
+pub(super) fn require_page_limit(limit: usize) -> StorageResult<()> {
+    if limit > 10000 {
+        return Err(StorageError::ReadResourceLimit {
+            detail: "native page exceeds 10000 records".into(),
+        });
+    }
+    Ok(())
+}
+
 impl PackRuntime {
     pub(super) fn raw_rows(
         &self,
@@ -223,8 +257,7 @@ impl PackRuntime {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<(NativeRows, bool)> {
         let result = self.raw_rows_inner(context, collection, start, end, limit, pending);
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn raw_rows_inner(
@@ -240,11 +273,7 @@ impl PackRuntime {
         if limit == 0 {
             return Ok((Vec::new(), start >= end));
         }
-        if limit > 10000 {
-            return Err(StorageError::ReadResourceLimit {
-                detail: "native page exceeds 10000 records".into(),
-            });
-        }
+        require_page_limit(limit)?;
         let overlay = context.overlay_rows(pending, collection, start, end);
         let mut overlay = overlay.into_iter().peekable();
         let mut call = crate::read_receipts::lock(&context.call);

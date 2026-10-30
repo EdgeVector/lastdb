@@ -96,3 +96,15 @@ impl AtomStore {
         }
     }
 }
+
+/// `Page` and `SampleN` share one offset and one limit. Every other filter returns none.
+fn page_sample_window(
+    filter: &crate::schema::types::field::HashRangeFilter,
+) -> Option<(usize, usize)> {
+    use crate::schema::types::field::HashRangeFilter as F;
+    match filter {
+        F::Page { offset, limit } => Some((*offset, *limit)),
+        F::SampleN(n) => Some((0, (*n).min(crate::schema::types::field::SAMPLE_PEEK_CAP))),
+        _ => None,
+    }
+}

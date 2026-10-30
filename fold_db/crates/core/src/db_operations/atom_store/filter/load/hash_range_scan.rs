@@ -52,13 +52,12 @@ impl AtomStore {
             .key_codec_for_molecule(molecule_uuid)?
             .api_hash_range_scan_prefix_for_hash(molecule_uuid, hash)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        if let Some(rows) = self
-            .preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
-            .await?
-        {
-            return Ok(rows);
-        }
-        self.scan_per_key_prefix(&prefix, storage_prefix).await
+        super::super::prefer_preloaded_rows(
+            self.preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
+                .await,
+            || self.scan_per_key_prefix(&prefix, storage_prefix),
+        )
+        .await
     }
 
     /// `HashRangePrefix`: storage-form hash × range-prefix scan.
@@ -86,13 +85,12 @@ impl AtomStore {
             molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &prefix);
         // Use the same prefix selector in memory and on disk. No synthetic
         // upper bound needs to exist in the caller's text coordinates.
-        match self
-            .preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
-            .await?
-        {
-            Some(rows) => Ok(rows),
-            None => self.scan_per_key_prefix(&prefix, storage_prefix).await,
-        }
+        super::super::prefer_preloaded_rows(
+            self.preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
+                .await,
+            || self.scan_per_key_prefix(&prefix, storage_prefix),
+        )
+        .await
     }
 
     /// Select one half-open range under one hash with its fixed molecule keys.
@@ -119,13 +117,12 @@ impl AtomStore {
         }
         let start = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &start);
         let end = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &end);
-        match self
-            .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
-            .await?
-        {
-            Some(rows) => Ok(rows),
-            None => self.scan_per_key_range(&start, &end, storage_prefix).await,
-        }
+        super::super::prefer_preloaded_rows(
+            self.preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
+                .await,
+            || self.scan_per_key_range(&start, &end, storage_prefix),
+        )
+        .await
     }
 }
 

@@ -20,12 +20,7 @@ impl Identity {
             Err(error) => return Err(error.into()),
         };
         let meta = file.metadata()?;
-        if !meta.is_file()
-            || meta.mode() & 0o777 != 0o600
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.len() != (MARKER2.len() + BODY2_BYTES) as u64
-        {
+        if !private_owned_file(&meta) || meta.len() != (MARKER2.len() + BODY2_BYTES) as u64 {
             return Err(invalid(
                 "target private control is not an adoption-prepared identity",
             ));
@@ -51,26 +46,10 @@ impl Identity {
         let bytes = self.prepared_bytes(main, cas, prepared_root);
         let path = data.join(FILE);
         let staged = data.join(STAGED2);
-        require_absent(&path)?;
-        discard_prepared_stage(&staged)?;
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&staged)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            require_absent(&path)?;
-            std::fs::rename(&staged, &path)?;
+        install_private_file(&path, &staged, &bytes, discard_prepared_stage, || {
             File::open(data)?.sync_all()?;
             Ok(())
-        })();
-        if result.is_err() {
-            let _ = discard_prepared_stage(&staged);
-        }
-        result
+        })
     }
 
     pub(in crate::storage::disk_pack::logical_capture) fn verify_prepared(
@@ -86,12 +65,7 @@ impl Identity {
             .open(data.join(FILE))?;
         let meta = file.metadata()?;
         let expected = self.prepared_bytes(main, cas, prepared_root);
-        if !meta.is_file()
-            || meta.mode() & 0o777 != 0o600
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.len() != expected.len() as u64
-        {
+        if !private_owned_file(&meta) || meta.len() != expected.len() as u64 {
             return Err(invalid(
                 "prepared snapshot identity is not an exact private file",
             ));
@@ -130,21 +104,9 @@ impl Identity {
 }
 
 fn discard_prepared_stage(path: &Path) -> StorageResult<()> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    if !meta.is_file()
-        || meta.mode() & 0o777 != 0o600
-        || meta.nlink() != 1
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.len() > (MARKER2.len() + BODY2_BYTES) as u64
-    {
-        return Err(invalid(
-            "prepared snapshot identity stage ownership differs",
-        ));
-    }
-    std::fs::remove_file(path)?;
-    Ok(())
+    discard_private_stage(
+        path,
+        (MARKER2.len() + BODY2_BYTES) as u64,
+        "prepared snapshot identity stage ownership differs",
+    )
 }

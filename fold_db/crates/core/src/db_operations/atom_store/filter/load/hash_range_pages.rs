@@ -13,17 +13,10 @@ impl AtomStore {
     ) -> Result<Option<MoleculeData>, SchemaError> {
         use crate::schema::types::field::HashRangeFilter as F;
 
-        // SampleN shares this arm with Page. The order vector below is
-        // empty on purpose: sample() reads the atom map, and a window
+        // SampleN uses the same offset and limit as Page. The order vector
+        // below is empty on purpose: sample() reads the atom map, and a window
         // molecule with an empty log must still return the window.
-        let page_window = match filter {
-            F::Page { offset, limit } => Some((*offset, *limit)),
-            F::SampleN(n) => Some((
-                0usize,
-                (*n).min(crate::schema::types::field::SAMPLE_PEEK_CAP),
-            )),
-            _ => None,
-        };
+        let page_window = page_sample_window(filter);
         if let Some((offset, limit)) = page_window {
             // Load the prefix [0, offset+limit) so a
             // subsequent apply_hash_range_filter(Page{offset,limit}) sees

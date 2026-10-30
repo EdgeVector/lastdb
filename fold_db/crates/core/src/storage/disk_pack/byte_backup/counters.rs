@@ -7,7 +7,7 @@ pub(super) fn require_validated(inner: &Inner) -> StorageResult<()> {
         .as_ref()
         .ok_or_else(|| invalid("byte retained source unavailable"))?;
     run.runtime.require_restore_validated()?;
-    let (mut main, _) = run.reads(super::super::budget())?;
+    let mut main = run.read_main()?;
     let key = super::super::restore_safety::PENDING_KEY.as_bytes();
     let collection = crate::storage::disk_pack::native_routing::collection_for_key(key);
     let key = crate::storage::disk_pack::native_routing::encode(key);

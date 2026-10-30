@@ -56,12 +56,7 @@ impl Identity {
         };
         let meta = file.metadata()?;
         let expected = MARKER.len() + BODY_BYTES;
-        if !meta.is_file()
-            || meta.mode() & 0o777 != 0o600
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.len() != expected as u64
-        {
+        if !private_owned_file(&meta) || meta.len() != expected as u64 {
             return Err(invalid(
                 "logical capture control must be an exact private owned file",
             ));
@@ -123,26 +118,8 @@ impl Identity {
         bytes.push(u8::from(self.ready));
         let path = control_path(v2)?;
         let staged = path.with_file_name(STAGED);
-        require_absent(&path)?;
-        discard_staged(&staged)?;
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&staged)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            // Both native owner locks exclude another legitimate enrollment creator.
-            require_absent(&path)?;
-            std::fs::rename(&staged, &path)?;
-            sync_parent(v2)
-        })();
-        if result.is_err() {
-            let _ = discard_staged(&staged);
-        }
-        result
+        // Both native owner locks exclude another legitimate enrollment creator.
+        install_private_file(&path, &staged, &bytes, discard_staged, || sync_parent(v2))
     }
 
     /// Enrollment is not exposed until its ready byte and filename are durable.
@@ -201,6 +178,36 @@ pub(super) fn anchor_for(origin: &str, main: uuid::Uuid, cas: uuid::Uuid) -> Sto
     ))?)))
 }
 
+/// Write one private stage, then rename it onto a path that is still absent.
+/// A failed install discards the stage and returns the first error.
+fn install_private_file(
+    path: &Path,
+    staged: &Path,
+    bytes: &[u8],
+    discard: impl Fn(&Path) -> StorageResult<()>,
+    sync_dir: impl FnOnce() -> StorageResult<()>,
+) -> StorageResult<()> {
+    require_absent(path)?;
+    discard(staged)?;
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(staged)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        require_absent(path)?;
+        std::fs::rename(staged, path)?;
+        sync_dir()
+    })();
+    if result.is_err() {
+        let _ = discard(staged);
+    }
+    result
+}
+
 fn require_absent(path: &Path) -> StorageResult<()> {
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -209,25 +216,41 @@ fn require_absent(path: &Path) -> StorageResult<()> {
     }
 }
 
-/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
-fn discard_staged(path: &Path) -> StorageResult<()> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+/// A capture file is regular, mode 0600, one link, and owned by this user.
+fn private_owned_file(meta: &std::fs::Metadata) -> bool {
+    meta.is_file()
+        && meta.mode() & 0o777 == 0o600
+        && meta.nlink() == 1
+        && meta.uid() == unsafe { libc::geteuid() }
+}
+
+fn stage_metadata(path: &Path) -> StorageResult<Option<std::fs::Metadata>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Discard one absent or private stage. No directory walk occurs.
+fn discard_private_stage(path: &Path, max_len: u64, message: &str) -> StorageResult<()> {
+    let Some(meta) = stage_metadata(path)? else {
+        return Ok(());
     };
-    if !meta.is_file()
-        || meta.mode() & 0o777 != 0o600
-        || meta.nlink() != 1
-        || meta.uid() != unsafe { libc::geteuid() }
-        || meta.len() > (MARKER.len() + BODY_BYTES) as u64
-    {
-        return Err(invalid(
-            "logical capture stage is not a private owned partial control",
-        ));
+    if !private_owned_file(&meta) || meta.len() > max_len {
+        return Err(invalid(message));
     }
     std::fs::remove_file(path)?;
     Ok(())
+}
+
+/// Only this fixed enrollment stage can be discarded; no directory walk occurs.
+fn discard_staged(path: &Path) -> StorageResult<()> {
+    discard_private_stage(
+        path,
+        (MARKER.len() + BODY_BYTES) as u64,
+        "logical capture stage is not a private owned partial control",
+    )
 }
 
 fn sync_parent(v2: &physical::V2Home) -> StorageResult<()> {

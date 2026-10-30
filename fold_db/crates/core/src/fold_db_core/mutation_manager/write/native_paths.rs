@@ -3,12 +3,13 @@
 use super::super::molecules::DeferredPersistJob;
 use super::*;
 use crate::atom::{AtomEntry, KeyMetadata};
+use crate::db_operations::{ChangedKey, MoleculeData};
 use crate::storage::disk_pack::logical_paths::source::CertifiedAtom;
 use crate::storage::disk_pack::logical_paths::{schema_identity, LogicalPath, LogicalPathRecord};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::write_preparation::measure;
 use futures::FutureExt;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 mod bindings;
@@ -188,8 +189,12 @@ fn changed_molecules(job: &DeferredPersistJob, include_siblings: bool) -> Vec<St
         .collect()
 }
 
-fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<ChangedTip> {
-    let entry = job.modified_fields.iter().filter_map(|(name, keys)| {
+/// Slots that have molecule data. Sibling slots follow when `include_siblings` is set.
+fn changed_field_slots<'a>(
+    job: &'a DeferredPersistJob,
+    include_siblings: bool,
+) -> impl Iterator<Item = (&'a str, &'a MoleculeData, &'a HashSet<ChangedKey>)> + 'a {
+    let fields = job.modified_fields.iter().filter_map(|(name, keys)| {
         let field = job.schema.runtime_fields.get(name)?;
         Some((
             field.common().molecule_uuid()?.as_str(),
@@ -200,10 +205,14 @@ fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<Changed
     let siblings = job
         .sibling_updates
         .iter()
-        .filter(|_| include_siblings)
+        .filter(move |_| include_siblings)
         .map(|(molecule, data, keys)| (molecule.as_str(), data, keys));
+    fields.chain(siblings)
+}
+
+fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<ChangedTip> {
     let mut tips = BTreeMap::new();
-    for (molecule, data, keys) in entry.chain(siblings) {
+    for (molecule, data, keys) in changed_field_slots(job, include_siblings) {
         for key in keys {
             let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
             if let Some(entry) = data.get_atom_entry(hash, range) {

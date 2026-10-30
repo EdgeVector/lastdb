@@ -161,8 +161,9 @@ impl FoldDB {
     }
 
     /// Take the commit lock of every molecule the schema owns, in sorted
-    /// order so concurrent deleters cannot deadlock.
-    async fn lock_schema_molecules(
+    /// order so concurrent deleters cannot deadlock. Schema share uses this
+    /// same order.
+    pub(super) async fn lock_schema_molecules(
         &self,
         schema: Option<&Schema>,
         storage_prefix: Option<&str>,

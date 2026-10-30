@@ -94,6 +94,28 @@ pub(super) struct CurrentReceipt<'a> {
     _view: std::sync::RwLockReadGuard<'a, super::view::NativeReadView>,
 }
 
+/// The published view and the core for one matching revision.
+/// A newer view returns no guard and does not take the core lock.
+/// The core drops before the view. This path does not lock a call receipt.
+pub(super) fn lock_current_model<'a>(
+    runtime: &'a PackRuntime,
+    context: &'a super::read::ReadContext,
+    view_label: &str,
+    core_label: &str,
+) -> Option<CurrentModel<'a>> {
+    let view = runtime.view.read().expect(view_label);
+    if view.revision != context.revision {
+        return None;
+    }
+    let core = runtime.core.lock().expect(core_label);
+    Some(CurrentModel { core, _view: view })
+}
+
+pub(super) struct CurrentModel<'a> {
+    pub(super) core: std::sync::MutexGuard<'a, crate::resident::CoreWarmSet>,
+    _view: std::sync::RwLockReadGuard<'a, super::view::NativeReadView>,
+}
+
 /// One final path effect: a present slot or confirmed absence.
 #[derive(Clone)]
 pub(crate) struct LogicalPathRecord {
