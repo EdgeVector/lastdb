@@ -20,14 +20,7 @@ impl PackKvStore {
         limit: usize,
         keys_per_row: usize,
     ) -> StorageResult<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
-        let collections: Vec<String> = if self.namespace == "main" {
-            native_routing::range_collections(start, end)
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        } else {
-            vec![self.namespace.clone()]
-        };
+        let collections = self.owned_range_collections(start, end);
         let simple = limit > 0
             && start < end
             && collections.len() == 1

@@ -75,6 +75,18 @@ impl PackKvStore {
         observed.remembered(result)
     }
 
+    /// A main namespace spans the routed collections. Any other namespace stays one collection.
+    pub(super) fn owned_range_collections(&self, start: &[u8], end: &[u8]) -> Vec<String> {
+        if self.namespace == "main" {
+            native_routing::range_collections(start, end)
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        } else {
+            vec![self.namespace.clone()]
+        }
+    }
+
     pub(super) async fn range_rows(
         &self,
         start: &[u8],
@@ -102,14 +114,7 @@ impl PackKvStore {
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
-        let collections = if self.namespace == "main" {
-            native_routing::range_collections(&start, &end)
-                .into_iter()
-                .map(str::to_string)
-                .collect()
-        } else {
-            vec![self.namespace.clone()]
-        };
+        let collections = self.owned_range_collections(&start, &end);
         let observed = Arc::clone(&context);
         let result = run_blocking(move || {
             let mut out = Vec::new();
