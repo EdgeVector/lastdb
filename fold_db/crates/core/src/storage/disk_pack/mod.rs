@@ -51,7 +51,9 @@ pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
-pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
+pub(crate) use read::memory::{
+    core_memory_get, core_memory_get_for_write, core_memory_insert, core_memory_sources,
+};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
 pub(crate) use rows::WHOLE_COLLECTION_END;

@@ -11,6 +11,13 @@ struct Report {
     counts: BTreeMap<String, u64>,
 }
 
+/// Count explicit preparation decisions only inside the opt-in native capture.
+pub(crate) fn count(name: &'static str, value: u64) {
+    let _ = ACTIVE.try_with(|active| {
+        *active.borrow_mut().counts.entry(name.into()).or_default() += value;
+    });
+}
+
 tokio::task_local! {
     static ACTIVE: RefCell<Report>;
 }

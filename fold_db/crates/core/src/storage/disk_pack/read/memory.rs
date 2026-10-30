@@ -68,6 +68,56 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
         .transpose()
 }
 
+/// A private writer may borrow a clean core definition only when none of its
+/// exact dependencies changed in this request or its captured accepted prefix.
+/// This never exposes a dirty record or admits a new shared cache entry.
+pub(crate) fn core_memory_get_for_write<T: Any + Send + Sync>(
+    runtime: Option<Arc<PackRuntime>>,
+    owner: usize,
+    name: &str,
+    sources: &[CoreMemorySource],
+) -> StorageResult<Option<Arc<CoreMemoryValue<T>>>> {
+    let Some(runtime) = runtime else {
+        return Ok(None);
+    };
+    let Some(pending) = transaction::PendingBatch::current(&runtime) else {
+        return Ok(None);
+    };
+    let Some(context) = super::ReadContext::captured(&runtime) else {
+        return Ok(None);
+    };
+    context.require_prepared_view(&pending)?;
+    if sources.is_empty() || sources.len() > 64 {
+        return Ok(None);
+    }
+    for source in sources {
+        // Whole-collection dependencies require a different proof. This
+        // route accepts only complete, exact source identities.
+        let Some(key) = &source.key else {
+            return Ok(None);
+        };
+        if pending.lookup(&source.collection, key).is_some()
+            || context
+                .accepted
+                .iter()
+                .any(|prior| prior.lookup(&source.collection, key).is_some())
+        {
+            return Ok(None);
+        }
+    }
+    let view = runtime.view.read().map_err(|_| lock_error())?;
+    if view.revision != context.revision {
+        return Ok(None);
+    }
+    let value = runtime
+        .core
+        .lock()
+        .map_err(|_| lock_error())?
+        .memory_get(owner, name);
+    drop(view);
+    Ok(value)
+}
+
 pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
     runtime: Option<Arc<PackRuntime>>,
     owner: usize,
