@@ -47,27 +47,29 @@ fn current_matches(
     keys: &[KeyValue],
     include_tombstones: bool,
 ) -> StorageResult<Option<Vec<KeyedAtomMatch>>> {
-    let view = runtime.view.read().expect("core filter captured view");
-    if view.revision != context.revision {
+    let Some(mut held) = super::lock_current_receipt(
+        runtime,
+        context,
+        "core filter captured view",
+        "core filter model",
+    ) else {
+        return Ok(None);
+    };
+    if paths.iter().any(|path| !held.core.path_authorized(path)) {
         return Ok(None);
     }
-    let mut call = crate::read_receipts::lock(&context.call);
-    let mut core = runtime.core.lock().expect("core filter model");
-    if paths.iter().any(|path| !core.path_authorized(path)) {
-        return Ok(None);
-    }
-    context.hold_core(&mut core, paths)?;
+    context.hold_core(&mut held.core, paths)?;
     // An exact-key filter matches every listed key that has a tip, so a warm
     // tip is the whole test. The warm set keeps no molecule copy to filter.
     let mut matches = Vec::new();
     for (key, path) in keys.iter().zip(paths) {
-        let value = core.lookup(path);
+        let value = held.core.lookup(path);
         if value.is_unknown() {
             return Ok(None);
         }
         if value.is_absent() {
             context.account_memory_record(
-                &mut call,
+                &mut held.call,
                 key.hash.as_ref().map_or(0, String::len)
                     + key.range.as_ref().map_or(0, String::len),
                 0,
@@ -78,11 +80,11 @@ fn current_matches(
         let Some(value) = value.into_tip() else {
             return Ok(None);
         };
-        account_tip(context, &mut call, key, &value)?;
+        account_tip(context, &mut held.call, key, &value)?;
         if !include_tombstones && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned) {
             continue;
         }
-        if !source::body_present(&core, path, &value.entry.atom_uuid)? {
+        if !source::body_present(&held.core, path, &value.entry.atom_uuid)? {
             return Ok(None);
         }
         let writer = (!value.entry.writer_pubkey().is_empty())
