@@ -81,8 +81,8 @@ pub(super) fn validate(
     Ok(())
 }
 
-/// Translate app aliases before comparing key names. Payload field types do not
-/// decide molecule order; the hash/range fields and their types do.
+// Keep this legacy-coordinate rule inside explicit conversion. The compatible
+// release's loader has the same rule; the removal release deletes that loader.
 fn same_coordinates(target: &Schema, source: &Schema) -> bool {
     let names = |schema: &Schema| {
         schema
