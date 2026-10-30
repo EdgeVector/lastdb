@@ -41,15 +41,7 @@ impl AtomStore {
         let rows = self
             .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
             .await?;
-        let rows = self
-            .filter_delete_barriers_for_records(rows, storage_prefix)
-            .await?;
-        // Preserve the existing ordered, last-value-per-key normalization.
-        Ok(rows
-            .into_iter()
-            .collect::<std::collections::BTreeMap<_, _>>()
-            .into_iter()
-            .collect())
+        self.ordered_molecule_rows(rows, storage_prefix).await
     }
 
     /// Scan **at most `limit`** per-key records under the molecule's record
@@ -118,10 +110,19 @@ impl AtomStore {
         let merged = self
             .merge_generation_range_rows(molecule_uuid, base_start, base_end, storage_prefix, live)
             .await?;
+        self.ordered_molecule_rows(merged, storage_prefix).await
+    }
+
+    /// Keep the last record for one key, then return the keys in order.
+    /// A scan with no molecule does not use this order.
+    async fn ordered_molecule_rows(
+        &self,
+        rows: Vec<(String, PerKeyRecord)>,
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let rows = self
-            .filter_delete_barriers_for_records(merged, storage_prefix)
+            .filter_delete_barriers_for_records(rows, storage_prefix)
             .await?;
-        // Preserve the existing ordered, last-value-per-key normalization.
         Ok(rows
             .into_iter()
             .collect::<std::collections::BTreeMap<_, _>>()
