@@ -1,4 +1,5 @@
-//! New schemas and declared fields require a verified Exemem developer owner.
+//! New schemas and declared fields require a verified Exemem developer owner,
+//! except in a DEV deployment with open registration.
 
 use super::*;
 
@@ -57,13 +58,26 @@ impl SchemaServiceState {
         payload: &Value,
         purpose: Purpose,
     ) -> Result<(), SchemaClaimError> {
+        let config = self.app_identity_config();
+        if config.registration_is_open() {
+            // DEV only (Tom, 2026-10-30): no developer account is required.
+            // The callers still apply proof of work, quotas and the
+            // vocabulary policy after this check.
+            tracing::info!(
+                target: "schema_service::app_identity",
+                metric = "open_registration_total",
+                purpose = ?purpose,
+                owner_app_id = if owner_app_id.is_empty() { "-" } else { owner_app_id },
+                "DEV open registration accepted without a developer account"
+            );
+            return Ok(());
+        }
         // App IDs are exact-byte principals. Do not authorize a trimmed alias
         // while the schema persists the caller's different owner string.
         let app_id = owner_app_id;
         if app_id.is_empty() {
             return Err(SchemaClaimError::CertRequired);
         }
-        let config = self.app_identity_config();
         if !config.is_active() {
             return Err(SchemaClaimError::AppIdentityNotConfigured);
         }

@@ -32,8 +32,7 @@
 //! `observability::init_node` family of helpers does this. Until that
 //! call is wired into schema_service startup (separate Phase 1
 //! follow-up), every extracted context will be empty and parents will
-//! not be attached at runtime — but the middleware test below installs
-//! a propagator ad-hoc so the round-trip is validated in CI.
+//! not be attached at runtime.
 
 use std::future::{ready, Ready};
 use std::rc::Rc;

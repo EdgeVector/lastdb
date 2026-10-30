@@ -101,6 +101,7 @@ fn open_state(fixture: &Fixture) -> SchemaServiceState {
         trusted_roots: fixture.trusted_roots(),
         revoked_dev_pubkeys: HashSet::new(),
         verifier_pubkey: None,
+        open_registration: false,
     });
     state
 }
