@@ -84,7 +84,7 @@ pub struct ReleaseLogConfig {
     /// The log base URL, without a trailing slash. `file://` reads from disk.
     pub base_url: String,
     /// Base64 raw 32-byte Ed25519 public keys of the verifier.
-    pub trusted_keys: Vec<String>,
+    pub signer_keys: Vec<String>,
 }
 
 impl ReleaseLogConfig {
@@ -92,7 +92,7 @@ impl ReleaseLogConfig {
     /// [`RELEASE_LOG_URL_ENV`] or [`RELEASE_LOG_KEYS_ENV`] replace it.
     #[must_use]
     pub fn for_environment(env: Environment) -> Self {
-        let trusted_keys = env_value(RELEASE_LOG_KEYS_ENV).map_or_else(
+        let signer_keys = env_value(RELEASE_LOG_KEYS_ENV).map_or_else(
             || {
                 release_log_keys_for(env)
                     .iter()
@@ -117,7 +117,7 @@ impl ReleaseLogConfig {
         Self {
             name,
             base_url: base_url.trim_end_matches('/').to_string(),
-            trusted_keys,
+            signer_keys,
         }
     }
 
@@ -127,14 +127,14 @@ impl ReleaseLogConfig {
     /// Refuses an environment with no key: it has no release log yet, so no
     /// install can be checked. Also refuses a key that does not parse.
     pub fn verifying_keys(&self) -> Result<Vec<(String, VerifyingKey)>, String> {
-        if self.trusted_keys.is_empty() {
+        if self.signer_keys.is_empty() {
             return Err(format!(
                 "release log is not configured for this environment ({}): no verifier \
                  key is set, so this node refuses every app install",
                 self.name
             ));
         }
-        self.trusted_keys
+        self.signer_keys
             .iter()
             .map(|raw| {
                 let key = verifying_key_from_base64(raw)
@@ -157,7 +157,7 @@ fn env_value(name: &str) -> Option<String> {
 ///
 /// # Errors
 /// Returns the key parse failure.
-pub fn dev_cert_of(publisher_dev_pubkey: &str) -> Result<String, String> {
+pub fn dev_cert_sha256_of(publisher_dev_pubkey: &str) -> Result<String, String> {
     verifying_key_from_base64(publisher_dev_pubkey)
         .map(|key| key_id(&key))
         .map_err(|e| format!("publisher key does not parse: {e}"))
@@ -187,7 +187,7 @@ struct LogIndex {
     /// `release_id` → seq of its first pass, over all contract versions.
     first_pass: HashMap<String, u64>,
     /// `release_id` → every dev key a verdict attributes the release to.
-    dev_certs: HashMap<String, BTreeSet<String>>,
+    dev_cert_hashes: HashMap<String, BTreeSet<String>>,
     /// `(target kind, target)` → position of the first revoke that names it.
     revocations: HashMap<(RevokeTarget, String), usize>,
 }
@@ -198,7 +198,7 @@ pub struct InstallVerdict {
     /// The seq of the pass for this node's contract version.
     pub pass_seq: u64,
     /// The publisher key the pass names.
-    pub dev_cert: String,
+    pub dev_cert_sha256: String,
     /// The seq of the head the decision was made on.
     pub head_seq: u64,
 }
@@ -280,10 +280,10 @@ impl ReleaseLog {
                 position,
             );
             self.index
-                .dev_certs
+                .dev_cert_hashes
                 .entry(release_id.clone())
                 .or_default()
-                .insert(verdict.dev_cert.clone());
+                .insert(verdict.dev_cert_sha256.clone());
             if entry.is_pass() {
                 self.index.first_pass.entry(release_id).or_insert(entry.seq);
             }

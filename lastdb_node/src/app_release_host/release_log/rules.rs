@@ -20,11 +20,16 @@ impl ReleaseLog {
 
     /// The first `revoke` that names the release, its app, or its dev key.
     #[must_use]
-    pub fn revocation(&self, release_id: &str, app_id: &str, dev_cert: &str) -> Option<&LogEntry> {
+    pub fn revocation(
+        &self,
+        release_id: &str,
+        app_id: &str,
+        dev_cert_sha256: &str,
+    ) -> Option<&LogEntry> {
         self.first_revocation(&[
             (RevokeTarget::Release, release_id),
             (RevokeTarget::App, app_id),
-            (RevokeTarget::DevCert, dev_cert),
+            (RevokeTarget::DevCert, dev_cert_sha256),
         ])
     }
 
@@ -40,11 +45,11 @@ impl ReleaseLog {
             (RevokeTarget::Release, release_id),
             (RevokeTarget::App, app_id),
         ];
-        if let Some(dev_certs) = self.index.dev_certs.get(release_id) {
+        if let Some(hashes) = self.index.dev_cert_hashes.get(release_id) {
             targets.extend(
-                dev_certs
+                hashes
                     .iter()
-                    .map(|cert| (RevokeTarget::DevCert, cert.as_str())),
+                    .map(|hash| (RevokeTarget::DevCert, hash.as_str())),
             );
         }
         self.first_revocation(&targets)
@@ -118,7 +123,7 @@ impl ReleaseLog {
                 pass.app_id
             ));
         }
-        if let Some(revoke) = self.revocation(release_id, app_id, &pass.dev_cert) {
+        if let Some(revoke) = self.revocation(release_id, app_id, &pass.dev_cert_sha256) {
             return Err(format!(
                 "refusing release {release_id}: the release log revokes it ({})",
                 revoke.summary()
@@ -126,7 +131,7 @@ impl ReleaseLog {
         }
         Ok(InstallVerdict {
             pass_seq: entry.seq,
-            dev_cert: pass.dev_cert.clone(),
+            dev_cert_sha256: pass.dev_cert_sha256.clone(),
             head_seq: self.seq(),
         })
     }

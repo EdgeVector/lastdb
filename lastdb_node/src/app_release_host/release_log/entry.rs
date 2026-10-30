@@ -40,7 +40,7 @@ pub struct LogVerdict {
     /// The exact LastDB version the release was checked on.
     pub contract_version: String,
     /// SHA-256 hex of the publisher's raw 32-byte Ed25519 key.
-    pub dev_cert: String,
+    pub dev_cert_sha256: String,
     /// The run id, `vr_` and 16 hex.
     pub run: String,
     /// The static rule version.
@@ -120,7 +120,8 @@ struct RawEntry {
     release_id: Option<String>,
     app_id: Option<String>,
     contract_version: Option<String>,
-    dev_cert: Option<String>,
+    #[serde(rename = "dev_cert")]
+    dev_cert_sha256: Option<String>,
     run: Option<String>,
     rules: Option<i64>,
     reason: Option<String>,
@@ -182,9 +183,9 @@ impl RawEntry {
                     contract_version: self
                         .contract_version
                         .ok_or_else(|| invalid("contract_version"))?,
-                    dev_cert: self
-                        .dev_cert
-                        .filter(|cert| is_sha256_hex(cert))
+                    dev_cert_sha256: self
+                        .dev_cert_sha256
+                        .filter(|hex| is_sha256_hex(hex))
                         .ok_or_else(|| invalid("dev_cert"))?,
                     run: self
                         .run
@@ -286,12 +287,12 @@ impl SignedHead {
     /// # Errors
     /// Refuses a key id that is not trusted, a malformed field, and a
     /// signature that does not verify.
-    pub(super) fn verify(&self, trusted: &[(String, VerifyingKey)]) -> Result<(), String> {
+    pub(super) fn verify(&self, signers: &[(String, VerifyingKey)]) -> Result<(), String> {
         if !is_sha256_hex(&self.hash) {
             return Err("release log head hash is not 64 lowercase hex".to_string());
         }
         self.signed_at()?;
-        let (_, key) = trusted
+        let (_, key) = signers
             .iter()
             .find(|(id, _)| *id == self.key_id)
             .ok_or_else(|| {

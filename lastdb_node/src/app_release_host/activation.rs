@@ -182,11 +182,11 @@ fn check_release_read(
             release.manifest.app_id
         ));
     }
-    if dev_cert_of(&release.publisher_dev_pubkey)? != verdict.dev_cert {
+    if dev_cert_sha256_of(&release.publisher_dev_pubkey)? != verdict.dev_cert_sha256 {
         return Err(format!(
             "release {release_id} is published by a key that the release log pass does not \
              name (the pass names dev_cert {})",
-            verdict.dev_cert
+            verdict.dev_cert_sha256
         ));
     }
     Ok(())
