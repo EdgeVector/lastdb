@@ -40,26 +40,10 @@ impl MutationManager {
         scope: Option<&str>,
         siblings: bool,
     ) -> Result<(), SchemaError> {
-        for name in job.modified_fields.keys() {
-            let Some(field) = job.schema.runtime_fields.get(name) else {
-                continue;
-            };
-            let Some(molecule) = field.common().molecule_uuid() else {
-                continue;
-            };
-            let Some(data) = field.molecule_data() else {
-                continue;
-            };
+        for (molecule, data, _) in super::changed_field_slots(job, siblings) {
             self.db_ops
                 .atoms()
                 .stage_molecule_header(runtime, molecule, data, scope)?;
-        }
-        if siblings {
-            for (molecule, data, _) in &job.sibling_updates {
-                self.db_ops
-                    .atoms()
-                    .stage_molecule_header(runtime, molecule, data, scope)?;
-            }
         }
         Ok(())
     }
