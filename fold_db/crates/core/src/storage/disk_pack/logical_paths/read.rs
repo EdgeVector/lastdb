@@ -21,21 +21,23 @@ impl PackRuntime {
             hint_key,
             &path.atom,
         )?;
-        let view = self.view.read().expect("native complete core admission");
-        if view.revision != context.revision {
+        let Some(mut held) = super::lock_current_receipt(
+            self,
+            context,
+            "native complete core admission",
+            "native shared core model",
+        ) else {
             return Ok(());
-        }
-        let mut call = crate::read_receipts::lock(&context.call);
-        let mut core = self.core.lock().expect("native shared core model");
+        };
         let key = path.core();
         let Some(AdmissionTip { tip, sources }) =
-            admission_tip(&mut core, &key, &path.atom, selected)
+            admission_tip(&mut held.core, &key, &path.atom, selected)
         else {
             return Ok(());
         };
-        context.hold_core(&mut core, std::slice::from_ref(&key))?;
+        context.hold_core(&mut held.core, std::slice::from_ref(&key))?;
         let bytes = body::encoded_len(facts.atom.as_ref())?;
-        context.account_memory_record(&mut call, path.id()?.len(), bytes)?;
+        context.account_memory_record(&mut held.call, path.id()?.len(), bytes)?;
         let atom_source = (facts.source().0.to_owned(), facts.source().1.to_owned());
         let slot = CoreWarmSlot {
             entry: tip.entry,
@@ -43,23 +45,24 @@ impl PackRuntime {
             atom: facts.atom,
             bytes,
         };
-        core.admit(&key, slot)
+        held.core
+            .admit(&key, slot)
             .map_err(|error| StorageError::ReadResourceLimit {
                 detail: error.to_string(),
             })?;
-        core.clear_sources(&key);
-        if !core.link_source(&key, &atom_source.0, &atom_source.1) {
-            core.invalidate_slot(&key);
+        held.core.clear_sources(&key);
+        if !held.core.link_source(&key, &atom_source.0, &atom_source.1) {
+            held.core.invalidate_slot(&key);
             return Ok(());
         }
         if let Some(sources) = sources {
             for (collection, source) in sources {
-                if !core.link_source(&key, &collection, &source) {
-                    core.invalidate_slot(&key);
+                if !held.core.link_source(&key, &collection, &source) {
+                    held.core.invalidate_slot(&key);
                     return Ok(());
                 }
             }
-            core.authorize_path(&key);
+            held.core.authorize_path(&key);
         }
         Ok(())
     }
