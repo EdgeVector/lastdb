@@ -128,8 +128,7 @@ fn reserve_cursor(main: &RunRead, cas: &RunRead) -> StorageResult<Option<(RunRea
         Err(laststore::Error::ReadBudgetExceeded) => return Ok(None),
         Err(error) => return Err(map(error)),
     };
-    main.reserve_metadata(shared).map_err(map)?;
-    cas.reserve_metadata(shared).map_err(map)?;
+    super::reserve_paired_metadata(&mut main, &mut cas, shared)?;
     Ok(Some((main, cas)))
 }
 

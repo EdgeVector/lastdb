@@ -166,8 +166,7 @@ fn read_source(
         .checked_add(cas.retained_bytes())
         .and_then(|bytes| bytes.checked_add(WORK_BYTES))
         .ok_or_else(|| invalid("snapshot identity source memory overflow"))?;
-    main.reserve_metadata(shared).map_err(map)?;
-    cas.reserve_metadata(shared).map_err(map)?;
+    super::reserve_paired_metadata(&mut main, &mut cas, shared)?;
     let version = files::profile_version(root)?
         .ok_or_else(|| invalid("snapshot identity source profile is absent"))?;
     proof::verify_account(&main, key, version)?;

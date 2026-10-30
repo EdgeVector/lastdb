@@ -171,6 +171,16 @@ fn open_paired_runs(
     Ok((main, cas))
 }
 
+/// Charge both readers with one shared byte count. The main reader is first.
+fn reserve_paired_metadata(
+    main: &mut RunRead,
+    cas: &mut RunRead,
+    shared: u64,
+) -> StorageResult<()> {
+    main.reserve_metadata(shared).map_err(map)?;
+    cas.reserve_metadata(shared).map_err(map)
+}
+
 fn read_budget() -> ReadBudget {
     ReadBudget {
         pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
