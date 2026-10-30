@@ -39,7 +39,6 @@ def finish_setup(node, output):
 
 def run_app(args, app, label, node, output, mode):
     environment = dict(os.environ, FOLDDB_SOCKET_PATH=str(node.socket),
-                       FBRAIN_APP_IDENTITY_ENFORCE="on",
                        FBRAIN_FOLDDB_SOCKET=str(node.socket), BRAIN_CONFIG=str(output / "config.json"),
                        KANBAN_CONFIG=str(output / "config.json"))
     command = ["bun", str(args.driver), "--app", app,
@@ -81,7 +80,7 @@ def compare(args):
                 setup_binary, setup_revision = ((args.binary, args.revision) if label == "fresh"
                                                else (args.baseline_binary, args.baseline_revision))
                 node = Node(setup_binary, setup_revision, output, full_socket_name="folddb-full.sock", environment={
-                    "APP_IDENTITY_ENFORCE": "true", "LASTDB_SELF_METRICS_TO_DB": "false",
+                    "LASTDB_SELF_METRICS_TO_DB": "false",
                     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_TTL_SWEEP": "0"},
                     temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
                 try:
@@ -128,7 +127,8 @@ def compare(args):
               "baseline_daemon_sha256": file_hash(args.baseline_binary),
               "records_per_home": args.records,
               "app_revisions": revisions, "balanced_pairs": 2, "rows": rows,
-              "results": results, "primary_unchanged": True}
+              "results": results, "primary_unchanged": True,
+              "request_identity_mode": "generated_home_owner_socket"}
     save(args.output / "comparison.json", report)
     lines = ["## App multi-key comparison", "", f"Daemon: `{args.revision}`",
              f"Compatible release: `{args.baseline_revision}`.",
