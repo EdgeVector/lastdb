@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 const {values:a}=parseArgs({options:Object.fromEntries(
-  ["app","baseline","candidate","socket","config","output","mode","label"].map((name)=>[name,{type:"string"}]))});
+  ["app","baseline","candidate","socket","config","output","mode","label","records"].map((name)=>[name,{type:"string"}]))});
 for(const key of ["app","baseline","candidate","socket","config","output","mode","label"]) if(!a[key]) throw Error("Missing "+key);
 const load=(root,name)=>import(join(resolve(root),"src",name+".ts"));
 const require=(ok,message)=>{if(!ok)throw Error(message)};
@@ -16,7 +16,8 @@ const measure=async(name,operation)=>{const start=performance.now();const result
 const body=(n)=>createHash("sha256").update(String(n)).digest("hex").repeat(32);
 const time=(n)=>new Date(1700000000000+n*1000).toISOString();
 const slug=(n)=>"bench-"+String(n).padStart(6,"0");
-const count=256, iterations=a.label==="fresh"?16:128;
+const count=Number(a.records??256), iterations=a.label==="fresh"?16:128;
+require([256,1000,10000].includes(count),"The app corpus must contain 256, 1000, or 10000 records");
 async function client(root,cfg,canonicalVocabulary=false) {
   const {newNodeClient}=await load(root,"client");
   return newNodeClient({baseUrl:"http://127.0.0.1",userHash:cfg?.userHash??"",
@@ -178,15 +179,15 @@ async function brainMeasure(node,cfg) {
   if(a.label==="candidate") {
     const named=await load(candidate,"named-records");
     const all=[];let cursor;
-    for(let page=0;page<100;page++) {
+    for(let page=0;page<Math.ceil(count/17)+16;page++) {
       const result=await named.namedRecordPage(node,cfg,{},17,cursor);
       all.push(...result.items);
       if(!result.has_more)break;
       require(result.next_page&&result.next_page!==cursor,"The app cursor stalled");cursor=result.next_page;
     }
     require(all.length===count&&new Set(all.map((item)=>item.type+"/"+item.slug)).size===count,"App cursor membership differs");
-    const children=await named.namedRecordPage(node,cfg,{type:"task",design:slug(0)},500);
-    require(children.items.length===count/2,"Task design membership differs");
+    const children=await named.namedCards(node,cfg,"child#"+slug(0));
+    require(children?.length===count/2,"Task design membership differs");
     const removal=await load(candidate,"commands/delete");
     let refused;
     try {await removal.deleteRecord({cfg,slug:slug(0),type:"design",print:quiet});}catch(error){refused=error.code;}
@@ -212,8 +213,8 @@ async function brainMeasure(node,cfg) {
     require(await r.findBySlug(node,"task",cfg.schemaHashes.task,probe.slug,cfg)===null,"A deleted Brain record remains addressable");
     if(a.label!=="baseline") {
       const named=await load(candidate,"named-records");
-      const children=await named.namedRecordPage(node,cfg,{type:"task",design:slug(0)},500);
-      require(!children.items.some((item)=>item.slug===probe.slug),"A deleted task remains in its design key");
+      const children=await named.namedCards(node,cfg,"child#"+slug(0));
+      require(children?.length===count/2&&!children.some((item)=>item.slug===probe.slug),"A deleted task remains in its design key");
     }
   }
   await l.listCmd({cfg,count:true,json:true,print:quiet,printErr:quiet,onResult:(value)=>{total=value.count}});

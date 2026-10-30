@@ -14,11 +14,16 @@ concurrency:
 jobs:
   compare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        records: [1000, 10000]
     env:
       CARGO_BUILD_JOBS: '3'
       CARGO_TERM_COLOR: never
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BASELINE_SHA: 858aa4e19300d3413ab7bf24d5a443c4d08fb4b0
     steps:
       - uses: actions/checkout@v5
         with:
@@ -61,15 +66,38 @@ jobs:
         with:
           shared-key: app-multi-key
           save-if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-      - name: Build the exact comparison daemon in CI
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: compatible-release
+          persist-credentials: false
+      - name: Build the compatible and removal releases in CI
         run: |
           set -euo pipefail
-          revision=$(git rev-parse HEAD)
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-      - name: Compare app operations and existing-data cutovers
+          mkdir "$RUNNER_TEMP/app-binaries"
+          for label in baseline candidate; do
+            if [ "$label" = baseline ]; then
+              source="$GITHUB_WORKSPACE/compatible-release"
+              selected="$BASELINE_SHA"
+            else
+              source="$GITHUB_WORKSPACE"
+              selected="$CANDIDATE_SHA"
+            fi
+            [[ "$selected" =~ ^[0-9a-f]{40}$ ]]
+            test "$(git -C "$source" rev-parse HEAD)" = "$selected"
+            cd "$source"
+            FOLDDB_BUILD_VERSION_OVERRIDE="bench-$selected" \
+              CARGO_TARGET_DIR="$RUNNER_TEMP/app-target-$label" \
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            cp "$RUNNER_TEMP/app-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/app-binaries/$label"
+            rm -rf "$RUNNER_TEMP/app-target-$label"
+          done
+      - name: Compare app operations, explicit conversion, and the release upgrade
         run: |
           python3 scripts/benchmarks/app_multi_key_compare.py \
-            --binary "$GITHUB_WORKSPACE/target/dev-release/lastdbd" --revision "$(git rev-parse HEAD)" \
+            --binary "$RUNNER_TEMP/app-binaries/candidate" --revision "$CANDIDATE_SHA" \
+            --baseline-binary "$RUNNER_TEMP/app-binaries/baseline" --baseline-revision "$BASELINE_SHA" \
+            --records '${{ matrix.records }}' \
             --apps "$RUNNER_TEMP/app-sources" --driver "$GITHUB_WORKSPACE/scripts/benchmarks/app_multi_key.mjs" \
             --revisions "$GITHUB_WORKSPACE/scripts/benchmarks/app_multi_key_revisions.json" \
             --output "$RUNNER_TEMP/app-multi-key-results"
@@ -78,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-multi-key-${{ github.run_id }}-${{ github.run_attempt }}
+          name: app-multi-key-${{ matrix.records }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-multi-key-results/
           if-no-files-found: error
           retention-days: 14
