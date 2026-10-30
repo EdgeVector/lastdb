@@ -54,7 +54,3 @@ workspace = true
 test = false
 doctest = false
 bench = false
-
-[[test]]
-name = "canonical_properties"
-path = "tests/canonical_properties.rs"

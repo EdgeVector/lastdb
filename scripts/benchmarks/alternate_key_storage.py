@@ -11,7 +11,7 @@ import sys
 
 from alternate_key_compare import FIELDS, check_rows, declare, mutation
 from node import Node, save
-from node_ops import ENVIRONMENT, require
+from alternate_key_workload import ENVIRONMENT, require
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "disk_v2"))
 from node_proof import Case, MINIMUM_LOGICAL, PRIMARY_SETTINGS, SCHEMAS, schema_request

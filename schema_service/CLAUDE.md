@@ -45,24 +45,3 @@ injection design, and the canonicalization gate, ask the brain
 See also: `README.md`, `openapi.yaml` (the `/v1/*` contract).
 
 Do not write, restore, or run tests. Use product build, format, and lint checks.
-
-## Scoped exception: canonical properties (Tom, 2026-10-28)
-
-Tom requested automated stress, property, and concurrency tests for the current
-canonical-field update. Tom also approved the scoped CI PR and execution.
-That authorization supersedes the test prohibition above only for
-`crates/core/tests/`, its explicit `canonical_properties` Cargo target, and
-`.github/workflows/schema-canonical-properties.yml` at the repository root.
-Keep all other test targets retired. Use CI for builds and execution.
-Use isolated memory stores; this grants no primary, shared load, or deployment permission.
-
-### Scoped operational extension (Tom, 2026-10-28)
-
-Tom requested actual-model and isolated cloud race checks as follow-ups.
-This authorizes only the explicit `s3_canonical_properties` target in
-`crates/schema_service_s3/tests/` and the `canonical_semantics` example in
-`crates/server_shared/examples/`. Build and execute them only in CI.
-Use the product model with a dedicated CI cache. Protocol checks use loopback
-MinIO; actual AWS checks use only the separately approved accepted-main role
-and disposable `lastdb-schema-ci-152335099025-*` buckets. No production schema
-service, existing data bucket, primary, or unrelated test target is authorized.

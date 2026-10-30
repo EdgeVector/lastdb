@@ -77,12 +77,10 @@ pub struct SessionRecord {
     /// cleanly (still running, or died uncleanly).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<String>,
-    /// WHY the session exited, for clean exits that know their trigger
-    /// ("quit (tray menu)", "startup: another owner holds the lock", …).
-    /// Recorded so the next start — and the crash analyzer behind it — can
-    /// tell a deliberate quit from a crash instead of lumping them together
-    /// (the 2026-07-10 incident: menu-quits reported to Sentry as
-    /// `unclean_exit`). Absent on records written before this field existed.
+    /// Finite operational category for new exit marks. Historical records can
+    /// contain raw reason text and are not sanitized by the new writer.
+    /// The disposition still distinguishes a controlled exit from a crash.
+    /// Absent on records written before this field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_reason: Option<String>,
     /// The last heartbeat timestamp folded in at clean shutdown, so a finished
