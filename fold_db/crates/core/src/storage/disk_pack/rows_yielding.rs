@@ -63,8 +63,7 @@ impl PackKvStore {
             Ok((rows, resume))
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
     }
 }
 
@@ -85,8 +84,7 @@ impl PackRuntime {
     ) -> StorageResult<(NativeRows, Option<String>)> {
         let result =
             self.raw_rows_yielding_inner(context, collection, start, end, limit, keys_per_row);
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn raw_rows_yielding_inner(

@@ -35,8 +35,7 @@ impl PackRuntime {
         trace_families(coordinates);
         laststore::record_requested_keys(coordinates.len() as u64);
         let result = self.raw_many_inner(context, coordinates, pending);
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn raw_many_inner(
@@ -67,8 +66,7 @@ impl PackRuntime {
             }
             Ok(out)
         })();
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn read_chunk(

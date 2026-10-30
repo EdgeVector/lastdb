@@ -72,8 +72,7 @@ impl PackKvStore {
             finish_rows(combined, limit, require_end)
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
     }
 
     pub(super) async fn range_rows(
@@ -135,8 +134,7 @@ impl PackKvStore {
             finish_rows(out, limit, require_end)
         })
         .await;
-        observed.remember(&result);
-        result
+        observed.remembered(result)
     }
 }
 
@@ -233,8 +231,7 @@ impl PackRuntime {
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<(NativeRows, bool)> {
         let result = self.raw_rows_inner(context, collection, start, end, limit, pending);
-        context.remember(&result);
-        result
+        context.remembered(result)
     }
 
     fn raw_rows_inner(
