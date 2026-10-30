@@ -7,13 +7,7 @@ pub(super) fn plan(
     index: &mut u64,
     file: &SnapshotFile,
 ) -> StorageResult<()> {
-    let path = RelativePath::try_from(
-        file.path
-            .to_str()
-            .ok_or_else(|| invalid("byte native UTF8 path"))?
-            .to_owned(),
-    )
-    .map_err(protocol)?;
+    let path = native_relative_path(file)?;
     let mut reader = inner.file_reader(&file.path)?;
     let mut file_hash = Sha256::new();
     let mut offset = 0u64;

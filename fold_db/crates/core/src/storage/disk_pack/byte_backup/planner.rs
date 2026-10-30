@@ -67,6 +67,18 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
     state.validate()?;
     inner.store.write("job.json", state)
 }
+
+/// Both planners use one relative UTF-8 path.
+fn native_relative_path(file: &SnapshotFile) -> StorageResult<RelativePath> {
+    RelativePath::try_from(
+        file.path
+            .to_str()
+            .ok_or_else(|| invalid("byte native UTF8 path"))?
+            .to_owned(),
+    )
+    .map_err(protocol)
+}
+
 fn group(
     inner: &Inner,
     state: &State,
@@ -94,13 +106,7 @@ fn group(
         if length != file.bytes {
             return Err(invalid("byte native source length changed"));
         }
-        let path = RelativePath::try_from(
-            file.path
-                .to_str()
-                .ok_or_else(|| invalid("byte native UTF8 path"))?
-                .to_owned(),
-        )
-        .map_err(protocol)?;
+        let path = native_relative_path(file)?;
         segments.push(Segment {
             path: path.clone(),
             offset: 0,
