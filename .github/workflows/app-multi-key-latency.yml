@@ -67,7 +67,7 @@ jobs:
           swap-storage: false
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: app-multi-key
+          shared-key: app-multi-key-target-v2
           save-if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
       - uses: actions/checkout@v5
         with:
@@ -90,10 +90,9 @@ jobs:
             test "$(git -C "$source" rev-parse HEAD)" = "$selected"
             cd "$source"
             FOLDDB_BUILD_VERSION_OVERRIDE="bench-$selected" \
-              CARGO_TARGET_DIR="$RUNNER_TEMP/app-target-$label" \
+              CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" \
               cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-            cp "$RUNNER_TEMP/app-target-$label/dev-release/lastdbd" "$RUNNER_TEMP/app-binaries/$label"
-            rm -rf "$RUNNER_TEMP/app-target-$label"
+            cp "$GITHUB_WORKSPACE/target/dev-release/lastdbd" "$RUNNER_TEMP/app-binaries/$label"
           done
       - name: Compare app operations, explicit conversion, and the release upgrade
         run: |

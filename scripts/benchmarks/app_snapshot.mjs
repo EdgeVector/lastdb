@@ -51,7 +51,7 @@ function rowWitness(row, state) {
   require(fields[state.key.hash_field] === key.hash && (!ranged || fields[state.key.range_field] === key.range),
     "The stored primary fields differ from the actual query key");
   const references = {};
-  for (const [field, value] of Object.entries(fields)) {
+  for (const field of Object.keys(fields)) {
     const info = metadata[field];
     require(info && typeof info === "object" && !Array.isArray(info),
       "A present snapshot field lacks its actual atom metadata");
