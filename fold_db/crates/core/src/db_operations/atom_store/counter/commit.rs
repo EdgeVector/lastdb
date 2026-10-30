@@ -176,9 +176,7 @@ impl AtomStore {
             .load(std::sync::atomic::Ordering::Acquire)
             && !crate::fold_db_core::fold_db::app_schema_conversion::authorized()
         {
-            return Err(SchemaError::InvalidData(
-                "app schema conversion maintenance is active".into(),
-            ));
+            return Err(SchemaError::AppSchemaConversionActive);
         }
         let Some(runtime) = self
             .namespaced_store

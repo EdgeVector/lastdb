@@ -28,7 +28,7 @@ pub(crate) fn authorized() -> bool {
 
 pub(crate) async fn require_unfrozen(db: &DbOperations) -> Result<(), SchemaError> {
     if !authorized() && active(db).await? {
-        return Err(invalid("app schema conversion maintenance is active"));
+        return Err(SchemaError::AppSchemaConversionActive);
     }
     Ok(())
 }
@@ -279,6 +279,9 @@ impl FoldDB {
                 Ok(())
             },
         )?;
+        if !enabled {
+            self.db_ops.atoms().wake_drain_after_commit();
+        }
         Ok(())
     }
 
