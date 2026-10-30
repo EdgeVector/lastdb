@@ -212,6 +212,16 @@ pub(super) fn cursor<'a>(
         .map_err(map)
 }
 
+/// Both row readers reject a page above 10000 records.
+pub(super) fn require_page_limit(limit: usize) -> StorageResult<()> {
+    if limit > 10000 {
+        return Err(StorageError::ReadResourceLimit {
+            detail: "native page exceeds 10000 records".into(),
+        });
+    }
+    Ok(())
+}
+
 impl PackRuntime {
     pub(super) fn raw_rows(
         &self,
@@ -240,11 +250,7 @@ impl PackRuntime {
         if limit == 0 {
             return Ok((Vec::new(), start >= end));
         }
-        if limit > 10000 {
-            return Err(StorageError::ReadResourceLimit {
-                detail: "native page exceeds 10000 records".into(),
-            });
-        }
+        require_page_limit(limit)?;
         let overlay = context.overlay_rows(pending, collection, start, end);
         let mut overlay = overlay.into_iter().peekable();
         let mut call = crate::read_receipts::lock(&context.call);

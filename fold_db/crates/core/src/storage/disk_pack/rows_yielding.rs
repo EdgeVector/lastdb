@@ -1,6 +1,6 @@
 //! Range reads that continue across a budget stop in a run of deleted keys.
 
-use super::rows::{cursor, NativeRows};
+use super::rows::{cursor, require_page_limit, NativeRows};
 use super::*;
 
 impl PackKvStore {
@@ -99,11 +99,7 @@ impl PackRuntime {
         keys_per_row: usize,
     ) -> StorageResult<(NativeRows, Option<String>)> {
         context.validate_owner(None)?;
-        if limit > 10000 {
-            return Err(StorageError::ReadResourceLimit {
-                detail: "native page exceeds 10000 records".into(),
-            });
-        }
+        require_page_limit(limit)?;
         let mut call = crate::read_receipts::lock(&context.call);
         let mut cursor = cursor(&mut call, collection, start, end)?;
         let mut out: NativeRows = Vec::new();
