@@ -151,21 +151,21 @@ pub async fn revoke_release(
 }
 
 /// `GET /v2/releases/{release_id}` — anonymous read of one release
-/// manifest by its exact key.
-#[allow(
-    clippy::unused_async,
-    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
-)]
+/// manifest by its exact key, from storage.
 pub async fn get_release(
     path: web::Path<String>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let release_id = path.into_inner();
-    match state.get_release(&release_id) {
-        Some(record) => json_status(200, record.to_public_json()),
-        None => json_status(
+    match state.get_release(&release_id).await {
+        Ok(Some(record)) => json_status(200, record.to_public_json()),
+        Ok(None) => json_status(
             404,
             json!({ "reason": "unknown_release", "release_id": release_id }),
+        ),
+        Err(e) => json_status(
+            503,
+            json!({ "reason": "registry_unavailable", "error": e.to_string() }),
         ),
     }
 }
@@ -192,21 +192,21 @@ pub async fn get_release_verification(path: web::Path<String>) -> impl Responder
 }
 
 /// `GET /v2/apps/{app_id}/channels/{channel}` — anonymous read of the
-/// desired release id and the channel generation.
-#[allow(
-    clippy::unused_async,
-    reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
-)]
+/// desired release id and the channel generation, from storage.
 pub async fn get_channel(
     path: web::Path<(String, String)>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let (app_id, channel) = path.into_inner();
-    match state.get_channel(&app_id, &channel) {
-        Some(record) => json_status(200, record.to_public_json()),
-        None => json_status(
+    match state.get_channel(&app_id, &channel).await {
+        Ok(Some(record)) => json_status(200, record.to_public_json()),
+        Ok(None) => json_status(
             404,
             json!({ "reason": "unknown_channel", "app_id": app_id, "channel": channel }),
+        ),
+        Err(e) => json_status(
+            503,
+            json!({ "reason": "registry_unavailable", "error": e.to_string() }),
         ),
     }
 }

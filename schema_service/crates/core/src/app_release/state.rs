@@ -3,22 +3,6 @@
 use super::*;
 
 impl SchemaServiceState {
-    /// Point get of one release by its exact key.
-    #[must_use]
-    pub fn get_release(&self, release_id: &str) -> Option<ReleaseRecord> {
-        read_lock(&self.app_releases, "app_releases")
-            .ok()
-            .and_then(|releases| releases.get(release_id).cloned())
-    }
-
-    /// Point get of one channel by its exact key.
-    #[must_use]
-    pub fn get_channel(&self, app_id: &str, channel: &str) -> Option<ChannelRecord> {
-        read_lock(&self.app_channels, "app_channels")
-            .ok()
-            .and_then(|channels| channels.get(&channel_key(app_id, channel)).cloned())
-    }
-
     /// Verify the cert and require the signer to own `app_id`.
     ///
     /// The app comes from durable storage, not memory, so a concurrent
@@ -255,33 +239,38 @@ impl SchemaServiceState {
         // A channel can only point at a release that exists, in this app.
         let release = self
             .get_release(&request.release_id)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
             .ok_or_else(|| ReleaseError::UnknownRelease(request.release_id.clone()))?;
         if release.manifest.app_id != app_id {
             return Err(ReleaseError::AppIdMismatch);
         }
 
-        let key = channel_key(app_id, channel);
-        let record = {
-            let mut channels = write_lock(&self.app_channels, "app_channels")
-                .map_err(|e| ReleaseError::Internal(e.to_string()))?;
-            let current = channels.get(&key).map_or(0, |c| c.generation);
-            if current != request.generation {
-                return Err(ReleaseError::GenerationConflict {
-                    expected: current,
-                    supplied: request.generation,
-                });
-            }
-            let record = ChannelRecord {
-                app_id: app_id.to_string(),
-                channel: channel.to_string(),
-                release_id: request.release_id,
-                generation: current + 1,
-                updated_at: self.clock.rfc3339_secs(),
-            };
-            channels.insert(key, record.clone());
-            record
+        // The generation comes from durable storage, and the backend's
+        // conditional write rejects a concurrent move. Memory changes only
+        // after the write commits.
+        let current = self
+            .get_channel(app_id, channel)
+            .await
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
+            .map_or(0, |c| c.generation);
+        if current != request.generation {
+            return Err(ReleaseError::GenerationConflict {
+                expected: current,
+                supplied: request.generation,
+            });
+        }
+        let record = ChannelRecord {
+            app_id: app_id.to_string(),
+            channel: channel.to_string(),
+            release_id: request.release_id,
+            generation: current + 1,
+            updated_at: self.clock.rfc3339_secs(),
         };
         self.persist_channel(&record).await?;
+        write_lock(&self.app_channels, "app_channels")
+            .map_err(|e| ReleaseError::Internal(e.to_string()))?
+            .insert(channel_key(app_id, channel), record.clone());
         Ok(record)
     }
 

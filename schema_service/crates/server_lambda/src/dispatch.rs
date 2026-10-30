@@ -194,7 +194,7 @@ async fn dispatch_apps(
             routes::apps::put_apps_channels(state, event, p).await
         }
         ("GET", _) if p.starts_with("/v2/apps/") && p.contains("/channels/") => {
-            routes::apps::get_apps_channels(state, p)
+            routes::apps::get_apps_channels(state, p).await
         }
         ("GET", _) if p.starts_with("/v2/releases/") && p.ends_with("/compat") => {
             routes::v2::list_compat_rows(state, p).await
@@ -202,7 +202,7 @@ async fn dispatch_apps(
         ("POST", _) if p.starts_with("/v2/releases/") && p.ends_with("/compat") => {
             routes::v2::write_compat_row(state, event, p).await
         }
-        ("GET", _) if p.starts_with("/v2/releases/") => routes::apps::get_releases(state, p),
+        ("GET", _) if p.starts_with("/v2/releases/") => routes::apps::get_releases(state, p).await,
         ("GET", _) if p.starts_with("/v2/apps/") => routes::apps::get_app_v2(state, p),
         _ => return None,
     })

@@ -19,7 +19,7 @@ use crate::near_miss::NearMissRecord;
 use crate::snapshot::AppRecord;
 use crate::types::CanonicalField;
 use crate::CanonicalVocabularyWrite;
-use schema_types::{FoldDbResult, Schema};
+use schema_types::{FoldDbError, FoldDbResult, Schema};
 
 #[derive(Default)]
 struct Registry {
@@ -219,15 +219,40 @@ impl ExternalSchemaPersistence for InMemorySchemaPersistence {
         Ok(self.read()?.releases.clone())
     }
 
+    async fn load_release(&self, release_id: &str) -> FoldDbResult<Option<ReleaseRecord>> {
+        Ok(self.read()?.releases.get(release_id).cloned())
+    }
+
+    /// Same generation rule as the S3 backend's conditional write: a new
+    /// record must be one past the stored generation.
     async fn save_channel(&self, record: &ChannelRecord) -> FoldDbResult<()> {
-        self.write()?
-            .channels
-            .insert(channel_key(&record.app_id, &record.channel), record.clone());
+        let key = channel_key(&record.app_id, &record.channel);
+        let mut registry = self.write()?;
+        let stored = registry.channels.get(&key).map_or(0, |c| c.generation);
+        if record.generation != stored + 1 {
+            return Err(FoldDbError::GenerationConflict {
+                expected: stored,
+                supplied: record.generation,
+            });
+        }
+        registry.channels.insert(key, record.clone());
         Ok(())
     }
 
     async fn load_all_channels(&self) -> FoldDbResult<HashMap<String, ChannelRecord>> {
         Ok(self.read()?.channels.clone())
+    }
+
+    async fn load_channel(
+        &self,
+        app_id: &str,
+        channel: &str,
+    ) -> FoldDbResult<Option<ChannelRecord>> {
+        Ok(self
+            .read()?
+            .channels
+            .get(&channel_key(app_id, channel))
+            .cloned())
     }
 
     async fn save_declared_field_definitions(

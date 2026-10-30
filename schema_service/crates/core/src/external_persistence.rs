@@ -237,6 +237,15 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(HashMap::new())
     }
 
+    /// Read one release by its exact key. `None` means the release is absent,
+    /// or the backend keeps no per-record store.
+    async fn load_release(
+        &self,
+        _release_id: &str,
+    ) -> FoldDbResult<Option<crate::app_release::ReleaseRecord>> {
+        Ok(None)
+    }
+
     /// Persist one channel, keyed by
     /// [`crate::app_release::channel_key`]`(app_id, channel)`.
     async fn save_channel(&self, _record: &crate::app_release::ChannelRecord) -> FoldDbResult<()> {
@@ -249,6 +258,16 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         &self,
     ) -> FoldDbResult<HashMap<String, crate::app_release::ChannelRecord>> {
         Ok(HashMap::new())
+    }
+
+    /// Read one channel by its exact key. `None` means the channel is absent,
+    /// or the backend keeps no per-record store.
+    async fn load_channel(
+        &self,
+        _app_id: &str,
+        _channel: &str,
+    ) -> FoldDbResult<Option<crate::app_release::ChannelRecord>> {
+        Ok(None)
     }
 
     // ============== Declared fields (coherence, not meaning) ============

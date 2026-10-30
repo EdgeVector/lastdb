@@ -1,0 +1,279 @@
+{
+ "name": "20-canonical-levels",
+ "note": "Units follow schema -> field -> molecule -> atom -> file. warm_set is a cache over molecule/atom; cloud sits beside file; shared is the leaf.",
+ "mixed_files": {
+  "atom/mod.rs": "molecule (KeyMetadata, LWW order, molecule uuid) + atom re-exports",
+  "db_operations/atom_store/mod.rs": "atom (AtomStore struct) + molecule state: tip locks, delete barriers, MoleculeKeyStore, keep-small meters",
+  "db_operations/atom_store/construct.rs": "atom + molecule (same struct)",
+  "db_operations/atom_store/counter/commit.rs": "molecule (tip records) + atom (bodies, counters, blob counters) in one batch",
+  "storage/disk_pack/mod.rs": "file (PackRuntime, run homes) + warm_set (owns CoreWarmSet)",
+  "storage/disk_pack/transaction.rs": "file (complete request, disk publication) + warm_set (core memory publication)",
+  "storage/disk_pack/view.rs": "file (disk root) + warm_set (typed core read view)",
+  "storage/current_keys.rs": "file (scope codec) + key classifier for every level",
+  "schema/types/field/common.rs": "field (FieldCommon) + file (build_storage_key)",
+  "schema/types/operations/mod.rs": "schema (Query, MutationType) + field (ValueFilter, FieldPredicate)",
+  "schema/types/key_value.rs": "molecule (key value) + schema (key comparison contract)",
+  "sharing/delivery_wire/types.rs": "cloud (slice payload) + file (FileBlobAccess)",
+  "sharing/delivery_wire/blob.rs": "cloud (slice atoms) + file (blob decode)",
+  "sharing/delivery_wire/validate.rs": "cloud (slice validation) + file/atom (file access, pointer thumbnails)",
+  "storage/disk_pack/file_dependencies/metadata.rs": "atom (file refs of bodies) + molecule (file refs in tip metadata)",
+  "db_operations/molecule_key_store.rs": "molecule (key bundles) + schema (per-schema contract)"
+ },
+ "units": [
+  {
+   "name": "database",
+   "paths": [
+    "lib.rs",
+    "error.rs",
+    "durable_flush.rs",
+    "fold_db_core/",
+    "db_operations/mod.rs",
+    "db_operations/core/",
+    "db_operations/admin_db.rs",
+    "db_operations/admin_db/",
+    "db_operations/storage_breakdown.rs",
+    "db_operations/change_feed.rs",
+    "db_operations/change_feed/",
+    "db_operations/attribution_ledger.rs",
+    "db_operations/attribution_ledger/",
+    "db_operations/metadata_store.rs",
+    "db_operations/metadata_store/",
+    "db_operations/search_index/",
+    "db_operations/public_key_operations.rs",
+    "db_operations/public_key_store.rs",
+    "db_operations/db_catalog_store.rs",
+    "db_operations/db_catalog_store/",
+    "db_operations/delete_ledger.rs",
+    "db_operations/atom_store/erase_meters.rs",
+    "resident/lane",
+    "resident/metrics.rs",
+    "resident/config.rs",
+    "schema/types/aggregate_state.rs",
+    "schema/types/aggregate_state/",
+    "schema/types/author_clock.rs",
+    "db_operations/schema_operations/attribution",
+    "sharing/mod.rs",
+    "sharing/query_slice.rs",
+    "sharing/query_slice/",
+    "sharing/store.rs",
+    "sharing/types.rs",
+    "sharing/signing.rs",
+    "sync/capture/"
+   ],
+   "pure": false,
+   "about": "FoldDB, boot, the mutation write path and query read path orchestration, purge verbs, background tasks, admin and request types."
+  },
+  {
+   "name": "schema",
+   "paths": [
+    "schema/",
+    "db_operations/schema_store.rs",
+    "db_operations/schema_store/",
+    "db_operations/schema_operations.rs",
+    "db_operations/schema_operations/",
+    "db_operations/logical_membership.rs",
+    "db_operations/atom_history.rs",
+    "alternate_keys/",
+    "fold_db_core/mutation_manager/molecules/prepare/key_rules.rs"
+   ],
+   "pure": false,
+   "about": "Schema definitions, schema store/load/cache/state, key declarations, alternate keys."
+  },
+  {
+   "name": "field",
+   "paths": [
+    "schema/types/field/",
+    "schema/types/field_value_type.rs",
+    "fold_db_core/query/hash_range_query/condition_rules.rs",
+    "fold_db_core/query/hash_range_query/predicates.rs",
+    "fold_db_core/mutation_manager/molecules/field_rules.rs"
+   ],
+   "pure": false,
+   "about": "Field variants, field values, field read/write rules and filters."
+  },
+  {
+   "name": "molecule",
+   "paths": [
+    "atom/mod.rs",
+    "atom/atom_entry.rs",
+    "atom/delete_barrier.rs",
+    "atom/history_event_memo.rs",
+    "atom/molecule_hash_range/",
+    "atom/molecule_key_codec",
+    "atom/molecule_uuid.rs",
+    "atom/mutation_event.rs",
+    "atom/provenance.rs",
+    "schema/types/key_value.rs",
+    "schema/types/field/hash_range_filter.rs",
+    "db_operations/atom_store/types.rs",
+    "db_operations/atom_store/molecules",
+    "db_operations/atom_store/molecule_",
+    "db_operations/atom_store/filter",
+    "db_operations/atom_store/schema_keys",
+    "db_operations/atom_store/locks.rs",
+    "db_operations/atom_store/delete_",
+    "db_operations/atom_store/catalog_bindings.rs",
+    "db_operations/atom_store/key_comparison.rs",
+    "db_operations/atom_store/conflict_record/",
+    "db_operations/atom_store/retention/",
+    "db_operations/atom_store/atom_history/",
+    "db_operations/atom_store/atoms/history.rs",
+    "db_operations/atom_store/helpers.rs",
+    "db_operations/atom_store/counter/commit.rs",
+    "db_operations/atom_store/counter/commit_types.rs",
+    "db_operations/atom_store/counter/build.rs",
+    "db_operations/atom_store/counter/records.rs",
+    "db_operations/atom_store/counter/refs.rs",
+    "db_operations/atom_store/counter/read.rs",
+    "db_operations/atom_store/counter/read/",
+    "db_operations/atom_store/counter/molecule",
+    "db_operations/atom_store/counter/recount/molecules",
+    "db_operations/atom_store/counter/verify/molecule_",
+    "db_operations/atom_store/counter/scan.rs",
+    "db_operations/atom_store/counter/report.rs",
+    "db_operations/atom_store/counter/restore_validation",
+    "db_operations/atom_store/counter/recount/",
+    "db_operations/atom_store/counter/verify/",
+    "db_operations/molecule_key_store",
+    "db_operations/lineage_index.rs",
+    "db_operations/tip_atoms.rs",
+    "db_operations/conflict_",
+    "sync_conflict.rs"
+   ],
+   "pure": false,
+   "about": "Molecule and tip types, key codecs, molecule store, bindings, counters, drain, delete barriers, conflict records, retention, history."
+  },
+  {
+   "name": "atom",
+   "paths": [
+    "atom/",
+    "db_operations/atom_store/",
+    "storage/disk_pack/file_dependencies/",
+    "sharing/delivery_wire/pointer.rs",
+    "db_operations/atom_store/file_blob_seal.rs"
+   ],
+   "pure": false,
+   "about": "Atom type and body codec, atom store, atom counters, blob counters, time queue, file-pointer directory."
+  },
+  {
+   "name": "file",
+   "paths": [
+    "storage/",
+    "kind_partition.rs",
+    "mini_cutover/",
+    "db_operations/atom_store/key_format.rs",
+    "db_operations/atom_store/writer_watch.rs",
+    "sharing/blob_cas",
+    "sharing/file_blob_seal.rs",
+    "schema/types/errors/storage.rs",
+    "storage/disk_pack/restore_safety.rs",
+    "read_receipts.rs",
+    "write_preparation.rs"
+   ],
+   "pure": false,
+   "about": "Disk format v2 run homes, LastStore-facing KV traits, transactions, flush lanes, file blobs, at-rest wrapper."
+  },
+  {
+   "name": "warm_set",
+   "paths": [
+    "resident/",
+    "storage/disk_pack/logical_paths",
+    "storage/disk_pack/schema_keys",
+    "storage/disk_pack/memory.rs",
+    "storage/disk_pack/read/core_holds.rs",
+    "storage/disk_pack/read/memory.rs"
+   ],
+   "pure": false,
+   "about": "The core warm set: logical paths, key membership, byte budget, memory relief."
+  },
+  {
+   "name": "cloud",
+   "paths": [
+    "sync/",
+    "storage/disk_pack/byte_backup/",
+    "storage/disk_pack/mutation_log/",
+    "storage/disk_pack/logical_capture/",
+    "storage/disk_pack/run_restore",
+    "storage/disk_pack/cloud_work.rs",
+    "sharing/delivery_wire/"
+   ],
+   "pure": false,
+   "about": "Byte backup, mutation log, logical capture, restore, transport, delivery wire."
+  },
+  {
+   "name": "shared",
+   "paths": [
+    "canonical",
+    "clock.rs",
+    "constants.rs",
+    "hex.rs",
+    "json_order.rs",
+    "process_cpu.rs",
+    "request_phases",
+    "user_context.rs",
+    "memory_budget",
+    "crypto/",
+    "security/",
+    "access/",
+    "db_operations/keep_small.rs",
+    "db_operations/keep_small/",
+    "schema/types/errors.rs",
+    "schema/types/errors/responses.rs"
+   ],
+   "pure": false,
+   "about": "Errors, hex, clock, canonical encoding, crypto, security, access, memory budget, telemetry."
+  }
+ ],
+ "allow": {
+  "database": [
+   "schema",
+   "field",
+   "molecule",
+   "atom",
+   "file",
+   "warm_set",
+   "cloud",
+   "shared"
+  ],
+  "schema": [
+   "field",
+   "molecule",
+   "atom",
+   "file",
+   "warm_set",
+   "shared"
+  ],
+  "field": [
+   "molecule",
+   "atom",
+   "file",
+   "warm_set",
+   "shared"
+  ],
+  "molecule": [
+   "atom",
+   "file",
+   "shared"
+  ],
+  "atom": [
+   "file",
+   "shared"
+  ],
+  "file": [
+   "shared"
+  ],
+  "warm_set": [
+   "molecule",
+   "atom",
+   "file",
+   "shared"
+  ],
+  "cloud": [
+   "molecule",
+   "atom",
+   "file",
+   "shared"
+  ],
+  "shared": []
+ }
+}

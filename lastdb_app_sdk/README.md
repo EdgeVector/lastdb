@@ -117,6 +117,13 @@ two connection surfaces, and which one your app talks decides whether it runs as
 the node owner or as an attributed third-party app. Pick by *who runs the app*,
 not by how it connects.
 
+> **CAUTION — current state of `lastdbd`.** `lastdbd` serves only the owner
+> socket. It has no app socket, no consent route, and no code-signature check.
+> Every same-user caller runs as the owner. The node does not check the
+> namespace of a write. The **App socket** column below is the planned design.
+> Until it ships, follow the [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace)
+> in your app code.
+
 | | **Owner socket** | **App socket** |
 |---|---|---|
 | For | apps **you develop and trust** (your own tooling) | apps **you publish** for other people to run |
@@ -137,6 +144,25 @@ owner socket regardless, so the app socket's write-own rule is an
 same node from clobbering each other's data (single-writer-per-molecule, so
 cross-app reads stay trustworthy), not an adversary defense. That is exactly why
 self-authored code just uses the owner socket: you already trust it.
+
+### Interop rule: read by full name, write your own namespace
+
+A schema has the runtime name `{app_id}/{local}`. The `app_id` is the
+namespace of the app that owns the schema. Every app follows these rules on
+both sockets:
+
+1. Read another app's schema by its full name, for example
+   `other-app/Contact`. A bare name such as `Contact` can resolve to a schema of
+   a different app, or fail with `409` when two apps use the same name.
+2. Write only the schemas in your own namespace. Do not write a schema of
+   another app. The node does not refuse that write today, so your app code
+   must keep this rule.
+3. To keep data that came from another app, write it into a schema in your own
+   namespace. Each schema owns its record values. Do not expect a write to one
+   schema to change a different schema, even when the two schemas use the same
+   field definitions. LastDB removes the implicit cross-schema value copy.
+4. The schema service reserves the namespaces `std`, `system`, and
+   `templates`. A developer cannot register them.
 
 ### Owner socket — your own apps (`ownerClient`)
 
@@ -197,8 +223,8 @@ if (!db.hasCapability) {                                  // first run: no capab
 
 // Reads: any schema the consumer consented to — including other apps' data.
 await db.query('some-other-app/PublicNote', { fields: ['id', 'text'] });
-// Writes: confined to your own namespace. A write to another app's namespace is
-// rejected by the node (the mutation-chokepoint ownership check), not the SDK.
+// Writes: only your own namespace (the interop rule above). The node does not
+// check this today.
 await db.mutate('my-app/Note', {
   mutationType: 'create',
   fields: { id: 'n1', text: 'hi' },
@@ -206,10 +232,11 @@ await db.mutate('my-app/Note', {
 });
 ```
 
-The write-own confinement is enforced by the **node** at its mutation chokepoint
-(keyed off the attributed app identity), not by this SDK — a cross-namespace
-write surfaces as a `403` `PermissionDeniedError` / `CapabilityDeniedError` (see
-[Typed errors](#typed-errors)). The owner-socket path has no such restriction.
+Neither the node nor this SDK enforces write-own today. `lastdbd` has no app
+identity on the data path, so it accepts a write to any namespace. A planned
+app socket can refuse a cross-namespace write with a `403`
+`PermissionDeniedError` / `CapabilityDeniedError` (see
+[Typed errors](#typed-errors)). Until then, the rule is the app author's job.
 
 ### Schema resolution and edge adapters
 
