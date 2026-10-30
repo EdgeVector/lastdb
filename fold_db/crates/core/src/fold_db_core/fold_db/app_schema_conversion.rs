@@ -296,10 +296,9 @@ impl FoldDB {
                     let store = self.db_ops.open_namespace(NAMESPACE).await?;
                     let change = match request {
                         AppSchemaConversion::AppStatus => {
-                            let bytes = store
-                                .get(JOB)
-                                .await?
-                                .ok_or_else(|| invalid("app conversion is absent"))?;
+                            let bytes = store.get(JOB).await?.ok_or_else(|| {
+                                SchemaError::NotFound("app conversion is absent".into())
+                            })?;
                             let change: Change = serde_json::from_slice(&bytes)
                                 .map_err(|_| invalid("app conversion is unreadable"))?;
                             return change.report();
