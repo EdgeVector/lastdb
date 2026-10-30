@@ -4,6 +4,7 @@ use super::*;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use std::sync::Arc;
 
+mod alternate;
 mod rows;
 pub(in crate::handlers) use self::rows::*;
 mod conflicts;
@@ -114,6 +115,9 @@ async fn execute_query_scoped<H: HostNode>(
         ));
     }
 
+    if query.key_name.is_some() {
+        return alternate::execute(host, query, limit, offset, cursor, ctx).await;
+    }
     rules::validate_query_options(&query, cursor.is_some())?;
     let comparison = capture_key_comparison(host, &query.schema_name).await?;
     let rules::PreparedQuery {

@@ -16,6 +16,7 @@ pub use cas_delete::{CasDeleteRecovery, CasDeleteRecoveryOutcome};
 mod cleanup;
 mod cloud_work;
 mod diagnostics;
+pub mod format_upgrade;
 pub use cleanup::{
     NativeCleanupBoundary, NativeCleanupHome, NativeCleanupPhase, NativeCleanupStatus,
 };

@@ -42,6 +42,10 @@ pub(crate) async fn plan_catalog_schema_for_direct_declare(
     host: &Host,
     declare: &DirectDeclareProposal,
 ) -> Result<DirectDeclarePlan, String> {
+    if declare.catalog_schema.uses_independent_fields() {
+        return super::independent::plan(host, declare).await;
+    }
+    super::independent::check_legacy(host, declare)?;
     let url = folddb_profile::endpoints::schema_service_url();
     let client = crate::schema_resolver_host::schema_service_client_with_node_identity(
         &host.home,

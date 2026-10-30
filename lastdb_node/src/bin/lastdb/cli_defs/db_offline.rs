@@ -4,6 +4,14 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
+    /// Enable alternate-key declarations on a stopped format 4 home.
+    /// Native records and encrypted files stay unchanged. Older writers refuse format 5.
+    EnableAlternateKeys {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        i_know_this_is_primary: bool,
+    },
     /// Preserve this stopped device's identity in an inactive foreign snapshot.
     /// The prepared destination cannot start a daemon or replace the source.
     SnapshotIdentityPrepare(crate::db_cmds::db_snapshot_identity_cmds::SnapshotIdentityArgs),

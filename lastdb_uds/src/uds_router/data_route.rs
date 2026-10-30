@@ -310,6 +310,8 @@ pub enum DataRoute {
     /// `POST /api/db/backfill-protein-keys` — replay at most 64 named source
     /// keys into an existing protein member. Owner only; no key enumeration.
     DbBackfillProteinKeys,
+    /// `POST /api/db/alternate-keys` — owner-only declaration backfill and publication.
+    DbAlternateKeys,
     /// `POST /api/db/repair-schema-molecule-map` — compare-and-set repair of
     /// one installed schema's field-to-molecule metadata. Owner only. The
     /// request is a dry run unless `execute=true`.

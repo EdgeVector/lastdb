@@ -12,6 +12,7 @@ mod catalog_mappers;
 mod direct_load;
 mod execute;
 mod expansion;
+mod independent;
 mod logical_admission;
 mod plan;
 mod proposal;

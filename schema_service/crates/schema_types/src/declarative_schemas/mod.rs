@@ -153,6 +153,12 @@ pub struct DeclarativeSchemaDefinition {
     /// Key configuration (required when schema_type == "Hash", "Range", or "HashRange")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyConfig>,
+    /// Named lookups of these same records; independent of canonical field reuse.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
+    /// Explicit record independence remains after the last alternate is removed.
+    #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
+    pub independent_fields: bool,
     /// Field names - plain data fields without transformations
     pub fields: Option<Vec<String>>,
     /// Transform fields - computed fields with expressions (optional, only for transform schemas)

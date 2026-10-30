@@ -32,7 +32,7 @@ impl SchemaCore {
         )?)
     }
 
-    pub(super) fn publish_schema_cache(
+    pub(crate) fn publish_schema_cache(
         &self,
         name: &str,
         schema: Schema,

@@ -10,6 +10,7 @@ pub(super) struct ListRecordKeysRequest {
     pub limit: usize,
     pub cursor: Option<String>,
     pub hash_filter: Option<String>,
+    pub key_name: Option<String>,
 }
 
 impl ListRecordKeysRequest {
@@ -30,6 +31,10 @@ impl ListRecordKeysRequest {
             limit,
             cursor: query_value(target, "cursor").filter(|cursor| !cursor.is_empty()),
             hash_filter: query_value(target, "hash"),
+            key_name: match query_value(target, "key_name") {
+                Some(name) if name.is_empty() => return Err("key_name must not be empty"),
+                name => name,
+            },
         })
     }
 }

@@ -231,7 +231,7 @@ def unsupported_marker(node):
     before_marker = marker.read_bytes()
     paths = [node.home / "data" / kind / "CURRENT" for kind in ("disk-run", "disk-cas")]
     before = [file_hash(path) for path in paths]
-    unsupported = before_marker.replace(b"format=4\n", b"format=3\n")
+    unsupported = b"format=3\n" + before_marker.split(b"\n", 1)[1]
     require(unsupported != before_marker, "unexpected current node marker")
     marker.write_bytes(unsupported)
     refused = False

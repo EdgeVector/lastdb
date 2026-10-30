@@ -20,6 +20,14 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .flat_map(|molecules| molecules.iter())
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
+    fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
+        molecule_uuid: crate::alternate_keys::molecule(schema, name),
+        source: format!(
+            "alternate:{}",
+            serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
+        ),
+        edge_type: "schema-alternate-key".to_owned(),
+    }));
     fields.sort_by(|left, right| left.source.cmp(&right.source));
     fields
 }
@@ -53,6 +61,11 @@ impl DbOperations {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
+        if schema.uses_independent_fields() {
+            if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
+                runtime.require_alternate_format()?;
+            }
+        }
         schema
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
@@ -223,6 +236,22 @@ impl DbOperations {
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
+        if old
+            .as_ref()
+            .is_some_and(|schema| schema.uses_independent_fields())
+        {
+            crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
+                self,
+                schema_name,
+            )
+            .await?;
+        }
+        if old
+            .as_ref()
+            .is_some_and(|schema| !schema.alternate_keys.is_empty())
+        {
+            return Err(SchemaError::InvalidData("remove the alternate declarations through the explicit change command before schema removal".into()));
+        }
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)
         });

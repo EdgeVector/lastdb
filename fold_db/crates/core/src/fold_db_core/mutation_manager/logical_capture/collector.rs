@@ -57,12 +57,7 @@ impl MutationManager {
         {
             return Err(unsupported("share or protein effects"));
         }
-        let identity = delta
-            .schema
-            .identity_hash
-            .clone()
-            .filter(|identity| !identity.is_empty())
-            .ok_or_else(|| unsupported("a missing schema identity"))?;
+        let (identity, alternate_revision) = capture_schema_contract(&delta.schema)?;
         CANDIDATES
             .try_with(|state| {
                 let mut state = state.lock().expect("logical capture candidates");
@@ -104,7 +99,8 @@ impl MutationManager {
                     let view =
                         AcceptedFieldOutcomeRef {
                             schema_name: &delta.schema_name,
-                            schema_identity: &identity,
+                            schema_identity: identity,
+                            alternate_key_revision: alternate_revision.as_deref(),
                             field_name: name,
                             field_identity: delta.schema.field_hashes.get(name).ok_or_else(
                                 || unsupported("a field without a canonical identity"),
@@ -142,6 +138,20 @@ impl MutationManager {
             })
             .map_err(|_| unsupported("an uncaptured native preparation"))?
     }
+}
+
+fn capture_schema_contract(
+    schema: &crate::schema::types::Schema,
+) -> Result<(&str, Option<String>), SchemaError> {
+    let identity = schema
+        .identity_hash
+        .as_deref()
+        .filter(|identity| !identity.is_empty())
+        .ok_or_else(|| unsupported("a missing schema identity"))?;
+    let revision = schema
+        .uses_independent_fields()
+        .then(|| schema.alternate_key_revision());
+    Ok((identity, revision))
 }
 
 fn is_source_tip(tip: &AtomEntry, mutation: &Mutation, atom: &str) -> bool {

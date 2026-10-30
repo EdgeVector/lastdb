@@ -151,7 +151,7 @@ fn read_source(
     marker
         .try_lock()
         .map_err(|_| invalid("snapshot identity source is owned"))?;
-    if files::profile_version(root)? != Some(2) {
+    if !matches!(files::profile_version(root)?, Some(2 | 3)) {
         return Err(invalid("snapshot identity source format differs"));
     }
     let bindings = source_bindings(root)?;
@@ -181,9 +181,11 @@ fn read_source(
         .ok_or_else(|| invalid("snapshot identity source memory overflow"))?;
     main.reserve_metadata(shared).map_err(map)?;
     cas.reserve_metadata(shared).map_err(map)?;
-    proof::verify_account(&main, key, 2)?;
+    let version = files::profile_version(root)?
+        .ok_or_else(|| invalid("snapshot identity source profile is absent"))?;
+    proof::verify_account(&main, key, version)?;
     let profile = RunBackupProfile {
-        version: 2,
+        version,
         main: files::source_profile_home(root, run_node::RUN_DIR, &main)?,
         cas: files::source_profile_home(root, run_node::CAS_DIR, &cas)?,
     };
@@ -232,7 +234,8 @@ fn source_bindings(root: &Path) -> StorageResult<Vec<(PathBuf, File)>> {
 
 fn reader_profile(root: &Path, main: &RunRead, cas: &RunRead) -> StorageResult<RunBackupProfile> {
     let profile = RunBackupProfile {
-        version: 2,
+        version: files::profile_version(root)?
+            .ok_or_else(|| invalid("snapshot identity reader profile is absent"))?,
         main: files::profile_home(root, run_node::RUN_DIR, main)?,
         cas: files::profile_home(root, run_node::CAS_DIR, cas)?,
     };

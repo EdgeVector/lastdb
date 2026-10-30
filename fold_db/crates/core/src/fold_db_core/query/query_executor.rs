@@ -15,8 +15,10 @@ use super::hash_range_query::{
     FieldQueryOptions, HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds,
 };
 
+mod alternate;
 mod count;
 mod current;
+pub use alternate::AlternatePage;
 mod prepare;
 mod rules;
 

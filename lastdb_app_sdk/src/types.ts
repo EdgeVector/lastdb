@@ -45,6 +45,9 @@ export interface QueryCursor extends KeyValue {
 
 /** Options for the keys-only {@link LastDbClient.list} membership page. */
 export interface ListOptions {
+  /** Select a named alternate key. A hash is required with this option. */
+  keyName?: string;
+  hash?: string;
   /** Page size sent to Mini (default 100, clamped by Mini to 1000). */
   limit?: number;
   /** Opaque exclusive cursor returned by the previous page. */
@@ -67,6 +70,9 @@ export interface ListRecordKey {
 export interface ListResult {
   schema: string;
   keys: ListRecordKey[];
+  /** Primary mutation keys aligned with keys when keyName selects an alternate. */
+  primary_keys?: ListRecordKey[];
+  key_name?: string;
   next_cursor: string | null;
   has_more: boolean;
   /** Same honesty signal as `has_more`; one page is not a census. */
@@ -106,6 +112,8 @@ export interface QueryRow {
    * has neither a hash nor a range.
    */
   keyValue: KeyValue | null;
+  /** Coordinates of the named alternate key; keyValue remains the primary mutation key. */
+  matchedKey?: KeyValue | null;
   /** The row's field values, keyed by field name. */
   fields: RowFields;
   /**
@@ -295,6 +303,8 @@ export interface RequestConsentResult {
  * schema.
  */
 export interface QueryFilter {
+  /** Named alternate key within the resolved schema. Omit for the primary key. */
+  keyName?: string;
   /**
    * Restrict to these field names. When omitted, the SDK requests every
    * field the schema declares (it cannot know them ahead of time, so a
@@ -582,7 +592,7 @@ export interface SearchResult {
  * intentionally not capability-scoped to an app's access set.
  */
 export interface LoadedSchema {
-  /** Canonical runtime schema name. On current nodes this is the identity hash. */
+  /** Runtime schema name. Independent app schemas use `app_id/name`. */
   name: string;
   /** Explicit identity hash when the node reports one; falls back to `name`. */
   identityHash: string | null;
@@ -592,6 +602,8 @@ export interface LoadedSchema {
   ownerAppId: string | null;
   /** Declared data field names. */
   fields: string[];
+  /** Field definitions can be shared without sharing this schema's values. */
+  independentFields?: boolean;
 }
 
 /** Descriptor used to resolve an app-owned loaded schema from `/api/schemas`. */

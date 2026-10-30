@@ -75,3 +75,5 @@ pub use schema::SchemaState;
 // Re-export storage types
 pub use storage::DatabaseConfig;
 pub use sync_conflict::SyncConflict;
+
+pub mod alternate_keys;

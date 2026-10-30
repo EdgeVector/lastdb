@@ -8,6 +8,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
         return Ok(counter_namespace_alias(namespace)
             || namespace == "cas_blobs"
             || namespace == "db_catalog"
+            || namespace == "alternate_changes"
             || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(
                 namespace, key,
             ));
@@ -20,7 +21,8 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
     let family = bare.split([':', '\0']).next().unwrap_or_default();
     Ok(matches!(
         family,
-        "mk" | "mh"
+        "ak" | "mk"
+            | "mh"
             | "ahf"
             | "ahk"
             | "ahp"
@@ -104,7 +106,10 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         return Err(unsupported("invalid file dependency directory key"));
     }
     validate_retention(bare, family)?;
-    if let Some(rest) = bare.strip_prefix("mk:") {
+    if let Some(rest) = bare
+        .strip_prefix("mk:")
+        .or_else(|| bare.strip_prefix("ak:"))
+    {
         validate_record(rest)?;
     } else if let Some(molecule) = bare
         .strip_prefix("mh:")
@@ -312,6 +317,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "aref"
             | "bref"
             | "mref"
+            | "ak"
             | "mk"
             | "mh"
             | "mgp"

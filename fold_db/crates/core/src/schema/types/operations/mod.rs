@@ -128,6 +128,8 @@ impl<'de> Deserialize<'de> for SortOrder {
 #[serde(deny_unknown_fields)]
 pub struct Query {
     pub schema_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_name: Option<String>,
     pub fields: Vec<String>,
     pub filter: Option<HashRangeFilter>,
     /// Accepted only so logical reads and counts can explicitly refuse history.
@@ -190,6 +192,7 @@ impl Query {
     pub fn new(schema_name: String, fields: Vec<String>) -> Self {
         Self {
             schema_name,
+            key_name: None,
             fields,
             filter: None,
             as_of: None,
@@ -213,6 +216,7 @@ impl Query {
     ) -> Self {
         Self {
             schema_name,
+            key_name: None,
             fields,
             filter,
             as_of: None,

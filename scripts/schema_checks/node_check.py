@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 import time
 
+from alternate_keys import alternate_key_lifecycle, alternate_field_reuse, alternate_atomic_batch
+
 from field_proteins import field_identity_membership, independent_field_joins, renamed_mapper
 
 from node_cases import (ambiguous_backfill, concurrent_members, late_member, linked_lifecycle, schema_evolution, separation,
@@ -30,6 +32,9 @@ LIMITS = [
     "Explicit migration copies current visible tips; it does not replay historical source Delete barriers.",
 ]
 CASES = [
+    ("alternate-key-lifecycle", alternate_key_lifecycle),
+    ("alternate-key-atomic-batch", alternate_atomic_batch),
+    ("alternate-field-reuse-separation", alternate_field_reuse),
     ("equal-fields-same-key-low-overlap", field_identity_membership),
     ("one-equal-field-local-rename", independent_field_joins),
     ("renamed-mapper-source-identity", renamed_mapper),

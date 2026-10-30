@@ -8,6 +8,8 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.purpose_statement == other.purpose_statement
             && self.schema_type == other.schema_type
             && self.key == other.key
+            && self.alternate_keys == other.alternate_keys
+            && self.independent_fields == other.independent_fields
             && self.fields == other.fields
             && self.transform_fields == other.transform_fields
             && self.field_mappers == other.field_mappers
