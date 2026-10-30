@@ -232,6 +232,14 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         self.list_and_load_releases().await
     }
 
+    async fn load_release(
+        &self,
+        release_id: &str,
+    ) -> FoldDbResult<Option<schema_service_core::app_release::ReleaseRecord>> {
+        self.get_single_object(&format!("releases/{release_id}.json"))
+            .await
+    }
+
     async fn save_channel(
         &self,
         record: &schema_service_core::app_release::ChannelRecord,
@@ -244,6 +252,15 @@ impl ExternalSchemaPersistence for S3BlobPersistence {
         &self,
     ) -> FoldDbResult<HashMap<String, schema_service_core::app_release::ChannelRecord>> {
         self.list_and_load_channels().await
+    }
+
+    async fn load_channel(
+        &self,
+        app_id: &str,
+        channel: &str,
+    ) -> FoldDbResult<Option<schema_service_core::app_release::ChannelRecord>> {
+        self.get_single_object(&format!("channels/{app_id}/{channel}.json"))
+            .await
     }
 
     async fn save_compat_row(

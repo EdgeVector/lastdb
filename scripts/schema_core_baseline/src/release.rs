@@ -165,8 +165,8 @@ pub(crate) async fn write_releases(
     )
     .await;
     (
-        release_rows(&prepared.state, &[&both_id, &profiles_id]),
-        channel_rows(&prepared.state),
+        release_rows(&prepared.state, &[&both_id, &profiles_id]).await,
+        channel_rows(&prepared.state).await,
     )
 }
 
@@ -280,11 +280,13 @@ async fn revoke(
     operations.push(format!("revoke:{release_id}"));
 }
 
-fn release_rows(state: &SchemaServiceState, ids: &[&str]) -> Vec<Value> {
+async fn release_rows(state: &SchemaServiceState, ids: &[&str]) -> Vec<Value> {
     let mut rows = Vec::new();
     for release_id in ids {
         let record = state
             .get_release(release_id)
+            .await
+            .unwrap_or_else(|error| fail("get_release", error))
             .unwrap_or_else(|| fail("get_release", (*release_id).to_string()));
         rows.push(normalize(json!({
             "app_id": record.manifest.app_id,
@@ -304,11 +306,13 @@ fn release_rows(state: &SchemaServiceState, ids: &[&str]) -> Vec<Value> {
     rows
 }
 
-fn channel_rows(state: &SchemaServiceState) -> Vec<Value> {
+async fn channel_rows(state: &SchemaServiceState) -> Vec<Value> {
     let mut rows = Vec::new();
     for channel in ["beta", "stable"] {
         let record = state
             .get_channel(APP_ID, channel)
+            .await
+            .unwrap_or_else(|error| fail("get_channel", error))
             .unwrap_or_else(|| fail("get_channel", channel));
         rows.push(normalize(json!({
             "app_id": record.app_id,
