@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare exact app revisions on one exact daemon, with generated owned homes."""
+"""Compare exact app releases across a real conversion and daemon upgrade in CI."""
 import argparse
 import json
 import os
@@ -8,6 +8,7 @@ import statistics
 import subprocess
 import sys
 import time
+import re
 
 from node import Node, file_hash, save
 
@@ -45,10 +46,11 @@ def run_app(args, app, label, node, output, mode):
                "--baseline", str(args.apps / app / "baseline"),
                "--candidate", str(args.apps / app / "candidate"),
                "--socket", str(node.socket), "--config", str(output / "config.json"),
-               "--output", str(output), "--mode", mode, "--label", label]
+               "--output", str(output), "--mode", mode, "--label", label,
+               "--records", str(args.records)]
     with (output / f"{mode}.log").open("w") as log:
         subprocess.run(command, env=environment, stdout=log, stderr=log, check=True,
-                       timeout=1200)
+                       timeout=3600)
 
 
 def compare(args):
@@ -64,14 +66,23 @@ def compare(args):
             for label in order:
                 output = args.output / app / str(pair) / label
                 output.mkdir(parents=True)
-                node = Node(args.binary, args.revision, output, full_socket_name="folddb-full.sock", environment={
+                setup_binary, setup_revision = ((args.binary, args.revision) if label == "fresh"
+                                               else (args.baseline_binary, args.baseline_revision))
+                node = Node(setup_binary, setup_revision, output, full_socket_name="folddb-full.sock", environment={
                     "APP_IDENTITY_ENFORCE": "false", "LASTDB_SELF_METRICS_TO_DB": "false",
-                    "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_TTL_SWEEP": "0"})
+                    "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "LASTDB_TTL_SWEEP": "0"},
+                    temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
                 try:
                     node.start()
                     run_app(args, app, label, node, output, "setup")
                     finish_setup(node, output)
+                    save(output / "setup-daemon.json", {"revision": setup_revision,
+                         "sha256": file_hash(setup_binary), "version": node.call("/api/version")[0]})
                     node.stop()
+                    if label == "candidate":
+                        # Reuse this owned generated home only after conversion and a clean stop.
+                        # New-release startup must independently admit every installed schema.
+                        node.binary, node.revision = args.binary, args.revision
                     node.start()
                     run_app(args, app, label, node, output, "measure")
                     results.append(json.loads((output / "result.json").read_text()))
@@ -85,7 +96,8 @@ def compare(args):
         if len(before) != 2 or len(after) != 2:
             raise RuntimeError("The comparison lacks two balanced pairs")
         for item in before + after:
-            if item["membership"]["logical_records"] != 256 or item["membership"]["body_bytes"] != 524288:
+            if (item["membership"]["logical_records"] != args.records
+                    or item["membership"]["body_bytes"] != args.records * 2048):
                 raise RuntimeError("Logical app volume differs")
             if any(value["errors"] or value["requests"] < 16 for value in item["metrics"].values()):
                 raise RuntimeError("The comparison contains failed or insufficient requests")
@@ -96,12 +108,19 @@ def compare(args):
                 rows.append({"app": app, "operation": metric, "percentile": percentile,
                              "before_ms": old, "after_ms": new, "change_percent": (new / old - 1) * 100})
     report = {"daemon_revision": args.revision, "daemon_sha256": file_hash(args.binary),
+              "baseline_daemon_revision": args.baseline_revision,
+              "baseline_daemon_sha256": file_hash(args.baseline_binary),
+              "records_per_home": args.records,
               "app_revisions": revisions, "balanced_pairs": 2, "rows": rows,
               "results": results, "primary_unchanged": True}
     save(args.output / "comparison.json", report)
     lines = ["## App multi-key comparison", "", f"Daemon: `{args.revision}`",
-             "Two balanced pairs. Each home contains 256 generated records and 524288 body bytes.",
-             "The same daemon serves both exact app revisions. No primary data participates.", "",
+             f"Compatible release: `{args.baseline_revision}`.",
+             f"Two balanced pairs. Each home contains {args.records} generated records and {args.records * 2048} body bytes.",
+             "The compatible release seeds both arms and converts the candidate. The removal release then reopens the converted home.",
+             "The baseline retains the earlier app and daemon. A separate fresh-init arm uses the new app and daemon.",
+             "This measures the complete app-and-daemon cutover. The same-layout native benchmark isolates engine latency separately.",
+             "No primary data participates.", "",
              "| App / operation | Percentile | Before ms | After ms | Change |",
              "|---|---|---:|---:|---:|"]
     for row in rows:
@@ -121,7 +140,14 @@ def main():
     parser = argparse.ArgumentParser()
     for name in ["binary", "revision", "apps", "driver", "revisions", "output"]:
         parser.add_argument("--" + name, required=True, type=str if name == "revision" else Path)
+    parser.add_argument("--baseline-binary", type=Path, required=True)
+    parser.add_argument("--baseline-revision", required=True)
+    parser.add_argument("--records", type=int, choices=[1000, 10000], required=True)
     args = parser.parse_args()
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        parser.error("App comparison builds and operations run only in CI")
+    if any(not re.fullmatch("[0-9a-f]{40}", value) for value in (args.revision, args.baseline_revision)):
+        parser.error("Both daemon revisions must name exact source commits")
     args.output.mkdir(parents=True, exist_ok=True)
     compare(args)
 
