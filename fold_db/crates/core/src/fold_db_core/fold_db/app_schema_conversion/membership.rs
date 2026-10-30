@@ -3,6 +3,29 @@
 use super::*;
 use crate::schema::types::KeyValue;
 
+impl Target {
+    pub(super) fn source_keys(&self) -> Result<u64, SchemaError> {
+        if self.retained_coordinates {
+            let fields = self.source.fields.as_deref().unwrap_or_default();
+            if fields.len() != 1 || self.expected.len() != 1 {
+                return Err(invalid(
+                    "external Hash coverage requires its sole declared field",
+                ));
+            }
+            // Status deserializes wire metadata without hydrating runtime fields.
+            return self
+                .expected
+                .get(&fields[0])
+                .copied()
+                .ok_or_else(|| invalid("external Hash coverage field differs"));
+        }
+        self.expected
+            .get(primary(&self.source)?)
+            .copied()
+            .ok_or_else(|| invalid("conversion source count is absent"))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SchemaMembership {

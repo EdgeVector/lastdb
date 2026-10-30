@@ -112,30 +112,6 @@ struct Target {
     retained_coordinates: bool,
 }
 
-impl Target {
-    fn source_keys(&self) -> Result<u64, SchemaError> {
-        if self.retained_coordinates {
-            let fields = self.source.fields.as_deref().unwrap_or_default();
-            if fields.len() != 1 || self.expected.len() != 1 {
-                return Err(invalid(
-                    "external Hash coverage requires its sole declared field",
-                ));
-            }
-            // Status deserializes wire metadata without hydrating runtime fields.
-            return self
-                .expected
-                .get(&fields[0])
-                .copied()
-                .ok_or_else(|| invalid("external Hash coverage field differs"));
-        }
-        let field = primary(&self.source)?;
-        self.expected
-            .get(field)
-            .copied()
-            .ok_or_else(|| invalid("conversion source count is absent"))
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 struct Change {
     id: String,
