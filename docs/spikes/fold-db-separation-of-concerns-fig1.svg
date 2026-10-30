@@ -1,0 +1,165 @@
+<svg viewBox="0 0 780 880" xmlns="http://www.w3.org/2000/svg"
+     style="width:100%;height:auto;max-width:780px;display:block;margin:0 auto;background:#fff"
+     font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <defs>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#666" stroke-width="1"/>
+    </pattern>
+    <marker id="arr" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#000"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="780" height="880" fill="#fff"/>
+
+  <!-- ===================== A · NOW ===================== -->
+  <text x="40" y="24" font-size="11" fill="#000">A · NOW — MAIN AT e1a4a349c</text>
+
+  <!-- consumer crates -->
+  <rect x="40" y="40" width="160" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="52" y="60" font-size="11" fill="#000">LASTDB_NODE</text>
+  <text x="52" y="78" font-size="10" fill="#666">uses every module</text>
+
+  <rect x="220" y="40" width="160" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="232" y="60" font-size="11" fill="#000">LASTDB_HOST</text>
+  <text x="232" y="78" font-size="10" fill="#666">uses schema types ×33</text>
+
+  <rect x="400" y="40" width="160" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="412" y="60" font-size="11" fill="#000">LASTDB_UDS</text>
+  <text x="412" y="78" font-size="10" fill="#666">uses access, clock</text>
+
+  <rect x="580" y="40" width="160" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="592" y="60" font-size="11" fill="#000">LASTDB_IDENTITY</text>
+  <text x="592" y="78" font-size="10" fill="#666">107 lines · keys, hex</text>
+
+  <!-- edges into fold_db -->
+  <line x1="120" y1="90" x2="120" y2="150" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="300" y1="90" x2="300" y2="150" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="480" y1="90" x2="480" y2="150" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="660" y1="90" x2="660" y2="150" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="118" y="88" width="4" height="4" fill="#000"/>
+  <rect x="298" y="88" width="4" height="4" fill="#000"/>
+  <rect x="478" y="88" width="4" height="4" fill="#000"/>
+  <rect x="658" y="88" width="4" height="4" fill="#000"/>
+
+  <!-- fold_db: one crate -->
+  <rect x="40" y="150" width="700" height="190" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="56" y="174" font-size="12" fill="#000">FOLD_DB — ONE CRATE · 815 FILES · 108,687 LINES</text>
+  <line x1="390" y1="188" x2="390" y2="304" stroke="#000" stroke-width="1" stroke-dasharray="4 3"/>
+
+  <text x="56" y="204" font-size="10" fill="#000">WHAT IT DECIDES</text>
+  <text x="56" y="226" font-size="10" fill="#666">atom · molecule · schema types</text>
+  <text x="56" y="244" font-size="10" fill="#666">mutation · key values · codecs</text>
+  <text x="56" y="262" font-size="10" fill="#666">write plan · backup plan · purge</text>
+  <text x="56" y="280" font-size="10" fill="#666">warm set admission · retention</text>
+
+  <text x="406" y="204" font-size="10" fill="#000">WHAT IT TOUCHES — SAME FUNCTIONS</text>
+  <text x="406" y="226" font-size="10" fill="#666">Uuid::new_v4 ×19 · Utc::now ×30</text>
+  <text x="406" y="244" font-size="10" fill="#666">env reads ×42 · OnceLock ×15</text>
+  <text x="406" y="262" font-size="10" fill="#666">task spawns ×13 · disk I/O</text>
+  <text x="406" y="280" font-size="10" fill="#666">reqwest HTTP in sync/auth</text>
+
+  <line x1="56" y1="306" x2="724" y2="306" stroke="#000" stroke-width="1" stroke-dasharray="2 3"/>
+  <text x="56" y="326" font-size="10" fill="#666">manifest: reqwest · openssl · tokio · laststore · libc — every dependent builds all of it</text>
+
+  <!-- disk -->
+  <line x1="390" y1="340" x2="390" y2="363" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="388" y="338" width="4" height="4" fill="#000"/>
+  <path d="M 340 372 A 50 9 0 0 1 440 372 L 440 408 A 50 9 0 0 1 340 408 Z"
+        fill="url(#hatch)" stroke="#000" stroke-width="1"/>
+  <ellipse cx="390" cy="372" rx="50" ry="9" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="456" y="390" font-size="11" fill="#000">DISK</text>
+  <text x="456" y="404" font-size="10" fill="#666">laststore files</text>
+
+  <!-- panel separator -->
+  <line x1="40" y1="444" x2="740" y2="444" stroke="#000" stroke-width="1" stroke-dasharray="2 4"/>
+
+  <!-- ===================== B · TARGET ===================== -->
+  <text x="40" y="474" font-size="11" fill="#000">B · TARGET — HOST → ENGINE → PURE MODEL</text>
+
+  <!-- row A: host process + transport -->
+  <rect x="260" y="490" width="260" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="272" y="510" font-size="11" fill="#000">LASTDB_NODE — HOST</text>
+  <text x="272" y="528" font-size="10" fill="#666">env once · SystemClock · SystemIds</text>
+
+  <rect x="552" y="490" width="196" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="564" y="510" font-size="11" fill="#000">LASTDB_BACKUP_TRANSPORT</text>
+  <text x="564" y="528" font-size="10" fill="#666">reqwest · upload · download</text>
+
+  <line x1="520" y1="515" x2="552" y2="515" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="518" y="513" width="4" height="4" fill="#000"/>
+
+  <!-- row B: wire host, engine, disk -->
+  <rect x="40" y="580" width="160" height="64" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="52" y="600" font-size="11" fill="#000">LASTDB_HOST</text>
+  <text x="52" y="618" font-size="10" fill="#666">wire contract</text>
+
+  <rect x="260" y="580" width="260" height="64" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="272" y="600" font-size="11" fill="#000">FOLD_DB — ENGINE</text>
+  <text x="272" y="618" font-size="10" fill="#666">memory · disk · flush</text>
+  <text x="272" y="634" font-size="10" fill="#666">gets Clock · IdGen · EngineConfig</text>
+
+  <line x1="390" y1="540" x2="390" y2="580" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="388" y="538" width="4" height="4" fill="#000"/>
+
+  <line x1="200" y1="598" x2="260" y2="598" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="198" y="596" width="4" height="4" fill="#000"/>
+
+  <line x1="520" y1="612" x2="600" y2="612" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="518" y="610" width="4" height="4" fill="#000"/>
+  <path d="M 600 596 A 50 9 0 0 1 700 596 L 700 630 A 50 9 0 0 1 600 630 Z"
+        fill="url(#hatch)" stroke="#000" stroke-width="1"/>
+  <ellipse cx="650" cy="596" rx="50" ry="9" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="600" y="660" font-size="10" fill="#666">DISK · laststore files</text>
+
+  <!-- row C: uds, model -->
+  <rect x="40" y="690" width="160" height="64" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="52" y="710" font-size="11" fill="#000">LASTDB_UDS</text>
+  <text x="52" y="728" font-size="10" fill="#666">socket · peer_cred</text>
+
+  <rect x="260" y="690" width="260" height="64" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="272" y="710" font-size="11" fill="#000">LASTDB_MODEL — PURE</text>
+  <text x="272" y="728" font-size="10" fill="#666">atom · molecule · schema types</text>
+  <text x="272" y="744" font-size="10" fill="#666">mutation · codecs · plans</text>
+
+  <line x1="390" y1="644" x2="390" y2="690" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="388" y="642" width="4" height="4" fill="#000"/>
+
+  <!-- host -> model (elbow) -->
+  <polyline points="200,626 230,626 230,712 260,712" fill="none" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="198" y="624" width="4" height="4" fill="#000"/>
+
+  <!-- row D: identity, primitives -->
+  <rect x="40" y="800" width="160" height="50" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="52" y="820" font-size="11" fill="#000">LASTDB_IDENTITY</text>
+  <text x="52" y="838" font-size="10" fill="#666">identity.key file</text>
+
+  <rect x="260" y="800" width="260" height="50" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="272" y="820" font-size="11" fill="#000">LASTDB_PRIMITIVES — PURE</text>
+  <text x="272" y="838" font-size="10" fill="#666">hex · keys · access types</text>
+
+  <line x1="390" y1="754" x2="390" y2="800" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="388" y="752" width="4" height="4" fill="#000"/>
+
+  <!-- uds -> primitives (elbow) -->
+  <polyline points="200,734 245,734 245,816 260,816" fill="none" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="198" y="732" width="4" height="4" fill="#000"/>
+
+  <!-- identity -> primitives -->
+  <line x1="200" y1="836" x2="260" y2="836" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <rect x="198" y="834" width="4" height="4" fill="#000"/>
+
+  <!-- legend -->
+  <text x="560" y="706" font-size="10" fill="#000">LEGEND</text>
+  <rect x="560" y="718" width="28" height="16" fill="none" stroke="#000" stroke-width="2"/>
+  <text x="598" y="730" font-size="10" fill="#000">OWNS I/O</text>
+  <text x="598" y="743" font-size="9" fill="#666">env · clock · disk · net</text>
+  <rect x="560" y="754" width="28" height="16" fill="none" stroke="#000" stroke-width="1"/>
+  <text x="598" y="766" font-size="10" fill="#000">PURE</text>
+  <text x="598" y="779" font-size="9" fill="#666">values in, values out</text>
+  <path d="M 560 794 A 14 4 0 0 1 588 794 L 588 806 A 14 4 0 0 1 560 806 Z"
+        fill="url(#hatch)" stroke="#000" stroke-width="1"/>
+  <ellipse cx="574" cy="794" rx="14" ry="4" fill="#fff" stroke="#000" stroke-width="1"/>
+  <text x="598" y="804" font-size="10" fill="#000">STORED BYTES</text>
+  <line x1="560" y1="828" x2="588" y2="828" stroke="#000" stroke-width="1" marker-end="url(#arr)"/>
+  <text x="598" y="832" font-size="10" fill="#000">DEPENDS ON</text>
+</svg>
