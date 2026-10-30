@@ -10,16 +10,7 @@ impl MoleculeHashRange {
     /// Creates a new empty MoleculeHashRange with a deterministic UUID.
     #[must_use]
     pub fn new(schema_name: &str, field_name: &str) -> Self {
-        Self {
-            uuid: deterministic_molecule_uuid(schema_name, field_name),
-            atom_uuids: HashMap::new(),
-            pending_tip_conflicts: Vec::new(),
-            updated_at: Utc::now(),
-            order_is_tail: false,
-            loaded_is_partial: false,
-            version: 0,
-            key_metadata: HashMap::new(),
-        }
+        Self::empty(deterministic_molecule_uuid(schema_name, field_name))
     }
 
     /// Creates a new empty MoleculeHashRange under an **already-assigned**
@@ -33,6 +24,10 @@ impl MoleculeHashRange {
     /// (schema, field) silently re-anchors the field onto a second molecule.
     #[must_use]
     pub fn with_uuid(uuid: String) -> Self {
+        Self::empty(uuid)
+    }
+
+    fn empty(uuid: String) -> Self {
         Self {
             uuid,
             atom_uuids: HashMap::new(),
