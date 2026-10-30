@@ -1,6 +1,6 @@
 //! Range reads that continue across a budget stop in a run of deleted keys.
 
-use super::rows::{cursor, require_page_limit, NativeRows};
+use super::rows::{cursor, decode_native_rows, require_page_limit, NativeRows};
 use super::*;
 
 impl PackKvStore {
@@ -48,10 +48,7 @@ impl PackKvStore {
                 limit,
                 keys_per_row,
             )?;
-            let rows = rows
-                .into_iter()
-                .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
-                .collect::<StorageResult<Vec<_>>>()?;
+            let rows = decode_native_rows(rows)?;
             let resume = resume.map(|key| native_routing::decode(&key)).transpose()?;
             Ok((rows, resume))
         })
