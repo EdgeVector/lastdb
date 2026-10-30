@@ -28,28 +28,28 @@ pub(in crate::storage::disk_pack) fn require_captured_changes(
         return Ok(());
     }
     for operation in operations {
-        if changes_logical_data(operation)? {
-            return Err(StorageError::InvalidOperation(
-                "logical capture refuses this unsupported data writer before native acceptance"
-                    .into(),
-            ));
-        }
+        require_metadata_only(operation)?;
     }
     Ok(())
 }
 
-fn changes_logical_data(operation: &HomeMutation) -> StorageResult<bool> {
-    if !matches!(operation.collection.as_str(), "tips") {
-        return Ok(false);
+fn require_metadata_only(operation: &HomeMutation) -> StorageResult<()> {
+    if operation.collection != "tips" {
+        return Ok(());
     }
     let key = super::super::native_routing::decode(&operation.key)?;
     let Ok(key) = std::str::from_utf8(&key) else {
-        return Ok(false);
+        return Ok(());
     };
     let Ok(key) = crate::storage::current_keys::source_key(key) else {
         // Other metadata in the fallback collection is not a molecule key.
-        return Ok(false);
+        return Ok(());
     };
     let family = key.split([':', '\0']).next().unwrap_or_default();
-    Ok(matches!(family, "mk" | "rdel" | "mgp" | "mgr" | "mgd"))
+    if matches!(family, "mk" | "rdel" | "mgp" | "mgr" | "mgd") {
+        return Err(StorageError::InvalidOperation(
+            "logical capture refuses this unsupported data writer before native acceptance".into(),
+        ));
+    }
+    Ok(())
 }

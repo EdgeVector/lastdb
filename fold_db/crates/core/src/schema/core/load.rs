@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 use super::locks::{lock_map, write_map};
 use super::SchemaCore;
 
+mod molecule_map;
 pub(super) mod owned;
-mod predecessor;
 mod rules;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
@@ -248,7 +248,7 @@ impl SchemaCore {
             )
             .await?;
         }
-        self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
+        molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
         schema.sync_molecule_uuids();
         let retained_owned = existing.as_ref().is_some_and(|stored| {
             stored.uses_independent_fields()

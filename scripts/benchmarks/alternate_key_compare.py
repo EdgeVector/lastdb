@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI comparison of equivalent two-key records: proteins versus named alternate keys."""
+"""CI comparison of the same named alternate-key workload on two exact releases."""
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -27,25 +27,16 @@ def values(key, group="g0"):
     return {"record_id": key, "group_id": group, "owner_id": "owner", "payload": PAYLOAD}
 
 
-def declare(node, alternate, records=256):
-    definition = task_definition("Task")
-    if not alternate:
-        definition.pop("alternate_keys")
-    install(node, definition)
-    if not alternate:
-        for name, hash_field in (("ByGroup", "group_id"), ("ByOwner", "owner_id")):
-            peer = dict(definition, name=name, descriptive_name=name, schema_type="HashRange",
-                        key={"hash_field": hash_field, "range_field": "record_id"})
-            install(node, peer)
+def declare(node, records=256):
+    install(node, task_definition("Task"))
     for offset in range(0, records, 32):
         node.call("/api/mutations/batch",
                   [mutation(f"t{i:04}", values(f"t{i:04}"), "create") for i in range(offset, offset + 32)])
 
 
-def query(alternate, name, predicate, limit=1000):
-    body = {"schema_name": "Task" if alternate or name == "primary" else "ByGroup",
-            "fields": FIELDS, "filter": predicate, "limit": limit}
-    if alternate and name != "primary":
+def query(name, predicate, limit=1000):
+    body = {"schema_name": "Task", "fields": FIELDS, "filter": predicate, "limit": limit}
+    if name != "primary":
         body["key_name"] = "by_group"
     return body
 
@@ -66,7 +57,7 @@ def timed(node, label, pair, case, ordinal, path, body, records):
     return reply
 
 
-def measure_reads(node, alternate, label, pair, records):
+def measure_reads(node, label, pair, records):
     for case in ("cold_alternate_exact", "primary_read", "alternate_exact", "alternate_range32"):
         if case == "cold_alternate_exact":
             node.stop()
@@ -74,18 +65,18 @@ def measure_reads(node, alternate, label, pair, records):
         for i in range(256):
             key = f"t{i:04}"
             if case == "primary_read":
-                body = query(alternate, "primary", {"HashKey": key})
+                body = query("primary", {"HashKey": key})
                 expected = {key: values(key)}
             elif case in ("cold_alternate_exact", "alternate_exact"):
-                body = query(alternate, "by_group", {"HashRangeKey": {"hash": "g0", "range": key}})
+                body = query("by_group", {"HashRangeKey": {"hash": "g0", "range": key}})
                 expected = {key: values(key)}
             else:
-                body = query(alternate, "by_group", {"HashKey": "g0"}, limit=32)
+                body = query("by_group", {"HashKey": "g0"}, limit=32)
                 expected = {f"t{j:04}": values(f"t{j:04}") for j in range(32)}
             check_rows(timed(node, label, pair, case, i, "/api/query", body, records), expected)
 
 
-def measure_writes(node, alternate, label, pair, records):
+def measure_writes(node, label, pair, records):
     for i in range(256):
         key = f"t{i:04}"
         timed(node, label, pair, "payload_update", i, "/api/mutation",
@@ -94,8 +85,8 @@ def measure_writes(node, alternate, label, pair, records):
         timed(node, label, pair, "key_move", i, "/api/mutation",
               mutation(f"t{i:04}", {"group_id": "g1"}), records)
     expected = {f"t{i:04}": dict(values(f"t{i:04}", "g1"), payload=PAYLOAD + "u") for i in range(256)}
-    check_rows(node.call("/api/query", query(alternate, "by_group", {"HashKey": "g1"}))[0], expected)
-    check_rows(node.call("/api/query", query(alternate, "by_group", {"HashKey": "g0"}))[0], {})
+    check_rows(node.call("/api/query", query("by_group", {"HashKey": "g1"}))[0], expected)
+    check_rows(node.call("/api/query", query("by_group", {"HashKey": "g0"}))[0], {})
     for i in range(16):
         batch = [mutation(f"new{i:02}-{j:02}", values(f"new{i:02}-{j:02}", "new"), "create")
                  for j in range(32)]
@@ -103,18 +94,18 @@ def measure_writes(node, alternate, label, pair, records):
     for i in range(128):
         timed(node, label, pair, "delete", i, "/api/mutation",
               mutation(f"t{i:04}", operation="delete"), records)
-    check_rows(node.call("/api/query", query(alternate, "by_group", {"HashKey": "g1"}))[0],
+    check_rows(node.call("/api/query", query("by_group", {"HashKey": "g1"}))[0],
                {key: fields for key, fields in expected.items() if int(key[1:]) >= 128})
 
 
-def mixed(node, alternate, label, pair, records):
+def mixed(node, label, pair, records):
     def client(worker):
         samples = []
         key = f"mixed-{worker}"
         node.call("/api/mutation", mutation(key, values(key, "mixed"), "create"))
         for ordinal in range(32):
             reply = timed(node, label, pair, "mixed_read", worker * 32 + ordinal, "/api/query",
-                          query(alternate, "by_group", {"HashRangeKey": {"hash": "mixed", "range": key}}), samples)
+                          query("by_group", {"HashRangeKey": {"hash": "mixed", "range": key}}), samples)
             expected = values(key, "mixed")
             if ordinal:
                 expected["payload"] = PAYLOAD + str(ordinal - 1)
@@ -128,7 +119,6 @@ def mixed(node, alternate, label, pair, records):
 
 
 def arm(args, label, pair, output):
-    alternate = label == "candidate"
     binary = getattr(args, label)
     revision = getattr(args, label + "_revision")
     node = Node(binary, revision, output, environment=ENVIRONMENT,
@@ -136,15 +126,15 @@ def arm(args, label, pair, output):
     records = []
     try:
         node.start()
-        declare(node, alternate)
+        declare(node)
         for _ in range(8):
-            node.call("/api/query", query(alternate, "by_group", {"HashKey": "g0"}, limit=32))
-        measure_reads(node, alternate, label, pair, records)
-        measure_writes(node, alternate, label, pair, records)
-        mixed(node, alternate, label, pair, records)
+            node.call("/api/query", query("by_group", {"HashKey": "g0"}, limit=32))
+        measure_reads(node, label, pair, records)
+        measure_writes(node, label, pair, records)
+        mixed(node, label, pair, records)
         node.stop()
         node.start()
-        check_rows(node.call("/api/query", query(alternate, "by_group", {"HashKey": "new"}))[0],
+        check_rows(node.call("/api/query", query("by_group", {"HashKey": "new"}))[0],
                    {f"new{i:02}-{j:02}": values(f"new{i:02}-{j:02}", "new")
                     for i in range(16) for j in range(32)})
         save(output / "status.json", node.call("/api/status")[0])
@@ -161,11 +151,11 @@ def quantile(values, fraction):
 
 
 def summary(args, records):
-    lines = ["## Alternate-key spike latency", "",
-             f"Baseline: `{args.baseline_revision}` (three schemas with proteins).",
+    lines = ["## Named alternate-key request latency", "",
+             f"Baseline: `{args.baseline_revision}` (one schema with two alternate keys).",
              f"Candidate: `{args.candidate_revision}` (one schema with two alternate keys).", "",
              "Four fresh-home pairs use orders AB, BA, AB, BA. Fields, keys, and payloads match.",
-             "The home formats differ, so this is a logical workload comparison, not an identical-file control.", "",
+             "Both releases receive the same declaration and complete logical workload on fresh generated homes.", "",
              "| Case | Base P50 ms | New P50 ms | Base P95 ms | New P95 ms | P95 change |",
              "|---|---:|---:|---:|---:|---:|"]
     results = {}
@@ -182,8 +172,8 @@ def summary(args, records):
     lines += ["", f"Valid timed calls: {len(records)}. Request errors: 0.",
               "Mixed clients alternate a read and a write throughout each arm.",
               "Cold cases start with empty logical memory after reopen; OS file pages remain uncontrolled.",
-              "The primary_read case follows alternate reads: the candidate reuses their primary-field memory; the baseline does not.",
-              "That row measures cross-key memory reuse, rather than equal initial primary-read memory states.",
+              "The primary_read case follows alternate reads, so both releases can reuse primary-field memory.",
+              "That row includes cross-key memory reuse after the same prior requests in both releases.",
               "All arms verify durable writes, logical records, reopen, and owned-home cleanup.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,

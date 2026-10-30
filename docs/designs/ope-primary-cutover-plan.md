@@ -82,7 +82,7 @@ Either deliver the authorized scoped key grant or refuse that conversion explici
 
 Update exact reads, batch reads, prefix reads, bounded ranges, and cursor pages together.
 Update the disk route, optional preload route, and final response filters with the same bound rules.
-Update protein key changes, deletes, retention, conflicts, replay, and maintenance readers and writers.
+Update named alternate-key changes, deletes, retention, conflicts, replay, and maintenance readers and writers.
 Protect original range copies in core-owned events and cloud payloads, or exclude them through an explicit supported boundary.
 Keep authorized local app storage outside the core confidentiality claim.
 
@@ -134,7 +134,7 @@ Use supported product operations for the permitted operational observations:
 - Exact and batch reads, prefixes, range bounds, and cursor continuation return the expected records.
 - Empty ranges, shared prefixes, Unicode, case distinctions, and supported maximum lengths preserve their semantics.
 - Optional preload and the disk route return the same selected records.
-- Protein key changes, deletes, retained conflicts, compaction, and reopen preserve the accepted state.
+- Named alternate-key changes, deletes, retained conflicts, compaction, and reopen preserve the accepted state.
 - Conversion resume and backup restore preserve complete native relationships.
 - Wrong identities and incompatible formats produce explicit refusal.
 

@@ -198,8 +198,8 @@ slower at p95 than the same writers on the node with no sweep. The two nodes ran
 windows of a host that changed, so read these as a bound and not as a measurement. The duty of
 25 percent means that writers wait for the sweep about a quarter of the time.
 
-A `purge` batch reads 9 to 12 keys for each tip it removes (the target tips, the protein peers, the
-counters and the body records), so its cost follows the number of keys and fields of the batch. It
+A `purge` batch reads the target tips, counters, and body records.
+Its cost follows the selected keys and fields, rather than the size of the schema. It
 never follows the size of the schema. A purge of 64 keys of a 24-field schema (1,536 tips,
 6,046 operations) held the gate for 215 to 255 ms and took 0.66 to 1.6 s.
 

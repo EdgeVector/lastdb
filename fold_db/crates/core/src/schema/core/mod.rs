@@ -6,7 +6,6 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaState;
 
 mod cache;
-mod field_mapping;
 mod load;
 mod locks;
 mod read_snapshot;

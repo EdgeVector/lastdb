@@ -89,10 +89,11 @@ many small fields up to the ceiling, but it is not a blob store. Shape rules for
 data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
 Shape rules.
 
-**No history.** A rewrite keeps no older version. The replaced atom loses one
-reference, and its body goes when its last reference goes. The home has no `as_of`
-read and no per-key history. The one exception is a conflicting write (see
-Delete, purge and TTL).
+**Field history.** History stays off until a field policy retains earlier values.
+The `keep` policy retains a replaced value. The `ttl` policy sets its expiry.
+Each retained value holds an atom reference until its history entry leaves.
+A named alternate address has no separate payload history.
+See [field history](lastdb-atom-history.md). Conflicting writes have their separate retention rule below.
 
 ### File
 
@@ -337,4 +338,4 @@ database catalog with per-molecule key bundles (it replaces the earlier
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
 | Atom size ceiling | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
-| Counter lifecycle design and what was built | `docs/design-lastdb-counter-lifecycle.md` |
+| Counter lifecycle design and what was built | `docs/lastdb-atom-counter.md` |

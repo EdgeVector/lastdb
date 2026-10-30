@@ -2,7 +2,7 @@
 
 This page is the operator and reader reference for how LastDB decides that an
 atom body, a molecule, or a file blob may leave the store. The plan and the
-reasons are in `docs/design-lastdb-counter-lifecycle.md`. The detail pages are
+reasons are in `docs/lastdb-atom-counter.md`. The detail pages are
 linked from each section.
 
 ## Terms
@@ -39,7 +39,7 @@ and of a file blob.
 | Atom counter | `atom:{uuid}\0c` | `atoms` | `{"v":1,"refs":N,"blobs":[...],"sz":[a,b],"src":"source-schema","suspect":true}`; optional values appear only when set |
 | Molecule header | `mh:{M}` | `tips` | `slots` and `records` counters |
 | Binding counter | `mref:v1:n:{target}` | `molecule_ref_edges` | `bindings` |
-| Binding record | `mref:v1:e:{target}\0{source}` | `molecule_ref_edges` | one per schema field, protein member, or catalog entry |
+| Binding record | `mref:v1:e:{target}\0{source}` | `molecule_ref_edges` | one per schema field or catalog entry |
 | Drain candidate | `mref:v1:d\0{scope}\0{molecule}` | `molecule_ref_edges` | a molecule that lost its last binding |
 | Conflict record | `history\0{molecule}:{ts}:conflict:{digest}` or `...:suppressed:{digest}` | `tips` | one counted reference to each distinct atom it names |
 | Retention queue entry | `crq:v1:{bucket:020}\0{expires:020}:{record_id}` | `tips` | the expiry of a conflict record |
@@ -52,7 +52,7 @@ and of a file blob.
 its prefix before the key. The first NUL ends the hash, so the body and the
 counter of one atom share one hash group, and a purge touches one group for
 each atom. A counter holds `suspect` only after a planner found a fault.
-The optional `src` value retains the atom's source schema for a usage debit after a protein peer removes its last reference.
+The optional `src` value retains the atom's source schema for the usage debit when its last reference leaves.
 An older counter without `src` makes schema usage state incomplete; the code does not guess its owner.
 
 Details per family: `docs/lastdb-molecule-counters.md`,
@@ -84,7 +84,7 @@ One module writes tips, conflict references, bodies and counters:
    with one `batch_mutate`. The same run changes the molecule counters `slots`
    and `records` and the blob counters.
 
-The callers: tip writes (create, update, rewrite), the protein sibling write,
+The callers: tip writes (create, update, rewrite),
 user Delete, Purge, the TTL sweep, the conflict recorder, the retention janitor,
 the molecule drain, the retirement of queue buckets, and the repair of queue
 rows.
@@ -145,7 +145,7 @@ of keys of the request and never the size of the schema.
 | Removes the tips of the key | yes | yes |
 | Frees each body whose last reference goes | yes, same batch | yes, same batch |
 | Writes a delete barrier (`rdel:v2:`) | yes, so a replayed older write cannot bring the key back | no |
-| Reaches the protein siblings of the key | HashRange siblings only | HashRange siblings only |
+| Removes the record's named alternate addresses | yes, same native request | yes, same native request |
 | Releases the kept conflict records of the key | yes | yes |
 | Leaves `mgd:v1:` markers | only for an active or prepared generation | only for an active or prepared generation |
 
@@ -250,7 +250,7 @@ slots they remove and release the records in the same batch as the tip deletes.
   A shorter retention window cannot discard unfinished erase work.
   Each record also retains its own expiry queue entry.
   The marker's older `window_nanos` field remains readable but supplies no completion proof.
-- A protein key move is not an erase and releases nothing.
+- A named alternate address stores a primary record key, not a payload atom reference. Its move releases no payload body.
 - The reads of an erase run inside the gate and share the 40,000 key budget. A slot
   whose earlier releases left more than that many deleted directory keys can make
   the read of a later erase of the same slot fail with a read error. The erase then
@@ -305,7 +305,7 @@ release does not debit.
 ## Molecule counters and the drain
 
 A molecule has three counters: `slots` (tip records) and `records` (conflict records)
-in its header, and `bindings` (schema field, protein member and catalog binding
+in its header, and `bindings` (schema field and catalog binding
 records) in `mref:v1:n:{target}`. `bindings` is not in the header because the
 presence of a header means that the molecule lives at that prefix, and a bind comes
 before the first tip. A molecule may go only when all three are zero, none is
@@ -388,7 +388,6 @@ release the kept conflict records of the slots they remove. See
 | `lastdb liveness explain atom\|molecule\|blob` | `POST /api/storage/liveness/explain` | live node | shows the counters of named atoms, molecules or blobs |
 | `lastdb db delete-ledger` | `GET /api/db/delete-ledger` | live node | reads the durable audit trail of purges and deletes, oldest first; a row names the caller and holds counts, never content |
 | `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
-| `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
 | `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth |
 
 ### `lastdb db verify-refs`
@@ -657,4 +656,4 @@ Before this design, an atom was deleted only after a live count, a candidate que
 a 24-hour grace window, an audit lap and a peer-apply interlock all agreed. Reverse edge
 records held the count outside the batch of the tip. The design page lists what was
 removed and what replaced it, and the section "What was built and where it differs"
-lists the steps and the limits: `docs/design-lastdb-counter-lifecycle.md`.
+lists the steps and the limits: `docs/lastdb-atom-counter.md`.

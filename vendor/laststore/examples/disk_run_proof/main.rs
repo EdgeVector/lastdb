@@ -11,7 +11,7 @@ mod seed;
 
 use laststore::disk_run::{Found, MergeIter, RunOptions, RunReader, RunWriter};
 use levels::Levels;
-use seed::{build_stream, v2_records_in_write_order, StreamOptions, MIB};
+use seed::{build_stream, v2_records_in_write_order, MIB};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
 
 fn run(scratch: &Path) -> Result<()> {
     let key = random_key()?;
-    let stream = build_stream(&StreamOptions { proteins: false });
+    let stream = build_stream();
     let logical = stream.logical_atom_bytes;
     let mut rows = Vec::new();
     for (name, ope, dir) in [

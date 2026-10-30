@@ -71,7 +71,7 @@ It cannot become a general record list.
 | Field predicates | Known values or known absence for every field that the predicate needs. |
 | Value order | Known sort values for the full candidate domain, unless the key order already supplies that order. |
 | Write or delete | One publication of logical changes, dirty state, and reserved flush work before the ack. |
-| Protein or copied schema | Shared current objects, with the same read and publication rules. |
+| Explicit database catalog reference | The referenced schema uses the same current objects and publication rules. |
 | Cloud import | The same current-value selection and publication as a local write. |
 
 Remove Single and standalone Range through schema declarations, callers, and clients together.
@@ -239,8 +239,8 @@ No additional atom UUID or content hash is required.
 Metadata conflicts must not substitute another slot's metadata.
 
 A used path does not fetch other fields or keys.
-A protein update follows the existing propagation schedule.
-Every related update enters the same logical owner when that update becomes accepted.
+Named alternate addresses select the same primary records.
+The record and its alternate addresses enter one logical publication when the request becomes accepted.
 
 ## Key order
 
@@ -477,7 +477,7 @@ Reserve logical capacity and queue space before the ack.
 Publish changed core tips, atom associations, absence, ordered membership, dirty state, and flush jobs together.
 Publication cannot fail after it exposes only part of the batch.
 
-Every writer participates, including durable writes, proteins, imports, retention, backfill, schema changes, and administrative changes.
+Every writer participates, including durable writes, alternate-key changes, imports, retention, backfill, schema changes, and administrative changes.
 Ordinary mutations publish typed per-key changes.
 A replacement larger than the path budget uses a typed root transition.
 A durable write still changes the logical owner before its ack.

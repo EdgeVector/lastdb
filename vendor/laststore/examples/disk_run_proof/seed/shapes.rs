@@ -6,7 +6,6 @@
         3,
         Range::Marker,
         Body::Json,
-        true,
     ),
     shape(
         "Reference",
@@ -15,7 +14,6 @@
         10,
         Range::None,
         Body::Text,
-        false,
     ),
     shape(
         "Papercut",
@@ -24,7 +22,6 @@
         10,
         Range::None,
         Body::Text,
-        false,
     ),
     shape(
         "BrainListLocator",
@@ -33,7 +30,6 @@
         3,
         Range::Slug,
         Body::Json,
-        true,
     ),
     shape(
         "BrainTokenSet",
@@ -42,7 +38,6 @@
         3,
         Range::Marker,
         Body::Json,
-        false,
     ),
     shape(
         "BrainEdgeSet",
@@ -51,7 +46,6 @@
         3,
         Range::Marker,
         Body::Json,
-        false,
     ),
     shape(
         "BrainTypeDirectory",
@@ -60,7 +54,6 @@
         3,
         Range::Marker,
         Body::Json,
-        true,
     ),
     shape(
         "BrainGraphEdgeBySource",
@@ -69,12 +62,11 @@
         4,
         Range::Slug,
         Body::Json,
-        false,
     ),
-    shape("Project", 305, 687_800, 10, Range::None, Body::Text, false),
-    shape("Design", 189, 639_300, 10, Range::None, Body::Text, false),
-    shape("Decision", 751, 501_700, 12, Range::None, Body::Text, false),
-    shape("Concept", 95, 231_400, 10, Range::None, Body::Text, false),
+    shape("Project", 305, 687_800, 10, Range::None, Body::Text),
+    shape("Design", 189, 639_300, 10, Range::None, Body::Text),
+    shape("Decision", 751, 501_700, 12, Range::None, Body::Text),
+    shape("Concept", 95, 231_400, 10, Range::None, Body::Text),
     shape(
         "LastSecret",
         589,
@@ -82,7 +74,6 @@
         6,
         Range::None,
         Body::Json,
-        false,
     ),
     shape(
         "BrainBodyFile",
@@ -91,9 +82,8 @@
         4,
         Range::None,
         Body::Json,
-        false,
     ),
-    shape("Preference", 72, 64_900, 10, Range::None, Body::Text, false),
+    shape("Preference", 72, 64_900, 10, Range::None, Body::Text),
     shape(
         "LastSecretIndex",
         3,
@@ -101,9 +91,8 @@
         2,
         Range::None,
         Body::Json,
-        false,
     ),
-    shape("Spike", 7, 8_800, 10, Range::None, Body::Text, false),
+    shape("Spike", 7, 8_800, 10, Range::None, Body::Text),
     shape(
         "BrainListCount",
         20,
@@ -111,7 +100,6 @@
         2,
         Range::None,
         Body::Json,
-        false,
     ),
     shape(
         "CompactionRecoveryReceipt",
@@ -120,6 +108,5 @@
         4,
         Range::None,
         Body::Json,
-        false,
     ),
 ]

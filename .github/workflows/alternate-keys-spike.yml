@@ -1,4 +1,4 @@
-name: Alternate key spike comparison
+name: Named alternate-key comparison
 
 on:
   pull_request:
