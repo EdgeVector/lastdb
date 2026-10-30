@@ -51,16 +51,11 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
     if context.hidden_prefix {
         return Ok(None);
     }
-    let view = runtime.view.read().map_err(|_| lock_error())?;
-    if view.revision != context.revision {
+    let Some(mut current) = lock_current_core(&runtime, context.revision)? else {
         return Ok(None);
-    }
-    let value = runtime
-        .core
-        .lock()
-        .map_err(|_| lock_error())?
-        .memory_get(owner, name);
-    drop(view);
+    };
+    let value = current.core.memory_get(owner, name);
+    drop(current);
     value
         .map(|value| {
             super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name.to_owned(), value)
@@ -105,17 +100,10 @@ pub(crate) fn core_memory_get_for_write<T: Any + Send + Sync>(
             return Ok(None);
         }
     }
-    let view = runtime.view.read().map_err(|_| lock_error())?;
-    if view.revision != context.revision {
+    let Some(mut current) = lock_current_core(&runtime, context.revision)? else {
         return Ok(None);
-    }
-    let value = runtime
-        .core
-        .lock()
-        .map_err(|_| lock_error())?
-        .memory_get(owner, name);
-    drop(view);
-    Ok(value)
+    };
+    Ok(current.core.memory_get(owner, name))
 }
 
 pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
@@ -138,19 +126,39 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
         let value = CoreWarmSet::memory_uncached(value);
         return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
     }
-    let view = runtime.view.read().map_err(|_| lock_error())?;
-    let value = if view.revision == context.revision {
-        let mut core = runtime.core.lock().map_err(|_| lock_error())?;
+    let value = if let Some(mut current) = lock_current_core(&runtime, context.revision)? {
         // A concurrent reader may finish the same slow path first.
-        core.memory_get(owner, &name)
-            .unwrap_or_else(|| core.memory_insert(owner, name.clone(), value, sources, bytes))
+        current.core.memory_get(owner, &name).unwrap_or_else(|| {
+            current
+                .core
+                .memory_insert(owner, name.clone(), value, sources, bytes)
+        })
     } else {
         CoreWarmSet::memory_uncached(value)
     };
-    drop(view);
     super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value)
 }
 
 fn lock_error() -> StorageError {
     StorageError::BackendError("core definition memory lock is unavailable".into())
+}
+
+/// Hold the published view, then the core, while the captured revision matches.
+/// A newer view returns `None` and does not take the core lock. `core` drops
+/// before the view, which is the same order as the previous direct locks.
+fn lock_current_core(
+    runtime: &PackRuntime,
+    revision: u64,
+) -> StorageResult<Option<CurrentCore<'_>>> {
+    let view = runtime.view.read().map_err(|_| lock_error())?;
+    if view.revision != revision {
+        return Ok(None);
+    }
+    let core = runtime.core.lock().map_err(|_| lock_error())?;
+    Ok(Some(CurrentCore { core, _view: view }))
+}
+
+struct CurrentCore<'a> {
+    core: std::sync::MutexGuard<'a, CoreWarmSet>,
+    _view: std::sync::RwLockReadGuard<'a, super::super::view::NativeReadView>,
 }
