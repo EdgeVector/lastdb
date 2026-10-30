@@ -15,7 +15,7 @@ mod finish;
 mod membership;
 mod page;
 mod tips;
-pub use membership::{MembershipCountGuard, SchemaMembership};
+use membership::SchemaMembership;
 
 pub(crate) const NAMESPACE: &str = "app_schema_conversion";
 pub(crate) const ACTIVE: &[u8] = b"active";
