@@ -3,26 +3,28 @@
 //! Historically each of Single / Hash / Range / HashRange had its own field
 //! struct (`SingleField`, `HashField`, …) wrapped in a four-way
 //! [`FieldVariant`] enum. That doubled the type taxonomy already expressed by
-//! [`crate::db_operations::MoleculeData`] and forced match-boilerplate at every
-//! call site.
+//! [`MoleculeHashRange`] and forced match-boilerplate at every call site.
 //!
 //! This module collapses the field layer to **one** struct keyed by
 //! [`FieldKind`], holding an optional hydrated molecule
-//! ([`MoleculeData`] = [`crate::atom::MoleculeHashRange`]). On-disk layout is
-//! always HashRange. Filter/load slot shape (Hash / Range / HashRange) is
-//! expressed via [`FieldKind`] / filter layout.
+//! ([`MoleculeHashRange`]). On-disk layout is always HashRange. Filter/load
+//! slot shape (Hash / Range / HashRange) is expressed via [`FieldKind`] /
+//! filter layout.
+//!
+//! A field is a value. It never reads the store: the engine read path
+//! (`db_operations::field_read`) takes a field as an argument and installs
+//! the loaded molecule into it.
 
 mod access;
 mod filter;
 mod kind;
-mod read;
 mod value;
 mod write;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::db_operations::MoleculeData;
+use crate::atom::MoleculeHashRange;
 use crate::schema::types::declarative_schemas::FieldMapper;
 use crate::schema::types::field::FieldCommon;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -44,7 +46,7 @@ pub struct FieldVariant {
     /// Skipped in serde so a schema clone never accidentally rehydrates
     /// stale molecule bytes from a serialized snapshot.
     #[serde(skip)]
-    pub molecule: Option<MoleculeData>,
+    pub molecule: Option<MoleculeHashRange>,
 }
 
 impl FieldVariant {

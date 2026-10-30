@@ -138,7 +138,7 @@ impl AtomStore {
     /// keys keeps a single keyed update O(changed) as the field grows.
     ///
     /// Returns `Ok(None)` — caller must fall back to the full
-    /// [`crate::schema::types::field::FieldVariant::refresh_from_db`] path — when
+    /// [`crate::db_operations::field_read::refresh_from_db`] path — when
     /// there is **no `mh:{M}` header at the exact `storage_prefix` prefix** (absent
     /// molecule, or data at a *different* prefix such as a first write under a
     /// share/org prefix). In that case the persist step's full-rewrite path needs

@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::FoldDB;
+use crate::db_operations::field_read;
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
@@ -185,12 +186,12 @@ impl FoldDB {
                         schema.name
                     ))
                 })?;
-        let members: HashSet<KeyValue> = member_field
-            .collect_matches(&self.db_ops, filter.clone(), false)
-            .await?
-            .into_iter()
-            .map(|matched| matched.0)
-            .collect();
+        let members: HashSet<KeyValue> =
+            field_read::collect_matches(&mut member_field, &self.db_ops, filter.clone(), false)
+                .await?
+                .into_iter()
+                .map(|matched| matched.0)
+                .collect();
 
         let mut hash_key_field =
             schema
@@ -203,12 +204,12 @@ impl FoldDB {
                         schema.name
                     ))
                 })?;
-        let hash_keys = hash_key_field
-            .collect_matches(&self.db_ops, filter, false)
-            .await?
-            .into_iter()
-            .map(|matched| matched.0)
-            .collect();
+        let hash_keys =
+            field_read::collect_matches(&mut hash_key_field, &self.db_ops, filter, false)
+                .await?
+                .into_iter()
+                .map(|matched| matched.0)
+                .collect();
 
         Ok(PartitionKeySets {
             range_keys: members.clone(),

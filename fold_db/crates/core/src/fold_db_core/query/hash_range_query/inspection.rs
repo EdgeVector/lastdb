@@ -2,9 +2,8 @@
 
 use super::cokey_primary::CokeyPrimaryPage;
 use super::*;
-use crate::schema::types::field::{
-    fetch_atoms_with_key_metadata_async_with_prefix, FieldVariant, KeyedAtomMatch, SAMPLE_PEEK_CAP,
-};
+use crate::db_operations::field_read::{self, fetch_atoms_with_key_metadata_async_with_prefix};
+use crate::schema::types::field::{FieldVariant, KeyedAtomMatch, SAMPLE_PEEK_CAP};
 use crate::schema::types::key_value::scalar_key_coordinate;
 use std::collections::HashSet;
 
@@ -210,7 +209,8 @@ impl HashRangeQueryProcessor {
             working.common_mut().set_storage_prefix(scope.clone());
             let scope_cap = candidate_cap.saturating_sub(selected_count);
             let mut matches = binding
-                .run(working.collect_matches(
+                .run(field_read::collect_matches(
+                    &mut working,
                     &self.db_ops,
                     Some(HashRangeFilter::Page {
                         offset: 0,

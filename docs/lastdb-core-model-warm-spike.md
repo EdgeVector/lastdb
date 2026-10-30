@@ -331,7 +331,7 @@ exit code zero. Both roots no longer exist. Product receipts remain here.
 | Core owner and path lifetime | [Core warm set](../fold_db/crates/core/src/resident/core_set.rs) and [lifetime rules](../fold_db/crates/core/src/resident/core_set/lifecycle.rs) |
 | Partial molecule lifecycle | [Neutral slot operations](../fold_db/crates/core/src/atom/molecule_hash_range/loaded.rs) |
 | Bounded range selection | [Core range filters](../fold_db/crates/core/src/schema/types/field/filter_utils/hash_range.rs) |
-| Exact field reads | [Core model resolver](../fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs) and [warm filter adapter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs) |
+| Exact field reads | [Core model resolver](../fold_db/crates/core/src/db_operations/field_read/core_model.rs) and [warm filter adapter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs) |
 | Typed write preparation | [Native logical write paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs) |
 | Publication and flush | [Current view](../fold_db/crates/core/src/storage/disk_pack/view.rs) and [batch queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs) |
 | Source protection | [Source receipts](../fold_db/crates/core/src/storage/disk_pack/logical_paths/source.rs) and [tip controls](../fold_db/crates/core/src/storage/disk_pack/logical_paths/controls.rs) |

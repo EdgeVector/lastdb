@@ -18,13 +18,30 @@ impl FieldVariant {
     /// Select this field's slot components without an encoding change.
     /// API coordinates stay API coordinates; stored coordinates stay stored.
     #[must_use]
-    pub(super) fn slot_coordinates_ref<'a>(&self, kv: &'a KeyValue) -> Option<(&'a str, &'a str)> {
+    pub(crate) fn slot_coordinates_ref<'a>(&self, kv: &'a KeyValue) -> Option<(&'a str, &'a str)> {
         match self.kind {
             FieldKind::Single => Some(("", "")),
             FieldKind::Hash => kv.hash.as_deref().map(|hash| (hash, "")),
             FieldKind::Range => kv.range.as_deref().map(|range| ("", range)),
             FieldKind::HashRange => kv.hash.as_deref().zip(kv.range.as_deref()),
         }
+    }
+
+    /// Refuse a read that this field's layout or the filter cannot serve.
+    pub(crate) fn require_supported_read(
+        &self,
+        filter: Option<&HashRangeFilter>,
+    ) -> Result<(), crate::schema::types::SchemaError> {
+        use crate::schema::types::schema::DeclarativeSchemaType;
+
+        let layout = match self.kind {
+            FieldKind::Single => DeclarativeSchemaType::Single,
+            FieldKind::Hash => DeclarativeSchemaType::Hash,
+            FieldKind::Range => DeclarativeSchemaType::Range,
+            FieldKind::HashRange => DeclarativeSchemaType::HashRange,
+        };
+        crate::schema::require_logical_layout(&layout)?;
+        crate::schema::require_logical_filter(filter)
     }
 
     /// Apply a filter over the hydrated molecule.
@@ -105,8 +122,8 @@ impl FieldVariant {
     pub(crate) fn changed_key_for(
         &self,
         key_value: &KeyValue,
-    ) -> Option<crate::db_operations::ChangedKey> {
-        use crate::db_operations::ChangedKey;
+    ) -> Option<crate::atom::molecule_slot::ChangedKey> {
+        use crate::atom::molecule_slot::ChangedKey;
         match self.kind {
             // Empty both components → disk slot ("","").
             FieldKind::Single => Some(ChangedKey {

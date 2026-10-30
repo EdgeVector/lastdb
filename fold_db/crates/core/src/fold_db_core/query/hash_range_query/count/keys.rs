@@ -1,6 +1,7 @@
 //! Count one field in the personal namespace, then the received namespaces.
 
 use super::super::{full_span_page, HashRangeQueryProcessor};
+use crate::db_operations::field_read;
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{Schema, SchemaError};
@@ -33,13 +34,13 @@ impl HashRangeQueryProcessor {
                             .common_mut()
                             .set_storage_prefix(Some(namespace.to_string()));
                     }
-                    let matches = working
-                        .collect_matches(
-                            &self.db_ops,
-                            Some(filter.cloned().unwrap_or_else(full_span_page)),
-                            false,
-                        )
-                        .await?;
+                    let matches = field_read::collect_matches(
+                        &mut working,
+                        &self.db_ops,
+                        Some(filter.cloned().unwrap_or_else(full_span_page)),
+                        false,
+                    )
+                    .await?;
                     keys.extend(matches.into_iter().map(|(key, _, _, _)| key));
                 }
                 Ok(keys)

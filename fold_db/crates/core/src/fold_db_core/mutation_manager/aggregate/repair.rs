@@ -5,6 +5,7 @@ use super::*;
 mod entry;
 mod rules;
 use super::rules::summary_mutation;
+use crate::db_operations::field_read;
 
 impl MutationManager {
     /// Read the current summary token; a corrupt summary invalidates the guard.
@@ -59,14 +60,17 @@ impl MutationManager {
                         guard.member_schema_name
                     ))
                 })?;
-            let matches = field
-                .collect_authoritative_hash_partition(&self.db_ops, &guard.member_partition_hash)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "aggregate member field '{field_name}' is not authoritative: {error}"
-                    ))
-                })?;
+            let matches = field_read::collect_authoritative_hash_partition(
+                field,
+                &self.db_ops,
+                &guard.member_partition_hash,
+            )
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "aggregate member field '{field_name}' is not authoritative: {error}"
+                ))
+            })?;
             let raw_keys: std::collections::HashSet<KeyValue> =
                 matches.iter().map(|entry| entry.key.clone()).collect();
             if let Some(expected) = &authoritative_member_keys {
@@ -110,14 +114,17 @@ impl MutationManager {
         super::super::helpers::apply_storage_prefix_to_schema(&mut source_schema, storage_prefix);
         let mut source_winners: HashMap<KeyValue, AggregateWinner> = HashMap::new();
         for (field_name, field) in &mut source_schema.runtime_fields {
-            let matches = field
-                .collect_authoritative_hash_partition(&self.db_ops, &guard.source_partition_hash)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "aggregate source field '{field_name}' is not authoritative: {error}"
-                    ))
-                })?;
+            let matches = field_read::collect_authoritative_hash_partition(
+                field,
+                &self.db_ops,
+                &guard.source_partition_hash,
+            )
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!(
+                    "aggregate source field '{field_name}' is not authoritative: {error}"
+                ))
+            })?;
             for match_entry in matches {
                 let key = match_entry.key;
                 let entry = match_entry.entry;

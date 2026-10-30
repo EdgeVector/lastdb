@@ -31,7 +31,7 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
 /// - [`AtomStore::load_molecule_for_write`] keeps **API form**, decoding
 ///   nothing, because the write path holds the caller's plaintext keys.
 /// - [`AtomStore::load_all_mk_records`] (the full load behind
-///   `FieldVariant::refresh_from_db`) reassembles each slot by decoding the
+///   `field_read::refresh_from_db`) reassembles each slot by decoding the
 ///   `mk:` key it was stored under, so its slots are **storage form**:
 ///   HMAC-blinded hashes and typed range payloads.
 ///

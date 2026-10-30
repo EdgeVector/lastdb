@@ -11,6 +11,8 @@ mod conflict_index_heal;
 mod conflict_metadata;
 mod conflict_operations;
 pub mod delete_ledger;
+/// The read path for one schema field: the field is an argument, not the reader.
+pub mod field_read;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
@@ -33,13 +35,13 @@ pub use admin_db::{
     SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
     SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
+pub(crate) use atom_store::ChangedKey;
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
     BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
     MoleculeDrainReport, MoleculeDrainVerdict, MoleculeRecountReport, NetStep, RecountOptions,
     RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
 };
-pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
     AttributionLedger, AttributionObjectKind, AttributionPath, AttributionPendingScope,

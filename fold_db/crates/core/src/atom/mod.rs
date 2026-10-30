@@ -9,6 +9,7 @@ pub(crate) use molecule_hash_range::keys::{
     CompactRangeKey, CoreStoredKey, KeyVisibility, MoleculeKeys,
 };
 pub mod molecule_key_codec;
+pub(crate) mod molecule_slot;
 pub mod molecule_uuid;
 pub mod mutation_event;
 pub mod provenance;
