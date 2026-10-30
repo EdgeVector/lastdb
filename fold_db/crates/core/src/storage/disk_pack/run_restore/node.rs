@@ -178,6 +178,5 @@ fn reserve_pair(main: &mut RunRead, cas: &mut RunRead) -> StorageResult<()> {
             )
         })
         .ok_or_else(|| invalid("paired run memory overflow"))?;
-    main.reserve_metadata(shared).map_err(map)?;
-    cas.reserve_metadata(shared).map_err(map)
+    super::reserve_paired_metadata(main, cas, shared)
 }
