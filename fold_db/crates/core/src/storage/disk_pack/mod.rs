@@ -28,6 +28,7 @@ mod kv;
 pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
+mod memory_publication;
 pub mod mutation_log;
 mod namespace_delete;
 pub(in crate::storage) mod native_routing;
@@ -52,13 +53,13 @@ pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub(in crate::storage) use blocking::run_blocking;
 pub use memory::{NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeWarmSet};
+pub use memory_publication::{BatchMemory, MemoryPublication};
 pub(crate) use read::memory::{
     core_memory_get, core_memory_get_for_write, core_memory_insert, core_memory_sources,
 };
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
 pub(crate) use rows::WHOLE_COLLECTION_END;
-pub use view::MemoryPublication;
 pub use write::NativeFlushReceipt;
 
 const NODE_MARKER: &str = "laststore-pack-node-v1";

@@ -10,12 +10,7 @@ impl PendingBatch {
             .expect("native pending batch")
             .operations
             .is_empty()
-            && self.paths.lock().expect("native private paths").is_empty()
-            && self
-                .definitions
-                .lock()
-                .expect("native private definitions")
-                .is_empty()
+            && self.memory.is_empty()
             && self
                 .after_commit
                 .lock()

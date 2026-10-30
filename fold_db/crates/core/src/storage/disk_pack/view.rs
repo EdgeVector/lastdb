@@ -2,24 +2,6 @@
 
 use super::*;
 
-/// The database memory that a committed root publishes into. The store calls
-/// it at fixed points of a commit and a read. It does not own or read the
-/// records behind it; the database opens the store with its owner.
-pub trait MemoryPublication: Send + Sync {
-    /// Drop the memory records that depend on these changed coordinates.
-    /// The store calls this under the view write lock, so no capture sees a
-    /// new root until these raw records and their epochs agree with the
-    /// newly visible complete mutation.
-    fn invalidate(&self, changes: &[(String, String)]);
-
-    /// A new owner of one read call's memory holds. The read context keeps
-    /// it and drops it after its other fields.
-    fn call_holds(&self) -> Arc<dyn std::any::Any + Send + Sync>;
-
-    /// The database owner, for database code that reads its own memory.
-    fn as_any(&self) -> &dyn std::any::Any;
-}
-
 /// The disk facts of one status read. The memory owner adds its own facts.
 pub(super) struct DiskStatus {
     pub(super) cleanup: NativeCleanupStatus,
@@ -138,15 +120,7 @@ impl PackRuntime {
             laststore::commit_timing::during("memory_invalidation_us", || {
                 self.memory.invalidate(&request.changed_coordinates());
             });
-            if let Some(protection) = request
-                .path_protection
-                .lock()
-                .expect("committed core paths")
-                .as_ref()
-            {
-                let _timing = laststore::commit_timing::stage("memory_typed_install_us");
-                protection.publish_clean()?;
-            }
+            request.publish_memory()?;
         }
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);

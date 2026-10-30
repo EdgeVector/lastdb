@@ -24,6 +24,12 @@ impl MemoryPublication for NativeWarmSet {
         Arc::new(read::core_holds::CoreCallHolds::new(Arc::clone(&self.core)))
     }
 
+    fn open_batch(&self) -> Box<dyn BatchMemory> {
+        Box::new(transaction::effects::NativeBatchMemory::new(Arc::clone(
+            &self.core,
+        )))
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
