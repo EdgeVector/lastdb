@@ -61,7 +61,12 @@ impl SchemaServiceState {
 
         validate_contract_version(&request.contract_version)?;
 
-        if self.get_release(release_id).is_none() {
+        if self
+            .get_release(release_id)
+            .await
+            .map_err(|e| CompatRowError::Internal(e.to_string()))?
+            .is_none()
+        {
             return Err(CompatRowError::UnknownRelease(release_id.to_string()));
         }
 

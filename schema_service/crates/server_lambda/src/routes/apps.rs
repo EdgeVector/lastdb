@@ -299,34 +299,46 @@ pub(crate) async fn put_apps_channels(
     }
 }
 
-// Anonymous read: the desired release id + the channel generation.
-pub(crate) fn get_apps_channels(
+// Anonymous read: the desired release id + the channel generation. Read from
+// storage, not this instance's memory: another instance may have moved it.
+pub(crate) async fn get_apps_channels(
     state: &SchemaServiceState,
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_channel(app_id, channel) {
-        Some(record) => json_response(200, &record.to_public_json()),
-        None => json_response(
+    match state.get_channel(app_id, channel).await {
+        Ok(Some(record)) => json_response(200, &record.to_public_json()),
+        Ok(None) => json_response(
             404,
             &json!({"reason": "unknown_channel", "app_id": app_id, "channel": channel}),
+        ),
+        Err(e) => json_response(
+            503,
+            &json!({"reason": "registry_unavailable", "error": e.to_string()}),
         ),
     }
 }
 
-// Anonymous read: one release manifest by its exact key.
-pub(crate) fn get_releases(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
+// Anonymous read: one release manifest by its exact key, from storage.
+pub(crate) async fn get_releases(
+    state: &SchemaServiceState,
+    p: &str,
+) -> Result<Response<Body>, Error> {
     let release_id = p.trim_start_matches("/v2/releases/").trim_end_matches('/');
     if release_id.is_empty() || release_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_release_id"}));
     }
-    match state.get_release(release_id) {
-        Some(record) => json_response(200, &record.to_public_json()),
-        None => json_response(
+    match state.get_release(release_id).await {
+        Ok(Some(record)) => json_response(200, &record.to_public_json()),
+        Ok(None) => json_response(
             404,
             &json!({"reason": "unknown_release", "release_id": release_id}),
+        ),
+        Err(e) => json_response(
+            503,
+            &json!({"reason": "registry_unavailable", "error": e.to_string()}),
         ),
     }
 }
