@@ -50,15 +50,12 @@ impl AttributionEvent {
     }
 
     fn validate(&self) -> Result<(), SchemaError> {
-        if self.mutation_id.trim().is_empty()
-            || self.schema.trim().is_empty()
-            || self.operation.trim().is_empty()
-        {
-            return Err(SchemaError::InvalidData(
-                "attribution event requires mutation, schema, and operation".to_string(),
-            ));
-        }
-        Ok(())
+        require_attribution_identity(
+            &self.mutation_id,
+            &self.schema,
+            &self.operation,
+            "attribution event requires mutation, schema, and operation",
+        )
     }
 }
 
@@ -101,15 +98,12 @@ impl AttributionPendingScope {
     }
 
     fn validate(&self) -> Result<(), SchemaError> {
-        if self.mutation_id.trim().is_empty()
-            || self.schema.trim().is_empty()
-            || self.operation.trim().is_empty()
-        {
-            return Err(SchemaError::InvalidData(
-                "attribution pending scope requires mutation, schema, and operation".to_string(),
-            ));
-        }
-        Ok(())
+        require_attribution_identity(
+            &self.mutation_id,
+            &self.schema,
+            &self.operation,
+            "attribution pending scope requires mutation, schema, and operation",
+        )
     }
 
     fn storage_key(&self) -> String {
@@ -240,6 +234,18 @@ impl AttributionLedger {
             })?;
         self.store.inner().flush().await.map_err(SchemaError::from)
     }
+}
+
+fn require_attribution_identity(
+    mutation_id: &str,
+    schema: &str,
+    operation: &str,
+    message: &str,
+) -> Result<(), SchemaError> {
+    if mutation_id.trim().is_empty() || schema.trim().is_empty() || operation.trim().is_empty() {
+        return Err(SchemaError::InvalidData(message.to_string()));
+    }
+    Ok(())
 }
 
 fn event_key(sequence: u64) -> String {
