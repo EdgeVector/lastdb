@@ -2,7 +2,7 @@
 
 use schema_service_core::app_release::{
     ChannelReadReply, CompatRowsReply, CompatWriteReply, PublishReleaseReply, ReleaseReadReply,
-    SetChannelReply,
+    RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{
     PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply, UpdateAppReply,
@@ -136,12 +136,12 @@ pub async fn revoke_release(
         Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    match state.revoke_release(&app_id, &cert, &sig, &body).await {
-        Ok(record) => json_status(200, record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state
+        .revoke_release_reply(&app_id, &cert, &sig, &body)
+        .await
+    {
+        RevokeReleaseReply::Ready { status, body, .. }
+        | RevokeReleaseReply::Failed { status, body } => json_status(status, body),
     }
 }
 

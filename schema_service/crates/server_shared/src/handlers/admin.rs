@@ -1,6 +1,8 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
-use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
+use schema_service_core::state::{
+    DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
+};
 
 use super::*;
 
@@ -203,5 +205,6 @@ pub async fn deprecate_schemas(
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
 )]
 pub async fn schema_match_telemetry(state: web::Data<SchemaServiceState>) -> impl Responder {
-    HttpResponse::Ok().json(state.schema_match_telemetry_snapshot())
+    let SchemaMatchTelemetryReply { status, body } = state.schema_match_telemetry_reply();
+    json_status(status, body)
 }

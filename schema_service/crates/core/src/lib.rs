@@ -109,8 +109,8 @@ pub use app_identity::{
 pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
 pub use clock::{Clock, FrozenInstant};
 pub use declared_fields::{
-    mint_declaration_id, DeclareFieldInput, DeclareFieldRequest, DeclaredField, DeclaredFieldError,
-    DeclaredFieldRecord, DeclaredFieldRegistry,
+    mint_declaration_id, DeclareFieldInput, DeclareFieldReply, DeclareFieldRequest, DeclaredField,
+    DeclaredFieldError, DeclaredFieldReadReply, DeclaredFieldRecord, DeclaredFieldRegistry,
 };
 pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
 pub use external_persistence::ExternalSchemaPersistence;

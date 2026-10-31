@@ -1,10 +1,7 @@
-use lastdb_model::hex::hex_lower;
 use std::future::Future;
 use std::pin::Pin;
 
-use sha2::{Digest, Sha256};
-
-use super::locks::{lock_map, write_map};
+use super::locks::lock_map;
 use super::SchemaCore;
 
 mod molecule_map;
@@ -15,77 +12,6 @@ use crate::schema::SchemaState;
 use schema_types::IdentityRecompute;
 
 impl SchemaCore {
-    /// Stable compare-and-set token for one schema's physical field map.
-    ///
-    /// The map is node-local storage metadata, not part of the catalog
-    /// identity. Operators use this token to prove that a reviewed repair
-    /// still targets the same metadata that the dry run inspected.
-    pub fn field_molecule_map_fingerprint(
-        map: &std::collections::HashMap<String, String>,
-    ) -> String {
-        let mut entries: Vec<_> = map.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
-        let mut hash = Sha256::new();
-        for (field, molecule) in entries {
-            hash.update(field.as_bytes());
-            hash.update([0]);
-            hash.update(molecule.as_bytes());
-            hash.update([0xff]);
-        }
-        hex_lower(hash.finalize())
-    }
-
-    /// Replace one installed schema's physical field map under a compare-and-set guard.
-    ///
-    /// This changes schema metadata only. It never copies, rewrites, or scans
-    /// atom data. The replacement must name every runtime field so a partial
-    /// operator input cannot split one schema across two physical maps.
-    pub async fn repair_field_molecule_uuids(
-        &self,
-        schema_name: &str,
-        expected_current_fingerprint: &str,
-        replacement: std::collections::HashMap<String, String>,
-    ) -> Result<Schema, SchemaError> {
-        let mut schema = self
-            .db_ops
-            .get_schema(schema_name)
-            .await?
-            .ok_or_else(|| SchemaError::NotFound(format!("schema not found: {schema_name}")))?;
-        let current = schema.field_molecule_uuids.clone().unwrap_or_default();
-        let current_fingerprint = Self::field_molecule_map_fingerprint(&current);
-        if current_fingerprint != expected_current_fingerprint {
-            return Err(SchemaError::InvalidData(format!(
-                "schema molecule map changed: expected {expected_current_fingerprint}, current {current_fingerprint}"
-            )));
-        }
-
-        if schema.runtime_fields.is_empty() {
-            schema.populate_runtime_fields()?;
-        }
-        let declared: std::collections::HashSet<_> =
-            schema.runtime_fields.keys().cloned().collect();
-        let proposed: std::collections::HashSet<_> = replacement.keys().cloned().collect();
-        if proposed != declared {
-            let mut missing: Vec<_> = declared.difference(&proposed).cloned().collect();
-            let mut unknown: Vec<_> = proposed.difference(&declared).cloned().collect();
-            missing.sort();
-            unknown.sort();
-            return Err(SchemaError::InvalidData(format!(
-                "replacement field map must match every runtime field; missing=[{}], unknown=[{}]",
-                missing.join(","),
-                unknown.join(",")
-            )));
-        }
-
-        schema.field_molecule_uuids = Some(replacement);
-        schema.runtime_fields.clear();
-        schema.populate_runtime_fields()?;
-        schema.clear_runtime_molecules();
-        self.db_ops.store_schema(schema_name, &schema).await?;
-        write_map(&self.schemas, "schemas")?.insert(schema_name.to_string(), schema.clone());
-        Ok(schema)
-    }
-
     /// Publish definition updates through the same normalization, bindings and
     /// cache-state boundary as schema declaration.
     pub async fn update_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
@@ -236,7 +162,7 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        owned::normalize_owned_declaration(&mut schema, existing.as_ref())?;
+        owned::normalize_owned_declaration(&mut schema)?;
         if existing.is_some() && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
         {
             crate::db_operations::alternate_changes::require_finished(&self.db_ops, &schema.name)

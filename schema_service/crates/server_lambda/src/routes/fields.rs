@@ -2,6 +2,7 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::{DeclareFieldReply, DeclaredFieldReadReply};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
 
@@ -55,18 +56,11 @@ pub(crate) async fn post_fields_declare(
     // and field list are all covered by the signature.
     let cert = header_str(event, "x-exemem-dev-cert");
     let sig = header_str(event, "x-signature");
-    if let Err(e) = state
-        .authorize_field_declare(&request.owner_app_id, cert, sig, &body_value)
+    match state
+        .declare_field_reply(&request, cert, sig, &body_value)
         .await
     {
-        let (status, body) = e.to_http();
-        return json_response(status, &body);
-    }
-
-    match state.declare_field(&request).await {
-        Ok(record) => json_response(200, &record.declare_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
+        DeclareFieldReply::Ready { status, body } | DeclareFieldReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
@@ -77,11 +71,8 @@ pub(crate) async fn post_fields_declare(
 // and referencing, never looking up.
 pub(crate) fn get_fields(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
     let declaration_id = p.trim_start_matches("/v1/fields/").trim_end_matches('/');
-    match state.get_declared_field(declaration_id) {
-        Ok(record) => json_response(200, &json!(record)),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+    match state.declared_field_read_reply(declaration_id) {
+        DeclaredFieldReadReply::Ready { status, body }
+        | DeclaredFieldReadReply::Failed { status, body } => json_response(status, &body),
     }
 }

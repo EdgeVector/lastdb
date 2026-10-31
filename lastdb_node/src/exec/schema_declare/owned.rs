@@ -70,7 +70,7 @@ fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
 /// change the key, or discard a layout.
 fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<Installed>, String> {
     let proposed = &declare.catalog_schema;
-    proposed.validate_alternate_keys()?;
+    proposed.validate_owned_schema()?;
     let schemas = host
         .db
         .schema_manager()
@@ -156,7 +156,7 @@ fn owned_schema(
     schema
         .populate_runtime_fields()
         .map_err(|error| error.to_string())?;
-    schema.validate_alternate_keys()?;
+    schema.validate_owned_schema()?;
     Ok(schema)
 }
 

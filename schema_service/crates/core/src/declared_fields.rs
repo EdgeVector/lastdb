@@ -6,11 +6,15 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod declare_reply;
 mod declare_steps;
 mod persistence;
+mod read_reply;
 mod service;
 
+pub use declare_reply::DeclareFieldReply;
 pub use persistence::validate_declaration_commit;
+pub use read_reply::DeclaredFieldReadReply;
 
 use schema_types::{
     compute_declared_field_identity, FieldValueType, DECLARED_FIELD_IDENTITY_ALGO_VERSION,

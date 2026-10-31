@@ -1,5 +1,7 @@
 //! Declared-field routes.
 
+use schema_service_core::{DeclareFieldReply, DeclaredFieldReadReply};
+
 use super::*;
 
 /// `POST /v1/fields/declare` — declare a field handle and receive its scoped
@@ -37,23 +39,11 @@ pub async fn declare_field(
     // owner, handle, and field list are all covered by the signature.
     let cert = header_value(&req, "X-Exemem-Dev-Cert");
     let sig = header_value(&req, "X-Signature");
-    if let Err(e) = state
-        .authorize_field_declare(
-            &request.owner_app_id,
-            cert.as_deref(),
-            sig.as_deref(),
-            &body,
-        )
+    match state
+        .declare_field_reply(&request, cert.as_deref(), sig.as_deref(), &body)
         .await
     {
-        let (status, body) = e.to_http();
-        return json_status(status, body);
-    }
-
-    match state.declare_field(&request).await {
-        Ok(record) => HttpResponse::Ok().json(record.declare_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
+        DeclareFieldReply::Ready { status, body } | DeclareFieldReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
@@ -73,11 +63,8 @@ pub async fn get_declared_field(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let declaration_id = path.into_inner();
-    match state.get_declared_field(&declaration_id) {
-        Ok(record) => HttpResponse::Ok().json(record),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.declared_field_read_reply(&declaration_id) {
+        DeclaredFieldReadReply::Ready { status, body }
+        | DeclaredFieldReadReply::Failed { status, body } => json_status(status, body),
     }
 }

@@ -46,6 +46,7 @@ mod mutation_gate;
 mod near_misses;
 mod persistence;
 mod resolve;
+mod telemetry_reply;
 mod vocabulary_validation;
 
 pub use backfill::BackfillPurposeReport;
@@ -56,6 +57,7 @@ pub use resolve::{
     accepted_similarity_threshold, SchemaResolveReply, SimilarSchemasReply,
     MAX_SCHEMA_RESOLVE_PROPOSALS,
 };
+pub use telemetry_reply::SchemaMatchTelemetryReply;
 
 /// Compose the key used in `descriptive_name_index` (and
 /// `descriptive_name_embeddings`) so dedup is scoped by `owner_app_id`.
