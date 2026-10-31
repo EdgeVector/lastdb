@@ -21,7 +21,8 @@
 //! two repairs that write rows go through the planner (`recount_queue.rs`).
 
 use super::{BlobCounter, BlobQueue, BlobRead};
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use super::{BlobCounters, BlobPorts};
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
 use std::collections::{BTreeSet, HashMap};
@@ -144,7 +145,7 @@ fn mutations(queue: &BlobQueue, fix: &Fix) -> Result<Vec<KvMutation>, SchemaErro
     Ok(out)
 }
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// Write the batch (when the recount executes) and start a new one.
     async fn flush_blob_batch(
         &self,
@@ -159,7 +160,8 @@ impl AtomStore {
         report.operations += batch.len() as u64;
         report.batches += 1;
         if execute {
-            self.raw()
+            self.store
+                .rows()
                 .inner()
                 .batch_mutate(batch)
                 .await
@@ -182,7 +184,7 @@ impl AtomStore {
         report.exact = exact;
         report.referenced_blobs = holders.len() as u64;
         let now = self.blob_clock_millis();
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         let mut pending = Vec::new();
         let mut referenced: Vec<String> = Vec::new();
         // Counters in their dwell whose queue entry is missing: written again at
@@ -191,7 +193,7 @@ impl AtomStore {
         let (start, end) = super::counter_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         while !walk.done() {
-            let step = self.walk_step(&mut walk).await?;
+            let step = self.store.walk_step(&mut walk).await?;
             let mut in_dwell: Vec<(String, u64)> = Vec::new();
             for (_, value) in &step.rows {
                 report.counters_read += 1;
@@ -298,7 +300,8 @@ impl AtomStore {
             .map(|(blob, at)| queue.entry_key(*at, blob).into_bytes())
             .collect();
         let found = self
-            .raw()
+            .store
+            .rows()
             .inner()
             .exists_many(keys)
             .await
@@ -320,14 +323,14 @@ impl AtomStore {
         execute: bool,
         report: &mut BlobRecountReport,
     ) -> Result<(), SchemaError> {
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         let (start, end) = BlobQueue::entries_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         let mut pending = Vec::new();
         // Buckets of the entries that stay: each needs its directory row.
         let mut kept: BTreeSet<u64> = BTreeSet::new();
         while !walk.done() {
-            let step = self.walk_step(&mut walk).await?;
+            let step = self.store.walk_step(&mut walk).await?;
             let entries: Vec<(Vec<u8>, u64, String)> = step
                 .rows
                 .iter()

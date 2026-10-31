@@ -21,11 +21,13 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use serde::de::DeserializeOwned;
 
+use super::blob_counter::BlobEvents;
 use super::bounded_range::{RangeWalk, Step};
 use super::counter::{ReleaseRequest, TipChangeSet, TipCommit};
 use super::hash_selection::HashTipSelection;
 use super::molecule_drain::DrainState;
 use super::retention::{RetentionState, SlotReleases};
+use super::time_queue::{QueueStats, TimeQueue};
 use super::types::{MoleculeGenerationPointer, MoleculeHeader, PerKeyRecord};
 use super::MoleculeBindings;
 use crate::atom::delete_barrier::DeleteBarrier;
@@ -33,7 +35,7 @@ use crate::atom::{Atom, MoleculeKeyCodec};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackRuntime;
-use crate::storage::{traits::KvStore, TypedKvStore};
+use crate::storage::{traits::KvStore, NamespacedStore, TypedKvStore};
 
 /// One stored row with its key, as the per-key reads return it.
 pub(crate) type KeyedRecord = (String, PerKeyRecord);
@@ -41,6 +43,11 @@ pub(crate) type KeyedRecord = (String, PerKeyRecord);
 /// The main namespace: tips, headers, bodies, barriers and queue rows.
 pub(crate) trait MainRows: Sync {
     fn rows(&self) -> &Arc<TypedKvStore<dyn KvStore>>;
+}
+
+/// The namespaced store of this home, when the home is native.
+pub(crate) trait NamespacedStores: Sync {
+    fn namespaced(&self) -> Option<&Arc<dyn NamespacedStore>>;
 }
 
 /// The native runtime of this home, when the home is native.
@@ -90,6 +97,8 @@ pub(crate) trait WriteScopes: Sync {
         &'a self,
         work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, SchemaError>>;
+    /// Refuse a write outside a native write scope.
+    fn require_write_scope(&self) -> Result<(), SchemaError>;
 }
 
 /// One bounded page of a range walk over the main namespace.
@@ -143,6 +152,20 @@ pub(crate) trait TimeQueues: Sync {
         key: String,
         token: Vec<u8>,
     ) -> impl Future<Output = Result<bool, SchemaError>> + Send;
+    fn time_queue_stats(
+        &self,
+        queue: &TimeQueue,
+        cap: u64,
+    ) -> impl Future<Output = Result<QueueStats, SchemaError>> + Send;
+}
+
+/// The events of the blob counter and the stripe locks of blob liveness.
+pub(crate) trait BlobStates: Sync {
+    fn blob_events(&self) -> &Arc<BlobEvents>;
+    fn lock_liveness_blobs(
+        &self,
+        blob_refs: &[String],
+    ) -> impl Future<Output = Vec<tokio::sync::OwnedMutexGuard<()>>> + Send;
 }
 
 /// The window, the counters and the last error of the retention janitor.

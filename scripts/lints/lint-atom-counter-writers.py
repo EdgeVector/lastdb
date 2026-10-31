@@ -16,7 +16,8 @@ has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 - a key family token (family T tip, C conflict or history, B body, N atom
   counter, M molecule header and binding counters, R blob counter or blob queue
   entry);
-- a raw handle token: `.raw()`, `main_store`, `open_namespace(`, a generic row
+- a raw handle token: `.raw()`, the `MainRows` port `.rows()`, `main_store`,
+  `open_namespace(`, a generic row
   restore (`restore_batch_put(`), or a scan (`scan_prefix(`, `scan_range(`, ...)
   next to a delete, which is a range delete of rows of every family.
 
@@ -46,7 +47,7 @@ WRITE = re.compile(
     r"\brestore_batch_put\s*\("
 )
 RAW = re.compile(
-    r"\.raw\(\)|\bmain_store\b|\bopen_namespace\s*\(|\brestore_batch_put\s*\(|"
+    r"\.raw\(\)|\.rows\(\)|\bmain_store\b|\bopen_namespace\s*\(|\brestore_batch_put\s*\(|"
     r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {

@@ -95,6 +95,10 @@ impl WriteScopes for AtomStore {
     ) -> BoxFuture<'a, Result<T, SchemaError>> {
         Self::in_write_scope(self, work)
     }
+
+    fn require_write_scope(&self) -> Result<(), SchemaError> {
+        Self::require_write_scope(self)
+    }
 }
 
 impl CommitTips for AtomStore {

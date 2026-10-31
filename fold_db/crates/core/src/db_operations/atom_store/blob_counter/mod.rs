@@ -63,6 +63,47 @@ use crate::hex::hex_lower;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::ports::{
+    AtomReads, BlobStates, CommitTips, MainRows, NamespacedStores, RangeWalks, TimeQueues,
+    WriteScopes,
+};
+
+/// The ports the blob counter uses. It never names the store type.
+pub(crate) trait BlobPorts:
+    AtomReads
+    + BlobStates
+    + CommitTips
+    + MainRows
+    + NamespacedStores
+    + RangeWalks
+    + TimeQueues
+    + WriteScopes
+{
+}
+
+impl<T> BlobPorts for T where
+    T: AtomReads
+        + BlobStates
+        + CommitTips
+        + MainRows
+        + NamespacedStores
+        + RangeWalks
+        + TimeQueues
+        + WriteScopes
+{
+}
+
+/// The blob counter over a store that implements [`BlobPorts`].
+pub(crate) struct BlobCounters<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: BlobPorts> BlobCounters<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
+    }
+}
+
 /// Format version of a blob counter record.
 pub const BLOB_COUNTER_VERSION: u8 = 1;
 

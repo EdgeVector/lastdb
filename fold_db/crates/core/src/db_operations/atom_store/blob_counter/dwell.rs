@@ -7,9 +7,9 @@
 //! goes back to the head of a hash, so the deleted entries of a long history cost
 //! nothing to pass, and a bucket that is read to its end leaves the directory.
 //!
-//! One step ([`AtomStore::blob_dwell_step`]) does one of two things. It reads a
+//! One step ([`BlobCounters::blob_dwell_step`]) does one of two things. It reads a
 //! page of due entries of the oldest bucket that has some, outside the write
-//! gate, and deletes them in one chunk ([`AtomStore::blob_dwell_delete`]): the
+//! gate, and deletes them in one chunk ([`BlobCounters::blob_dwell_delete`]): the
 //! chunk enters the native write gate, reads each counter again, and in one batch
 //! deletes the blob row, the counter and the queue entry of every blob that is
 //! still at exactly zero. Or it retires a bucket whose walk has read every key,
@@ -25,8 +25,8 @@
 use super::blob_dwell_millis;
 use super::dwell_chunk::{decode_entry, DwellEntry};
 use super::queue::BlobQueue;
+use super::{BlobCounters, BlobPorts};
 use crate::db_operations::atom_store::time_queue::{NetSchedule, QueueReader};
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::measure;
 use std::collections::BTreeSet;
@@ -120,11 +120,11 @@ impl DwellStep {
     }
 }
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// Start the one dwell pass of this store, or `None` when a pass is running or
     /// the last passes failed and the wait is not over.
     pub fn begin_blob_dwell_pass(&self) -> Option<super::report::DwellGuard> {
-        self.blob_events.begin_pass()
+        self.store.blob_events().begin_pass()
     }
 
     /// The time that a reader of the queue passes: the clock of the blob counters
@@ -138,7 +138,7 @@ impl AtomStore {
     /// Begin a pass: count it, and read the directory of the queue.
     pub async fn blob_dwell_begin(&self, cursor: &mut DwellCursor) -> Result<(), SchemaError> {
         cursor.begin_pass();
-        self.blob_events.note_pass(self.blob_clock_millis());
+        self.store.blob_events().note_pass(self.blob_clock_millis());
         self.blob_dwell_refresh(cursor).await
     }
 
@@ -179,7 +179,7 @@ impl AtomStore {
         let max = max.clamp(1, DWELL_CHUNK);
         let now = self.blob_clock_millis();
         let due = BlobQueue::nanos(now.saturating_sub(blob_dwell_millis()));
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         for bucket in cursor.reader.candidates(due) {
             loop {
                 if cursor.reader.exhausted(bucket) {
@@ -189,7 +189,7 @@ impl AtomStore {
                     let Some((key, token)) = cursor.reader.retire_token(bucket) else {
                         break;
                     };
-                    let retired = self.retire_bucket(key, token).await?;
+                    let retired = self.store.retire_bucket(key, token).await?;
                     // The reader leaves the bucket in both cases. When the row
                     // stayed, a new entry changed it, and the next refresh adds
                     // the bucket again with a new walk.

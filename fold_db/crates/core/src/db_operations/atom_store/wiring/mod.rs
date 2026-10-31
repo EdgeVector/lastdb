@@ -7,6 +7,7 @@
 //! not convert. A wrapper adds no read, no lock and no allocation: it builds a
 //! concept struct of one reference and awaits the same future.
 
+mod blob;
 mod delete;
 mod drain;
 mod filter;

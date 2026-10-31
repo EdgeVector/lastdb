@@ -1,9 +1,9 @@
 //! The store side of the blob planner: read the counters, plan, build the writes.
 //!
-//! [`AtomStore::blob_counter_mutations`] is called by the atom counter planner
+//! [`BlobCounters::blob_counter_mutations`] is called by the atom counter planner
 //! (`counter::build`) inside the native write request scope. It returns the
 //! mutations that join the one batch of the tip change, so a blob count and the
-//! references it counts change together. [`AtomStore::register_blob_upload`] is
+//! references it counts change together. [`BlobCounters::register_blob_upload`] is
 //! the other writer: a blob row put starts the dwell of a blob that has no
 //! reference yet, in the same scope as the row.
 
@@ -11,7 +11,7 @@ use super::plan::{
     plan_delta, plan_unreadable, plan_upload, BlobEvent, BlobPlan, BlobWrite, PlanError,
 };
 use super::{blob_counter_key, BlobCounter, BlobCounterView, BlobDeltas, BlobQueue, BlobRead};
-use crate::db_operations::atom_store::AtomStore;
+use super::{BlobCounters, BlobPorts};
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
 use serde::Serialize;
@@ -19,7 +19,7 @@ use serde::Serialize;
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// The blob counter writes of one planner run. Reads the counters by key in
     /// one batch. The caller holds the native write gate.
     pub(crate) async fn blob_counter_mutations(
@@ -76,7 +76,9 @@ impl AtomStore {
         };
         for (blob, present) in fresh.iter().zip(rows) {
             if !present {
-                self.blob_events.note(blob, BlobEvent::LateReference);
+                self.store
+                    .blob_events()
+                    .note(blob, BlobEvent::LateReference);
             }
         }
         Ok(())
@@ -86,7 +88,7 @@ impl AtomStore {
     /// because the atom that names it comes after the upload. The caller holds
     /// the native write gate and has put the row in the same request scope.
     pub(crate) async fn register_blob_upload(&self, blob_ref: &str) -> Result<(), SchemaError> {
-        self.require_write_scope()?;
+        self.store.require_write_scope()?;
         let before = self.read_blob_counters(&[blob_ref]).await?;
         let plan = match &before[0] {
             // A counter that does not decode is `suspect` once a planner run
@@ -97,7 +99,8 @@ impl AtomStore {
         let mut mutations = Vec::new();
         self.push_blob_plan(blob_ref, plan, &mut mutations)?;
         if !mutations.is_empty() {
-            self.main_store
+            self.store
+                .rows()
                 .inner()
                 .batch_mutate(mutations)
                 .await
@@ -128,7 +131,8 @@ impl AtomStore {
         let mut out = Vec::with_capacity(keys.len());
         for chunk in keys.chunks(READ_CHUNK) {
             let bytes = self
-                .main_store
+                .store
+                .rows()
                 .inner()
                 .get_many(chunk.iter().map(|key| key.clone().into_bytes()).collect())
                 .await
@@ -149,13 +153,15 @@ impl AtomStore {
         // The three reads see one committed root. A dwell chunk deletes the row,
         // the counter and the queue entry in one batch, so one root shows all of
         // them or none of them.
-        self.atom_read_scope(self.read_blob_views(blobs)).await
+        self.store
+            .atom_read_scope(self.read_blob_views(blobs))
+            .await
     }
 
     async fn read_blob_views(&self, blobs: &[String]) -> Result<Vec<BlobCounterView>, SchemaError> {
         let refs: Vec<&str> = blobs.iter().map(String::as_str).collect();
         let counters = self.read_blob_counters(&refs).await?;
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         let queue_keys: Vec<Vec<u8>> = blobs
             .iter()
             .zip(&counters)
@@ -165,7 +171,8 @@ impl AtomStore {
             })
             .collect();
         let queued = self
-            .main_store
+            .store
+            .rows()
             .inner()
             .exists_many(queue_keys)
             .await
@@ -199,7 +206,7 @@ impl AtomStore {
         &self,
         blobs: &[String],
     ) -> Result<Option<Vec<bool>>, SchemaError> {
-        let Some(store) = self.namespaced_store.as_ref() else {
+        let Some(store) = self.store.namespaced() else {
             return Ok(None);
         };
         let cas = store
@@ -220,7 +227,7 @@ impl AtomStore {
         blob: &str,
         write: &BlobWrite,
     ) -> Result<Vec<KvMutation>, SchemaError> {
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         let mut out = Vec::with_capacity(4);
         if let Some(at) = write.unqueue {
             out.push(KvMutation::delete(queue.entry_key(at, blob).into_bytes()));
@@ -236,7 +243,7 @@ impl AtomStore {
     /// more than a day ahead of the monotonic time since the store was made.
     #[must_use]
     pub fn blob_clock_millis(&self) -> u64 {
-        self.blob_events.clock.now_millis()
+        self.store.blob_events().clock.now_millis()
     }
 
     fn push_blob_plan(
@@ -247,12 +254,12 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         match plan {
             BlobPlan::Unchanged => {}
-            BlobPlan::Dangling => self.blob_events.note(blob, BlobEvent::Dangling),
+            BlobPlan::Dangling => self.store.blob_events().note(blob, BlobEvent::Dangling),
             BlobPlan::Write(write) => {
                 let event = write.event;
                 out.extend(self.write_mutations(blob, &write)?);
                 if let Some(event) = event {
-                    self.blob_events.note(blob, event);
+                    self.store.blob_events().note(blob, event);
                 }
             }
         }

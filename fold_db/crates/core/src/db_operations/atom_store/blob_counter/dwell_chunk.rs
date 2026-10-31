@@ -10,7 +10,7 @@ use super::dwell::DwellStep;
 use super::plan::BlobEvent;
 use super::queue::BlobQueue;
 use super::{blob_counter_key_of_id, blob_id, BlobCounter, BlobRead};
-use crate::db_operations::atom_store::AtomStore;
+use super::{BlobCounters, BlobPorts};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -38,7 +38,7 @@ enum Fate {
     Unreadable,
 }
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// Delete the blobs of one chunk of due entries. Takes the native write gate
     /// for this chunk only. Reads each counter again inside the gate.
     pub(super) async fn blob_dwell_delete(
@@ -53,14 +53,17 @@ impl AtomStore {
             .filter_map(|entry| entry.blob.clone())
             .collect();
         let step = self
+            .store
             .in_write_scope(async {
                 // The native gate first, then the blob gates: the upload path
                 // uses the same order.
-                let _blobs = self.lock_liveness_blobs(&refs).await;
+                let _blobs = self.store.lock_liveness_blobs(&refs).await;
                 self.dwell_chunk_in_gate(entries).await
             })
             .await?;
-        self.blob_events.note_deleted(step.deleted, step.stale);
+        self.store
+            .blob_events()
+            .note_deleted(step.deleted, step.stale);
         tracing::info!(
             target: "fold_db::blob_dwell",
             deleted = step.deleted,
@@ -101,7 +104,9 @@ impl AtomStore {
                 Fate::Unreadable => {
                     // Keep the blob and its counter. Drop the entry, so the same
                     // entry does not come back at every pass.
-                    self.blob_events.note(&entry.id, BlobEvent::Unreadable);
+                    self.store
+                        .blob_events()
+                        .note(&entry.id, BlobEvent::Unreadable);
                     main.push(KvMutation::delete(entry.key.clone()));
                     step.unreadable += 1;
                 }
@@ -118,7 +123,7 @@ impl AtomStore {
         rows: Vec<Vec<u8>>,
     ) -> Result<(), SchemaError> {
         if !rows.is_empty() {
-            let store = self.namespaced_store.as_ref().ok_or_else(|| {
+            let store = self.store.namespaced().ok_or_else(|| {
                 SchemaError::InvalidData("blob dwell requires a native store".into())
             })?;
             store
@@ -130,7 +135,8 @@ impl AtomStore {
                 .map_err(|error| SchemaError::InvalidData(format!("delete blob rows: {error}")))?;
         }
         if !main.is_empty() {
-            self.main_store
+            self.store
+                .rows()
                 .inner()
                 .batch_mutate(main)
                 .await

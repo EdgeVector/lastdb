@@ -9,6 +9,7 @@ use super::super::retention::{
     RecordSlot, RepairWindow, Repaired, Retention, RetentionCursor, RetentionState, SlotReleases,
     StepOutcome,
 };
+use super::super::time_queue::{QueueStats, TimeQueue};
 use super::super::AtomStore;
 use crate::schema::SchemaError;
 
@@ -28,6 +29,14 @@ impl StoredValues for AtomStore {
 impl TimeQueues for AtomStore {
     async fn retire_bucket(&self, key: String, token: Vec<u8>) -> Result<bool, SchemaError> {
         Self::retire_bucket(self, key, token).await
+    }
+
+    async fn time_queue_stats(
+        &self,
+        queue: &TimeQueue,
+        cap: u64,
+    ) -> Result<QueueStats, SchemaError> {
+        Self::time_queue_stats(self, queue, cap).await
     }
 }
 
