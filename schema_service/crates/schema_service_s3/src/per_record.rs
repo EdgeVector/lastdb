@@ -303,14 +303,4 @@ impl S3BlobPersistence {
             self.put_single_object(key, record, true).await
         }
     }
-
-    pub(crate) async fn list_and_load_compat_rows(
-        &self,
-        release_id: &str,
-    ) -> FoldDbResult<Vec<schema_service_core::app_release::CompatRow>> {
-        let prefix = format!("compat/{release_id}/");
-        let listed = self.definition_key(&prefix);
-        self.list_records(listed.as_ref(), &format!("compat/{release_id}"))
-            .await
-    }
 }

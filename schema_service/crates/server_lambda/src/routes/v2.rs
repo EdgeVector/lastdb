@@ -1,10 +1,8 @@
-//! `/v2` read routes for app registry: apps, releases, compat rows.
+//! `/v2` read routes for app registry: apps and releases.
 
 use crate::http::*;
-use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{
-    release_verification_location, CompatRowsReply, CompatWriteReply,
-};
+use lambda_http::{Body, Error, Response};
+use schema_service_core::app_release::release_verification_location;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -87,49 +85,4 @@ pub(crate) fn list_releases_for_app(
         })
         .collect();
     json_response(200, &json!({ "releases": releases_json }))
-}
-
-// Anonymous read: list compat rows for a release.
-pub(crate) async fn list_compat_rows(
-    state: &SchemaServiceState,
-    p: &str,
-) -> Result<Response<Body>, Error> {
-    let release_id = p
-        .trim_start_matches("/v2/releases/")
-        .trim_end_matches("/compat");
-    if release_id.is_empty() || release_id.contains('/') {
-        return json_response(400, &json!({"reason": "invalid_release_id"}));
-    }
-    match state.compat_rows_reply(release_id).await {
-        CompatRowsReply::Ready(body) => json_response(200, &body),
-        CompatRowsReply::Failed { status, body } => json_response(status, &body),
-    }
-}
-
-// Verifier-authenticated: write a compat row.
-pub(crate) async fn write_compat_row(
-    state: &SchemaServiceState,
-    event: &Request,
-    p: &str,
-) -> Result<Response<Body>, Error> {
-    let release_id = p
-        .trim_start_matches("/v2/releases/")
-        .trim_end_matches("/compat");
-    if release_id.is_empty() || release_id.contains('/') {
-        return json_response(400, &json!({"reason": "invalid_release_id"}));
-    }
-    let body_value = match v2_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let Some(sig) = header_str(event, "x-signature") else {
-        return json_response(
-            401,
-            &json!({"reason": "signature_required", "detail": "missing X-Signature header"}),
-        );
-    };
-    match state.compat_write_reply(release_id, sig, &body_value).await {
-        CompatWriteReply::Created(body) => json_response(201, &body),
-        CompatWriteReply::Failed { status, body } => json_response(status, &body),
-    }
 }

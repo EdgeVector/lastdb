@@ -100,7 +100,6 @@ fn open_state(fixture: &Fixture) -> SchemaServiceState {
         deployment_env: app_identity_crypto::Env::Dev,
         trusted_roots: fixture.trusted_roots(),
         revoked_dev_pubkeys: HashSet::new(),
-        verifier_pubkey: None,
         open_registration: false,
     });
     state

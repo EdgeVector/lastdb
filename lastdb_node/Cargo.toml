@@ -101,22 +101,6 @@ path = "src/bin/received_range_seed.rs"
 name = "local_install_proof"
 path = "examples/local_install_proof.rs"
 
-[[example]]
-name = "v2_registry_client_proof"
-path = "examples/v2_registry_client_proof/main.rs"
-
-[dev-dependencies]
-ed25519-dalek = "2"
-# Workspace entries keep default features off. Turning them back on here
-# reintroduces the legacy hyper 0.14 / rustls 0.21 connector and SigV4A.
-aws-sdk-s3 = { workspace = true, features = ["behavior-version-latest"] }
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
-schema_service_s3 = { path = "../schema_service/crates/schema_service_s3" }
-schema_service_server_shared = { path = "../schema_service/crates/server_shared", features = ["actix"] }
-schema_service_server_http = { path = "../schema_service/crates/server_http" }
-actix-web = { workspace = true }
-
 [lib]
 test = false
 doctest = false

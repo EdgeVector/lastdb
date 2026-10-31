@@ -37,19 +37,6 @@ pub struct ReleaseRead {
     pub manifest_value: serde_json::Value,
 }
 
-/// One compat row from the verifier: a contract version proved compatible.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CompatRowRead {
-    pub release_id: String,
-    pub contract_version: String,
-    pub verifier_pubkey: String,
-    pub verified_at: String,
-    #[serde(default)]
-    pub verification_url: Option<String>,
-    pub payload_hash: String,
-    pub signature: String,
-}
-
 /// App metadata from `GET /v2/apps`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppListItem {
@@ -151,64 +138,4 @@ impl ReleaseRegistryClient {
         let url = format!("{}/v2/apps", self.base_url);
         Self::get_json(&url).await
     }
-
-    /// `GET /v2/releases/{release_id}/compat` — list compat rows for a release (anonymous).
-    ///
-    /// # Errors
-    /// Returns the transport or status failure.
-    pub async fn list_compat_rows(&self, release_id: &str) -> Result<Vec<CompatRowRead>, String> {
-        let url = format!("{}/v2/releases/{release_id}/compat", self.base_url);
-        Self::get_json(&url).await
-    }
-}
-
-// ─── Compat row signature verification ──────────────────────────────────
-
-/// Verify a compat row's signature against a configured verifier public key.
-///
-/// The signature must be Ed25519 over the canonical JSON body that produced
-/// the payload_hash. The verifier_pubkey in the row must match the configured
-/// trusted verifier key.
-///
-/// # Errors
-/// Returns a detailed message if the signature is invalid, the key doesn't match,
-/// or the verification fails.
-pub fn verify_compat_row(row: &CompatRowRead, trusted_verifier_pubkey: &str) -> Result<(), String> {
-    if row.verifier_pubkey != trusted_verifier_pubkey {
-        return Err("compat row verifier key does not match trusted verifier key".to_string());
-    }
-
-    let verifying_key = verifying_key_from_base64(trusted_verifier_pubkey)
-        .map_err(|e| format!("failed to parse verifier public key: {e:?}"))?;
-
-    let sig_bytes = BASE64
-        .decode(row.signature.as_bytes())
-        .map_err(|e| format!("failed to decode signature base64: {e}"))?;
-
-    let signature: [u8; app_identity_crypto::SIGNATURE_LEN] = sig_bytes
-        .try_into()
-        .map_err(|_| "signature is not 64 bytes".to_string())?;
-
-    let mut payload = serde_json::json!({
-        "release_id": row.release_id,
-        "contract_version": row.contract_version,
-    });
-
-    if let Some(ref url) = row.verification_url {
-        payload["verification_url"] = serde_json::json!(url);
-    }
-
-    let canonical_body = app_identity_crypto::canonicalize(&payload)
-        .map_err(|e| format!("failed to canonicalize payload: {e}"))?;
-
-    let computed_hash = fold_db::hex::sha256_hex(&canonical_body);
-    if computed_hash != row.payload_hash {
-        return Err(format!(
-            "payload_hash mismatch: row claims '{}', computed '{}'",
-            row.payload_hash, computed_hash
-        ));
-    }
-
-    verify(&verifying_key, &signature, &canonical_body)
-        .map_err(|e| format!("signature verification failed: {e}"))
 }

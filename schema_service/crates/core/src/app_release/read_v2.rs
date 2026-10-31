@@ -2,53 +2,7 @@
 
 use super::*;
 
-/// The anonymous compat-row list both HTTP routers answer.
-#[derive(Debug)]
-pub enum CompatRowsReply {
-    /// The list loaded. HTTP 200. The value is `{ "compat_rows": [...] }`.
-    Ready(Value),
-    /// The storage read failed. Status and body come from [`CompatRowError::to_http`].
-    Failed { status: u16, body: Value },
-}
-
 impl SchemaServiceState {
-    /// `GET /v2/releases/{release_id}/compat` — list all compat rows for a release.
-    ///
-    /// Reads from storage (not an in-memory cache) because compat rows are
-    /// written infrequently by a separate verifier identity, not by the app
-    /// publisher.
-    ///
-    /// # Errors
-    /// Returns storage errors.
-    pub async fn list_compat_rows(
-        &self,
-        release_id: &str,
-    ) -> Result<Vec<CompatRow>, CompatRowError> {
-        self.storage
-            .backend()
-            .load_compat_rows_for_release(release_id)
-            .await
-            .map_err(|e| CompatRowError::Internal(e.to_string()))
-    }
-
-    /// Classify [`Self::list_compat_rows`] for the anonymous HTTP read.
-    ///
-    /// `Ready` is the `{ "compat_rows": [...] }` body. `Failed` keeps the
-    /// status and body from [`CompatRowError::to_http`].
-    #[must_use]
-    pub async fn compat_rows_reply(&self, release_id: &str) -> CompatRowsReply {
-        match self.list_compat_rows(release_id).await {
-            Ok(rows) => {
-                let rows_json: Vec<_> = rows.iter().map(CompatRow::to_public_json).collect();
-                CompatRowsReply::Ready(json!({ "compat_rows": rows_json }))
-            }
-            Err(error) => {
-                let (status, body) = error.to_http();
-                CompatRowsReply::Failed { status, body }
-            }
-        }
-    }
-
     /// `GET /v2/apps` (anonymous) — list all apps from storage.
     ///
     /// Reads from storage to include legacy apps and new per-record apps.

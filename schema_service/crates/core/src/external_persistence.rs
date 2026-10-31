@@ -311,30 +311,6 @@ pub trait ExternalSchemaPersistence: Send + Sync {
         Ok(Vec::new())
     }
 
-    // ============== Compatibility rows (`/v2` registry) ============
-    //
-    // Compat rows are written only by a configured verifier identity (not
-    // by app publishers). Storage: per-record at
-    // `compat/{release_id}/{contract_version}.json` with conditional writes
-    // (If-None-Match: *) so each row is immutable.
-    //
-    // Default impls are no-ops / empty so a backend that predates compat
-    // rows runs without them rather than failing startup.
-
-    /// Persist one compat row, keyed by `(record.release_id, record.contract_version)`.
-    /// Must use conditional write (If-None-Match: *) to ensure immutability.
-    async fn save_compat_row(&self, _record: &crate::app_release::CompatRow) -> FoldDbResult<()> {
-        Ok(())
-    }
-
-    /// Load all compat rows for a specific release_id.
-    async fn load_compat_rows_for_release(
-        &self,
-        _release_id: &str,
-    ) -> FoldDbResult<Vec<crate::app_release::CompatRow>> {
-        Ok(Vec::new())
-    }
-
     /// Clear all schemas from durable storage (dev reset). Default:
     /// unsupported (cloud backends own their own reset semantics).
     async fn clear_all_schemas(&self) -> FoldDbResult<()> {

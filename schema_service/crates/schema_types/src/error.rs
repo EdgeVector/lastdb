@@ -40,13 +40,6 @@ pub enum FoldDbError {
     /// Contains the expected and supplied generation values.
     GenerationConflict { expected: u64, supplied: u64 },
 
-    /// Compat row already exists (typed for proper 409 error mapping).
-    /// Contains the release_id and contract_version that already exist.
-    CompatRowExists {
-        release_id: String,
-        contract_version: String,
-    },
-
     /// S3/storage operation error (string form).
     S3(String),
 
@@ -73,13 +66,6 @@ impl fmt::Display for FoldDbError {
             Self::GenerationConflict { expected, supplied } => write!(
                 f,
                 "Generation conflict: expected {expected}, supplied {supplied}"
-            ),
-            Self::CompatRowExists {
-                release_id,
-                contract_version,
-            } => write!(
-                f,
-                "Compat row already exists: release_id={release_id}, contract_version={contract_version}"
             ),
             Self::S3(msg) => write!(f, "S3 error: {msg}"),
             Self::Other(msg) => write!(f, "Error: {msg}"),
