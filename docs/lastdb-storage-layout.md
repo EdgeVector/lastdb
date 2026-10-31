@@ -39,10 +39,9 @@ A database catalog can explicitly reference an existing schema's molecules on th
 Equal field definitions in different schemas do not create that reference.
 
 Native backups retain encrypted bytes and their format metadata.
-A compatible format marker alone does not complete an app data conversion.
 The daemon refuses older shared-value declarations at startup.
-Complete the explicit conversion with a previous compatible release before the upgrade.
+Copy the records of an older home into a fresh home instead of an in-place conversion.
 
 Keep the primary unchanged during source and CI work.
-Use [the conversion guide](multi-key-schema-conversion.md) for the data boundary.
+Use [the multi-key schema guide](multi-key-schemas.md) for the data boundary.
 Use [the canonical model](lastdb-canonical-model.md) for the complete record and counter rules.

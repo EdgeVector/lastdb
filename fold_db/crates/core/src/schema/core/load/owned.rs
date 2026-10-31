@@ -18,7 +18,7 @@ pub(super) fn normalize_owned_declaration(
 pub(in crate::schema::core) fn require_owned_schema(schema: &Schema) -> Result<(), SchemaError> {
     if !schema.uses_independent_fields() {
         return Err(SchemaError::InvalidData(format!(
-            "schema '{}' uses a retired shared-value layout; complete its explicit conversion with the previous release before this upgrade",
+            "schema '{}' uses a retired shared-value layout; copy its records into a fresh home",
             schema.name
         )));
     }

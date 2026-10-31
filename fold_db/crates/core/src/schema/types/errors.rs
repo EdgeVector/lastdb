@@ -5,8 +5,6 @@ use std::fmt;
 pub enum SchemaError {
     NotFound(String),
     Blocked(String),
-    /// The owner conversion pauses ordinary writes and background cleanup.
-    AppSchemaConversionActive,
     /// A finite storage read limit, never record absence.
     ReadResourceLimit {
         detail: String,
@@ -165,7 +163,6 @@ impl fmt::Display for SchemaError {
         match self {
             Self::NotFound(msg) => write!(f, "Schema not found: {msg}"),
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
-            Self::AppSchemaConversionActive => write!(f, "app schema conversion maintenance is active"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
             Self::MissingSelectedAtom => write!(f, "selected tip has no readable atom body"),

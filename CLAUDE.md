@@ -19,8 +19,8 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 Use one schema with named alternate keys for the same records.
 Canonical field reuse supplies definitions and types. It does not share record values.
-Follow `docs/multi-key-schema-conversion.md`.
-Convert older data with the previous release before the upgrade. Source work does not authorize a primary data change.
+Follow `docs/multi-key-schemas.md`.
+Older data moves by a copy into a fresh home. Source work does not authorize a primary data change.
 
 ## Builds and benchmarks run in CI (Tom, 2026-10-23)
 
@@ -178,9 +178,8 @@ their clean core memory publication before the ack. No collection timer delays t
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
 - Empty homes initialize directly as format 6. Existing format 4 and 5 homes retain their records.
-  `lastdb db enable-alternate-keys` explicitly activates format 6 on a stopped home without rewriting encrypted data files.
-  Convert shared-value schemas on a compatible release before the engine removal upgrade.
-  This release refuses unconverted shared-value schemas. Startup does not convert data. Cloud activation stays disabled for this round.
+  No command upgrades a format 4 or 5 home in place; copy its records into a fresh home.
+  This release refuses shared-value schemas. Startup does not convert data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 

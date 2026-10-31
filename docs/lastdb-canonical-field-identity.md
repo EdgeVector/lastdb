@@ -17,7 +17,6 @@ Preserve stored identity versions. An older binary must not overwrite a newer id
 ## Value addresses
 
 A fresh field molecule derives its address from the schema and field names.
-An explicit conversion can retain a private molecule address in schema metadata.
 Reads and writes use the installed schema metadata, not a field-identity search across schemas.
 Equal field identities can hold different values at the same key in separate schemas.
 
@@ -26,4 +25,4 @@ Equal field identities can hold different values at the same key in separate sch
 A named alternate key belongs to one source schema and uses its declared fields.
 It points to the source primary key and stores no payload copy.
 Primary record changes and alternate address changes use one native transaction.
-See [the canonical model](lastdb-canonical-model.md) and [the conversion guide](multi-key-schema-conversion.md).
+See [the canonical model](lastdb-canonical-model.md) and [the multi-key schema guide](multi-key-schemas.md).

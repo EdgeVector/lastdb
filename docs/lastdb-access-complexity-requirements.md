@@ -2,7 +2,7 @@
 
 Use named alternate keys on one schema for the same records.
 Keep unrelated records in separate schemas. Canonical field reuse supplies definitions and types.
-See [the conversion guide](multi-key-schema-conversion.md).
+See [the multi-key schema guide](multi-key-schemas.md).
 
 ## One-sentence rule
 

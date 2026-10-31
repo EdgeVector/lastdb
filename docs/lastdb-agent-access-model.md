@@ -2,7 +2,7 @@
 
 Use one schema with named alternate keys for the same records.
 Keep reusable field definitions separate from mutable record values.
-See [the explicit conversion guide](multi-key-schema-conversion.md).
+See [the multi-key schema guide](multi-key-schemas.md).
 
 > **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal, read this file.
 > Then `docs/lastdb-canonical-model.md` (the canonical model), `docs/lastdb-access-complexity-requirements.md`
@@ -138,9 +138,8 @@ Use separate schemas for relationships, counters, tags, links, or files with the
 Collect known keys first. Batch independent reads and mutations.
 Equal canonical field definitions can hold different values at equal keys in separate schemas.
 
-An existing shared-value layout requires an explicit conversion with the previous release before the upgrade.
-Preserve the complete key domain, values, clocks, metadata, and app configuration.
-Follow [the conversion guide](multi-key-schema-conversion.md).
+An existing shared-value layout moves by a copy into a fresh home, not by an in-place conversion.
+Follow [the multi-key schema guide](multi-key-schemas.md).
 
 ---
 
@@ -230,4 +229,4 @@ A person who reads that seed can derive the file encryption keys. Database encry
 A schema owns each record and its field molecules.
 Declare named alternate keys for other reads of those records.
 Reuse canonical field definitions across schemas while each schema keeps separate values.
-Use an explicit conversion for an older value layout before the upgrade.
+Copy an older value layout into a fresh home.

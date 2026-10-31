@@ -35,8 +35,6 @@ impl MutationManager {
                 .ok_or_else(|| unsupported("a home without native logical capture"))?;
             let pending = self.pending_tasks.begin();
             transaction::request_scope(Some(Arc::clone(&runtime)), async {
-                crate::fold_db_core::fold_db::app_schema_conversion::require_unfrozen(&self.db_ops)
-                    .await?;
                 let prepared = runtime.begin_logical_import(events).await?;
                 self.require_peer_replay_floor(prepared.events()).await?;
                 self.admit_peer_outcomes(prepared.events()).await?;

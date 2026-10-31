@@ -2,8 +2,8 @@
 
 Use one schema with named alternate keys when several keys must find the same records.
 Keep canonical field definition reuse separate from mutable record values.
-Existing homes need an explicit conversion before the value-model upgrade.
-See [the multi-key conversion guide](docs/multi-key-schema-conversion.md).
+Existing homes move by a copy into a fresh home, not by an in-place conversion.
+See [the multi-key schema guide](docs/multi-key-schemas.md).
 
 Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
 See [optional Search and its queue limit](docs/lastdb-optional-search.md).

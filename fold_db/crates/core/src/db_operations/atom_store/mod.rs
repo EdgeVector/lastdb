@@ -144,8 +144,6 @@ type GenerationCleanupLocks = Arc<
 #[derive(Clone)]
 pub struct AtomStore {
     main_store: Arc<TypedKvStore<dyn KvStore>>,
-    /// Shared with the owner converter; the native tip writer checks it under its write gate.
-    pub(crate) app_schema_conversion_active: Arc<AtomicBool>,
     /// Validated once before serving. Only stopped-home maintenance can move
     /// this floor; replay cannot write its two metadata records.
     serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
