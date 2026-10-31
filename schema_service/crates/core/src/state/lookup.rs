@@ -7,7 +7,9 @@ use std::collections::hash_map::Entry;
 #[derive(Debug)]
 pub enum SchemaByNameReply {
     /// The named schema exists. HTTP 200.
-    Ready(SchemaEnvelope),
+    ///
+    /// The envelope is boxed so the other variants stay small.
+    Ready(Box<SchemaEnvelope>),
     /// No schema has that name. HTTP 404.
     Missing,
     /// Any other failure. HTTP 500. `detail` is the error text.
@@ -87,7 +89,7 @@ impl SchemaServiceState {
         match self.lookup_schema_by_name(name).await {
             Ok(Some(schema)) => {
                 let system = self.is_system_schema(&schema.name);
-                SchemaByNameReply::Ready(SchemaEnvelope { schema, system })
+                SchemaByNameReply::Ready(Box::new(SchemaEnvelope { schema, system }))
             }
             Ok(None) => SchemaByNameReply::Missing,
             Err(error) => SchemaByNameReply::Failed {
