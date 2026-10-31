@@ -119,7 +119,7 @@ pub use memory_persistence::InMemorySchemaPersistence;
 pub use native_schema_resolver::{evaluate_native, NativeResolverError, NativeResolverInput};
 pub use near_miss::{NearMissDecision, NearMissRecord};
 pub use registry_index::{
-    RegistryIndexEntry, RegistryIndexEnvelope, RegistryIndexSignature,
+    RegistryIndexEntry, RegistryIndexEnvelope, RegistryIndexReply, RegistryIndexSignature,
     REGISTRY_INDEX_FORMAT_VERSION,
 };
 pub use resolver_config::{

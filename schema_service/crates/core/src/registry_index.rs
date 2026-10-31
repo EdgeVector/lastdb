@@ -49,6 +49,20 @@ pub struct RegistryIndexSignature {
     pub sig: String,
 }
 
+/// The registry-index result both HTTP routers answer.
+#[derive(Debug)]
+pub enum RegistryIndexReply {
+    /// `If-None-Match` equals the current version. HTTP 304.
+    NotModified { etag: String },
+    /// A fresh index. HTTP 200. `etag` quotes `registry_version`.
+    Ready {
+        index: RegistryIndexEnvelope,
+        etag: String,
+    },
+    /// Export failed. HTTP 500. `detail` is the error text.
+    Failed { detail: String },
+}
+
 impl SchemaServiceState {
     pub fn export_registry_index(&self) -> FoldDbResult<RegistryIndexEnvelope> {
         let registry_version = self.current_state_version();
@@ -78,6 +92,27 @@ impl SchemaServiceState {
             supersessions: unsigned.supersessions,
             signature,
         })
+    }
+
+    /// Classify `If-None-Match` against the current version, then export.
+    ///
+    /// A match returns [`RegistryIndexReply::NotModified`] and does not export.
+    /// The compared value is the header text with surrounding spaces removed.
+    #[must_use]
+    pub fn registry_index_reply(&self, if_none_match: Option<&str>) -> RegistryIndexReply {
+        let current_etag = format!("\"{}\"", self.current_state_version());
+        if if_none_match.is_some_and(|etag| etag.trim() == current_etag) {
+            return RegistryIndexReply::NotModified { etag: current_etag };
+        }
+        match self.export_registry_index() {
+            Ok(index) => {
+                let etag = format!("\"{}\"", index.registry_version);
+                RegistryIndexReply::Ready { index, etag }
+            }
+            Err(error) => RegistryIndexReply::Failed {
+                detail: error.to_string(),
+            },
+        }
     }
 
     fn registry_index_entries(
