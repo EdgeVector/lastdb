@@ -9,8 +9,13 @@
 //! {"v":1,
 //!  "fields":{"title":"Plan v2","status":"done"},
 //!  "stamps":{"title":[written_at,logical_counter,device_id,mutation_id], ...},
+//!  "meta":{"source_file_name":"plan.pdf","metadata":{"file_blob_ref":"..."},
+//!          "stamp":[written_at,logical_counter,device_id,mutation_id]},
 //!  "deleted":[written_at,logical_counter,device_id,mutation_id]}
 //! ```
+//!
+//! The metadata belongs to the record, not to a field (decision D7): one
+//! source file name and one metadata map, with their own stamp.
 //!
 //! A stamp without a value is a removed field: it still refuses an older
 //! write of that field. `deleted` is the stamp of the last delete. It is a
@@ -20,7 +25,7 @@
 use crate::atom::file_pointer::blob_refs_of_atom;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The format version of a stored record value.
 pub const RECORD_VALUE_VERSION: u8 = 1;
@@ -111,6 +116,19 @@ impl std::fmt::Display for RecordValueError {
 
 impl std::error::Error for RecordValueError {}
 
+/// The metadata of one record (decision D7): the source file name and the
+/// metadata map of the newest write that carried them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_file_name: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
+    /// The stamp of the write that set this metadata.
+    pub stamp: FieldStamp,
+}
+
 /// The value at one record key: a live record or a tombstone.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +141,9 @@ pub struct StoredRecord {
     /// writes that removed a field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub stamps: BTreeMap<String, FieldStamp>,
+    /// The record metadata. A write without metadata keeps it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<RecordMeta>,
     /// The stamp of the last delete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted: Option<FieldStamp>,
@@ -135,6 +156,7 @@ impl Default for StoredRecord {
             v: RECORD_VALUE_VERSION,
             fields: BTreeMap::new(),
             stamps: BTreeMap::new(),
+            meta: None,
             deleted: None,
         }
     }
@@ -173,6 +195,28 @@ impl StoredRecord {
         FieldMerge::Written { old, old_stamp }
     }
 
+    /// Merge the metadata of one write that carries a source file name or a
+    /// metadata map. The newer stamp wins, as for a field. Returns true when
+    /// the metadata changed.
+    pub fn merge_meta(
+        &mut self,
+        source_file_name: Option<String>,
+        metadata: BTreeMap<String, String>,
+        stamp: FieldStamp,
+    ) -> bool {
+        if self.deleted.as_ref().is_some_and(|floor| stamp <= *floor)
+            || self.meta.as_ref().is_some_and(|meta| stamp <= meta.stamp)
+        {
+            return false;
+        }
+        self.meta = Some(RecordMeta {
+            source_file_name,
+            metadata,
+            stamp,
+        });
+        true
+    }
+
     /// Apply a delete. Each field at or below `stamp` goes, and `stamp`
     /// becomes the delete floor. A field with a newer stamp stays: it is a
     /// write after the delete. Returns true when the delete removed a value.
@@ -189,14 +233,18 @@ impl StoredRecord {
             }
             keep
         });
-        let removed = fields.len() != before;
+        let mut removed = fields.len() != before;
+        if self.meta.as_ref().is_some_and(|meta| meta.stamp <= stamp) {
+            self.meta = None;
+            removed = true;
+        }
         self.deleted = Some(stamp);
         removed
     }
 
-    /// Every file blob that a field value of this record names, sorted and
-    /// without duplicates. The write path compares the old and new sets to
-    /// change the file blob counters in the same batch.
+    /// Every file blob that a field value or the metadata of this record
+    /// names, sorted and without duplicates. The write path compares the old
+    /// and new sets to change the file blob counters in the same batch.
     #[must_use]
     pub fn blob_refs(&self) -> Vec<String> {
         let mut refs: Vec<String> = self
@@ -204,6 +252,10 @@ impl StoredRecord {
             .values()
             .flat_map(|value| blob_refs_of_atom(value, None))
             .collect();
+        if let Some(meta) = &self.meta {
+            let metadata: HashMap<String, String> = meta.metadata.clone().into_iter().collect();
+            refs.extend(blob_refs_of_atom(&Value::Null, Some(&metadata)));
+        }
         refs.sort_unstable();
         refs.dedup();
         refs
@@ -220,7 +272,7 @@ impl StoredRecord {
     }
 
     /// Read stored bytes. The value must have this format version, a stamp for
-    /// each field, and no stamp at or below the delete floor.
+    /// each field, and no field or metadata stamp at or below the delete floor.
     pub fn decode(bytes: &[u8]) -> Result<Self, RecordValueError> {
         let record: Self = serde_json::from_slice(bytes)
             .map_err(|error| RecordValueError::Format(error.to_string()))?;
@@ -235,7 +287,12 @@ impl StoredRecord {
             return Err(RecordValueError::Format("a field has no stamp".into()));
         }
         if let Some(floor) = &record.deleted {
-            if record.stamps.values().any(|stamp| stamp <= floor) {
+            if record
+                .stamps
+                .values()
+                .chain(record.meta.as_ref().map(|meta| &meta.stamp))
+                .any(|stamp| stamp <= floor)
+            {
                 return Err(RecordValueError::Format(
                     "a stamp is at or below the delete floor".into(),
                 ));
