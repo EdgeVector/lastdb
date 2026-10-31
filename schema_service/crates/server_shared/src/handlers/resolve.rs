@@ -1,6 +1,6 @@
 //! Reuse checks, schema resolution, field-match probes and health.
 
-use schema_service_core::state::SchemaResolveReply;
+use schema_service_core::state::{BatchReuseReply, SchemaResolveReply};
 use schema_service_core::FieldMatchProbeReply;
 
 use super::*;
@@ -15,10 +15,10 @@ pub async fn batch_check_reuse(
 ) -> impl Responder {
     let request = payload.into_inner();
 
-    match state.batch_check_schema_reuse(&request.schemas) {
-        Ok(matches) => {
+    match state.batch_reuse_reply(&request.schemas) {
+        BatchReuseReply::Ready(response) => {
             for entry in &request.schemas {
-                match matches.get(&entry.descriptive_name) {
+                match response.matches.get(&entry.descriptive_name) {
                     Some(m) if m.is_superset => {
                         state.record_schema_match_outcome("matched_existing", "batch_reuse", None);
                     }
@@ -34,9 +34,12 @@ pub async fn batch_check_reuse(
                     ),
                 }
             }
-            HttpResponse::Ok().json(BatchSchemaReuseResponse { matches })
+            HttpResponse::Ok().json(response)
         }
-        Err(e) => internal_error("Batch schema reuse check failed", e),
+        BatchReuseReply::Failed { message } => {
+            tracing::error!(target: "schema_service::schema", "{message}");
+            HttpResponse::InternalServerError().json(ErrorResponse { error: message })
+        }
     }
 }
 

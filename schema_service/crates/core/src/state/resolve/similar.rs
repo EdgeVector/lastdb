@@ -18,6 +18,19 @@ pub fn accepted_similarity_threshold(raw: Option<f64>) -> Option<f64> {
     (0.0..=1.0).contains(&threshold).then_some(threshold)
 }
 
+/// The batch reuse result both HTTP routers answer.
+///
+/// Success is HTTP 200 and `{ "matches": ... }`. Failure is HTTP 500.
+/// `message` is `Batch schema reuse check failed: {error}`. The actix router
+/// still records match telemetry and writes the error log.
+#[derive(Debug)]
+pub enum BatchReuseReply {
+    /// Every entry was checked. The body is `{ "matches": ... }`.
+    Ready(crate::types::BatchSchemaReuseResponse),
+    /// The check failed. `message` is the error text.
+    Failed { message: String },
+}
+
 impl SchemaServiceState {
     /// Find schemas similar to the given schema using Jaccard index on field name sets
     pub fn find_similar_schemas(
@@ -177,5 +190,20 @@ impl SchemaServiceState {
         }
 
         Ok(results)
+    }
+
+    /// The same call as [`Self::batch_check_schema_reuse`], classified for HTTP.
+    ///
+    /// The check method stays public. Each router still writes its response.
+    #[must_use]
+    pub fn batch_reuse_reply(&self, entries: &[SchemaLookupEntry]) -> BatchReuseReply {
+        match self.batch_check_schema_reuse(entries) {
+            Ok(matches) => {
+                BatchReuseReply::Ready(crate::types::BatchSchemaReuseResponse { matches })
+            }
+            Err(error) => BatchReuseReply::Failed {
+                message: format!("Batch schema reuse check failed: {error}"),
+            },
+        }
     }
 }

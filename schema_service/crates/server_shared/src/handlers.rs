@@ -17,9 +17,9 @@ use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::types::{
     AddSchemaRequest, AddSchemaResponse, AvailableSchemasResponse, BatchSchemaReuseRequest,
-    BatchSchemaReuseResponse, DeprecateSchemasRequest, ErrorResponse, HealthResponse,
-    NearMissesQuery, ReloadResponse, ResetRequest, ResetResponse, SchemaAddOutcome, SchemaEnvelope,
-    SchemaResolveRequest, SchemasListResponse,
+    DeprecateSchemasRequest, ErrorResponse, HealthResponse, NearMissesQuery, ReloadResponse,
+    ResetRequest, ResetResponse, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest,
+    SchemasListResponse,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, observe_legacy_schema_caller, validate_surface_metadata,
@@ -44,8 +44,7 @@ fn not_found(entity: &str, id: &str) -> HttpResponse {
 /// `500` carrying the same `"{context}: {error}"` message.
 ///
 /// Collapses the `match` `Err` arms whose log line and error body are
-/// identical (`list_views`, `reload_schemas`, `batch_check_reuse`,
-/// `list_transforms`).
+/// identical (`list_views`, `reload_schemas`, `list_transforms`).
 fn internal_error(context: &str, error: impl std::fmt::Display) -> HttpResponse {
     let message = format!("{context}: {error}");
     tracing::error!(target: "schema_service::schema", "{message}");
