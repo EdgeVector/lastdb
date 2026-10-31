@@ -28,18 +28,6 @@ use schema_service_core::{
     HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 
-/// Log a missing-resource lookup and build the matching 404 response.
-///
-/// `entity` is the human-readable resource label (e.g. `"Transform source"`);
-/// it appears both in the warn log (`<entity> '<id>' not found`) and the JSON
-/// body (`<entity> not found`). `id` is the lookup key that missed.
-fn not_found(entity: &str, id: &str) -> HttpResponse {
-    tracing::warn!(target: "schema_service::schema", "{} '{}' not found", entity, id);
-    HttpResponse::NotFound().json(ErrorResponse {
-        error: format!("{entity} not found"),
-    })
-}
-
 /// Log an internal failure against `schema_service::schema` and return a
 /// `500` carrying the same `"{context}: {error}"` message.
 ///

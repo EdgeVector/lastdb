@@ -227,10 +227,7 @@ pub(crate) async fn get_schema_by_name(
             let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SchemaByNameReply::Missing => json_response(404, &json!({"error": "Schema not found"})),
-        SchemaByNameReply::Failed { detail } => json_response(
-            500,
-            &json!({"error": format!("Failed to get schema: {detail}")}),
-        ),
+        SchemaByNameReply::Missing { body } => json_response(404, &body),
+        SchemaByNameReply::Failed { body, .. } => json_response(500, &body),
     }
 }
