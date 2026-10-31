@@ -9,6 +9,7 @@ fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legac
 
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_barriers|-|explicit stopped-home maintenance: durably publish the replay floor and older-reader refusal before any Delete barrier can leave; never modifies a tip, atom or reference counter
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_scope|-|explicit stopped-home maintenance removes only identity-checked Delete barriers at or before the durable replay floor; no planner-owned record changes
+fold_db/crates/core/src/db_operations/atom_store/owned_layout.rs|record_owned_layout|-|writes only the home-level owned-layout marker (one layout: key) once after startup admits every stored schema; no tip, atom, conflict or counter key
 
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|apply_molecule_recount|M|explicit offline recount on a stopped, exclusively locked home; validates every source family before whole-batch molecule repair and drain rearm
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|plan_header|M|offline molecule repair preserves readable header metadata and replaces only exact slots/records counts after a complete tally

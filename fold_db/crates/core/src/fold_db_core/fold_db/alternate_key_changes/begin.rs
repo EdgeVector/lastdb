@@ -32,7 +32,7 @@ pub(super) async fn execute(
     target.alternate_keys = alternate_keys;
     target.owned_values = true;
     target
-        .validate_alternate_keys()
+        .validate_owned_schema()
         .map_err(SchemaError::InvalidData)?;
     if target.alternate_key_revision() == source.alternate_key_revision() {
         return Err(invalid(

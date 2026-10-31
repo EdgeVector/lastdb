@@ -134,7 +134,7 @@ pub(crate) fn normalize_direct_declare_proposal(
     }
     schema.name = local_schema_id.clone();
     schema.owned_values = true;
-    schema.validate_alternate_keys()?;
+    schema.validate_owned_schema()?;
     schema.compute_identity_hash();
     schema
         .populate_runtime_fields()
