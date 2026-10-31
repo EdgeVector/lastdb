@@ -107,10 +107,8 @@ impl SchemaServiceState {
             },
             Err(error) => {
                 let message = format!("Failed to get schema: {error}");
-                SchemaByNameReply::Failed {
-                    body: json!({"error": message.clone()}),
-                    message,
-                }
+                let body = json!({"error": &message});
+                SchemaByNameReply::Failed { message, body }
             }
         }
     }
