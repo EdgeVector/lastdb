@@ -95,8 +95,8 @@ pub async fn publish_release(
         .publish_release_reply(&app_id, &cert, &sig, &body)
         .await
     {
-        PublishReleaseReply::Ready { status, body, .. } => json_status(status, body),
-        PublishReleaseReply::Failed { status, body } => json_status(status, body),
+        PublishReleaseReply::Ready { status, body, .. }
+        | PublishReleaseReply::Failed { status, body } => json_status(status, body),
     }
 }
 
