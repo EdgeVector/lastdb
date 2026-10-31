@@ -1,6 +1,6 @@
 # TTL sweep: verb, pacing and knobs
 
-The node-local TTL sweep (`lastdb_node/src/ops/ttl_sweep.rs`) erases the expired keys of every
+The node-local TTL sweep (`lastdb_node/src/jobs/ttl_sweep.rs`) erases the expired keys of every
 schema that has a retention policy. The age rule is in
 `fold_db/crates/core/src/schema/schema_types.rs` (`SchemaRetentionPolicy`) and in
 `lastdb schema-retention set --help`. This page covers what the sweep does with the keys it

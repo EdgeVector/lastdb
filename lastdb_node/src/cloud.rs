@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 
 use fold_db::security::Ed25519KeyPair;
 
-use crate::host;
-
 mod config;
 mod register;
 mod resume;

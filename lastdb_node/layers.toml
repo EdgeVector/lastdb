@@ -4,6 +4,11 @@
 # layer that lists the longest prefix of its module path. A file may use its
 # own layer and the layers below it. A reference to a higher layer fails CI.
 # Cycles inside one layer are allowed.
+#
+# State sits below the host and work over the host sits above it: the host
+# holds the sampler state, request telemetry and backup runtime (ops, leaf),
+# and the jobs that take `&Host` (sampler, TTL sweep, blob dwell, footprint
+# relief) live in `jobs`, above the node features they report on.
 
 # The daemon binary (main.rs with its private lastdbd and shutdown_runtime
 # modules) and the bin/ tools are separate crates. They reach this library
@@ -12,7 +17,7 @@ exclude = ["main.rs", "lastdbd", "shutdown_runtime.rs", "bin"]
 
 [[layer]]
 name = "leaf"
-doc = "Self-contained parts with no dependency on another module of this crate."
+doc = "Parts that use only other leaf parts: storage homes, outboxes and queues, the backup runtime and its phase, seals, logs, and versions."
 modules = [
   "allocator",
   "app_release_host",
@@ -36,7 +41,7 @@ modules = [
 
 [[layer]]
 name = "cloud"
-doc = "Cloud account configuration, registration, and backup access credentials."
+doc = "Cloud account configuration, registration, backup access credentials, ephemeral homes, and native cloud restore."
 modules = [
   "backup_access",
   "cloud",
@@ -46,14 +51,14 @@ modules = [
 
 [[layer]]
 name = "ops"
-doc = "Operations telemetry and health over the leaf parts."
+doc = "Operations state and status models over the leaf parts: request telemetry, the session ledger, gauges, the self-metrics status snapshot and sampler state, crash attribution, and health alerts. No dependency on the host."
 modules = [
   "ops",
 ]
 
 [[layer]]
 name = "host"
-doc = "The running node host and its maintenance admission."
+doc = "The booted node host, which holds the ops state, and the host-level gates: maintenance write admission, delivery, and volume isolation."
 modules = [
   "deliver",
   "host",
@@ -70,6 +75,13 @@ modules = [
   "byte_cloud_restore",
   "offline_home",
   "offline_recount",
+]
+
+[[layer]]
+name = "jobs"
+doc = "Background and on-demand work over a booted host: the self-metrics sampler and status snapshot build, the TTL sweep, blob dwell, and footprint relief."
+modules = [
+  "jobs",
 ]
 
 [[layer]]

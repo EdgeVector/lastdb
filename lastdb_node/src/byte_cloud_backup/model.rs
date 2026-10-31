@@ -1,4 +1,5 @@
 use super::{BackupError, Result};
+pub use crate::backup_runtime::Phase;
 use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Commit};
 use cloud_backup_protocol::{AccountId, Id};
 use serde::{Deserialize, Serialize};
@@ -24,18 +25,6 @@ pub enum ByteBackupRequest {
         snapshot_interval_seconds: u64,
     },
     DisableAutomatic,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Phase {
-    Preparing,
-    Capturing,
-    Uploading,
-    Inventory,
-    Committing,
-    Published,
-    Closed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,4 +132,30 @@ pub struct ByteBackupStatus {
     pub retained_source_bytes: Option<u64>,
     pub blocked_reason: Option<String>,
     pub last_accepted_backup: Option<AcceptedBackup>,
+}
+
+/// The status model's durability view of one byte backup status.
+impl From<ByteBackupStatus> for crate::self_metrics::DurabilityHealth {
+    fn from(status: ByteBackupStatus) -> Self {
+        let blocked = status.blocked_reason.is_some()
+            || status
+                .automatic_backup
+                .as_ref()
+                .is_some_and(|s| s.paused.is_some());
+        Self {
+            observed: true,
+            automatic_enabled: status.automatic_backup_enabled,
+            running: status.running,
+            phase: status.phase,
+            accepted_backup_recorded: status.last_accepted_backup.is_some(),
+            // No capture time or current-source equivalence is available here.
+            // Never turn an accepted historical receipt into a fresh-coverage claim.
+            degraded: blocked.then_some(true),
+            reasons: vec![if blocked {
+                "v2_job_blocked".into()
+            } else {
+                "v2_freshness_unmeasured".into()
+            }],
+        }
+    }
 }

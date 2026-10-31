@@ -1,12 +1,12 @@
 use super::*;
 
-pub(super) fn sample_id(sampled_at: u64) -> String {
+pub(crate) fn sample_id(sampled_at: u64) -> String {
     let nanos = fold_db::clock::unix_nanos() % 1_000_000_000;
     format!("{sampled_at:020}-{nanos:09}-{}", std::process::id())
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn current_rss_bytes() -> Option<u64> {
+pub(crate) fn current_rss_bytes() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let resident_pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
     // SAFETY: sysconf is read-only; a positive page size is expected on Linux.
@@ -15,7 +15,7 @@ pub(super) fn current_rss_bytes() -> Option<u64> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn current_rss_bytes() -> Option<u64> {
+pub(crate) fn current_rss_bytes() -> Option<u64> {
     // Prefer live resident size (matches `ps` RSS). `getrusage(RUSAGE_SELF).ru_maxrss`
     // on Darwin is a high-water mark in bytes and misled operators during the
     // 2026-07-14 re-enable (status showed 18 GiB peak while current was ~4–8 GiB).
@@ -38,7 +38,7 @@ pub(super) fn current_rss_bytes() -> Option<u64> {
 }
 
 #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
-pub(super) fn current_rss_bytes() -> Option<u64> {
+pub(crate) fn current_rss_bytes() -> Option<u64> {
     let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: getrusage initializes the provided rusage struct on success.
     let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
@@ -52,9 +52,9 @@ pub(super) fn current_rss_bytes() -> Option<u64> {
 
 /// Current and lifetime-peak physical footprint of this process.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PhysFootprint {
-    pub(super) current_bytes: u64,
-    pub(super) peak_bytes: u64,
+pub(crate) struct PhysFootprint {
+    pub(crate) current_bytes: u64,
+    pub(crate) peak_bytes: u64,
 }
 
 /// Read `phys_footprint` in-process, the same quantity `/usr/bin/footprint -p`
@@ -68,7 +68,7 @@ pub(super) struct PhysFootprint {
 /// `proc_pid_rusage(RUSAGE_INFO_V4)` is used rather than shelling out to
 /// `/usr/bin/footprint`, which costs a process spawn per status read.
 #[cfg(target_os = "macos")]
-pub(super) fn current_phys_footprint() -> Option<PhysFootprint> {
+pub(crate) fn current_phys_footprint() -> Option<PhysFootprint> {
     let mut info = std::mem::MaybeUninit::<libc::rusage_info_v4>::uninit();
     // SAFETY: proc_pid_rusage writes a `rusage_info_v4` for flavor
     // RUSAGE_INFO_V4 into the provided buffer, which is sized for exactly that.
@@ -100,7 +100,7 @@ pub(super) fn current_phys_footprint() -> Option<PhysFootprint> {
 /// genuinely resident — it does not hide a compressed working set — so callers
 /// fall back to naming RSS rather than implying a footprint they never read.
 #[cfg(not(target_os = "macos"))]
-pub(super) fn current_phys_footprint() -> Option<PhysFootprint> {
+pub(crate) fn current_phys_footprint() -> Option<PhysFootprint> {
     None
 }
 
@@ -109,7 +109,7 @@ pub(super) fn current_phys_footprint() -> Option<PhysFootprint> {
 /// Read from the environment on every sample rather than cached at boot: the
 /// guard reads it the same way, so a limit changed under a running node is
 /// reported as the guard would actually enforce it.
-pub(super) fn memory_limit_bytes() -> Option<u64> {
+pub(crate) fn memory_limit_bytes() -> Option<u64> {
     let limit = fold_db::memory_budget::parse_rss_limit_bytes(
         std::env::var(fold_db::memory_budget::RSS_LIMIT_MB_ENV).ok(),
     );
@@ -158,7 +158,7 @@ impl MemoryGuardMetric {
 /// read from *this* process's environment, so a guard configured differently in
 /// its own LaunchAgent is not observable here. Mirroring the guard's default is
 /// still strictly better than hard-coding the gauge it stopped using.
-pub(super) fn memory_guard_metric() -> MemoryGuardMetric {
+pub(crate) fn memory_guard_metric() -> MemoryGuardMetric {
     match std::env::var(fold_db::memory_budget::GUARD_METRIC_ENV)
         .ok()
         .as_deref()
@@ -259,7 +259,7 @@ pub(super) struct DataDirSizeState {
 ///
 /// Two process-global instances are used: [`NODE_HOME_SIZE`] (primary operator
 /// gauge) and [`DATA_DIR_SIZE`] (data-only secondary).
-pub(super) struct DataDirSizeCache {
+pub(crate) struct DataDirSizeCache {
     pub(super) state: Mutex<DataDirSizeState>,
     /// Completed walks of this tree, since process start.
     ///
@@ -275,8 +275,8 @@ pub(super) struct DataDirSizeCache {
     pub(super) walks: AtomicU64,
 }
 
-pub(super) static DATA_DIR_SIZE: DataDirSizeCache = DataDirSizeCache::new();
-pub(super) static NODE_HOME_SIZE: DataDirSizeCache = DataDirSizeCache::new();
+pub(crate) static DATA_DIR_SIZE: DataDirSizeCache = DataDirSizeCache::new();
+pub(crate) static NODE_HOME_SIZE: DataDirSizeCache = DataDirSizeCache::new();
 
 impl DataDirSizeCache {
     pub(super) const fn new() -> Self {
@@ -292,7 +292,7 @@ impl DataDirSizeCache {
     }
 
     /// Completed directory walks performed by this cache since process start.
-    pub(super) fn walks(&self) -> u64 {
+    pub(crate) fn walks(&self) -> u64 {
         self.walks.load(Ordering::Relaxed)
     }
 
@@ -325,7 +325,7 @@ impl DataDirSizeCache {
     /// the latter cases arranges for at most one background walk. `refreshing`
     /// is the single-flight, and it is taken under the state lock, so N
     /// concurrent cold callers spawn one walk between them.
-    pub(super) fn get(&'static self, path: &Path, ttl: Duration) -> Option<u64> {
+    pub(crate) fn get(&'static self, path: &Path, ttl: Duration) -> Option<u64> {
         let mut state = self.lock();
         let same_path = state.path.as_ref().is_some_and(|p| p.as_path() == path);
         if !same_path {

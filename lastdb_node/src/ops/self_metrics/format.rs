@@ -5,7 +5,7 @@
 /// future (a clock step between the stamp and the sample) reads 0 rather
 /// than wrapping to a huge age.
 #[must_use]
-pub(super) fn governor_state_held_secs(since_epoch_secs: u64, now_epoch_secs: u64) -> u64 {
+pub(crate) fn governor_state_held_secs(since_epoch_secs: u64, now_epoch_secs: u64) -> u64 {
     if since_epoch_secs == 0 {
         return 0;
     }

@@ -84,7 +84,7 @@ jobs:
       - name: Atom counter writer-boundary lint
         run: bash scripts/ci/mini-gate-step.sh "Atom counter writer-boundary lint" -- python3 scripts/lints/lint-atom-counter-writers.py
       - name: Module layer check
-        run: bash scripts/ci/mini-gate-step.sh "Module layer check" -- python3 scripts/ci/layer-check.py --crate fold_db/crates/core
+        run: bash scripts/ci/mini-gate-step.sh "Module layer check" -- python3 scripts/ci/layer-check.py --crate fold_db/crates/core --crate lastdb_node
       - name: Workspace fastembed-unification lint
         run: bash scripts/ci/mini-gate-step.sh "Workspace fastembed-unification lint" -- bash scripts/ci/lint-workspace-fastembed-unification.sh
       - name: Heavy clippy workspace-coverage lint
