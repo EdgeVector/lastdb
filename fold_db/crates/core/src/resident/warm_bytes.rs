@@ -1,15 +1,12 @@
 //! Warm set byte limit (design: docs/lastdb-warm-set-byte-limit-design.md, D2 and D4).
 //!
-//! Stage 3 enforces this limit; the 10,000-path count is retired (D3).
+//! The byte limit is the only warm set limit. There is no record count (D3).
 
 /// Default warm set byte limit (Tom, 2026-10-19: 256 MiB to start).
 pub const DEFAULT_CORE_WARM_BYTES: usize = 256 * 1024 * 1024;
 
 /// Env override for the warm set byte limit. Zero and invalid values are refused.
 pub const CORE_WARM_BYTES_ENV: &str = "LASTDB_CORE_WARM_BYTES";
-
-/// The retired path-count override. `lastdbd` ignores it with a warning.
-pub const RETIRED_KEY_CAP_ENV: &str = "LASTDB_RESIDENT_KEY_CAP";
 
 /// Unflushed writes may use this percentage of the limit (D4).
 pub const CORE_WARM_DIRTY_PERCENT: usize = 25;

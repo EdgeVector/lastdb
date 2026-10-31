@@ -9,7 +9,6 @@ use super::*;
 use std::collections::BTreeMap;
 
 const MAX_BYTES: usize = 1024 * 1024;
-const MAX_RECORDS: usize = 10_000;
 const MAX_VALUE_BYTES: usize = 16 * 1024;
 type Coordinate = (String, String);
 
@@ -91,9 +90,7 @@ impl ReadContext {
             + body_bytes
             + std::mem::size_of::<(Coordinate, Option<Vec<u8>>)>()
             + 8 * std::mem::size_of::<usize>();
-        if saved.values.len() < MAX_RECORDS
-            && bytes <= MAX_BYTES.saturating_sub(saved.bytes)
-            && !saved.values.contains_key(coordinate)
+        if bytes <= MAX_BYTES.saturating_sub(saved.bytes) && !saved.values.contains_key(coordinate)
         {
             saved
                 .values

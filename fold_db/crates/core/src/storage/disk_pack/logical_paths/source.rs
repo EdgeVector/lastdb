@@ -3,9 +3,9 @@ use super::*;
 use crate::atom::Atom;
 use std::collections::BTreeMap;
 
-const MAX_SOURCE_ENTRIES: usize = 10_000;
 // One read can need a source, atom certificate, and scope binding for each key.
-// Each typed map has its own count bound; all three share this metadata cap.
+// All three maps share this byte cap. Each entry charges a fixed overhead, so
+// the bytes also bound the count.
 const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 mod certified;
 mod proof;
@@ -106,7 +106,7 @@ impl Sources {
         bytes: usize,
         fingerprint: [u8; 32],
     ) {
-        if source.primary(requested) && self.atoms.len() < MAX_SOURCE_ENTRIES && self.room(bytes) {
+        if source.primary(requested) && self.room(bytes) {
             self.atoms.insert(
                 requested.to_owned(),
                 AtomProof {
@@ -174,9 +174,7 @@ pub(crate) fn note_read_source(
     let Some((collection, actual)) = source else {
         return Ok(());
     };
-    if sources.reads.len() < MAX_SOURCE_ENTRIES
-        && sources.room(192 + requested.len() + collection.len() + actual.len())
-    {
+    if sources.room(192 + requested.len() + collection.len() + actual.len()) {
         sources.reads.insert(
             requested.to_owned(),
             SourceKey {
@@ -241,7 +239,7 @@ fn bind(sources: &mut Sources, scope: Option<&str>, key: &str, atom: &Atom) {
     if !sources.atoms.contains_key(key) {
         return;
     }
-    if sources.scoped.len() < MAX_SOURCE_ENTRIES && sources.room(192 + identity.len() + key.len()) {
+    if sources.room(192 + identity.len() + key.len()) {
         sources.scoped.insert(identity, key.to_owned());
     }
 }
