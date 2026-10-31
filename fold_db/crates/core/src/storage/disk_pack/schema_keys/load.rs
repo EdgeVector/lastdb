@@ -91,7 +91,7 @@ impl PackRuntime {
             scope: entry.id.0.clone(),
             molecule: entry.id.1.clone(),
             layout: "hash_range".into(),
-            encoding_identity: encoding_identity(&db_ops, &entry.id.1)?,
+            encoding_identity: encoding_identity(&*db_ops, &entry.id.1)?,
             membership_rules: "current-candidates-with-exact-visibility-v1".into(),
         };
         let codec = db_ops.key_codec_for_molecule(&entry.id.1)?;

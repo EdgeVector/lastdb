@@ -239,7 +239,7 @@ impl PackRuntime {
         else {
             return Ok(());
         };
-        self.check_key_encoding(&db_ops, &entry)?;
+        self.check_key_encoding(&*db_ops, &entry)?;
         self.ensure_key_entry(db_ops, entry).await?;
         Ok(())
     }
