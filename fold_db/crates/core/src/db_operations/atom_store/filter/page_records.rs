@@ -3,9 +3,9 @@
 use crate::atom::{molecule_key_codec, AtomEntry, KeyMetadata};
 use crate::schema::SchemaError;
 
-use super::super::AtomStore;
+use super::{Filter, FilterPorts};
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Read current tip records in one batch and retain their selected order.
     pub(crate) async fn load_hash_range_page_records(
         &self,

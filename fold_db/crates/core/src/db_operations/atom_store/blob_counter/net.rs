@@ -26,7 +26,7 @@
 
 use super::dwell::DwellCursor;
 use super::{blob_dwell_millis, BlobQueue};
-use crate::db_operations::atom_store::AtomStore;
+use super::{BlobCounters, BlobPorts};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::measure;
 use std::time::Duration;
@@ -58,7 +58,7 @@ impl DwellCursor {
     }
 }
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// One chunk of the safety net: probe the next slices of the sweep, and
     /// register again each bucket that holds a live entry and has no directory
     /// row. A new sweep starts when the net is on and its time has come. `None`
@@ -81,7 +81,7 @@ impl AtomStore {
         &self,
         cursor: &mut DwellCursor,
     ) -> Result<Option<NetStep>, SchemaError> {
-        let queue = self.blob_events.queue();
+        let queue = self.store.blob_events().queue();
         let now = BlobQueue::nanos(self.blob_clock_millis());
         let Some(slices) = cursor.net.next_slices(
             NET_CHUNK_SLICES,
@@ -89,11 +89,11 @@ impl AtomStore {
                 let dwell = BlobQueue::nanos(blob_dwell_millis());
                 queue.layout().net_slices(now, dwell)
             },
-            || self.blob_events.note_net_sweep(),
+            || self.store.blob_events().note_net_sweep(),
         ) else {
             return Ok(None);
         };
-        let chunk = match queue.layout().mend_slices(self, &slices, now).await {
+        let chunk = match queue.layout().mend_slices(self.store, &slices, now).await {
             Ok(chunk) => chunk,
             Err(error) => {
                 cursor.net.abandon();
@@ -108,7 +108,7 @@ impl AtomStore {
             );
         }
         let repaired = chunk.unlisted.len() as u64;
-        self.blob_events.note_buckets_repaired(repaired);
+        self.store.blob_events().note_buckets_repaired(repaired);
         Ok(Some(NetStep {
             probed: chunk.probed,
             repaired,

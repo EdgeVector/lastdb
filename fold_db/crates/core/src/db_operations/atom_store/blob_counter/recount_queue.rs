@@ -13,9 +13,9 @@
 //! Both are batches of the planner (`commit_tip_changes`, rows only), so they add
 //! no writer to the writer lint. A second run finds nothing: the rows are there.
 
+use super::{BlobCounters, BlobPorts};
 use super::{BlobQueue, BlobRecountReport};
 use crate::db_operations::atom_store::counter::TipChangeSet;
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeSet;
 
@@ -24,7 +24,7 @@ const REPAIR_BATCH_ENTRIES: usize = 100;
 /// Directory rows that one read asks for.
 const DIRECTORY_READ: usize = 1_000;
 
-impl AtomStore {
+impl<S: BlobPorts> BlobCounters<'_, S> {
     /// Write the queue entry and the directory row of each `(blob, zero_since)`
     /// again. Does nothing in a dry run.
     pub(super) async fn write_blob_queue_rows(
@@ -41,15 +41,17 @@ impl AtomStore {
                 .iter()
                 .flat_map(|(blob, at)| queue.put_rows(*at, blob))
                 .collect();
-            self.in_background_scope(async {
-                self.commit_tip_changes(TipChangeSet {
-                    rows,
-                    ..TipChangeSet::default()
+            self.store
+                .in_background_scope(async {
+                    self.store
+                        .commit_tip_changes(TipChangeSet {
+                            rows,
+                            ..TipChangeSet::default()
+                        })
+                        .await
+                        .map(|_| ())
                 })
-                .await
-                .map(|_| ())
-            })
-            .await?;
+                .await?;
         }
         Ok(())
     }
@@ -72,7 +74,8 @@ impl AtomStore {
                 .map(|bucket| queue.layout().directory_key(*bucket).into_bytes())
                 .collect();
             let found = self
-                .raw()
+                .store
+                .rows()
                 .inner()
                 .exists_many(keys)
                 .await
@@ -90,7 +93,7 @@ impl AtomStore {
             let stamp = BlobQueue::nanos(self.blob_clock_millis());
             queue
                 .layout()
-                .register_buckets(self, &missing, stamp)
+                .register_buckets(self.store, &missing, stamp)
                 .await?;
         }
         Ok(())

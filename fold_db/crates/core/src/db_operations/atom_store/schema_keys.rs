@@ -1,7 +1,7 @@
 //! Ready core membership selects keys; unknown current tips fetch in batches.
 
+use super::ports::{KeyCodecs, NativeRuntime, PerKeyReads};
 use super::types::PerKeyRecord;
-use super::AtomStore;
 use crate::atom::molecule_key_codec;
 use crate::resident::core_keys::{CoreKeyLease, CoreStoredKey};
 use crate::schema::types::key_value::KeyValue;
@@ -45,11 +45,9 @@ impl ReadyTipKey {
     }
 }
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     fn schema_keys_runtime(&self) -> Option<Arc<PackRuntime>> {
-        self.namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
+        self.store.native_runtime()
     }
 
     fn ready_key_lease(
@@ -59,6 +57,22 @@ impl AtomStore {
         molecule: &str,
     ) -> Option<CoreKeyLease> {
         runtime.schema_key_lease(scope, molecule)
+    }
+}
+
+/// The ports the schema keys concept reads through.
+pub(crate) trait SchemaKeyPorts: KeyCodecs + NativeRuntime + PerKeyReads {}
+
+impl<T: KeyCodecs + NativeRuntime + PerKeyReads> SchemaKeyPorts for T {}
+
+/// Ready key membership and exact query tips over the ports of one store.
+pub(crate) struct SchemaKeys<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: SchemaKeyPorts> SchemaKeys<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
     }
 }
 

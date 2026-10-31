@@ -62,7 +62,7 @@ impl AtomStore {
                 .min(MAX_PAUSE_MS),
         );
         if request.cursor.is_none() {
-            Self::validate_scope(request.scope.as_deref())?;
+            crate::db_operations::atom_store::helpers::validate_scope(request.scope.as_deref())?;
         }
         let mut guard = self
             .counter_verify()

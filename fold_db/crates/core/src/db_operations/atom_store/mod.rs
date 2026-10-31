@@ -23,6 +23,9 @@
 //!   binding records and the molecule counters
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
+//! - [`ports`] — the narrow traits that converted concepts depend on; the
+//!   filter, schema keys, delete barriers and marker cleanup name only ports
+//! - [`wiring`] — `AtomStore` implements the ports and keeps thin wrappers
 
 pub mod atom_history;
 mod atoms;
@@ -41,6 +44,7 @@ pub use delete_replay::DeletePruneReport;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
+mod hash_selection;
 mod helpers;
 mod keep_small;
 mod key_comparison;
@@ -51,10 +55,12 @@ mod molecule_counters;
 mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
+mod ports;
 mod retention;
 mod schema_keys;
 pub(crate) mod time_queue;
 mod types;
+mod wiring;
 mod writer_watch;
 
 pub use blob_counter::{

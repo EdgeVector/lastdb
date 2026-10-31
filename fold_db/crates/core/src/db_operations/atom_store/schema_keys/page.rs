@@ -2,7 +2,7 @@
 
 use super::*;
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     pub(crate) async fn preloaded_hash_range_keys_page_window(
         &self,
         molecule: &str,

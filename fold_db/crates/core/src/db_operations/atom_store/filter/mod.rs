@@ -1,15 +1,54 @@
 //! Filtered molecule loads and selected page records.
 
-mod hash_selection;
 mod load;
 mod page_records;
 mod partition_page;
 mod per_key;
 
-pub(crate) use hash_selection::HashTipSelection;
+pub(crate) use super::hash_selection::HashTipSelection;
 pub(crate) use per_key::SchemaKeyMembership;
 
+use super::ports::{
+    AtomReads, DeleteBarrierReads, KeyCodecs, MainRows, MoleculeReads, NativeRuntime, QueryTips,
+    ReadyKeys,
+};
 use super::types::PerKeyRecord;
+
+/// The ports the filter concept reads through. The filter names no store type.
+pub(crate) trait FilterPorts:
+    AtomReads
+    + DeleteBarrierReads
+    + KeyCodecs
+    + MainRows
+    + MoleculeReads
+    + NativeRuntime
+    + QueryTips
+    + ReadyKeys
+{
+}
+
+impl<T> FilterPorts for T where
+    T: AtomReads
+        + DeleteBarrierReads
+        + KeyCodecs
+        + MainRows
+        + MoleculeReads
+        + NativeRuntime
+        + QueryTips
+        + ReadyKeys
+{
+}
+
+/// Filtered molecule loads, per-key reads and key pages over the ports of one store.
+pub(crate) struct Filter<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: FilterPorts> Filter<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
+    }
+}
 
 /// Whether a bounded page window counts **stored** rows or **live** rows.
 ///

@@ -59,7 +59,7 @@ impl Source {
     }
 }
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     pub(crate) async fn preloaded_per_key_prefix(
         &self,
         prefix: &str,
@@ -166,7 +166,7 @@ impl AtomStore {
         mut source: Source,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
         let mut output = Vec::new();
-        let codec = self.key_codec_for_molecule(&source.molecule)?;
+        let codec = self.store.key_codec_for_molecule(&source.molecule)?;
         while !source.exhausted {
             let Some(next) = runtime.with_schema_key_selection(|| source.next(4096)) else {
                 return Ok(None);

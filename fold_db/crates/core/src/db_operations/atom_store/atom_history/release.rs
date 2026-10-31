@@ -2,12 +2,12 @@ use super::*;
 use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
 use crate::db_operations::atom_store::retention::RetentionEntry;
 use crate::db_operations::atom_store::time_queue::QueueReader;
-use crate::db_operations::atom_store::{AtomStore, RecordSlot};
+use crate::db_operations::atom_store::RecordSlot;
 use crate::schema::SchemaError;
 use serde_json::Value;
 type ArchiveRows = (Option<String>, Vec<(String, Value)>);
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     pub(crate) fn archive_retention_rows(
         &self,
         scope: Option<&str>,
@@ -50,18 +50,19 @@ impl AtomStore {
         if !self.atom_history_enabled().await? {
             return Ok(0);
         }
-        let now = self.retention_state().clock_nanos();
-        reader.refresh(self, now).await?;
+        let now = self.store.retention_state().clock_nanos();
+        reader.refresh(self.store, now).await?;
         if let Some(bucket) = reader.candidates(now).into_iter().next() {
-            let page = reader.read_due(self, bucket, now).await?;
+            let page = reader.read_due(self.store, bucket, now).await?;
             let keys: Vec<_> = page.rows.iter().map(|(k, _)| k.clone()).collect();
             let released = self
+                .store
                 .in_background_scope(async {
-                    let rows = self.main_store.get_items::<RetentionEntry>(&keys).await?;
+                    let rows = self.store.rows().get_items::<RetentionEntry>(&keys).await?;
                     let history_keys: Vec<_> =
                         rows.iter().flatten().map(|e| e.history.clone()).collect();
                     let archived: Vec<Option<ArchiveRecord>> =
-                        self.main_store.get_items(&history_keys).await?;
+                        self.store.rows().get_items(&history_keys).await?;
                     let mut archived = archived.into_iter();
                     let mut by_scope: std::collections::BTreeMap<
                         Option<String>,
@@ -90,6 +91,7 @@ impl AtomStore {
                     let mut released = 0;
                     for (scope, releases) in by_scope {
                         released += self
+                            .store
                             .commit_tip_changes(TipChangeSet {
                                 scope: scope.as_deref(),
                                 releases,
@@ -104,7 +106,7 @@ impl AtomStore {
             reader.finish(page);
             if reader.exhausted(bucket) {
                 if let Some((key, token)) = reader.retire_token(bucket) {
-                    self.retire_bucket(key, token).await?;
+                    self.store.retire_bucket(key, token).await?;
                 }
                 reader.forget(bucket);
             }

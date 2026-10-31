@@ -1,16 +1,16 @@
 use super::*;
-use crate::db_operations::atom_store::AtomStore;
+
 use crate::schema::types::field::build_storage_key;
 use crate::schema::{types::key_value::KeyValue, SchemaError};
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     pub async fn atom_history_slot(
         &self,
         molecule: &str,
         key: &KeyValue,
         scope: Option<&str>,
     ) -> Result<String, SchemaError> {
-        let codec = self.history_key_codec(molecule).await?;
+        let codec = self.store.history_key_codec(molecule).await?;
         let bare = codec
             .api_hash_range_record_key(
                 molecule,
@@ -27,15 +27,15 @@ impl AtomStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<AtomHistoryPage, SchemaError> {
-        self.atom_read_scope(async {
+        self.store.atom_read_scope(async {
             let mut walk = history_walk(slot, cursor, limit)?;
-            let step = self.walk_step(&mut walk).await?;
-            let now = self.retention_state().clock_nanos();
+            let step = self.store.walk_step(&mut walk).await?;
+            let now = self.store.retention_state().clock_nanos();
             let scope = crate::storage::current_keys::exact_scope(slot)?;
             let base = slot.strip_prefix(&build_storage_key(scope, ""))
                 .ok_or_else(|| history_error("history slot is outside its exact scope"))?
                 .to_owned();
-            let current = self.load_visible_per_key_records(scope, &[base]).await?
+            let current = self.store.load_visible_per_key_records(scope, &[base]).await?
                 .into_iter().next().flatten()
                 .filter(|r| !r.meta.as_ref().is_some_and(|m| m.tombstoned))
                 .map(|r| serde_json::json!({"atom": r.entry.atom_uuid, "mutation": r.entry.mutation_uuid}));
@@ -55,31 +55,32 @@ impl AtomStore {
         id: &str,
     ) -> Result<Option<serde_json::Value>, SchemaError> {
         validate_id(id)?;
-        self.atom_read_scope(async {
-            let key = format!("{}{id}", prefix(slot)?);
-            let Some(record) = self.main_store.get_item::<ArchiveRecord>(&key).await? else {
-                return Ok(None);
-            };
-            if record.expired(self.retention_state().clock_nanos()) {
-                return Ok(None);
-            }
-            let scope = crate::storage::current_keys::exact_scope(slot)?;
-            let atoms = self
-                .get_atoms_by_storage_keys(&[build_storage_key(
-                    scope,
-                    &crate::atom::atom_key_codec::body_key(&record.event.new_atom_uuid),
-                )])
-                .await?;
-            let atom =
-                atoms.into_iter().next().flatten().ok_or_else(|| {
+        self.store
+            .atom_read_scope(async {
+                let key = format!("{}{id}", prefix(slot)?);
+                let Some(record) = self.store.rows().get_item::<ArchiveRecord>(&key).await? else {
+                    return Ok(None);
+                };
+                if record.expired(self.store.retention_state().clock_nanos()) {
+                    return Ok(None);
+                }
+                let scope = crate::storage::current_keys::exact_scope(slot)?;
+                let atoms = self
+                    .store
+                    .get_atoms_by_storage_keys(&[build_storage_key(
+                        scope,
+                        &crate::atom::atom_key_codec::body_key(&record.event.new_atom_uuid),
+                    )])
+                    .await?;
+                let atom = atoms.into_iter().next().flatten().ok_or_else(|| {
                     SchemaError::InvalidData("history atom body is missing".into())
                 })?;
-            Ok(Some(serde_json::json!({
-                "entry": record.entry(&key), "value": atom.content(),
-                "metadata": record.archive.source.meta,
-            })))
-        })
-        .await
+                Ok(Some(serde_json::json!({
+                    "entry": record.entry(&key), "value": atom.content(),
+                    "metadata": record.archive.source.meta,
+                })))
+            })
+            .await
     }
 }
 

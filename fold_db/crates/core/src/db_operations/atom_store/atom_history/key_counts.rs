@@ -1,6 +1,6 @@
 //! A derived per-key count permits one batch presence check for history-only keys.
 use super::*;
-use crate::db_operations::atom_store::{counter::RecordRefs, AtomStore};
+use crate::db_operations::atom_store::counter::RecordRefs;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -21,7 +21,7 @@ fn count_key(slot: &str) -> Result<String, SchemaError> {
     ))
 }
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     pub(crate) async fn history_key_rows(
         &self,
         records: &[RecordRefs],
@@ -41,7 +41,7 @@ impl AtomStore {
         }
         deltas.retain(|_, value| *value != 0);
         let keys: Vec<_> = deltas.keys().cloned().collect();
-        let current: Vec<Option<KeyCount>> = self.main_store.get_items(&keys).await?;
+        let current: Vec<Option<KeyCount>> = self.store.rows().get_items(&keys).await?;
         let mut rows = Vec::new();
         let mut deletes = Vec::new();
         for ((key, delta), count) in deltas.into_iter().zip(current) {
@@ -75,7 +75,7 @@ impl AtomStore {
             .iter()
             .map(|s| count_key(s))
             .collect::<Result<Vec<_>, _>>()?;
-        let rows: Vec<Option<KeyCount>> = self.main_store.get_items(&keys).await?;
+        let rows: Vec<Option<KeyCount>> = self.store.rows().get_items(&keys).await?;
         Ok(rows
             .into_iter()
             .map(|c| c.is_some_and(|c| c.records > 0))

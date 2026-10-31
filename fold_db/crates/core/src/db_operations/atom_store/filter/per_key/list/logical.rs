@@ -13,7 +13,7 @@ pub(super) struct ListedValue {
     atom: Option<crate::atom::Atom>,
 }
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     pub(super) async fn list_field_values(
         &self,
         request: &KeyList<'_>,
@@ -42,10 +42,7 @@ impl AtomStore {
         if schema && request.hash.is_some() {
             self.certify_listed_tips(request, rows, &keys).await?;
         }
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
+        let runtime = self.store.native_runtime();
         let mut misses = Vec::new();
         for (index, ((_, record), key)) in rows.iter().zip(&keys).enumerate() {
             if schema {
@@ -56,7 +53,7 @@ impl AtomStore {
                         request.scope,
                         Some(request.molecule),
                         &field::AtomSelection {
-                            primary: self.body_storage_key(&entry.1, request.scope),
+                            primary: self.store.body_storage_key(&entry.1, request.scope),
                             entry: &entry,
                         },
                     )?
@@ -72,6 +69,7 @@ impl AtomStore {
             .map(|&index| rows[index].1.entry.atom_uuid.as_str())
             .collect();
         let atoms = self
+            .store
             .get_atoms(&ids, request.scope)
             .await
             .map_err(SchemaError::read_failure)?;
@@ -109,6 +107,7 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         let requested: Vec<_> = keys.iter().filter_map(Clone::clone).collect();
         let selected = self
+            .store
             .load_query_tip_records(request.scope, request.molecule, &requested)
             .await?;
         let mut selected = selected.into_iter();
@@ -120,7 +119,13 @@ impl AtomStore {
             if actual.entry != expected.entry || actual.meta != expected.meta {
                 return Err(list_tip_disagreement());
             }
-            self.note_selected_query_tip(request.scope, request.molecule, key, expected, base)?;
+            self.store.note_selected_query_tip(
+                request.scope,
+                request.molecule,
+                key,
+                expected,
+                base,
+            )?;
         }
         Ok(())
     }
@@ -131,10 +136,7 @@ impl AtomStore {
         keys: &[Option<KeyValue>],
         values: Vec<Option<ListedValue>>,
     ) -> Result<(), SchemaError> {
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
+        let runtime = self.store.native_runtime();
         for (key, value) in keys.iter().zip(values) {
             let (Some(key), Some(value)) = (key, value) else {
                 continue;

@@ -1,55 +1,35 @@
 //! Bounded cleanup of markers that cannot hide an immutable generation slot.
 
-use super::{counter::TipChangeSet, AtomStore};
+use super::counter::TipChangeSet;
+use super::helpers::validate_scope;
+use super::ports::{
+    CommitTips, GenerationLocks, MainRows, MoleculeReads, NativeRuntime, WriteScopes,
+};
 use crate::atom::molecule_key_codec;
 use crate::schema::{types::field::build_storage_key, SchemaError};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
-use std::sync::{Arc, Weak};
-use tokio::sync::RwLock;
+use std::sync::Arc;
 
-impl AtomStore {
-    pub(crate) fn retain_generation_cleanup_guard(
-        &self,
-        guard: Arc<tokio::sync::OwnedRwLockReadGuard<()>>,
-    ) -> Result<(), SchemaError> {
-        if let Some(runtime) = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|s| s.disk_pack_runtime())
-        {
-            if crate::storage::disk_pack::transaction::publication::active(Some(Arc::clone(
-                &runtime,
-            ))) {
-                crate::storage::disk_pack::transaction::retain(&runtime, guard)?;
-            }
-        }
-        Ok(())
-    }
+/// The ports the marker cleanup concept uses.
+pub(crate) trait MarkerCleanupPorts:
+    CommitTips + GenerationLocks + MainRows + MoleculeReads + NativeRuntime + WriteScopes
+{
+}
 
-    /// Normal tips never take this lock. A prepared generation keeps a shared
-    /// guard until activation and reclamation end. Cleanup only tries an
-    /// exclusive guard after native admission; it never waits for a preparation
-    /// that might itself need native admission.
-    pub(crate) fn generation_cleanup_lock(
-        &self,
-        molecule: &str,
-        scope: Option<&str>,
-    ) -> Arc<RwLock<()>> {
-        let key = format!("{}\u{1f}{molecule}", scope.unwrap_or_default());
-        let mut locks = self
-            .generation_cleanup_locks
-            .lock()
-            .expect("generation cleanup locks");
-        if locks.len() >= 4096 {
-            locks.retain(|_, lock| lock.strong_count() != 0);
-        }
-        if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
-            return lock;
-        }
-        let lock = Arc::new(RwLock::new(()));
-        locks.insert(key, Arc::downgrade(&lock));
-        lock
+impl<T> MarkerCleanupPorts for T where
+    T: CommitTips + GenerationLocks + MainRows + MoleculeReads + NativeRuntime + WriteScopes
+{
+}
+
+/// Delete-marker cleanup over the ports of one store.
+pub(crate) struct MarkerCleanup<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: MarkerCleanupPorts> MarkerCleanup<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
     }
 
     /// One personal or scoped molecule, at most 256 marker keys. Preview is
@@ -63,7 +43,7 @@ impl AtomStore {
         limit: usize,
         execute: bool,
     ) -> Result<Value, SchemaError> {
-        Self::validate_scope(scope)?;
+        validate_scope(scope)?;
         if molecule.is_empty()
             || !molecule
                 .bytes()
@@ -71,13 +51,9 @@ impl AtomStore {
         {
             return Err(SchemaError::InvalidData("invalid molecule identity".into()));
         }
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|s| s.disk_pack_runtime())
-            .ok_or_else(|| {
-                SchemaError::InvalidData("delete-marker cleanup requires native storage".into())
-            })?;
+        let runtime = self.store.native_runtime().ok_or_else(|| {
+            SchemaError::InvalidData("delete-marker cleanup requires native storage".into())
+        })?;
         if crate::storage::disk_pack::transaction::publication::active(Some(Arc::clone(&runtime))) {
             return Err(SchemaError::InvalidData(
                 "delete-marker cleanup requires its own native request scope".into(),
@@ -99,35 +75,37 @@ impl AtomStore {
                 "cursor belongs to another molecule or scope".into(),
             ));
         }
-        self.in_background_scope(async {
-            let lock = self.generation_cleanup_lock(molecule, scope);
-            let Ok(guard) = lock.try_write_owned() else {
-                return Ok(
-                    json!({"blocked": "generation_preparation", "complete": false,
+        self.store
+            .in_background_scope(async {
+                let lock = self.store.generation_cleanup_lock(molecule, scope);
+                let Ok(guard) = lock.try_write_owned() else {
+                    return Ok(
+                        json!({"blocked": "generation_preparation", "complete": false,
                     "examined": 0, "eligible": 0, "deleted": 0, "next_cursor": after_key}),
-                );
-            };
-            if self
-                .active_molecule_generation(molecule, scope)
-                .await?
-                .is_some()
-            {
-                return Ok(json!({"blocked": "active_generation", "complete": false,
+                    );
+                };
+                if self
+                    .store
+                    .active_molecule_generation(molecule, scope)
+                    .await?
+                    .is_some()
+                {
+                    return Ok(json!({"blocked": "active_generation", "complete": false,
                     "examined": 0, "eligible": 0, "deleted": 0, "next_cursor": after_key}));
-            }
-            // Private preparation ends before publication. Keep the exclusion
-            // until this standalone native batch publishes.
-            crate::storage::disk_pack::transaction::retain(&runtime, guard)?;
-            self.cleanup_unselected_markers(
-                &prefix,
-                scope,
-                after.as_deref(),
-                limit.clamp(1, 256),
-                execute,
-            )
+                }
+                // Private preparation ends before publication. Keep the exclusion
+                // until this standalone native batch publishes.
+                crate::storage::disk_pack::transaction::retain(&runtime, guard)?;
+                self.cleanup_unselected_markers(
+                    &prefix,
+                    scope,
+                    after.as_deref(),
+                    limit.clamp(1, 256),
+                    execute,
+                )
+                .await
+            })
             .await
-        })
-        .await
     }
 
     async fn cleanup_unselected_markers(
@@ -145,7 +123,8 @@ impl AtomStore {
             start.push(0);
         }
         let rows = self
-            .main_store
+            .store
+            .rows()
             .inner()
             .scan_range_paged(&start, end.as_bytes(), limit)
             .await?;
@@ -162,12 +141,13 @@ impl AtomStore {
         let cursor = rows.last().map(|(key, _)| URL_SAFE_NO_PAD.encode(key));
         let count = rows.len();
         if execute && count != 0 {
-            self.commit_tip_changes(TipChangeSet {
-                scope,
-                deletes: rows.into_iter().map(|(key, _)| key).collect(),
-                ..TipChangeSet::default()
-            })
-            .await?;
+            self.store
+                .commit_tip_changes(TipChangeSet {
+                    scope,
+                    deletes: rows.into_iter().map(|(key, _)| key).collect(),
+                    ..TipChangeSet::default()
+                })
+                .await?;
         }
         Ok(
             json!({"blocked": null, "complete": count == 0, "examined": count,

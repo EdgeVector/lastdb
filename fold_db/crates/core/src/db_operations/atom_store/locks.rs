@@ -199,4 +199,48 @@ impl AtomStore {
     ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
         lock_target_stripes(&self.blob_liveness_locks, blob_refs).await
     }
+
+    /// Keep a generation cleanup guard until the native request publishes.
+    pub(crate) fn retain_generation_cleanup_guard(
+        &self,
+        guard: Arc<tokio::sync::OwnedRwLockReadGuard<()>>,
+    ) -> Result<(), crate::schema::SchemaError> {
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|s| s.disk_pack_runtime())
+        {
+            if crate::storage::disk_pack::transaction::publication::active(Some(Arc::clone(
+                &runtime,
+            ))) {
+                crate::storage::disk_pack::transaction::retain(&runtime, guard)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Normal tips never take this lock. A prepared generation keeps a shared
+    /// guard until activation and reclamation end. Cleanup only tries an
+    /// exclusive guard after native admission; it never waits for a preparation
+    /// that might itself need native admission.
+    pub(crate) fn generation_cleanup_lock(
+        &self,
+        molecule: &str,
+        scope: Option<&str>,
+    ) -> Arc<tokio::sync::RwLock<()>> {
+        let key = format!("{}\u{1f}{molecule}", scope.unwrap_or_default());
+        let mut locks = self
+            .generation_cleanup_locks
+            .lock()
+            .expect("generation cleanup locks");
+        if locks.len() >= 4096 {
+            locks.retain(|_, lock| lock.strong_count() != 0);
+        }
+        if let Some(lock) = locks.get(&key).and_then(std::sync::Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::RwLock::new(()));
+        locks.insert(key, Arc::downgrade(&lock));
+        lock
+    }
 }

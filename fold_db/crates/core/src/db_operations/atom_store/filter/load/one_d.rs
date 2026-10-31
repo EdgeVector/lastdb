@@ -4,7 +4,7 @@ use super::*;
 mod exact;
 
 /// The molecule a 1-D page is read from. These three always travel together —
-/// bundling them keeps [`AtomStore::load_1d_page_window`] inside the argument
+/// bundling them keeps [`Filter::load_1d_page_window`] inside the argument
 /// budget without splitting a routine that is one decision.
 #[derive(Clone, Copy)]
 pub(super) struct OneDPageTarget<'a> {
@@ -13,7 +13,7 @@ pub(super) struct OneDPageTarget<'a> {
     storage_prefix: Option<&'a str>,
 }
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// One-dimensional keyed field (Hash-only or Range-only slots).
     ///
     /// Unified layout: hash-only at `(hash, "")`, range-only at `("", range)`
@@ -53,7 +53,8 @@ impl AtomStore {
             // segment is used verbatim, exactly as the pre-index code did.
             let cursor = match slot {
                 OneDSlot::Hash => (
-                    self.storage_hash(molecule_uuid, after.hash.as_deref().unwrap_or(""))?,
+                    self.store
+                        .storage_hash(molecule_uuid, after.hash.as_deref().unwrap_or(""))?,
                     EMPTY_KEY_COMPONENT.to_string(),
                 ),
                 OneDSlot::Range => (
@@ -241,6 +242,7 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
         let key = self
+            .store
             .key_codec_for_molecule(molecule_uuid)?
             .api_hash_range_record_key(molecule_uuid, hash, range)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
@@ -255,7 +257,7 @@ impl AtomStore {
         end_seg: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        let codec = self.store.key_codec_for_molecule(molecule_uuid)?;
         let start = codec
             .api_hash_range_record_key(molecule_uuid, EMPTY_KEY_COMPONENT, start_seg)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;

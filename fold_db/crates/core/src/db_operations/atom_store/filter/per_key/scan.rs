@@ -11,17 +11,7 @@ enum StoredKeyMerge<'a> {
     },
 }
 
-impl AtomStore {
-    pub(crate) fn strip_per_key_storage_prefix(
-        storage_prefix: Option<&str>,
-        rows: Vec<(String, PerKeyRecord)>,
-    ) -> Vec<(String, PerKeyRecord)> {
-        let strip = build_storage_key(storage_prefix, "");
-        rows.into_iter()
-            .map(|(k, r)| (k.strip_prefix(&strip).unwrap_or(&k).to_string(), r))
-            .collect()
-    }
-
+impl<S: FilterPorts> Filter<'_, S> {
     /// Read one exact prefix, then apply generation and Delete state.
     pub(crate) async fn scan_per_key_prefix(
         &self,
@@ -29,7 +19,8 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         super::super::prefer_preloaded_rows(
-            self.preloaded_per_key_prefix(base_prefix, storage_prefix)
+            self.store
+                .preloaded_per_key_prefix(base_prefix, storage_prefix)
                 .await,
             || self.scan_stored_per_key_prefix(base_prefix, storage_prefix),
         )
@@ -43,7 +34,8 @@ impl AtomStore {
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let scan_prefix = build_storage_key(storage_prefix, base_prefix);
         let scanned: Vec<(String, PerKeyRecord)> = self
-            .main_store
+            .store
+            .rows()
             .scan_items_with_prefix(&scan_prefix)
             .await
             .map_err(|e| {
@@ -80,13 +72,14 @@ impl AtomStore {
         let _ = crate::schema::types::field::FilterUtils::create_prefix_end(base_prefix)?;
         let scan_prefix = build_storage_key(storage_prefix, base_prefix);
         let scanned: Vec<(String, PerKeyRecord)> = self
-            .main_store
+            .store
+            .rows()
             .scan_items_with_prefix_paged(&scan_prefix, limit)
             .await
             .map_err(|e| {
                 SchemaError::InvalidData(format!("paged scan per-key prefix {scan_prefix}: {e}"))
             })?;
-        Ok(Self::strip_per_key_storage_prefix(storage_prefix, scanned))
+        Ok(strip_per_key_storage_prefix(storage_prefix, scanned))
     }
 
     /// Scan the per-key records whose base key falls in `start..end` (the
@@ -100,7 +93,8 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         super::super::prefer_preloaded_rows(
-            self.preloaded_per_key_range(base_start, base_end, storage_prefix)
+            self.store
+                .preloaded_per_key_range(base_start, base_end, storage_prefix)
                 .await,
             || self.scan_stored_per_key_range(base_start, base_end, storage_prefix),
         )
@@ -116,7 +110,8 @@ impl AtomStore {
         let start = build_storage_key(storage_prefix, base_start);
         let end = build_storage_key(storage_prefix, base_end);
         let scanned: Vec<(String, PerKeyRecord)> = self
-            .main_store
+            .store
+            .rows()
             .scan_items_in_range(&start, &end)
             .await
             .map_err(|e| {
@@ -143,7 +138,7 @@ impl AtomStore {
         scanned: Vec<(String, PerKeyRecord)>,
         merge: StoredKeyMerge<'_>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let rows = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
+        let rows = strip_per_key_storage_prefix(storage_prefix, scanned);
         let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(identity_key)
         else {
             return self
@@ -152,21 +147,23 @@ impl AtomStore {
         };
         let rows = match merge {
             StoredKeyMerge::Prefix { base_prefix } => {
-                self.merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
+                self.store
+                    .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
                     .await?
             }
             StoredKeyMerge::Range {
                 base_start,
                 base_end,
             } => {
-                self.merge_generation_range_rows(
-                    molecule_uuid,
-                    base_start,
-                    base_end,
-                    storage_prefix,
-                    rows,
-                )
-                .await?
+                self.store
+                    .merge_generation_range_rows(
+                        molecule_uuid,
+                        base_start,
+                        base_end,
+                        storage_prefix,
+                        rows,
+                    )
+                    .await?
             }
         };
         self.ordered_molecule_rows(rows, storage_prefix).await
@@ -302,12 +299,13 @@ impl AtomStore {
         let start = build_storage_key(storage_prefix, base_start);
         let end = build_storage_key(storage_prefix, base_end);
         let scanned: Vec<(String, PerKeyRecord)> = self
-            .main_store
+            .store
+            .rows()
             .scan_items_in_range_paged(&start, &end, limit)
             .await
             .map_err(|e| {
                 SchemaError::InvalidData(format!("paged scan per-key range {start}..{end}: {e}"))
             })?;
-        Ok(Self::strip_per_key_storage_prefix(storage_prefix, scanned))
+        Ok(strip_per_key_storage_prefix(storage_prefix, scanned))
     }
 }

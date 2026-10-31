@@ -16,8 +16,8 @@
 //! uses its own environment.
 
 use super::keys::QUEUE_DIRECTORY;
+use super::{Retention, RetentionPorts};
 use crate::db_operations::atom_store::counter::TipChangeSet;
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -34,12 +34,13 @@ struct WindowRow {
     window_secs: u64,
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// The window that the node recorded, in seconds. `None` when the row is
     /// missing or does not decode.
     pub(crate) async fn recorded_retention_window(&self) -> Result<Option<u64>, SchemaError> {
         let stored = self
-            .main_store
+            .store
+            .rows()
             .inner()
             .get(window_key().as_bytes())
             .await
@@ -52,19 +53,21 @@ impl AtomStore {
     /// Record the window of this process, when the row says another one. One
     /// batch of the planner (rows only).
     pub(crate) async fn record_retention_window(&self) -> Result<(), SchemaError> {
-        let window_secs = self.retention_state().window_nanos() / 1_000_000_000;
+        let window_secs = self.store.retention_state().window_nanos() / 1_000_000_000;
         if self.recorded_retention_window().await? == Some(window_secs) {
             return Ok(());
         }
         let row = json!({ "v": 1, "window_secs": window_secs });
-        self.in_background_scope(async {
-            self.commit_tip_changes(TipChangeSet {
-                rows: vec![(window_key(), row)],
-                ..TipChangeSet::default()
+        self.store
+            .in_background_scope(async {
+                self.store
+                    .commit_tip_changes(TipChangeSet {
+                        rows: vec![(window_key(), row)],
+                        ..TipChangeSet::default()
+                    })
+                    .await
+                    .map(|_| ())
             })
             .await
-            .map(|_| ())
-        })
-        .await
     }
 }

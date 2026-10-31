@@ -11,16 +11,58 @@ mod types;
 pub(crate) use types::{ArchiveRecord, HistoryBinding, HistoryMode};
 pub use types::{AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation};
 
-impl super::AtomStore {
-    pub(crate) fn history_activation(&self) -> &tokio::sync::Notify {
-        &self.history_activation
+use super::ports::{
+    AtomReads, CommitTips, DeleteBarrierReads, HistorySignals, KeyCodecs, MainRows, PerKeyReads,
+    RangeWalks, RetentionStates, TimeQueues, WriteScopes,
+};
+
+/// The ports field history uses. It never names the store type.
+pub(crate) trait HistoryPorts:
+    AtomReads
+    + CommitTips
+    + DeleteBarrierReads
+    + HistorySignals
+    + KeyCodecs
+    + MainRows
+    + PerKeyReads
+    + RangeWalks
+    + RetentionStates
+    + TimeQueues
+    + WriteScopes
+{
+}
+
+impl<T> HistoryPorts for T where
+    T: AtomReads
+        + CommitTips
+        + DeleteBarrierReads
+        + HistorySignals
+        + KeyCodecs
+        + MainRows
+        + PerKeyReads
+        + RangeWalks
+        + RetentionStates
+        + TimeQueues
+        + WriteScopes
+{
+}
+
+/// Field history over a store that implements [`HistoryPorts`].
+pub(crate) struct AtomHistory<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: HistoryPorts> AtomHistory<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
     }
 
     pub(crate) async fn atom_history_enabled(&self) -> Result<bool, crate::schema::SchemaError> {
         let marker = self
-            .main_store
+            .store
+            .rows()
             .inner()
-            .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
+            .get(super::key_format::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))?;
         Ok(marker.as_deref() == Some(crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT))

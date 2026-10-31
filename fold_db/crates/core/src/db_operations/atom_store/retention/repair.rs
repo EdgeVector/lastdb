@@ -27,9 +27,10 @@
 
 use super::entry::{RetentionEntry, ENTRY_VERSION};
 use super::keys;
+use super::{Retention, RetentionPorts};
 use crate::db_operations::atom_store::counter::TipChangeSet;
 use crate::db_operations::atom_store::time_queue::TimeQueue;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use std::collections::{HashMap, HashSet};
@@ -75,7 +76,7 @@ fn conflict_key_of(scope: Option<&str>, history: &str) -> Option<String> {
     ))
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// Write a queue entry and its bucket row for each history key in
     /// `records`, and the directory row of each bucket in `buckets`. A stopped
     /// home, or a holder of a write scope: each batch is atomic.
@@ -104,7 +105,11 @@ impl AtomStore {
         }
         if !buckets.is_empty() {
             queue
-                .register_buckets(self, buckets, self.retention_state().clock_nanos())
+                .register_buckets(
+                    self.store,
+                    buckets,
+                    self.store.retention_state().clock_nanos(),
+                )
                 .await?;
             repaired.buckets = buckets.len() as u64;
         }
@@ -140,7 +145,7 @@ impl AtomStore {
                 return Ok(rows);
             }
         }
-        let created = self.retention_state().clock_nanos();
+        let created = self.store.retention_state().clock_nanos();
         let expires = created.saturating_add(window.window_nanos);
         let entry = RetentionEntry {
             version: ENTRY_VERSION,
@@ -166,7 +171,7 @@ impl AtomStore {
         let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), SLOT_WALK_ROWS);
         let mut found = HashMap::new();
         while !walk.done() && found.len() < wanted.len() {
-            for (_, value) in self.walk_step(&mut walk).await?.rows {
+            for (_, value) in self.store.walk_step(&mut walk).await?.rows {
                 let Ok(entry) = serde_json::from_slice::<RetentionEntry>(&value) else {
                     continue;
                 };
@@ -183,14 +188,16 @@ impl AtomStore {
         &self,
         rows: Vec<(String, serde_json::Value)>,
     ) -> Result<(), SchemaError> {
-        self.in_background_scope(async {
-            self.commit_tip_changes(TipChangeSet {
-                rows,
-                ..TipChangeSet::default()
+        self.store
+            .in_background_scope(async {
+                self.store
+                    .commit_tip_changes(TipChangeSet {
+                        rows,
+                        ..TipChangeSet::default()
+                    })
+                    .await
+                    .map(|_| ())
             })
             .await
-            .map(|_| ())
-        })
-        .await
     }
 }

@@ -1,18 +1,18 @@
 use super::*;
 use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
-use crate::db_operations::atom_store::{AtomStore, RecordSlot};
+use crate::db_operations::atom_store::RecordSlot;
 use crate::schema::SchemaError;
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     /// One bounded page; the caller repeats while complete is false.
     pub async fn purge_atom_history(
         &self,
         slot: &str,
         cursor: Option<&str>,
     ) -> Result<serde_json::Value, SchemaError> {
-        self.in_background_scope(async {
+        self.store.in_background_scope(async {
             let mut walk = history_walk(slot, cursor, 32)?;
-            let rows = self.walk_step(&mut walk).await?;
+            let rows = self.store.walk_step(&mut walk).await?;
             let mut releases = Vec::new();
             for (key, bytes) in rows.rows {
                 let key = String::from_utf8(key).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
@@ -21,7 +21,7 @@ impl AtomStore {
                 releases.push(self.archive_release(&key, &record)?);
             }
             let scope = crate::storage::current_keys::exact_scope(slot)?;
-            let commit = self.commit_tip_changes(TipChangeSet {
+            let commit = self.store.commit_tip_changes(TipChangeSet {
                 scope, releases, ..TipChangeSet::default()
             }).await?;
             Ok(serde_json::json!({"released": commit.records_released, "complete": walk.done(), "cursor": next_cursor(&walk)}))

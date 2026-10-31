@@ -7,8 +7,8 @@ use super::super::types::{
     FilterLayout, MoleculeData, MoleculeHeader, MoleculeRangeForm, OneDSlot, PerKeyRecord,
     EMPTY_KEY_COMPONENT,
 };
-use super::super::AtomStore;
 use super::PageFill;
+use super::{Filter, FilterPorts};
 
 mod exact;
 mod hash_range;
@@ -16,7 +16,7 @@ mod hash_range_pages;
 mod hash_range_scan;
 mod one_d;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// [`Self::load_filtered_molecule`] for a query read, which knows only
     /// whether it will show tombstones.
     ///
@@ -71,6 +71,7 @@ impl AtomStore {
         // Exact queries still check their physical candidates without a header;
         // only that complete winner search can admit a missing logical key.
         let Some((header, storage_prefix)) = self
+            .store
             .read_header_exact_prefix(molecule_uuid, storage_prefix)
             .await?
         else {

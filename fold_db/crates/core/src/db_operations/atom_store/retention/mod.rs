@@ -57,9 +57,41 @@ mod steps;
 mod window;
 
 pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest};
-pub(crate) use repair::RepairWindow;
+pub(crate) use repair::{RepairWindow, Repaired};
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
 pub(crate) use rows::RecordSlot;
 pub(crate) use slots::{SlotReleases, RELEASE_RECORD_CAP};
 pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};
+
+use super::ports::{
+    CommitTips, MainRows, RangeWalks, RetentionStates, StoredValues, TimeQueues, WriteScopes,
+};
+
+/// The ports the retention janitor uses. It never names the store type.
+pub(crate) trait RetentionPorts:
+    CommitTips + MainRows + RangeWalks + RetentionStates + StoredValues + TimeQueues + WriteScopes
+{
+}
+
+impl<T> RetentionPorts for T where
+    T: CommitTips
+        + MainRows
+        + RangeWalks
+        + RetentionStates
+        + StoredValues
+        + TimeQueues
+        + WriteScopes
+{
+}
+
+/// The retention janitor over a store that implements [`RetentionPorts`].
+pub(crate) struct Retention<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: RetentionPorts> Retention<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
+    }
+}

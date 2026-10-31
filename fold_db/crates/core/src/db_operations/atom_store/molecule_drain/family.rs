@@ -23,11 +23,11 @@
 
 use super::candidate::Candidate;
 use super::judge::MoleculeReads;
+use super::{DrainPorts, MoleculeDrain};
 use crate::atom::molecule_key_codec::{
     header_key, molecule_generation_delete_prefix, molecule_generation_pointer_key,
     molecule_record_prefix, MOLECULE_GENERATION_RECORD_PREFIX,
 };
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -90,13 +90,14 @@ pub(super) fn closing_keys(candidate: &Candidate) -> Vec<Vec<u8>> {
     ]
 }
 
-impl AtomStore {
+impl<S: DrainPorts> MoleculeDrain<'_, S> {
     /// Whether the molecule has at least one tip record in the scope: a range read
     /// of at most one row.
     pub(super) async fn tip_present(&self, candidate: &Candidate) -> Result<bool, SchemaError> {
         let (start, end) = crate::kind_partition::exact_prefix_bounds(&tip_prefix(candidate));
         let found = self
-            .main_store
+            .store
+            .rows()
             .inner()
             .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
             .await
@@ -116,18 +117,20 @@ impl AtomStore {
         let molecule = &candidate.molecule;
         let header_row = build_storage_key(scope, &header_key(molecule));
         let header = self
-            .main_store
+            .store
+            .rows()
             .get_items::<Value>(std::slice::from_ref(&header_row))
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read molecule header: {error}")))?
             .pop()
             .flatten();
         let bindings = self
+            .store
             .read_binding_counters(std::slice::from_ref(molecule), scope)
             .await?
             .pop()
             .flatten();
-        let binding_records = self.binding_record_present(molecule, scope).await?;
+        let binding_records = self.store.binding_record_present(molecule, scope).await?;
         Ok(MoleculeReads {
             header,
             bindings,

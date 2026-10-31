@@ -16,9 +16,9 @@
 
 use super::entry::{DrainMarker, RetentionEntry, ENTRY_VERSION};
 use super::keys;
+use super::{Retention, RetentionPorts};
 use crate::atom::molecule_key_codec::header_key;
 use crate::db_operations::atom_store::counter::{counts_of_header, ReleaseRequest};
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -54,7 +54,7 @@ pub(crate) struct SlotReleases {
     pub(crate) rows: Vec<(String, Value)>,
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// The releases and the drain markers for the records of the slots that
     /// one erase removes. The caller holds the write gate, so the reads see
     /// every accepted batch.
@@ -77,7 +77,7 @@ impl AtomStore {
                 .or_default()
                 .extend(slots.iter());
         }
-        let now = self.retention_state().clock_nanos();
+        let now = self.store.retention_state().clock_nanos();
         let names: Vec<&str> = by_molecule.keys().copied().collect();
         let with_records = self.molecules_with_records(scope, &names).await?;
         let mut entries: Vec<RetentionEntry> = Vec::new();
@@ -118,7 +118,7 @@ impl AtomStore {
                 cap = RELEASE_RECORD_CAP,
                 "an erase passed the records of some slots to the janitor"
             );
-            self.retention_state().note_capped_slots(markers);
+            self.store.retention_state().note_capped_slots(markers);
         }
         Ok(SlotReleases {
             releases: entries.iter().map(RetentionEntry::request).collect(),
@@ -141,6 +141,7 @@ impl AtomStore {
             .map(|molecule| build_storage_key(scope, &header_key(molecule)))
             .collect();
         let stored = self
+            .store
             .read_stored_values::<Value>(&keys, "read molecule headers")
             .await?;
         Ok(molecules
@@ -172,7 +173,7 @@ impl AtomStore {
                 key = %String::from_utf8_lossy(key),
                 "slot directory entry does not decode"
             );
-            self.retention_state().note_undecodable();
+            self.store.retention_state().note_undecodable();
             return None;
         };
         // A range that begins with the same bytes can belong to another slot
@@ -197,7 +198,8 @@ impl AtomStore {
         let mut examined = 0usize;
         loop {
             let rows = self
-                .main_store
+                .store
+                .rows()
                 .inner()
                 .scan_range_paged(start.as_bytes(), end.as_bytes(), SCAN_ROWS)
                 .await
@@ -231,7 +233,7 @@ impl AtomStore {
     }
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// The release requests for rows of the slot directory of a molecule (any
     /// slot). A row that does not decode names nothing to release: it is counted
     /// and its record stays until its own window ends.
@@ -246,7 +248,7 @@ impl AtomStore {
                         key = %String::from_utf8_lossy(key),
                         "slot directory entry does not decode"
                     );
-                    self.retention_state().note_undecodable();
+                    self.store.retention_state().note_undecodable();
                     return None;
                 };
                 Some(entry.request())
@@ -263,7 +265,7 @@ impl AtomStore {
         now: u64,
         preserve_archives: bool,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let queue = self.retention_state().queue();
+        let queue = self.store.retention_state().queue();
         let id = keys::drain_id(dir_prefix);
         let marker = DrainMarker {
             preserve_archives,
@@ -273,7 +275,7 @@ impl AtomStore {
             slot: slot.to_string(),
             queue: queue.entry_key(now, &id),
             erased_at: now,
-            window_nanos: self.retention_state().window_nanos(),
+            window_nanos: self.store.retention_state().window_nanos(),
         };
         let value = serde_json::to_value(&marker).map_err(|error| {
             SchemaError::InvalidData(format!("serialize drain marker: {error}"))

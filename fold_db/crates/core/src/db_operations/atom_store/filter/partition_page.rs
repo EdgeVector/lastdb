@@ -6,10 +6,13 @@ use crate::atom::molecule_key_codec;
 use crate::schema::types::field::{build_storage_key, FilterUtils, HashRangeFilter, KeyWindow};
 use crate::schema::SchemaError;
 
+use super::super::helpers::{
+    apply_generation_delete, merge_generation_slot, strip_per_key_storage_prefix,
+};
 use super::super::types::{
     MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, PerKeyRecord,
 };
-use super::super::AtomStore;
+use super::{Filter, FilterPorts};
 
 mod live;
 
@@ -106,7 +109,7 @@ fn hash_tip_lanes(
         .collect()
 }
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Select a bounded hash/range page from ordered encrypted-key streams.
     pub(crate) async fn scan_hash_tip_window(
         &self,
@@ -116,7 +119,7 @@ impl AtomStore {
         window: &KeyWindow,
         include_tombstones: bool,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule)?;
+        let codec = self.store.key_codec_for_molecule(molecule)?;
         let Some(selection) = HashTipSelection::new(&codec, molecule, filter, window)? else {
             return Ok(None);
         };
@@ -124,6 +127,7 @@ impl AtomStore {
             return Ok(Some(Vec::new()));
         }
         if let Some(rows) = self
+            .store
             .preloaded_window(molecule, &selection, storage_prefix, include_tombstones)
             .await?
         {
@@ -250,6 +254,7 @@ impl AtomStore {
         let molecule = molecule_key_codec::molecule_uuid_from_storage_key(start)
             .ok_or_else(|| SchemaError::InvalidData("tip page needs a molecule prefix".into()))?;
         let pointer = self
+            .store
             .active_molecule_generation(molecule, storage_prefix)
             .await?;
         let mut cursor = after.map(str::to_owned);
@@ -281,10 +286,7 @@ impl AtomStore {
                 .await?;
             let consumed = rows.len();
             for ((key, (live, base)), deletion) in rows.into_iter().zip(deletions) {
-                let record = Self::apply_generation_delete(
-                    Self::merge_generation_slot(live, base),
-                    deletion,
-                );
+                let record = apply_generation_delete(merge_generation_slot(live, base), deletion);
                 if let Some(record) = record {
                     output.push((key, record));
                 }
@@ -313,7 +315,8 @@ impl AtomStore {
             .ok_or_else(|| SchemaError::InvalidData("invalid generation page bound".into()))
         };
         let generated: Vec<(String, MoleculeGenerationSlot)> = self
-            .main_store
+            .store
+            .rows()
             .scan_items_in_range_paged(
                 &build_storage_key(scan.storage_prefix, &bound(scan.start)?),
                 &build_storage_key(scan.storage_prefix, &bound(scan.end)?),
@@ -357,7 +360,8 @@ impl AtomStore {
                     .ok_or_else(|| SchemaError::InvalidData("invalid generation delete key".into()))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.main_store
+        self.store
+            .rows()
             .get_items(&keys)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("generation page deletes: {e}")))

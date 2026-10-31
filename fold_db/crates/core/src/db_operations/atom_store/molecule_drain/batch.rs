@@ -7,11 +7,11 @@
 use super::candidate::Candidate;
 use super::family::closing_keys;
 use super::judge::{judge, Refusal, Verdict};
+use super::{DrainPorts, MoleculeDrain};
 use crate::atom::molecule_key_codec::decode_hash_range;
 use crate::db_operations::atom_store::counter::{
     ReleaseRequest, TipChange, TipChangeSet, TipCommit,
 };
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
@@ -42,7 +42,7 @@ pub(super) enum Batch<T> {
     Stopped(Gate),
 }
 
-impl AtomStore {
+impl<S: DrainPorts> MoleculeDrain<'_, S> {
     /// Decide inside the write gate, from the reads of this gate hold. A molecule
     /// that is bound again, or that has nothing left, loses its candidate row in
     /// this same hold.
@@ -81,12 +81,13 @@ impl AtomStore {
         &self,
         candidate: &Candidate,
     ) -> Result<(), SchemaError> {
-        self.commit_tip_changes(TipChangeSet {
-            deletes: vec![candidate.key().into_bytes()],
-            ..TipChangeSet::default()
-        })
-        .await
-        .map(|_| ())
+        self.store
+            .commit_tip_changes(TipChangeSet {
+                deletes: vec![candidate.key().into_bytes()],
+                ..TipChangeSet::default()
+            })
+            .await
+            .map(|_| ())
     }
 
     /// Erase a page of tip records. The planner lowers the atom counters and
@@ -106,30 +107,33 @@ impl AtomStore {
                     .map_err(|_| SchemaError::InvalidData("tip key is not UTF-8".into()))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Keys).await? {
-                Gate::Go => {}
-                gate => return Ok(Batch::Stopped(gate)),
-            }
-            let releases = self
-                .slot_release_requests(
-                    scope,
-                    &[(candidate.molecule.as_str(), slots.as_slice())],
-                    false,
-                )
-                .await?;
-            let commit = self
-                .commit_tip_changes(TipChangeSet {
-                    scope,
-                    tips,
-                    rows: releases.rows,
-                    releases: releases.releases,
-                    ..TipChangeSet::default()
-                })
-                .await?;
-            Ok(Batch::Ran(commit))
-        })
-        .await
+        self.store
+            .in_background_scope(async {
+                match self.decide(candidate, Need::Keys).await? {
+                    Gate::Go => {}
+                    gate => return Ok(Batch::Stopped(gate)),
+                }
+                let releases = self
+                    .store
+                    .slot_release_requests(
+                        scope,
+                        &[(candidate.molecule.as_str(), slots.as_slice())],
+                        false,
+                    )
+                    .await?;
+                let commit = self
+                    .store
+                    .commit_tip_changes(TipChangeSet {
+                        scope,
+                        tips,
+                        rows: releases.rows,
+                        releases: releases.releases,
+                        ..TipChangeSet::default()
+                    })
+                    .await?;
+                Ok(Batch::Ran(commit))
+            })
+            .await
     }
 
     /// Release a page of the kept conflict records that the slot directory of the
@@ -143,21 +147,23 @@ impl AtomStore {
         candidate: &Candidate,
         releases: Vec<ReleaseRequest>,
     ) -> Result<Batch<u64>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Keys).await? {
-                Gate::Go => {}
-                gate => return Ok(Batch::Stopped(gate)),
-            }
-            let commit = self
-                .commit_tip_changes(TipChangeSet {
-                    scope: candidate.scope.as_deref(),
-                    releases,
-                    ..TipChangeSet::default()
-                })
-                .await?;
-            Ok(Batch::Ran(commit.records_released))
-        })
-        .await
+        self.store
+            .in_background_scope(async {
+                match self.decide(candidate, Need::Keys).await? {
+                    Gate::Go => {}
+                    gate => return Ok(Batch::Stopped(gate)),
+                }
+                let commit = self
+                    .store
+                    .commit_tip_changes(TipChangeSet {
+                        scope: candidate.scope.as_deref(),
+                        releases,
+                        ..TipChangeSet::default()
+                    })
+                    .await?;
+                Ok(Batch::Ran(commit.records_released))
+            })
+            .await
     }
 
     /// Delete a page of rows that carry no count.
@@ -166,20 +172,22 @@ impl AtomStore {
         candidate: &Candidate,
         keys: Vec<Vec<u8>>,
     ) -> Result<Batch<()>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Family).await? {
-                Gate::Go => {}
-                gate => return Ok(Batch::Stopped(gate)),
-            }
-            self.commit_tip_changes(TipChangeSet {
-                scope: candidate.scope.as_deref(),
-                deletes: keys,
-                ..TipChangeSet::default()
+        self.store
+            .in_background_scope(async {
+                match self.decide(candidate, Need::Family).await? {
+                    Gate::Go => {}
+                    gate => return Ok(Batch::Stopped(gate)),
+                }
+                self.store
+                    .commit_tip_changes(TipChangeSet {
+                        scope: candidate.scope.as_deref(),
+                        deletes: keys,
+                        ..TipChangeSet::default()
+                    })
+                    .await?;
+                Ok(Batch::Ran(()))
             })
-            .await?;
-            Ok(Batch::Ran(()))
-        })
-        .await
+            .await
     }
 
     /// The final batch: the pointer, the conflict id list, the header and the
@@ -188,20 +196,22 @@ impl AtomStore {
         &self,
         candidate: &Candidate,
     ) -> Result<Batch<()>, SchemaError> {
-        self.in_background_scope(async {
-            match self.decide(candidate, Need::Family).await? {
-                Gate::Go => {}
-                gate => return Ok(Batch::Stopped(gate)),
-            }
-            self.commit_tip_changes(TipChangeSet {
-                scope: candidate.scope.as_deref(),
-                deletes: closing_keys(candidate),
-                ..TipChangeSet::default()
+        self.store
+            .in_background_scope(async {
+                match self.decide(candidate, Need::Family).await? {
+                    Gate::Go => {}
+                    gate => return Ok(Batch::Stopped(gate)),
+                }
+                self.store
+                    .commit_tip_changes(TipChangeSet {
+                        scope: candidate.scope.as_deref(),
+                        deletes: closing_keys(candidate),
+                        ..TipChangeSet::default()
+                    })
+                    .await?;
+                Ok(Batch::Ran(()))
             })
-            .await?;
-            Ok(Batch::Ran(()))
-        })
-        .await
+            .await
     }
 }
 
