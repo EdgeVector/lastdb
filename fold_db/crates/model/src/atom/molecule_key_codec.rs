@@ -175,7 +175,7 @@ const ESC: char = '\u{1}'; // escape byte for the hash segment
 
 /// Byte-stuff a hash so it contains no `\0` (and no bare `\u{1}`), making the
 /// `\0` separator and the escape unambiguous. `\0 -> \x01\x01`, `\x01 -> \x01\x02`.
-fn escape_segment(segment: &str) -> String {
+pub(crate) fn escape_segment(segment: &str) -> String {
     // Fast path: the overwhelmingly common case has neither control byte.
     if !segment.contains(SEP) && !segment.contains(ESC) {
         return segment.to_string();

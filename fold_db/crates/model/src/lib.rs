@@ -1,6 +1,6 @@
 //! # LastDB model
 //!
-//! The data types of the LastDB core: atoms, molecules, schemas, keys,
+//! The data types of the LastDB core: atoms, molecules, records, schemas, keys,
 //! mutations, and the pure rules over them (canonical byte framing, key
 //! codecs, logical layout rules, JSON order).
 //!
@@ -17,4 +17,5 @@ pub mod constants;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
+pub mod record_space;
 pub mod schema;

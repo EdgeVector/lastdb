@@ -46,7 +46,7 @@ fn require_metadata_only(operation: &HomeMutation) -> StorageResult<()> {
         return Ok(());
     };
     let family = key.split([':', '\0']).next().unwrap_or_default();
-    if matches!(family, "mk" | "rdel" | "mgp" | "mgr" | "mgd") {
+    if matches!(family, "mk" | "rk" | "rdel" | "mgp" | "mgr" | "mgd") {
         return Err(StorageError::InvalidOperation(
             "logical capture refuses this unsupported data writer before native acceptance".into(),
         ));

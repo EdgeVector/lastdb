@@ -10,6 +10,12 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
+/// Format 7: the record model. One record lives at each primary key. A new
+/// home is format 6 until the record model release; see `run_node::creation`.
+pub(super) const RECORD_NODE_BYTES: &[u8] =
+    b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n";
+/// The backup profile version of a format 7 home.
+pub(super) const RECORD_PROFILE: u16 = 5;
 pub(super) const TYPED_NODE_BYTES: &[u8] =
     b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n";
 pub(super) const FORMAT_FIVE_BYTES: &[u8] =
@@ -22,11 +28,13 @@ pub(super) fn profile(bytes: &[u8]) -> Option<u16> {
         FORMAT_FOUR_BYTES => Some(2),
         FORMAT_FIVE_BYTES => Some(3),
         TYPED_NODE_BYTES => Some(4),
+        RECORD_NODE_BYTES => Some(RECORD_PROFILE),
         _ => None,
     }
 }
 
-pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
+/// Admit the home and return its backup profile version.
+pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<u16> {
     let marker = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -36,12 +44,11 @@ pub(super) fn admit(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
     }
     let mut bytes = Vec::new();
     marker.take(129).read_to_end(&mut bytes)?;
-    if profile(&bytes).is_none() {
-        return Err(invalid("the node range format is unsupported"));
-    }
+    let version = profile(&bytes).ok_or_else(|| invalid("the node range format is unsupported"))?;
     // Creation commits both proofs before its node marker appears. Even with
     // a creation intent, no missing or partial proof is admitted.
-    verify(root, key)
+    verify(root, key)?;
+    Ok(version)
 }
 
 fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {

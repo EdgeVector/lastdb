@@ -22,6 +22,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
     Ok(matches!(
         family,
         "ak" | "mk"
+            | "rk"
             | "mh"
             | "ahf"
             | "ahk"
@@ -107,6 +108,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if let Some(rest) = bare
         .strip_prefix("mk:")
         .or_else(|| bare.strip_prefix("ak:"))
+        .or_else(|| bare.strip_prefix("rk:"))
     {
         validate_record(rest)?;
     } else if let Some(molecule) = bare
@@ -316,6 +318,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "mref"
             | "ak"
             | "mk"
+            | "rk"
             | "mh"
             | "mgp"
             | "mgr"
