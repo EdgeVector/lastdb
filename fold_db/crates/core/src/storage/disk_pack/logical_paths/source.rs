@@ -136,7 +136,7 @@ fn sources(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<
         .as_ref()
         .and_then(|runtime| transaction::PendingBatch::current(runtime))
     {
-        return Ok(Some(pending.source_receipts()));
+        return Ok(Some(transaction::effects::source_receipts(&pending)));
     }
     if !read_snapshot_active(runtime.clone()) {
         return Ok(None);

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 mod accounting;
 pub(crate) mod blocked;
-mod effects;
+pub(super) mod effects;
 mod empty;
 mod leases;
 mod logical_capture;
@@ -12,7 +12,9 @@ pub(super) use logical_capture::require_captured_changes;
 pub(crate) mod publication;
 mod request;
 mod resources;
-pub(crate) use effects::{prepared_core_memory, stage_core_memory, stage_paths};
+pub(crate) use effects::{
+    prepared_core_memory, retain_raw_memory_reservation, stage_core_memory, stage_paths,
+};
 pub(crate) use leases::lease;
 pub(crate) use request::{background_scope, request_scope};
 pub(crate) use resources::with_resource;
@@ -40,16 +42,14 @@ pub(super) struct PendingBatch {
     retained: Mutex<Vec<Box<dyn Send>>>,
     resources: Mutex<Vec<resources::Resource>>,
     leases: Mutex<BTreeMap<String, std::sync::Weak<dyn std::any::Any + Send + Sync>>>,
-    raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
     logical_capture_ready: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
-    paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
-    definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
-    pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
-    source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
+    /// The database's typed memory effects of this request: staged paths,
+    /// definitions, their reservation, and the raw memory reservation.
+    memory: Box<dyn BatchMemory>,
     preparation_limit: Mutex<Option<String>>,
     operation_limit: usize,
 }
@@ -67,16 +67,12 @@ impl PendingBatch {
             retained: Mutex::new(Vec::new()),
             resources: Mutex::new(resources::capture(runtime)),
             leases: Mutex::new(BTreeMap::new()),
-            raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             logical_capture_ready: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
-            paths: Mutex::new(Vec::new()),
-            definitions: Mutex::new(BTreeMap::new()),
-            path_protection: Mutex::new(None),
-            source_receipts: Mutex::new(None),
+            memory: runtime.memory.open_batch(),
             preparation_limit: Mutex::new(None),
             operation_limit: runtime.batch_operation_limit(),
         }
@@ -97,17 +93,6 @@ impl PendingBatch {
 
     pub(super) fn operation_limit(&self) -> usize {
         self.operation_limit
-    }
-
-    pub(super) fn source_receipts(&self) -> Arc<Mutex<super::logical_paths::source::Sources>> {
-        Arc::clone(
-            self.source_receipts
-                .lock()
-                .expect("native write source receipts")
-                .get_or_insert_with(|| {
-                    Arc::new(Mutex::new(super::logical_paths::source::Sources::default()))
-                }),
-        )
     }
 
     pub(super) fn matching(
@@ -169,7 +154,7 @@ impl PendingBatch {
         data.operations
             .try_reserve(additional)
             .map_err(|_| StorageError::BackendError("native mutation allocation refused".into()))?;
-        effects::forget_superseded(self, &operations);
+        self.memory.forget_superseded(&operations);
         for operation in operations {
             let at = data.operations.len();
             data.latest
@@ -187,12 +172,7 @@ impl PendingBatch {
     pub(super) fn freeze_operations(&self) -> Vec<HomeMutation> {
         self.frozen.store(true, Ordering::Release);
         // Source proofs are bounded preparation scratch, never accepted bodies.
-        drop(
-            self.source_receipts
-                .lock()
-                .expect("native write source receipts")
-                .take(),
-        );
+        self.memory.freeze();
         self.data
             .lock()
             .expect("native pending batch")
@@ -225,23 +205,14 @@ impl PendingBatch {
     /// Verify final staged bytes, not the request size when quota was retained.
     pub(super) fn has_reserved_raw_memory(&self) -> bool {
         let required = self.memory_quote();
-        self.raw_memory_reservation
-            .lock()
-            .expect("native raw memory reservation")
-            .as_ref()
-            .is_some_and(|reservation| reservation.bytes() >= required)
+        self.memory
+            .reserved_bytes()
+            .is_some_and(|bytes| bytes >= required)
     }
 
     fn memory_quote(&self) -> u64 {
         let stored = self.data.lock().expect("native pending batch").bytes;
-        let paths = self
-            .paths
-            .lock()
-            .expect("native private paths")
-            .iter()
-            .fold(0u64, |sum, record| {
-                sum.saturating_add(record.retained_bytes() as u64)
-            });
+        let paths = self.memory.path_bytes();
         stored
             .saturating_mul(4)
             .saturating_add(paths.saturating_mul(2))
@@ -249,6 +220,17 @@ impl PendingBatch {
 
     pub(super) fn finish_publications(&self) -> StorageResult<()> {
         self.publications.finish()
+    }
+
+    /// Publish the request's reserved typed effects. The caller holds the
+    /// view write lock.
+    pub(super) fn publish_memory(&self) -> StorageResult<()> {
+        self.memory.publish()
+    }
+
+    /// Release the request's reserved typed paths after its publications.
+    pub(super) fn release_memory(&self) {
+        self.memory.release();
     }
 
     pub(super) async fn deliver(&self) -> StorageResult<()> {
@@ -283,21 +265,6 @@ pub(crate) fn memory_quote(runtime: &PackRuntime) -> StorageResult<u64> {
         StorageError::InvalidOperation("native memory quote requires a write scope".into())
     })?;
     Ok(pending.memory_quote())
-}
-
-/// Only this typed quota can authorize read-held raw write bodies before disk.
-pub(crate) fn retain_raw_memory_reservation(
-    runtime: &PackRuntime,
-    reservation: crate::memory_budget::DeferReservation,
-) -> StorageResult<()> {
-    let pending = PendingBatch::current(runtime).ok_or_else(|| {
-        StorageError::InvalidOperation("native raw memory quota requires a write scope".into())
-    })?;
-    *pending
-        .raw_memory_reservation
-        .lock()
-        .expect("native raw memory reservation") = Some(Arc::new(reservation));
-    Ok(())
 }
 
 pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> StorageResult<()> {

@@ -28,6 +28,7 @@ mod kv;
 pub mod logical_capture;
 pub(crate) mod logical_paths;
 mod memory;
+mod memory_publication;
 pub mod mutation_log;
 mod namespace_delete;
 pub(in crate::storage) mod native_routing;
@@ -51,14 +52,14 @@ mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub(in crate::storage) use blocking::run_blocking;
-pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
+pub use memory::{NativeDiskStatus, NativeMemoryPurgeReport, NativeMemoryStatus, NativeWarmSet};
+pub use memory_publication::{BatchMemory, MemoryPublication};
 pub(crate) use read::memory::{
     core_memory_get, core_memory_get_for_write, core_memory_insert, core_memory_sources,
 };
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
 pub(crate) use rows::WHOLE_COLLECTION_END;
-pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
 const NODE_MARKER: &str = "laststore-pack-node-v1";
@@ -80,8 +81,9 @@ pub struct PackRuntime {
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
     persist_metrics: Arc<PersistLaneMetrics>,
-    core: Arc<Mutex<crate::resident::CoreWarmSet>>,
-    schema_keys: schema_keys::SchemaKeys,
+    /// The database memory that commits publish into. The database owns it;
+    /// the store calls it only at fixed commit and read points.
+    memory: Arc<dyn MemoryPublication>,
     failed: AtomicBool,
     initializing: AtomicBool,
     restore_blocked: AtomicBool,
@@ -140,12 +142,17 @@ impl PackNamespacedStore {
     /// node marker is created again. A v2 home needs the key: its run home
     /// keys derive from it. Any other home is refused: this program opens
     /// only disk format v2.
-    pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
+    /// `memory` is the database memory that this runtime publishes into.
+    pub fn open_keyed(
+        path: &Path,
+        node_key: Option<&[u8; 32]>,
+        memory: Arc<dyn MemoryPublication>,
+    ) -> StorageResult<Self> {
         if run_node::is_run_node(path)? {
-            return Self::open_run(path, node_key);
+            return Self::open_run(path, node_key, memory);
         }
         if run_node::is_new_home(path)? || run_node::creation_stopped(path)? {
-            return Self::create_run(path, run_node::require_key(node_key)?);
+            return Self::create_run(path, run_node::require_key(node_key)?, memory);
         }
         Err(run_node::not_v2(path))
     }
@@ -154,20 +161,29 @@ impl PackNamespacedStore {
     /// complete: it refuses a home whose creation has not written its
     /// key-format proofs. It never creates a home or finishes a creation;
     /// the node does those when it starts.
-    pub fn open_existing(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_complete_existing(path, node_key, true)
+    pub fn open_existing(
+        path: &Path,
+        node_key: &[u8; 32],
+        memory: Arc<dyn MemoryPublication>,
+    ) -> StorageResult<Self> {
+        Self::open_complete_existing(path, node_key, true, memory)
     }
 
     /// A stopped-home backup owns both native homes without a logical database
     /// boot or merge worker. Capture may write only its normal backup metadata.
-    pub fn open_existing_for_backup(path: &Path, node_key: &[u8; 32]) -> StorageResult<Self> {
-        Self::open_complete_existing(path, node_key, false)
+    pub fn open_existing_for_backup(
+        path: &Path,
+        node_key: &[u8; 32],
+        memory: Arc<dyn MemoryPublication>,
+    ) -> StorageResult<Self> {
+        Self::open_complete_existing(path, node_key, false, memory)
     }
 
     fn open_complete_existing(
         path: &Path,
         node_key: &[u8; 32],
         resume_merges: bool,
+        memory: Arc<dyn MemoryPublication>,
     ) -> StorageResult<Self> {
         if !path.join(NODE_MARKER).try_exists()? || run_node::creation_pending(path)? {
             return Err(StorageError::InvalidOperation(format!(
@@ -179,7 +195,7 @@ impl PackNamespacedStore {
         if !run_node::is_run_node(path)? {
             return Err(run_node::not_v2(path));
         }
-        Self::open_run_with_merges(path, Some(node_key), resume_merges)
+        Self::open_run_with_merges(path, Some(node_key), resume_merges, memory)
     }
 
     /// One runtime over an opened physical home and its published root.
@@ -189,6 +205,7 @@ impl PackNamespacedStore {
         initializing: bool,
         space_policy: laststore::space::SpacePolicy,
         logical_capture: Option<logical_capture::Capture>,
+        memory: Arc<dyn MemoryPublication>,
     ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
         let last_root = Arc::new(view::LastRoot::new(&current));
@@ -210,8 +227,7 @@ impl PackNamespacedStore {
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
                 persist_metrics: metrics,
-                core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
-                schema_keys: schema_keys::SchemaKeys::new(),
+                memory,
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(false),
                 serving: AtomicBool::new(false),

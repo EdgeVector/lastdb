@@ -17,7 +17,7 @@ pub(crate) struct PathPublication {
 
 impl PathProtection {
     pub(crate) fn reserve(
-        runtime: &PackRuntime,
+        warm_set: &Arc<Mutex<crate::resident::CoreWarmSet>>,
         records: &[LogicalPathRecord],
         publication: PathPublication,
     ) -> StorageResult<Arc<Self>> {
@@ -47,7 +47,7 @@ impl PathProtection {
             );
         }
         let keys: Vec<_> = changes.keys().cloned().collect();
-        let mut core = runtime.core.lock().expect("core write reservation");
+        let mut core = warm_set.lock().expect("core write reservation");
         let keys = core.reserve_paths(&keys).map_err(|_| capacity())?;
         let changes: Vec<_> = changes.into_values().collect();
         let Ok(update) =
@@ -58,7 +58,7 @@ impl PathProtection {
         };
         drop(core);
         Ok(Arc::new(Self {
-            core: Arc::clone(&runtime.core),
+            core: Arc::clone(warm_set),
             keys,
             pending: Mutex::new(Some(update)),
         }))

@@ -7,7 +7,7 @@
 //! than 2x the live logical bytes. It never opens a real LastDB home.
 
 use fold_db::db_operations::DbOperations;
-use fold_db::storage::disk_pack::PackNamespacedStore;
+use fold_db::storage::disk_pack::{NativeWarmSet, PackNamespacedStore};
 use fold_db::storage::traits::{KvStore, NamespacedStore};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -56,7 +56,8 @@ async fn main() -> Result<()> {
     let mut seed = Rng::new(std::process::id() as u64);
     let node_key: [u8; 32] = seed.bytes(32).try_into().expect("32 bytes");
 
-    let store = PackNamespacedStore::create_run(&node, &node_key)?;
+    let store =
+        PackNamespacedStore::create_run(&node, &node_key, Arc::new(NativeWarmSet::default()))?;
     let runtime = store.disk_pack_runtime().ok_or("no native runtime")?;
     let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
@@ -184,7 +185,11 @@ async fn check(
 async fn reopen(node: &Path, node_key: &[u8; 32]) -> Result<PackNamespacedStore> {
     let started = Instant::now();
     loop {
-        match PackNamespacedStore::open_keyed(node, Some(node_key)) {
+        match PackNamespacedStore::open_keyed(
+            node,
+            Some(node_key),
+            Arc::new(NativeWarmSet::default()),
+        ) {
             Ok(store) => {
                 println!("reopen: opened in {:.2} s", started.elapsed().as_secs_f64());
                 return Ok(store);

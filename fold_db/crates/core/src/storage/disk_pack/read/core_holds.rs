@@ -3,14 +3,14 @@ use super::super::*;
 use crate::resident::{CorePath, CoreWarmSet};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) struct CoreCallHolds {
+pub(in crate::storage::disk_pack) struct CoreCallHolds {
     core: Arc<Mutex<CoreWarmSet>>,
     paths: Mutex<BTreeSet<CorePath>>,
     values: Mutex<BTreeMap<usize, Arc<dyn std::any::Any + Send + Sync>>>,
 }
 
 impl CoreCallHolds {
-    pub(super) fn new(core: Arc<Mutex<CoreWarmSet>>) -> Self {
+    pub(in crate::storage::disk_pack) fn new(core: Arc<Mutex<CoreWarmSet>>) -> Self {
         Self {
             core,
             paths: Mutex::new(BTreeSet::new()),

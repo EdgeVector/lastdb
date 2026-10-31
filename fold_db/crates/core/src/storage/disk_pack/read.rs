@@ -3,7 +3,7 @@ use super::*;
 use budget::call_error;
 
 mod budget;
-mod core_holds;
+pub(super) mod core_holds;
 pub(super) mod memory;
 mod overlay;
 mod preload;
@@ -24,11 +24,13 @@ pub(super) struct ReadContext {
     current: PhysicalRoot,
     write_owner: Option<Arc<transaction::PendingBatch>>,
     write_reads: Option<Arc<write_reads::WriteReads>>,
-    _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
+    // A preload page keeps the database's key work charge until it drops.
+    _preload_charge: Option<Arc<dyn std::any::Any + Send + Sync>>,
     // Fields drop in declaration order. Drop call-local value/source owners
     // before the final holds owner trims paths, so dead call allocations do
-    // not force the purge to discard unrelated live records.
-    core_holds: Arc<core_holds::CoreCallHolds>,
+    // not force the purge to discard unrelated live records. The database
+    // memory makes this owner; the store only keeps it and drops it last.
+    core_holds: Arc<dyn std::any::Any + Send + Sync>,
 }
 
 struct ReadFailure {
@@ -99,7 +101,7 @@ impl ReadContext {
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
             identity: runtime.home_identity(),
             failure: Arc::new(Mutex::new(None)),
-            core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
+            core_holds: runtime.memory.call_holds(),
             write_owner,
             write_reads,
             _preload_charge: None,
@@ -155,14 +157,6 @@ impl ReadContext {
     pub(super) fn remembered<T>(&self, result: StorageResult<T>) -> StorageResult<T> {
         self.remember(&result);
         result
-    }
-
-    pub(super) fn hold_core(
-        &self,
-        core: &mut crate::resident::CoreWarmSet,
-        paths: &[crate::resident::CorePath],
-    ) -> StorageResult<()> {
-        self.core_holds.hold(core, paths)
     }
 
     fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {

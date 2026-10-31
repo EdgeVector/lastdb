@@ -80,7 +80,7 @@ pub(super) fn lock_current_receipt<'a>(
         return None;
     }
     let call = crate::read_receipts::lock(&context.call);
-    let core = runtime.core.lock().expect(core_label);
+    let core = runtime.core().lock().expect(core_label);
     Some(CurrentReceipt {
         core,
         call,
@@ -107,7 +107,7 @@ pub(super) fn lock_current_model<'a>(
     if view.revision != context.revision {
         return None;
     }
-    let core = runtime.core.lock().expect(core_label);
+    let core = runtime.core().lock().expect(core_label);
     Some(CurrentModel { core, _view: view })
 }
 
