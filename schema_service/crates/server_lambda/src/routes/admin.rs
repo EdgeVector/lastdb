@@ -3,7 +3,9 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
+use schema_service_core::state::{
+    DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
+};
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::DeprecateSchemasRequest;
@@ -126,7 +128,8 @@ pub(crate) async fn post_admin_deprecate_schemas(
 pub(crate) fn get_admin_schema_match_telemetry(
     state: &SchemaServiceState,
 ) -> Result<Response<Body>, Error> {
-    json_response(200, &json!(state.schema_match_telemetry_snapshot()))
+    let SchemaMatchTelemetryReply { status, body } = state.schema_match_telemetry_reply();
+    json_response(status, &body)
 }
 
 pub(crate) async fn get_snapshot_shared_only(
