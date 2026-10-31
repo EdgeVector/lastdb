@@ -1,5 +1,7 @@
 //! Read-only canonical repost response.
 
+use schema_service_core::state::IdempotentRepostReply;
+
 use super::*;
 
 pub(super) async fn idempotent_repost_response(
@@ -8,17 +10,12 @@ pub(super) async fn idempotent_repost_response(
     mutation_mappers: &HashMap<String, String>,
 ) -> Option<Result<Response<Body>, Error>> {
     let existing = match state
-        .lookup_idempotent_repost(schema, mutation_mappers)
+        .idempotent_repost_reply(schema, mutation_mappers)
         .await
     {
-        Ok(Some(existing)) => existing,
-        Ok(None) => return None,
-        Err(error) => {
-            return Some(json_response(
-                500,
-                &json!({"error": format!("Failed to read existing schema: {error}")}),
-            ));
-        }
+        IdempotentRepostReply::Hit(existing) => *existing,
+        IdempotentRepostReply::Miss => return None,
+        IdempotentRepostReply::Failed { body } => return Some(json_response(500, &body)),
     };
     let system = state.is_system_schema(&existing.name);
     Some(json_response(

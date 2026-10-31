@@ -4,6 +4,7 @@ use super::*;
 
 mod cover;
 use cover::full_component_cover_response;
+use schema_service_core::state::IdempotentRepostReply;
 use schema_service_core::types::SchemaRegistrationComposition;
 
 fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
@@ -60,15 +61,13 @@ async fn idempotent_repost_response(
     request: &AddSchemaRequest,
 ) -> Option<HttpResponse> {
     let existing = match state
-        .lookup_idempotent_repost(&request.schema, &request.mutation_mappers)
+        .idempotent_repost_reply(&request.schema, &request.mutation_mappers)
         .await
     {
-        Ok(Some(existing)) => existing,
-        Ok(None) => return None,
-        Err(error) => {
-            return Some(HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to read existing schema: {error}"),
-            }));
+        IdempotentRepostReply::Hit(existing) => *existing,
+        IdempotentRepostReply::Miss => return None,
+        IdempotentRepostReply::Failed { body } => {
+            return Some(HttpResponse::InternalServerError().json(body));
         }
     };
     let system = state.is_system_schema(&existing.name);

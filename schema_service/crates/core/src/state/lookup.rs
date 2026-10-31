@@ -25,6 +25,21 @@ pub enum SchemaByNameReply {
     Failed { message: String, body: Value },
 }
 
+/// The idempotent-repost lookup both HTTP routers answer.
+#[derive(Debug)]
+pub enum IdempotentRepostReply {
+    /// An existing schema matches. Each router writes its own HTTP 200 body.
+    ///
+    /// The schema is boxed so the other variants stay small.
+    Hit(Box<Schema>),
+    /// No existing schema matches. The add path continues.
+    Miss,
+    /// The lookup failed. HTTP 500.
+    ///
+    /// `body` is `{ "error": "Failed to read existing schema: {detail}" }`.
+    Failed { body: Value },
+}
+
 impl SchemaServiceState {
     /// Resolve public reposts against durable definitions, including expansions.
     /// A cached predecessor cannot establish which canonical is current.
@@ -56,6 +71,28 @@ impl SchemaServiceState {
         // Do not overwrite concurrent cache entries with a snapshot read. The
         // same read-only checks decide against this fresh durable candidate.
         Ok(self.classify_repost_candidate(schema, &existing))
+    }
+
+    /// The same call as [`Self::lookup_idempotent_repost`], classified for HTTP.
+    ///
+    /// `Hit` carries the stored schema. `Miss` means the add path continues.
+    /// A lookup error stays HTTP 500. [`Self::lookup_idempotent_repost`] stays public.
+    #[must_use]
+    pub async fn idempotent_repost_reply(
+        &self,
+        schema: &Schema,
+        mutation_mappers: &HashMap<String, String>,
+    ) -> IdempotentRepostReply {
+        match self
+            .lookup_idempotent_repost(schema, mutation_mappers)
+            .await
+        {
+            Ok(Some(existing)) => IdempotentRepostReply::Hit(Box::new(existing)),
+            Ok(None) => IdempotentRepostReply::Miss,
+            Err(error) => IdempotentRepostReply::Failed {
+                body: json!({"error": format!("Failed to read existing schema: {error}")}),
+            },
+        }
     }
 
     /// A warm process can lack an identity that another instance acknowledged.
