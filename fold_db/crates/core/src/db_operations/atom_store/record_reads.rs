@@ -36,8 +36,9 @@ enum RangeBound<'a> {
 }
 
 impl AtomStore {
-    /// True when this store serves a format 7 home.
-    pub(crate) fn record_home(&self) -> bool {
+    /// True when this store serves a format 7 home. The node routes the
+    /// field history route by it.
+    pub fn record_home(&self) -> bool {
         self.namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime())

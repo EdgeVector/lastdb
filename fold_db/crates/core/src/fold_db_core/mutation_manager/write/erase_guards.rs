@@ -1,6 +1,7 @@
 //! The keys of a TTL sweep batch that are already gone.
 
 use super::*;
+use lastdb_model::record_value::StoredRecord;
 
 impl MutationManager {
     /// The keys of `keys` that no field of `schema_name` has a record for.
@@ -26,7 +27,7 @@ impl MutationManager {
             return Ok(keys
                 .iter()
                 .zip(records)
-                .filter(|(_, record)| !record.as_ref().is_some_and(|record| record.is_live()))
+                .filter(|(_, record)| !record.as_ref().is_some_and(StoredRecord::is_live))
                 .map(|(key, _)| key.clone())
                 .collect());
         }

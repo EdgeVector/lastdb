@@ -2,6 +2,7 @@
 //! A format 7 home ages a record by its own write time instead.
 
 use super::*;
+use lastdb_model::record_value::StoredRecord;
 
 pub(crate) async fn retention_tip_clocks(
     db_ops: &Arc<DbOperations>,
@@ -55,7 +56,7 @@ async fn retention_record_clocks(
         .iter()
         .zip(records)
         .filter_map(|(key, record)| {
-            let written_at = record.filter(|record| record.is_live())?.written_at()?;
+            let written_at = record.filter(StoredRecord::is_live)?.written_at()?;
             Some((key.clone(), written_at / 1_000_000_000))
         })
         .collect())
