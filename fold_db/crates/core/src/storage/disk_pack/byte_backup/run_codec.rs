@@ -28,6 +28,9 @@ impl RunBackupProfile {
             2 => Ok(super::super::run_admission::FORMAT_FOUR_BYTES),
             3 => Ok(super::super::run_admission::FORMAT_FIVE_BYTES),
             4 => Ok(super::super::run_admission::TYPED_NODE_BYTES),
+            super::super::run_admission::RECORD_PROFILE => {
+                Ok(super::super::run_admission::RECORD_NODE_BYTES)
+            }
             _ => Err(invalid("run backup logical profile version")),
         }
     }

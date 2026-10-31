@@ -28,7 +28,7 @@ impl MoleculeKeyStore {
         } else {
             schema
         };
-        let profiles = schema_molecule_profiles(schema)?;
+        let profiles = schema_molecule_profiles(schema, self.record_home())?;
         let molecules: Vec<_> = profiles.iter().map(|(id, _)| id.clone()).collect();
         if self.missing_contracts(&profiles)?.is_empty() {
             return Ok(());

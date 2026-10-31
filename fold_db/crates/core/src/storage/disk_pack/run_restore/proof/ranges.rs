@@ -13,7 +13,7 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if !matches!(version, 2..=4) {
+    if !matches!(version, 2..=5) {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
@@ -65,8 +65,10 @@ pub(super) fn verify(
         for chunk in molecules.chunks(128) {
             batch(main, account_key, profile, chunk)?;
         }
+        // A format 7 home adds the record space of each schema.
+        let records = version == crate::storage::disk_pack::run_admission::RECORD_PROFILE;
         for (molecule, alternate_profile) in
-            crate::storage::molecule_key_store::schema_molecule_profiles(&schema)?
+            crate::storage::molecule_key_store::schema_molecule_profiles(&schema, records)?
         {
             if !molecules.contains(&molecule.as_str()) {
                 batch(main, account_key, alternate_profile, &[molecule.as_str()])?;

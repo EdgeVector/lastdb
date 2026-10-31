@@ -131,12 +131,12 @@ fn derive_key(node_key: &[u8; 32], label: &[u8]) -> zeroize::Zeroizing<[u8; 32]>
     key
 }
 
-/// The refusal for a node home that is not format 4, such as a format 3 home
-/// or a disk format v1 home. This program has no reader and no converter for
-/// another format.
+/// The refusal for a node home that is not format 4 to 7, such as a format 3
+/// home or a disk format v1 home. This program has no reader and no converter
+/// for another format.
 pub(super) fn not_v2(path: &Path) -> StorageError {
     StorageError::InvalidOperation(format!(
-        "{} is not a supported typed node home; this program opens formats 4 and 5",
+        "{} is not a supported typed node home; this program opens formats 4 to 7",
         path.display()
     ))
 }
@@ -203,7 +203,7 @@ impl PackNamespacedStore {
         resume_merges: bool,
     ) -> StorageResult<Self> {
         let node_key = require_key(node_key)?;
-        super::run_admission::admit(path, node_key)?;
+        let version = super::run_admission::admit(path, node_key)?;
         let open = if resume_merges {
             RunHome::open
         } else {
@@ -221,7 +221,8 @@ impl PackNamespacedStore {
         let logical_capture = logical_capture::open(&v2, &policy, resume_merges)?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
-        let store = Self::assemble(v2, root, initializing, policy, logical_capture);
+        let records = version == super::run_admission::RECORD_PROFILE;
+        let store = Self::assemble(v2, root, initializing, records, policy, logical_capture);
         if resume_merges {
             store.runtime.resume_merges();
         }

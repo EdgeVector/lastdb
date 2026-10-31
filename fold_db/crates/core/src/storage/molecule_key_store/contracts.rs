@@ -62,7 +62,7 @@ impl MoleculeKeyStore {
     }
 
     pub(super) fn require_schema_profiles(&self, schema: &Schema) -> StorageResult<()> {
-        for (molecule, expected) in schema_molecule_profiles(schema)? {
+        for (molecule, expected) in schema_molecule_profiles(schema, self.record_home())? {
             match self.cached_contract(&molecule)? {
                 Some(contract) if contract.range_profile == expected => {}
                 _ => return Err(invalid()),

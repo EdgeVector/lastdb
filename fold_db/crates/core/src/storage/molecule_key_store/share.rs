@@ -18,7 +18,7 @@ impl MoleculeKeyStore {
             return Ok(0);
         }
         validate_identity(&schema.name, domain)?;
-        let molecules = schema_molecule_uuids(schema);
+        let molecules = schema_molecule_uuids(schema, self.record_home());
         self.load_existing(&molecules).await?;
         self.require_schema_profiles(schema)?;
         let mut rows = Vec::with_capacity(molecules.len());

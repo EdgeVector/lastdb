@@ -104,6 +104,14 @@ impl MoleculeKeyStore {
         self.node_wrap_key.is_some()
     }
 
+    /// True when this store serves a format 7 home. Only such a home mints and
+    /// loads the record space key bundle of a schema.
+    fn record_home(&self) -> bool {
+        self.runtime
+            .as_deref()
+            .is_some_and(crate::storage::disk_pack::PackRuntime::record_home)
+    }
+
     /// Resolve the exact molecule contract and its key bundle.
     pub async fn load(&self, molecule_uuid: &str) -> StorageResult<Option<MoleculeKeyBundle>> {
         validate_identity(molecule_uuid, NODE_DOMAIN)?;
@@ -139,7 +147,8 @@ impl MoleculeKeyStore {
 
     /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
-        self.load_existing(&schema_molecule_uuids(schema)).await?;
+        self.load_existing(&schema_molecule_uuids(schema, self.record_home()))
+            .await?;
         self.require_schema_profiles(schema)
     }
 }
@@ -233,7 +242,9 @@ pub(crate) fn wrap_key_for(molecule_uuid: &str, domain: &str) -> String {
     format!("mkw:{molecule_uuid}:{domain_hash:x}")
 }
 
-pub(crate) fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
+/// Every field and alternate molecule of a schema. With `records` (a format 7
+/// home), the record space of the schema too.
+pub(crate) fn schema_molecule_uuids(schema: &Schema, records: bool) -> Vec<String> {
     let mut molecules = schema
         .runtime_fields
         .iter()
@@ -249,14 +260,20 @@ pub(crate) fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
             .keys()
             .map(|name| crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name)),
     );
+    if records {
+        molecules.push(lastdb_model::record_space::record_space_uuid(&schema.name));
+    }
     molecules.sort();
     molecules.dedup();
     molecules
 }
 
-/// Every field and alternate owns its own declared range profile.
+/// Every field and alternate owns its own declared range profile. With
+/// `records` (a format 7 home), the record space of the schema uses the range
+/// profile of the primary key.
 pub(crate) fn schema_molecule_profiles(
     schema: &Schema,
+    records: bool,
 ) -> StorageResult<
     Vec<(
         String,
@@ -290,6 +307,12 @@ pub(crate) fn schema_molecule_profiles(
         result.push((
             crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
             profile,
+        ));
+    }
+    if records {
+        result.push((
+            lastdb_model::record_space::record_space_uuid(&schema.name),
+            primary,
         ));
     }
     result.sort_by(|a, b| a.0.cmp(&b.0));
