@@ -3,6 +3,7 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::state::DedupeNamesReply;
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
@@ -90,12 +91,9 @@ pub(crate) async fn post_admin_warm_embeddings(
 pub(crate) async fn post_admin_dedupe_descriptive_names(
     state: &SchemaServiceState,
 ) -> Result<Response<Body>, Error> {
-    match state.dedupe_descriptive_names().await {
-        Ok(report) => json_response(200, &json!({ "groups": report })),
-        Err(e) => json_response(
-            500,
-            &json!({"error": format!("dedupe-descriptive-names failed: {e}")}),
-        ),
+    match state.dedupe_names_reply().await {
+        DedupeNamesReply::Ready(body) => json_response(200, &body),
+        DedupeNamesReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 

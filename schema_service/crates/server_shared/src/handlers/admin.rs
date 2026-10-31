@@ -1,5 +1,7 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
+use schema_service_core::state::DedupeNamesReply;
+
 use super::*;
 
 #[allow(
@@ -171,20 +173,11 @@ pub async fn snapshot_import(
 /// Mounted by the actix dev binary AND by the Lambda router so the same
 /// shape works in dev and (when we get there) prod cleanup.
 pub async fn dedupe_descriptive_names(state: web::Data<SchemaServiceState>) -> impl Responder {
-    #[derive(serde::Serialize)]
-    struct Response {
-        groups: Vec<schema_service_core::types::DescriptiveNameDedupeGroup>,
-    }
-    match state.dedupe_descriptive_names().await {
-        Ok(groups) => HttpResponse::Ok().json(Response { groups }),
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::dedupe",
-                "dedupe-descriptive-names failed: {}", e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("dedupe-descriptive-names failed: {e}"),
-            })
+    match state.dedupe_names_reply().await {
+        DedupeNamesReply::Ready(body) => HttpResponse::Ok().json(body),
+        DedupeNamesReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::dedupe", "{message}");
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }
