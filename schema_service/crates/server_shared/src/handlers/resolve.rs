@@ -1,5 +1,7 @@
 //! Reuse checks, schema resolution, field-match probes and health.
 
+use schema_service_core::state::SchemaResolveReply;
+
 use super::*;
 
 #[allow(
@@ -47,10 +49,10 @@ pub async fn resolve_schemas(
 ) -> impl Responder {
     let request = payload.into_inner();
 
-    match state.resolve_schema_proposals(&request) {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            error: format!("Schema resolve failed: {e}"),
+    match state.schema_resolve_reply(&request) {
+        SchemaResolveReply::Ready(response) => HttpResponse::Ok().json(response),
+        SchemaResolveReply::Refused { detail } => HttpResponse::BadRequest().json(ErrorResponse {
+            error: format!("Schema resolve failed: {detail}"),
         }),
     }
 }
