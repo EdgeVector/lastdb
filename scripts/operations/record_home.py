@@ -40,7 +40,7 @@ def install(node):
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
 
 
-def mutate(node, schema, key, values, operation="update", expected=None):
+def mutation(schema, key, values, operation="update", expected=None, must_exist=None):
     body = {
         "type": "mutation", "schema": schema, "key_value": key,
         "fields_and_values": values, "mutation_type": operation,
@@ -48,7 +48,13 @@ def mutate(node, schema, key, values, operation="update", expected=None):
     }
     if expected is not None:
         body["expected"] = expected
-    return node.call("/api/mutation", body)[0]
+    if must_exist is not None:
+        body["must_exist"] = must_exist
+    return body
+
+
+def mutate(node, schema, key, values, operation="update", **options):
+    return node.call("/api/mutation", mutation(schema, key, values, operation, **options))[0]
 
 
 def refused(call, words):
@@ -76,7 +82,8 @@ def ids(rows):
 def one(node, key):
     rows = query(node, "RecordById", {"HashKey": key})
     require(len(rows) == 1, f"RecordById {key} returned {len(rows)} rows")
-    return rows[0]["fields"]
+    # A field that the record does not hold reads as absent or null.
+    return {field: value for field, value in rows[0]["fields"].items() if value is not None}
 
 
 def hash_records(node):
@@ -135,9 +142,7 @@ def preconditions(node):
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b9", "value": "four"}, "create",
            expected={"type": "absent", "field": "value"})
     require(one(node, "four")["value"] == "four", "a create-if-absent write did not apply")
-    refused(lambda: mutate(node, "RecordById", {"hash": "four"}, {}, "delete"), "format 7")
-    require(one(node, "four")["value"] == "four", "a refused delete changed the record")
-    print("CAS absent and value, and the delete refusal passed", flush=True)
+    print("CAS absent and value passed", flush=True)
 
 
 def listing(node):
@@ -153,6 +158,41 @@ def listing(node):
             break
     require(sorted(keys) == ["four", "one", "three", "two"], "the key list differs: " + repr(keys))
     print("Record key list with a cursor passed", flush=True)
+
+
+def absent(node, key):
+    return query(node, "RecordById", {"HashKey": key}) == []
+
+
+def deletes(node):
+    mutate(node, "RecordById", {"hash": "four"}, {}, "delete")
+    require(absent(node, "four"), "a deleted record still reads")
+    require(sorted(ids(query(node, "RecordById", {"HashKey": "b9"}, key_name="by_bucket")))
+            == ["three", "two"], "the alternate entry of a deleted record still resolves")
+    mutate(node, "RecordById", {"hash": "four"}, {}, "delete")
+    refused(lambda: mutate(node, "RecordById", {"hash": "four"}, {}, "delete", must_exist=True),
+            "target not found")
+    mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
+    require(one(node, "four") == {"id": "four", "bucket": "b5"},
+            "a write after a delete brought back a deleted value")
+    refused(lambda: mutate(node, "RecordById", {"hash": "two"}, {}, "delete",
+                           expected={"type": "value", "field": "value", "value": "other"}), "HTTP 4")
+    require(one(node, "two")["value"] == "two", "a refused CAS delete changed the record")
+    node.call("/api/mutations/batch", {"mutations": [
+        mutation("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create"),
+        mutation("RecordById", {"hash": "two"}, {}, "delete",
+                 expected={"type": "value", "field": "value", "value": "two"}),
+        mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
+        mutation("RecordById", {"hash": "five"}, {}, "delete"),
+    ]})
+    require(absent(node, "two") and absent(node, "five"), "a delete in a batch did not apply")
+    require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
+            "a HashRange delete left its record")
+    keys = node.call("/api/list?schema=RecordById&limit=10")[0]["list"]["keys"]
+    require(sorted(item["hash"] for item in keys) == ["four", "one", "three"],
+            "the key list shows a deleted record: " + repr(keys))
+    print("Delete, idempotent delete, must_exist miss, CAS delete, batch delete, "
+          "write after delete passed", flush=True)
 
 
 def main():
@@ -182,12 +222,15 @@ def main():
         range_records(node)
         preconditions(node)
         listing(node)
+        deletes(node)
         node.stop()
         node.start()
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")
-        require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "c", "d", "e"],
+        require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
                 "the records under one hash changed across the restart")
+        require(one(node, "four") == {"id": "four", "bucket": "b5"} and absent(node, "two"),
+                "a delete or a write after a delete changed across the restart")
         print("Records survived a daemon restart", flush=True)
     finally:
         node.close()
