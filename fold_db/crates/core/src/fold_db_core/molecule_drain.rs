@@ -40,6 +40,7 @@ use crate::db_operations::atom_store::{
     AtomStore, DrainCursor, DrainLimits, DrainOutcomeKind as OutcomeKind, WriterWatch,
 };
 use crate::db_operations::DbOperations;
+use crate::env_number::{self, EnvNumber};
 
 /// Env: interval between wakes in milliseconds (`0` = off).
 pub const MOLECULE_DRAIN_MS_ENV: &str = "LASTDB_MOLECULE_DRAIN_MS";
@@ -109,13 +110,11 @@ impl MoleculeDrainPolicy {
 /// the task off, and an invalid value gives the default.
 fn parse_interval(raw: Option<&str>) -> Option<Duration> {
     let default = Some(Duration::from_millis(DEFAULT_MOLECULE_DRAIN_MS));
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    match raw.parse::<u64>() {
-        Ok(0) => None,
-        Ok(ms) => Some(Duration::from_millis(ms)),
-        Err(_) => {
+    match env_number::parse(raw) {
+        EnvNumber::Missing => default,
+        EnvNumber::Value { value: 0, .. } => None,
+        EnvNumber::Value { value, .. } => Some(Duration::from_millis(value)),
+        EnvNumber::Invalid { raw } => {
             tracing::warn!(
                 raw,
                 env = MOLECULE_DRAIN_MS_ENV,
@@ -127,18 +126,19 @@ fn parse_interval(raw: Option<&str>) -> Option<Duration> {
 }
 
 fn parse_number(raw: Option<&str>, env: &str, default: u64) -> u64 {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    raw.parse::<u64>().unwrap_or_else(|_| {
-        tracing::warn!(
-            raw,
-            env,
-            default,
-            "invalid molecule drain setting; using the default"
-        );
-        default
-    })
+    match env_number::parse(raw) {
+        EnvNumber::Missing => default,
+        EnvNumber::Value { value, .. } => value,
+        EnvNumber::Invalid { raw } => {
+            tracing::warn!(
+                raw,
+                env,
+                default,
+                "invalid molecule drain setting; using the default"
+            );
+            default
+        }
+    }
 }
 
 /// Handle for the periodic drain task. Aborted on shutdown and on Drop.

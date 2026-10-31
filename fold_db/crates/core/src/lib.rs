@@ -37,6 +37,7 @@ pub mod constants;
 pub mod crypto;
 pub mod db_operations;
 pub mod durable_flush;
+mod env_number;
 pub mod error;
 pub mod fold_db_core;
 pub mod hex;

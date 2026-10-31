@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use crate::env_number::{self, EnvNumber};
+
 /// Env: interval between janitor wakes in milliseconds (`0` = off).
 pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
 /// Default interval between wakes: one minute.
@@ -59,13 +61,11 @@ impl ConflictJanitorPolicy {
 #[must_use]
 pub fn parse_conflict_janitor_net(raw: Option<&str>) -> Option<Duration> {
     let default = Some(Duration::from_secs(DEFAULT_CONFLICT_JANITOR_NET_SECS));
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    match raw.parse::<u64>() {
-        Ok(0) => None,
-        Ok(secs) => Some(Duration::from_secs(secs)),
-        Err(_) => {
+    match env_number::parse(raw) {
+        EnvNumber::Missing => default,
+        EnvNumber::Value { value: 0, .. } => None,
+        EnvNumber::Value { value, .. } => Some(Duration::from_secs(value)),
+        EnvNumber::Invalid { raw } => {
             tracing::warn!(
                 raw,
                 env = CONFLICT_JANITOR_NET_SECS_ENV,
@@ -82,13 +82,11 @@ pub fn parse_conflict_janitor_net(raw: Option<&str>) -> Option<Duration> {
 #[must_use]
 pub fn parse_conflict_janitor_interval(raw: Option<&str>) -> Option<Duration> {
     let default = Some(Duration::from_millis(DEFAULT_CONFLICT_JANITOR_MS));
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    match raw.parse::<u64>() {
-        Ok(0) => None,
-        Ok(ms) => Some(Duration::from_millis(ms)),
-        Err(_) => {
+    match env_number::parse(raw) {
+        EnvNumber::Missing => default,
+        EnvNumber::Value { value: 0, .. } => None,
+        EnvNumber::Value { value, .. } => Some(Duration::from_millis(value)),
+        EnvNumber::Invalid { raw } => {
             tracing::warn!(
                 raw,
                 env = CONFLICT_JANITOR_MS_ENV,
@@ -104,11 +102,10 @@ pub fn parse_conflict_janitor_interval(raw: Option<&str>) -> Option<Duration> {
 /// invalid gives the default, and a value outside the range is clamped.
 #[must_use]
 pub fn parse_conflict_janitor_duty(raw: Option<&str>) -> u64 {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return DEFAULT_CONFLICT_JANITOR_DUTY_PCT;
-    };
-    raw.parse::<u64>().map_or_else(
-        |_| {
+    match env_number::parse(raw) {
+        EnvNumber::Missing => DEFAULT_CONFLICT_JANITOR_DUTY_PCT,
+        EnvNumber::Value { value, .. } => value.clamp(1, 100),
+        EnvNumber::Invalid { raw } => {
             tracing::warn!(
                 raw,
                 env = CONFLICT_JANITOR_DUTY_PCT_ENV,
@@ -116,7 +113,6 @@ pub fn parse_conflict_janitor_duty(raw: Option<&str>) -> u64 {
                 "invalid conflict janitor duty share; using the default"
             );
             DEFAULT_CONFLICT_JANITOR_DUTY_PCT
-        },
-        |duty| duty.clamp(1, 100),
-    )
+        }
+    }
 }
