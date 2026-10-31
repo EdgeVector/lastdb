@@ -4,7 +4,7 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{
-    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, SetChannelReply,
+    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply};
 use schema_service_server_shared::state::SchemaServiceState;
@@ -174,17 +174,21 @@ pub(crate) async fn post_apps_revocations(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.revoke_release(app_id, cert, sig, &body_value).await {
-        Ok(record) => {
+    match state
+        .revoke_release_reply(app_id, cert, sig, &body_value)
+        .await
+    {
+        RevokeReleaseReply::Ready {
+            status,
+            body,
+            record,
+        } => {
             // The registry flag is not what a node reads; the verifier's
             // revoke entry in the release log is.
             verifier_queue::send_revoke_job(state, &record, cert, sig, &body_value).await;
-            json_response(200, &record.to_public_json())
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
             json_response(status, &body)
         }
+        RevokeReleaseReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
