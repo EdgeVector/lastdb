@@ -137,6 +137,7 @@ mod claim;
 mod lifecycle_types;
 mod metrics;
 mod promote;
+mod promote_reply;
 mod register;
 mod registry;
 mod types;
@@ -144,6 +145,7 @@ mod update;
 mod verify;
 
 pub use lifecycle_types::*;
+pub use promote_reply::PromoteAppReply;
 pub use registry::PublicAppReply;
 pub use types::*;
 pub(crate) use verify::*;
