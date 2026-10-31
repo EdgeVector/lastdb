@@ -10,6 +10,14 @@ publishes your app + its schemas to the shared registry. `folddb dev` only
 runs a local dev/test node. This SDK reads and writes a user's data on their
 node, scoped to what they consented to.
 
+> **CAUTION — current state of `lastdbd`.** The node serves no consent route
+> (`/api/apps/request-consent`) and reads no capability token. Every same-user
+> caller on the owner socket runs as the owner. A local app uses
+> [`ownerClient`](#owner-socket--your-own-apps-ownerclient) with `socketPath`.
+> The consent flow in the example below (`connect`, `requestConsent`,
+> `awaitConsent`) is the planned design for an app socket. Follow the
+> [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace).
+
 > **The firm app contract.** The small, stable surface a zero-UI app depends on
 > — the app-facing primitives, the machine-actionable error taxonomy, and the
 > compatibility fixtures that make a LastDB route change break in ONE place —
@@ -238,15 +246,20 @@ app socket can refuse a cross-namespace write with a `403`
 `PermissionDeniedError` / `CapabilityDeniedError` (see
 [Typed errors](#typed-errors)). Until then, the rule is the app author's job.
 
-### Schema resolution and edge adapters
+### Schema resolution and field names
 
-Apps should resolve their app-facing schema names through Schema Service before
-using the data path. The SDK accepts a `schemaResolver` that returns
-`ResolveResult { identity, schema, adapter, outcome }`: `identity` is the
-global schema identity, `schema` is the runtime node schema when it differs,
-and `adapter.appToCatalog` rewrites local field names to catalog names before
-`query`/`mutate` reaches storage. Reads are mapped back through
-`adapter.catalogToApp` or the reverse one-to-one map.
+An app reads and writes its own schemas by their runtime names
+(`{app_id}/{local}`), for example `my-app/Note`. A runtime name is the stable
+contract on the wire. A schema's identity hash changes when the app adds a
+field, so do not use the identity hash as a name.
+
+The SDK accepts an optional `schemaResolver` that returns
+`ResolveResult { identity, schema, adapter, outcome }`. `schema` is the runtime
+schema to use. `adapter.appToCatalog` renames the app's field names to the
+field names of that one schema before `query`/`mutate`, and reads map back
+through `adapter.catalogToApp` or the reverse one-to-one map. The rename is
+client-side only. It does not connect two schemas, and the node keeps no field
+mapping: each schema owns its values.
 
 ```ts
 const db = await connect({
@@ -255,8 +268,8 @@ const db = await connect({
   schemaResolver: async (schemaName) => {
     if (schemaName !== 'LocalNote') return undefined;
     return {
-      identity: 'global-schema-identity-hash',
-      schema: 'catalog/Note',
+      identity: 'my-app-note-identity-hash',
+      schema: 'my-app/Note',
       outcome: 'adapted',
       adapter: {
         appToCatalog: { title: 'name', body: 'body_text' },
@@ -267,15 +280,15 @@ const db = await connect({
 
 await db.mutate('LocalNote', {
   mutationType: 'create',
-  fields: { title: 'hello', body: 'catalog-shaped at the edge' },
+  fields: { title: 'hello', body: 'renamed at the edge' },
   key: { hash: null, range: 'n1' },
 });
 ```
 
-This keeps storage global and catalog-shaped. A resolver returning
-`undefined`/`null` is an explicit pass-through for already-catalog-shaped
-callers; creating a new shared-surface language remains a separate publisher
-flow, not a runtime fallback.
+A resolver that returns `undefined`/`null` passes the name through unchanged.
+Do not resolve a name to a schema of another app for a write. To keep data
+from another app, read its schema by full name and write the records into your
+own schema.
 
 [d1]: fbrain `decision-2026-07-10-apps-read-all-write-own-namespace`
 [d2]: fbrain `decision-local-security-loose-stance`
