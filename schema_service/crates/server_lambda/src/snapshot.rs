@@ -10,7 +10,7 @@
 use crate::api_key;
 use crate::http::{extract_api_key, json_response, serialization_error, unauthorized};
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::snapshot::{SnapshotEmbeddings, SnapshotEnvelope};
+use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 use std::sync::Arc;
@@ -100,9 +100,9 @@ fn snapshot_response<E: std::fmt::Display>(
     failure_prefix: &str,
 ) -> Result<Response<Body>, Error> {
     match exported {
-        Ok(mut envelope) => {
-            envelope.embeddings = SnapshotEmbeddings::default();
-            let body = serde_json::to_value(envelope).map_err(serialization_error)?;
+        Ok(envelope) => {
+            let body =
+                serde_json::to_value(envelope.without_embeddings()).map_err(serialization_error)?;
             json_response(200, &body)
         }
         Err(e) => json_response(500, &json!({"error": format!("{failure_prefix}: {e}")})),
