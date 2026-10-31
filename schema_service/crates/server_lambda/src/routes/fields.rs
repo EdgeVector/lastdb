@@ -64,24 +64,7 @@ pub(crate) async fn post_fields_declare(
     }
 
     match state.declare_field(&request).await {
-        Ok(record) => json_response(
-            200,
-            &json!({
-                "declaration_id": record.declaration_id,
-                "handle": record.handle,
-                "owner_app_id": record.owner_app_id,
-                "readers": record.readers,
-                "algo_version": record.algo_version,
-                "declared_at": record.declared_at,
-                "fields": record.fields.iter().map(|f| json!({
-                    "name": f.name,
-                    "type": f.field_type,
-                    "description": f.description,
-                    "version": f.version,
-                    "identity": f.identity,
-                })).collect::<Vec<_>>(),
-            }),
-        ),
+        Ok(record) => json_response(200, &record.declare_json()),
         Err(e) => {
             let (status, body) = e.to_http();
             json_response(status, &body)
