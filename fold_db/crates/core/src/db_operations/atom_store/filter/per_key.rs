@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 
 use super::super::helpers::strip_per_key_storage_prefix;
 use super::super::types::PerKeyRecord;
-use super::PageFill;
+use super::{Filter, FilterPorts, PageFill};
 
 mod batch;
 mod list;
