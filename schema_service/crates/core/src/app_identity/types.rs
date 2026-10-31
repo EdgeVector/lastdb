@@ -79,19 +79,7 @@ impl AppRegisterOutcome {
         let r = self.record();
         (
             status,
-            json!({
-                "status": outcome,
-                "app_id": r.app_id,
-                "owner_dev_pubkey": r.owner_dev_pubkey,
-                "registered_at": r.registered_at,
-                "metadata": r.metadata,
-                "version": r.version,
-                "code_signature": r.code_signature,
-                "source": r.source,
-                "artifact": r.artifact,
-                "uses": r.uses,
-                "env": env_label,
-            }),
+            r.mutation_json([("status", json!(outcome)), ("env", json!(env_label))]),
         )
     }
 }
