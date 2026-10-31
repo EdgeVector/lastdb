@@ -1,7 +1,9 @@
 //! Schema read routes: registry index, listing, lookup, similarity and reload.
 
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
+use schema_service_core::state::{
+    accepted_similarity_threshold, SchemaByNameReply, SimilarSchemasReply,
+};
 use schema_service_core::RegistryIndexReply;
 
 use super::*;
@@ -128,13 +130,10 @@ pub async fn get_schema(
         schema_name
     );
 
-    match state.lookup_schema_by_name(&schema_name).await {
-        Ok(Some(schema)) => {
-            let system = state.is_system_schema(&schema.name);
-            HttpResponse::Ok().json(SchemaEnvelope { schema, system })
-        }
-        Ok(None) => not_found("Schema", &schema_name),
-        Err(error) => internal_error("Failed to get schema", error),
+    match state.schema_by_name_reply(&schema_name).await {
+        SchemaByNameReply::Ready(envelope) => HttpResponse::Ok().json(envelope),
+        SchemaByNameReply::Missing => not_found("Schema", &schema_name),
+        SchemaByNameReply::Failed { detail } => internal_error("Failed to get schema", detail),
     }
 }
 
