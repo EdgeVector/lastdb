@@ -242,6 +242,7 @@ A call captures the core state and its matching disk root.
 A miss fetches the required records in batches. The fetched logical records can stay warm.
 
 The recency list controls warm retention under a byte budget, which defaults to 256 MiB.
+The byte budget (`LASTDB_CORE_WARM_BYTES`) is the only warm set limit. There is no record count limit (Tom, 2026-10-30).
 The October 19 byte-limit decision replaces the old 10,000-logical-record cap.
 Each read enters the warm set. The purge removes least recently used clean records.
 The purge skips a record that a call still holds or a path reserved by private write preparation.
