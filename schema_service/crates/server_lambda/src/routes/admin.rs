@@ -33,10 +33,7 @@ pub(crate) fn post_debug_field_match_probe(
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        FieldMatchProbeReply::Refused { detail } => json_response(
-            400,
-            &json!({"error": format!("Field match probe failed: {detail}")}),
-        ),
+        FieldMatchProbeReply::Refused { body } => json_response(400, &body),
     }
 }
 

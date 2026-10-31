@@ -70,11 +70,7 @@ pub async fn field_match_probe(
 ) -> impl Responder {
     match state.field_match_probe_reply(&payload.into_inner()) {
         FieldMatchProbeReply::Ready(response) => HttpResponse::Ok().json(response),
-        FieldMatchProbeReply::Refused { detail } => {
-            HttpResponse::BadRequest().json(ErrorResponse {
-                error: format!("Field match probe failed: {detail}"),
-            })
-        }
+        FieldMatchProbeReply::Refused { body } => HttpResponse::BadRequest().json(body),
     }
 }
 

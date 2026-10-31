@@ -1,5 +1,7 @@
 //! Field-match probe (eval/debug).
 
+use serde_json::{json, Value};
+
 use super::*;
 
 /// Eval/debug: score left field texts against a right catalog of field texts.
@@ -37,8 +39,10 @@ pub struct FieldMatchProbeResponse {
 pub enum FieldMatchProbeReply {
     /// The probe scored the texts. HTTP 200.
     Ready(FieldMatchProbeResponse),
-    /// The probe refused the request. HTTP 400. `detail` is the error text.
-    Refused { detail: String },
+    /// The probe refused the request. HTTP 400.
+    ///
+    /// `body` is `{ "error": "Field match probe failed: {detail}" }`.
+    Refused { body: Value },
 }
 
 impl SchemaServiceState {
@@ -83,8 +87,8 @@ impl SchemaServiceState {
 
     /// The same call as [`Self::field_match_probe`], classified for HTTP.
     ///
-    /// A refusal stays `Refused` with the error text. The HTTP prefix stays
-    /// in each router.
+    /// A refusal stays HTTP 400. The body carries the prefix. Each router
+    /// still writes its response. [`Self::field_match_probe`] stays public.
     #[must_use]
     pub fn field_match_probe_reply(
         &self,
@@ -92,7 +96,9 @@ impl SchemaServiceState {
     ) -> FieldMatchProbeReply {
         match self.field_match_probe(request) {
             Ok(response) => FieldMatchProbeReply::Ready(response),
-            Err(detail) => FieldMatchProbeReply::Refused { detail },
+            Err(detail) => FieldMatchProbeReply::Refused {
+                body: json!({"error": format!("Field match probe failed: {detail}")}),
+            },
         }
     }
 }
