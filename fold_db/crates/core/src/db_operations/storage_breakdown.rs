@@ -14,6 +14,11 @@
 //! overhead, disk file framing, and the sync log/snapshot framing are not
 //! modeled. Tom confirmed approximate/high-level is fine for the storage
 //! breakdown view.
+//!
+//! A format 7 home stores records, not atoms. Its rows come from one walk of
+//! the record plane (`record_rows.rs`): the stored value bytes of each live record.
+
+mod record_rows;
 
 use crate::{
     db_operations::{
@@ -37,12 +42,18 @@ pub struct SchemaStorage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     /// Sum of the serialized byte sizes of every atom whose
-    /// `source_schema_name` is this schema.
+    /// `source_schema_name` is this schema, plus `record_bytes`.
     pub bytes: u64,
     /// How many atoms contributed to `bytes`. Surfaced so the UI can show
     /// "N items" alongside the size and so a schema with many tiny atoms reads
     /// differently from one with a few large ones.
     pub atom_count: u64,
+    /// Live records of this schema in a format 7 home. Zero in an atom home.
+    #[serde(default)]
+    pub record_count: u64,
+    /// Sum of the stored value bytes of those records (`StoredRecord::encode`).
+    #[serde(default)]
+    pub record_bytes: u64,
 }
 
 /// What one inventory walk found about the atom counters.
@@ -227,16 +238,12 @@ impl AtomStore {
                 display_name: None,
                 bytes,
                 atom_count,
+                record_count: 0,
+                record_bytes: 0,
             })
             .collect();
         let total_logical_bytes: u64 = per_schema.iter().map(|s| s.bytes).sum();
-
-        // Largest schema first; tie-break on name for deterministic ordering.
-        per_schema.sort_by(|a, b| {
-            b.bytes
-                .cmp(&a.bytes)
-                .then_with(|| a.schema_name.cmp(&b.schema_name))
-        });
+        sort_rows(&mut per_schema);
 
         Ok(StorageBreakdown {
             per_schema,
@@ -245,6 +252,15 @@ impl AtomStore {
             atom_counters: counters,
         })
     }
+}
+
+/// Largest schema first; tie-break on name for deterministic ordering.
+fn sort_rows(rows: &mut [SchemaStorage]) {
+    rows.sort_by(|a, b| {
+        b.bytes
+            .cmp(&a.bytes)
+            .then_with(|| a.schema_name.cmp(&b.schema_name))
+    });
 }
 
 /// State of one inventory walk over the `atom:` records.

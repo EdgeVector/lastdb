@@ -135,6 +135,7 @@ The corrected mixed assignment changes the recipe. Compare product revisions wit
 The cold boundary purges clean logical records after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
 Each hot read requires at least one warm hit per requested field and key.
+A format 7 home keeps one warm entry per record, so its hot read requires one warm hit per key.
 The native unknown-path fallback does not always increment the logical miss counter.
 The cold control therefore uses the purge boundary and actual disk-read receipts.
 These checks reject invalid measurements. They do not form a test suite.
@@ -311,6 +312,16 @@ Inserts increase the record count. Memory allocators can retain space, and autom
 Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
 The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
 
+### Format 7 (record model) homes
+
+Each driver reads the home format from the node marker that the daemon writes when it creates the home.
+The marker decides the format after that, not the program. One run can measure a format 6 base and a format 7 candidate.
+A format 7 home stores one record per key. The speed lane then requires one warm hit per key, not per field.
+The size passes use the stored record values as the logical measure. The record count must drop after each delete round.
+Every summary states the home format of each version.
+Manual comparisons accept `candidate_record_home`. It starts only the candidate with `LASTDB_RECORD_HOME=1`.
+The candidate must then create a format 7 home, or the run fails. Automatic PR, main, and nightly runs leave it off.
+
 ### V2 disk size budget
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
@@ -329,6 +340,7 @@ It adds at most 128 records per batch and records the actual byte count. The see
 The delete rounds then remove 75% of those records and retain 25%, with rounding of at most one record.
 Every delete needs a durable acknowledgement. Checkpoints verify remaining values and the absence of every deleted key.
 Logical atom bytes and the atom count must decrease after each delete round.
+In a format 7 home, the logical record bytes and the live record count must decrease.
 Each delete checkpoint also records a bounded, complete inventory of current storage collections.
 The inventory follows the size sample and does not alter the measured bytes.
 The artifact retains delete-case memory samples, Search state, ownership, and cleanup records under `delete/` in each program's result directory.
@@ -346,6 +358,7 @@ The ratio is retained disk bytes divided by logical atom bytes:
 - Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
   The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: plaintext serialized atoms, including atom metadata.
+  In a format 7 home it is the stored value bytes of the live records (`total_record_bytes`); tombstones stay out.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - The required maximum ratio includes every settled checkpoint in the single candidate run.

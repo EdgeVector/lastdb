@@ -64,6 +64,8 @@ impl FoldDB {
     }
 
     /// Atom-only per-schema logical storage (no history / order-log / tip-format).
+    /// A format 7 home reports its live records instead (`record_count`,
+    /// `record_bytes`); their bytes count in `bytes` and the logical total.
     ///
     /// Catalog `descriptive_name` is joined as `display_name` when it differs
     /// from the runtime identity. This is the `lastdb db schemas` product path.
@@ -79,6 +81,14 @@ impl FoldDB {
             .storage_breakdown(&[], None)
             .await
             .map_err(|e| FoldDbError::Database(format!("schema storage: {e}")))?;
+        // A format 7 home has records, not atoms. The record space of each
+        // runtime schema name names its row.
+        let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
+        self.db_ops()
+            .atoms()
+            .add_record_storage(&mut breakdown, &names, None)
+            .await
+            .map_err(|e| FoldDbError::Database(format!("schema record storage: {e}")))?;
         let mut display = HashMap::new();
         for (key, schema) in &schemas {
             let label = schema

@@ -7,7 +7,24 @@ import os
 from pathlib import Path
 
 import disk_budget
-from node import BASELINE_NODE_MARKER, FORMAT_FIVE_MARKER, RUN_NODE_MARKER, save
+from node import HOME_FORMATS, save
+
+
+def home_formats(output, manifest):
+    """Each label's home format from the markers of its two homes. Both homes of one label share it."""
+    formats = {}
+    for run in manifest["runs"]:
+        directory = output / run["directory"]
+        found = set()
+        for corpus in (directory, directory / "delete"):
+            marker = json.loads((corpus / "disk-format.json").read_text())
+            if set(marker) != {"marker"} or marker["marker"] not in HOME_FORMATS:
+                raise ValueError("The disk budget did not measure two v2 run homes")
+            found.add(HOME_FORMATS[marker["marker"]])
+        if len(found) != 1:
+            raise ValueError("The two homes of one disk budget run differ in format")
+        formats[run["label"]] = found.pop()
+    return formats
 
 
 def compare(output, manifest):
@@ -25,9 +42,6 @@ def compare(output, manifest):
                 search = json.loads((corpus / f"disk-search-{phase}.json").read_text())
                 if not isinstance(search, dict) or search.get("enabled") is not False or search.get("status_error"):
                     raise ValueError("The disk budget does not establish Search off in both homes")
-            marker = json.loads((corpus / "disk-format.json").read_text())
-            if set(marker) != {"marker"} or marker["marker"] not in (BASELINE_NODE_MARKER, FORMAT_FIVE_MARKER, RUN_NODE_MARKER):
-                raise ValueError("The disk budget did not measure two v2 run homes")
         cases = json.loads((directory / "growth.json").read_text())
         if set(cases) != set(disk_budget.CASES):
             raise ValueError("The disk budget cases differ from the recipe")
@@ -93,6 +107,7 @@ def main():
         if not manifest["complete"] or args.job_status != "success":
             raise ValueError("The disk budget measurement did not complete")
         comparison = compare(args.output, manifest)
+        formats = home_formats(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         exceeded = any(item["candidate"]["max_disk_to_logical_ratio"] > disk_budget.LIMIT
                        for item in comparison.values())
@@ -101,7 +116,9 @@ def main():
                   f"Profile: **{manifest['profile']}**.  \n"
                   f"Base: `{manifest['binaries']['baseline']['revision']}`  \n"
                   f"Candidate: `{manifest['binaries']['candidate']['revision']}`  \n"
-                  f"Driver: `{manifest['driver_revision']}`\n"
+                  f"Driver: `{manifest['driver_revision']}`  \n"
+                  f"Home format: base **{formats['baseline']}**, candidate **{formats['candidate']}** "
+                  "(7 stores records; 4 to 6 store atoms)\n"
                   + disk_budget.render(comparison) + headroom_lines(comparison))
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:

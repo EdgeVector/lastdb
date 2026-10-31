@@ -41,11 +41,17 @@ def measure(args, mode, folder):
     folder.mkdir()
     result, node = {"complete": False, "mode": mode}, None
     cap = (4 if args.profile == "nightly" else 1) * 2**20
+    environment = {"LASTDB_SEARCH_QUEUE_MAX_BYTES": str(cap)}
+    if args.candidate_record_home:
+        environment["LASTDB_RECORD_HOME"] = "1"
     try:
-        node = Node(args.candidate, args.candidate_revision, folder,
-                    environment={"LASTDB_SEARCH_QUEUE_MAX_BYTES": str(cap)},
+        node = Node(args.candidate, args.candidate_revision, folder, environment=environment,
                     arguments=("--enable-search",) if mode == "enabled" else ())
         node.start()
+        # The checkpoints read the logical measure of this home's format.
+        result["home_format"] = node.home_format()
+        if args.candidate_record_home and result["home_format"] != 7:
+            raise ValueError("LASTDB_RECORD_HOME=1 did not create a format 7 home")
         workload = DiskBudgetWorkload(node, {"growth": PROFILES[args.profile]}, folder)
         workload.seed()
         started = time.monotonic()
@@ -102,18 +108,20 @@ def render(manifest):
              "Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.",
              "These smaller caps expose saturation without a large corpus. The product default is 64 MiB and 4,096 files.",
              "Every accepted value is verified by key. After reopen, one further full update must complete.", "",
-             "| Pair | Mode | Logical MiB | Database MiB | Search queue MiB | Batch bytes MiB | Batch files | Whole home MiB | Advisory findings |",
-             "|---:|---|---:|---:|---:|---:|---:|---:|---|"]
+             "| Pair | Mode | Home format | Logical MiB | Database MiB | Search queue MiB | Batch bytes MiB | Batch files | Whole home MiB | Advisory findings |",
+             "|---:|---|---:|---:|---:|---:|---:|---:|---:|---|"]
     for row in manifest["runs"]:
         result = row["result"]
         last = result["after_reopen_write"]
         sizes, batches = last["disk_breakdown"], last["search_batches"]
         values = [last["logical_storage"]["total_logical_bytes"], max(sizes["database"].values()),
                   max(sizes["search_queue"].values()), batches["batch_bytes"]]
-        lines.append(f"| {row['pair']} | {row['mode']} | " + " | ".join(f"{v / 2**20:.3f}" for v in values)
+        lines.append(f"| {row['pair']} | {row['mode']} | {result['home_format']} | "
+                     + " | ".join(f"{v / 2**20:.3f}" for v in values)
                      + f" | {batches['batch_files']} | {max(sizes['whole_home'].values()) / 2**20:.3f} | "
                      + (", ".join(result["advisories"]) or "None") + " |")
-    lines.extend(["", "Queue caps count batch file lengths and file count. Allocated queue blocks remain visible separately.",
+    lines.extend(["", "Logical MiB is plaintext atoms in a format 4 to 6 home and stored record values in a format 7 home.",
+                  "Queue caps count batch file lengths and file count. Allocated queue blocks remain visible separately.",
                   "Only the same finding in the first two independent runs produces a warning. Size findings never fail CI.",
                   "Missing measurements, incorrect values, an unhealthy writer, or failed cleanup fail completion.",
                   "This generated-data run does not read the primary or rebuild any installed Search store.", ""])
@@ -127,6 +135,8 @@ def main():
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--profile", choices=("standard", "nightly", "batch-insert"), required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--candidate-record-home", action="store_true",
+                        help="Start the candidate with LASTDB_RECORD_HOME=1, so it measures a format 7 home")
     args = parser.parse_args()
     if (os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
@@ -139,6 +149,7 @@ def main():
     manifest = {"complete": False, "candidate_revision": args.candidate_revision,
                 "candidate_sha256": file_hash(args.candidate), "driver_revision": args.driver_revision,
                 "profile": args.profile, "host": host_details(), "runs": [],
+                "candidate_record_home": args.candidate_record_home,
                 "drivers": {name: file_hash(Path(__file__).with_name(name)) for name in
                             ("search_queue.py", "node.py", "disk_usage.py", "disk_budget.py", "disk_deletes.py", "growth.py", "workload.py")}}
     try:

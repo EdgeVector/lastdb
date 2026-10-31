@@ -42,6 +42,10 @@ on:
       candidate_workers:
         type: string
         default: "0"
+      # Opt-in: the candidate creates a format 7 (record model) home; the baseline keeps its default.
+      candidate_record_home:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -71,6 +75,7 @@ jobs:
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
       BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
       BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
+      BENCH_CANDIDATE_RECORD_HOME: ${{ inputs.candidate_record_home }}
       SPEED_TIMEOUT: ${{ inputs.profile == 'nightly' && '90m' || '65m' }}
     steps:
       - name: Prepare external result directory
@@ -151,6 +156,7 @@ jobs:
         run: |
           args=()
           if [ "$BENCH_INVESTIGATION" = true ]; then args+=(--pairs 4); fi
+          if [ "$BENCH_CANDIDATE_RECORD_HOME" = true ]; then args+=(--candidate-record-home); fi
           timeout --signal=TERM --kill-after=120s "$SPEED_TIMEOUT" \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -202,6 +208,8 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_CANDIDATE_RECORD_HOME" = true ]; then args+=(--candidate-record-home); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -211,7 +219,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
+              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth" "${args[@]}"
 
       - name: Repeat resource measurements only when an advisory limit is crossed
         if: matrix.lane == 'growth'
@@ -220,7 +228,7 @@ jobs:
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
 
-      - name: Measure v2 disk size against logical atom bytes
+      - name: Measure v2 disk size against logical atom or record bytes
         if: matrix.lane == 'disk'
         id: disk-budget
         env:
@@ -228,6 +236,8 @@ jobs:
           BASELINE_SHA: ${{ inputs.baseline }}
           DRIVER_SHA: ${{ inputs.driver }}
         run: |
+          args=()
+          if [ "$BENCH_CANDIDATE_RECORD_HOME" = true ]; then args+=(--candidate-record-home); fi
           timeout --signal=TERM --kill-after=120s 40m \
             python3 driver/scripts/benchmarks/run.py \
               --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
@@ -237,7 +247,7 @@ jobs:
               --baseline-workers "$BENCH_BASELINE_WORKERS" \
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
-              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget"
+              --profile "$BENCH_PROFILE" --disk-budget-only --output "$BENCH_OUTPUT/disk-budget" "${args[@]}"
 
       - name: Attribute v2 disk excess in separate generated homes
         if: matrix.lane == 'disk' && inputs.disk_excess
@@ -257,10 +267,12 @@ jobs:
       - name: Measure default-off Search and a full queue without a consumer
         if: matrix.lane == 'growth' && inputs.search_queue
         run: |
+          args=()
+          if [ "$BENCH_CANDIDATE_RECORD_HOME" = true ]; then args+=(--candidate-record-home); fi
           timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
             --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" --candidate-revision "${{ inputs.candidate }}" \
             --driver-revision "${{ inputs.driver }}" \
-            --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue"
+            --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT/search-queue" "${args[@]}"
 
       - name: Capture native phases in separate generated homes
         if: matrix.lane == 'speed' && inputs.investigation

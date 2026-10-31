@@ -10,7 +10,7 @@ import statistics
 
 from advisories import confirm, lines as confirmation_lines, notices
 from growth import CASES, slope
-from node import save
+from node import home_format_line, save
 from disk_usage import validate as validate_breakdown
 
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
@@ -132,7 +132,7 @@ def change(value):
     return f"{value:+.1f}%" if value is not None else "n/a (base ≤ 0)"
 
 
-def render(manifest, comparison):
+def render(output, manifest, comparison):
     recipe = manifest["recipe"]["growth"]
     lines = ["# LastDB disk and memory growth — advisory", "",
              f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**. "
@@ -140,6 +140,7 @@ def render(manifest, comparison):
              f"Base: `{manifest['binaries']['baseline']['revision']}`  ",
              f"Candidate: `{manifest['binaries']['candidate']['revision']}`  ",
              f"Driver: `{manifest['driver_revision']}`", "",
+             home_format_line(output, manifest), "",
              "Values are medians across alternating pairs. Arrows show base → candidate.",
              "Growth is the final checkpoint minus the initial checkpoint. The slope uses all checkpoints.", "",
              "| Case | Live records | Peak memory MiB | Idle memory MiB | Idle change | Memory growth MiB | Memory MiB/round |",
@@ -209,7 +210,7 @@ def main():
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
         decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
-        report = render(manifest, comparison) + confirmation_lines(decision)
+        report = render(args.output, manifest, comparison) + confirmation_lines(decision)
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"
