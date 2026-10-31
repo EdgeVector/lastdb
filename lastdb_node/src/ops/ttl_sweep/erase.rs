@@ -3,7 +3,7 @@
 //! rest between batches.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
@@ -212,22 +212,6 @@ async fn still_expired(
                 .collect(),
             cutoff,
         ))),
-    }
-}
-
-/// Rest for `pause`, and wake early when the node starts to stop.
-async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
-    const SLICE: Duration = Duration::from_millis(250);
-    let until = tokio::time::Instant::now() + pause;
-    while !shutdown.load(Ordering::Acquire) {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        tokio::time::sleep(left.min(SLICE)).await;
-        if left > SLICE && watch.rest_may_end() {
-            break;
-        }
     }
 }
 

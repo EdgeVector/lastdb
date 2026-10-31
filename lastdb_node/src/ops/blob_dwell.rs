@@ -19,9 +19,10 @@
 
 use fold_db::db_operations::{DwellCursor, WriterWatch};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::Instrument;
 
+use super::paced_rest::rest;
 use crate::host::Host;
 
 mod pace;
@@ -151,27 +152,6 @@ async fn run_steps(
         rest(pause, shutdown, watch).await;
     }
     Ok(())
-}
-
-/// Rest between two chunks, in short slices so that a shutdown ends it at once. A
-/// long rest ends early when no other task has opened a write scope within the
-/// quiet period (`WriterWatch::rest_may_end`): the writers went away.
-async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
-    const SLICE: Duration = Duration::from_millis(250);
-    let end = Instant::now() + pause;
-    loop {
-        if shutdown.load(Ordering::Acquire) {
-            return;
-        }
-        let left = end.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return;
-        }
-        tokio::time::sleep(left.min(SLICE)).await;
-        if left > SLICE && watch.rest_may_end() {
-            return;
-        }
-    }
 }
 
 /// The sweeps of the safety net that are due: chunks of slices, each paced like a

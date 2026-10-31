@@ -12,6 +12,7 @@ pub mod footprint;
 pub mod gauge;
 pub mod health_alert;
 pub mod log_filter;
+mod paced_rest;
 pub mod request_telemetry;
 pub mod self_metrics;
 pub mod session_ledger;
