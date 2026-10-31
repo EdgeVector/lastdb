@@ -1,6 +1,6 @@
 //! Declared-field routes.
 
-use schema_service_core::DeclareFieldReply;
+use schema_service_core::{DeclareFieldReply, DeclaredFieldReadReply};
 
 use super::*;
 
@@ -63,11 +63,8 @@ pub async fn get_declared_field(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let declaration_id = path.into_inner();
-    match state.get_declared_field(&declaration_id) {
-        Ok(record) => HttpResponse::Ok().json(record),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.declared_field_read_reply(&declaration_id) {
+        DeclaredFieldReadReply::Ready { status, body }
+        | DeclaredFieldReadReply::Failed { status, body } => json_status(status, body),
     }
 }

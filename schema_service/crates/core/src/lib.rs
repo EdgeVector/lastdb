@@ -110,7 +110,7 @@ pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError
 pub use clock::{Clock, FrozenInstant};
 pub use declared_fields::{
     mint_declaration_id, DeclareFieldInput, DeclareFieldReply, DeclareFieldRequest, DeclaredField,
-    DeclaredFieldError, DeclaredFieldRecord, DeclaredFieldRegistry,
+    DeclaredFieldError, DeclaredFieldReadReply, DeclaredFieldRecord, DeclaredFieldRegistry,
 };
 pub use embedder::{cosine_similarity, DisabledEmbeddingModel, EmbedError, Embedder};
 pub use external_persistence::ExternalSchemaPersistence;
