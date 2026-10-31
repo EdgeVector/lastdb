@@ -135,6 +135,7 @@ pub fn env_label(env: Env) -> &'static str {
 
 mod claim;
 mod lifecycle_types;
+mod list_reply;
 mod metrics;
 mod promote;
 mod promote_reply;
@@ -147,6 +148,7 @@ mod update_reply;
 mod verify;
 
 pub use lifecycle_types::*;
+pub use list_reply::ListLiveAppsReply;
 pub use promote_reply::PromoteAppReply;
 pub use register_reply::RegisterAppReply;
 pub use registry::PublicAppReply;

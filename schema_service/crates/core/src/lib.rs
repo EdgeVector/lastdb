@@ -104,7 +104,8 @@ pub use vocabulary_commit::CanonicalVocabularyWrite;
 pub use app_identity::{
     env_label, AppIdentityConfig, AppPromoteError, AppPromoteOutcome, AppRegisterError,
     AppRegisterOutcome, AppRegisterRequest, AppUpdateError, AppUpdateOutcome, AppUpdateRequest,
-    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaClaimError, UpdateAppReply,
+    ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaClaimError,
+    UpdateAppReply,
 };
 pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
 pub use clock::{Clock, FrozenInstant};
