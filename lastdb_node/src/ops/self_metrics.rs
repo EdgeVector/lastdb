@@ -21,7 +21,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::gauge::{Availability, Gauge, Unit, Window};
 

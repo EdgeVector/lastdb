@@ -99,7 +99,7 @@ pub(super) fn dir_size_display(bytes: Option<u64>, walks: u64) -> String {
 /// samples: the slowest request and the biggest one are rarely the same request,
 /// and a field named for bytes must not be selected by time. `body_bytes` is
 /// request-scoped and exact.
-pub(super) fn peak_request_bytes_from_ops(
+pub(crate) fn peak_request_bytes_from_ops(
     ops: &crate::request_telemetry::RequestTelemetrySnapshot,
 ) -> (u64, u64) {
     let slowest_request_ms = ops
