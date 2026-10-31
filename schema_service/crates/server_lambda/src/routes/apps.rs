@@ -3,7 +3,9 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply, SetChannelReply};
+use schema_service_core::app_release::{
+    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, SetChannelReply,
+};
 use schema_service_core::{PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
@@ -134,19 +136,22 @@ pub(crate) async fn post_apps_releases(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.publish_release(app_id, cert, sig, &body_value).await {
-        Ok(outcome) => {
+    match state
+        .publish_release_reply(app_id, cert, sig, &body_value)
+        .await
+    {
+        PublishReleaseReply::Ready {
+            status,
+            body,
+            record,
+        } => {
             // A repeat publish (same release id) is queued again too: it is
             // how a developer recovers a lost job, and the verifier skips
             // contract versions that already have a result.
-            verifier_queue::send_publish_job(state, outcome.record(), cert, sig, &body_value).await;
-            let (status, body) = outcome.to_http();
+            verifier_queue::send_publish_job(state, &record, cert, sig, &body_value).await;
             json_response(status, &body)
         }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+        PublishReleaseReply::Failed { status, body } => json_response(status, &body),
     }
 }
 

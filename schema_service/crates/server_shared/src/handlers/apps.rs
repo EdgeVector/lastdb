@@ -1,7 +1,8 @@
 //! Mutation challenge and app/release/channel registry routes.
 
 use schema_service_core::app_release::{
-    ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply, SetChannelReply,
+    ChannelReadReply, CompatRowsReply, CompatWriteReply, PublishReleaseReply, ReleaseReadReply,
+    SetChannelReply,
 };
 use schema_service_core::{
     PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply, UpdateAppReply,
@@ -90,15 +91,12 @@ pub async fn publish_release(
         Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    match state.publish_release(&app_id, &cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http();
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state
+        .publish_release_reply(&app_id, &cert, &sig, &body)
+        .await
+    {
+        PublishReleaseReply::Ready { status, body, .. } => json_status(status, body),
+        PublishReleaseReply::Failed { status, body } => json_status(status, body),
     }
 }
 
