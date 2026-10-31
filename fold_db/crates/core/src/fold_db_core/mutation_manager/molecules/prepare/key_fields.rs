@@ -43,7 +43,7 @@ impl MutationManager {
     /// here keeps the request and mutation-intent wire shapes unchanged while
     /// making atom preparation, changed-key restore, resident apply, Search,
     /// and durable persistence use one complete atomic field set.
-    pub(super) fn materialize_key_fields(
+    pub(in crate::fold_db_core::mutation_manager) fn materialize_key_fields(
         &self,
         schema_name: &str,
         schema: &Schema,

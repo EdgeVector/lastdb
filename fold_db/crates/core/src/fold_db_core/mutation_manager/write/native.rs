@@ -101,8 +101,12 @@ impl MutationManager {
                     mutation_ids,
                 });
             }
-            self.check_batch_preconditions(&mutations, request.storage_prefix)
-                .await?;
+            self.check_batch_preconditions(
+                &mutations,
+                request.storage_prefix,
+                request.runtime.record_home(),
+            )
+            .await?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());

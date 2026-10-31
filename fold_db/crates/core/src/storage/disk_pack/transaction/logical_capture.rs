@@ -34,22 +34,30 @@ pub(in crate::storage::disk_pack) fn require_captured_changes(
 }
 
 fn require_metadata_only(operation: &HomeMutation) -> StorageResult<()> {
-    if operation.collection != "tips" {
-        return Ok(());
-    }
-    let key = super::super::native_routing::decode(&operation.key)?;
-    let Ok(key) = std::str::from_utf8(&key) else {
-        return Ok(());
-    };
-    let Ok(key) = crate::storage::current_keys::source_key(key) else {
-        // Other metadata in the fallback collection is not a molecule key.
-        return Ok(());
-    };
-    let family = key.split([':', '\0']).next().unwrap_or_default();
-    if matches!(family, "mk" | "rk" | "rdel" | "mgp" | "mgr" | "mgd") {
+    if matches!(
+        tips_family(operation)?.as_deref(),
+        Some("mk" | "rk" | "rdel" | "mgp" | "mgr" | "mgd")
+    ) {
         return Err(StorageError::InvalidOperation(
             "logical capture refuses this unsupported data writer before native acceptance".into(),
         ));
     }
     Ok(())
+}
+
+/// The key family of one row in the `tips` collection. A row of another
+/// collection, and other metadata in the fallback collection, has none.
+pub(super) fn tips_family(operation: &HomeMutation) -> StorageResult<Option<String>> {
+    if operation.collection != "tips" {
+        return Ok(None);
+    }
+    let key = super::super::native_routing::decode(&operation.key)?;
+    let Ok(key) = std::str::from_utf8(&key) else {
+        return Ok(None);
+    };
+    let Ok(key) = crate::storage::current_keys::source_key(key) else {
+        // Other metadata in the fallback collection is not a molecule key.
+        return Ok(None);
+    };
+    Ok(key.split([':', '\0']).next().map(str::to_owned))
 }

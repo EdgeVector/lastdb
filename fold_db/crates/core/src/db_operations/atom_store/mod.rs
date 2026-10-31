@@ -53,6 +53,7 @@ mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod owned_layout;
+mod records;
 mod retention;
 mod schema_keys;
 pub(crate) mod time_queue;
@@ -78,6 +79,7 @@ pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOu
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
+pub(crate) use records::RecordChange;
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.

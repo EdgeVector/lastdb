@@ -31,6 +31,7 @@ mod layout;
 mod molecule_keys;
 mod native;
 mod native_paths;
+mod records;
 use attribution::{attribution_scopes, attribution_source_events_enabled};
 mod replay_cutoff;
 mod schema_delta;

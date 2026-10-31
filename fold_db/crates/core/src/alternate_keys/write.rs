@@ -16,13 +16,32 @@ impl AtomStore {
             return Ok(());
         }
         let after = self.alternate_fields(schema, keys, scope).await?;
+        let changes = self.alternate_entry_changes(schema, keys, before, &after, scope)?;
+        self.raw().inner().batch_mutate(changes).await?;
+        Ok(())
+    }
+
+    /// The entry changes between the old and the new field values at each
+    /// primary key. A format 7 record write already holds both values, so it
+    /// puts these changes in its own batch instead of reading the tips again.
+    pub(crate) fn alternate_entry_changes(
+        &self,
+        schema: &Schema,
+        keys: &[KeyValue],
+        before: &[RecordFields],
+        after: &[RecordFields],
+        scope: Option<&str>,
+    ) -> Result<Vec<KvMutation>, SchemaError> {
+        if schema.alternate_keys.is_empty() || keys.is_empty() {
+            return Ok(Vec::new());
+        }
         if before.len() != keys.len() || after.len() != keys.len() {
             return Err(invalid("alternate change batch is incomplete"));
         }
         let mut changes = Vec::new();
         for ((primary, before), after) in keys.iter().zip(before).zip(after) {
             let old = derived(schema, before)?;
-            let new = derived(schema, &after)?;
+            let new = derived(schema, after)?;
             for name in schema.alternate_keys.keys() {
                 if old.get(name) == new.get(name) {
                     continue;
@@ -48,7 +67,6 @@ impl AtomStore {
         if changes.len() > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate change batch exceeds 4096 entries"));
         }
-        self.raw().inner().batch_mutate(changes).await?;
-        Ok(())
+        Ok(changes)
     }
 }
