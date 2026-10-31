@@ -21,6 +21,13 @@ impl DbOperations {
         &self,
         storage_prefix: Option<&str>,
     ) -> HomeConflictAnnotation {
+        // A format 7 home merges each field by stamp and writes no conflict
+        // record, so no field of it can hold one.
+        if self.atoms().record_home() {
+            return HomeConflictAnnotation::Known {
+                molecules: HashSet::new(),
+            };
+        }
         if home_conflict_index_disabled() {
             return HomeConflictAnnotation::Disabled;
         }

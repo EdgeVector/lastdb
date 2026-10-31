@@ -13,6 +13,9 @@ pub struct BlobRecountReport {
     pub referenced_blobs: u64,
     pub atom_counters_read: u64,
     pub tips_read: u64,
+    /// Records of a format 7 home, live or tombstone.
+    #[serde(default)]
+    pub records_read: u64,
     pub counters_read: u64,
     pub unchanged: u64,
     /// A counter was missing and is made.
