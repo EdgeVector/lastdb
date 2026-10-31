@@ -3,7 +3,9 @@
 use schema_service_core::app_release::{
     ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply, SetChannelReply,
 };
-use schema_service_core::{PromoteAppReply, PublicAppReply, SchemaMutationChallengeReply};
+use schema_service_core::{
+    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply,
+};
 
 use super::*;
 
@@ -57,13 +59,8 @@ pub async fn register_app(
         Err(resp) => return resp,
     };
 
-    match state.register_app(&cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.register_app_reply(&cert, &sig, &body).await {
+        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
