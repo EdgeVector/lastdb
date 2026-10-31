@@ -79,15 +79,14 @@ pub async fn reset_database(
 )]
 pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Responder {
     match state.export_snapshot() {
-        Ok(mut envelope) => {
+        Ok(envelope) => {
             // Strip embeddings before responding — they balloon the
             // response past Lambda's 6 MB sync-invoke cap (verified in
             // prod 2026-05-05). See `handle_snapshot_export` in
             // `server_lambda` for the full rationale; the dev binary
             // mirrors the behavior so consumers see the same shape
             // across both surfaces.
-            envelope.embeddings = SnapshotEmbeddings::default();
-            HttpResponse::Ok().json(envelope)
+            HttpResponse::Ok().json(envelope.without_embeddings())
         }
         Err(e) => {
             tracing::error!(
@@ -113,10 +112,7 @@ pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Respo
 )]
 pub async fn snapshot_export_shared_only(state: web::Data<SchemaServiceState>) -> impl Responder {
     match state.export_shared_only_snapshot() {
-        Ok(mut envelope) => {
-            envelope.embeddings = SnapshotEmbeddings::default();
-            HttpResponse::Ok().json(envelope)
-        }
+        Ok(envelope) => HttpResponse::Ok().json(envelope.without_embeddings()),
         Err(e) => {
             tracing::error!(
                 target: "schema_service::snapshot",

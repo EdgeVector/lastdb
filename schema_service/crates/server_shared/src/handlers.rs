@@ -13,7 +13,7 @@ use std::sync::RwLockReadGuard;
 
 use schema_types::Schema;
 
-use schema_service_core::snapshot::{SnapshotEmbeddings, SnapshotEnvelope};
+use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::types::{
     AddSchemaRequest, AddSchemaResponse, AvailableSchemasResponse, BatchSchemaReuseRequest,
