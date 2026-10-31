@@ -1,7 +1,10 @@
 //! Read-through lookup for schemas committed by another service instance.
 
-use super::*;
 use std::collections::hash_map::Entry;
+
+use serde_json::{json, Value};
+
+use super::*;
 
 /// The named-schema result both HTTP routers answer.
 #[derive(Debug)]
@@ -11,9 +14,15 @@ pub enum SchemaByNameReply {
     /// The envelope is boxed so the other variants stay small.
     Ready(Box<SchemaEnvelope>),
     /// No schema has that name. HTTP 404.
-    Missing,
-    /// Any other failure. HTTP 500. `detail` is the error text.
-    Failed { detail: String },
+    ///
+    /// `body` is `{ "error": "Schema not found" }`. The actix router still
+    /// writes the warn log.
+    Missing { body: Value },
+    /// Any other failure. HTTP 500.
+    ///
+    /// `message` is the log line and the error text. `body` is
+    /// `{ "error": message }`. The actix router still writes the error log.
+    Failed { message: String, body: Value },
 }
 
 impl SchemaServiceState {
@@ -83,7 +92,9 @@ impl SchemaServiceState {
     /// The same call as [`Self::lookup_schema_by_name`], classified for HTTP.
     ///
     /// `Ready` carries the envelope. `system` follows [`Self::is_system_schema`]
-    /// for the stored schema name. An empty lookup stays `Missing`.
+    /// for the stored schema name. An empty lookup stays HTTP 404. Any other
+    /// error stays HTTP 500. The lookup method stays public. Each router still
+    /// writes its response.
     #[must_use]
     pub async fn schema_by_name_reply(&self, name: &str) -> SchemaByNameReply {
         match self.lookup_schema_by_name(name).await {
@@ -91,10 +102,16 @@ impl SchemaServiceState {
                 let system = self.is_system_schema(&schema.name);
                 SchemaByNameReply::Ready(Box::new(SchemaEnvelope { schema, system }))
             }
-            Ok(None) => SchemaByNameReply::Missing,
-            Err(error) => SchemaByNameReply::Failed {
-                detail: error.to_string(),
+            Ok(None) => SchemaByNameReply::Missing {
+                body: json!({"error": "Schema not found"}),
             },
+            Err(error) => {
+                let message = format!("Failed to get schema: {error}");
+                SchemaByNameReply::Failed {
+                    body: json!({"error": message.clone()}),
+                    message,
+                }
+            }
         }
     }
 

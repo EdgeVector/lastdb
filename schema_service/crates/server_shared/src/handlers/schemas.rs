@@ -127,8 +127,18 @@ pub async fn get_schema(
 
     match state.schema_by_name_reply(&schema_name).await {
         SchemaByNameReply::Ready(envelope) => HttpResponse::Ok().json(envelope),
-        SchemaByNameReply::Missing => not_found("Schema", &schema_name),
-        SchemaByNameReply::Failed { detail } => internal_error("Failed to get schema", detail),
+        SchemaByNameReply::Missing { body } => {
+            tracing::warn!(
+                target: "schema_service::schema",
+                "Schema '{}' not found",
+                schema_name
+            );
+            HttpResponse::NotFound().json(body)
+        }
+        SchemaByNameReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::schema", "{message}");
+            HttpResponse::InternalServerError().json(body)
+        }
     }
 }
 
