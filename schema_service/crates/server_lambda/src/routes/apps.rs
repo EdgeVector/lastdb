@@ -11,6 +11,7 @@ use serde_json::json;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.
+// `POST /v1/apps` and `POST /v2/apps` both use this handler.
 pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
@@ -134,30 +135,6 @@ pub(crate) async fn promote_app_v1(
 // suffixes (`/releases`, `/revocations`, `/channels/…`) are matched
 // before the bare `/v2/apps/{app_id}` read, or the read arm would
 // swallow them.
-pub(crate) async fn post_apps_v2(
-    state: &SchemaServiceState,
-    event: &Request,
-) -> Result<Response<Body>, Error> {
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
-    };
-    match state.register_app(cert, sig, &body_value).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
-    }
-}
-
 pub(crate) async fn post_apps_releases(
     state: &SchemaServiceState,
     event: &Request,
