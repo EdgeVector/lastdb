@@ -22,7 +22,7 @@
 //! floor: a field write at or below it does not bring the record back, and a
 //! newer write makes a new record. A tombstone is a value with no fields.
 
-use crate::atom::file_pointer::blob_refs_of_atom;
+use crate::atom::file_pointer::{blob_refs_of_atom, is_private_pointer_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -253,7 +253,17 @@ impl StoredRecord {
             .flat_map(|value| blob_refs_of_atom(value, None))
             .collect();
         if let Some(meta) = &self.meta {
-            let metadata: HashMap<String, String> = meta.metadata.clone().into_iter().collect();
+            let mut metadata: HashMap<String, String> = meta.metadata.clone().into_iter().collect();
+            // An atom drops the plaintext hash of its own account-v2 pointer
+            // (`blob_refs_of_atom`). The record metadata can describe the
+            // pointer of any field, so each field gets the same check.
+            if metadata.get("file_hash").is_some_and(|hash| {
+                self.fields
+                    .values()
+                    .any(|value| is_private_pointer_hash(value, hash))
+            }) {
+                metadata.remove("file_hash");
+            }
             refs.extend(blob_refs_of_atom(&Value::Null, Some(&metadata)));
         }
         refs.sort_unstable();

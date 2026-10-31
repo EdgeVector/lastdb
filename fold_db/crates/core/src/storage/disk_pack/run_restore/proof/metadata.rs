@@ -31,7 +31,9 @@ pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<()> {
     let mut read = super::rows::read(proof.main, proof.key_heads)?;
     let mut rows = Rows::new(proof.main, read.as_mut(), "tips")?;
     while let Some((key, body)) = rows.next()? {
-        metadata.row(&key, body)?;
+        if !super::records::verify(proof, &key, &body)? {
+            metadata.row(&key, body)?;
+        }
     }
     Ok(())
 }

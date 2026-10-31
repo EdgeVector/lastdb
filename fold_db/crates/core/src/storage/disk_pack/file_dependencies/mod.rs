@@ -12,7 +12,7 @@ pub use cloud_backup_protocol::FileDependencyKind;
 pub(crate) use metadata::{MetadataProof, MetadataRead};
 pub(crate) use native::scratch::Scratch as NativeCasOutput;
 pub use native::{verify_native_cas, NativeCasProof};
-pub use select::expected;
+pub use select::{expected, expected_record};
 
 /// Reuse the bounded JSON decoder for another physical snapshot reader.
 pub(crate) fn decode_bounded_json(bytes: &[u8]) -> StorageResult<serde_json::Value> {

@@ -131,7 +131,9 @@ pub fn blob_logical_bytes_of_atom(
     Some(total)
 }
 
-fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {
+/// True when `hash` is the plaintext hash of the account-v2 pointer in
+/// `content`. That hash is not a CAS address.
+pub(crate) fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {
     let Some(pointer) = content.get(LASTDB_FILE_KEY) else {
         return false;
     };

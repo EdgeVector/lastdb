@@ -4,6 +4,7 @@ mod keys;
 mod metadata;
 mod native;
 mod ranges;
+mod records;
 mod rows;
 
 use super::{map, phase, Stage};
