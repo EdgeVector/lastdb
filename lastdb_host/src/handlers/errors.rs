@@ -110,7 +110,6 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
-            SchemaError::AppSchemaConversionActive => Self::new(423, err.to_string()),
             SchemaError::MissingSelectedAtom | SchemaError::StorageRead { .. } => {
                 Self::internal(err.to_string())
             }

@@ -2,7 +2,7 @@
 
 A schema owns its values. Canonical field identities can match across schemas while their record values remain separate.
 Schema Service keeps different key layouts as separate definitions and does not create value aliases between them.
-Existing published definitions retain their metadata until an explicit compatible conversion. Registration does not rewrite existing values.
+Registration does not rewrite existing values.
 
 An alternate key uses a declared hash field or an explicit `hash_literal`. It uses one range field or ordered `range_parts`.
 Each alternate key retains the exact primary field without formatting. The primary schema still uses a Hash key.
@@ -41,80 +41,15 @@ The response `key` remains the primary mutation key. The `matched_key` contains 
 Writes maintain all declared keys in the same native transaction as the field values.
 
 Fresh homes use format 6. Existing format 4 and 5 homes remain readable.
-Stop the daemon and run `lastdb db enable-alternate-keys` before new compound declarations or independent HashRange declarations.
-The command changes the format marker and leaves encrypted data files unchanged. Older writers refuse the new marker.
+A format 4 or 5 home refuses new compound declarations and independent HashRange declarations. No command upgrades it in place.
 Snapshot profiles 2, 3, and 4 retain format 4, 5, and 6 respectively.
 Existing simple alternate declarations remain valid in format 5, with unchanged declaration revisions.
 
-Existing apps use the explicit owner conversion actions at `POST /api/db/alternate-keys`.
-The app supplies exact source names, definition identities, named keys, membership rules, and legacy schemas to retire.
-The begin action requires `maintenance:true`. It freezes all installed schema states in one native transaction.
-All requests stay blocked during the copy. Metadata reads, flushes, and conversion requests remain available.
-
-Pages visit every frozen source key and copy selected current tips, atom references, and author clocks into private molecules.
-A field-existence rule or an app directory selects members. A directory rule also checks an exact count guard.
-Coverage must match every frozen field count and every expected selected count.
-Every source field/atom pair must remain represented by a selected member.
-Unknown unique values cause refusal before publication.
-
-After verification, the commit action publishes all target schemas in one native transaction.
-Cleanup retires the exact reviewed legacy schemas through the normal binding and molecule lifecycle.
-Retirement requires `app_schema_alias_retirement_v1` and a fully mapped alias of one kept source.
-Before the freeze, the transaction checks every alias field, actual molecule, field type, and primary key role.
-An ordinary old layout must become a separate owned historical record type. Its values cannot disappear during this conversion.
-The durable job records this retirement audit. Older active jobs with retirements cannot publish, delete, or finish without that audit.
-An owner can still abort an older job before publication. An older published job requires review before the upgrade.
-The app writes its config to disk before the finish action restores schema states.
-A restart preserves the maintenance state and the page cursor.
-Before publication, the abort action removes unpublished tips and restores the source state.
-After publication, the owner resumes forward.
-
-Legacy cross-key metadata can name values that already occupy separate molecules at this schema's own key coordinates.
-The `app_schema_private_mapper_conversion_v1` capability permits that exact case.
-Each mapped field must retain a stored private molecule UUID, distinct from its referenced field's actual UUID.
-Both fields must retain the same app owner, canonical field identity, and type. Their complete key coordinates must differ.
-Every referenced schema must be explicitly kept in the same conversion. Missing or shared molecule authority causes refusal.
-The target copies the existing current tips at the source's own keys and removes every mapper.
-The field coverage, membership, atom, author, and count checks still apply. No value comes from another schema by inference.
-
-This bounded converter refuses other mapped source authorities, kept history, molecule generations, database catalog entries, and registered logical peers.
-It does not change the primary on a machine.
-
 A plain owned Hash can use the external hash supplied by a request when it declares exactly one field and no named alternate keys.
 Adding alternate keys still requires a declared primary field. No key field is inferred from a payload.
-The `app_schema_opaque_hash_ownership_v1` conversion preserves the reviewed one-field form, such as Brain's compact locator.
-The source must retain its exact deterministic stored private molecule. Every binding must be its own schema field or an atomically verified retired alias.
-Other schema users, unknown binding owners, mappings, transforms, references, membership filters, field transitions, and alternate keys cause refusal.
-Bounded pages audit every current tip and atom against the frozen field count. Publication changes ownership metadata only.
-The blinded storage coordinates, molecule, current atoms, author clocks, and values remain in place. The key is never deblinded or reconstructed.
-Abort removes only the temporary conversion binding and leaves every original tip intact.
 
-An explicit field transition also requires the `app_schema_field_mapping_v1` capability.
-Each kept schema supplies `target_definition_identity` and `field_map` together.
-The map names every source field and one distinct target field for each source field.
-Both source and target identities must be exact published identities.
-The host fetches the target definition from Schema Service before the maintenance freeze.
-The request cannot supply the target definition itself.
-The target uses published field metadata only. Legacy catalog value aliases never become local record authorities.
-This rule also applies to a normal owned declaration. Existing local mappers require the private-source checks above.
+## Move from a shared-value release
 
-The transition preserves the app owner, record type, runtime schema address, field types, primary key roles, and child schema references.
-Data classifications cannot weaken. The `secret` and `no_index` labels cannot disappear.
-Membership rules still use source field names. Named alternate keys use target field names.
-The copy preserves atom references, author clocks, and stored values.
-An ordinary independent source can use this explicit transition too.
-
-The durable conversion scope and every status reply retain the target identity and complete map.
-The app must preserve this scope across a restart and save the new definition identity before the finish action.
-Requests without these optional properties keep the original conversion contract.
-
-## Upgrade from a shared-value release
-
-This release refuses a schema that uses the retired shared-value layout. Startup does not convert data.
-Convert each app on the compatible release (#793) before you install this release:
-
-1. Stop the daemon. On a format 4 or 5 home, run `lastdb db enable-alternate-keys`. Add `--i-know-this-is-primary` only for an approved primary change.
-2. Start the compatible daemon. Install the app releases that contain the conversion command.
-3. Run `kanban multi-key-convert --apply --maintenance`, `brain multi-key-convert --apply --maintenance`, and `lastsecrets schema-values-convert --apply --maintenance`.
-4. Each command shows its plan without `--apply`. Use `--abort` before publication to restore the source state.
-5. Stop the compatible daemon cleanly. Then start this release.
+This release refuses a schema that uses the retired shared-value layout. LastDB has no in-place data conversion.
+Create a fresh home with this release. The previous release serves the old home.
+A one-time read of the old home fills the new home through normal declarations and batch writes.

@@ -64,8 +64,8 @@ The write updates the record and its alternate addresses in one native request.
 Queries return the primary key for subsequent mutations.
 
 Local schema declarations use independent field values. Startup refuses an older shared-value layout.
-Complete the explicit conversion with the previous release before this upgrade.
-See [the conversion guide](multi-key-schema-conversion.md) and [compound key rules](compound-alternate-keys.md).
+Copy older data into a fresh home; no in-place conversion exists.
+See [the multi-key schema guide](multi-key-schemas.md) and [compound key rules](compound-alternate-keys.md).
 
 ### Atom
 

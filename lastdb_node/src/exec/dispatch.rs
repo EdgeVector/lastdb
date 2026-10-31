@@ -173,16 +173,6 @@ pub(super) async fn dispatch_data_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    if host.db.app_schema_conversion_active()
-        && req.method != "GET"
-        && !matches!(route, DataRoute::DbAlternateKeys | DataRoute::DbFlush)
-    {
-        return error_response(
-            423,
-            "app schema conversion maintenance is active; finish or abort it before other requests",
-            ctx,
-        );
-    }
     if let Some(response) = dispatch_core(route, req, ctx, host).await {
         return response;
     }

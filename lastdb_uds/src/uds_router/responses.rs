@@ -22,7 +22,7 @@ pub fn health_response() -> UdsResponse {
 /// The capability flags both `/health` and `/api/version` advertise. One
 /// literal so the two routes cannot disagree; a flag is a fixed `&'static str`
 /// (never a caller byte).
-pub(super) const CAPABILITIES_JSON: &str = r#"{"atomic_aggregate_set_v1":true,"alternate_keys_v1":true,"alternate_key_changes_v1":true,"alternate_key_import_v1":true,"app_schema_conversion_v1":true,"app_schema_field_mapping_v1":true,"app_schema_alias_retirement_v1":true,"app_schema_private_mapper_conversion_v1":true,"app_schema_opaque_hash_ownership_v1":true,"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true}"#;
+pub(super) const CAPABILITIES_JSON: &str = r#"{"atomic_aggregate_set_v1":true,"alternate_keys_v1":true,"alternate_key_changes_v1":true,"alternate_key_import_v1":true,"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true}"#;
 
 /// The process-lifetime instance id shared by `/health` and `/api/version`, so
 /// a client can pair a version answer with the liveness probe it followed.
