@@ -125,11 +125,11 @@ Units: `primitives`, a pure `model`, `engine`, and `transport`.
 - **Worked:** two clean leaves.
   The cloud transport (`sync/auth`) is the only `reqwest` user.
   The warm set (`resident` and `memory_budget`) is clean when memory sits below disk.
-- **Did not work:** the order in the code is the reverse of the design order.
-  The design puts memory first and disk after the flush.
-  In the code, the disk runtime owns the warm set, and the write path waits for the disk.
+- **Did not work:** place does not give one home to each concept.
+  A write commits to disk first, and the commit then gives the records to the warm set.
+  So the disk runtime owns the warm set, and the write path waits for the disk.
   The logical store has no place, so disk mixes meaning with bytes.
-- **Verdict:** use place only for leaf boundaries. See [A design and code mismatch](#a-design-and-code-mismatch).
+- **Verdict:** use place only for leaf boundaries. See [The write ack: the code is the design](#the-write-ack-the-code-is-the-design).
 
 ### 40 store substrate: meaning above, keys and bytes below
 
@@ -280,9 +280,9 @@ Phase D adds `split_measure.py` to CI with the chosen candidate.
 The current counts become a ceiling, and a PR can only lower them.
 The check counts violation refs, foreign impls, and the `impl` blocks on the four large objects.
 
-## A design and code mismatch
+## The write ack: the code is the design
 
-The design vocabulary says that a write changes memory, LastDB then sends the ack, and a flush writes to disk every 500 ms.
+The old design vocabulary said that a write changes memory, LastDB then sends the ack, and a flush writes to disk every 500 ms.
 The code does not do this:
 
 - `transaction::request_scope` waits for `runtime.wait_for_queue(sequence)` before it returns ([request.rs](../../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs)).
@@ -290,8 +290,8 @@ The code does not do this:
   So the ack comes after the durable disk commit.
 - The write queue has no timer. The comment in `queue.rs` says "There is no collection timer."
 
-This spike does not change the behavior. Tom decides whether the design or the code is correct.
-If the design is correct, the place split (candidate 30) becomes a product change, not a refactor.
+Tom decided on 2026-10-30 that the code is correct: fast durable writes, then the ack.
+The design text changed to match the code. The place split (candidate 30) stays a leaf rule only.
 
 ## Decisions for Tom
 
@@ -300,5 +300,5 @@ If the design is correct, the place split (candidate 30) becomes a product chang
 | D1 | Approve the two-level split: the LastDB and LastStore line for crates, and one owner per concept inside. | Yes |
 | D2 | Merge the three trials as the first steps after review. | Yes, one at a time: #844, then #843, then #842 |
 | D3 | Accept the `as_any` downcast in #843, or require a typed generic. | Accept now. Replace it when `lastdb_store` becomes a crate. |
-| D4 | The write ack: does the design (memory ack, 500 ms flush) or the code (ack after the disk commit) describe the product? | Tom decides. This spike changes neither. |
+| D4 | The write ack: does the design (memory ack, 500 ms flush) or the code (ack after the disk commit) describe the product? | Decided 2026-10-30: the code. The design changed to match it. |
 | D5 | Add the layer check to CI as a ceiling that can only fall. | Yes, after D1 |

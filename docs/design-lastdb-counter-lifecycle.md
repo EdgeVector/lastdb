@@ -49,7 +49,7 @@ What the design removes: reverse edge records, the live count with its `exact` f
 | S7 | `flush()` inside a scope returns at once. A "flush as barrier" call in a scope does nothing. | `write.rs:236-239` |
 | S8 | A batch holds at most 4,096 operations (older homes) or 16,384 (fresh home, feature bit 0x20), and 128 MiB. | `docs/lastdb-disk-complete-mutation-admission.md:37-45`, `transaction.rs:130-160` |
 | S9 | An ordinary read call has a budget of 10,000 examined keys. A write-preparation call has 40,000. Pages (4,096), blocks (16,384) and bytes (256 MiB) are the same. The budget is one total for the whole call. An error does not reset it. | `disk_pack/mod.rs:92-97`, vendor [`laststore/src/disk_pack/call.rs:26-40`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L26-L40) and [`:121-134`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L121-L134), `home.rs:262-272`, `read/raw.rs:46-52` |
-| S10 | A memory ack returns before the flush (at most 500 ms later). A crash can lose a whole acked batch. It never keeps a part of one. | `docs/lastdb-rehydrate.md:94` |
+| S10 | Retired. When this plan was written, a memory ack returned before the flush (at most 500 ms later), and a crash could lose a whole acked batch. The design now sends the ack after the durable disk commit (Tom, 2026-10-30). | `docs/lastdb-canonical-model.md` |
 
 Run proofs (appendix A):
 
@@ -361,7 +361,7 @@ Every state after a crash is a prefix of whole batches. I1 holds in each such st
 | Crash point | State on disk | Safe because |
 |---|---|---|
 | Before accept (in the gate) | no change | nothing was written |
-| After a memory ack, before flush | the batch is lost whole | a lost batch is the same as a write that did not happen. The client was told "queued". Existing contract (S10). |
+| After a memory ack, before flush (retired route) | the batch is lost whole | The current design has no such window: the ack follows the durable disk commit (S10). |
 | During the journal append | no complete batch | recovery returns only complete batches (S2) |
 | After COMMIT, before `CURRENT` is published | recovery completes the batch | complete batch |
 | After batch N of a multi-batch job (TTL pass, mixed request, janitor page, molecule drain) | batches 1..N applied | each batch is valid alone. The keys of one record are in one batch. |

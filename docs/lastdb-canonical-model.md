@@ -258,6 +258,8 @@ PR 387 and later PRs removed legacy Cloud Sync. The V2 byte backup uses a separa
 Capture saves an exact cut and a named file hold; its source code does not establish production cloud readiness.
 A successful native write completes its disk commit and core memory change before the ack.
 The disk queue starts immediately. No collection timer delays the ack.
+This order is the design (Tom, 2026-10-30): fast durable writes, then the ack.
+An ack always means that the write is on disk. There is no memory ack and no flush interval.
 An internal file change clears affected core records before a later call can use them.
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
