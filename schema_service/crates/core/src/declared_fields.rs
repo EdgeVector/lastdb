@@ -6,10 +6,12 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod declare_reply;
 mod declare_steps;
 mod persistence;
 mod service;
 
+pub use declare_reply::DeclareFieldReply;
 pub use persistence::validate_declaration_commit;
 
 use schema_types::{

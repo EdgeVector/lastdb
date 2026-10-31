@@ -2,6 +2,7 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::DeclareFieldReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
 
@@ -55,18 +56,11 @@ pub(crate) async fn post_fields_declare(
     // and field list are all covered by the signature.
     let cert = header_str(event, "x-exemem-dev-cert");
     let sig = header_str(event, "x-signature");
-    if let Err(e) = state
-        .authorize_field_declare(&request.owner_app_id, cert, sig, &body_value)
+    match state
+        .declare_field_reply(&request, cert, sig, &body_value)
         .await
     {
-        let (status, body) = e.to_http();
-        return json_response(status, &body);
-    }
-
-    match state.declare_field(&request).await {
-        Ok(record) => json_response(200, &record.declare_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
+        DeclareFieldReply::Ready { status, body } | DeclareFieldReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
