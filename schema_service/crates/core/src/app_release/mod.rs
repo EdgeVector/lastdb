@@ -63,5 +63,6 @@ mod validate;
 pub use errors::*;
 pub use grammar::*;
 pub use point_read::{ChannelReadReply, ReleaseReadReply};
+pub use read_v2::CompatRowsReply;
 pub use records::*;
 use validate::*;
