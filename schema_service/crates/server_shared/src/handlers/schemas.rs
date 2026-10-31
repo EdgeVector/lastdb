@@ -175,14 +175,8 @@ pub async fn find_similar(
 
     match state.similar_schemas_reply(&schema_name, threshold) {
         SimilarSchemasReply::Ready(response) => HttpResponse::Ok().json(response),
-        SimilarSchemasReply::Missing => HttpResponse::NotFound().json(ErrorResponse {
-            error: format!("Schema '{schema_name}' not found"),
-        }),
-        SimilarSchemasReply::Failed { detail } => {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to find similar schemas: {detail}"),
-            })
-        }
+        SimilarSchemasReply::Missing { body } => HttpResponse::NotFound().json(body),
+        SimilarSchemasReply::Failed { body } => HttpResponse::InternalServerError().json(body),
     }
 }
 

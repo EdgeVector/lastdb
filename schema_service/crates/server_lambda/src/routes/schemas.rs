@@ -91,14 +91,8 @@ pub(crate) fn get_schemas_similar(
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SimilarSchemasReply::Missing => json_response(
-            404,
-            &json!({"error": format!("Schema '{schema_name}' not found")}),
-        ),
-        SimilarSchemasReply::Failed { detail } => json_response(
-            500,
-            &json!({"error": format!("Failed to find similar schemas: {detail}")}),
-        ),
+        SimilarSchemasReply::Missing { body } => json_response(404, &body),
+        SimilarSchemasReply::Failed { body } => json_response(500, &body),
     }
 }
 
