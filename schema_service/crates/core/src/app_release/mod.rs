@@ -62,5 +62,6 @@ mod validate;
 
 pub use errors::*;
 pub use grammar::*;
+pub use point_read::ReleaseReadReply;
 pub use records::*;
 use validate::*;

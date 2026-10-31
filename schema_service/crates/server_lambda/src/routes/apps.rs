@@ -4,7 +4,7 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_channel_json, unknown_release_json,
+    registry_unavailable_json, unknown_channel_json, ReleaseReadReply,
 };
 use schema_service_core::PublicAppReply;
 use schema_service_server_shared::state::SchemaServiceState;
@@ -253,10 +253,10 @@ pub(crate) async fn get_releases(
     if release_id.is_empty() || release_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_release_id"}));
     }
-    match state.get_release(release_id).await {
-        Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(404, &unknown_release_json(release_id)),
-        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
+    match state.release_read_reply(release_id).await {
+        ReleaseReadReply::Ready(body) => json_response(200, &body),
+        ReleaseReadReply::Missing(body) => json_response(404, &body),
+        ReleaseReadReply::Unavailable(body) => json_response(503, &body),
     }
 }
 
