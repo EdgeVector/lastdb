@@ -351,9 +351,6 @@ pub(crate) fn post_schemas_resolve(
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SchemaResolveReply::Refused { detail } => json_response(
-            400,
-            &json!({"error": format!("Schema resolve failed: {detail}")}),
-        ),
+        SchemaResolveReply::Refused { body } => json_response(400, &body),
     }
 }
