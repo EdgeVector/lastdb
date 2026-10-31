@@ -2,6 +2,7 @@
 
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
+use schema_service_core::RegistryIndexReply;
 
 use super::*;
 
@@ -13,24 +14,21 @@ pub async fn registry_index(
     req: HttpRequest,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    let current_etag = format!("\"{}\"", state.current_state_version());
-    if req
+    let if_none_match = req
         .headers()
         .get("if-none-match")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|etag| etag.trim() == current_etag)
-    {
-        return HttpResponse::NotModified()
-            .insert_header(("ETag", current_etag))
-            .finish();
-    }
-
-    match state.export_registry_index() {
-        Ok(index) => HttpResponse::Ok()
+        .and_then(|v| v.to_str().ok());
+    match state.registry_index_reply(if_none_match) {
+        RegistryIndexReply::NotModified { etag } => HttpResponse::NotModified()
+            .insert_header(("ETag", etag))
+            .finish(),
+        RegistryIndexReply::Ready { index, etag } => HttpResponse::Ok()
             .insert_header(("Cache-Control", "public, max-age=60"))
-            .insert_header(("ETag", format!("\"{}\"", index.registry_version)))
+            .insert_header(("ETag", etag))
             .json(index),
-        Err(e) => internal_error("Failed to export registry index", e),
+        RegistryIndexReply::Failed { detail } => {
+            internal_error("Failed to export registry index", detail)
+        }
     }
 }
 

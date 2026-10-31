@@ -4,7 +4,9 @@ use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
-use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
+use schema_service_core::{
+    log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeRequest,
+};
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{
     BatchSchemaReuseRequest, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest,
@@ -19,28 +21,22 @@ pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let current_etag = format!("\"{}\"", state.current_state_version());
-    if event
+    let if_none_match = event
         .headers()
         .get("if-none-match")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|etag| etag.trim() == current_etag)
-    {
-        return cors_builder(304, "application/json")
-            .header("ETag", current_etag)
+        .and_then(|v| v.to_str().ok());
+    match state.registry_index_reply(if_none_match) {
+        RegistryIndexReply::NotModified { etag } => cors_builder(304, "application/json")
+            .header("ETag", etag)
             .body(Body::Empty)
-            .map_err(|e| Error::from(format!("Failed to build response: {e}")));
-    }
-
-    match state.export_registry_index() {
-        Ok(index) => {
-            let etag = format!("\"{}\"", index.registry_version);
+            .map_err(|e| Error::from(format!("Failed to build response: {e}"))),
+        RegistryIndexReply::Ready { index, etag } => {
             let body = serde_json::to_value(index).map_err(serialization_error)?;
             json_response_cacheable(200, &body, &etag)
         }
-        Err(e) => json_response(
+        RegistryIndexReply::Failed { detail } => json_response(
             500,
-            &json!({"error": format!("Failed to export registry index: {e}")}),
+            &json!({"error": format!("Failed to export registry index: {detail}")}),
         ),
     }
 }
