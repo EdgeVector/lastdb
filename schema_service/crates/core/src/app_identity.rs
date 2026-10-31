@@ -144,6 +144,7 @@ mod update;
 mod verify;
 
 pub use lifecycle_types::*;
+pub use registry::PublicAppReply;
 pub use types::*;
 pub(crate) use verify::*;
 

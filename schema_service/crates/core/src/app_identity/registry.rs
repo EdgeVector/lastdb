@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// The public app read both HTTP routers answer.
+#[derive(Debug)]
+pub enum PublicAppReply {
+    /// The app exists. HTTP 200. The value is [`SchemaServiceState::app_public_json`].
+    Ready(Value),
+    /// No app has that id. HTTP 404. The value is the unknown-app body.
+    Missing(Value),
+}
+
 impl SchemaServiceState {
     /// Snapshot the current app-identity config (clone under the read lock
     /// so verification doesn't hold the lock).
@@ -51,6 +60,18 @@ impl SchemaServiceState {
             .revoked_dev_pubkeys
             .contains(&record.owner_dev_pubkey);
         record.to_public_json(revoked)
+    }
+
+    /// Classify [`Self::get_app`] for the public HTTP read.
+    ///
+    /// `Ready` is the public JSON, including `revoked`. `Missing` is the
+    /// unknown-app body. A poisoned lock stays `Missing`, same as [`Self::get_app`].
+    #[must_use]
+    pub fn public_app_reply(&self, app_id: &str) -> PublicAppReply {
+        match self.get_app(app_id) {
+            Some(record) => PublicAppReply::Ready(self.app_public_json(&record)),
+            None => PublicAppReply::Missing(crate::app_release::unknown_app_json(app_id)),
+        }
     }
 
     /// Public app shelf for `GET /v1/apps`.

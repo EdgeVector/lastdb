@@ -4,8 +4,9 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+    registry_unavailable_json, unknown_channel_json, unknown_release_json,
 };
+use schema_service_core::PublicAppReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -48,14 +49,10 @@ pub(crate) async fn post_app_v1(
 // promoted, non-revoked public shelf. The cross-env mirror's
 // `POST /v1/apps/mirror` receiver was decommissioned in #517.
 pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v1/apps/").trim_end_matches('/');
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = known_app_id(p, "/v1/apps/") else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
-    }
-    match state.get_app(app_id) {
-        Some(record) => json_response(200, &state.app_public_json(&record)),
-        None => json_response(404, &unknown_app_json(app_id)),
-    }
+    };
+    public_app_response(state, app_id)
 }
 
 // Owner-authenticated metadata update for an already-registered
@@ -265,13 +262,20 @@ pub(crate) async fn get_releases(
 
 // Anonymous read: the app record. Same body as `GET /v1/apps/{id}`.
 pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v2/apps/").trim_end_matches('/');
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = known_app_id(p, "/v2/apps/") else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_app(app_id) {
-        Some(record) => json_response(200, &state.app_public_json(&record)),
-        None => json_response(404, &unknown_app_json(app_id)),
+    public_app_response(state, app_id)
+}
+
+fn known_app_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    v2_app_id(path.trim_start_matches(prefix).trim_end_matches('/'))
+}
+
+fn public_app_response(state: &SchemaServiceState, app_id: &str) -> Result<Response<Body>, Error> {
+    match state.public_app_reply(app_id) {
+        PublicAppReply::Ready(body) => json_response(200, &body),
+        PublicAppReply::Missing(body) => json_response(404, &body),
     }
 }
 
