@@ -1,4 +1,4 @@
-use super::{DeclarativeSchemaDefinition, FieldMapper};
+use super::DeclarativeSchemaDefinition;
 use std::collections::HashMap;
 
 impl DeclarativeSchemaDefinition {
@@ -46,28 +46,14 @@ impl DeclarativeSchemaDefinition {
     /// Also regenerates transform metadata (hash mappings, inputs, source schemas) which are not persisted
     pub fn populate_runtime_fields(&mut self) -> Result<(), crate::schema::SchemaError> {
         use crate::schema::types::field::FieldVariant;
-        use std::collections::HashMap;
 
-        // Reject cross-app FieldMappers before deriving any deterministic
-        // molecule UUIDs from them — see method docs for the threat model.
         self.validate_definition()
             .map_err(crate::schema::SchemaError::InvalidData)?;
-        self.validate_field_mapper_ownership()?;
-
-        // Reject FieldMappers whose target field isn't declared in `fields`
-        // or `transform_fields` — see method docs for why this asymmetry
-        // is a real bug, not cosmetic.
-        self.validate_field_mapper_targets()?;
-
-        let default_field_mappers = HashMap::new();
 
         let mut runtime_fields = HashMap::new();
         let mut add_field = |field_name: String| {
             let schema_type = self.schema_type.clone();
-            runtime_fields.insert(
-                field_name,
-                FieldVariant::from_schema_type(schema_type, default_field_mappers.clone()),
-            );
+            runtime_fields.insert(field_name, FieldVariant::from_schema_type(schema_type));
         };
 
         if let Some(field_list) = self.fields.clone() {
@@ -84,42 +70,15 @@ impl DeclarativeSchemaDefinition {
 
         self.runtime_fields = runtime_fields;
 
-        if let Some(field_mappers) = &self.wire.field_mappers {
-            for (field_name, mapper) in field_mappers {
-                if let Some(field) = self.runtime_fields.get_mut(field_name) {
-                    let mut mapper_map = HashMap::new();
-                    mapper_map.insert(field_name.clone(), mapper.clone());
-                    field.common_mut().set_field_mappers(mapper_map);
-                }
-            }
-        }
-
-        // Restore persisted molecule UUIDs from field_molecule_uuids if available.
-        // Otherwise derive the UUID deterministically:
-        //
-        //  - A field with a `FieldMapper` resolves to its mapper's *source*
-        //    schema/field. This makes mapper resolution durable: the schema
-        //    service wire JSON carries `field_mappers` but not
-        //    `field_molecule_uuids`, and the typed mapper pass runs only inside
-        //    `load_schema_internal`. Without routing mapped fields to the
-        //    source molecule here, a reload of an already-expanded mapped
-        //    schema (node restart re-sync, schema refresh) would fall back to
-        //    this schema's own empty molecule and leave every mapped field
-        //    permanently unreadable.
-        //  - An unmapped field derives from this schema's own name + field name.
-        //
-        // See `crate::schema::field_mapper` for the one-shot approval path.
+        // Restore persisted molecule UUIDs from field_molecule_uuids if
+        // available. Otherwise derive the UUID from this schema's own name and
+        // the field name: each schema owns the values of its fields.
         let persisted = self.field_molecule_uuids.clone().unwrap_or_default();
-        let field_mappers = self.field_mappers.clone().unwrap_or_default();
         let schema_name = self.name.clone();
         for (field_name, field) in &mut self.runtime_fields {
-            let mol_uuid = if let Some(uuid) = persisted.get(field_name) {
-                uuid.clone()
-            } else {
-                let (src_schema, src_field) =
-                    Self::resolve_molecule_source(&schema_name, &field_mappers, field_name);
-                crate::atom::deterministic_molecule_uuid(src_schema, src_field)
-            };
+            let mol_uuid = persisted.get(field_name).cloned().unwrap_or_else(|| {
+                crate::atom::deterministic_molecule_uuid(&schema_name, field_name)
+            });
             field.common_mut().set_molecule_uuid(mol_uuid);
         }
 
@@ -128,109 +87,6 @@ impl DeclarativeSchemaDefinition {
         self.regenerate_metadata();
 
         Ok(())
-    }
-
-    /// Enforce app_identity v3.1 molecule isolation at schema load time.
-    fn validate_field_mapper_ownership(&self) -> Result<(), crate::schema::SchemaError> {
-        use crate::schema::SchemaError;
-
-        let Some(owner) = self.owner_app_id.as_deref().filter(|s| !s.is_empty()) else {
-            return Ok(());
-        };
-
-        let Some(mappers) = self.field_mappers.as_ref() else {
-            return Ok(());
-        };
-
-        for (target_field, mapper) in mappers {
-            let (source_owner_opt, _) = Self::parse_canonical_name(mapper.source_schema());
-            match source_owner_opt.as_deref() {
-                Some(source_owner) if source_owner != owner => {
-                    return Err(SchemaError::InvalidData(format!(
-                        "schema '{}' (owner_app_id='{}') declares a FieldMapper at field \
-                         '{}' pointing at source schema '{}', which is owned by a different \
-                         app ('{}'). Cross-app FieldMappers are forbidden because they would \
-                         bypass app_identity Read gating by routing reads onto another app's \
-                         molecules.",
-                        self.canonical_name(),
-                        owner,
-                        target_field,
-                        mapper.source_schema(),
-                        source_owner,
-                    )));
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Reject `FieldMapper` entries whose target field isn't declared in
-    /// `fields` or `transform_fields`.
-    fn validate_field_mapper_targets(&self) -> Result<(), crate::schema::SchemaError> {
-        use crate::schema::SchemaError;
-
-        let Some(mappers) = self.field_mappers.as_ref() else {
-            return Ok(());
-        };
-        if mappers.is_empty() {
-            return Ok(());
-        }
-
-        let known_fields: std::collections::HashSet<&str> = self
-            .fields
-            .iter()
-            .flatten()
-            .map(String::as_str)
-            .chain(
-                self.transform_fields
-                    .iter()
-                    .flatten()
-                    .map(|(name, _)| name.as_str()),
-            )
-            .collect();
-
-        for target_field in mappers.keys() {
-            if !known_fields.contains(target_field.as_str()) {
-                return Err(SchemaError::InvalidData(format!(
-                    "schema '{}' declares a FieldMapper for target field '{}' \
-                     that is not present in `fields` or `transform_fields`. \
-                     Dangling FieldMappers are silently dropped during \
-                     `populate_runtime_fields` but cause an \
-                     'internally inconsistent' error at schema expansion; \
-                     reject at parse time instead.",
-                    self.canonical_name(),
-                    target_field,
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Resolve the `(schema, field)` whose deterministic molecule UUID a field
-    /// should adopt when no persisted `field_molecule_uuids` entry is available.
-    fn resolve_molecule_source<'a>(
-        schema_name: &'a str,
-        field_mappers: &'a HashMap<String, FieldMapper>,
-        field_name: &'a str,
-    ) -> (&'a str, &'a str) {
-        let mut cur_schema = schema_name;
-        let mut cur_field = field_name;
-        let mut visited = std::collections::HashSet::new();
-        // Only mappers belonging to *this* schema are inspectable here; a hop
-        // into a different schema ends the walk. `visited` guards mapper cycles.
-        while cur_schema == schema_name && visited.insert(cur_field) {
-            match field_mappers.get(cur_field) {
-                Some(mapper) => {
-                    cur_schema = mapper.source_schema();
-                    cur_field = mapper.source_field();
-                }
-                None => break,
-            }
-        }
-        (cur_schema, cur_field)
     }
 
     /// Copies molecule UUIDs from runtime_fields into the persisted field_molecule_uuids map.

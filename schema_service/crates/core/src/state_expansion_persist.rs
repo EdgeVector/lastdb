@@ -1,6 +1,6 @@
 //! Persistence and metadata-merge helpers for schema expansion.
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::hash_map::Entry;
 
 use crate::lock_helpers::{read_lock, write_lock};
 use schema_types::Schema;
@@ -9,24 +9,6 @@ use schema_types::{FoldDbError, FoldDbResult};
 use super::state::SchemaServiceState;
 
 impl SchemaServiceState {
-    /// Preserve every predecessor field through its canonical molecule mapper.
-    pub(super) fn stamp_predecessor_mappers(
-        schema: &mut Schema,
-        existing_fields: &[String],
-        old_name: &str,
-    ) {
-        use schema_types::FieldMapper;
-        let mut mappers: HashMap<String, FieldMapper> =
-            schema.field_mappers().cloned().unwrap_or_default();
-        for field in existing_fields {
-            mappers
-                .entry(field.clone())
-                .or_insert_with(|| FieldMapper::new(old_name.to_string(), field.clone()));
-        }
-        schema.field_mappers = Some(mappers);
-        schema.field_molecule_uuids = None;
-    }
-
     /// Commit the predecessor marker and successor in one definition image.
     /// Publish both schema caches and the name index only after that commit.
     pub(super) async fn persist_expansion(

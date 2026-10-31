@@ -9,7 +9,6 @@ use crate::db_operations::AtomStore;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
-use tracing::warn;
 
 mod key_fields;
 mod key_rules;
@@ -32,33 +31,24 @@ impl MutationManager {
         // Prefer the pre-computed key_value from the mutation (set by the
         // ingestion service with date normalization and proper field extraction).
         // Fall back to KeyValue::from_mutation() only when both fields are None.
-        let mut key_value =
-            if mutation.key_value.hash.is_some() || mutation.key_value.range.is_some() {
-                mutation.key_value.clone()
-            } else {
-                let key_config = schema.key.clone();
-                KeyValue::from_mutation(
-                    &mutation.fields_and_values,
-                    key_config.as_ref().ok_or_else(|| {
-                        SchemaError::InvalidData(format!(
+        let key_value = if mutation.key_value.hash.is_some() || mutation.key_value.range.is_some() {
+            mutation.key_value.clone()
+        } else {
+            let key_config = schema.key.clone();
+            KeyValue::from_mutation(
+                &mutation.fields_and_values,
+                key_config.as_ref().ok_or_else(|| {
+                    SchemaError::InvalidData(format!(
                         "Schema '{schema_name}' has no key configuration. Cannot execute mutation."
                     ))
-                    })?,
-                )
-            };
+                })?,
+            )
+        };
 
         if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
-            if schema.uses_independent_fields() {
-                return Err(SchemaError::InvalidData(
-                    "an independent Hash mutation cannot supply an undeclared range key".into(),
-                ));
-            }
-            warn!(
-                schema = %schema_name,
-                mutation = %mutation.uuid,
-                "Ignoring range key supplied for hash-only schema mutation"
-            );
-            key_value.range = None;
+            return Err(SchemaError::InvalidData(
+                "a Hash mutation cannot supply an undeclared range key".into(),
+            ));
         }
 
         // Validate that the key matches the schema type.

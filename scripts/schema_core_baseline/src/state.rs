@@ -169,7 +169,6 @@ fn proposal(
         Some(KeyConfig::new(Some(spec.hash_field.to_string()), None)),
         Some(fields.clone()),
         None,
-        None,
     );
     schema.descriptive_name = Some(spec.descriptive_name.to_string());
     schema.purpose_statement = Some(spec.purpose.to_string());

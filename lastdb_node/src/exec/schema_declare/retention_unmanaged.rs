@@ -55,8 +55,7 @@ pub(super) fn bind_refusal(binding: &str, anchor: &str, hits: &[RetentionPolicyI
 /// A schema declared WITHOUT a retention is refused when it would JOIN a
 /// catalog schema that a TTL reaches: a TTL on the catalog schema, on a schema
 /// it was expanded from, or on any schema bound to either. The TTL would delete
-/// its records too. A schema that is already bound is not refused: an app that
-/// declares its schemas on every start must keep starting. It is warned.
+/// its records too.
 pub(crate) async fn precheck_declare_retention(
     host: &Host,
     declare: &DirectDeclareProposal,
@@ -65,7 +64,7 @@ pub(crate) async fn precheck_declare_retention(
     let Some(retention) = declare.retention else {
         let binding = declare.local_schema_id.as_str();
         let reach = policies_in_reach(host, binding, anchor, &[]).await?;
-        return if reach.policies.is_empty() || reach.binding_bound {
+        return if reach.policies.is_empty() {
             Ok(())
         } else {
             Err(bind_refusal(binding, anchor, &reach.policies))
@@ -126,21 +125,7 @@ pub(super) async fn unmanaged_report(
         if let Some(first) = reach.policies.first() {
             status = "shares_retained_schema";
             ttl_seconds = Some(first.policy.ttl_seconds);
-            if reach.binding_bound {
-                warnings.push(format!(
-                    "{binding} is bound to the catalog schema {anchor}, and the TTL sweep reaches \
-                     it through {}. The sweep deletes this schema's records too. Give {binding} \
-                     its own shape, or clear the TTL",
-                    reach
-                        .policies
-                        .iter()
-                        .map(holder_text)
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                ));
-            } else {
-                blocked = Some(bind_refusal(binding, anchor, &reach.policies));
-            }
+            blocked = Some(bind_refusal(binding, anchor, &reach.policies));
         }
     }
     if notes.is_empty() && warnings.is_empty() && blocked.is_none() {

@@ -1,4 +1,4 @@
-use super::{DeclarativeSchemaDefinition, FieldMapper, SchemaSource};
+use super::{DeclarativeSchemaDefinition, SchemaSource};
 use crate::schema_type::DeclarativeSchemaType;
 use crate::FieldValueType;
 use crate::KeyConfig;
@@ -14,7 +14,6 @@ impl DeclarativeSchemaDefinition {
         key: Option<KeyConfig>,
         fields: Option<Vec<String>>,
         transform_fields: Option<HashMap<String, String>>,
-        field_mappers: Option<HashMap<String, FieldMapper>>,
     ) -> Self {
         let mut schema = Self {
             name,
@@ -23,10 +22,9 @@ impl DeclarativeSchemaDefinition {
             schema_type,
             key,
             alternate_keys: std::collections::BTreeMap::new(),
-            independent_fields: false,
+            owned_values: false,
             fields,
             transform_fields,
-            field_mappers,
             hash: None,
             field_molecule_uuids: None,
             field_classifications: HashMap::new(),
@@ -58,10 +56,6 @@ impl DeclarativeSchemaDefinition {
     pub fn get_field_type(&self, field_name: &str) -> &FieldValueType {
         static ANY: FieldValueType = FieldValueType::Any;
         self.field_types.get(field_name).unwrap_or(&ANY)
-    }
-
-    pub fn field_mappers(&self) -> Option<&HashMap<String, FieldMapper>> {
-        self.field_mappers.as_ref()
     }
 
     /// Mint/attach `field_hashes` from each field's description, type, and version.

@@ -240,7 +240,6 @@ pub(crate) fn schema_field_names(schema: &Schema) -> BTreeSet<&String> {
         .chain(schema.field_hashes.keys())
         .chain(schema.field_versions.keys())
         .chain(schema.field_declarations.keys())
-        .chain(schema.field_mappers.iter().flat_map(|map| map.keys()))
         .chain(
             schema
                 .field_molecule_uuids
@@ -257,7 +256,7 @@ fn validate_vocabulary_reference(
     validate_new_field_name(name).map_err(FoldDbError::Config)?;
     let field = vocabulary.get(name).ok_or_else(|| {
         FoldDbError::Config(format!(
-            "canonical_field_definition_conflict: '{name}' in a key or molecule mapper"
+            "canonical_field_definition_conflict: '{name}' in a key"
         ))
     })?;
     validate_canonical_field(name, field)
@@ -266,17 +265,10 @@ fn validate_vocabulary_reference(
 /// Referenced concepts participate in refresh, but are not local schema fields.
 pub(crate) fn schema_referenced_field_names(schema: &Schema) -> BTreeSet<&str> {
     schema
-        .field_mappers
+        .key
         .iter()
-        .flat_map(|map| map.values())
-        .map(schema_types::FieldMapper::source_field)
-        .chain(
-            schema
-                .key
-                .iter()
-                .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
-                .flatten()
-                .map(|path| path.split('.').next().unwrap_or(path)),
-        )
+        .flat_map(|key| [key.hash_field.as_deref(), key.range_field.as_deref()])
+        .flatten()
+        .map(|path| path.split('.').next().unwrap_or(path))
         .collect()
 }
