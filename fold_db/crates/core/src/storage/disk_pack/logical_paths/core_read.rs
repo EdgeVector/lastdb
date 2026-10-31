@@ -5,7 +5,7 @@ use crate::atom::{AtomEntry, KeyMetadata};
 use crate::schema::types::key_value::KeyValue;
 use std::collections::HashMap;
 
-const MAX_ENTRIES: usize = 10_000;
+// Each receipt charges at least 256 bytes, so the bytes also bound the count.
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const SNAPSHOT_NAME: &str = "native_selected_core_tips_v1";
 static SELECTED_TIPS: u8 = 0;
@@ -63,9 +63,6 @@ pub(crate) fn note_tip(
     else {
         return Ok(());
     };
-    if receipts.entries.len() >= MAX_ENTRIES {
-        return Ok(());
-    }
     receipts.bytes = total;
     receipts.entries.insert(
         identity,

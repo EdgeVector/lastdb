@@ -5,7 +5,8 @@ use crate::resident::core_keys::{CoreKeyBudget, CoreKeyReservation};
 use std::any::Any;
 use std::ops::Deref;
 
-const MAX_ENTRIES: usize = 10_000;
+// The byte charge is the only limit. Each entry charges at least 1.5 KiB
+// (see `allocation_bound`), so the bytes also bound the entry count.
 const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 pub(super) type MemoryKey = (usize, String);
 
@@ -148,17 +149,6 @@ impl CoreMemory {
     }
 
     pub(super) fn reserve_install(&mut self, count: usize) -> Result<(), CoreCapacity> {
-        if count > MAX_ENTRIES {
-            return Err(memory_capacity());
-        }
-        while self.entries.len().saturating_add(count) > MAX_ENTRIES {
-            let Some((_, key)) = self.order.first_key_value() else {
-                return Err(memory_capacity());
-            };
-            let key = key.clone();
-            self.remove(&key);
-            self.purged = self.purged.saturating_add(1);
-        }
         self.entries
             .try_reserve(count)
             .map_err(|_| memory_capacity())?;
@@ -238,11 +228,9 @@ impl CoreMemory {
         let mut charge = None;
         // Bounded purge: long calls can retain charges after their entry leaves.
         for _ in 0..=32 {
-            if self.entries.len() < MAX_ENTRIES {
-                charge = self.budget.reserve_temporary(bytes).ok();
-                if charge.is_some() {
-                    break;
-                }
+            charge = self.budget.reserve_temporary(bytes).ok();
+            if charge.is_some() {
+                break;
             }
             let Some((_, oldest)) = self.order.first_key_value() else {
                 break;

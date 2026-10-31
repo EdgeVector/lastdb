@@ -123,7 +123,7 @@ An accepted write removes affected definitions before the new logical boundary b
 An older query retains its earlier objects or fetches from its captured disk state.
 Physical flush and LastDB compaction do not clear unchanged definitions.
 
-The definition allowance is 16 MiB per native runtime, with at most 10,000 entries in shared memory.
+The definition allowance is 16 MiB per native runtime. Its 10,000-entry cap was removed on 2026-10-30; the bytes are the only limit.
 The charge stays with the object until the last query releases it, even after its removal from shared memory.
 A refused object stays local to its query; refusal does not fail the read.
 This allowance is separate from the complete-key allowance and the 10,000 logical-record cap.
