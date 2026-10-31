@@ -1,5 +1,9 @@
 //! Mutation challenge and app/release/channel registry routes.
 
+use schema_service_core::app_release::{
+    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+};
+
 use super::*;
 
 #[allow(
@@ -159,14 +163,8 @@ pub async fn get_release(
     let release_id = path.into_inner();
     match state.get_release(&release_id).await {
         Ok(Some(record)) => json_status(200, record.to_public_json()),
-        Ok(None) => json_status(
-            404,
-            json!({ "reason": "unknown_release", "release_id": release_id }),
-        ),
-        Err(e) => json_status(
-            503,
-            json!({ "reason": "registry_unavailable", "error": e.to_string() }),
-        ),
+        Ok(None) => json_status(404, unknown_release_json(&release_id)),
+        Err(e) => json_status(503, registry_unavailable_json(&e.to_string())),
     }
 }
 
@@ -200,14 +198,8 @@ pub async fn get_channel(
     let (app_id, channel) = path.into_inner();
     match state.get_channel(&app_id, &channel).await {
         Ok(Some(record)) => json_status(200, record.to_public_json()),
-        Ok(None) => json_status(
-            404,
-            json!({ "reason": "unknown_channel", "app_id": app_id, "channel": channel }),
-        ),
-        Err(e) => json_status(
-            503,
-            json!({ "reason": "registry_unavailable", "error": e.to_string() }),
-        ),
+        Ok(None) => json_status(404, unknown_channel_json(&app_id, &channel)),
+        Err(e) => json_status(503, registry_unavailable_json(&e.to_string())),
     }
 }
 
@@ -297,7 +289,7 @@ pub async fn get_app(
 ) -> impl Responder {
     let app_id = path.into_inner();
     let Some(record) = state.get_app(&app_id) else {
-        return json_status(404, json!({ "reason": "unknown_app", "app_id": app_id }));
+        return json_status(404, unknown_app_json(&app_id));
     };
     let revoked = state
         .app_identity_config()
