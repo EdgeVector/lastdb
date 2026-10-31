@@ -16,7 +16,7 @@ impl PerKeyReads for AtomStore {
         storage_prefix: Option<&str>,
         base_keys: &[String],
     ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        AtomStore::load_exact_per_key_records(self, storage_prefix, base_keys).await
+        Self::load_exact_per_key_records(self, storage_prefix, base_keys).await
     }
 
     async fn load_visible_per_key_records(
@@ -24,7 +24,7 @@ impl PerKeyReads for AtomStore {
         storage_prefix: Option<&str>,
         keys: &[String],
     ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        AtomStore::load_visible_per_key_records(self, storage_prefix, keys).await
+        Self::load_visible_per_key_records(self, storage_prefix, keys).await
     }
 
     async fn filter_delete_barriers_for_records(
@@ -32,7 +32,7 @@ impl PerKeyReads for AtomStore {
         rows: Vec<KeyedRecord>,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        AtomStore::filter_delete_barriers_for_records(self, rows, storage_prefix).await
+        Self::filter_delete_barriers_for_records(self, rows, storage_prefix).await
     }
 }
 

@@ -20,9 +20,13 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 
-use super::counter::{TipChangeSet, TipCommit};
+use super::bounded_range::{RangeWalk, Step};
+use super::counter::{ReleaseRequest, TipChangeSet, TipCommit};
 use super::hash_selection::HashTipSelection;
+use super::molecule_drain::DrainState;
+use super::retention::SlotReleases;
 use super::types::{MoleculeGenerationPointer, MoleculeHeader, PerKeyRecord};
+use super::MoleculeBindings;
 use crate::atom::delete_barrier::DeleteBarrier;
 use crate::atom::{Atom, MoleculeKeyCodec};
 use crate::schema::types::key_value::KeyValue;
@@ -67,12 +71,54 @@ pub(crate) trait AtomReads: Sync {
     fn body_storage_key(&self, atom: &str, scope: Option<&str>) -> String;
 }
 
-/// The write gate of a background job.
+/// The write gate: a background job, or a request that writes.
 pub(crate) trait WriteScopes: Sync {
     fn in_background_scope<'a, T: Send + 'a>(
         &'a self,
         work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, SchemaError>>;
+    fn in_write_scope<'a, T: Send + 'a>(
+        &'a self,
+        work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, SchemaError>>;
+}
+
+/// One bounded page of a range walk over the main namespace.
+pub(crate) trait RangeWalks: Sync {
+    fn walk_step(
+        &self,
+        walk: &mut RangeWalk,
+    ) -> impl Future<Output = Result<Step, SchemaError>> + Send;
+}
+
+/// The `bindings` counter and the binding records of a molecule.
+pub(crate) trait BindingReads: Sync {
+    fn read_binding_counters(
+        &self,
+        molecules: &[String],
+        storage_prefix: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<Option<MoleculeBindings>>, SchemaError>> + Send;
+    fn binding_record_present(
+        &self,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> impl Future<Output = Result<bool, SchemaError>> + Send;
+}
+
+/// The release requests of kept conflict records (the retention concept).
+pub(crate) trait RetentionReleases: Sync {
+    fn slot_release_requests(
+        &self,
+        scope: Option<&str>,
+        removals: &[(&str, &[(String, String)])],
+        preserve_archives: bool,
+    ) -> impl Future<Output = Result<SlotReleases, SchemaError>> + Send;
+    fn directory_release_requests(&self, rows: &[(Vec<u8>, Vec<u8>)]) -> Vec<ReleaseRequest>;
+}
+
+/// The report and the wake signal of the molecule drain task.
+pub(crate) trait DrainStates: Sync {
+    fn drain_state(&self) -> &DrainState;
 }
 
 /// The atom counter planner: the one writer of tips, bodies and counters.

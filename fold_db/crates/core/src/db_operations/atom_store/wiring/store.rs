@@ -34,15 +34,15 @@ impl NativeRuntime for AtomStore {
 
 impl KeyCodecs for AtomStore {
     fn key_codec_for_molecule(&self, molecule_uuid: &str) -> Result<MoleculeKeyCodec, SchemaError> {
-        AtomStore::key_codec_for_molecule(self, molecule_uuid)
+        Self::key_codec_for_molecule(self, molecule_uuid)
     }
 
     fn storage_hash(&self, molecule_uuid: &str, api_hash: &str) -> Result<String, SchemaError> {
-        AtomStore::storage_hash(self, molecule_uuid, api_hash)
+        Self::storage_hash(self, molecule_uuid, api_hash)
     }
 
     async fn load_molecule_key_bundle(&self, molecule_uuid: &str) -> Result<(), SchemaError> {
-        AtomStore::load_molecule_key_bundle(self, molecule_uuid).await
+        Self::load_molecule_key_bundle(self, molecule_uuid).await
     }
 }
 
@@ -51,7 +51,7 @@ impl AtomReads for AtomStore {
         &self,
         future: impl Future<Output = Result<T, SchemaError>> + Send,
     ) -> Result<T, SchemaError> {
-        AtomStore::atom_read_scope(self, future).await
+        Self::atom_read_scope(self, future).await
     }
 
     async fn get_atoms(
@@ -59,11 +59,11 @@ impl AtomReads for AtomStore {
         uuids: &[&str],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Atom>>, SchemaError> {
-        AtomStore::get_atoms(self, uuids, storage_prefix).await
+        Self::get_atoms(self, uuids, storage_prefix).await
     }
 
     fn body_storage_key(&self, atom: &str, scope: Option<&str>) -> String {
-        AtomStore::body_storage_key(self, atom, scope)
+        Self::body_storage_key(self, atom, scope)
     }
 }
 
@@ -72,13 +72,20 @@ impl WriteScopes for AtomStore {
         &'a self,
         work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
     ) -> BoxFuture<'a, Result<T, SchemaError>> {
-        AtomStore::in_background_scope(self, work)
+        Self::in_background_scope(self, work)
+    }
+
+    fn in_write_scope<'a, T: Send + 'a>(
+        &'a self,
+        work: impl Future<Output = Result<T, SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, SchemaError>> {
+        Self::in_write_scope(self, work)
     }
 }
 
 impl CommitTips for AtomStore {
     async fn commit_tip_changes(&self, set: TipChangeSet<'_>) -> Result<TipCommit, SchemaError> {
-        AtomStore::commit_tip_changes(self, set).await
+        Self::commit_tip_changes(self, set).await
     }
 }
 
@@ -98,7 +105,7 @@ impl GenerationLocks for AtomStore {
         molecule: &str,
         scope: Option<&str>,
     ) -> Arc<tokio::sync::RwLock<()>> {
-        AtomStore::generation_cleanup_lock(self, molecule, scope)
+        Self::generation_cleanup_lock(self, molecule, scope)
     }
 }
 
@@ -108,7 +115,7 @@ impl MoleculeReads for AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Option<MoleculeGenerationPointer>, SchemaError> {
-        AtomStore::active_molecule_generation(self, molecule_uuid, storage_prefix).await
+        Self::active_molecule_generation(self, molecule_uuid, storage_prefix).await
     }
 
     async fn merge_generation_prefix_rows(
@@ -118,7 +125,7 @@ impl MoleculeReads for AtomStore {
         storage_prefix: Option<&str>,
         live_rows: Vec<KeyedRecord>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        AtomStore::merge_generation_prefix_rows(
+        Self::merge_generation_prefix_rows(
             self,
             molecule_uuid,
             base_prefix,
@@ -136,7 +143,7 @@ impl MoleculeReads for AtomStore {
         storage_prefix: Option<&str>,
         live_rows: Vec<KeyedRecord>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        AtomStore::merge_generation_range_rows(
+        Self::merge_generation_range_rows(
             self,
             molecule_uuid,
             base_start,
@@ -152,6 +159,6 @@ impl MoleculeReads for AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&'a str>,
     ) -> Result<Option<(MoleculeHeader, Option<&'a str>)>, SchemaError> {
-        AtomStore::read_header_exact_prefix(self, molecule_uuid, storage_prefix).await
+        Self::read_header_exact_prefix(self, molecule_uuid, storage_prefix).await
     }
 }

@@ -8,6 +8,7 @@
 //! concept struct of one reference and awaits the same future.
 
 mod delete;
+mod drain;
 mod filter;
 mod schema_keys;
 mod store;

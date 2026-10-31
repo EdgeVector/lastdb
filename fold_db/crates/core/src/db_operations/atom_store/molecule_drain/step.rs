@@ -33,8 +33,9 @@ use super::candidate::Candidate;
 use super::cursor::{records_walk, row_walk, tip_walk, Active, DrainCursor, ParkWhy, Phase};
 use super::family::{closing_keys, row_prefixes};
 use super::judge::Refusal;
+use super::{DrainPorts, MoleculeDrain};
 use crate::db_operations::atom_store::retention::RELEASE_RECORD_CAP;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::measure;
 use std::time::Duration;
@@ -117,7 +118,7 @@ enum Move {
     Done(OutcomeKind),
 }
 
-impl AtomStore {
+impl<S: DrainPorts> MoleculeDrain<'_, S> {
     /// Run one step: one batch of the molecule in work, or of the next candidate.
     /// `None` when no candidate is left to work on in this pass of the list.
     pub(crate) async fn molecule_drain_step(
@@ -187,7 +188,7 @@ impl AtomStore {
             if cursor.list_done() {
                 return Ok(false);
             }
-            let step = self.walk_step(cursor.list_walk()).await?;
+            let step = self.store.walk_step(cursor.list_walk()).await?;
             for (key, _) in step.rows {
                 if let Some(candidate) = Candidate::parse(&key) {
                     cursor.offer(candidate);
@@ -214,7 +215,7 @@ impl AtomStore {
                     Batch::Ran(commit) => {
                         let tips = commit.previous.len() as u64;
                         let atoms_deleted = commit.deleted.len() as u64;
-                        self.drain_state().note_batch(tips, 0, atoms_deleted);
+                        self.store.drain_state().note_batch(tips, 0, atoms_deleted);
                         Ok(Move::Batch(OutcomeKind::Erased {
                             tips,
                             atoms_deleted,
@@ -232,14 +233,14 @@ impl AtomStore {
                     active.phase = rows_phase(&candidate, 0, limits);
                     return Ok(Move::Continue);
                 }
-                let releases = self.directory_release_requests(&rows);
+                let releases = self.store.directory_release_requests(&rows);
                 if releases.is_empty() {
                     return Ok(Move::Continue);
                 }
                 match self.release_records_batch(&candidate, releases).await? {
                     Batch::Ran(records) => {
-                        self.drain_state().note_batch(0, 0, 0);
-                        self.drain_state().note_records(records);
+                        self.store.drain_state().note_batch(0, 0, 0);
+                        self.store.drain_state().note_records(records);
                         Ok(Move::Batch(OutcomeKind::Released { records }))
                     }
                     Batch::Stopped(gate) => Ok(self.stopped(gate)),
@@ -259,7 +260,7 @@ impl AtomStore {
                 let rows = keys.len() as u64;
                 match self.delete_rows_batch(&candidate, keys).await? {
                     Batch::Ran(()) => {
-                        self.drain_state().note_batch(0, rows, 0);
+                        self.store.drain_state().note_batch(0, rows, 0);
                         Ok(Move::Batch(OutcomeKind::Removed { rows }))
                     }
                     Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
@@ -268,9 +269,12 @@ impl AtomStore {
             }
             Phase::Finish => match self.finish_batch(&candidate).await? {
                 Batch::Ran(()) => {
-                    self.drain_state()
-                        .note_batch(0, closing_keys(&candidate).len() as u64, 0);
-                    self.drain_state().note_drained();
+                    self.store.drain_state().note_batch(
+                        0,
+                        closing_keys(&candidate).len() as u64,
+                        0,
+                    );
+                    self.store.drain_state().note_drained();
                     Ok(Move::Done(OutcomeKind::Finished))
                 }
                 Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
@@ -283,7 +287,7 @@ impl AtomStore {
     fn stopped(&self, gate: Gate) -> Move {
         match gate {
             Gate::Rebound => {
-                self.drain_state().note_rebound();
+                self.store.drain_state().note_rebound();
                 Move::Done(OutcomeKind::Rebound)
             }
             Gate::Absent => Move::Done(OutcomeKind::Absent),
@@ -313,7 +317,7 @@ impl AtomStore {
         let mut rows = Vec::new();
         while rows.len() < want && !walk.done() {
             walk.set_limit(want - rows.len());
-            rows.extend(self.walk_step(walk).await?.rows);
+            rows.extend(self.store.walk_step(walk).await?.rows);
         }
         Ok(rows)
     }

@@ -85,7 +85,7 @@ impl QueryTips for AtomStore {
         molecule: &str,
         keys: &[KeyValue],
     ) -> Result<Vec<Option<KeyedRecord>>, SchemaError> {
-        AtomStore::load_query_tip_records(self, scope, molecule, keys).await
+        Self::load_query_tip_records(self, scope, molecule, keys).await
     }
 
     fn note_selected_query_tip(
@@ -96,7 +96,7 @@ impl QueryTips for AtomStore {
         record: &PerKeyRecord,
         base: &str,
     ) -> Result<(), SchemaError> {
-        AtomStore::note_selected_query_tip(self, scope, molecule, api_key, record, base)
+        Self::note_selected_query_tip(self, scope, molecule, api_key, record, base)
     }
 }
 

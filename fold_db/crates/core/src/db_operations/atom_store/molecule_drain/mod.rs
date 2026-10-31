@@ -36,34 +36,58 @@ mod step;
 
 pub(crate) use candidate::{valid_candidate_key, Candidate};
 pub(crate) use cursor::DrainCursor;
+pub(crate) use enqueue::DrainingMolecules;
 pub use enqueue::MoleculeDrainVerdict;
 pub(crate) use state::DrainState;
 pub use state::{MoleculeDrainReport, RefusedMolecule};
-pub(crate) use step::{DrainLimits, OutcomeKind};
+pub(crate) use step::{DrainLimits, DrainOutcome, OutcomeKind};
 
-use super::AtomStore;
+use super::ports::{
+    BindingReads, CommitTips, DrainStates, MainRows, NativeRuntime, RangeWalks, RetentionReleases,
+    WriteScopes,
+};
 use std::sync::Arc;
 
-impl AtomStore {
-    /// The report of the drain and the wake signal of its task.
-    pub(crate) fn drain_state(&self) -> &DrainState {
-        &self.molecule_drain
-    }
+/// The ports the drain uses. It never names the store type.
+pub(crate) trait DrainPorts:
+    BindingReads
+    + CommitTips
+    + DrainStates
+    + MainRows
+    + NativeRuntime
+    + RangeWalks
+    + RetentionReleases
+    + WriteScopes
+{
+}
 
-    /// The drain report now.
-    #[must_use]
-    pub fn molecule_drain_report(&self) -> MoleculeDrainReport {
-        self.molecule_drain.snapshot()
+impl<T> DrainPorts for T where
+    T: BindingReads
+        + CommitTips
+        + DrainStates
+        + MainRows
+        + NativeRuntime
+        + RangeWalks
+        + RetentionReleases
+        + WriteScopes
+{
+}
+
+/// The molecule drain over a store that implements [`DrainPorts`].
+pub(crate) struct MoleculeDrain<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: DrainPorts> MoleculeDrain<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
     }
 
     /// Wake the drain task when the batch of the current request is committed.
     /// Outside a native request scope the task wakes at once.
     pub(crate) fn wake_drain_after_commit(&self) {
-        let signal: Arc<tokio::sync::Notify> = self.molecule_drain.wake_signal();
-        let runtime = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime());
+        let signal: Arc<tokio::sync::Notify> = self.store.drain_state().wake_signal();
+        let runtime = self.store.native_runtime();
         let Some(runtime) = runtime else {
             signal.notify_one();
             return;
@@ -76,10 +100,5 @@ impl AtomStore {
         if queued.is_err() {
             signal.notify_one();
         }
-    }
-
-    /// The wake signal, for the task.
-    pub(crate) fn drain_wake_signal(&self) -> Arc<tokio::sync::Notify> {
-        self.molecule_drain.wake_signal()
     }
 }

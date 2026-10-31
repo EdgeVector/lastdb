@@ -17,7 +17,7 @@ impl DeleteBarrierReads for AtomStore {
         &self,
         molecule_keys: &[String],
     ) -> Result<HashMap<String, DeleteBarrier>, SchemaError> {
-        AtomStore::winning_delete_barriers(self, molecule_keys).await
+        Self::winning_delete_barriers(self, molecule_keys).await
     }
 }
 
