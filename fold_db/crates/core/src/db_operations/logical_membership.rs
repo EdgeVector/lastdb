@@ -1,7 +1,7 @@
 //! Exact logical membership for schemas that share physical field molecules.
 
+use crate::db_operations::field_read::fetch_atoms_with_key_metadata_async_with_prefix;
 use crate::db_operations::DbOperations;
-use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 use crate::schema::types::key_comparison::normalize::canonical_range;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;

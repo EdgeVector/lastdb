@@ -1,6 +1,6 @@
 //! Resolve complete field paths before a predicate or projection discards them.
 
-use crate::schema::types::field::filter_utils::{fetch_field_atom_batches, FieldAtomBatch};
+use crate::db_operations::field_read::{fetch_field_atom_batches, FieldAtomBatch};
 use crate::schema::types::field::FieldValue;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::disk_pack::logical_paths::field::FieldScope;

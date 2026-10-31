@@ -2,6 +2,7 @@
 
 use super::primary_selection::{PrimaryRequest, PrimarySelection};
 use super::*;
+use crate::db_operations::field_read;
 use crate::schema::types::FieldVariant;
 
 impl HashRangeQueryProcessor {
@@ -84,15 +85,15 @@ impl HashRangeQueryProcessor {
                     }
                     .boxed()
                 };
-                let (values, layout_values, had_spine) = field
-                    .resolve_named_window(
-                        &self.db_ops,
-                        filter,
-                        window,
-                        request.include_tombstones,
-                        &mut membership,
-                    )
-                    .await?;
+                let (values, layout_values, had_spine) = field_read::resolve_named_window(
+                    field,
+                    &self.db_ops,
+                    filter,
+                    window,
+                    request.include_tombstones,
+                    &mut membership,
+                )
+                .await?;
                 let mut selected = PrimarySelection::new(values, &request.own_prefix);
                 selected.layout_values = layout_values;
                 selected.had_spine = had_spine;
@@ -126,14 +127,14 @@ impl HashRangeQueryProcessor {
         {
             values
         } else {
-            field
-                .resolve_value_windowed(
-                    &self.db_ops,
-                    request.filter.clone(),
-                    own_window,
-                    request.include_tombstones,
-                )
-                .await?
+            field_read::resolve_value_windowed(
+                field,
+                &self.db_ops,
+                request.filter.clone(),
+                own_window,
+                request.include_tombstones,
+            )
+            .await?
         };
         let mut selected = PrimarySelection::new(values, &request.own_prefix);
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
@@ -230,13 +231,13 @@ impl HashRangeQueryProcessor {
         field: &FieldVariant,
         request: &PrimaryRequest<'_>,
     ) -> Result<bool, SchemaError> {
-        if field
-            .has_primary_tips(
-                &self.db_ops,
-                request.filter.as_ref(),
-                request.include_tombstones,
-            )
-            .await?
+        if field_read::has_primary_tips(
+            field,
+            &self.db_ops,
+            request.filter.as_ref(),
+            request.include_tombstones,
+        )
+        .await?
         {
             return Ok(true);
         }
@@ -245,13 +246,13 @@ impl HashRangeQueryProcessor {
             shared
                 .common_mut()
                 .set_storage_prefix(Some(namespace.clone()));
-            if shared
-                .has_primary_tips(
-                    &self.db_ops,
-                    request.filter.as_ref(),
-                    request.include_tombstones,
-                )
-                .await?
+            if field_read::has_primary_tips(
+                &shared,
+                &self.db_ops,
+                request.filter.as_ref(),
+                request.include_tombstones,
+            )
+            .await?
             {
                 return Ok(true);
             }

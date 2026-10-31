@@ -1,6 +1,7 @@
 //! Four request-local tip pages retain their complete captured source coverage.
 
 use super::*;
+use crate::db_operations::field_read;
 
 impl CandidatePages {
     /// The discovery batch uses only keys after this round's global cursor.
@@ -48,9 +49,9 @@ impl HashRangeQueryProcessor {
         cached: Option<CandidatePage>,
     ) -> Result<(Vec<KeyValue>, bool, Option<CandidatePage>), SchemaError> {
         let Some(mut cached) = cached else {
-            let page = field
-                .hash_range_candidate_page(&self.db_ops, filter, after, limit)
-                .await?;
+            let page =
+                field_read::hash_range_candidate_page(field, &self.db_ops, filter, after, limit)
+                    .await?;
             let keys = page.tips.into_iter().map(|(key, ..)| key).collect();
             return Ok((keys, page.exhausted, None));
         };
@@ -65,14 +66,14 @@ impl HashRangeQueryProcessor {
                 .last()
                 .map(|(key, ..)| key.clone())
                 .or_else(|| after.clone());
-            let page = field
-                .hash_range_candidate_page(
-                    &self.db_ops,
-                    filter,
-                    cursor.clone(),
-                    limit - cached.tips.len(),
-                )
-                .await?;
+            let page = field_read::hash_range_candidate_page(
+                field,
+                &self.db_ops,
+                filter,
+                cursor.clone(),
+                limit - cached.tips.len(),
+            )
+            .await?;
             if (page.tips.is_empty() && !page.exhausted)
                 || page.tips.last().is_some_and(|(key, ..)| {
                     cursor

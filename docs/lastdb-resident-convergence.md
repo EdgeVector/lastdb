@@ -276,7 +276,7 @@ after an acknowledgment sees the write) for HashRange reads in the mode that
 runs on the primary.
 
 Cause, found by logging the molecule keys in `collect_matches`:
-`resident_overlay_for_read` (`schema/types/field/variant/read/refresh.rs`)
+`resident_overlay_for_read` (`db_operations/field_read/refresh.rs`)
 joins the resident dirty keys to the molecule that the read built. It converted
 every dirty key to storage form (blind hash, stored range). The durable load of a
 HashRange field builds that molecule with the API hash for every filter, and

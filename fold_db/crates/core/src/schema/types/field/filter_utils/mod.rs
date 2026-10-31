@@ -15,7 +15,7 @@ use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult};
 /// capped at [`SAMPLE_PEEK_CAP`], the bulk default must be a real `Page`). The
 /// node query handler always supplies an explicit `Page`/key filter, so this
 /// only governs direct in-core callers.
-pub(super) const DEFAULT_UNFILTERED_PAGE_LIMIT: usize = 100;
+pub(crate) const DEFAULT_UNFILTERED_PAGE_LIMIT: usize = 100;
 
 /// How to project `(hash, range)` storage slots into public [`KeyValue`]s and
 /// which filter arms are meaningful for this field kind.
@@ -74,13 +74,13 @@ impl FilterUtils {
     }
 }
 
-mod fetch;
+mod atom_match;
 mod hash_range;
 mod one_d;
 mod storage_bounds;
 
-pub use fetch::{fetch_atoms_with_key_metadata_async_with_prefix, KeyedAtomMatch};
-pub(crate) use fetch::{fetch_field_atom_batches, field_value_from_atom, FieldAtomBatch};
+pub(crate) use atom_match::field_value_from_atom;
+pub use atom_match::KeyedAtomMatch;
 pub use hash_range::apply_hash_range_filter;
 pub use one_d::{apply_hash_filter, apply_range_filter};
 pub use storage_bounds::filter_range_bounds_for_apply;

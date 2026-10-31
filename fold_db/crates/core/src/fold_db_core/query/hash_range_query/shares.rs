@@ -1,4 +1,5 @@
 use super::HashRangeQueryProcessor;
+use crate::db_operations::field_read;
 use crate::schema::types::field::{FieldValue, FieldVariant, HashRangeFilter};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
@@ -64,9 +65,7 @@ impl HashRangeQueryProcessor {
         cloned
             .common_mut()
             .set_storage_prefix(Some(namespace.to_string()));
-        cloned
-            .resolve_value(&self.db_ops, filter, include_tombstones)
-            .await
+        field_read::resolve_value(&mut cloned, &self.db_ops, filter, include_tombstones).await
     }
 
     pub(super) fn stamp_shared_writer(namespace: &str, shared: &mut HashMap<KeyValue, FieldValue>) {

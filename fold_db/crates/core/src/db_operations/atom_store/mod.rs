@@ -85,8 +85,8 @@ pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, Ste
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{
-    ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
-    MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
+    ChangedKey, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
+    MoleculeRangeForm, PerKeyRecord,
 };
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 

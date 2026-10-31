@@ -79,7 +79,7 @@ async fn collect_schema_records(
         let Some(field) = schema.runtime_fields.get_mut(&field_name) else {
             continue;
         };
-        field.refresh_from_db(ops).await?;
+        crate::db_operations::field_read::refresh_from_db(field, ops).await?;
         for key in field.get_all_keys() {
             let Some(atom_uuid) = field.current_atom_uuid(&key) else {
                 continue;

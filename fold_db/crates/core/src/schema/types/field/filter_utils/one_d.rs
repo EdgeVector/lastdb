@@ -1,8 +1,8 @@
 //! One-dimensional key selection over the shared HashRange molecule.
 
 use super::DEFAULT_UNFILTERED_PAGE_LIMIT;
+use crate::atom::molecule_slot::OneDSlot;
 use crate::atom::MoleculeHashRange;
-use crate::db_operations::OneDSlot;
 use crate::schema::types::field::{HashRangeFilter, HashRangeFilterResult, SAMPLE_PEEK_CAP};
 use crate::schema::types::key_value::KeyValue;
 use std::collections::HashMap;

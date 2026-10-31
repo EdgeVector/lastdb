@@ -320,7 +320,7 @@ Later narrow ranges must neither reload the schema nor enumerate unrelated hashe
 Unselected or recorded DiskOnly schemas keep bounded disk selection plus captured pending changes.
 Tip and value purge causes only missing-path fetches while the complete keys remain ready.
 
-Primary sources: [query entry](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs), [key filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs), [resolver](../fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs), copy reads (file removed).
+Primary sources: [query entry](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs), [key filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs), [resolver](../fold_db/crates/core/src/db_operations/field_read/core_model.rs), copy reads (file removed).
 
 Completion: every supported read returns correct current keys, values, metadata, bounds, counts, and page flags.
 Concurrent first queries share one automatic load, including when the first query is exact.
@@ -471,7 +471,7 @@ Use format, syntax, lint, build, and product operational checks; add or run no t
 | Capacity and purge | [Lifecycle](../fold_db/crates/core/src/resident/core_set/lifecycle.rs): separate full-path purge from whole-domain key purge and byte accounting. |
 | Common query gate | [Query execution](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs): start or join the schema load after scope and binding resolution. |
 | Complete key selection | [Core filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs): support ordered complete keys without full warm tips. |
-| Tip and value batches | [Core resolver](../fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs), [tip receipts](../fold_db/crates/core/src/schema/types/field/variant/read/core_receipts.rs): preserve unknown states and source metadata. |
+| Tip and value batches | [Core resolver](../fold_db/crates/core/src/db_operations/field_read/core_model.rs), [tip receipts](../fold_db/crates/core/src/db_operations/field_read/core_receipts.rs): preserve unknown states and source metadata. |
 | Current disk source | [Tip pages](../fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs): expose bounded current membership and explicit exhaustion. |
 | Publication and flush | [Current view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs): publish key changes and retain loader changes through flush. |
 | Native and shared writes | [Prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs): complete typed scope and shared-molecule publication. |

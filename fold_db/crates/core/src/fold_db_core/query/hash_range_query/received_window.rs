@@ -2,6 +2,7 @@
 
 use super::primary_selection::{PrimaryRequest, PrimarySelection};
 use super::*;
+use crate::db_operations::field_read;
 use crate::schema::types::field::FieldKind;
 use crate::schema::types::FieldVariant;
 
@@ -271,10 +272,14 @@ impl HashRangeQueryProcessor {
         source
             .common_mut()
             .set_storage_prefix(namespace.map(str::to_owned));
-        source
-            .materialize_hash_range_candidates(&self.db_ops, tips, request.include_tombstones)
-            .await
-            .map(Some)
+        field_read::materialize_hash_range_candidates(
+            &source,
+            &self.db_ops,
+            tips,
+            request.include_tombstones,
+        )
+        .await
+        .map(Some)
     }
 }
 

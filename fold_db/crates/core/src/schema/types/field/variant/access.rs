@@ -1,7 +1,9 @@
-use crate::db_operations::MoleculeData;
+use std::collections::HashMap;
+
+use crate::atom::MoleculeHashRange;
 use crate::schema::types::key_value::KeyValue;
 
-use super::{FieldKind, FieldVariant};
+use super::{FieldKind, FieldValue, FieldVariant};
 
 impl FieldVariant {
     /// AtomEntry at `key`, using the field kind's unified HashRange disk slot.
@@ -34,17 +36,17 @@ impl FieldVariant {
     /// Borrow the hydrated molecule data for persistence without deep-copying
     /// large fields.
     #[must_use]
-    pub(crate) fn molecule_data(&self) -> Option<&MoleculeData> {
+    pub(crate) fn molecule_data(&self) -> Option<&MoleculeHashRange> {
         self.molecule.as_ref()
     }
 
     /// Mutable access for draining pending tip versions after persist.
-    pub(crate) fn molecule_data_mut(&mut self) -> Option<&mut MoleculeData> {
+    pub(crate) fn molecule_data_mut(&mut self) -> Option<&mut MoleculeHashRange> {
         self.molecule.as_mut()
     }
 
     /// Install a freshly-loaded molecule into this field's slot.
-    pub(crate) fn set_molecule_data(&mut self, data: MoleculeData) {
+    pub(crate) fn set_molecule_data(&mut self, data: MoleculeHashRange) {
         self.molecule = Some(data);
     }
 
@@ -61,5 +63,31 @@ impl FieldVariant {
                 .filter(|pk| !pk.is_empty()),
             _ => None,
         }
+    }
+
+    /// Stamp stable molecule identity; keyed fields retain the selected writer.
+    /// Partial molecule counters describe the read's materialization, not the
+    /// selected logical record, so query metadata does not expose them.
+    pub(crate) fn stamp_molecule_meta(&self, resolved: &mut HashMap<KeyValue, FieldValue>) {
+        let mol_uuid = self.common().molecule_uuid().cloned();
+        let mol_writer_pubkey = self.molecule_writer_pubkey();
+        for fv in resolved.values_mut() {
+            fv.molecule_uuid = mol_uuid.clone();
+            if let Some(pk) = mol_writer_pubkey.clone() {
+                fv.writer_pubkey = Some(pk);
+            }
+        }
+    }
+
+    /// Key metadata and writer of the tip at `kv` in the hydrated molecule.
+    pub(crate) fn entry_meta_at(
+        &self,
+        kv: &KeyValue,
+    ) -> (Option<crate::atom::KeyMetadata>, Option<String>) {
+        (
+            self.key_metadata_at_key(kv).cloned(),
+            self.atom_entry_at_key(kv)
+                .map(|entry| entry.writer_pubkey().to_string()),
+        )
     }
 }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::db_operations::{FilterLayout, OneDSlot};
+use crate::atom::molecule_slot::{FilterLayout, OneDSlot};
 use crate::schema::types::schema::DeclarativeSchemaType;
 
 /// Discriminator for a field's key shape. Mirrors
