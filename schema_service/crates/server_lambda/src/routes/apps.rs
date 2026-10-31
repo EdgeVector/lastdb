@@ -7,7 +7,7 @@ use schema_service_core::app_release::{
     registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
 };
 use schema_service_server_shared::state::SchemaServiceState;
-use serde_json::{json, Value};
+use serde_json::json;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.
@@ -15,27 +15,13 @@ pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.register_app(cert, sig, &body_value).await {
         Ok(outcome) => {
@@ -91,27 +77,13 @@ pub(crate) async fn put_app_v1(
     if app_id.is_empty() || app_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     }
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.update_app(app_id, cert, sig, &body_value).await {
         Ok(outcome) => {
@@ -141,14 +113,9 @@ pub(crate) async fn promote_app_v1(
     if app_id.is_empty() || app_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     }
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.promote_app(app_id, cert, sig).await {
         Ok(outcome) => {
@@ -177,18 +144,9 @@ pub(crate) async fn post_apps_v2(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
     let (cert, sig) = match v2_cert_headers(event) {
         Ok(pair) => pair,
