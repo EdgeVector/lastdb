@@ -1,8 +1,9 @@
 //! Mutation challenge and app/release/channel registry routes.
 
 use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+    registry_unavailable_json, unknown_channel_json, unknown_release_json,
 };
+use schema_service_core::PublicAppReply;
 
 use super::*;
 
@@ -288,10 +289,10 @@ pub async fn get_app(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let app_id = path.into_inner();
-    let Some(record) = state.get_app(&app_id) else {
-        return json_status(404, unknown_app_json(&app_id));
-    };
-    json_status(200, state.app_public_json(&record))
+    match state.public_app_reply(&app_id) {
+        PublicAppReply::Ready(body) => json_status(200, body),
+        PublicAppReply::Missing(body) => json_status(404, body),
+    }
 }
 
 /// `GET /v1/apps` — public app shelf read.
