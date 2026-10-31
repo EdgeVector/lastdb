@@ -8,6 +8,7 @@ use base64::Engine as _;
 use schema_types::Schema;
 use schema_types::{FoldDbError, FoldDbResult};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::lock_helpers::read_lock;
 use crate::state::SchemaServiceState;
@@ -59,8 +60,11 @@ pub enum RegistryIndexReply {
         index: RegistryIndexEnvelope,
         etag: String,
     },
-    /// Export failed. HTTP 500. `detail` is the error text.
-    Failed { detail: String },
+    /// Export failed. HTTP 500.
+    ///
+    /// `message` is the log line and the error text. `body` is
+    /// `{ "error": message }`. The actix router still writes the error log.
+    Failed { message: String, body: Value },
 }
 
 impl SchemaServiceState {
@@ -109,9 +113,11 @@ impl SchemaServiceState {
                 let etag = format!("\"{}\"", index.registry_version);
                 RegistryIndexReply::Ready { index, etag }
             }
-            Err(error) => RegistryIndexReply::Failed {
-                detail: error.to_string(),
-            },
+            Err(error) => {
+                let message = format!("Failed to export registry index: {error}");
+                let body = json!({"error": &message});
+                RegistryIndexReply::Failed { message, body }
+            }
         }
     }
 
