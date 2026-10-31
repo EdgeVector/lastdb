@@ -4,7 +4,7 @@ use schema_service_core::app_release::{
     ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply, SetChannelReply,
 };
 use schema_service_core::{
-    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply,
+    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply, UpdateAppReply,
 };
 
 use super::*;
@@ -219,13 +219,8 @@ pub async fn update_app(
         Err(resp) => return resp,
     };
 
-    match state.update_app(&app_id, &cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.update_app_reply(&app_id, &cert, &sig, &body).await {
+        UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
