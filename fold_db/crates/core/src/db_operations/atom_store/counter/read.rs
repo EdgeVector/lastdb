@@ -70,12 +70,8 @@ impl AtomStore {
             .zip(body_keys.chunks(READ_CHUNK))
         {
             counters.extend(
-                self.main_store
-                    .get_items::<AtomCounter>(counter_chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read atom counters: {error}"))
-                    })?,
+                self.read_stored_values::<AtomCounter>(counter_chunk, "read atom counters")
+                    .await?,
             );
             bodies.extend(
                 self.main_store
@@ -110,10 +106,8 @@ impl AtomStore {
         let mut old = HashMap::new();
         for chunk in keys.chunks(READ_CHUNK) {
             let stored = self
-                .main_store
-                .get_items::<PerKeyRecord>(chunk)
-                .await
-                .map_err(|error| SchemaError::InvalidData(format!("read old tips: {error}")))?;
+                .read_stored_values::<PerKeyRecord>(chunk, "read old tips")
+                .await?;
             for (key, record) in chunk.iter().zip(stored) {
                 if let Some(record) = record {
                     old.insert(key.clone(), record);
@@ -163,17 +157,9 @@ impl AtomStore {
             .iter()
             .map(|atom| build_storage_key(scope, &atom_key_codec::counter_key(atom)))
             .collect();
-        let mut stored: Vec<Option<AtomCounter>> = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            stored.extend(
-                self.main_store
-                    .get_items::<AtomCounter>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read atom counters: {error}"))
-                    })?,
-            );
-        }
+        let stored = self
+            .read_stored_values::<AtomCounter>(&keys, "read atom counters")
+            .await?;
         let bodies = self.body_records_exist(&missing, &stored, scope).await?;
         for ((atom, counter), body_without_counter) in missing.into_iter().zip(stored).zip(bodies) {
             out.insert(
