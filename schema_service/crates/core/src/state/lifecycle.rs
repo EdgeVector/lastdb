@@ -1,4 +1,15 @@
 use super::*;
+use serde_json::{json, Value};
+
+/// The descriptive-name dedupe both HTTP routers answer.
+#[derive(Debug)]
+pub enum DedupeNamesReply {
+    /// The cleanup finished. HTTP 200. The value is `{ "groups": [...] }`.
+    Ready(Value),
+    /// The cleanup failed. HTTP 500. `message` is the log line. `body` is
+    /// `{ "error": message }`.
+    Failed { message: String, body: Value },
+}
 
 /// `(owner_app_id, descriptive_name, [(identity_hash, field_count)])`.
 type DuplicateGroup = (Option<String>, String, Vec<(String, usize)>);
@@ -44,6 +55,22 @@ impl SchemaServiceState {
         }
 
         Ok(report)
+    }
+
+    /// Classify [`Self::dedupe_descriptive_names`] for the HTTP cleanup.
+    ///
+    /// `Ready` is `{ "groups": [...] }`. `Failed` keeps the same error text
+    /// both routers return. The Actix router still writes the log.
+    #[must_use]
+    pub async fn dedupe_names_reply(&self) -> DedupeNamesReply {
+        match self.dedupe_descriptive_names().await {
+            Ok(groups) => DedupeNamesReply::Ready(json!({ "groups": groups })),
+            Err(error) => {
+                let message = format!("dedupe-descriptive-names failed: {error}");
+                let body = json!({ "error": message });
+                DedupeNamesReply::Failed { message, body }
+            }
+        }
     }
 
     /// Active schemas that share `(owner_app_id, descriptive_name)`, with
