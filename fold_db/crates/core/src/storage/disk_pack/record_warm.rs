@@ -67,34 +67,31 @@ impl PackRuntime {
             .iter()
             .map(|key| kv::coordinate("main", key.as_bytes()))
             .collect();
-        let (revision, found) = match read::ReadContext::captured(self) {
-            Some(context) => {
-                let Some(mut held) = logical_paths::lock_current_receipt(
-                    self,
-                    &context,
-                    "native record warm view",
-                    "native record warm set",
-                ) else {
-                    return Ok(None);
-                };
-                let found = held.core.record_lookup(&coordinates);
-                // A memory hit costs the call the same read allowance as disk.
-                for (key, hit) in keys.iter().zip(&found) {
-                    if let Some((_, bytes)) = hit {
-                        context.account_memory_record(&mut held.call, key.len(), *bytes)?;
-                    }
+        let (revision, found) = if let Some(context) = read::ReadContext::captured(self) {
+            let Some(mut held) = logical_paths::lock_current_receipt(
+                self,
+                &context,
+                "native record warm view",
+                "native record warm set",
+            ) else {
+                return Ok(None);
+            };
+            let found = held.core.record_lookup(&coordinates);
+            // A memory hit costs the call the same read allowance as disk.
+            for (key, hit) in keys.iter().zip(&found) {
+                if let Some((_, bytes)) = hit {
+                    context.account_memory_record(&mut held.call, key.len(), *bytes)?;
                 }
-                (context.revision, found)
             }
-            None => {
-                let view = self.view.read().expect("native record warm view");
-                let found = self
-                    .core
-                    .lock()
-                    .expect("native record warm set")
-                    .record_lookup(&coordinates);
-                (view.revision, found)
-            }
+            (context.revision, found)
+        } else {
+            let view = self.view.read().expect("native record warm view");
+            let found = self
+                .core
+                .lock()
+                .expect("native record warm set")
+                .record_lookup(&coordinates);
+            (view.revision, found)
         };
         let hits = found.iter().flatten().count();
         for _ in 0..hits {
