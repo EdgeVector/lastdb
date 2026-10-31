@@ -24,9 +24,13 @@ impl SchemaCore {
         };
 
         // Hydrate from durable store (may take minutes on large post-rekey homes).
-        let stored_schemas = db_ops.get_all_schemas().await?;
-        for schema in stored_schemas.values() {
-            super::load::owned::require_owned_schema(schema)?;
+        let mut stored_schemas = db_ops.get_all_schemas().await?;
+        // The home-level marker replaces the per-schema flag as the proof of
+        // the owned layout. A serving node writes it after this admission
+        // (`FoldDB::initialize_from_init`).
+        let home_has_owned_layout_marker = db_ops.atoms().owned_layout_recorded().await?;
+        for schema in stored_schemas.values_mut() {
+            super::load::owned::admit_stored_schema(schema, home_has_owned_layout_marker)?;
         }
         let schema_states = db_ops.get_all_schema_states().await?;
         let superseded_by = db_ops.get_all_superseded_by().await?;

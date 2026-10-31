@@ -22,6 +22,7 @@
 //! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
 //!   binding records and the molecule counters
 //! - [`key_format`] — the key format marker of a new empty home
+//! - [`owned_layout`] — the home-level proof that every stored schema owns its values
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
 pub mod atom_history;
@@ -51,6 +52,7 @@ mod molecule_counters;
 mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
+mod owned_layout;
 mod retention;
 mod schema_keys;
 pub(crate) mod time_queue;

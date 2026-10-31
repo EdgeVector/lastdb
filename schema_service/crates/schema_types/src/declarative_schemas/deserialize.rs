@@ -18,6 +18,9 @@ struct DeclarativeSchemaDefinitionHelper {
     key: Option<KeyConfig>,
     #[serde(default)]
     alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
+    // Older nodes and apps send `true`, and newer ones may omit the key. The
+    // definition checks read neither form; only the node startup check of an
+    // unmarked home reads the stored flag.
     #[serde(default, rename = "independent_fields")]
     owned_values: bool,
     // Accept either an array of strings or an object map and normalize later
@@ -59,8 +62,9 @@ struct DeclarativeSchemaDefinitionHelper {
     source: SchemaSource,
     // Preserve unrelated unknown-field behavior, but refuse removed storage
     // configuration even when its JSON value is null. Stored Schema Service
-    // records can still carry `field_mappers` from the retired cross-schema
-    // value sharing; that key lands here and has no effect.
+    // records and released nodes can still carry `field_mappers` from the
+    // retired cross-schema value sharing; that key lands here and has no
+    // effect, so the Schema Service accepts and ignores it.
     #[serde(flatten)]
     unknown: HashMap<String, serde::de::IgnoredAny>,
 }
