@@ -35,8 +35,6 @@ pub(crate) const RELEASE_RECORD_CAP: usize = 100;
 /// number gets a drain marker without a read.
 pub(crate) const MAX_SLOT_READS: usize = 256;
 
-/// Headers one batch read asks for, at most.
-const HEADER_READ_CHUNK: usize = 10_000;
 /// Rows one range read asks for while it looks for matching entries.
 const SCAN_ROWS: usize = 64;
 /// Rows a search may look at before it gives up and says "more may follow".
@@ -142,17 +140,9 @@ impl AtomStore {
             .iter()
             .map(|molecule| build_storage_key(scope, &header_key(molecule)))
             .collect();
-        let mut stored: Vec<Option<Value>> = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(HEADER_READ_CHUNK) {
-            stored.extend(
-                self.main_store
-                    .get_items::<Value>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule headers: {error}"))
-                    })?,
-            );
-        }
+        let stored = self
+            .read_stored_values::<Value>(&keys, "read molecule headers")
+            .await?;
         Ok(molecules
             .iter()
             .zip(stored)

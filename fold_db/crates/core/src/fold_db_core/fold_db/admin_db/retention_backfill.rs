@@ -31,7 +31,7 @@ impl FoldDB {
         };
         let bound = crate::fold_db_core::purge::budget::max_erase_keys(
             false,
-            schema.runtime_fields.len(),
+            crate::fold_db_core::purge::budget::EraseShape::of(&schema),
             4096,
         );
         if bound == 0 {

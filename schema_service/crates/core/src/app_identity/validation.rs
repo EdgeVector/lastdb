@@ -49,6 +49,21 @@ pub fn is_valid_app_id(app_id: &str) -> bool {
         .all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// App ids that no developer can register. `templates` owns the starter
+/// schemas, `system` owns the node's own schemas, and `std` is held for the
+/// shared standard schemas. A schema name is `{app_id}/{local}`, so an owner of
+/// one of these ids could publish under a name that readers trust as built in.
+pub const RESERVED_APP_IDS: &[&str] = &[
+    "std",
+    "system",
+    crate::builtin_schemas::TEMPLATE_OWNER_APP_ID,
+];
+
+/// True when `app_id` is in [`RESERVED_APP_IDS`].
+pub fn is_reserved_app_id(app_id: &str) -> bool {
+    RESERVED_APP_IDS.contains(&app_id)
+}
+
 /// Registration-time charset guard for `app_id` (Tom 2026-06-11,
 /// app-isolation LOW-cleanup item 4): reject an `app_id` carrying any
 /// non-ASCII character or ASCII control character, with a discriminated
