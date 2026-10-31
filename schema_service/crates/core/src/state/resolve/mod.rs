@@ -6,6 +6,7 @@ mod matching;
 mod proposals;
 mod similar;
 
+pub use proposals::SchemaResolveReply;
 pub use similar::{accepted_similarity_threshold, SimilarSchemasReply};
 
 /// Bound `POST /v1/schemas/resolve` so the public read path cannot turn one

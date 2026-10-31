@@ -3,7 +3,9 @@
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
-use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
+use schema_service_core::state::{
+    accepted_similarity_threshold, SchemaResolveReply, SimilarSchemasReply,
+};
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeRequest,
 };
@@ -353,14 +355,14 @@ pub(crate) fn post_schemas_resolve(
         }
     };
 
-    match state.resolve_schema_proposals(&request) {
-        Ok(response) => {
+    match state.schema_resolve_reply(&request) {
+        SchemaResolveReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => json_response(
+        SchemaResolveReply::Refused { detail } => json_response(
             400,
-            &json!({"error": format!("Schema resolve failed: {e}")}),
+            &json!({"error": format!("Schema resolve failed: {detail}")}),
         ),
     }
 }
