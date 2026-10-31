@@ -55,9 +55,7 @@ pub async fn resolve_schemas(
 
     match state.schema_resolve_reply(&request) {
         SchemaResolveReply::Ready(response) => HttpResponse::Ok().json(response),
-        SchemaResolveReply::Refused { detail } => HttpResponse::BadRequest().json(ErrorResponse {
-            error: format!("Schema resolve failed: {detail}"),
-        }),
+        SchemaResolveReply::Refused { body } => HttpResponse::BadRequest().json(body),
     }
 }
 

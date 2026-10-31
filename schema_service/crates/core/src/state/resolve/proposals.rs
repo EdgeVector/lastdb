@@ -1,3 +1,5 @@
+use serde_json::{json, Value};
+
 use super::*;
 
 /// The schema-resolve result both HTTP routers answer.
@@ -5,8 +7,10 @@ use super::*;
 pub enum SchemaResolveReply {
     /// The proposals resolved. HTTP 200.
     Ready(SchemaResolveResponse),
-    /// The resolve refused the request. HTTP 400. `detail` is the error text.
-    Refused { detail: String },
+    /// The resolve refused the request. HTTP 400.
+    ///
+    /// `body` is `{ "error": "Schema resolve failed: {detail}" }`.
+    Refused { body: Value },
 }
 
 impl SchemaServiceState {
@@ -50,14 +54,14 @@ impl SchemaServiceState {
 
     /// The same call as [`Self::resolve_schema_proposals`], classified for HTTP.
     ///
-    /// A refusal stays `Refused` with the error text. The HTTP prefix stays in
-    /// each router.
+    /// A refusal stays HTTP 400. The body carries the prefix. Each router
+    /// still writes its response. [`Self::resolve_schema_proposals`] stays public.
     #[must_use]
     pub fn schema_resolve_reply(&self, request: &SchemaResolveRequest) -> SchemaResolveReply {
         match self.resolve_schema_proposals(request) {
             Ok(response) => SchemaResolveReply::Ready(response),
             Err(error) => SchemaResolveReply::Refused {
-                detail: error.to_string(),
+                body: json!({"error": format!("Schema resolve failed: {error}")}),
             },
         }
     }
