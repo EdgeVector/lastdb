@@ -93,7 +93,7 @@ mod state_native_resolve;
 pub use state_expansion::{is_cross_key_layout, key_layout_fingerprint, KeyLayoutFingerprint};
 pub use state_native_resolve::{
     field_context_text, proposal_field_id, FieldMatchProbeHit, FieldMatchProbeItem,
-    FieldMatchProbeRequest, FieldMatchProbeResponse,
+    FieldMatchProbeReply, FieldMatchProbeRequest, FieldMatchProbeResponse,
 };
 pub mod types;
 mod vocabulary_admission;

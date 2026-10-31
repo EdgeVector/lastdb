@@ -1,6 +1,7 @@
 //! Reuse checks, schema resolution, field-match probes and health.
 
 use schema_service_core::state::SchemaResolveReply;
+use schema_service_core::FieldMatchProbeReply;
 
 use super::*;
 
@@ -66,11 +67,13 @@ pub async fn field_match_probe(
     payload: web::Json<schema_service_core::FieldMatchProbeRequest>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    match state.field_match_probe(&payload.into_inner()) {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
-            error: format!("Field match probe failed: {e}"),
-        }),
+    match state.field_match_probe_reply(&payload.into_inner()) {
+        FieldMatchProbeReply::Ready(response) => HttpResponse::Ok().json(response),
+        FieldMatchProbeReply::Refused { detail } => {
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!("Field match probe failed: {detail}"),
+            })
+        }
     }
 }
 
