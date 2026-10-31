@@ -75,6 +75,29 @@ impl DeclaredFieldRecord {
     pub fn permits(&self, app_id: &str) -> bool {
         self.owner_app_id == app_id || self.readers.iter().any(|r| r == app_id)
     }
+
+    /// `POST /v1/fields/declare` body.
+    ///
+    /// The field key is `type`. A lookup of the stored record uses the serde
+    /// name `field_type` instead.
+    #[must_use]
+    pub fn declare_json(&self) -> Value {
+        json!({
+            "declaration_id": self.declaration_id,
+            "handle": self.handle,
+            "owner_app_id": self.owner_app_id,
+            "readers": self.readers,
+            "algo_version": self.algo_version,
+            "declared_at": self.declared_at,
+            "fields": self.fields.iter().map(|field| json!({
+                "name": field.name,
+                "type": field.field_type,
+                "description": field.description,
+                "version": field.version,
+                "identity": field.identity,
+            })).collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// Why a declare or reference was refused. Every variant carries a reason the
