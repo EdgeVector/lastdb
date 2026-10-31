@@ -3,7 +3,7 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::DedupeNamesReply;
+use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
@@ -117,12 +117,9 @@ pub(crate) async fn post_admin_deprecate_schemas(
             );
         }
     };
-    match state.deprecate_schemas(request).await {
-        Ok(report) => json_response(200, &json!(report)),
-        Err(e) => json_response(
-            500,
-            &json!({"error": format!("deprecate-schemas failed: {e}")}),
-        ),
+    match state.deprecate_schemas_reply(request).await {
+        DeprecateSchemasReply::Ready(body) => json_response(200, &body),
+        DeprecateSchemasReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 
