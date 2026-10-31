@@ -149,14 +149,6 @@ impl MutationManager {
             if mutation.provenance.is_some() || mutation.imported_version.is_some() {
                 return Err(unsupported("an imported write"));
             }
-            if mutation.source_file_name.is_some()
-                || mutation
-                    .metadata
-                    .as_ref()
-                    .is_some_and(|map| !map.is_empty())
-            {
-                return Err(unsupported("per-key metadata or a source file name"));
-            }
             if mutation.aggregate_set.is_some() || mutation.aggregate_derived_internal {
                 return Err(unsupported("an aggregate write"));
             }
@@ -212,8 +204,9 @@ impl MutationManager {
     }
 }
 
-/// Merge the fields of one mutation into its record. True when a field
-/// changed; an equal or older stamp changes nothing.
+/// Merge the fields and the metadata of one mutation into its record. True
+/// when something changed; an equal or older stamp changes nothing. The
+/// metadata belongs to the record (D7): a write without metadata keeps it.
 fn merge_mutation(
     schema_name: &str,
     schema: &Schema,
@@ -222,6 +215,18 @@ fn merge_mutation(
 ) -> Result<bool, SchemaError> {
     let stamp = field_stamp(mutation)?;
     let mut changed = false;
+    let metadata = mutation.metadata.as_ref().filter(|map| !map.is_empty());
+    if mutation.source_file_name.is_some() || metadata.is_some() {
+        changed |= record.merge_meta(
+            mutation.source_file_name.clone(),
+            metadata
+                .into_iter()
+                .flatten()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            stamp.clone(),
+        );
+    }
     for (field, value) in &mutation.fields_and_values {
         if !validate_field_value(schema_name, schema, field, value)? {
             continue;
