@@ -9,7 +9,7 @@ mod per_key;
 pub(crate) use hash_selection::HashTipSelection;
 pub(crate) use per_key::SchemaKeyMembership;
 
-use super::types::PerKeyRecord;
+use crate::records::molecule_record::PerKeyRecord;
 
 /// Whether a bounded page window counts **stored** rows or **live** rows.
 ///

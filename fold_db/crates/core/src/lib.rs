@@ -49,6 +49,8 @@ pub mod mini_cutover;
 #[cfg(unix)]
 pub mod process_cpu;
 pub mod read_receipts;
+/// On-disk record formats of the typed stores (model layer).
+pub(crate) mod records;
 pub mod request_phases;
 pub mod schema;
 pub mod security;

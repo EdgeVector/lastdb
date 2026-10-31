@@ -179,7 +179,7 @@ async fn dispatch_apps(
         ("POST", _) if p.starts_with("/v1/apps/") && p.ends_with("/promote") => {
             routes::apps::promote_app_v1(state, event, p).await
         }
-        ("POST", "/v2/apps") => routes::apps::post_apps_v2(state, event).await,
+        ("POST", "/v2/apps") => routes::apps::post_app_v1(state, event).await,
         ("GET", "/v2/apps") => routes::v2::list_apps_v2(state).await,
         ("POST", _) if p.starts_with("/v2/apps/") && p.ends_with("/releases") => {
             routes::apps::post_apps_releases(state, event, p).await

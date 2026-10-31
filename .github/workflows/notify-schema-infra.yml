@@ -1,0 +1,57 @@
+name: notify-schema-infra
+
+# Tell EdgeVector/schema-infra that a main push changed a Schema Service
+# Lambda input. schema-infra auto-deploy-on-fold.yml then opens an
+# auto-merged PR that moves its `fold` pin. That merge deploys DEV, smokes
+# DEV, and follows the PROD canary rules (Tom, 2026-10-31: deploy on merge).
+#
+# The paths are the inputs of the schema-infra build
+#   cargo lambda build -p schema_service_server_lambda --features fastembed --locked
+# at the workspace root: the path-crate closure of that package (normal and
+# build dependencies, `workspace = true` path entries, and the
+# [patch.crates-io] fastembed fork) plus the workspace files.
+# schema-infra scripts/deploy/fold-lambda-inputs.txt keeps the same list and
+# decides. This filter only sends the early signal; a 30-minute schedule in
+# schema-infra catches a missed one. Keep the two lists the same.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "schema_service/crates/server_lambda/**"
+      - "schema_service/crates/server_shared/**"
+      - "schema_service/crates/core/**"
+      - "schema_service/crates/schema_types/**"
+      - "schema_service/crates/schema_core_resolver/**"
+      - "schema_service/crates/schema_service_s3/**"
+      - "app_identity_crypto/**"
+      - "fold_db/crates/observability/**"
+      - "folddb_profile/**"
+      - "vendor/fastembed-4.9.0-no-image/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "!**/*.md"
+
+permissions: {}
+
+jobs:
+  dispatch:
+    name: dispatch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Send repository_dispatch to schema-infra
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          LASTDB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::secrets.GH_PAT is not set; schema-infra gets no signal"
+            exit 1
+          fi
+          gh api --method POST repos/EdgeVector/schema-infra/dispatches \
+            -f event_type=lastdb-schema-service-changed \
+            -f "client_payload[lastdb_sha]=$LASTDB_SHA"
+          echo "Sent lastdb-schema-service-changed for $LASTDB_SHA to EdgeVector/schema-infra." >> "$GITHUB_STEP_SUMMARY"

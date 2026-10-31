@@ -9,7 +9,7 @@
 //! stale reference is copied or silently treated as covered.
 use super::{budget_json, expected, invalid, StorageResult};
 use crate::atom::{atom_key_codec, file_pointer, KeyMetadata};
-use crate::db_operations::atom_store::PerKeyRecord;
+use crate::records::molecule_record::PerKeyRecord;
 use crate::schema::types::field::build_storage_key;
 use crate::storage::disk_pack::native_routing;
 use cloud_backup_protocol::Digest;
@@ -54,9 +54,8 @@ impl<R: MetadataRead> MetadataProof<R> {
             self.live(scope.as_deref(), bare, body)?
         } else if bare.starts_with("mgr:v1:") {
             self.generation(scope.as_deref(), bare, body)?
-        } else if crate::db_operations::atom_store::atom_history::is_archive(raw) {
-            let record: crate::db_operations::atom_store::atom_history::ArchiveRecord =
-                decode(body)?;
+        } else if crate::records::atom_history::is_archive(raw) {
+            let record: crate::records::atom_history::ArchiveRecord = decode(body)?;
             Some(record.archive.source)
         } else {
             None

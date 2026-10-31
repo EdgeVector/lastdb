@@ -1,10 +1,10 @@
 //! Typed schema/profile admission against the same held encrypted backup root.
 
 use super::{budget, invalid, map, read_budget, rows::Rows, RunRead, StorageResult};
-use crate::db_operations::molecule_key_store::{
+use crate::schema::Schema;
+use crate::storage::molecule_key_store::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
-use crate::schema::Schema;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
 pub(super) fn verify(
@@ -30,11 +30,11 @@ pub(super) fn verify(
         schema
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
-        if version == 2 && schema.uses_independent_fields() {
+        if version == 2 && schema.has_owned_layout() {
             return Err(invalid("format 4 cannot contain alternate declarations"));
         }
         if version < 4
-            && ((schema.uses_independent_fields()
+            && ((schema.has_owned_layout()
                 && schema.schema_type == crate::schema::types::SchemaType::HashRange)
                 || schema.alternate_keys.values().any(|key| {
                     key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash
@@ -66,7 +66,7 @@ pub(super) fn verify(
             batch(main, account_key, profile, chunk)?;
         }
         for (molecule, alternate_profile) in
-            crate::db_operations::molecule_key_store::schema_molecule_profiles(&schema)?
+            crate::storage::molecule_key_store::schema_molecule_profiles(&schema)?
         {
             if !molecules.contains(&molecule.as_str()) {
                 batch(main, account_key, alternate_profile, &[molecule.as_str()])?;

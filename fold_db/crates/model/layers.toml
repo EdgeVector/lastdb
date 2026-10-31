@@ -1,0 +1,32 @@
+# Layer order of the lastdb_model crate, bottom first.
+#
+# scripts/ci/layer-check.py reads this file with the same rules as the core
+# file: a file may use its own layer and the layers below it. The compiler
+# already keeps this crate below fold_db (core); this file orders the modules
+# inside it. scripts/ci/model-purity-lint.sh keeps the crate free of behavior.
+
+[[layer]]
+name = "primitives"
+doc = "Leaf helpers with no domain meaning: canonical byte framing, JSON key order, hex, constants, and key-prefix rules."
+modules = [
+  "canonical",
+  "constants",
+  "hex",
+  "json_order",
+  "kind_partition",
+]
+
+[[layer]]
+name = "model"
+doc = "Atoms, molecules, schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
+modules = [
+  "atom",
+  "schema",
+]
+
+[[layer]]
+name = "surface"
+doc = "The crate root module list."
+modules = [
+  "crate",
+]

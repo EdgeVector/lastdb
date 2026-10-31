@@ -77,10 +77,8 @@ impl MutationManager {
             .runtime_fields
             .get(&outcome.field_name)
             .ok_or_else(|| unsupported("an unknown canonical field"))?;
-        let revision = schema
-            .uses_independent_fields()
-            .then(|| schema.alternate_key_revision());
-        if outcome.alternate_key_revision.as_deref() != revision.as_deref() {
+        let revision = schema.alternate_key_revision();
+        if outcome.alternate_key_revision.as_deref() != Some(revision.as_str()) {
             return Err(unsupported("an alternate declaration revision mismatch"));
         }
         if outcome.field_identity.is_empty()

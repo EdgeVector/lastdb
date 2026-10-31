@@ -29,12 +29,11 @@ pub(crate) fn declare_resolution_payload(
     declare: &DirectDeclareProposal,
     resolution: &DirectDeclareResolution,
 ) -> Value {
-    // Keep empty adapter metadata for existing clients. It creates no value alias.
+    // Keep the adapter metadata for existing clients.
     let adapter = serde_json::json!({
         "kind": "owned_schema",
         "local_schema": declare.local_schema_id,
         "catalog_schema": resolution.runtime_schema,
-        "field_mappers": {},
     });
     serde_json::json!({
         "app_id": declare.namespace,
@@ -44,6 +43,7 @@ pub(crate) fn declare_resolution_payload(
         "descriptive_name": declare.catalog_schema.descriptive_name,
         "canonical": resolution.runtime_schema,
         "identity_hash": declare.catalog_schema.identity_hash,
+        // Apps confirm the owned layout from this key before they write.
         "independent_fields": true,
         "resolution": resolution.outcome(),
         "adapter": adapter,

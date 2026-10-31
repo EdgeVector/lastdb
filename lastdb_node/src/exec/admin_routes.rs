@@ -11,7 +11,7 @@ pub(super) async fn execute_status_route(
     let mut snapshot = if let Some(snapshot) = host.self_metrics.published_status() {
         snapshot
     } else {
-        let snapshot = crate::self_metrics::status_snapshot(host).await;
+        let snapshot = crate::jobs::self_metrics::status_snapshot(host).await;
         host.self_metrics.publish_status(snapshot.clone());
         snapshot
     };
@@ -62,7 +62,7 @@ pub(super) async fn execute_status_route(
 }
 
 pub(super) async fn execute_admin_shed_route(ctx: &AccessContext, host: &Host) -> UdsResponse {
-    let report = crate::ops::footprint::shed_memory(host).await;
+    let report = crate::jobs::footprint::shed_memory(host).await;
     json_ok(&envelope(
         &serde_json::json!({ "shed": report }),
         ctx.user_id.as_str(),

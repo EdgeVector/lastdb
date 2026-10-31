@@ -1,7 +1,7 @@
 //! Complete-key lifetimes and authorized tips belong to one captured query.
 
 use super::*;
-use crate::db_operations::atom_store::PerKeyRecord;
+use crate::records::molecule_record::PerKeyRecord;
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::logical_paths::field;
 use crate::storage::disk_pack::read::ReadContext;

@@ -83,7 +83,6 @@ fn rollup_schema(run_id: &str, rollup: &str, display: &str, prefix: &str) -> Sch
         None,
         Some(vec![key.clone(), payload.clone(), updated.clone()]),
         None,
-        None,
     );
     schema.descriptive_name = Some(format!("VetoProbe{display}Index {run_id}"));
     schema.purpose_statement = Some(format!(

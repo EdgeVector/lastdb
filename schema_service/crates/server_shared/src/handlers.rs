@@ -13,13 +13,13 @@ use std::sync::RwLockReadGuard;
 
 use schema_types::Schema;
 
-use schema_service_core::snapshot::{SnapshotEmbeddings, SnapshotEnvelope};
+use schema_service_core::snapshot::SnapshotEnvelope;
 use schema_service_core::state::SchemaServiceState;
 use schema_service_core::types::{
     AddSchemaRequest, AddSchemaResponse, AvailableSchemasResponse, BatchSchemaReuseRequest,
     BatchSchemaReuseResponse, DeprecateSchemasRequest, ErrorResponse, HealthResponse,
-    NearMissesQuery, NearMissesResponse, ReloadResponse, ResetRequest, ResetResponse,
-    SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest, SchemasListResponse,
+    NearMissesQuery, ReloadResponse, ResetRequest, ResetResponse, SchemaAddOutcome, SchemaEnvelope,
+    SchemaResolveRequest, SchemasListResponse,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, observe_legacy_schema_caller, validate_surface_metadata,

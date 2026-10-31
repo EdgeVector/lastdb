@@ -1,5 +1,14 @@
 use super::*;
 
+/// The schema-resolve result both HTTP routers answer.
+#[derive(Debug)]
+pub enum SchemaResolveReply {
+    /// The proposals resolved. HTTP 200.
+    Ready(SchemaResolveResponse),
+    /// The resolve refused the request. HTTP 400. `detail` is the error text.
+    Refused { detail: String },
+}
+
 impl SchemaServiceState {
     /// Resolve proposed schemas against the current shared registry without
     /// mutating registry state.
@@ -37,6 +46,20 @@ impl SchemaServiceState {
             cache_stale,
             results,
         })
+    }
+
+    /// The same call as [`Self::resolve_schema_proposals`], classified for HTTP.
+    ///
+    /// A refusal stays `Refused` with the error text. The HTTP prefix stays in
+    /// each router.
+    #[must_use]
+    pub fn schema_resolve_reply(&self, request: &SchemaResolveRequest) -> SchemaResolveReply {
+        match self.resolve_schema_proposals(request) {
+            Ok(response) => SchemaResolveReply::Ready(response),
+            Err(error) => SchemaResolveReply::Refused {
+                detail: error.to_string(),
+            },
+        }
     }
 
     /// Resolve one proposal: refresh when the client cache is stale, else the

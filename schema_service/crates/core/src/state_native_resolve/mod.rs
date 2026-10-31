@@ -106,5 +106,6 @@ mod registration;
 mod resolve;
 
 pub use probe::{
-    FieldMatchProbeHit, FieldMatchProbeItem, FieldMatchProbeRequest, FieldMatchProbeResponse,
+    FieldMatchProbeHit, FieldMatchProbeItem, FieldMatchProbeReply, FieldMatchProbeRequest,
+    FieldMatchProbeResponse,
 };

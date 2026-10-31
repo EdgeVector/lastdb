@@ -89,7 +89,9 @@ pub const BLOB_DWELL_FLOOR_SECS: u64 = 120;
 /// synthetic home only. Never set it on a home that holds user data.
 pub const BLOB_DWELL_UNSAFE_SHORT_ENV: &str = "LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV";
 
-const COUNTER_PREFIX: &str = "bref:v3:c:";
+use crate::storage::current_keys::families::{
+    is_blob_id as is_id, BLOB_COUNTER_PREFIX as COUNTER_PREFIX,
+};
 
 /// One blob counter record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,19 +205,4 @@ fn prefix_range(prefix: &str) -> (Vec<u8>, Vec<u8>) {
     let end = crate::schema::types::field::FilterUtils::create_prefix_end(prefix)
         .expect("a family prefix has a finite upper bound");
     (prefix.as_bytes().to_vec(), end.into_bytes())
-}
-
-/// True for a counter key, a queue entry key or a queue directory key of the
-/// current layout. The key check of every native write and every import calls
-/// this for the `bref` family.
-#[must_use]
-pub(crate) fn is_current_key(key: &str) -> bool {
-    match key.strip_prefix(COUNTER_PREFIX) {
-        Some(rest) => rest.strip_suffix("\0c").is_some_and(is_id),
-        None => BlobQueue::is_queue_key(key),
-    }
-}
-
-fn is_id(id: &str) -> bool {
-    id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

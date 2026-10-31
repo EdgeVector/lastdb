@@ -3,6 +3,15 @@
 use super::*;
 use schema_types::FoldDbError;
 
+/// The compat-row write both HTTP routers answer.
+#[derive(Debug)]
+pub enum CompatWriteReply {
+    /// The row was stored. HTTP 201. The value is [`CompatRow::to_public_json`].
+    Created(Value),
+    /// The write was refused. Status and body come from [`CompatRowError::to_http`].
+    Failed { status: u16, body: Value },
+}
+
 impl SchemaServiceState {
     /// `POST /v2/releases/{release_id}/compat` — write a verifier-signed compat row.
     ///
@@ -30,6 +39,29 @@ impl SchemaServiceState {
             },
         );
         result
+    }
+
+    /// Classify [`Self::write_compat_row`] for the HTTP write.
+    ///
+    /// `Created` is the public JSON. `Failed` keeps the status and body
+    /// from [`CompatRowError::to_http`]. The metric stays inside the write.
+    #[must_use]
+    pub async fn compat_write_reply(
+        &self,
+        release_id: &str,
+        sig_header: &str,
+        body: &Value,
+    ) -> CompatWriteReply {
+        match self.write_compat_row(release_id, sig_header, body).await {
+            Ok(record) => CompatWriteReply::Created(record.to_public_json()),
+            Err(error) => {
+                let (status, error_body) = error.to_http();
+                CompatWriteReply::Failed {
+                    status,
+                    body: error_body,
+                }
+            }
+        }
     }
 
     async fn write_compat_row_inner(

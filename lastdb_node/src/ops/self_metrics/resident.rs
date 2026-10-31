@@ -112,7 +112,7 @@ impl Default for ResidentHealth {
 }
 
 impl ResidentHealth {
-    pub(super) fn from_native(
+    pub(crate) fn from_native(
         core: &fold_db::storage::disk_pack::NativeDiskStatus,
         work: fold_db::resident::PersistLaneMetricsSnapshot,
     ) -> Self {

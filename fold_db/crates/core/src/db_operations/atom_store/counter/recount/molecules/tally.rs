@@ -5,8 +5,8 @@ use crate::db_operations::atom_store::counter::scan::{
     family_range, record_holders, record_molecules, tip_holders, tip_molecules, Family,
 };
 use crate::db_operations::atom_store::molecule_ref_edges::{molecule_target, MoleculeRefEdge};
-use crate::db_operations::atom_store::types::MoleculeHeader;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::records::molecule_record::MoleculeHeader;
 use crate::schema::SchemaError;
 
 const MAX_MOLECULES: usize = 100_000;

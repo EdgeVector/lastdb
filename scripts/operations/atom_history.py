@@ -62,7 +62,6 @@ def install(node):
             "field_types": {f: "String" for f in ["id", "bucket", "value"]},
             "field_descriptions": {f: "History example " + f for f in ["id", "bucket", "value"]},
             "field_versions": {f: 1 for f in ["id", "bucket", "value"]},
-            "independent_fields": True,
         }
         if name == "HistoryAlternate":
             definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}

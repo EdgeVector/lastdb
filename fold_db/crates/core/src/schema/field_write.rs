@@ -178,21 +178,15 @@ fn write_tip(
 /// `field.molecule` is `#[serde(skip)]`, so it is `None` after every schema
 /// load, clone, or node restart — not only for a field that has never been
 /// written. The durable binding is `inner.molecule_uuid`, which
-/// `populate_runtime_fields` has already resolved: a field carrying a
-/// `FieldMapper` resolves to its direct source `(schema, field)` pair, and
-/// the typed mapper pass binds a same-key chain to the root's molecule.
+/// `populate_runtime_fields` has already resolved from the persisted
+/// `field_molecule_uuids` entry, or derived from this schema and field.
 ///
-/// So `(schema_name, field_name)` — the mutation's own names — is the
-/// correct source pair only for an UNMAPPED field. Deriving the UUID from
-/// it unconditionally re-anchored every mapped field onto
-/// `deterministic(mapped_schema, mapped_field)`, a second, empty molecule,
-/// and overwrote the resolved binding on the way out. Because the trigger
-/// is "molecule not hydrated at this particular write", the outcome is
-/// write-order dependent: a node that hydrates the mapped molecule before
-/// its first write keeps the root UUID, and a fresh node that writes first
-/// derives its own. Two nodes then hold two molecule UUIDs for one logical
-/// field, which is exactly what `design-org-alice-bob-simultaneous-writes`
-/// R1 forbids.
+/// A persisted binding can differ from the mutation's own
+/// `(schema_name, field_name)` pair. Deriving the UUID from that pair
+/// unconditionally would re-anchor the field onto a second, empty molecule
+/// and overwrite the resolved binding on the way out. Two nodes could then
+/// hold two molecule UUIDs for one logical field, which
+/// `design-org-alice-bob-simultaneous-writes` R1 forbids.
 ///
 /// An assigned `inner.molecule_uuid` is therefore authoritative here; the
 /// deterministic pair is only the fallback for a field that has none.

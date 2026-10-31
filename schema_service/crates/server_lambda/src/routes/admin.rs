@@ -3,8 +3,10 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
+use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
+use schema_service_server_shared::types::DeprecateSchemasRequest;
 use serde_json::json;
 
 pub(crate) fn post_debug_field_match_probe(
@@ -24,14 +26,14 @@ pub(crate) fn post_debug_field_match_probe(
             );
         }
     };
-    match state.field_match_probe(&request) {
-        Ok(response) => {
+    match state.field_match_probe_reply(&request) {
+        FieldMatchProbeReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => json_response(
+        FieldMatchProbeReply::Refused { detail } => json_response(
             400,
-            &json!({"error": format!("Field match probe failed: {e}")}),
+            &json!({"error": format!("Field match probe failed: {detail}")}),
         ),
     }
 }
@@ -89,12 +91,9 @@ pub(crate) async fn post_admin_warm_embeddings(
 pub(crate) async fn post_admin_dedupe_descriptive_names(
     state: &SchemaServiceState,
 ) -> Result<Response<Body>, Error> {
-    match state.dedupe_descriptive_names().await {
-        Ok(report) => json_response(200, &json!({ "groups": report })),
-        Err(e) => json_response(
-            500,
-            &json!({"error": format!("dedupe-descriptive-names failed: {e}")}),
-        ),
+    match state.dedupe_names_reply().await {
+        DedupeNamesReply::Ready(body) => json_response(200, &body),
+        DedupeNamesReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 
@@ -118,12 +117,9 @@ pub(crate) async fn post_admin_deprecate_schemas(
             );
         }
     };
-    match state.deprecate_schemas(request).await {
-        Ok(report) => json_response(200, &json!(report)),
-        Err(e) => json_response(
-            500,
-            &json!({"error": format!("deprecate-schemas failed: {e}")}),
-        ),
+    match state.deprecate_schemas_reply(request).await {
+        DeprecateSchemasReply::Ready(body) => json_response(200, &body),
+        DeprecateSchemasReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 
@@ -159,13 +155,7 @@ pub(crate) fn get_canonicalization_near_misses(
     let limit: usize = query_param(event, "limit=")
         .and_then(|v| v.parse().ok())
         .unwrap_or(schema_service_core::state::DEFAULT_NEAR_MISSES_LIMIT);
-    let (near_misses, total, next_offset) =
-        state.query_near_misses(since.as_deref(), until.as_deref(), offset, limit);
-    let resp = NearMissesResponse {
-        near_misses,
-        total,
-        next_offset,
-    };
+    let resp = state.near_misses_reply(since.as_deref(), until.as_deref(), offset, limit);
     let body = serde_json::to_value(&resp).map_err(serialization_error)?;
     json_response(200, &body)
 }

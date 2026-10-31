@@ -171,7 +171,7 @@ impl SamplerRuntimeState {
             .map(|snapshot| snapshot.as_ref().clone())
     }
 
-    pub(super) fn drain_settled(&self) -> bool {
+    pub(crate) fn drain_settled(&self) -> bool {
         self.drain
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -180,7 +180,7 @@ impl SamplerRuntimeState {
 
     /// Claim the right to run a drain. `false` means one is already running, or
     /// there is nothing left to do — either way, do not start another.
-    pub(super) fn begin_drain(&self) -> bool {
+    pub(crate) fn begin_drain(&self) -> bool {
         let mut drain = self
             .drain
             .lock()
@@ -192,21 +192,21 @@ impl SamplerRuntimeState {
         true
     }
 
-    pub(super) fn end_drain(&self) {
+    pub(crate) fn end_drain(&self) {
         self.drain
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .in_flight = false;
     }
 
-    pub(super) fn settle_drain(&self) {
+    pub(crate) fn settle_drain(&self) {
         self.drain
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .settled = true;
     }
 
-    pub(super) fn record_drain_failure(&self) {
+    pub(crate) fn record_drain_failure(&self) {
         let mut drain = self
             .drain
             .lock()
@@ -291,7 +291,7 @@ impl SamplerRuntimeState {
         status
     }
 
-    pub(super) fn record_success(&self, sampled_at: u64, sample_count: usize, cap: usize) {
+    pub(crate) fn record_success(&self, sampled_at: u64, sample_count: usize, cap: usize) {
         *self
             .inner
             .lock()
@@ -306,7 +306,7 @@ impl SamplerRuntimeState {
         };
     }
 
-    pub(super) fn record_error(&self, error: String, cap: usize) {
+    pub(crate) fn record_error(&self, error: String, cap: usize) {
         let mut inner = self
             .inner
             .lock()
@@ -315,7 +315,7 @@ impl SamplerRuntimeState {
         inner.retention_max_samples = g_instant(cap as u64, Unit::Named("sample(s)"));
     }
 
-    pub(super) fn request_ops_rollup_delta(
+    pub(crate) fn request_ops_rollup_delta(
         &self,
         snapshot: &crate::request_telemetry::RequestTelemetrySnapshot,
     ) -> Vec<crate::request_telemetry::OpAggregate> {

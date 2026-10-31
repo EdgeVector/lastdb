@@ -21,7 +21,7 @@ class Seed:
     def schema(self):
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-            "schema_type": "HashRange", "independent_fields": True,
+            "schema_type": "HashRange",
             "key": {"hash_field": "bucket", "range_field": "id"},
             "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
             "field_descriptions": {
@@ -30,7 +30,7 @@ class Seed:
         alternate_descriptions = {name: "received range batches " + name for name in alternate_fields}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": HIDDEN_SCHEMA, "descriptive_name": HIDDEN_SCHEMA,
-            "schema_type": "HashRange", "independent_fields": True,
+            "schema_type": "HashRange",
             "key": {"hash_field": "bucket", "range_field": "id"},
             "fields": alternate_fields, "field_types": {"bucket": "String", "id": "String"},
             "field_descriptions": alternate_descriptions}})

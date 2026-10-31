@@ -1,5 +1,7 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
+use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
+
 use super::*;
 
 #[allow(
@@ -79,15 +81,14 @@ pub async fn reset_database(
 )]
 pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Responder {
     match state.export_snapshot() {
-        Ok(mut envelope) => {
+        Ok(envelope) => {
             // Strip embeddings before responding — they balloon the
             // response past Lambda's 6 MB sync-invoke cap (verified in
             // prod 2026-05-05). See `handle_snapshot_export` in
             // `server_lambda` for the full rationale; the dev binary
             // mirrors the behavior so consumers see the same shape
             // across both surfaces.
-            envelope.embeddings = SnapshotEmbeddings::default();
-            HttpResponse::Ok().json(envelope)
+            HttpResponse::Ok().json(envelope.without_embeddings())
         }
         Err(e) => {
             tracing::error!(
@@ -113,10 +114,7 @@ pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Respo
 )]
 pub async fn snapshot_export_shared_only(state: web::Data<SchemaServiceState>) -> impl Responder {
     match state.export_shared_only_snapshot() {
-        Ok(mut envelope) => {
-            envelope.embeddings = SnapshotEmbeddings::default();
-            HttpResponse::Ok().json(envelope)
-        }
+        Ok(envelope) => HttpResponse::Ok().json(envelope.without_embeddings()),
         Err(e) => {
             tracing::error!(
                 target: "schema_service::snapshot",
@@ -175,20 +173,11 @@ pub async fn snapshot_import(
 /// Mounted by the actix dev binary AND by the Lambda router so the same
 /// shape works in dev and (when we get there) prod cleanup.
 pub async fn dedupe_descriptive_names(state: web::Data<SchemaServiceState>) -> impl Responder {
-    #[derive(serde::Serialize)]
-    struct Response {
-        groups: Vec<schema_service_core::types::DescriptiveNameDedupeGroup>,
-    }
-    match state.dedupe_descriptive_names().await {
-        Ok(groups) => HttpResponse::Ok().json(Response { groups }),
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::dedupe",
-                "dedupe-descriptive-names failed: {}", e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("dedupe-descriptive-names failed: {e}"),
-            })
+    match state.dedupe_names_reply().await {
+        DedupeNamesReply::Ready(body) => HttpResponse::Ok().json(body),
+        DedupeNamesReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::dedupe", "{message}");
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }
@@ -200,16 +189,11 @@ pub async fn deprecate_schemas(
     state: web::Data<SchemaServiceState>,
     request: web::Json<DeprecateSchemasRequest>,
 ) -> impl Responder {
-    match state.deprecate_schemas(request.into_inner()).await {
-        Ok(report) => HttpResponse::Ok().json(report),
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::deprecate",
-                "deprecate-schemas failed: {}", e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("deprecate-schemas failed: {e}"),
-            })
+    match state.deprecate_schemas_reply(request.into_inner()).await {
+        DeprecateSchemasReply::Ready(body) => HttpResponse::Ok().json(body),
+        DeprecateSchemasReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::deprecate", "{message}");
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }

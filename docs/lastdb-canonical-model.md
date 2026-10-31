@@ -69,7 +69,7 @@ An alternate molecule maps its key to the primary record key. It stores no paylo
 The write updates the record and its alternate addresses in one native request.
 Queries return the primary key for subsequent mutations.
 
-Local schema declarations use independent field values. Startup refuses an older shared-value layout.
+Each local schema owns its field values. Startup refuses a stored schema that does not own its values.
 Copy older data into a fresh home; no in-place conversion exists.
 See [the multi-key schema guide](multi-key-schemas.md) and [compound key rules](compound-alternate-keys.md).
 

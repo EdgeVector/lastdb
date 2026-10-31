@@ -1,7 +1,11 @@
 //! Mutation challenge and app/release/channel registry routes.
 
 use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+    ChannelReadReply, CompatRowsReply, CompatWriteReply, PublishReleaseReply, ReleaseReadReply,
+    SetChannelReply,
+};
+use schema_service_core::{
+    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply, UpdateAppReply,
 };
 
 use super::*;
@@ -15,13 +19,11 @@ pub async fn issue_schema_mutation_challenge(
     payload: web::Json<SchemaMutationChallengeRequest>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    match state.issue_schema_mutation_challenge(&payload.into_inner(), request_ip(&req).as_deref())
+    match state
+        .issue_schema_mutation_challenge_reply(&payload.into_inner(), request_ip(&req).as_deref())
     {
-        Ok(response) => HttpResponse::Created().json(response),
-        Err(error) => {
-            let (status, body) = error.to_http();
-            json_status(status, body)
-        }
+        SchemaMutationChallengeReply::Created(response) => HttpResponse::Created().json(response),
+        SchemaMutationChallengeReply::Failed { status, body } => json_status(status, body),
     }
 }
 
@@ -58,13 +60,8 @@ pub async fn register_app(
         Err(resp) => return resp,
     };
 
-    match state.register_app(&cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.register_app_reply(&cert, &sig, &body).await {
+        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
@@ -94,15 +91,12 @@ pub async fn publish_release(
         Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    match state.publish_release(&app_id, &cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http();
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state
+        .publish_release_reply(&app_id, &cert, &sig, &body)
+        .await
+    {
+        PublishReleaseReply::Ready { status, body, .. }
+        | PublishReleaseReply::Failed { status, body } => json_status(status, body),
     }
 }
 
@@ -121,14 +115,11 @@ pub async fn set_channel(
         Err(resp) => return resp,
     };
     match state
-        .set_channel(&app_id, &channel, &cert, &sig, &body)
+        .set_channel_reply(&app_id, &channel, &cert, &sig, &body)
         .await
     {
-        Ok(record) => json_status(200, record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+        SetChannelReply::Ready(body) => json_status(200, body),
+        SetChannelReply::Failed { status, body } => json_status(status, body),
     }
 }
 
@@ -161,10 +152,10 @@ pub async fn get_release(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let release_id = path.into_inner();
-    match state.get_release(&release_id).await {
-        Ok(Some(record)) => json_status(200, record.to_public_json()),
-        Ok(None) => json_status(404, unknown_release_json(&release_id)),
-        Err(e) => json_status(503, registry_unavailable_json(&e.to_string())),
+    match state.release_read_reply(&release_id).await {
+        ReleaseReadReply::Ready(body) => json_status(200, body),
+        ReleaseReadReply::Missing(body) => json_status(404, body),
+        ReleaseReadReply::Unavailable(body) => json_status(503, body),
     }
 }
 
@@ -196,10 +187,10 @@ pub async fn get_channel(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let (app_id, channel) = path.into_inner();
-    match state.get_channel(&app_id, &channel).await {
-        Ok(Some(record)) => json_status(200, record.to_public_json()),
-        Ok(None) => json_status(404, unknown_channel_json(&app_id, &channel)),
-        Err(e) => json_status(503, registry_unavailable_json(&e.to_string())),
+    match state.channel_read_reply(&app_id, &channel).await {
+        ChannelReadReply::Ready(body) => json_status(200, body),
+        ChannelReadReply::Missing(body) => json_status(404, body),
+        ChannelReadReply::Unavailable(body) => json_status(503, body),
     }
 }
 
@@ -226,13 +217,8 @@ pub async fn update_app(
         Err(resp) => return resp,
     };
 
-    match state.update_app(&app_id, &cert, &sig, &body).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.update_app_reply(&app_id, &cert, &sig, &body).await {
+        UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
@@ -254,13 +240,8 @@ pub async fn promote_app(
         Err(resp) => return resp,
     };
 
-    match state.promote_app(&app_id, &cert, &sig).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http();
-            json_status(status, body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.promote_app_reply(&app_id, &cert, &sig).await {
+        PromoteAppReply::Ready { status, body } | PromoteAppReply::Failed { status, body } => {
             json_status(status, body)
         }
     }
@@ -288,10 +269,10 @@ pub async fn get_app(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let app_id = path.into_inner();
-    let Some(record) = state.get_app(&app_id) else {
-        return json_status(404, unknown_app_json(&app_id));
-    };
-    json_status(200, state.app_public_json(&record))
+    match state.public_app_reply(&app_id) {
+        PublicAppReply::Ready(body) => json_status(200, body),
+        PublicAppReply::Missing(body) => json_status(404, body),
+    }
 }
 
 /// `GET /v1/apps` — public app shelf read.
@@ -326,12 +307,9 @@ pub async fn write_compat_row(
             json!({ "reason": "signature_required", "detail": "missing X-Signature header" }),
         );
     };
-    match state.write_compat_row(&release_id, &sig, &body).await {
-        Ok(record) => json_status(201, record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.compat_write_reply(&release_id, &sig, &body).await {
+        CompatWriteReply::Created(body) => json_status(201, body),
+        CompatWriteReply::Failed { status, body } => json_status(status, body),
     }
 }
 
@@ -345,17 +323,8 @@ pub async fn list_compat_rows(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let release_id = path.into_inner();
-    match state.list_compat_rows(&release_id).await {
-        Ok(rows) => {
-            let rows_json: Vec<_> = rows
-                .iter()
-                .map(schema_service_core::app_release::CompatRow::to_public_json)
-                .collect();
-            json_status(200, json!({ "compat_rows": rows_json }))
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.compat_rows_reply(&release_id).await {
+        CompatRowsReply::Ready(body) => json_status(200, body),
+        CompatRowsReply::Failed { status, body } => json_status(status, body),
     }
 }

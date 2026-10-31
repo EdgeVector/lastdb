@@ -21,7 +21,6 @@ pub(super) fn probe_schema(environment: Env, run_id: &str) -> Schema {
         None,
         Some(vec![field_name.clone()]),
         None,
-        None,
     );
     schema.descriptive_name = Some(format!("Schema PoW live probe {env} {run_id}"));
     schema.purpose_statement =

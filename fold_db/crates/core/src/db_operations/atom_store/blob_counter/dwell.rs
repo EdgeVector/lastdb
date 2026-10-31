@@ -20,7 +20,7 @@
 //! The cursor moves after the work. A step that fails leaves it where it was, and
 //! the next step reads the same keys. The gate is held for one chunk and released
 //! between chunks, so a writer waits for at most the reads and the staging of a
-//! chunk. The node paces the steps (`lastdb_node/src/ops/blob_dwell`).
+//! chunk. The node paces the steps (`lastdb_node/src/jobs/blob_dwell`).
 
 use super::blob_dwell_millis;
 use super::dwell_chunk::{decode_entry, DwellEntry};

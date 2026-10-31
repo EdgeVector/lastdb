@@ -1,4 +1,3 @@
-use super::process_probes::PhysFootprint;
 use super::*;
 
 /// Feed the measured footprint into the defer window, log each transition the
@@ -11,7 +10,7 @@ pub(super) fn observe_runtime_memory(
         .db
         .mutation_manager()
         .observe_memory_footprint(footprint.current_bytes);
-    crate::ops::footprint::defend_measured_footprint(host, footprint.current_bytes);
+    crate::jobs::footprint::defend_measured_footprint(host, footprint.current_bytes);
     let budget = fold_db::memory_budget::process_memory_budget();
     let implied_multiplier = if budget.charged_bytes == 0 {
         0.0

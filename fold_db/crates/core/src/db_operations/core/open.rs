@@ -4,10 +4,10 @@ use super::super::change_feed::ChangeFeedStore;
 use super::super::db_catalog_store::DbCatalogStore;
 use super::super::lineage_index::LineageIndex;
 use super::super::metadata_store::MetadataStore;
-use super::super::molecule_key_store::MoleculeKeyStore;
 use super::super::public_key_store::PublicKeyStore;
 use super::super::schema_store::SchemaStore;
 use super::DbOperations;
+use crate::storage::molecule_key_store::MoleculeKeyStore;
 use crate::storage::traits::*;
 use crate::storage::TypedKvStore;
 use std::sync::Arc;
@@ -260,7 +260,7 @@ impl DbOperations {
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
             atoms.require_current_key_format().await?;
             if let Some(key) = proof_key {
-                crate::crypto::content_key_proof::verify_stored(store.as_ref(), &key).await?;
+                crate::storage::content_key_proof::verify_stored(store.as_ref(), &key).await?;
             }
             Ok::<(), crate::storage::StorageError>(())
         })

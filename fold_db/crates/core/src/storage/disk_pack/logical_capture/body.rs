@@ -81,7 +81,7 @@ fn certify_bodies(
 }
 
 fn decode_atom(bytes: &[u8]) -> StorageResult<crate::atom::Atom> {
-    crate::db_operations::atom_store::decode_plain_atom(bytes)
+    crate::records::plain_atom::decode_plain_atom(bytes)
         .map_err(|_| invalid("logical capture stored atom is not a valid plain V2 body"))
 }
 

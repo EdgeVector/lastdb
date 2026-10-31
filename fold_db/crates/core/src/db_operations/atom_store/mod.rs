@@ -6,7 +6,7 @@
 //! `DbOperations::atoms()` to reach these operations.
 //!
 //! Layout:
-//! - [`types`] — molecule/atom storage types
+//! - `crate::records::molecule_record` — molecule/atom storage types
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
@@ -54,16 +54,15 @@ mod molecules;
 mod retention;
 mod schema_keys;
 pub(crate) mod time_queue;
-mod types;
 mod writer_watch;
 
+pub(crate) use crate::records::plain_atom::decode_plain_atom;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
     DwellStep, NetStep, DWELL_CHUNK,
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use codec::decode_plain_atom;
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -73,18 +72,16 @@ pub use counter::{
 pub(crate) use filter::SchemaKeyMembership;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
-pub(crate) use molecule_drain::{
-    valid_candidate_key as valid_drain_candidate_key, DrainCursor, DrainLimits,
-    OutcomeKind as DrainOutcomeKind,
-};
+pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOutcomeKind};
 pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::{MoleculeKeyDomain, MoleculeWriteLoad};
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
-pub use types::MoleculeData;
-pub(crate) use types::MoleculeHeader;
-pub(crate) use types::{
+// The molecule records are model values that the storage layer also reads.
+pub use crate::records::molecule_record::MoleculeData;
+pub(crate) use crate::records::molecule_record::MoleculeHeader;
+pub(crate) use crate::records::molecule_record::{
     ChangedKey, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
     MoleculeRangeForm, PerKeyRecord,
 };

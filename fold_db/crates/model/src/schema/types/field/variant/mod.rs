@@ -21,10 +21,8 @@ mod kind;
 mod value;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::atom::MoleculeHashRange;
-use crate::schema::types::declarative_schemas::FieldMapper;
 use crate::schema::types::field::FieldCommon;
 use crate::schema::types::schema::DeclarativeSchemaType;
 
@@ -51,9 +49,9 @@ pub struct FieldVariant {
 impl FieldVariant {
     /// Construct an empty field of the given kind.
     #[must_use]
-    pub fn new(kind: FieldKind, field_mappers: HashMap<String, FieldMapper>) -> Self {
+    pub fn new(kind: FieldKind) -> Self {
         Self {
-            inner: FieldCommon::new(field_mappers),
+            inner: FieldCommon::default(),
             kind,
             molecule: None,
         }
@@ -61,33 +59,8 @@ impl FieldVariant {
 
     /// Construct from a declarative schema type (the usual construction path).
     #[must_use]
-    pub fn from_schema_type(
-        schema_type: DeclarativeSchemaType,
-        field_mappers: HashMap<String, FieldMapper>,
-    ) -> Self {
-        Self::new(FieldKind::from(schema_type), field_mappers)
-    }
-
-    /// Convenience constructors used by tests and a few call sites that
-    /// already know the concrete kind.
-    #[must_use]
-    pub fn single(field_mappers: HashMap<String, FieldMapper>) -> Self {
-        Self::new(FieldKind::Single, field_mappers)
-    }
-
-    #[must_use]
-    pub fn hash(field_mappers: HashMap<String, FieldMapper>) -> Self {
-        Self::new(FieldKind::Hash, field_mappers)
-    }
-
-    #[must_use]
-    pub fn range(field_mappers: HashMap<String, FieldMapper>) -> Self {
-        Self::new(FieldKind::Range, field_mappers)
-    }
-
-    #[must_use]
-    pub fn hash_range(field_mappers: HashMap<String, FieldMapper>) -> Self {
-        Self::new(FieldKind::HashRange, field_mappers)
+    pub fn from_schema_type(schema_type: DeclarativeSchemaType) -> Self {
+        Self::new(FieldKind::from(schema_type))
     }
 
     /// Gets the common field data.

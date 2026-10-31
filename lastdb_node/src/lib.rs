@@ -21,6 +21,7 @@ pub mod ephemeral;
 pub mod exec;
 pub mod home_storage;
 pub mod host;
+pub mod jobs;
 pub mod local_outbox;
 pub mod log_rotation;
 pub mod maintenance_write_gate;
@@ -39,9 +40,10 @@ pub mod volume_isolation;
 pub mod watch_gate;
 
 pub use host::Host;
+pub use jobs::{blob_dwell, footprint, ttl_sweep};
 pub use local_outbox::{LocalOutbox, LocalWatchEvent, LocalWatchPoll};
 pub use ops::{
-    blob_dwell, crash_attribution, crash_telemetry, footprint, gauge, health_alert, log_filter,
-    request_telemetry, self_metrics, session_ledger, status_gauge_contract, ttl_sweep,
+    crash_attribution, crash_telemetry, gauge, health_alert, log_filter, request_telemetry,
+    self_metrics, session_ledger, status_gauge_contract,
 };
 pub use watch_gate::{WatchGate, WatchGateSnapshot, WatchSlot};

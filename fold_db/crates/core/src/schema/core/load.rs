@@ -237,16 +237,10 @@ impl SchemaCore {
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
         owned::normalize_owned_declaration(&mut schema, existing.as_ref())?;
-        if existing
-            .as_ref()
-            .is_some_and(|schema| schema.uses_independent_fields())
-            && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
+        if existing.is_some() && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
         {
-            crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
-                &self.db_ops,
-                &schema.name,
-            )
-            .await?;
+            crate::db_operations::alternate_changes::require_finished(&self.db_ops, &schema.name)
+                .await?;
         }
         molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
         schema.sync_molecule_uuids();
@@ -255,16 +249,13 @@ impl SchemaCore {
         // deterministic molecule.
         let retained = existing
             .as_ref()
-            .filter(|stored| stored.uses_independent_fields())
             .and_then(|stored| stored.field_molecule_uuids.as_ref());
-        if schema.uses_independent_fields()
-            && schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
-                ids.iter().any(|(field, id)| {
-                    retained.and_then(|retained| retained.get(field)) != Some(id)
-                        && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
-                })
+        if schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
+            ids.iter().any(|(field, id)| {
+                retained.and_then(|retained| retained.get(field)) != Some(id)
+                    && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
             })
-        {
+        }) {
             return Err(SchemaError::InvalidData(
                 "alternate keys require this schema's owned field molecules".into(),
             ));

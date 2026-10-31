@@ -53,6 +53,7 @@ pub use error::*;
 mod pow;
 mod state_enforce;
 mod state_issue;
+pub use state_issue::SchemaMutationChallengeReply;
 mod state_quota;
 pub use pow::*;
 mod quota_store;

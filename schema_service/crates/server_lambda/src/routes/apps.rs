@@ -4,13 +4,15 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, SetChannelReply,
 };
+use schema_service_core::{PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.
+// `POST /v1/apps` and `POST /v2/apps` both use this handler.
 pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
@@ -23,13 +25,8 @@ pub(crate) async fn post_app_v1(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.register_app(cert, sig, &body_value).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.register_app_reply(cert, sig, &body_value).await {
+        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
@@ -47,14 +44,10 @@ pub(crate) async fn post_app_v1(
 // promoted, non-revoked public shelf. The cross-env mirror's
 // `POST /v1/apps/mirror` receiver was decommissioned in #517.
 pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v1/apps/").trim_end_matches('/');
-    if app_id.is_empty() || app_id.contains('/') {
+    let Some(app_id) = known_app_id(p, "/v1/apps/") else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
-    }
-    match state.get_app(app_id) {
-        Some(record) => json_response(200, &state.app_public_json(&record)),
-        None => json_response(404, &unknown_app_json(app_id)),
-    }
+    };
+    public_app_response(state, app_id)
 }
 
 // Owner-authenticated metadata update for an already-registered
@@ -79,13 +72,8 @@ pub(crate) async fn put_app_v1(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.update_app(app_id, cert, sig, &body_value).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.update_app_reply(app_id, cert, sig, &body_value).await {
+        UpdateAppReply::Ready { status, body } | UpdateAppReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
@@ -111,13 +99,8 @@ pub(crate) async fn promote_app_v1(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.promote_app(app_id, cert, sig).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http();
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.promote_app_reply(app_id, cert, sig).await {
+        PromoteAppReply::Ready { status, body } | PromoteAppReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
@@ -134,30 +117,6 @@ pub(crate) async fn promote_app_v1(
 // suffixes (`/releases`, `/revocations`, `/channels/…`) are matched
 // before the bare `/v2/apps/{app_id}` read, or the read arm would
 // swallow them.
-pub(crate) async fn post_apps_v2(
-    state: &SchemaServiceState,
-    event: &Request,
-) -> Result<Response<Body>, Error> {
-    let body_value = match app_metadata_body(event) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let (cert, sig) = match v2_cert_headers(event) {
-        Ok(pair) => pair,
-        Err(r) => return r,
-    };
-    match state.register_app(cert, sig, &body_value).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
-    }
-}
-
 pub(crate) async fn post_apps_releases(
     state: &SchemaServiceState,
     event: &Request,
@@ -177,19 +136,22 @@ pub(crate) async fn post_apps_releases(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.publish_release(app_id, cert, sig, &body_value).await {
-        Ok(outcome) => {
+    match state
+        .publish_release_reply(app_id, cert, sig, &body_value)
+        .await
+    {
+        PublishReleaseReply::Ready {
+            status,
+            body,
+            record,
+        } => {
             // A repeat publish (same release id) is queued again too: it is
             // how a developer recovers a lost job, and the verifier skips
             // contract versions that already have a result.
-            verifier_queue::send_publish_job(state, outcome.record(), cert, sig, &body_value).await;
-            let (status, body) = outcome.to_http();
+            verifier_queue::send_publish_job(state, &record, cert, sig, &body_value).await;
             json_response(status, &body)
         }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+        PublishReleaseReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
@@ -243,14 +205,11 @@ pub(crate) async fn put_apps_channels(
         Err(r) => return r,
     };
     match state
-        .set_channel(app_id, channel, cert, sig, &body_value)
+        .set_channel_reply(app_id, channel, cert, sig, &body_value)
         .await
     {
-        Ok(record) => json_response(200, &record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+        SetChannelReply::Ready(body) => json_response(200, &body),
+        SetChannelReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
@@ -263,10 +222,10 @@ pub(crate) async fn get_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_channel(app_id, channel).await {
-        Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(404, &unknown_channel_json(app_id, channel)),
-        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
+    match state.channel_read_reply(app_id, channel).await {
+        ChannelReadReply::Ready(body) => json_response(200, &body),
+        ChannelReadReply::Missing(body) => json_response(404, &body),
+        ChannelReadReply::Unavailable(body) => json_response(503, &body),
     }
 }
 
@@ -279,22 +238,29 @@ pub(crate) async fn get_releases(
     if release_id.is_empty() || release_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_release_id"}));
     }
-    match state.get_release(release_id).await {
-        Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(404, &unknown_release_json(release_id)),
-        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
+    match state.release_read_reply(release_id).await {
+        ReleaseReadReply::Ready(body) => json_response(200, &body),
+        ReleaseReadReply::Missing(body) => json_response(404, &body),
+        ReleaseReadReply::Unavailable(body) => json_response(503, &body),
     }
 }
 
 // Anonymous read: the app record. Same body as `GET /v1/apps/{id}`.
 pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
-    let app_id = p.trim_start_matches("/v2/apps/").trim_end_matches('/');
-    let Some(app_id) = v2_app_id(app_id) else {
+    let Some(app_id) = known_app_id(p, "/v2/apps/") else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_app(app_id) {
-        Some(record) => json_response(200, &state.app_public_json(&record)),
-        None => json_response(404, &unknown_app_json(app_id)),
+    public_app_response(state, app_id)
+}
+
+fn known_app_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    v2_app_id(path.trim_start_matches(prefix).trim_end_matches('/'))
+}
+
+fn public_app_response(state: &SchemaServiceState, app_id: &str) -> Result<Response<Body>, Error> {
+    match state.public_app_reply(app_id) {
+        PublicAppReply::Ready(body) => json_response(200, &body),
+        PublicAppReply::Missing(body) => json_response(404, &body),
     }
 }
 

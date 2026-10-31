@@ -98,14 +98,3 @@ pub(crate) fn list_bounds() -> (Vec<u8>, Vec<u8>) {
     let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(CANDIDATE_FAMILY);
     (start.into_bytes(), end.into_bytes())
 }
-
-/// True when `key` has the shape of a candidate row with a valid molecule
-/// identity and a valid scope. The key validation of the storage layer uses it.
-#[must_use]
-pub(crate) fn valid_candidate_key(rest: &str) -> bool {
-    let Some((scope, molecule)) = rest.split_once('\0') else {
-        return false;
-    };
-    crate::atom::molecule_uuid::is_canonical_molecule_uuid(molecule)
-        && (scope.is_empty() || crate::storage::current_keys::validate_scope(scope).is_ok())
-}

@@ -213,8 +213,8 @@ pub(super) fn partition_locally_loaded_schema_requests(
     for req in requests {
         // Identity-scoped load is also the catalog refresh operation. Never
         // short-circuit it merely because a same-hash definition is present:
-        // an older/local definition may lack catalog field_mappers. Fetching
-        // and loading the exact identity is idempotent and repairs that drift.
+        // an older/local definition may lack catalog metadata. Fetching and
+        // loading the exact identity is idempotent and repairs that drift.
         let trimmed = req.trim();
         if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
             pending.push(req.clone());

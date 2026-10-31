@@ -39,7 +39,7 @@ A database catalog can explicitly reference an existing schema's molecules on th
 Equal field definitions in different schemas do not create that reference.
 
 Native backups retain encrypted bytes and their format metadata.
-The daemon refuses older shared-value declarations at startup.
+At startup, the daemon refuses a stored schema that does not own its values.
 Copy the records of an older home into a fresh home instead of an in-place conversion.
 
 Keep the primary unchanged during source and CI work.

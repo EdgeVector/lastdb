@@ -124,7 +124,6 @@ fn telemetry_hash_range_schema(
                 .collect(),
         ),
         None,
-        None,
     );
     schema.field_types = ["series", "sample_id"]
         .map(|field| (field.to_string(), FieldValueType::String))

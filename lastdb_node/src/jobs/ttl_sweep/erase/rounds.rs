@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::*;
-use crate::ops::paced_rest::rest;
+use crate::jobs::paced_rest::rest;
 
 pub(super) async fn erase_rounds(
     host: &Host,

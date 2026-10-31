@@ -266,7 +266,8 @@ impl AtomStore {
         Ok(merged
             .into_iter()
             .filter_map(|(key, (live, base))| {
-                Self::merge_generation_slot(live, base).map(|record| (key, record))
+                crate::records::molecule_record::merge_generation_slot(live, base)
+                    .map(|record| (key, record))
             })
             .collect())
     }

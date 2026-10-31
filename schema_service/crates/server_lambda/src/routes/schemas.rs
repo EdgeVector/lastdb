@@ -2,7 +2,14 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
+use schema_service_core::builtin_schemas::AvailableSource;
+use schema_service_core::state::{
+    accepted_similarity_threshold, SchemaResolveReply, SimilarSchemasReply,
+};
+use schema_service_core::{
+    log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
+    SchemaMutationChallengeRequest,
+};
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{
     BatchSchemaReuseRequest, SchemaAddOutcome, SchemaEnvelope, SchemaResolveRequest,
@@ -17,28 +24,22 @@ pub(crate) fn get_registry_index(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let current_etag = format!("\"{}\"", state.current_state_version());
-    if event
+    let if_none_match = event
         .headers()
         .get("if-none-match")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|etag| etag.trim() == current_etag)
-    {
-        return cors_builder(304, "application/json")
-            .header("ETag", current_etag)
+        .and_then(|v| v.to_str().ok());
+    match state.registry_index_reply(if_none_match) {
+        RegistryIndexReply::NotModified { etag } => cors_builder(304, "application/json")
+            .header("ETag", etag)
             .body(Body::Empty)
-            .map_err(|e| Error::from(format!("Failed to build response: {e}")));
-    }
-
-    match state.export_registry_index() {
-        Ok(index) => {
-            let etag = format!("\"{}\"", index.registry_version);
+            .map_err(|e| Error::from(format!("Failed to build response: {e}"))),
+        RegistryIndexReply::Ready { index, etag } => {
             let body = serde_json::to_value(index).map_err(serialization_error)?;
             json_response_cacheable(200, &body, &etag)
         }
-        Err(e) => json_response(
+        RegistryIndexReply::Failed { detail } => json_response(
             500,
-            &json!({"error": format!("Failed to export registry index: {e}")}),
+            &json!({"error": format!("Failed to export registry index: {detail}")}),
         ),
     }
 }
@@ -47,18 +48,17 @@ pub(crate) fn get_schemas_available(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let (source_filter, unknown_source) = parse_source_filter(event);
-    if unknown_source {
+    // An unknown source is an empty 200 before the registry read. A lock
+    // failure stays a 500 only when the source is absent or known.
+    let source = AvailableSource::parse(query_param(event, "source="));
+    if source.is_unknown() {
         return json_response(200, &json!({ "schemas": Vec::<SchemaEnvelope>::new() }));
     }
     match state.get_all_schemas_cached() {
         Ok(schemas) => {
             let envelopes: Vec<SchemaEnvelope> = schemas
                 .into_iter()
-                .filter(|schema| match source_filter {
-                    Some(wanted) => schema.source == wanted,
-                    None => !schema_service_core::builtin_schemas::is_schema_org_leftover(schema),
-                })
+                .filter(|schema| source.keeps(schema))
                 .map(|schema| SchemaEnvelope {
                     system: state.is_system_schema(&schema.name),
                     schema,
@@ -79,34 +79,26 @@ pub(crate) fn get_schemas_similar(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let schema_name = p.trim_start_matches("/v1/schemas/similar/");
-    let threshold = parse_threshold(event);
-
-    if !(0.0..=1.0).contains(&threshold) {
+    let Some(threshold) = accepted_similarity_threshold(Some(parse_threshold(event))) else {
         return json_response(
             400,
             &json!({"error": "Threshold must be between 0.0 and 1.0"}),
         );
-    }
+    };
 
-    match state.find_similar_schemas(schema_name, threshold) {
-        Ok(response) => {
+    match state.similar_schemas_reply(schema_name, threshold) {
+        SimilarSchemasReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => {
-            let error_msg = format!("{e}");
-            if error_msg.contains("not found") {
-                json_response(
-                    404,
-                    &json!({"error": format!("Schema '{schema_name}' not found")}),
-                )
-            } else {
-                json_response(
-                    500,
-                    &json!({"error": format!("Failed to find similar schemas: {e}")}),
-                )
-            }
-        }
+        SimilarSchemasReply::Missing => json_response(
+            404,
+            &json!({"error": format!("Schema '{schema_name}' not found")}),
+        ),
+        SimilarSchemasReply::Failed { detail } => json_response(
+            500,
+            &json!({"error": format!("Failed to find similar schemas: {detail}")}),
+        ),
     }
 }
 
@@ -139,15 +131,12 @@ pub(crate) fn post_schemas_mutation_challenge(
             );
         }
     };
-    match state.issue_schema_mutation_challenge(&request, request_ip(event).as_deref()) {
-        Ok(response) => {
+    match state.issue_schema_mutation_challenge_reply(&request, request_ip(event).as_deref()) {
+        SchemaMutationChallengeReply::Created(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(201, &body)
         }
-        Err(error) => {
-            let (status, body) = error.to_http();
-            json_response(status, &body)
-        }
+        SchemaMutationChallengeReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
@@ -364,14 +353,14 @@ pub(crate) fn post_schemas_resolve(
         }
     };
 
-    match state.resolve_schema_proposals(&request) {
-        Ok(response) => {
+    match state.schema_resolve_reply(&request) {
+        SchemaResolveReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => json_response(
+        SchemaResolveReply::Refused { detail } => json_response(
             400,
-            &json!({"error": format!("Schema resolve failed: {e}")}),
+            &json!({"error": format!("Schema resolve failed: {detail}")}),
         ),
     }
 }

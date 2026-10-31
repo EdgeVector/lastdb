@@ -84,6 +84,18 @@ pub struct SnapshotEnvelope {
     pub embeddings: SnapshotEmbeddings,
 }
 
+impl SnapshotEnvelope {
+    /// Clear embeddings before an HTTP reply.
+    ///
+    /// The stored export still carries embeddings. Shared-only export
+    /// filters them before this call. Import still consumes them.
+    #[must_use]
+    pub fn without_embeddings(mut self) -> Self {
+        self.embeddings = SnapshotEmbeddings::default();
+        self
+    }
+}
+
 /// Registered app entry in the canonical app registry.
 ///
 /// The shape matches the design doc at

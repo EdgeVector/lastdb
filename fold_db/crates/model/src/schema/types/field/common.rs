@@ -1,12 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-use crate::schema::types::declarative_schemas::FieldMapper;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldCommon {
     pub molecule_uuid: Option<String>,
-    pub field_mappers: HashMap<String, FieldMapper>,
     #[serde(default = "default_writable")]
     pub writable: bool,
     /// Org hash inherited from the parent schema.
@@ -19,16 +15,17 @@ fn default_writable() -> bool {
     true
 }
 
-impl FieldCommon {
-    pub fn new(field_mappers: HashMap<String, FieldMapper>) -> Self {
+impl Default for FieldCommon {
+    fn default() -> Self {
         Self {
             molecule_uuid: None,
-            field_mappers,
             writable: true,
             storage_prefix: None,
         }
     }
+}
 
+impl FieldCommon {
     // Convenience methods to avoid repetition
     pub fn molecule_uuid(&self) -> Option<&String> {
         self.molecule_uuid.as_ref()
@@ -36,14 +33,6 @@ impl FieldCommon {
 
     pub fn set_molecule_uuid(&mut self, uuid: String) {
         self.molecule_uuid = Some(uuid);
-    }
-
-    pub fn field_mappers(&self) -> &HashMap<String, FieldMapper> {
-        &self.field_mappers
-    }
-
-    pub fn set_field_mappers(&mut self, mappers: HashMap<String, FieldMapper>) {
-        self.field_mappers = mappers;
     }
 
     pub fn writable(&self) -> bool {

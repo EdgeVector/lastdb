@@ -34,7 +34,7 @@ mod judge;
 mod state;
 mod step;
 
-pub(crate) use candidate::{valid_candidate_key, Candidate};
+pub(crate) use candidate::Candidate;
 pub(crate) use cursor::DrainCursor;
 pub use enqueue::MoleculeDrainVerdict;
 pub(crate) use state::DrainState;

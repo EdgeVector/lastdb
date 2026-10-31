@@ -1,0 +1,94 @@
+# Layer order of the lastdb_node library crate, bottom first.
+#
+# scripts/ci/layer-check.py reads this file. Each source file goes to the
+# layer that lists the longest prefix of its module path. A file may use its
+# own layer and the layers below it. A reference to a higher layer fails CI.
+# Cycles inside one layer are allowed.
+#
+# State sits below the host and work over the host sits above it: the host
+# holds the sampler state, request telemetry and backup runtime (ops, leaf),
+# and the jobs that take `&Host` (sampler, TTL sweep, blob dwell, footprint
+# relief) live in `jobs`, above the node features they report on.
+
+# The daemon binary (main.rs with its private lastdbd and shutdown_runtime
+# modules) and the bin/ tools are separate crates. They reach this library
+# through `lastdb_node::` paths, so the library layer order does not cover them.
+exclude = ["main.rs", "lastdbd", "shutdown_runtime.rs", "bin"]
+
+[[layer]]
+name = "leaf"
+doc = "Parts that use only other leaf parts: storage homes, outboxes and queues, the backup runtime and its phase, seals, logs, and versions."
+modules = [
+  "allocator",
+  "app_release_host",
+  "app_storage",
+  "backup_runtime",
+  "byte_cloud_log",
+  "change_feed_queue",
+  "distribution",
+  "home_storage",
+  "local_outbox",
+  "log_rotation",
+  "retention_audit",
+  "schema_resolver_host",
+  "schema_sync_audit",
+  "seal",
+  "service_home",
+  "shared_surface",
+  "version",
+  "watch_gate",
+]
+
+[[layer]]
+name = "cloud"
+doc = "Cloud account configuration, registration, backup access credentials, ephemeral homes, and native cloud restore."
+modules = [
+  "backup_access",
+  "cloud",
+  "ephemeral",
+  "native_cloud_restore",
+]
+
+[[layer]]
+name = "ops"
+doc = "Operations state and status models over the leaf parts: request telemetry, the session ledger, gauges, the self-metrics status snapshot and sampler state, crash attribution, and health alerts. No dependency on the host."
+modules = [
+  "ops",
+]
+
+[[layer]]
+name = "host"
+doc = "The booted node host, which holds the ops state, and the host-level gates: maintenance write admission, delivery, and volume isolation."
+modules = [
+  "deliver",
+  "host",
+  "maintenance_write_gate",
+  "volume_isolation",
+]
+
+[[layer]]
+name = "features"
+doc = "Node features over the host: byte cloud backup and restore, offline homes, and the app registry index."
+modules = [
+  "app_registry_index",
+  "byte_cloud_backup",
+  "byte_cloud_restore",
+  "offline_home",
+  "offline_recount",
+]
+
+[[layer]]
+name = "jobs"
+doc = "Background and on-demand work over a booted host: the self-metrics sampler and status snapshot build, the TTL sweep, blob dwell, and footprint relief."
+modules = [
+  "jobs",
+]
+
+[[layer]]
+name = "surface"
+doc = "Owner-socket routes (exec), app publication, and the crate root re-exports."
+modules = [
+  "app_publish",
+  "crate",
+  "exec",
+]

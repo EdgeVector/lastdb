@@ -21,12 +21,11 @@ impl MoleculeHashRange {
     /// Creates a new empty MoleculeHashRange under an **already-assigned**
     /// molecule UUID.
     ///
-    /// Use this when the caller knows which molecule the field is bound to and
-    /// that binding is not `deterministic(this_schema, this_field)` — the
-    /// FieldMapper case, where the schema load already bound the field to its
-    /// source molecule. [`Self::new_at`] derives the UUID from
-    /// the pair it is handed, so calling it with the *mapped* field's own
-    /// (schema, field) silently re-anchors the field onto a second molecule.
+    /// Use this when the caller knows which molecule the field is bound to,
+    /// for example a persisted `field_molecule_uuids` entry that the schema
+    /// load restored. [`Self::new_at`] derives the UUID from the pair it is
+    /// handed, so calling it for a field with a persisted binding silently
+    /// re-anchors the field onto a second molecule.
     #[must_use]
     pub fn with_uuid_at(uuid: String, updated_at: DateTime<Utc>) -> Self {
         Self::empty(uuid, updated_at)

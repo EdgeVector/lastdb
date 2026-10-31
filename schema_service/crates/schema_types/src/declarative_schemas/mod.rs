@@ -4,7 +4,6 @@ use crate::FieldValueType;
 use crate::KeyConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 mod construct;
 mod deserialize;
@@ -24,84 +23,6 @@ pub use identity::{
 /// type in the monorepo — including `fold_db`'s, which is a distinct struct —
 /// calls these, so the algorithm cannot be forked back apart.
 pub use metadata::{derive_transform_metadata, hash_expression, TransformMetadata};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
-pub struct FieldMapper {
-    source_schema: String,
-    source_field: String,
-}
-
-impl FieldMapper {
-    pub fn new<S: Into<String>, F: Into<String>>(source_schema: S, source_field: F) -> Self {
-        Self {
-            source_schema: source_schema.into(),
-            source_field: source_field.into(),
-        }
-    }
-
-    pub fn source_schema(&self) -> &str {
-        &self.source_schema
-    }
-
-    pub fn source_field(&self) -> &str {
-        &self.source_field
-    }
-}
-
-impl TryFrom<String> for FieldMapper {
-    type Error = String;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err("FieldMapper definition cannot be empty".to_string());
-        }
-
-        // Split on first dot only — field names may contain dots (e.g. "hash.policy.number"
-        // means schema="hash", field="policy.number")
-        let (source_schema, source_field) = trimmed
-            .split_once('.')
-            .ok_or_else(|| "FieldMapper must be in 'schema.field' format".to_string())?;
-
-        let source_schema = source_schema.trim();
-        let source_field = source_field.trim();
-
-        if source_schema.is_empty() || source_field.is_empty() {
-            return Err("FieldMapper must include non-empty source schema and field".to_string());
-        }
-
-        Ok(Self::new(source_schema, source_field))
-    }
-}
-
-impl TryFrom<&str> for FieldMapper {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::try_from(value.to_string())
-    }
-}
-
-impl From<FieldMapper> for String {
-    fn from(mapper: FieldMapper) -> Self {
-        format!("{}.{}", mapper.source_schema, mapper.source_field)
-    }
-}
-
-impl<'__s> utoipa::ToSchema<'__s> for FieldMapper {
-    fn schema() -> (
-        &'__s str,
-        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
-    ) {
-        (
-            "FieldMapper",
-            utoipa::openapi::schema::ObjectBuilder::new()
-                .schema_type(utoipa::openapi::schema::SchemaType::String)
-                .into(),
-        )
-    }
-}
 
 /// Origin of a schema in the service.
 ///
@@ -156,16 +77,25 @@ pub struct DeclarativeSchemaDefinition {
     /// Named lookups of these same records; independent of canonical field reuse.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
-    /// Explicit record independence remains after the last alternate is removed.
-    #[serde(default, skip_serializing_if = "crate::alternate_keys::is_false")]
-    pub independent_fields: bool,
+    /// Node storage marker: this schema owns its record values.
+    ///
+    /// A node sets it on every schema that it stores, and it refuses to open a
+    /// home with a stored schema that has neither this marker nor alternate
+    /// keys (the retired layout that read values through another schema). The
+    /// Schema Service stores definitions only and leaves it unset. The wire
+    /// name stays the same so that apps and older node releases read the same
+    /// bytes.
+    #[serde(
+        default,
+        rename = "independent_fields",
+        skip_serializing_if = "crate::alternate_keys::is_false"
+    )]
+    pub owned_values: bool,
     /// Field names - plain data fields without transformations
     pub fields: Option<Vec<String>>,
     /// Transform fields - computed fields with expressions (optional, only for transform schemas)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transform_fields: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub field_mappers: Option<HashMap<String, FieldMapper>>,
     /// SHA256 hash of the schema content for integrity verification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,

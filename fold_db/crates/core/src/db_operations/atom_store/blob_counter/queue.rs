@@ -32,10 +32,10 @@ use crate::schema::SchemaError;
 use crate::storage::KvMutation;
 use serde_json::json;
 
-/// Key family of the entries.
-const ENTRIES: &str = "bref:v3:q";
-/// Key family of the bucket directory.
-const DIRECTORY: &str = "bref:v3:d";
+// The key families of the entries and of the bucket directory.
+use crate::storage::current_keys::families::{
+    BLOB_QUEUE_DIRECTORY as DIRECTORY, BLOB_QUEUE_ENTRIES as ENTRIES,
+};
 /// Nanoseconds in a millisecond.
 const NANOS_PER_MILLI: u64 = 1_000_000;
 
@@ -156,27 +156,6 @@ impl BlobQueue {
             .map(|(_, mutation)| mutation)
             .collect()
     }
-
-    /// True for the key of an entry or of a directory row.
-    pub(crate) fn is_queue_key(key: &str) -> bool {
-        if let Some(rest) = key.strip_prefix(&format!("{DIRECTORY}\0")) {
-            return digits(rest);
-        }
-        let Some(rest) = key.strip_prefix(&format!("{ENTRIES}:")) else {
-            return false;
-        };
-        let Some((bucket, tail)) = rest.split_once('\0') else {
-            return false;
-        };
-        let Some((at, id)) = tail.split_once(':') else {
-            return false;
-        };
-        digits(bucket) && digits(at) && super::is_id(id)
-    }
-}
-
-fn digits(text: &str) -> bool {
-    text.len() == 20 && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl Default for BlobQueue {
