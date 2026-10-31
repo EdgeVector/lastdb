@@ -2,6 +2,7 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{
@@ -47,18 +48,17 @@ pub(crate) fn get_schemas_available(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let (source_filter, unknown_source) = parse_source_filter(event);
-    if unknown_source {
+    // An unknown source is an empty 200 before the registry read. A lock
+    // failure stays a 500 only when the source is absent or known.
+    let source = AvailableSource::parse(query_param(event, "source="));
+    if source.is_unknown() {
         return json_response(200, &json!({ "schemas": Vec::<SchemaEnvelope>::new() }));
     }
     match state.get_all_schemas_cached() {
         Ok(schemas) => {
             let envelopes: Vec<SchemaEnvelope> = schemas
                 .into_iter()
-                .filter(|schema| match source_filter {
-                    Some(wanted) => schema.source == wanted,
-                    None => !schema_service_core::builtin_schemas::is_schema_org_leftover(schema),
-                })
+                .filter(|schema| source.keeps(schema))
                 .map(|schema| SchemaEnvelope {
                     system: state.is_system_schema(&schema.name),
                     schema,

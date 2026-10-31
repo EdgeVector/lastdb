@@ -1,5 +1,7 @@
 //! Schema read routes: registry index, listing, lookup, similarity and reload.
 
+use schema_service_core::builtin_schemas::AvailableSource;
+
 use super::*;
 
 #[allow(
@@ -49,7 +51,8 @@ pub async fn list_schemas(state: web::Data<SchemaServiceState>) -> impl Responde
 #[derive(serde::Deserialize)]
 pub struct AvailableSchemasQuery {
     /// Optional filter by schema source. Accepts `system_seed`, `starter_seed`,
-    /// `user`. When absent, all schemas are returned.
+    /// `user`. When absent, the list hides Schema.org leftovers and keeps templates.
+    /// An unknown value selects nothing.
     pub source: Option<String>,
 }
 
@@ -61,18 +64,9 @@ pub async fn get_available_schemas(
     state: web::Data<SchemaServiceState>,
     query: web::Query<AvailableSchemasQuery>,
 ) -> impl Responder {
-    use schema_types::SchemaSource;
-
-    // Parse the optional source filter. Unknown values fall through to "no
-    // match" (empty response) rather than 400 — the filter is best-effort
-    // and unknown sources simply select nothing.
-    let source_filter: Option<SchemaSource> = query.source.as_deref().and_then(|s| match s {
-        "system_seed" => Some(SchemaSource::SystemSeed),
-        "starter_seed" => Some(SchemaSource::StarterSeed),
-        "user" => Some(SchemaSource::User),
-        _ => None,
-    });
-
+    // Read first. A lock failure stays 500, including when `source` is unknown.
+    // `AvailableSource::keeps` then drops every schema for an unknown name.
+    let source = AvailableSource::parse(query.source.as_deref());
     let schemas = match read_schemas(&state) {
         Ok(s) => s,
         Err(r) => return r,
@@ -80,23 +74,12 @@ pub async fn get_available_schemas(
 
     let envelopes: Vec<SchemaEnvelope> = schemas
         .iter()
-        .filter(|(_, schema)| match source_filter {
-            Some(wanted) => schema.source == wanted,
-            // Default available is live language only: hide Schema.org
-            // leftovers; keep templates (`owner_app_id=templates`).
-            None => !schema_service_core::builtin_schemas::is_schema_org_leftover(schema),
-        })
+        .filter(|(_, schema)| source.keeps(schema))
         .map(|(name, schema)| SchemaEnvelope {
             schema: schema.clone(),
             system: state.is_system_schema(name),
         })
         .collect();
-
-    // If the user passed a source value that didn't parse to a known variant,
-    // return an empty list — don't silently return everything.
-    if query.source.is_some() && source_filter.is_none() {
-        return HttpResponse::Ok().json(AvailableSchemasResponse { schemas: vec![] });
-    }
 
     HttpResponse::Ok().json(AvailableSchemasResponse { schemas: envelopes })
 }

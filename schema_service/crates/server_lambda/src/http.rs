@@ -132,21 +132,6 @@ pub(crate) fn query_param<'a>(event: &'a Request, key_eq: &str) -> Option<&'a st
         .and_then(|q| q.split('&').find_map(|p| p.strip_prefix(key_eq)))
 }
 
-/// Parse the optional `source=` query-string parameter for the
-/// `/schemas/available` endpoint. Returns the matched `SchemaSource` variant,
-/// or `None` when the param is absent. Unknown values are reported back so
-/// callers can distinguish "no filter" from "filter that matched nothing".
-pub(crate) fn parse_source_filter(event: &Request) -> (Option<schema_types::SchemaSource>, bool) {
-    use schema_types::SchemaSource;
-    match query_param(event, "source=") {
-        None => (None, false),
-        Some("system_seed") => (Some(SchemaSource::SystemSeed), false),
-        Some("starter_seed") => (Some(SchemaSource::StarterSeed), false),
-        Some("user") => (Some(SchemaSource::User), false),
-        Some(_) => (None, true), // present but unknown
-    }
-}
-
 /// Parse the `threshold` query-string parameter, defaulting to 0.5 when
 /// absent or unparseable. Shared by `/schemas/similar/{name}` and
 /// `/transforms/similar/{name}`.
