@@ -3,9 +3,7 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_channel_json, ReleaseReadReply,
-};
+use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply};
 use schema_service_core::PublicAppReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
@@ -237,10 +235,10 @@ pub(crate) async fn get_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_channel(app_id, channel).await {
-        Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(404, &unknown_channel_json(app_id, channel)),
-        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
+    match state.channel_read_reply(app_id, channel).await {
+        ChannelReadReply::Ready(body) => json_response(200, &body),
+        ChannelReadReply::Missing(body) => json_response(404, &body),
+        ChannelReadReply::Unavailable(body) => json_response(503, &body),
     }
 }
 

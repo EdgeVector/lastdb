@@ -13,6 +13,17 @@ pub enum ReleaseReadReply {
     Unavailable(Value),
 }
 
+/// The anonymous channel read both HTTP routers answer.
+#[derive(Debug)]
+pub enum ChannelReadReply {
+    /// The channel exists. HTTP 200. The value is [`ChannelRecord::to_public_json`].
+    Ready(Value),
+    /// No channel has that key. HTTP 404. The value is the unknown-channel body.
+    Missing(Value),
+    /// The storage read failed. HTTP 503. The value is the registry-unavailable body.
+    Unavailable(Value),
+}
+
 impl SchemaServiceState {
     /// Point get of one release by its exact key.
     ///
@@ -80,5 +91,21 @@ impl SchemaServiceState {
         Ok(read_lock(&self.app_channels, "app_channels")?
             .get(&key)
             .cloned())
+    }
+
+    /// Classify [`Self::get_channel`] for the anonymous HTTP read.
+    ///
+    /// `Ready` is the public JSON. `Missing` is the unknown-channel body,
+    /// including an app id or a channel name that the grammar rejects.
+    /// `Unavailable` is the registry-unavailable body.
+    #[must_use]
+    pub async fn channel_read_reply(&self, app_id: &str, channel: &str) -> ChannelReadReply {
+        match self.get_channel(app_id, channel).await {
+            Ok(Some(record)) => ChannelReadReply::Ready(record.to_public_json()),
+            Ok(None) => ChannelReadReply::Missing(unknown_channel_json(app_id, channel)),
+            Err(error) => {
+                ChannelReadReply::Unavailable(registry_unavailable_json(&error.to_string()))
+            }
+        }
     }
 }
