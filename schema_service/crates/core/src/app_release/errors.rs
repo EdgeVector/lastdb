@@ -56,16 +56,13 @@ impl ReleaseError {
             Self::DevRevoked => (403, json!({ "reason": "dev_revoked" })),
             Self::NotConfigured => (503, json!({ "reason": "app_identity_not_configured" })),
             Self::NotAppOwner => (403, json!({ "reason": "not_app_owner" })),
-            Self::UnknownApp(app_id) => (404, json!({ "reason": "unknown_app", "app_id": app_id })),
+            Self::UnknownApp(app_id) => (404, unknown_app_json(app_id)),
             Self::AppIdMismatch => (400, json!({ "reason": "app_id_mismatch" })),
             Self::UnresolvedSchema(name) => (
                 422,
                 json!({ "reason": "unresolved_schema", "schema": name }),
             ),
-            Self::UnknownRelease(release_id) => (
-                404,
-                json!({ "reason": "unknown_release", "release_id": release_id }),
-            ),
+            Self::UnknownRelease(release_id) => (404, unknown_release_json(release_id)),
             Self::GenerationConflict { expected, supplied } => (
                 409,
                 json!({
@@ -194,10 +191,7 @@ impl CompatRowError {
             }
             Self::SignatureInvalid => (401, json!({ "reason": "signature_invalid" })),
             Self::VerifierNotConfigured => (503, json!({ "reason": "verifier_not_configured" })),
-            Self::UnknownRelease(release_id) => (
-                404,
-                json!({ "reason": "unknown_release", "release_id": release_id }),
-            ),
+            Self::UnknownRelease(release_id) => (404, unknown_release_json(release_id)),
             Self::AlreadyExists => (409, json!({ "reason": "already_exists" })),
             Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
         }
@@ -213,4 +207,28 @@ impl CompatRowError {
             Self::Internal(_) => "internal",
         }
     }
+}
+
+/// Anonymous `GET` miss for an app id. A release write uses the same body.
+#[must_use]
+pub fn unknown_app_json(app_id: &str) -> Value {
+    json!({ "reason": "unknown_app", "app_id": app_id })
+}
+
+/// Anonymous `GET` miss for a release id. A release write uses the same body.
+#[must_use]
+pub fn unknown_release_json(release_id: &str) -> Value {
+    json!({ "reason": "unknown_release", "release_id": release_id })
+}
+
+/// Anonymous `GET` miss for one channel.
+#[must_use]
+pub fn unknown_channel_json(app_id: &str, channel: &str) -> Value {
+    json!({ "reason": "unknown_channel", "app_id": app_id, "channel": channel })
+}
+
+/// Storage read failed. The `error` text is the storage error.
+#[must_use]
+pub fn registry_unavailable_json(error: &str) -> Value {
+    json!({ "reason": "registry_unavailable", "error": error })
 }

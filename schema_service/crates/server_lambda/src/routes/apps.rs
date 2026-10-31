@@ -3,6 +3,9 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::app_release::{
+    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
 
@@ -70,7 +73,7 @@ pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response
                 .contains(&record.owner_dev_pubkey);
             json_response(200, &record.to_public_json(revoked))
         }
-        None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
+        None => json_response(404, &unknown_app_json(app_id)),
     }
 }
 
@@ -310,14 +313,8 @@ pub(crate) async fn get_apps_channels(
     };
     match state.get_channel(app_id, channel).await {
         Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(
-            404,
-            &json!({"reason": "unknown_channel", "app_id": app_id, "channel": channel}),
-        ),
-        Err(e) => json_response(
-            503,
-            &json!({"reason": "registry_unavailable", "error": e.to_string()}),
-        ),
+        Ok(None) => json_response(404, &unknown_channel_json(app_id, channel)),
+        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
     }
 }
 
@@ -332,14 +329,8 @@ pub(crate) async fn get_releases(
     }
     match state.get_release(release_id).await {
         Ok(Some(record)) => json_response(200, &record.to_public_json()),
-        Ok(None) => json_response(
-            404,
-            &json!({"reason": "unknown_release", "release_id": release_id}),
-        ),
-        Err(e) => json_response(
-            503,
-            &json!({"reason": "registry_unavailable", "error": e.to_string()}),
-        ),
+        Ok(None) => json_response(404, &unknown_release_json(release_id)),
+        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
     }
 }
 
@@ -357,7 +348,7 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
                 .contains(&record.owner_dev_pubkey);
             json_response(200, &record.to_public_json(revoked))
         }
-        None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
+        None => json_response(404, &unknown_app_json(app_id)),
     }
 }
 
