@@ -3,7 +3,8 @@
 
 The daemon creates the home with LASTDB_RECORD_HOME=1. The script writes and
 reads records with the selectors that the brain and LastSecrets apps use,
-then restarts the daemon and reads again. It runs no test runner or
+checks that repeated reads by key come from the record warm set, then
+restarts the daemon and reads again. It runs no test runner or
 benchmark. The home contains generated data only and never reads or copies a
 primary.
 """
@@ -195,6 +196,29 @@ def deletes(node):
           "write after delete passed", flush=True)
 
 
+def native_status(node):
+    return node.call("/api/db/native-status")[0]["native_disk"]
+
+
+def warm_records(node):
+    mutate(node, "RecordById", {"hash": "warm"}, {"id": "warm", "bucket": "bw", "value": "w1"}, "create")
+    before = native_status(node)
+    for _ in range(3):
+        require(one(node, "warm")["value"] == "w1", "a repeated read returned another value")
+    after = native_status(node)
+    hits = after["core_warm_hits"] - before["core_warm_hits"]
+    require(hits >= 2, f"repeated reads by key hit memory {hits} times")
+    require(after["core_warm_records"] >= 1 and after["core_warm_bytes"]["record_bytes"] > 0,
+            "the warm set holds or charges no record: " + repr(after["core_warm_bytes"]))
+    mutate(node, "RecordById", {"hash": "warm"}, {"value": "w2"})
+    require(one(node, "warm")["value"] == "w2", "a read after a write returned the old record")
+    mutate(node, "RecordById", {"hash": "warm"}, {}, "delete")
+    require(absent(node, "warm"), "a read after a delete returned the deleted record")
+    print(f"Record warm set: {hits} memory hits for 3 reads by key, "
+          f"{after['core_warm_records']} records, {after['core_warm_bytes']['record_bytes']} bytes; "
+          "read after write and after delete passed", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, required=True)
@@ -223,6 +247,7 @@ def main():
         preconditions(node)
         listing(node)
         deletes(node)
+        warm_records(node)
         node.stop()
         node.start()
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
