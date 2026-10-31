@@ -1,6 +1,8 @@
 //! Mutation challenge and app/release/channel registry routes.
 
-use schema_service_core::app_release::{ChannelReadReply, CompatRowsReply, ReleaseReadReply};
+use schema_service_core::app_release::{
+    ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply,
+};
 use schema_service_core::PublicAppReply;
 
 use super::*;
@@ -325,12 +327,9 @@ pub async fn write_compat_row(
             json!({ "reason": "signature_required", "detail": "missing X-Signature header" }),
         );
     };
-    match state.write_compat_row(&release_id, &sig, &body).await {
-        Ok(record) => json_status(201, record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.compat_write_reply(&release_id, &sig, &body).await {
+        CompatWriteReply::Created(body) => json_status(201, body),
+        CompatWriteReply::Failed { status, body } => json_status(status, body),
     }
 }
 

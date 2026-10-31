@@ -2,7 +2,9 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{release_verification_location, CompatRowsReply};
+use schema_service_core::app_release::{
+    release_verification_location, CompatRowsReply, CompatWriteReply,
+};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -126,11 +128,8 @@ pub(crate) async fn write_compat_row(
             &json!({"reason": "signature_required", "detail": "missing X-Signature header"}),
         );
     };
-    match state.write_compat_row(release_id, sig, &body_value).await {
-        Ok(record) => json_response(201, &record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+    match state.compat_write_reply(release_id, sig, &body_value).await {
+        CompatWriteReply::Created(body) => json_response(201, &body),
+        CompatWriteReply::Failed { status, body } => json_response(status, &body),
     }
 }
