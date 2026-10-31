@@ -179,7 +179,7 @@ their clean core memory publication before the ack. No collection timer delays t
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
 - Empty homes initialize directly as format 6. Existing format 4 and 5 homes retain their records.
   No command upgrades a format 4 or 5 home in place; copy its records into a fresh home.
-  This release refuses shared-value schemas. Startup does not convert data. Cloud activation stays disabled for this round.
+  Startup refuses a stored schema that does not own its values. Startup does not convert data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 

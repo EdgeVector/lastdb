@@ -66,7 +66,7 @@ class Lifecycle:
                 require(rows[0]["key"] == {"hash": "lifecycle", "range": key}
                         and rows[0]["fields"] == {"bucket": "lifecycle", "id": key,
                             "note": "shared immutable lifecycle value", "file": self.pointer},
-                        "lifecycle_live_shared_value")
+                        "lifecycle_live_exact_value")
         node.verify_file(self.pointer, self.baseline)
         return {"expired_absent": 0 if initial else 4, "expired_present_at_base": 2 if initial else 0,
                 "ttl_erased_records": 0 if initial else (4 if after_second else 2),

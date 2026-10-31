@@ -406,13 +406,6 @@ Decision 5: the database keeps every conflicting write until the retention janit
 
 ---
 
-## 11. Shared-value siblings (retired)
-
-- Each schema owns its record values. A write, delete or purge touches only the molecules of its own schema.
-- The sibling-tip analysis of the first draft no longer applies.
-
----
-
 ## 12. Molecules and blobs
 
 **Molecule counters** (in the `mh:{M}` header):
@@ -525,7 +518,6 @@ Total about 11,000 lines. Replaced by: the counter record type, the planner, the
 | R6 | We lose the referrer list. | Counter in `inventory`. Offline walk. Q3. |
 | R7 | The slot directory (Q4) adds a record for each conflict record. | About 100 bytes. Paid only by a conflicted slot. |
 | R8 | The blob dwell leaves bytes for a while. | A short dwell. Q4. |
-| R9 | Retired: shared-value siblings no longer exist. | None. |
 | R10 | Old defects stay: `mgd` markers grow, delete barriers grow. | Out of scope. Named here so no reader thinks this design fixes them. |
 | R11 | Two builds with two counter models open one home. | The format fence (S1). |
 | R12 | A request with many fields exceeds the operation limit. | Refuse before the gate with a clear limit error. Chunk by key for erasure. |
@@ -562,7 +554,6 @@ S1 is the one large step. I could not split it, because the planner replaces the
 | Q4 | How long is the blob dwell? Is blob deletion by counter in this round? | One hour. Yes. An upload and its atom come close together. |
 | Q5 | A conflict record keeps both atoms (as M1 does for Replaced) or only the loser? | Only the loser for Dropped (M1 already does). Keep both for Replaced as M1 decided. Cost is bytes for the window. |
 | Q6 | Add the slot directory record (one per conflict record) so a purge ends retention of the key's losers? | Yes. Without it a purge cannot meet Q4 of 2026-10-14. |
-| Q7 | Retired: shared-value siblings no longer exist. | None. |
 | Q8 | Build the molecule drain now? Today nothing removes a molecule. | Later. S4 gives the counters. |
 | Q9 | Does the node run `verify-refs` on a cadence, or only on request? | On request. A routine may call it. |
 | Q10 | On underflow, erase the tip and keep the body (my rule), or refuse the verb? | Erase the tip, keep the body, report. A compliance purge must not fail for a counter fault. |

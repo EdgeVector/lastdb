@@ -17,7 +17,7 @@ Collect known keys first. Use batch reads and batch mutations for independent wo
 
 ## Existing data
 
-This release refuses an installed schema with an older shared-value layout.
+This release refuses an installed schema that does not own its values.
 It does not guess record correspondence or change data in place.
 Create a fresh home with this release. The previous release serves the old home.
 A one-time read of the old home fills the new home through normal declarations and batch writes.

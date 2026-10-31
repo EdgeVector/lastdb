@@ -138,8 +138,7 @@ Use separate schemas for relationships, counters, tags, links, or files with the
 Collect known keys first. Batch independent reads and mutations.
 Equal canonical field definitions can hold different values at equal keys in separate schemas.
 
-An existing shared-value layout moves by a copy into a fresh home, not by an in-place conversion.
-Follow [the multi-key schema guide](multi-key-schemas.md).
+For existing data, follow [the multi-key schema guide](multi-key-schemas.md).
 
 ---
 
