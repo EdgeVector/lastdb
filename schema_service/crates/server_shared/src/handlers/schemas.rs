@@ -106,17 +106,12 @@ pub async fn list_near_misses(
     use schema_service_core::state::DEFAULT_NEAR_MISSES_LIMIT;
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_NEAR_MISSES_LIMIT);
-    let (near_misses, total, next_offset) = state.query_near_misses(
+    HttpResponse::Ok().json(state.near_misses_reply(
         query.since.as_deref(),
         query.until.as_deref(),
         offset,
         limit,
-    );
-    HttpResponse::Ok().json(NearMissesResponse {
-        near_misses,
-        total,
-        next_offset,
-    })
+    ))
 }
 
 pub async fn get_schema(

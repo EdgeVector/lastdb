@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::NearMissesResponse;
 
 /// Server-side ceiling on the per-request page size for
 /// `GET /v1/canonicalization-near-misses`. Matches the
@@ -63,6 +64,26 @@ impl SchemaServiceState {
             None
         };
         (page, total, next_offset)
+    }
+
+    /// The near-miss page both HTTP routers answer.
+    ///
+    /// Each router still parses `since`, `until`, `offset`, and `limit`.
+    /// A bad Lambda number falls back. A bad Actix number rejects the query.
+    #[must_use]
+    pub fn near_misses_reply(
+        &self,
+        since: Option<&str>,
+        until: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> NearMissesResponse {
+        let (near_misses, total, next_offset) = self.query_near_misses(since, until, offset, limit);
+        NearMissesResponse {
+            near_misses,
+            total,
+            next_offset,
+        }
     }
 
     /// Combined Phase B veto + Phase C shadow gate. Replaces the bare

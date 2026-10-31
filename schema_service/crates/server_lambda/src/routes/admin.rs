@@ -6,7 +6,7 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
+use schema_service_server_shared::types::DeprecateSchemasRequest;
 use serde_json::json;
 
 pub(crate) fn post_debug_field_match_probe(
@@ -155,13 +155,7 @@ pub(crate) fn get_canonicalization_near_misses(
     let limit: usize = query_param(event, "limit=")
         .and_then(|v| v.parse().ok())
         .unwrap_or(schema_service_core::state::DEFAULT_NEAR_MISSES_LIMIT);
-    let (near_misses, total, next_offset) =
-        state.query_near_misses(since.as_deref(), until.as_deref(), offset, limit);
-    let resp = NearMissesResponse {
-        near_misses,
-        total,
-        next_offset,
-    };
+    let resp = state.near_misses_reply(since.as_deref(), until.as_deref(), offset, limit);
     let body = serde_json::to_value(&resp).map_err(serialization_error)?;
     json_response(200, &body)
 }
