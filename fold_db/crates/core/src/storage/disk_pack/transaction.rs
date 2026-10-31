@@ -14,6 +14,7 @@ pub(super) use record_layout::require_record_layout;
 pub(crate) mod publication;
 mod request;
 mod resources;
+mod warm_records;
 pub(crate) use effects::{prepared_core_memory, stage_core_memory, stage_paths};
 pub(crate) use leases::lease;
 pub(crate) use request::{background_scope, request_scope};
@@ -54,6 +55,8 @@ pub(super) struct PendingBatch {
     source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
     preparation_limit: Mutex<Option<String>>,
     operation_limit: usize,
+    // Record values for the record warm set, published after the flush.
+    warm_records: Mutex<warm_records::WarmRecords>,
 }
 
 tokio::task_local! {
@@ -81,6 +84,7 @@ impl PendingBatch {
             source_receipts: Mutex::new(None),
             preparation_limit: Mutex::new(None),
             operation_limit: runtime.batch_operation_limit(),
+            warm_records: Mutex::new(warm_records::WarmRecords::default()),
         }
     }
     pub(super) fn current(runtime: &PackRuntime) -> Option<Arc<Self>> {

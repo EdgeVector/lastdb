@@ -57,7 +57,7 @@ impl MutationManager {
         for (((mutation, key), record_key), before) in
             mutations.iter().zip(&keys).zip(record_keys).zip(stored)
         {
-            let mut after = before.clone().unwrap_or_default();
+            let mut after = before.as_deref().cloned().unwrap_or_default();
             if !merge_mutation(schema_name, &schema, mutation, &mut after)? {
                 continue;
             }

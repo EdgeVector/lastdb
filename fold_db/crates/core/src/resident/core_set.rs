@@ -18,6 +18,7 @@ mod lifecycle;
 mod memory;
 mod model;
 mod path_table;
+mod records;
 mod slab;
 mod source_keys;
 mod sources;
@@ -28,6 +29,7 @@ pub(crate) use memory::CoreMemorySource;
 pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
 pub(crate) use model::{CoreModelChange, CoreModelStats, CoreModelUpdate};
+pub(crate) use records::RecordCoordinate;
 
 /// Stable identity of one used field path. Its current atom is not its key.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -129,6 +131,8 @@ impl std::error::Error for CoreCapacity {}
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
     pub(crate) paths: usize,
+    /// Decoded records of a format 7 home.
+    pub(crate) records: usize,
     pub(crate) tip_only_paths: usize,
     pub(crate) molecules: usize,
     pub(crate) atoms: usize,
@@ -220,6 +224,8 @@ pub(crate) struct CoreWarmSet {
     // Slot owners, atoms, owned values, and source links, by interned id.
     slots: tables::SlotTable,
     sources: source_keys::SourceTable,
+    // Decoded records of a format 7 home, on the same clock as `order`.
+    records: records::RecordTable,
     hits: u64,
     misses: u64,
     purged: u64,
@@ -247,6 +253,7 @@ impl CoreWarmSet {
             .count();
         CoreWarmStats {
             paths: self.paths.len(),
+            records: self.records.len(),
             tip_only_paths,
             molecules: self.slots.molecule_count(),
             atoms: self.atoms.values().map(AtomVariants::len).sum(),
@@ -254,7 +261,8 @@ impl CoreWarmSet {
                 .paths
                 .iter()
                 .filter(|(_, state)| state.holds > 0)
-                .count(),
+                .count()
+                + self.records.held(),
             dirty: 0,
             hits: self.hits,
             misses: self.misses,

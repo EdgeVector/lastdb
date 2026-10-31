@@ -72,7 +72,7 @@ impl CoreWarmSet {
     }
 
     /// Purge least recently used clean paths until `incoming` more bytes fit.
-    fn trim_to_limit(&mut self, incoming: usize, keep: &HashSet<path_table::PathId>) {
+    pub(super) fn trim_to_limit(&mut self, incoming: usize, keep: &HashSet<path_table::PathId>) {
         let limit = crate::resident::core_warm_bytes();
         if self.fits(incoming) {
             return;
@@ -87,30 +87,52 @@ impl CoreWarmSet {
         }
     }
 
-    /// Remove clean, unheld paths oldest first until the charge is at or under
-    /// `target`. Returns the number of paths removed.
+    /// Remove clean, unheld paths and records oldest first until the charge
+    /// is at or under `target`. Returns the number of entries removed.
     fn purge_clean_until(&mut self, target: usize, keep: &HashSet<path_table::PathId>) -> usize {
         let before = self.bytes.used();
         let mut purged = 0;
-        // Bounded batches: the order list is not borrowed while paths leave.
+        // Bounded batches: the order lists are not borrowed while entries
+        // leave. One batch of each kind merges by tick; a full batch that
+        // runs out first ends the round, so a later entry of that kind is
+        // never skipped for a newer entry of the other kind.
         'scan: loop {
-            let victims: Vec<_> = self
+            let paths: Vec<_> = self
                 .order
-                .values()
-                .filter(|id| !keep.contains(*id))
-                .filter(|id| self.paths.state(**id).is_some_and(|state| state.holds == 0))
+                .iter()
+                .filter(|(_, id)| !keep.contains(*id))
+                .filter(|(_, id)| self.paths.state(**id).is_some_and(|state| state.holds == 0))
                 .take(PURGE_BATCH)
-                .copied()
+                .map(|(tick, id)| (*tick, *id))
                 .collect();
-            if victims.is_empty() {
+            let records = self.record_victims(PURGE_BATCH);
+            if paths.is_empty() && records.is_empty() {
                 break;
             }
-            for id in victims {
+            let (paths_full, records_full) =
+                (paths.len() == PURGE_BATCH, records.len() == PURGE_BATCH);
+            let mut paths = paths.into_iter().peekable();
+            let mut records = records.into_iter().peekable();
+            loop {
                 if self.bytes.used() <= target {
                     break 'scan;
                 }
-                self.purge_path(id);
-                purged += 1;
+                let path_first = match (paths.peek(), records.peek()) {
+                    (Some(path), Some(record)) => path.0 < record.0,
+                    (Some(_), None) if !records_full => true,
+                    (None, Some(_)) if !paths_full => false,
+                    _ => break,
+                };
+                if path_first {
+                    let (_, id) = paths.next().expect("peeked path victim");
+                    self.purge_path(id);
+                    purged += 1;
+                } else {
+                    let (_, key) = records.next().expect("peeked record victim");
+                    if self.purge_record(&key) {
+                        purged += 1;
+                    }
+                }
             }
         }
         self.purged = self.purged.saturating_add(purged as u64);
@@ -145,23 +167,15 @@ impl CoreWarmSet {
     }
 
     pub(super) fn touch_id(&mut self, id: path_table::PathId) {
-        if self.clock == u64::MAX {
-            let ids: Vec<_> = self.order.values().copied().collect();
-            self.order.clear();
-            self.clock = 0;
-            for old in ids {
-                self.clock += 1;
-                self.paths.state_mut(old).expect("ordered core path").tick = self.clock;
-                self.order.insert(self.clock, old);
-            }
-        }
-        let Some(state) = self.paths.state_mut(id) else {
+        if self.paths.state(id).is_none() {
             return;
-        };
+        }
+        // A wrap renumbers every tick, so the path's tick is read after it.
+        let tick = self.next_tick();
+        let state = self.paths.state_mut(id).expect("warm core path");
         self.order.remove(&state.tick);
-        self.clock += 1;
-        state.tick = self.clock;
-        self.order.insert(self.clock, id);
+        state.tick = tick;
+        self.order.insert(tick, id);
     }
 
     pub(super) fn drop_id(&mut self, path: path_table::PathId) {

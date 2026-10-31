@@ -80,7 +80,8 @@ impl HashRangeQueryProcessor {
             options.order_by,
             options.predicate_limit,
         );
-        let mut by_key: HashMap<KeyValue, StoredRecord> = rows.into_iter().collect();
+        let mut by_key: HashMap<KeyValue, std::sync::Arc<StoredRecord>> =
+            rows.into_iter().collect();
         let kept: Vec<KeyedRecord> = kept
             .into_iter()
             .filter_map(|key| by_key.remove(&key).map(|record| (key, record)))

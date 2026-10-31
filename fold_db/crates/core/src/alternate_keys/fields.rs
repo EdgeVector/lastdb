@@ -40,8 +40,9 @@ impl AtomStore {
                     record.map_or_else(RecordFields::new, |record| {
                         record
                             .fields
-                            .into_iter()
+                            .iter()
                             .filter(|(name, _)| names.contains(name.as_str()))
+                            .map(|(name, value)| (name.clone(), value.clone()))
                             .collect()
                     })
                 })
