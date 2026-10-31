@@ -13,7 +13,8 @@
 use super::entry::DrainMarker;
 use super::keys;
 use super::page::RELEASE_BATCH_RECORDS;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use super::{Retention, RetentionPorts};
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::SchemaError;
 use std::collections::VecDeque;
 
@@ -58,7 +59,7 @@ pub(crate) struct DrainOutcome {
     pub(crate) finished: u64,
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// One drain batch: take the records of the pending drains in order, up to
     /// [`RELEASE_BATCH_RECORDS`] records and [`MAX_DRAINS_PER_BATCH`] drains,
     /// and release them in one native write scope.
@@ -90,7 +91,7 @@ impl AtomStore {
             let mut walk = drain.walk.clone();
             while found.len() < RELEASE_BATCH_RECORDS && !walk.done() {
                 walk.set_limit(RELEASE_BATCH_RECORDS - found.len());
-                let step = match self.walk_step(&mut walk).await {
+                let step = match self.store.walk_step(&mut walk).await {
                     Ok(step) => step,
                     Err(error) => {
                         failed = Some((index, error));
@@ -121,6 +122,7 @@ impl AtomStore {
             return Err(error);
         }
         let written = self
+            .store
             .in_background_scope(async {
                 let mut released = 0;
                 let skipped = self.commit_releases(found, markers, &mut released).await?;

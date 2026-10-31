@@ -2,8 +2,8 @@
 //! names.
 
 use super::entry::{QueueValue, RetentionEntry};
+use super::{Retention, RetentionPorts};
 use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeMap;
 
@@ -27,7 +27,7 @@ enum Due {
     Record(RetentionEntry),
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// Release the records of the queue keys `due`: one native write scope, one
     /// batch. The entries are read again inside the gate, and an entry that is
     /// gone, or is not due at `now_nanos`, is left alone. The scope holds the
@@ -44,21 +44,22 @@ impl AtomStore {
         if due.is_empty() {
             return Ok(ReleaseOutcome::default());
         }
-        self.in_background_scope(async {
-            let items = self.read_due_items(due, now_nanos).await?;
-            let mut outcome = ReleaseOutcome::default();
-            let mut entries: Vec<RetentionEntry> = Vec::new();
-            for item in items {
-                if let Due::Record(entry) = item {
-                    entries.push(entry);
+        self.store
+            .in_background_scope(async {
+                let items = self.read_due_items(due, now_nanos).await?;
+                let mut outcome = ReleaseOutcome::default();
+                let mut entries: Vec<RetentionEntry> = Vec::new();
+                for item in items {
+                    if let Due::Record(entry) = item {
+                        entries.push(entry);
+                    }
                 }
-            }
-            outcome.skipped += self
-                .commit_releases(entries, Vec::new(), &mut outcome.released)
-                .await?;
-            Ok(outcome)
-        })
-        .await
+                outcome.skipped += self
+                    .commit_releases(entries, Vec::new(), &mut outcome.released)
+                    .await?;
+                Ok(outcome)
+            })
+            .await
     }
 
     /// Release `entries` in one batch for each storage scope, and delete the
@@ -91,6 +92,7 @@ impl AtomStore {
         let mut extra = Some(extra);
         for (at, (scope, releases)) in by_scope.into_iter().enumerate() {
             let commit = self
+                .store
                 .commit_tip_changes(TipChangeSet {
                     scope: scope.as_deref(),
                     releases,
@@ -105,11 +107,12 @@ impl AtomStore {
             *released += commit.records_released;
         }
         if let Some(deletes) = extra.filter(|deletes| !deletes.is_empty()) {
-            self.commit_tip_changes(TipChangeSet {
-                deletes,
-                ..TipChangeSet::default()
-            })
-            .await?;
+            self.store
+                .commit_tip_changes(TipChangeSet {
+                    deletes,
+                    ..TipChangeSet::default()
+                })
+                .await?;
         }
         Ok(skipped)
     }
@@ -120,10 +123,11 @@ impl AtomStore {
         due: &[String],
         now_nanos: u64,
     ) -> Result<Vec<Due>, SchemaError> {
-        let queue = self.retention_state().queue();
+        let queue = self.store.retention_state().queue();
         let keys: Vec<Vec<u8>> = due.iter().map(|key| key.as_bytes().to_vec()).collect();
         let stored = self
-            .main_store
+            .store
+            .rows()
             .inner()
             .get_many(keys)
             .await
@@ -142,7 +146,7 @@ impl AtomStore {
                 }
                 None => {
                     tracing::error!(%key, "retention queue key has no readable expiry");
-                    self.retention_state().note_undecodable();
+                    self.store.retention_state().note_undecodable();
                     items.push(Due::Nothing);
                     continue;
                 }
@@ -152,7 +156,7 @@ impl AtomStore {
                 Ok(QueueValue::Drain(_)) => items.push(Due::Nothing),
                 Err(error) => {
                     tracing::error!(%key, %error, "retention queue entry does not decode");
-                    self.retention_state().note_undecodable();
+                    self.store.retention_state().note_undecodable();
                     items.push(Due::Nothing);
                 }
             }

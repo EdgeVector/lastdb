@@ -10,5 +10,6 @@
 mod delete;
 mod drain;
 mod filter;
+mod retention;
 mod schema_keys;
 mod store;

@@ -19,12 +19,13 @@ use std::future::Future;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use serde::de::DeserializeOwned;
 
 use super::bounded_range::{RangeWalk, Step};
 use super::counter::{ReleaseRequest, TipChangeSet, TipCommit};
 use super::hash_selection::HashTipSelection;
 use super::molecule_drain::DrainState;
-use super::retention::SlotReleases;
+use super::retention::{RetentionState, SlotReleases};
 use super::types::{MoleculeGenerationPointer, MoleculeHeader, PerKeyRecord};
 use super::MoleculeBindings;
 use crate::atom::delete_barrier::DeleteBarrier;
@@ -114,6 +115,31 @@ pub(crate) trait RetentionReleases: Sync {
         preserve_archives: bool,
     ) -> impl Future<Output = Result<SlotReleases, SchemaError>> + Send;
     fn directory_release_requests(&self, rows: &[(Vec<u8>, Vec<u8>)]) -> Vec<ReleaseRequest>;
+}
+
+/// Stored values by key, read in bounded chunks.
+pub(crate) trait StoredValues: Sync {
+    fn read_stored_values<T>(
+        &self,
+        keys: &[String],
+        failure: &'static str,
+    ) -> impl Future<Output = Result<Vec<Option<T>>, SchemaError>> + Send
+    where
+        T: DeserializeOwned + Send + Sync;
+}
+
+/// The time queue: retire one due bucket.
+pub(crate) trait TimeQueues: Sync {
+    fn retire_bucket(
+        &self,
+        key: String,
+        token: Vec<u8>,
+    ) -> impl Future<Output = Result<bool, SchemaError>> + Send;
+}
+
+/// The window, the counters and the last error of the retention janitor.
+pub(crate) trait RetentionStates: Sync {
+    fn retention_state(&self) -> &RetentionState;
 }
 
 /// The report and the wake signal of the molecule drain task.

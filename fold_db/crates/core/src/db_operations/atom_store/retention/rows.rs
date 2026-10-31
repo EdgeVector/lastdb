@@ -4,7 +4,7 @@
 
 use super::entry::{RetentionEntry, ENTRY_VERSION};
 use super::keys;
-use crate::db_operations::atom_store::AtomStore;
+use super::{Retention, RetentionPorts};
 use crate::schema::SchemaError;
 use serde_json::Value;
 
@@ -16,7 +16,7 @@ pub(crate) struct RecordSlot<'a> {
     pub(crate) range: &'a str,
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// The queue entry, the directory row of its bucket, and the slot directory
     /// entry of a record. The caller hands them to the planner as the
     /// `new_rows` of the record, so they are written in the batch of the history
@@ -34,9 +34,9 @@ impl AtomStore {
         conflict: Option<String>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
         let id = keys::record_id(history_key);
-        let queue = self.retention_state().queue();
-        let created = self.retention_state().clock_nanos();
-        let expires = created.saturating_add(self.retention_state().window_nanos());
+        let queue = self.store.retention_state().queue();
+        let created = self.store.retention_state().clock_nanos();
+        let expires = created.saturating_add(self.store.retention_state().window_nanos());
         let entry = RetentionEntry {
             version: ENTRY_VERSION,
             history: history_key.to_string(),

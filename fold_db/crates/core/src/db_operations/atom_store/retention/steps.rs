@@ -5,9 +5,9 @@
 //! queue (the buckets and their cursors) and the slot drains it has started.
 //! Two kinds of work share the janitor:
 //!
-//! - **Ordinary work** ([`AtomStore::release_step`]): release the due records of
+//! - **Ordinary work** ([`Retention::release_step`]): release the due records of
 //!   the oldest bucket that has some, and retire a bucket that is done.
-//! - **Drains** ([`AtomStore::drain_step`]): release the records of an erased
+//! - **Drains** ([`Retention::drain_step`]): release the records of an erased
 //!   slot, one batch at a time.
 //!
 //! The janitor alternates them, a few batches of one kind and then a few of the
@@ -17,8 +17,8 @@
 use super::drain::{DrainOutcome, PendingDrain, MAX_PENDING_DRAINS};
 use super::entry::DrainMarker;
 use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
+use super::{Retention, RetentionPorts};
 use crate::db_operations::atom_store::time_queue::{NetSchedule, QueueReader, TimeQueue};
-use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction::blocked::{measure, Cost};
 use std::collections::VecDeque;
@@ -151,10 +151,10 @@ impl RetentionCursor {
     }
 }
 
-impl AtomStore {
+impl<S: RetentionPorts> Retention<'_, S> {
     /// A new cursor for the janitor of this store.
     pub(crate) fn retention_cursor(&self) -> RetentionCursor {
-        RetentionCursor::new(self.retention_state().queue())
+        RetentionCursor::new(self.store.retention_state().queue())
     }
 
     /// Read the directory of the queue: the buckets that have started.
@@ -203,7 +203,7 @@ impl AtomStore {
                     let Some((key, token)) = cursor.reader.retire_token(bucket) else {
                         break;
                     };
-                    let retired = self.retire_bucket(key, token).await?;
+                    let retired = self.store.retire_bucket(key, token).await?;
                     // The reader leaves the bucket in both cases. When the row
                     // stayed, a new entry changed it, and the next refresh adds
                     // the bucket again with a new walk.
@@ -283,8 +283,8 @@ impl AtomStore {
         let queue = cursor.queue;
         let Some(slices) = cursor.net.next_slices(
             NET_CHUNK_SLICES,
-            || queue.net_slices(now_nanos, self.retention_state().window_nanos()),
-            || self.retention_state().note_net_sweep(),
+            || queue.net_slices(now_nanos, self.store.retention_state().window_nanos()),
+            || self.store.retention_state().note_net_sweep(),
         ) else {
             return Ok(None);
         };
@@ -303,7 +303,7 @@ impl AtomStore {
             );
         }
         let repaired = chunk.unlisted.len() as u64;
-        self.retention_state().note_buckets_repaired(repaired);
+        self.store.retention_state().note_buckets_repaired(repaired);
         Ok(Some(StepOutcome {
             lane: Lane::Net,
             repaired,
