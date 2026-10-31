@@ -157,12 +157,11 @@ pub(in crate::fold_db_core::mutation_manager) fn require_plain_schema(
             || name == AGGREGATE_GUARD_TOKEN_FIELD
             || AGGREGATE_MEMBER_RESERVED_FIELDS.contains(&name.as_str())
             || field.kind != kind
-            || !field.common().field_mappers().is_empty()
             || field.common().storage_prefix().is_some()
             || field.common().molecule_uuid().is_none()
             || !schema.field_hashes.contains_key(name)
         {
-            return Err(unsupported("aggregate, mapped, or noncanonical fields"));
+            return Err(unsupported("aggregate or noncanonical fields"));
         }
     }
     Ok(())

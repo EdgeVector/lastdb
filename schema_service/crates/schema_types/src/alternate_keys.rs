@@ -62,13 +62,16 @@ impl AlternateKey {
 }
 
 impl DeclarativeSchemaDefinition {
-    pub fn uses_independent_fields(&self) -> bool {
-        self.independent_fields || !self.alternate_keys.is_empty()
+    /// True when this schema is in the owned-value layout: it carries the node
+    /// storage marker or names alternate keys. Every schema that a node stores
+    /// is in this layout. A Schema Service definition is not.
+    pub fn has_owned_layout(&self) -> bool {
+        self.owned_values || !self.alternate_keys.is_empty()
     }
 
     /// A declaration names local fields, never another schema or its records.
     pub fn validate_alternate_keys(&self) -> Result<(), String> {
-        if !self.uses_independent_fields() {
+        if !self.has_owned_layout() {
             return Ok(());
         }
         if self.alternate_keys.len() > MAX_ALTERNATE_KEYS {
@@ -77,14 +80,13 @@ impl DeclarativeSchemaDefinition {
         if !matches!(
             self.schema_type,
             DeclarativeSchemaType::Hash | DeclarativeSchemaType::HashRange
-        ) || self.field_mappers.as_ref().is_some_and(|m| !m.is_empty())
-            || self
-                .transform_fields
-                .as_ref()
-                .is_some_and(|m| !m.is_empty())
+        ) || self
+            .transform_fields
+            .as_ref()
+            .is_some_and(|m| !m.is_empty())
         {
             return Err(
-                "independent values require a Hash or HashRange schema without field mappers"
+                "an owned schema must be a Hash or HashRange schema without transform fields"
                     .into(),
             );
         }
@@ -144,8 +146,12 @@ impl DeclarativeSchemaDefinition {
     }
 
     /// Separate from schema identity: a layout change cannot remint record identity.
+    ///
+    /// Only a node schema has a revision, and every node schema owns its
+    /// values. The leading `true` keeps the revision bytes that stored capture
+    /// outcomes and alternate-key change jobs already hold.
     pub fn alternate_key_revision(&self) -> String {
-        let bytes = serde_json::to_vec(&(self.uses_independent_fields(), &self.alternate_keys))
+        let bytes = serde_json::to_vec(&(true, &self.alternate_keys))
             .expect("alternate key declarations serialize");
         format!("{:x}", Sha256::digest(bytes))
     }

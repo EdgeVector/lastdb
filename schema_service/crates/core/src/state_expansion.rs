@@ -112,9 +112,8 @@ impl SchemaServiceState {
 
     /// Expand an incoming schema to be a superset of an existing schema.
     ///
-    /// Merges fields, preserves each predecessor field's molecule mapper,
-    /// merges classifications and ref_fields, recomputes identity_hash,
-    /// persists, and updates caches.
+    /// Merges fields, merges classifications and ref_fields, recomputes
+    /// identity_hash, persists, and updates caches.
     ///
     /// Returns `SchemaAddOutcome::Expanded` on success, or `AlreadyExists` if
     /// the incoming fields are a subset of the existing.
@@ -163,7 +162,9 @@ impl SchemaServiceState {
         );
         schema.fields = Some(merged_fields);
 
-        Self::stamp_predecessor_mappers(schema, &existing_fields, old_name);
+        // A definition carries no molecule address. Each node keeps the
+        // molecules of the schema that it installed.
+        schema.field_molecule_uuids = None;
         merge_existing_metadata(schema, existing);
         self.validate_proposal_field_names(schema)?;
         self.apply_canonical_types(schema)?;
@@ -171,7 +172,7 @@ impl SchemaServiceState {
         // Recompute identity hash with merged fields.
         // The expanded schema is a NEW schema — its name is the identity hash
         // (derived from schema name + fields). The old schema keeps its name and
-        // gets blocked/superseded. Field mappers point back to the old schema.
+        // gets blocked/superseded.
         schema.compute_identity_hash();
         let new_hash = schema
             .get_identity_hash()

@@ -76,7 +76,6 @@ impl LiveSchemaResolver {
             None,
             Some(req.fields.clone()),
             None,
-            None,
         );
         schema.descriptive_name = Some(req.descriptive_name.clone());
         schema.purpose_statement = req.purpose_statement.clone();

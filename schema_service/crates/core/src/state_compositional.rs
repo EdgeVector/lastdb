@@ -106,7 +106,6 @@ fn synthetic_component_schema(
         None,
         Some(Vec::new()),
         None,
-        None,
     );
     s.descriptive_name = Some(child_schema.replace('_', " "));
     s.purpose_statement = Some(purpose.to_string());

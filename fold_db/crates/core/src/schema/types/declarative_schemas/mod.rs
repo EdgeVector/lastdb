@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 mod runtime;
 
 // Pure wire helpers live in schema_types (shared with schema_service).
-pub use schema_types::{FieldMapper, SchemaSource};
+pub use schema_types::SchemaSource;
 
 /// Declarative schema definition - the primary schema representation.
 ///
@@ -48,7 +48,6 @@ impl DeclarativeSchemaDefinition {
         key: Option<schema_types::KeyConfig>,
         fields: Option<Vec<String>>,
         transform_fields: Option<HashMap<String, String>>,
-        field_mappers: Option<HashMap<String, FieldMapper>>,
     ) -> Self {
         Self::with_wire(schema_types::DeclarativeSchemaDefinition::new(
             name,
@@ -56,7 +55,6 @@ impl DeclarativeSchemaDefinition {
             key,
             fields,
             transform_fields,
-            field_mappers,
         ))
     }
 

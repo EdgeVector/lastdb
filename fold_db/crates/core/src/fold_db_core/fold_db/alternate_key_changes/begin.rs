@@ -30,7 +30,7 @@ pub(super) async fn execute(
     source.clear_runtime_molecules();
     let mut target = source.clone_for_read_shared();
     target.alternate_keys = alternate_keys;
-    target.independent_fields = true;
+    target.owned_values = true;
     target
         .validate_alternate_keys()
         .map_err(SchemaError::InvalidData)?;
@@ -61,7 +61,7 @@ pub(super) async fn execute(
     // Freeze ordinary writers before the first page. The native schema snapshot
     // and staged management cache change with the same durable root as this job.
     let mut frozen = change.source.clone_for_read_shared();
-    frozen.independent_fields = true;
+    frozen.owned_values = true;
     db.db_ops.store_schema(name, &frozen).await?;
     db.db_ops
         .store_schema_state(name, &SchemaState::Blocked)

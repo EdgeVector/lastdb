@@ -8,7 +8,6 @@
 use super::catalog_keys::*;
 use super::SchemaStore;
 use crate::schema::manifest_retention::{RetentionPolicyInReach, RetentionReach, RetentionSharing};
-use crate::schema::types::declarative_schemas::FieldMapper;
 use crate::schema::{Schema, SchemaError, SchemaRetentionPolicy};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -56,15 +55,14 @@ impl SchemaStore {
     ///
     /// `binding` is the manifest name that declares the TTL. It and the anchor
     /// are the two names of one manifest entry, so they are not reported.
-    /// Another schema counts as bound to the anchor when one of its field
-    /// mappers names the anchor (or a schema bound to it), when a retention
-    /// alias points at it, or when it holds a molecule the anchor holds. A
-    /// schema the anchor was expanded from is the same app's earlier version
-    /// and is not reported, unless another app owns it.
+    /// Another schema counts as bound to the anchor when a retention alias
+    /// points at it (or at a schema bound to it), or when it holds a molecule
+    /// the anchor holds. A schema the anchor was expanded from is the same
+    /// app's earlier version and is not reported, unless another app owns it.
     ///
     /// `predecessors` seeds the expansion chain with schemas the anchor will be
-    /// expanded from but whose mappers are not stored yet: a read-only check of
-    /// a declare that the Schema Service would expand.
+    /// expanded from: a read-only check of a declare that the Schema Service
+    /// would expand.
     pub async fn retention_sharing(
         &self,
         binding: &str,
@@ -99,9 +97,6 @@ impl SchemaStore {
         let schemas = self.get_all_schemas().await?;
         let aliases = self.retention_aliases().await?;
         let reach = compute_reach(&schemas, &aliases, binding, anchor, predecessors);
-        let binding_bound = schemas.get(binding).is_some_and(|schema| {
-            mapper_sources(schema).any(|source| reach.chain.contains(source))
-        });
         let names: Vec<String> = reach.chain.into_iter().chain(reach.shared).collect();
         let keys: Vec<String> = names
             .iter()
@@ -135,20 +130,8 @@ impl SchemaStore {
                 policy,
             });
         }
-        Ok(RetentionReach {
-            policies: found,
-            binding_bound,
-        })
+        Ok(RetentionReach { policies: found })
     }
-}
-
-fn mapper_sources(schema: &Schema) -> impl Iterator<Item = &str> {
-    schema
-        .field_mappers
-        .as_ref()
-        .into_iter()
-        .flat_map(|mappers| mappers.values())
-        .map(FieldMapper::source_schema)
 }
 
 fn molecules_of<'a>(
@@ -170,8 +153,8 @@ fn molecules_of<'a>(
 struct Reach {
     /// The anchor and the schemas it was expanded from.
     chain: BTreeSet<String>,
-    /// Other schemas bound to the chain, by field mapper, retention alias or
-    /// shared molecule, transitively. Neither `binding` nor the chain.
+    /// Other schemas bound to the chain, by retention alias or by a molecule
+    /// that the chain holds, transitively. Neither `binding` nor the chain.
     shared: BTreeSet<String>,
 }
 
@@ -185,17 +168,6 @@ fn compute_reach(
     // The anchor and the schemas it was expanded from: the same data's history.
     let mut chain: BTreeSet<String> = BTreeSet::from([anchor.to_string()]);
     chain.extend(predecessors.iter().cloned());
-    let mut pending: Vec<String> = chain.iter().cloned().collect();
-    while let Some(name) = pending.pop() {
-        let Some(schema) = schemas.get(&name) else {
-            continue;
-        };
-        for source in mapper_sources(schema) {
-            if chain.insert(source.to_string()) {
-                pending.push(source.to_string());
-            }
-        }
-    }
     let molecules = molecules_of(schemas, &chain);
     let mut reach = chain.clone();
     reach.insert(binding.to_string());
@@ -207,7 +179,6 @@ fn compute_reach(
                 continue;
             }
             let in_reach = |other: &str| reach.contains(other) || shared.contains(other);
-            let mapped = mapper_sources(schema).any(in_reach);
             let aliased = aliases
                 .iter()
                 .any(|(alias, target)| alias == name && in_reach(target));
@@ -215,7 +186,7 @@ fn compute_reach(
                 map.values()
                     .any(|uuid| !uuid.is_empty() && molecules.contains(uuid.as_str()))
             });
-            if mapped || aliased || overlaps {
+            if aliased || overlaps {
                 added.push(name.clone());
             }
         }

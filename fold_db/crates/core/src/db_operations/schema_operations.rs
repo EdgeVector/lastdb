@@ -61,16 +61,12 @@ impl DbOperations {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
-        if schema.uses_independent_fields() {
-            if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
-                let compound = schema.schema_type == crate::schema::types::SchemaType::HashRange
-                    || schema.alternate_keys.values().any(|key| {
-                        key.hash_literal.is_some()
-                            || !key.range_parts.is_empty()
-                            || key.omit_empty_hash
-                    });
-                runtime.require_alternate_format(compound)?;
-            }
+        if let Some(runtime) = self.namespaced_store().disk_pack_runtime() {
+            let compound = schema.schema_type == crate::schema::types::SchemaType::HashRange
+                || schema.alternate_keys.values().any(|key| {
+                    key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash
+                });
+            runtime.require_alternate_format(compound)?;
         }
         schema
             .validate_definition()
@@ -239,10 +235,7 @@ impl DbOperations {
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
-        if old
-            .as_ref()
-            .is_some_and(|schema| schema.uses_independent_fields())
-        {
+        if old.is_some() {
             crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
                 self,
                 schema_name,

@@ -1,4 +1,4 @@
-use super::{DeclarativeSchemaDefinition, FieldMapper, SchemaSource};
+use super::{DeclarativeSchemaDefinition, SchemaSource};
 use crate::schema_type::DeclarativeSchemaType;
 use crate::DataClassification;
 use crate::FieldValueType;
@@ -18,15 +18,13 @@ struct DeclarativeSchemaDefinitionHelper {
     key: Option<KeyConfig>,
     #[serde(default)]
     alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
-    #[serde(default)]
-    independent_fields: bool,
+    #[serde(default, rename = "independent_fields")]
+    owned_values: bool,
     // Accept either an array of strings or an object map and normalize later
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transform_fields: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    field_mappers: Option<HashMap<String, FieldMapper>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     field_molecule_uuids: Option<HashMap<String, String>>,
     #[serde(default)]
@@ -60,7 +58,9 @@ struct DeclarativeSchemaDefinitionHelper {
     #[serde(default)]
     source: SchemaSource,
     // Preserve unrelated unknown-field behavior, but refuse removed storage
-    // configuration even when its JSON value is null.
+    // configuration even when its JSON value is null. Stored Schema Service
+    // records can still carry `field_mappers` from the retired cross-schema
+    // value sharing; that key lands here and has no effect.
     #[serde(flatten)]
     unknown: HashMap<String, serde::de::IgnoredAny>,
 }
@@ -72,7 +72,7 @@ impl DeclarativeSchemaDefinitionHelper {
         for name in ["molecule_uuid", "record_mapper"] {
             if self.unknown.contains_key(name) {
                 return Err(format!(
-                    "schema-level '{name}' is not supported; use per-field molecules and field_mappers"
+                    "schema-level '{name}' is not supported; each field uses its own molecule"
                 ));
             }
         }
@@ -104,7 +104,6 @@ impl DeclarativeSchemaDefinitionHelper {
             self.key,
             normalized_fields,
             self.transform_fields,
-            self.field_mappers,
         );
 
         // Preserve descriptive_name and field_molecule_uuids from deserialization
@@ -135,7 +134,7 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.owner_app_id = self.owner_app_id;
         schema.source = self.source;
         schema.alternate_keys = self.alternate_keys;
-        schema.independent_fields = self.independent_fields;
+        schema.owned_values = self.owned_values;
 
         // Recompute identity_hash if owner_app_id is present and the helper
         // didn't carry an explicit one. owner_app_id participates in

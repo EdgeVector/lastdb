@@ -247,7 +247,6 @@ fn build_class_schema(
         Some(KeyConfig::new(Some(HASH_FIELD.to_string()), None)),
         Some(field_names.clone()),
         None,
-        None,
     );
     schema.descriptive_name = Some(label.to_string());
     schema.source = SchemaSource::StarterSeed;

@@ -145,10 +145,7 @@ fn capture_schema_contract(
         .as_deref()
         .filter(|identity| !identity.is_empty())
         .ok_or_else(|| unsupported("a missing schema identity"))?;
-    let revision = schema
-        .uses_independent_fields()
-        .then(|| schema.alternate_key_revision());
-    Ok((identity, revision))
+    Ok((identity, Some(schema.alternate_key_revision())))
 }
 
 fn is_source_tip(tip: &AtomEntry, mutation: &Mutation, atom: &str) -> bool {
