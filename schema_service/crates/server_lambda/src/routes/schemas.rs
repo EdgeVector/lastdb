@@ -4,7 +4,7 @@ use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
-    accepted_similarity_threshold, SchemaResolveReply, SimilarSchemasReply,
+    accepted_similarity_threshold, BatchReuseReply, SchemaResolveReply, SimilarSchemasReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -325,12 +325,11 @@ pub(crate) fn post_schemas_batch_check_reuse(
         }
     };
 
-    match state.batch_check_schema_reuse(&request.schemas) {
-        Ok(matches) => json_response(200, &json!({ "matches": matches })),
-        Err(e) => json_response(
-            500,
-            &json!({"error": format!("Batch schema reuse check failed: {e}")}),
-        ),
+    match state.batch_reuse_reply(&request.schemas) {
+        BatchReuseReply::Ready(response) => {
+            json_response(200, &json!({ "matches": response.matches }))
+        }
+        BatchReuseReply::Failed { message } => json_response(500, &json!({"error": message})),
     }
 }
 
