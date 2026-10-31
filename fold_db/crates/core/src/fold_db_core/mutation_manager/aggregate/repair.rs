@@ -178,15 +178,8 @@ impl MutationManager {
                 true,
             )
             .await?;
-        let grant = AggregateRepairGrant {
-            version: 1,
-            repair_token: repair_token.clone(),
-            association_fingerprint: guard.association_fingerprint.clone(),
-            enrollment_winner: guard.enrollment_winner.clone(),
-            totals_fingerprint: Self::aggregate_totals_fingerprint(&totals),
-            totals,
-        };
-        let grant_key = Self::aggregate_repair_grant_key(
+        let grant = aggregate_plan::repair_grant(repair_token.clone(), guard, totals);
+        let grant_key = aggregate_plan::repair_grant_key(
             storage_prefix,
             &guard.target_schema_name,
             &guard.target_key,

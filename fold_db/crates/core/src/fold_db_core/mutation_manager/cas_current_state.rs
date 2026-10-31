@@ -1,11 +1,13 @@
 //! Reads of the current head and fixed-field row state for CAS and aggregates.
+//!
+//! Each read gathers storage state; [`super::plan::cas`] decides what that
+//! state means (absent, live head, or corrupt row).
 
 use crate::atom::AtomEntry;
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
-use super::cas::CurrentRowFields;
-use super::cas_rules::{self, CurrentHead};
+use super::plan::cas::{self, CurrentHead, CurrentRowFields};
 use super::MutationManager;
 
 impl MutationManager {
@@ -29,12 +31,7 @@ impl MutationManager {
         let key_value =
             self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
 
-        let Some(schema_field) = schema.runtime_fields.get(field) else {
-            return Err(SchemaError::InvalidField(format!(
-                "CAS expectation names field '{field}' absent from schema '{}'",
-                mutation.schema_name
-            )));
-        };
+        let schema_field = cas::expected_field(&schema, mutation, field)?;
 
         if !self
             .current_key_belongs(&schema, &key_value, storage_prefix)
@@ -55,28 +52,15 @@ impl MutationManager {
         else {
             return Ok(CurrentHead::default());
         };
-        let mutation_uuid = entry.mutation_uuid;
-        let uuid = entry.atom_uuid;
         let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
-            &[uuid.as_str()],
+            &[entry.atom_uuid.as_str()],
             storage_prefix,
         )
         .await?
         .pop()
         .ok_or(SchemaError::MissingSelectedAtom)?;
-
-        // A tombstoned head reads as absent — a deleted record has no live
-        // value to compare against.
-        if crate::atom::is_tombstone_value(atom.content()) {
-            return Ok(CurrentHead::default());
-        }
-
-        Ok(CurrentHead {
-            mutation_uuid: Some(mutation_uuid),
-            atom_uuid: Some(uuid),
-            value: Some(atom.content().clone()),
-        })
+        Ok(cas::head_from_tip(entry, &atom))
     }
 
     fn load_schema_for_point_read(
@@ -138,15 +122,7 @@ impl MutationManager {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
         let key_value =
             self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
-        if let Some(field) = fields
-            .iter()
-            .find(|field| !schema.runtime_fields.contains_key(*field))
-        {
-            return Err(SchemaError::InvalidField(format!(
-                "point read names field '{field}' absent from schema '{}'",
-                mutation.schema_name,
-            )));
-        }
+        cas::require_point_fields(&mutation.schema_name, &schema, fields)?;
         if !self
             .current_key_belongs(&schema, &key_value, storage_prefix)
             .await?
@@ -190,7 +166,7 @@ impl MutationManager {
             storage_prefix,
         )
         .await?;
-        cas_rules::assemble_current_row(selected, atoms)
+        cas::assemble_current_row(selected, atoms)
     }
 
     /// Load the current selected tip of one field through the core storage
@@ -204,21 +180,7 @@ impl MutationManager {
         key_value: &crate::schema::types::KeyValue,
         storage_prefix: Option<&str>,
     ) -> Result<Option<AtomEntry>, SchemaError> {
-        let changed_key = schema_field.changed_key_for(key_value).ok_or_else(|| {
-            SchemaError::InvalidData(format!(
-                "point read cannot resolve field '{field}' key in schema '{schema_name}'"
-            ))
-        })?;
-        let molecule_uuid = schema_field
-            .common()
-            .molecule_uuid()
-            .cloned()
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "point read field '{schema_name}.{field}' has no molecule identity"
-                ))
-            })?;
-        let key = crate::schema::types::KeyValue::new(changed_key.hash, changed_key.range);
+        let (molecule_uuid, key) = cas::point_tip_key(schema_name, field, schema_field, key_value)?;
         let Some((_, record)) = self
             .db_ops
             .atoms()
@@ -229,9 +191,6 @@ impl MutationManager {
         else {
             return Ok(None);
         };
-        if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
-            return Ok(None);
-        }
-        Ok(Some(record.entry))
+        Ok(cas::live_tip_entry(record.entry, record.meta.as_ref()))
     }
 }

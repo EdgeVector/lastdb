@@ -1,26 +1,7 @@
-//! Shared aggregate rules and mutation construction, without storage or locks.
+//! Derived aggregate mutation construction, without storage or locks.
+//! Each constructor mints a fresh mutation id, so it stays out of `plan`.
 
 use super::*;
-
-pub(super) fn association_matches(
-    guard: &AggregateGuard,
-    source: &str,
-    source_hash: &str,
-    target: &str,
-    target_key: &KeyValue,
-    member: &str,
-) -> bool {
-    guard.source_schema_name == source
-        && guard.source_partition_hash == source_hash
-        && guard.target_schema_name == target
-        && guard.target_key == target_key.to_storage_key()
-        && guard.member_schema_name == member
-        && guard.committed
-}
-
-pub(super) fn target_owner_matches(owner: &AggregateGuard, guard: &AggregateGuard) -> bool {
-    owner.same_association(guard) && owner.cmp_enrollment(guard) == std::cmp::Ordering::Equal
-}
 
 pub(super) fn derived_mutation(
     schema: String,

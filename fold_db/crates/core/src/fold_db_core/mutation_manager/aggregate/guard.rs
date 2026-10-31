@@ -176,7 +176,7 @@ impl MutationManager {
             .ok_or_else(|| {
                 SchemaError::InvalidData("aggregate target has no committed owner".into())
             })?;
-        if !super::rules::target_owner_matches(&reverse, guard) {
+        if !aggregate_plan::target_owner_matches(&reverse, guard) {
             return Err(SchemaError::InvalidData(mismatch.into()));
         }
         Ok(())

@@ -1,9 +1,13 @@
-//! CAS and must-exist precondition checks.
+//! CAS and must-exist precondition gates.
+//!
+//! Gather: one current-head or row read per guarded mutation, in input
+//! order. Decide: [`super::plan::cas`]. The first refusal stops the gate
+//! before any later read.
 
 use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
-use super::cas_rules;
+use super::plan::cas;
 use super::MutationManager;
 
 impl MutationManager {
@@ -25,20 +29,9 @@ impl MutationManager {
             let head = self
                 .read_current_head(mutation, expected.field(), storage_prefix)
                 .await?;
-            cas_rules::check_expectation(mutation, expected, head)?;
+            cas::check_expectation(mutation, expected, head)?;
         }
         Ok(())
-    }
-
-    /// Is this a user `Update` carrying `must_exist: true`?
-    ///
-    /// The one predicate both the lock set and the precondition gate key on,
-    /// so they can never disagree about which mutations are guarded.
-    pub(super) fn is_must_exist_update(mutation: &Mutation) -> bool {
-        matches!(
-            mutation.mutation_type,
-            crate::schema::types::operations::MutationType::Update
-        ) && mutation.must_exist == Some(true)
     }
 
     /// Refuse every `must_exist: true` update whose key carries no live value
@@ -47,42 +40,21 @@ impl MutationManager {
     /// Must run inside the batch's native write gate, like CAS. Returns the
     /// first missing target — the whole batch is rejected, matching the
     /// all-or-nothing contract `check_cas_preconditions` already applies.
-    ///
-    /// # Why "any live field", not "the written fields"
-    ///
-    /// A row is absent iff NO field of the schema resolves at its key. Keying
-    /// the check on the fields this mutation writes would refuse the legitimate
-    /// heal — writing field `d` onto an existing row that never had `d` — which
-    /// is the exact operation the projection rule (a row is returned only when
-    /// every projected field has an atom) makes necessary. So the check widens
-    /// to the schema's fields rather than narrowing to the mutation's.
-    ///
-    /// Cost is paid in that order for the same reason it is cheap: the fields
-    /// this mutation writes are read FIRST and their molecules are already
-    /// restored by the write path, so an existing row normally settles on the
-    /// first probe. The full-schema sweep runs only when that probe found
-    /// nothing — the refuse-or-heal case.
+    /// [`cas::must_exist_probes`] names the probe order and why it widens to
+    /// every schema field.
     pub(super) async fn check_must_exist_preconditions(
         &self,
         mutations: &[Mutation],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         for mutation in mutations {
-            if !Self::is_must_exist_update(mutation) {
+            if !cas::is_must_exist_update(mutation) {
                 continue;
             }
-            if self
+            let row_exists = self
                 .row_has_any_live_field(mutation, storage_prefix)
-                .await?
-            {
-                continue;
-            }
-            return Err(SchemaError::InvalidData(format!(
-                "update target not found: schema '{}', key {} — refusing to silently create a \
-                 row from a partial update",
-                mutation.schema_name,
-                mutation.key_value.to_storage_key(),
-            )));
+                .await?;
+            cas::must_exist_verdict(mutation, row_exists)?;
         }
         Ok(())
     }
@@ -100,29 +72,18 @@ impl MutationManager {
         let schema = self
             .schema_manager
             .require_schema_metadata(&mutation.schema_name)?;
-
-        // Probe the written fields first — their molecules are already
-        // restored by this write, so a live row usually answers here.
-        let written = cas_rules::written_fields(mutation, &schema);
-        if !written.is_empty()
-            && self
-                .read_current_row_fields(mutation, &written, storage_prefix)
+        for fields in cas::must_exist_probes(mutation, &schema) {
+            if fields.is_empty() {
+                continue;
+            }
+            if self
+                .read_current_row_fields(mutation, &fields, storage_prefix)
                 .await?
                 .has_live_field()
-        {
-            return Ok(true);
+            {
+                return Ok(true);
+            }
         }
-
-        // Nothing written resolved. Widen to the rest of the schema before
-        // calling the row absent, so a heal write to a field the row never
-        // carried is not mistaken for a phantom-row create.
-        let rest = cas_rules::remaining_fields(&schema, &written);
-        if rest.is_empty() {
-            return Ok(false);
-        }
-        Ok(self
-            .read_current_row_fields(mutation, &rest, storage_prefix)
-            .await?
-            .has_live_field())
+        Ok(false)
     }
 }

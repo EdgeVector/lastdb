@@ -209,6 +209,6 @@ impl MutationManager {
         let receipt = self
             .write_mutations_batch_inner(vec![source], prefix, ctx.origin)
             .await?;
-        Self::require_durable_receipt(receipt, "losing replay")
+        aggregate_plan::require_durable_receipt(receipt, "losing replay")
     }
 }

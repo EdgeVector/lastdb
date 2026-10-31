@@ -3,23 +3,23 @@
 //! Layout:
 //! - [`helpers`] — free helpers (tombstone, key normalize, native-index allowlist, derived guard)
 //! - [`write`] — public write entry points, purge peel, batch pipeline, finalize
-//! - [`cas`] — write preconditions and idempotency; aggregate guards retain their own locks
+//! - [`plan`] — pure write decisions (CAS, idempotency, keys, molecule keys, aggregate)
+//! - `cas_*` — gather inputs for those decisions and enforce them; aggregate guards retain their own locks
 //! - [`molecules`] — atom prep, molecule apply/persist
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
 
 mod aggregate;
 mod author_clock;
-mod cas;
 mod cas_current_state;
 mod cas_idempotency;
 mod cas_preconditions;
-mod cas_rules;
 pub(super) mod helpers;
 mod index;
 mod logical_capture;
 mod molecules;
 mod peer_import;
+mod plan;
 mod purge_locks;
 pub mod receipt;
 mod write;

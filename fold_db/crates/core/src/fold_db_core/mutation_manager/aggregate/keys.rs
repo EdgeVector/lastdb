@@ -3,28 +3,6 @@
 use super::*;
 
 impl MutationManager {
-    pub(super) fn aggregate_repair_grant_key(
-        storage_prefix: Option<&str>,
-        target_schema_name: &str,
-        target_key: &str,
-    ) -> String {
-        format!(
-            "{}:repair_grant",
-            aggregate_target_guard_key(storage_prefix, target_schema_name, target_key)
-        )
-    }
-
-    pub(super) fn aggregate_finalized_grant_key(
-        storage_prefix: Option<&str>,
-        target_schema_name: &str,
-        target_key: &str,
-    ) -> String {
-        format!(
-            "{}:finalized",
-            Self::aggregate_repair_grant_key(storage_prefix, target_schema_name, target_key)
-        )
-    }
-
     /// Drop the repair grant, then the finalized grant, for one target.
     pub(super) async fn delete_aggregate_target_grants(
         &self,
@@ -33,9 +11,9 @@ impl MutationManager {
         target_key: &str,
     ) -> Result<(), SchemaError> {
         let grant_key =
-            Self::aggregate_repair_grant_key(storage_prefix, target_schema_name, target_key);
+            aggregate_plan::repair_grant_key(storage_prefix, target_schema_name, target_key);
         let finalized_key =
-            Self::aggregate_finalized_grant_key(storage_prefix, target_schema_name, target_key);
+            aggregate_plan::finalized_grant_key(storage_prefix, target_schema_name, target_key);
         self.delete_durable_copies([grant_key.as_str(), finalized_key.as_str()])
             .await
     }
@@ -46,29 +24,6 @@ impl MutationManager {
             self.db_ops.metadata().delete_typed_durable(key).await?;
         }
         Ok(())
-    }
-
-    pub(super) fn aggregate_totals_fingerprint(totals: &BTreeMap<String, i64>) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(b"lastdb-aggregate-totals-v1\0");
-        for (field, total) in totals {
-            hasher.update(field.as_bytes());
-            hasher.update([0]);
-            hasher.update(total.to_be_bytes());
-        }
-        format!("{:x}", hasher.finalize())
-    }
-
-    pub(super) fn require_durable_receipt(
-        receipt: ResidentCommitReceipt,
-        phase: &str,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if receipt.durability != ResidentDurability::Durable {
-            return Err(SchemaError::InvalidData(format!(
-                "aggregate {phase} returned a queued receipt"
-            )));
-        }
-        Ok(receipt)
     }
 
     /// Prepare author clocks, write the mutations, and require a durable receipt.
@@ -93,7 +48,7 @@ impl MutationManager {
         let result = self
             .write_mutations_batch_inner(mutations, storage_prefix, origin)
             .await;
-        let mut receipt = Self::require_durable_receipt(result?, label)?;
+        let mut receipt = aggregate_plan::require_durable_receipt(result?, label)?;
         if let Some(revision) = revision {
             receipt.revision = Some(revision);
         }

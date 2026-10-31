@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::prepared::PreparedFieldAtom;
+use super::super::plan::molecules::PreparedFieldAtom;
 use crate::atom::Atom;
 use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};

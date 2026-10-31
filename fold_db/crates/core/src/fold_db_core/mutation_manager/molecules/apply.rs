@@ -1,15 +1,17 @@
 //! Apply atom writes to in-memory molecules.
+//!
+//! Execute: write each prepared atom into its field molecule. Decide: the
+//! persisted key set comes from [`modified_field_keys`] over the applied
+//! schema.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::atom::Atom;
-use crate::db_operations::ChangedKey;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 
 use super::super::helpers::ModifiedFieldKeys;
+use super::super::plan::molecules::{modified_field_keys, PreparedFieldAtom};
 use super::super::MutationManager;
-use super::prepared::PreparedFieldAtom;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn apply_mutations_to_molecules(
@@ -19,9 +21,6 @@ impl MutationManager {
         mutation_key_values: &[KeyValue],
         atom_results: &[PreparedFieldAtom],
     ) -> ModifiedFieldKeys {
-        // field_name -> the keys touched on that field's molecule this batch.
-        // An empty changed-key set can still carry a molecule header update.
-        let mut modified_fields: HashMap<String, HashSet<ChangedKey>> = HashMap::new();
         let mut slot_heads = super::batch_rebase::BatchSlotHeads::default();
 
         for PreparedFieldAtom {
@@ -52,23 +51,13 @@ impl MutationManager {
                     "in-memory field write must take the written atom"
                 );
             }
-
-            // Per-key change unit for this write (Single → empty both components).
-            let changed_key: Option<ChangedKey> = schema_field.changed_key_for(key_value);
-
-            // Track for persistence: record the touched key under this field so
-            // the persist step writes only the changed `mk:` records. A `Single`
-            // field (no `changed_key`) is recorded with an empty set — still
-            // present for the per-key store path (header rewrite / empty changed
-            // set).
-            if schema_field.common().molecule_uuid().is_some() {
-                let entry = modified_fields.entry(field_name.clone()).or_default();
-                if let Some(ck) = changed_key {
-                    entry.insert(ck);
-                }
-            }
         }
 
+        // field_name -> the keys touched on that field's molecule this batch.
+        // An empty changed-key set can still carry a molecule header update.
+        // A field's molecule identity is fixed by its first write above, so
+        // deciding after the loop matches a per-write decision.
+        let modified_fields = modified_field_keys(schema, mutation_key_values, atom_results);
         slot_heads.overlay_changed_schema(schema, &modified_fields);
         modified_fields
     }

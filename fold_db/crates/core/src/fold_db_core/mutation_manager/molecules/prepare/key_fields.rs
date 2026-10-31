@@ -5,7 +5,7 @@ use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use std::collections::HashMap;
 
-use super::key_rules::{key_field_pairs, validated_materialized_key_field};
+use super::super::super::plan::key_fields::{key_field_pairs, validated_materialized_key_field};
 
 impl MutationManager {
     /// Check declared key fields before any source batch can prepare or publish.
