@@ -41,6 +41,22 @@ impl MutationManager {
         self.reject_blocked_mutation_targets(&mutations)?;
         self.reject_internal_only_mutations(&mutations)?;
 
+        // A format 7 home deletes inside the native request: a delete merges
+        // into its record as the delete floor, in caller order with the other
+        // writes (write/records.rs). There is no tip, barrier or erase lane to
+        // peel to. Replay never reaches here: such a home refuses capture and
+        // aggregate writes.
+        if self.db_ops.atoms().record_home() {
+            return self
+                .write_create_update_batch_async(
+                    mutations,
+                    storage_prefix,
+                    matches!(origin, WriteOrigin::Replay),
+                    author_clock_barrier,
+                )
+                .await;
+        }
+
         // Separate tip removal and physical Purge from Create/Update atom
         // creation. Both user Delete forms converge tips without reclaiming
         // shared bodies; must_exist adds only a caller precondition. Purge

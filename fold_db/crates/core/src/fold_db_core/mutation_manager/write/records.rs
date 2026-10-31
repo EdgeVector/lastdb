@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::db_operations::atom_store::{record_scope, RecordChange};
+use crate::fold_db_core::purge::describe_key;
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -140,12 +141,6 @@ impl MutationManager {
             return Err(unsupported("a write to a schema with a retention policy"));
         }
         for mutation in mutations {
-            if !matches!(
-                mutation.mutation_type,
-                MutationType::Create | MutationType::Update
-            ) {
-                return Err(unsupported("a delete"));
-            }
             if mutation.provenance.is_some() || mutation.imported_version.is_some() {
                 return Err(unsupported("an imported write"));
             }
@@ -156,9 +151,9 @@ impl MutationManager {
         Ok(())
     }
 
-    /// Check each CAS expectation and each `must_exist` update against the
-    /// stored record, before any group stages. One schema load for each
-    /// schema and one batch read for the records.
+    /// Check each CAS expectation, each `must_exist` update and each loud
+    /// erasure against the stored record, before any group stages. One schema
+    /// load for each schema and one batch read for the records.
     pub(super) async fn check_record_preconditions(
         &self,
         mutations: &[Mutation],
@@ -166,7 +161,11 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         let guarded: Vec<&Mutation> = mutations
             .iter()
-            .filter(|mutation| mutation.expected.is_some() || Self::is_must_exist_update(mutation))
+            .filter(|mutation| {
+                mutation.expected.is_some()
+                    || Self::is_must_exist_update(mutation)
+                    || loud_erasure(mutation).is_some()
+            })
             .collect();
         if guarded.is_empty() {
             return Ok(());
@@ -196,6 +195,15 @@ impl MutationManager {
                     mutation.key_value.to_storage_key(),
                 )));
             }
+            if let Some((noun, suffix)) = loud_erasure(mutation).filter(|_| !record.is_live()) {
+                // The wording of the erase lane for one absent key.
+                return Err(SchemaError::InvalidData(format!(
+                    "{noun} target not found: schema '{}', key {} — refusing to silently no-op \
+                     {suffix}",
+                    mutation.schema_name,
+                    describe_key(&mutation.key_value),
+                )));
+            }
             if let Some(expected) = &mutation.expected {
                 check_expectation(mutation, expected, record_head(&record, expected)?)?;
             }
@@ -204,9 +212,26 @@ impl MutationManager {
     }
 }
 
+/// The miss wording of a delete that must find its record: a purge, or a
+/// delete with `must_exist`. `None` for every other mutation.
+fn loud_erasure(mutation: &Mutation) -> Option<(&'static str, &'static str)> {
+    match mutation.mutation_type {
+        MutationType::Purge => Some(("Purge", "(compliance verb)")),
+        MutationType::Delete if mutation.must_exist == Some(true) => {
+            Some(("Delete", "(must_exist)"))
+        }
+        _ => None,
+    }
+}
+
 /// Merge the fields and the metadata of one mutation into its record. True
 /// when something changed; an equal or older stamp changes nothing. The
 /// metadata belongs to the record (D7): a write without metadata keeps it.
+///
+/// A delete or a purge removes every value at or below its stamp and keeps
+/// the stamp as the delete floor: the record becomes a tombstone, and its
+/// alternate entries and file blob references go in the same batch. A delete
+/// of an absent record writes nothing.
 fn merge_mutation(
     schema_name: &str,
     schema: &Schema,
@@ -214,6 +239,12 @@ fn merge_mutation(
     record: &mut StoredRecord,
 ) -> Result<bool, SchemaError> {
     let stamp = field_stamp(mutation)?;
+    if matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    ) {
+        return Ok(record.delete(stamp));
+    }
     let mut changed = false;
     let metadata = mutation.metadata.as_ref().filter(|map| !map.is_empty());
     if mutation.source_file_name.is_some() || metadata.is_some() {
