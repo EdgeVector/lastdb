@@ -8,7 +8,7 @@ pub struct DurabilityHealth {
     pub observed: bool,
     pub automatic_enabled: bool,
     pub running: bool,
-    pub phase: Option<crate::byte_cloud_backup::Phase>,
+    pub phase: Option<crate::backup_runtime::Phase>,
     pub accepted_backup_recorded: bool,
     pub degraded: Option<bool>,
     pub reasons: Vec<String>,
@@ -24,31 +24,6 @@ impl Default for DurabilityHealth {
             accepted_backup_recorded: false,
             degraded: None,
             reasons: vec!["v2_status_unavailable".into()],
-        }
-    }
-}
-
-impl From<crate::byte_cloud_backup::ByteBackupStatus> for DurabilityHealth {
-    fn from(status: crate::byte_cloud_backup::ByteBackupStatus) -> Self {
-        let blocked = status.blocked_reason.is_some()
-            || status
-                .automatic_backup
-                .as_ref()
-                .is_some_and(|s| s.paused.is_some());
-        Self {
-            observed: true,
-            automatic_enabled: status.automatic_backup_enabled,
-            running: status.running,
-            phase: status.phase,
-            accepted_backup_recorded: status.last_accepted_backup.is_some(),
-            // No capture time or current-source equivalence is available here.
-            // Never turn an accepted historical receipt into a fresh-coverage claim.
-            degraded: blocked.then_some(true),
-            reasons: vec![if blocked {
-                "v2_job_blocked".into()
-            } else {
-                "v2_freshness_unmeasured".into()
-            }],
         }
     }
 }

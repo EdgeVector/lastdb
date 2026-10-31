@@ -21,12 +21,17 @@
 //! nonempty formats without migration.
 
 pub mod config;
+/// The account-key proof record of a node home. It lives with the store it
+/// reads, above the crypto primitives it seals with.
+pub(crate) mod content_key_proof;
 pub(crate) mod current_keys;
 pub mod disk_pack;
 pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;
 pub mod error;
+/// Per-molecule key bundles: the storage key material behind molecule hashes.
+pub mod molecule_key_store;
 pub mod traits;
 
 // Re-exports for convenience

@@ -1,6 +1,6 @@
 use super::{budget, files, invalid, map, read_budget, rows::Rows, Proof, StorageResult};
 use crate::atom::Atom;
-use crate::db_operations::atom_store::decode_plain_atom;
+use crate::records::plain_atom::decode_plain_atom;
 use crate::schema::types::field::build_storage_key;
 use crate::storage::disk_pack::native_routing;
 

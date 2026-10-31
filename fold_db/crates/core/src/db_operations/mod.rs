@@ -4,6 +4,8 @@ pub mod core;
 pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
+/// The read path for one schema field: the field is an argument, not the reader.
+pub(crate) mod alternate_changes;
 pub mod atom_history;
 pub mod atom_store;
 pub mod attribution_ledger;
@@ -11,7 +13,6 @@ mod conflict_index_heal;
 mod conflict_metadata;
 mod conflict_operations;
 pub mod delete_ledger;
-/// The read path for one schema field: the field is an argument, not the reader.
 pub mod field_read;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
@@ -20,7 +21,10 @@ pub mod keep_small;
 pub mod lineage_index;
 pub(crate) mod logical_membership;
 pub mod metadata_store;
-pub mod molecule_key_store;
+mod schema_key_source;
+/// Molecule key bundles are storage key material; the store lives in
+/// `storage`. This path stays for existing callers.
+pub use crate::storage::molecule_key_store;
 mod public_key_operations;
 pub mod public_key_store;
 mod schema_operations;
@@ -73,6 +77,7 @@ pub use conflict_operations::HomeConflictAnnotation;
 // Replay appends one event in the same batch that records a conflict. The
 // engine is gated behind `cloud-sync`. A default-feature build must not
 // re-export these or clippy fails on the unused names.
+pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub(crate) use conflict_operations::{
     home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
 };
@@ -82,7 +87,6 @@ pub use core::{
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;
-pub use molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use public_key_store::PublicKeyStore;
 pub use schema_operations::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 pub use schema_store::{SchemaDropReceipt, SchemaStore};

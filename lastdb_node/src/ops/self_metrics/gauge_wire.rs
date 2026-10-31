@@ -18,7 +18,7 @@ pub(super) fn gauge_from_wire(opt: Option<u64>, unit: Unit, window: Window) -> G
     }
 }
 
-pub(super) fn wire_u64(g: &Gauge) -> Option<u64> {
+pub(crate) fn wire_u64(g: &Gauge) -> Option<u64> {
     g.as_wire_u64()
 }
 

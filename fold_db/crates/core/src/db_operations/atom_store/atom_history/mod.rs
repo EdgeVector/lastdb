@@ -6,10 +6,13 @@ mod policy;
 mod purge;
 mod read;
 mod release;
-mod types;
-
-pub(crate) use types::{ArchiveRecord, HistoryBinding, HistoryMode};
-pub use types::{AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation};
+// The archive row shapes are records that the storage layer also reads.
+pub(crate) use crate::records::atom_history::{
+    is_archive, ArchiveMetadata, ArchiveRecord, HistoryBinding, HistoryMode,
+};
+pub use crate::records::atom_history::{
+    AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation,
+};
 
 impl super::AtomStore {
     pub(crate) fn history_activation(&self) -> &tokio::sync::Notify {
@@ -69,11 +72,6 @@ pub(crate) fn queue() -> TimeQueue {
 
 pub(crate) fn digest(value: &[u8]) -> String {
     crate::hex::hex_lower(Sha256::digest(value))
-}
-
-pub(crate) fn is_archive(key: &str) -> bool {
-    crate::kind_partition::rest_of(key, "history")
-        .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }
 
 pub(crate) fn prefix(slot: &str) -> Result<String, crate::schema::SchemaError> {

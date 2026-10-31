@@ -1,6 +1,6 @@
 //! Barrierless immutable molecule generations.
 
-use crate::atom::{incoming_wins_lww, molecule_key_codec};
+use crate::atom::molecule_key_codec;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::de::DeserializeOwned;
@@ -45,10 +45,6 @@ struct ReadyMoleculeGenerationActivation {
     generation: String,
     stale_direct: Vec<((String, String), PerKeyRecord)>,
     activation_items: Vec<(String, Value)>,
-}
-
-fn incoming_record_wins(incoming: &PerKeyRecord, current: &PerKeyRecord) -> bool {
-    incoming_wins_lww(incoming.entry.lww_key(), current.entry.lww_key())
 }
 
 pub(crate) const MATERIALIZE_PAGE_ROWS: usize = 32;

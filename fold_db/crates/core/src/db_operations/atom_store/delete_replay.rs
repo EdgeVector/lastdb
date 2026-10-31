@@ -2,18 +2,13 @@
 
 use super::{AtomStore, RangeWalk};
 use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
+use crate::records::key_format::{
+    validate_frozen_replay_floor, Cutoff, DELETE_REPLAY_CUTOFF_KEY as CUTOFF_KEY,
+};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
-
-pub(crate) const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
-
-#[derive(Serialize, Deserialize)]
-struct Cutoff {
-    v: u8,
-    minimum_written_at_nanos: u64,
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeletePruneReport {
@@ -71,25 +66,7 @@ impl AtomStore {
         if values.len() != 2 {
             return Err(invalid("incomplete fence read"));
         }
-        Self::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
-    }
-
-    /// The same strict marker/floor check for a caller-held offline snapshot.
-    pub(crate) fn validate_frozen_replay_floor(
-        marker: Option<&[u8]>,
-        cutoff: Option<&[u8]>,
-    ) -> StorageResult<u64> {
-        if !marker.is_some_and(crate::atom::molecule_key_codec::current_key_format) {
-            return Err(invalid("the format marker is not the node format"));
-        }
-        let Some(bytes) = cutoff else {
-            return Ok(0);
-        };
-        let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
-        if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
-            return Err(invalid("invalid floor record"));
-        }
-        Ok(floor.minimum_written_at_nanos)
+        validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
     }
 
     /// Explicit offline maintenance only. The caller holds the stopped-home

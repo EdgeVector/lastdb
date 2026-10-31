@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::super::counter::{TipChange, TipChangeSet, TipCommit};
 use super::super::retention::SlotReleases;
-use super::super::types::{MoleculeData, MoleculeHeader};
 use super::super::{AtomStore, PerKeyRecord};
+use crate::records::molecule_record::{MoleculeData, MoleculeHeader};
 
 type MoleculeKeyRemoval<'a> = (
     &'a str,

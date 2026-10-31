@@ -1,6 +1,7 @@
-//! Molecule/atom storage types used by [`super::AtomStore`].
+//! Molecule records of the atom store: the per-key row, the generation rows
+//! and the molecule header, with the pure rules that merge them.
 
-use crate::atom::{AtomEntry, KeyMetadata, MoleculeHashRange};
+use crate::atom::{incoming_wins_lww, AtomEntry, KeyMetadata, MoleculeHashRange};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -88,4 +89,49 @@ pub(crate) struct MoleculeHeader {
     /// and omitted on serialize — storage is always unified HashRange.
     pub version: u64,
     pub updated_at: DateTime<Utc>,
+}
+
+/// The live-write winner rule between two per-key rows.
+pub(crate) fn incoming_record_wins(incoming: &PerKeyRecord, current: &PerKeyRecord) -> bool {
+    incoming_wins_lww(incoming.entry.lww_key(), current.entry.lww_key())
+}
+
+/// Select one logical slot from the immutable base and the live change row.
+pub(crate) fn merge_generation_slot(
+    live: Option<PerKeyRecord>,
+    base: Option<MoleculeGenerationSlot>,
+) -> Option<PerKeyRecord> {
+    match base {
+        None
+        | Some(MoleculeGenerationSlot {
+            record: None,
+            shadow: None,
+        }) => live,
+        Some(MoleculeGenerationSlot {
+            record: Some(base), ..
+        }) => match live {
+            Some(live) if incoming_record_wins(&live, &base) => Some(live),
+            _ => Some(base),
+        },
+        Some(MoleculeGenerationSlot {
+            record: None,
+            shadow: Some(shadow),
+        }) => {
+            live.filter(|candidate| incoming_wins_lww(candidate.entry.lww_key(), shadow.lww_key()))
+        }
+    }
+}
+
+pub(crate) fn apply_generation_delete(
+    record: Option<PerKeyRecord>,
+    deletion: Option<MoleculeGenerationDelete>,
+) -> Option<PerKeyRecord> {
+    match (record, deletion) {
+        (Some(record), Some(deletion))
+            if !incoming_wins_lww(record.entry.lww_key(), deletion.shadow.lww_key()) =>
+        {
+            None
+        }
+        (record, _) => record,
+    }
 }

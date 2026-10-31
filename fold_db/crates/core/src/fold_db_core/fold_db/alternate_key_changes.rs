@@ -57,26 +57,8 @@ pub struct AlternateKeyChangeReport {
     pub durable: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Change {
-    id: String,
-    source: Schema,
-    target: Schema,
-    phase: Phase,
-    expected: BTreeMap<String, u64>,
-    observed: BTreeMap<String, u64>,
-    processed: u64,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Phase {
-    Backfill,
-    Retiring,
-    Aborting,
-    Complete,
-    Aborted,
-}
+// The change row is a record: schema refresh checks it below the engine.
+use crate::records::alternate_change::{job_key, Change, Phase};
 
 impl Change {
     fn report(&self) -> Result<AlternateKeyChangeReport, SchemaError> {
@@ -127,10 +109,6 @@ fn primary(schema: &Schema) -> Result<&str, SchemaError> {
         .ok_or_else(|| invalid("alternate changes require a primary hash field"))
 }
 
-fn job_key(schema: &str) -> String {
-    format!("job:{schema}")
-}
-
 async fn load(
     db: &FoldDB,
     store: &dyn KvStore,
@@ -166,23 +144,6 @@ async fn save(store: &dyn KvStore, change: &Change) -> Result<(), SchemaError> {
             serde_json::to_vec(change).map_err(|_| invalid("cannot encode alternate change"))?,
         )
         .await?;
-    Ok(())
-}
-
-pub(crate) async fn require_finished(
-    db: &crate::db_operations::DbOperations,
-    schema: &str,
-) -> Result<(), SchemaError> {
-    let store = db.open_namespace("alternate_changes").await?;
-    if let Some(bytes) = store.get(job_key(schema).as_bytes()).await? {
-        let change: Change = serde_json::from_slice(&bytes)
-            .map_err(|_| invalid("alternate change is unreadable"))?;
-        if !matches!(change.phase, Phase::Complete | Phase::Aborted) {
-            return Err(invalid(
-                "finish or abort the alternate change before schema removal or refresh",
-            ));
-        }
-    }
     Ok(())
 }
 

@@ -2,13 +2,13 @@
 
 use super::{map, RunHome, StorageResult};
 use crate::atom::molecule_key_codec::TYPED_KEY_FORMAT;
-use crate::crypto::content_key_proof;
-use crate::db_operations::AtomStore;
+use crate::records::key_format::CURRENT_KEY_FORMAT_KEY;
+use crate::storage::content_key_proof;
 use crate::storage::disk_pack::{kv, run_admission::TYPED_NODE_BYTES};
 use laststore::disk_run::home::HomeMutation;
 
 pub(super) fn initialize(home: &RunHome, node_key: &[u8; 32]) -> StorageResult<&'static [u8]> {
-    let (collection, key) = kv::coordinate("main", AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes());
+    let (collection, key) = kv::coordinate("main", CURRENT_KEY_FORMAT_KEY.as_bytes());
     let format = HomeMutation {
         collection,
         key,

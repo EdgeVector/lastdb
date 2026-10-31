@@ -1,14 +1,16 @@
 use super::{invalid, map, read_budget, RunRead, StorageResult};
-use crate::crypto::content_key_proof;
-use crate::db_operations::atom_store::{key_format, AtomStore};
+use crate::records::key_format::{
+    validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY, DELETE_REPLAY_CUTOFF_KEY,
+};
+use crate::storage::content_key_proof;
 use crate::storage::disk_pack::native_routing;
 use crate::storage::disk_pack::restore_safety;
 use lastdb_storage_policy::backup_decode as budget;
 
 pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> StorageResult<()> {
     let names = [
-        AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
-        key_format::DELETE_REPLAY_CUTOFF_KEY.as_bytes(),
+        CURRENT_KEY_FORMAT_KEY.as_bytes(),
+        DELETE_REPLAY_CUTOFF_KEY.as_bytes(),
         restore_safety::PENDING_KEY.as_bytes(),
     ];
     let coordinates = names.map(|key| {
@@ -28,7 +30,7 @@ pub(super) fn verify(main: &RunRead, account_key: &[u8; 32], version: u16) -> St
     if values.len() != 3 || values[2].is_some() {
         return Err(invalid("run backup counter restore validation is pending"));
     }
-    AtomStore::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
+    validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())?;
     let marker = values[0]
         .as_deref()
         .ok_or_else(|| invalid("run backup logical marker is absent"))?;

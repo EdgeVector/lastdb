@@ -12,7 +12,7 @@ pub(crate) fn spawn(
     let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
     let _runtime_guard = runtime.enter();
     (
-        lastdb_node::self_metrics::spawn_sampler(
+        lastdb_node::jobs::self_metrics::spawn_sampler(
             Arc::clone(host),
             sample_interval,
             Arc::clone(shutdown),

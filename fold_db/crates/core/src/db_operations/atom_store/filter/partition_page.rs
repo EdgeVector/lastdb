@@ -6,10 +6,10 @@ use crate::atom::molecule_key_codec;
 use crate::schema::types::field::{build_storage_key, FilterUtils, HashRangeFilter, KeyWindow};
 use crate::schema::SchemaError;
 
-use super::super::types::{
+use super::super::AtomStore;
+use crate::records::molecule_record::{
     MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, PerKeyRecord,
 };
-use super::super::AtomStore;
 
 mod live;
 
@@ -281,8 +281,8 @@ impl AtomStore {
                 .await?;
             let consumed = rows.len();
             for ((key, (live, base)), deletion) in rows.into_iter().zip(deletions) {
-                let record = Self::apply_generation_delete(
-                    Self::merge_generation_slot(live, base),
+                let record = crate::records::molecule_record::apply_generation_delete(
+                    crate::records::molecule_record::merge_generation_slot(live, base),
                     deletion,
                 );
                 if let Some(record) = record {

@@ -1,8 +1,9 @@
 //! Use the core's existing selector and merge law; inactive bases hold no live metadata.
 use super::*;
 use crate::atom::molecule_key_codec;
-use crate::db_operations::atom_store::{
-    AtomStore, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
+use crate::records::molecule_record::{
+    apply_generation_delete, merge_generation_slot, MoleculeGenerationDelete,
+    MoleculeGenerationPointer, MoleculeGenerationSlot,
 };
 
 impl<R: MetadataRead> MetadataProof<R> {
@@ -84,7 +85,7 @@ impl<R: MetadataRead> MetadataProof<R> {
         live: Option<PerKeyRecord>,
         slot: Option<MoleculeGenerationSlot>,
     ) -> StorageResult<Option<PerKeyRecord>> {
-        let record = AtomStore::merge_generation_slot(live, slot);
+        let record = merge_generation_slot(live, slot);
         let delete =
             molecule_key_codec::molecule_generation_delete_bound_for_record_bound(molecule, base)
                 .ok_or_else(|| invalid("generation metadata delete coordinate"))?;
@@ -92,7 +93,7 @@ impl<R: MetadataRead> MetadataProof<R> {
         if let Some(deletion) = &deletion {
             entry_bound(&deletion.shadow)?;
         }
-        Ok(AtomStore::apply_generation_delete(record, deletion))
+        Ok(apply_generation_delete(record, deletion))
     }
 }
 

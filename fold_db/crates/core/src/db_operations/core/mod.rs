@@ -4,10 +4,10 @@ use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
 use super::lineage_index::LineageIndex;
 use super::metadata_store::MetadataStore;
-use super::molecule_key_store::MoleculeKeyStore;
 use super::public_key_store::PublicKeyStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
+use crate::storage::molecule_key_store::MoleculeKeyStore;
 use crate::storage::traits::*;
 use std::sync::Arc;
 
