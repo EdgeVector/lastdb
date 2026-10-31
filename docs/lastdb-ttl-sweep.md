@@ -190,7 +190,8 @@ The time of a batch follows the flush of the host: the gate hold of an erase req
 in both runs (about 48 ms), and the batch took six times as long on the busy host. The sweep is
 paced by the time of its batches (duty 25), so it erased a quarter as many keys a second.
 
-The write latencies are mostly the durable wait of each writer (the flush interval is 500 ms).
+The write latencies are mostly the durable wait of each writer.
+These runs used the retired 500 ms collection interval. A current writer starts its disk commit at once.
 A sweep batch holds the write gate for about 50 ms, and it also seals the write queue: a writer
 that arrives while a batch is open waits for the batch to be durable, though the gate is free.
 In the 2026-10-21 run the writers were 5 to 7 percent slower at the median and 20 to 30 percent

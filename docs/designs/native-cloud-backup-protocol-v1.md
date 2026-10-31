@@ -29,7 +29,7 @@ Each part owns one result:
 | Restore | Native importer | One verified fresh destination with recoverable record and file data |
 
 Scope, authority, limits, and exact retry identities apply to all five parts.
-A memory ack, disk completion, verified object, accepted backup, and local confirmation remain separate facts.
+The write ack (sent after the disk commit), verified object, accepted backup, and local confirmation remain separate facts.
 
 The following functions have no version-one wire contract:
 org sync, logical operation replay, B2, publisher takeover, external-object adoption, journal suffix backup, and automatic cloud deletion.

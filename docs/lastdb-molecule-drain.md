@@ -276,7 +276,7 @@ replace the single hash without a change to the drain steps.
   one at the start of each run). `lastdb db inventory` writes rows and counts as a writer; `lastdb
   status`, `lastdb liveness explain` and a `lastdb db molecule-drain` call that names no molecule open
   no write scope.
-- A write that was acknowledged from memory before the drop and flushes after the drain
+- A write that the node accepted before the drop and that commits after the drain
   finished creates a tip in a molecule with no binding and no candidate. `lastdb db inventory`
   counts it under `unbound with tips`; queue it with `lastdb db molecule-drain`.
 - The drain does not repair a counter (see above).

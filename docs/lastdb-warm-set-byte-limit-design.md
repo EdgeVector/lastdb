@@ -368,7 +368,8 @@ Proof on synthetic throwaway nodes, with an update check that rewrites every 7th
 
 The 16-client case at 8 MiB failed before this change with "all core warm path slots are held or unflushed". Latency at the default limit is unchanged (p50 3.3–4.0 ms against 3.4–3.5 ms on main, the same warm round times).
 
-Known limit: a read that admits a record while an unflushed write exists marks that record unflushed until the flush, so a read burst during writes can go over the limit for up to the flush delay (500 ms). Stage 4 (the dirty share) bounds this.
+Known limit (retired route): a read that admits a record while an unflushed write exists marks that record unflushed until the flush, so a read burst during writes can go over the limit for up to the flush delay (500 ms).
+The current design removes this case. A native write gives clean records to the warm set only after its durable disk commit (Tom, 2026-10-30).
 
 ## Later step
 

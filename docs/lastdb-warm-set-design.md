@@ -2,6 +2,9 @@
 
 Status (2026-10-27): this proposal describes the LastStore segment engine (hash group files, store write memory, `LASTSTORE_*` settings), which decision D1 (2026-10-26) removed.
 
+CAUTION: The write route below (memory ack, then a flush every 500 ms) is retired.
+The design is fast durable writes, then the ack (Tom, 2026-10-30). See [the canonical model](lastdb-canonical-model.md).
+
 Update (2026-10-17): [the logical warm set design](lastdb-logical-warm-set-design.md)
 supersedes this proposal's memory model. It uses one logical state for reads and
 writes, with Hash and HashRange as the two key types. The text below retains the
