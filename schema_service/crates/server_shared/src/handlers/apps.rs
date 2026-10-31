@@ -1,8 +1,6 @@
 //! Mutation challenge and app/release/channel registry routes.
 
-use schema_service_core::app_release::{
-    registry_unavailable_json, unknown_channel_json, ReleaseReadReply,
-};
+use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply};
 use schema_service_core::PublicAppReply;
 
 use super::*;
@@ -197,10 +195,10 @@ pub async fn get_channel(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let (app_id, channel) = path.into_inner();
-    match state.get_channel(&app_id, &channel).await {
-        Ok(Some(record)) => json_status(200, record.to_public_json()),
-        Ok(None) => json_status(404, unknown_channel_json(&app_id, &channel)),
-        Err(e) => json_status(503, registry_unavailable_json(&e.to_string())),
+    match state.channel_read_reply(&app_id, &channel).await {
+        ChannelReadReply::Ready(body) => json_status(200, body),
+        ChannelReadReply::Missing(body) => json_status(404, body),
+        ChannelReadReply::Unavailable(body) => json_status(503, body),
     }
 }
 
