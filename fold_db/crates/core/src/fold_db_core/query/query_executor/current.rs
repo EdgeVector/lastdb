@@ -48,7 +48,13 @@ impl QueryExecutor {
         // org). Clone-only schema — never written back to the registry.
         rules::scope_fields(&mut schema, storage_prefix.as_deref());
 
-        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+        // A format 7 home has no field molecules to preload.
+        if let Some(runtime) = self
+            .db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .filter(|runtime| !runtime.record_home())
+        {
             runtime
                 .preload_schema_keys(Arc::clone(&self.db_ops), &schema)
                 .await?;

@@ -7,6 +7,7 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_paths::field;
 use futures::FutureExt;
+use lastdb_model::record_space::record_space_uuid;
 use std::sync::Arc;
 
 type KeyPage = (Vec<(String, String)>, Option<String>, bool);
@@ -110,25 +111,8 @@ impl FoldDB {
         let key_field = hash_field.as_ref().cloned().ok_or_else(|| {
             SchemaError::InvalidField(format!("schema '{requested}' has no hash_field to list"))
         })?;
-        let molecule = schema
-            .field_molecule_uuids
-            .as_ref()
-            .and_then(|molecules| molecules.get(&key_field).cloned())
-            .or_else(|| {
-                schema
-                    .runtime_fields
-                    .get_mut(&key_field)
-                    .and_then(|field| field.inner.molecule_uuid().cloned())
-            })
-            .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(&schema.name, &key_field));
-        let (pairs, next_cursor, has_more) = self
-            .list_schema_key_page(
-                &schema,
-                &key_field,
-                &molecule,
-                &request,
-                storage_prefix.as_deref(),
-            )
+        let (molecule, (pairs, next_cursor, has_more)) = self
+            .schema_key_page(&mut schema, &key_field, &request, storage_prefix.as_deref())
             .await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
@@ -146,6 +130,47 @@ impl FoldDB {
             has_more,
             truncated: has_more,
         })
+    }
+
+    /// The listed molecule (or record space) and one page of its keys. A
+    /// format 7 home lists its records; the cursor is a record key.
+    async fn schema_key_page(
+        &self,
+        schema: &mut Schema,
+        key_field: &str,
+        request: &SchemaRecordKeysRequest<'_>,
+        storage_prefix: Option<&str>,
+    ) -> Result<(String, KeyPage), SchemaError> {
+        let atoms = self.db_ops().atoms();
+        if atoms.record_home() {
+            let comparison = atoms.key_comparison_context(schema).await?;
+            let page = atoms
+                .list_record_keys(
+                    schema,
+                    &comparison,
+                    request.limit,
+                    request.cursor,
+                    request.hash_filter,
+                    storage_prefix,
+                )
+                .await?;
+            return Ok((record_space_uuid(&schema.name), page));
+        }
+        let molecule = schema
+            .field_molecule_uuids
+            .as_ref()
+            .and_then(|molecules| molecules.get(key_field).cloned())
+            .or_else(|| {
+                schema
+                    .runtime_fields
+                    .get_mut(key_field)
+                    .and_then(|field| field.inner.molecule_uuid().cloned())
+            })
+            .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(&schema.name, key_field));
+        let page = self
+            .list_schema_key_page(schema, key_field, &molecule, request, storage_prefix)
+            .await?;
+        Ok((molecule, page))
     }
 
     /// Keep the field binding, membership proof, and physical refill in one read.

@@ -127,6 +127,14 @@ impl MutationManager {
         ),
         SchemaError,
     > {
+        // The erase lane removes field molecule tips, which a format 7 home
+        // does not have. Refuse before a lane holds the job: the lane retries
+        // a failed job, so the request and the shutdown would wait on it.
+        if self.db_ops.atoms().record_home() {
+            return Err(SchemaError::InvalidData(
+                "a format 7 home has no field molecules for the erase lane to remove".into(),
+            ));
+        }
         let mut schema = self
             .schema_manager
             .get_schema_metadata(schema_name)?

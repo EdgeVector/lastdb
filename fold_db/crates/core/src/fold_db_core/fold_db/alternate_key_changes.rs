@@ -152,6 +152,15 @@ impl FoldDB {
         &self,
         request: AlternateKeyChange,
     ) -> Result<AlternateKeyChangeReport, SchemaError> {
+        // The change proves its backfill with field molecule counters. A
+        // format 7 home has none; it declares alternate keys with the schema.
+        if self.db_ops.atoms().record_home()
+            && !matches!(request, AlternateKeyChange::Status { .. })
+        {
+            return Err(invalid(
+                "a format 7 home does not change the alternate keys of a declared schema yet",
+            ));
+        }
         let admission = self.acquire_local_mutation_admission().await;
         admission
             .run(transaction::scope(
