@@ -1,6 +1,6 @@
 //! Mutation challenge and app/release/channel registry routes.
 
-use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply};
+use schema_service_core::app_release::{ChannelReadReply, CompatRowsReply, ReleaseReadReply};
 use schema_service_core::PublicAppReply;
 
 use super::*;
@@ -344,17 +344,8 @@ pub async fn list_compat_rows(
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
     let release_id = path.into_inner();
-    match state.list_compat_rows(&release_id).await {
-        Ok(rows) => {
-            let rows_json: Vec<_> = rows
-                .iter()
-                .map(schema_service_core::app_release::CompatRow::to_public_json)
-                .collect();
-            json_status(200, json!({ "compat_rows": rows_json }))
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+    match state.compat_rows_reply(&release_id).await {
+        CompatRowsReply::Ready(body) => json_status(200, body),
+        CompatRowsReply::Failed { status, body } => json_status(status, body),
     }
 }

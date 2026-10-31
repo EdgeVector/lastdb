@@ -2,7 +2,7 @@
 
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::release_verification_location;
+use schema_service_core::app_release::{release_verification_location, CompatRowsReply};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -98,18 +98,9 @@ pub(crate) async fn list_compat_rows(
     if release_id.is_empty() || release_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_release_id"}));
     }
-    match state.list_compat_rows(release_id).await {
-        Ok(rows) => {
-            let rows_json: Vec<_> = rows
-                .iter()
-                .map(schema_service_core::app_release::CompatRow::to_public_json)
-                .collect();
-            json_response(200, &json!({ "compat_rows": rows_json }))
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+    match state.compat_rows_reply(release_id).await {
+        CompatRowsReply::Ready(body) => json_response(200, &body),
+        CompatRowsReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
