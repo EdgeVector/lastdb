@@ -52,13 +52,7 @@ pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     }
     match state.get_app(app_id) {
-        Some(record) => {
-            let revoked = state
-                .app_identity_config()
-                .revoked_dev_pubkeys
-                .contains(&record.owner_dev_pubkey);
-            json_response(200, &record.to_public_json(revoked))
-        }
+        Some(record) => json_response(200, &state.app_public_json(&record)),
         None => json_response(404, &unknown_app_json(app_id)),
     }
 }
@@ -299,13 +293,7 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
     match state.get_app(app_id) {
-        Some(record) => {
-            let revoked = state
-                .app_identity_config()
-                .revoked_dev_pubkeys
-                .contains(&record.owner_dev_pubkey);
-            json_response(200, &record.to_public_json(revoked))
-        }
+        Some(record) => json_response(200, &state.app_public_json(&record)),
         None => json_response(404, &unknown_app_json(app_id)),
     }
 }

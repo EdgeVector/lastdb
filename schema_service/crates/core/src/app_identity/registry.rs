@@ -40,6 +40,19 @@ impl SchemaServiceState {
         self.apps.read().ok().and_then(|a| a.get(app_id).cloned())
     }
 
+    /// Anonymous GET body for one app.
+    ///
+    /// `revoked` is true when the owner pubkey is on the offline denylist.
+    /// The keys match `AppRecord::to_public_json`.
+    #[must_use]
+    pub fn app_public_json(&self, record: &AppRecord) -> Value {
+        let revoked = self
+            .app_identity_config()
+            .revoked_dev_pubkeys
+            .contains(&record.owner_dev_pubkey);
+        record.to_public_json(revoked)
+    }
+
     /// Public app shelf for `GET /v1/apps`.
     ///
     /// Only Live, non-revoked apps appear in the default listing. Sandbox rows

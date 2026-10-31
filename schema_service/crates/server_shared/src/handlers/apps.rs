@@ -291,11 +291,7 @@ pub async fn get_app(
     let Some(record) = state.get_app(&app_id) else {
         return json_status(404, unknown_app_json(&app_id));
     };
-    let revoked = state
-        .app_identity_config()
-        .revoked_dev_pubkeys
-        .contains(&record.owner_dev_pubkey);
-    json_status(200, record.to_public_json(revoked))
+    json_status(200, state.app_public_json(&record))
 }
 
 /// `GET /v1/apps` — public app shelf read.
