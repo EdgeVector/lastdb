@@ -1,7 +1,7 @@
 //! Mutation challenge and app/release/channel registry routes.
 
 use schema_service_core::app_release::{
-    ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply,
+    ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply, SetChannelReply,
 };
 use schema_service_core::{PublicAppReply, SchemaMutationChallengeReply};
 
@@ -120,14 +120,11 @@ pub async fn set_channel(
         Err(resp) => return resp,
     };
     match state
-        .set_channel(&app_id, &channel, &cert, &sig, &body)
+        .set_channel_reply(&app_id, &channel, &cert, &sig, &body)
         .await
     {
-        Ok(record) => json_status(200, record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_status(status, body)
-        }
+        SetChannelReply::Ready(body) => json_status(200, body),
+        SetChannelReply::Failed { status, body } => json_status(status, body),
     }
 }
 

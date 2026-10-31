@@ -57,6 +57,7 @@ mod persistence;
 mod point_read;
 mod read_v2;
 mod records;
+mod set_channel_reply;
 mod state;
 mod validate;
 
@@ -66,4 +67,5 @@ pub use grammar::*;
 pub use point_read::{ChannelReadReply, ReleaseReadReply};
 pub use read_v2::CompatRowsReply;
 pub use records::*;
+pub use set_channel_reply::SetChannelReply;
 use validate::*;
