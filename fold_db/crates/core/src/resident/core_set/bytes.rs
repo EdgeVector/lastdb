@@ -29,6 +29,7 @@ pub(super) struct WarmBytes {
     path_bytes: usize,
     slot_bytes: usize,
     link_bytes: usize,
+    record_bytes: usize,
     peak_bytes: usize,
     tracks_since_sweep: usize,
     purged_bytes: u64,
@@ -51,6 +52,8 @@ pub struct CoreWarmByteStats {
     pub slot_bytes: usize,
     /// Source links and interned source keys (the invalidation index).
     pub link_bytes: usize,
+    /// Decoded records of a format 7 home and their keys.
+    pub record_bytes: usize,
     /// Atom allocations that only a running call keeps.
     pub held_bytes: usize,
     /// Retired unflushed warm-path charge; disk-first publication keeps this zero.
@@ -66,7 +69,7 @@ pub struct CoreWarmByteStats {
 
 impl WarmBytes {
     pub(super) fn used(&self) -> usize {
-        self.atom_bytes + self.path_bytes + self.slot_bytes + self.link_bytes
+        self.atom_bytes + self.path_bytes + self.slot_bytes + self.link_bytes + self.record_bytes
     }
 
     pub(super) fn note_purged(&mut self, bytes: usize) {
@@ -221,6 +224,14 @@ impl CoreWarmSet {
         self.bytes.link_bytes -= charge;
     }
 
+    pub(super) fn charge_record(&mut self, charge: usize) {
+        self.bytes.record_bytes += charge;
+    }
+
+    pub(super) fn release_record(&mut self, charge: usize) {
+        self.bytes.record_bytes -= charge;
+    }
+
     /// Charge an atom allocation once. A reused address with a dead entry is a
     /// new allocation, so its old charge is replaced.
     pub(super) fn track_atom(&mut self, atom: &Arc<Atom>) {
@@ -279,6 +290,7 @@ impl CoreWarmSet {
             atom_bytes: self.bytes.atom_bytes,
             slot_bytes: self.bytes.slot_bytes,
             link_bytes: self.bytes.link_bytes,
+            record_bytes: self.bytes.record_bytes,
             held_bytes,
             dirty_bytes: 0,
             dirty_limit_bytes: crate::resident::core_warm_dirty_bytes(limit_bytes),

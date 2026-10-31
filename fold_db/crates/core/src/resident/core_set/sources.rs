@@ -79,9 +79,11 @@ impl CoreWarmSet {
     }
 
     /// Call under the same publication boundary as the changed disk/write view.
-    /// Every alias of the affected core slot loses its old current value.
+    /// Every alias of the affected core slot loses its old current value, and
+    /// a changed record key loses its decoded record.
     pub(crate) fn invalidate_sources(&mut self, changes: &[(String, String)]) {
         self.memory.invalidate(changes);
+        self.invalidate_records(changes);
         let slots: HashSet<_> = changes
             .iter()
             .filter_map(|(collection, key)| self.sources.find(collection, key))

@@ -117,7 +117,7 @@ impl ResidentHealth {
         work: fold_db::resident::PersistLaneMetricsSnapshot,
     ) -> Self {
         Self {
-            resident_key_count: g_instant(core.core_warm_paths as u64, Unit::Keys),
+            resident_key_count: g_instant(core.warm_records as u64, Unit::Keys),
             resident_held_keys: g_instant(core.core_warm_held as u64, Unit::Keys),
             resident_dirty_keys: g_instant(core.core_warm_dirty as u64, Unit::Keys),
             resident_key_budget: Gauge::field_not_served(Unit::Keys, GAUGE_INSTANT),

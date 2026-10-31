@@ -5,15 +5,21 @@
 //! alternate entry changes and their file blob counter changes, in one batch
 //! of the native request. A record write creates no atom, tip, history row or
 //! atom counter.
+//!
+//! A read by record key checks the record warm set first (decision D2). A
+//! record that the read finds on disk, or that a flushed write puts, enters
+//! it.
 
 use super::blob_counter::BlobDeltas;
 use super::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::record_warm::WrittenRecord;
 use crate::storage::KvMutation;
 use lastdb_model::record_space::record_space_uuid;
 use lastdb_model::record_value::StoredRecord;
+use std::sync::Arc;
 
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
@@ -23,7 +29,7 @@ pub(crate) struct RecordChange {
     /// The storage key, scope included.
     pub key: String,
     /// The stored value that the write read in the same scope.
-    pub before: Option<StoredRecord>,
+    pub before: Option<Arc<StoredRecord>>,
     /// The merged value that the write puts.
     pub after: StoredRecord,
 }
@@ -60,19 +66,39 @@ impl AtomStore {
         Ok(build_storage_key(scope, &record))
     }
 
-    /// The stored records at these storage keys, in the order given. One read
-    /// by key for each chunk. Inside a native request the read sees the
-    /// request's earlier private writes.
+    /// The stored records at these storage keys, in the order given. Memory
+    /// answers first; one read by key for each chunk of the misses. Inside a
+    /// native request the read sees the request's earlier private writes.
     pub(crate) async fn read_records(
         &self,
         keys: &[String],
-    ) -> Result<Vec<Option<StoredRecord>>, SchemaError> {
-        let mut out = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
+    ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        let mut warm = match &runtime {
+            Some(runtime) => runtime
+                .warm_records(keys)
+                .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?,
+            None => None,
+        };
+        let mut out = match &mut warm {
+            Some(read) => read.take_found(),
+            None => vec![None; keys.len()],
+        };
+        let misses: Vec<usize> = (0..keys.len()).filter(|at| out[*at].is_none()).collect();
+        let mut admitted = Vec::new();
+        for chunk in misses.chunks(READ_CHUNK) {
             let rows = self
                 .main_store
                 .inner()
-                .get_many(chunk.iter().map(|key| key.clone().into_bytes()).collect())
+                .get_many(
+                    chunk
+                        .iter()
+                        .map(|at| keys[*at].clone().into_bytes())
+                        .collect(),
+                )
                 .await
                 .map_err(|error| SchemaError::InvalidData(format!("read records: {error}")))?;
             if rows.len() != chunk.len() {
@@ -80,15 +106,19 @@ impl AtomStore {
                     "the record read batch is incomplete".into(),
                 ));
             }
-            for row in rows {
-                out.push(
-                    row.map(|bytes| StoredRecord::decode(&bytes))
-                        .transpose()
-                        .map_err(|error| {
-                            SchemaError::InvalidData(format!("a stored record: {error}"))
-                        })?,
-                );
+            for (at, row) in chunk.iter().zip(rows) {
+                let Some(bytes) = row else { continue };
+                let record = Arc::new(StoredRecord::decode(&bytes).map_err(|error| {
+                    SchemaError::InvalidData(format!("a stored record: {error}"))
+                })?);
+                if warm.is_some() {
+                    admitted.push((*at, Arc::clone(&record), bytes.len()));
+                }
+                out[*at] = Some(record);
             }
+        }
+        if let (Some(runtime), Some(read)) = (&runtime, &warm) {
+            runtime.admit_read_records(read, admitted);
         }
         Ok(out)
     }
@@ -106,6 +136,7 @@ impl AtomStore {
         self.require_write_scope()?;
         let mut blobs = BlobDeltas::default();
         let mut batch = Vec::with_capacity(changes.len() + alternates.len());
+        let mut written = Vec::with_capacity(changes.len());
         for change in changes {
             if let Some(before) = &change.before {
                 blobs.add(&before.blob_refs(), -1);
@@ -114,11 +145,24 @@ impl AtomStore {
             let value = change.after.encode().map_err(|error| {
                 SchemaError::InvalidData(format!("the record write is refused: {error}"))
             })?;
+            written.push(WrittenRecord::new(
+                &change.key,
+                Arc::new(change.after),
+                &value,
+            ));
             batch.push(KvMutation::put(change.key.into_bytes(), value));
         }
         batch.extend(alternates);
         batch.extend(self.blob_counter_mutations(blobs).await?);
         self.main_store.inner().batch_mutate(batch).await?;
+        // The values enter the warm set after the flush puts the request on disk.
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+        {
+            runtime.stage_written_records(written);
+        }
         Ok(())
     }
 }

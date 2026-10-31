@@ -14,10 +14,13 @@ pub struct NativeDiskStatus {
     pub completed_sequence: u64,
     pub writer_failed: bool,
     pub cas_delete_recovery: Option<CasDeleteRecovery>,
+    /// Logical records in memory: field paths plus format 7 records.
     pub warm_records: usize,
     /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
     pub warm_record_limit: usize,
     pub core_warm_paths: usize,
+    /// Decoded records of a format 7 home in the warm set.
+    pub core_warm_records: usize,
     pub core_warm_tip_only_paths: usize,
     pub core_warm_molecules: usize,
     pub core_warm_atoms: usize,
@@ -110,9 +113,10 @@ impl PackRuntime {
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.requires_recovery(),
             cas_delete_recovery: self.physical.cas_delete_recovery,
-            warm_records: core.paths,
+            warm_records: core.paths + core.records,
             warm_record_limit: 0,
             core_warm_paths: core.paths,
+            core_warm_records: core.records,
             core_warm_tip_only_paths: core.tip_only_paths,
             core_warm_molecules: core.molecules,
             core_warm_atoms: core.atoms,
@@ -138,6 +142,10 @@ impl PackRuntime {
         key_changes: &[(String, String, bool)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
+        // Checked before the view lock; published under it with the root.
+        let records = laststore::commit_timing::during("memory_record_check_us", || {
+            record_warm::committed_records(requests)
+        });
         let mut view = laststore::commit_timing::during("memory_view_lock_wait_us", || {
             self.view.write().expect("native complete read view")
         });
@@ -168,6 +176,13 @@ impl PackRuntime {
                 let _timing = laststore::commit_timing::stage("memory_typed_install_us");
                 protection.publish_clean()?;
             }
+        }
+        if !records.is_empty() {
+            let _timing = laststore::commit_timing::stage("memory_record_install_us");
+            self.core
+                .lock()
+                .expect("committed warm records")
+                .admit_records(records);
         }
         let replaced = std::mem::replace(&mut view.current, current);
         drop(view);

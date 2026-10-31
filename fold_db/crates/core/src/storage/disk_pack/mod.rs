@@ -35,6 +35,7 @@ mod physical;
 mod physical_v2;
 mod queue;
 mod read;
+pub(crate) mod record_warm;
 pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;

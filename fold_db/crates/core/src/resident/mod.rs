@@ -12,7 +12,9 @@ pub use config::{
 pub(crate) use core_set::CoreMemorySource;
 pub use core_set::{CoreMemoryStats, CoreMemoryValue, CoreWarmByteStats};
 pub(crate) use core_set::{CoreModelChange, CoreModelStats, CoreModelUpdate, PreparedCoreMemory};
-pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot, CoreWarmTip};
+pub(crate) use core_set::{
+    CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot, CoreWarmTip, RecordCoordinate,
+};
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,

@@ -18,9 +18,11 @@ use crate::schema::SchemaError;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid, RECORD_PREFIX};
 use lastdb_model::record_value::StoredRecord;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-/// One live record and its API key.
-pub(crate) type KeyedRecord = (KeyValue, StoredRecord);
+/// One live record and its API key. A read by key can share the record with
+/// the record warm set.
+pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
 
 /// One page of record keys: the API keys, the exclusive physical cursor of
 /// the next page, and whether more keys follow.
@@ -187,7 +189,7 @@ impl AtomStore {
             let range = codec.api_range(stored).map_err(codec_error)?;
             out.push((
                 KeyValue::new(Some(hash.to_owned()), Some(range)),
-                decode(&value)?,
+                Arc::new(decode(&value)?),
             ));
         }
         Ok(out)
@@ -213,7 +215,10 @@ impl AtomStore {
         for (_, value) in rows {
             let record = decode(&value)?;
             if record.is_live() {
-                out.push((recovered_key(schema, comparison, &record)?, record));
+                out.push((
+                    recovered_key(schema, comparison, &record)?,
+                    Arc::new(record),
+                ));
             }
         }
         Ok(out)
