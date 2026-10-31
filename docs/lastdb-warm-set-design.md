@@ -3,6 +3,7 @@
 Status (2026-10-27): this proposal describes the LastStore segment engine (hash group files, store write memory, `LASTSTORE_*` settings), which decision D1 (2026-10-26) removed.
 
 CAUTION: The write route below (memory ack, then a flush every 500 ms) is retired.
+The 10,000 logical-record key budget below is also deleted. The warm set has a byte limit (256 MiB by default, `LASTDB_CORE_WARM_BYTES`).
 The design is fast durable writes, then the ack (Tom, 2026-10-30). See [the canonical model](lastdb-canonical-model.md).
 
 Update (2026-10-17): [the logical warm set design](lastdb-logical-warm-set-design.md)

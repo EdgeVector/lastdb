@@ -26,7 +26,7 @@ In this document, "encrypted atom" and "atom content key" name that required add
 The [current preload design](../lastdb-schema-range-preload-design.md) loads complete keys only for explicitly selected HashRange schemas.
 Its local trees retain encoded range keys.
 Other schemas, and some capacity failures, use the ordered disk route.
-The current key allowance defaults to 128 MiB, separate from the warm set of 10,000 logical records.
+The current key allowance defaults to 128 MiB, separate from the warm set byte limit (256 MiB by default).
 
 The current `ope_v1` range codec preserves order and prefixes, but a decoder recovers the original bytes without its key.
 It does not supply range confidentiality.
