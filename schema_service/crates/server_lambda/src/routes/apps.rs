@@ -4,7 +4,7 @@ use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply, SetChannelReply};
-use schema_service_core::{PromoteAppReply, PublicAppReply};
+use schema_service_core::{PromoteAppReply, PublicAppReply, RegisterAppReply};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -23,13 +23,8 @@ pub(crate) async fn post_app_v1(
         Ok(pair) => pair,
         Err(r) => return r,
     };
-    match state.register_app(cert, sig, &body_value).await {
-        Ok(outcome) => {
-            let (status, body) = outcome.to_http(&state.deployment_env_label());
-            json_response(status, &body)
-        }
-        Err(e) => {
-            let (status, body) = e.to_http();
+    match state.register_app_reply(cert, sig, &body_value).await {
+        RegisterAppReply::Ready { status, body } | RegisterAppReply::Failed { status, body } => {
             json_response(status, &body)
         }
     }
