@@ -1,3 +1,5 @@
+use serde_json::{json, Value};
+
 use super::*;
 
 /// The similar-schema result both HTTP routers answer.
@@ -6,9 +8,14 @@ pub enum SimilarSchemasReply {
     /// The named schema exists. HTTP 200.
     Ready(SimilarSchemasResponse),
     /// The error text contains `not found`. HTTP 404.
-    Missing,
-    /// Any other failure. HTTP 500. `detail` is the error text.
-    Failed { detail: String },
+    ///
+    /// `body` is `{ "error": "Schema '{name}' not found" }`. The name is the
+    /// request name, not the error text.
+    Missing { body: Value },
+    /// Any other failure. HTTP 500.
+    ///
+    /// `body` is `{ "error": "Failed to find similar schemas: {detail}" }`.
+    Failed { body: Value },
 }
 
 /// `None` means 0.5. A value outside `0.0..=1.0` is refused.
@@ -87,8 +94,10 @@ impl SchemaServiceState {
 
     /// The same call as [`Self::find_similar_schemas`], classified for HTTP.
     ///
-    /// A missing schema stays `Missing` when the error text contains `not found`.
-    /// Every other error stays `Failed` with that text.
+    /// A missing schema stays HTTP 404 when the error text contains `not found`.
+    /// The body uses the request name. Every other error stays HTTP 500.
+    /// The find method stays public. Each router still writes its response.
+    /// A threshold outside `0.0..=1.0` stays in each router.
     #[must_use]
     pub fn similar_schemas_reply(&self, name: &str, threshold: f64) -> SimilarSchemasReply {
         match self.find_similar_schemas(name, threshold) {
@@ -96,9 +105,13 @@ impl SchemaServiceState {
             Err(error) => {
                 let detail = error.to_string();
                 if detail.contains("not found") {
-                    SimilarSchemasReply::Missing
+                    SimilarSchemasReply::Missing {
+                        body: json!({"error": format!("Schema '{name}' not found")}),
+                    }
                 } else {
-                    SimilarSchemasReply::Failed { detail }
+                    SimilarSchemasReply::Failed {
+                        body: json!({"error": format!("Failed to find similar schemas: {detail}")}),
+                    }
                 }
             }
         }
