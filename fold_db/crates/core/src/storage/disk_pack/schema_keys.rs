@@ -1,6 +1,7 @@
 //! Complete logical membership with one shared, bounded first-use loader.
 use super::*;
-use crate::db_operations::DbOperations;
+use crate::atom::MoleculeKeyCodec;
+use crate::records::molecule_record::{MoleculeGenerationPointer, PerKeyRecord};
 use crate::resident::core_keys::{
     CoreKeyBudget, CoreKeyDomain, CoreKeyIdentity, CoreKeyLease, CoreKeyReservation,
 };
@@ -12,6 +13,38 @@ mod binding;
 mod load;
 mod publication;
 mod selection;
+
+/// The record source of one schema key preload. The operations layer
+/// implements it over the atom store; the disk pack keeps the membership.
+/// Each preload is generic over the source, so the calls stay static.
+pub(crate) trait SchemaKeySource: Send + Sync + 'static {
+    fn load_molecule_key_bundle(
+        &self,
+        molecule: &str,
+    ) -> impl std::future::Future<Output = Result<(), SchemaError>> + Send;
+
+    fn key_codec_for_molecule(&self, molecule: &str) -> Result<MoleculeKeyCodec, SchemaError>;
+
+    fn active_molecule_generation(
+        &self,
+        molecule: &str,
+        scope: Option<&str>,
+    ) -> impl std::future::Future<Output = Result<Option<MoleculeGenerationPointer>, SchemaError>> + Send;
+
+    fn scan_logical_tip_page(
+        &self,
+        prefix: &str,
+        after: Option<&str>,
+        scope: Option<&str>,
+        limit: usize,
+    ) -> impl std::future::Future<Output = Result<Vec<(String, PerKeyRecord)>, SchemaError>> + Send;
+
+    fn load_exact_per_key_records(
+        &self,
+        scope: Option<&str>,
+        keys: &[String],
+    ) -> impl std::future::Future<Output = Result<Vec<Option<PerKeyRecord>>, SchemaError>> + Send;
+}
 
 type DomainId = (Option<String>, String);
 
@@ -157,9 +190,9 @@ impl SchemaKeys {
 impl PackRuntime {
     /// Explicit selected-schema policy: the primary field molecule keys.
     /// A fallback field loads its different membership only when required.
-    pub(crate) async fn preload_schema_keys(
+    pub(crate) async fn preload_schema_keys<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
         if !self.schema_keys.selected(schema) || transaction::PendingBatch::current(self).is_some()
@@ -187,14 +220,14 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(crate) async fn preload_molecule_keys(
+    pub(crate) async fn preload_molecule_keys<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         scope: Option<&str>,
         molecule: &str,
     ) -> Result<(), SchemaError> {
         // Key identity must be established before an empty or cold domain loads.
-        db_ops.atoms().load_molecule_key_bundle(molecule).await?;
+        db_ops.load_molecule_key_bundle(molecule).await?;
         let prefix = crate::atom::molecule_key_codec::molecule_record_prefix(molecule);
         let Some(uid) = crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(&prefix)
         else {
@@ -206,14 +239,17 @@ impl PackRuntime {
         else {
             return Ok(());
         };
-        self.check_key_encoding(&db_ops, &entry)?;
+        self.check_key_encoding(&*db_ops, &entry)?;
         self.ensure_key_entry(db_ops, entry).await?;
         Ok(())
     }
 }
 
-fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, SchemaError> {
-    let codec = db_ops.atoms().key_codec_for_molecule(molecule)?;
+fn encoding_identity<S: SchemaKeySource>(
+    db_ops: &S,
+    molecule: &str,
+) -> Result<String, SchemaError> {
+    let codec = db_ops.key_codec_for_molecule(molecule)?;
     // The identity lives only in memory, so the Debug form of the profile
     // is as exact as its format ID. The sentinel output identifies the fixed
     // molecule hash key without retaining it. It is never used as a database

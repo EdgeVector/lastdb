@@ -1,4 +1,4 @@
-use super::types::ArchiveMetadata;
+use super::ArchiveMetadata;
 use super::*;
 use crate::atom::{molecule_key_codec, FieldKey, MutationEvent};
 use crate::db_operations::atom_store::conflict_record::Recorded;

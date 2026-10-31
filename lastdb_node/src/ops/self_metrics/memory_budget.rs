@@ -158,14 +158,16 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct MemoryBudgetAttribution {
-    pub(super) allocator: crate::allocator::AllocatorMetrics,
-    pub(super) peak_request_bytes: u64,
-    pub(super) slowest_request_ms: u64,
+pub(crate) struct MemoryBudgetAttribution {
+    pub(crate) allocator: crate::allocator::AllocatorMetrics,
+    pub(crate) peak_request_bytes: u64,
+    pub(crate) slowest_request_ms: u64,
+    /// The footprint governor state, read by the caller after its tick.
+    pub(crate) governor: FootprintGovernorSnapshot,
 }
 
 impl MemoryBudgetHealth {
-    pub(super) fn measured(
+    pub(crate) fn measured(
         resident: &ResidentHealth,
         deferred_persist_bytes: u64,
         deferred_persist_cap_bytes: u64,
@@ -176,7 +178,7 @@ impl MemoryBudgetHealth {
     ) -> Self {
         let budget = fold_db::memory_budget::process_memory_budget();
         let charged_budget_bytes = budget.charged_bytes;
-        let governor = crate::ops::footprint::governor_snapshot();
+        let governor = attribution.governor;
         Self {
             resident_graph_bytes: resident.resident_bytes,
             resident_graph_budget_bytes: resident.budget_bytes,

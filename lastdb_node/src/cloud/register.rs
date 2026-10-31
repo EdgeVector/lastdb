@@ -73,7 +73,7 @@ pub(super) fn signed_register_request(
     Ok(SignedRegisterRequest {
         url,
         body,
-        expected_user_hash: host::user_hash_from_pubkey(&keypair.public_key_base64())
+        expected_user_hash: lastdb_identity::user_hash_from_pubkey(&keypair.public_key_base64())
             .map_err(|_| "Cannot derive native account identity".to_string())?,
     })
 }

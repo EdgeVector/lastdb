@@ -25,9 +25,9 @@ mod write;
 
 pub(crate) use rows::is_counted_record_key;
 
-use super::types::ChangedKey;
 use super::AtomStore;
 use crate::atom::{AtomEntry, FieldKey, PendingTipConflict, TipConflictKind};
+use crate::records::molecule_record::ChangedKey;
 use crate::schema::SchemaError;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};

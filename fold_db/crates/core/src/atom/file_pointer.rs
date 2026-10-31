@@ -14,6 +14,12 @@ use serde_json::Value;
 /// JSON object key for a portable file pointer stored as an atom value.
 pub const LASTDB_FILE_KEY: &str = "$lastdb_file";
 
+/// Account-derived file encryption addressed by SHA-256 of its binary ciphertext.
+/// The plaintext digest and derived key stay inside the encrypted atom pointer.
+/// This is the only file-blob cipher suite.
+pub const FILE_BLOB_CIPHER_SUITE: &str =
+    "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
+
 /// If `value` is a `$lastdb_file` pointer, return its blob_ref when present.
 pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
     value
@@ -129,7 +135,6 @@ fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {
     let Some(pointer) = content.get(LASTDB_FILE_KEY) else {
         return false;
     };
-    pointer.get("cipher_suite").and_then(Value::as_str)
-        == Some(crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE)
+    pointer.get("cipher_suite").and_then(Value::as_str) == Some(FILE_BLOB_CIPHER_SUITE)
         && pointer.get("file_hash").and_then(Value::as_str) == Some(hash)
 }

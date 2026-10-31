@@ -33,7 +33,7 @@ pub struct BuildHealth {
 
 impl BuildHealth {
     /// This binary's own build identity and phase vocabulary.
-    pub(super) fn current() -> Self {
+    pub(crate) fn current() -> Self {
         Self {
             version: crate::crash_attribution::build_version().to_string(),
             phase_names: crate::request_telemetry::PhaseTimings::PHASE_NAMES

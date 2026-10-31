@@ -1,6 +1,6 @@
 //! Explicit account-key proof, independent of storage wrapper policy.
 
-use super::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
+use crate::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
 use crate::storage::{NamespacedStore, StorageError};
 
 pub(crate) const NAMESPACE: &str = "metadata";

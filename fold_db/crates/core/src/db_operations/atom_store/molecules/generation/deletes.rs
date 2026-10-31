@@ -114,8 +114,11 @@ impl AtomStore {
             .collect();
         rows.into_iter()
             .filter_map(|(key, record)| {
-                Self::apply_generation_delete(Some(record), deletes.get(&key).cloned())
-                    .map(|record| (key, record))
+                crate::records::molecule_record::apply_generation_delete(
+                    Some(record),
+                    deletes.get(&key).cloned(),
+                )
+                .map(|record| (key, record))
             })
             .collect()
     }

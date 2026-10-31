@@ -116,7 +116,7 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 |---|---|---|
 | Client delete (`delete`) | Tips only. The count falls by the weight. The body stays for the reaper. Writes a delete barrier record per field per key. | `purge/converge.rs` |
 | Client purge (wire `purge`) | The CLI maps `purge` to `delete --must-exist` (`bin/lastdb/mutate_cmds.rs:8-20`), but the batch route passes `purge` to the hard-erasure path (run: it took the purge path and failed). | appendix A.3 |
-| TTL purge | Same path with the Skip policy and a tip write-time cutoff. | `lastdb_node/src/ops/ttl_sweep/send.rs:65-94` |
+| TTL purge | Same path with the Skip policy and a tip write-time cutoff. | `lastdb_node/src/jobs/ttl_sweep/send.rs:65-94` |
 | Hard-erasure lane job | Same code as above. | `persist/purge_job.rs:8-60` |
 
 Why a purge is slow:

@@ -1,5 +1,7 @@
+//! Field history archive rows and their policy shapes.
+
 use crate::atom::MutationEvent;
-use crate::db_operations::atom_store::PerKeyRecord;
+use crate::records::molecule_record::PerKeyRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,4 +96,10 @@ impl ArchiveRecord {
     pub(crate) fn expired(&self, now: u64) -> bool {
         self.archive.expires_at.is_some_and(|at| at <= now)
     }
+}
+
+/// True for the key of an archive row in the field history family.
+pub(crate) fn is_archive(key: &str) -> bool {
+    crate::kind_partition::rest_of(key, "history")
+        .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }

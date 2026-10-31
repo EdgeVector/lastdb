@@ -36,3 +36,20 @@ pub fn is_canonical_molecule_uuid(molecule_uuid: &str) -> bool {
         .decode(molecule_uuid)
         .is_ok_and(|digest| digest.len() == 32 && URL_SAFE_NO_PAD.encode(digest) == molecule_uuid)
 }
+
+/// The stable identity of one named alternate in its exact declaration revision.
+#[must_use]
+pub fn alternate_molecule_uuid(schema: &crate::schema::types::Schema, name: &str) -> String {
+    let revision = schema.alternate_key_revision();
+    let mut hash = Sha256::new();
+    hash.update(b"lastdb:alternate-molecule:v1");
+    for part in [schema.name.as_str(), revision.as_str(), name] {
+        hash.update(
+            u64::try_from(part.len())
+                .expect("identity length fits u64")
+                .to_be_bytes(),
+        );
+        hash.update(part.as_bytes());
+    }
+    URL_SAFE_NO_PAD.encode(hash.finalize())
+}

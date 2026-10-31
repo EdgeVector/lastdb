@@ -34,7 +34,7 @@ pub struct AtRestCompressionHealth {
 }
 
 impl AtRestCompressionHealth {
-    pub(super) fn current() -> Self {
+    pub(crate) fn current() -> Self {
         let stats = fold_db::crypto::at_rest_compression_stats();
         Self {
             bytes_in: stats.bytes_in,

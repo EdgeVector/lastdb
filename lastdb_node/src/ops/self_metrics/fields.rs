@@ -1,4 +1,4 @@
-pub(super) const SELF_METRIC_FIELDS: &[&str] = &[
+pub(crate) const SELF_METRIC_FIELDS: &[&str] = &[
     "series",
     "sample_id",
     "sampled_at",
@@ -46,7 +46,7 @@ pub(super) const SELF_METRIC_FIELDS: &[&str] = &[
     "peak_request_bytes",
     "slowest_request_ms",
 ];
-pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
+pub(crate) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "series",
     "sample_id",
     "sampled_at_ms",

@@ -4,10 +4,8 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
-use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 mod derivation;
@@ -30,20 +28,8 @@ pub struct AlternateEntry {
 pub(crate) type RecordFields = BTreeMap<String, Value>;
 
 /// The stable identity of one named alternate in its exact declaration revision.
-pub fn molecule(schema: &Schema, name: &str) -> String {
-    let revision = schema.alternate_key_revision();
-    let mut hash = Sha256::new();
-    hash.update(b"lastdb:alternate-molecule:v1");
-    for part in [schema.name.as_str(), revision.as_str(), name] {
-        hash.update(
-            u64::try_from(part.len())
-                .expect("identity length fits u64")
-                .to_be_bytes(),
-        );
-        hash.update(part.as_bytes());
-    }
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash.finalize())
-}
+/// The molecule key store names it too, so it lives in the molecule model.
+pub use crate::atom::molecule_uuid::alternate_molecule_uuid as molecule;
 
 pub(crate) fn derived(
     schema: &Schema,

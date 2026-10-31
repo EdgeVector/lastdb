@@ -28,7 +28,6 @@ mod name_claims;
 mod native_memory;
 mod read;
 mod read_snapshot;
-mod replay_catalog;
 mod retention_backfill;
 mod retention_format;
 mod retention_layers;

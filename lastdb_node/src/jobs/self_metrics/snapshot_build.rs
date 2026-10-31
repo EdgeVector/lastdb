@@ -1,4 +1,3 @@
-use super::process_probes::PhysFootprint;
 use super::snapshot_memory::{observe_runtime_memory, persist_lane_rows};
 use super::*;
 
@@ -166,6 +165,7 @@ fn memory_budget_health(
             allocator,
             peak_request_bytes,
             slowest_request_ms,
+            governor: crate::jobs::footprint::governor_snapshot(),
         },
     )
 }

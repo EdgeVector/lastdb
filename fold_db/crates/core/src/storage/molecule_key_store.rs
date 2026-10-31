@@ -247,7 +247,7 @@ pub(crate) fn schema_molecule_uuids(schema: &Schema) -> Vec<String> {
         schema
             .alternate_keys
             .keys()
-            .map(|name| crate::alternate_keys::molecule(schema, name)),
+            .map(|name| crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name)),
     );
     molecules.sort();
     molecules.dedup();
@@ -287,7 +287,10 @@ pub(crate) fn schema_molecule_profiles(
         let field_type = key.range_type(&schema_types::DeclarativeSchemaDefinition::from(schema));
         let profile = MoleculeRangeProfile::for_field_type(field_type.as_ref())
             .map_err(StorageError::InvalidOperation)?;
-        result.push((crate::alternate_keys::molecule(schema, name), profile));
+        result.push((
+            crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
+            profile,
+        ));
     }
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result.dedup();

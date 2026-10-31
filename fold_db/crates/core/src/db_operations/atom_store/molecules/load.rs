@@ -6,9 +6,9 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 
 use super::super::helpers::strip_record_prefix;
-use super::super::types::{MoleculeData, MoleculeHeader, PerKeyRecord};
 use super::super::AtomStore;
 use super::generation::MaterializeReadCost;
+use crate::records::molecule_record::{MoleculeData, MoleculeHeader, PerKeyRecord};
 
 type MaterializedRows = Vec<(
     String,

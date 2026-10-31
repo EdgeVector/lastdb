@@ -6,9 +6,9 @@ use crate::storage::disk_pack::logical_paths::field::FieldScope;
 
 impl PackRuntime {
     /// A fallback field needs complete keys only when it establishes the rows.
-    pub(crate) async fn preload_bound_field(
+    pub(crate) async fn preload_bound_field<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         schema: &Schema,
         name: &str,
     ) -> Result<(), SchemaError> {
@@ -23,9 +23,9 @@ impl PackRuntime {
     }
 
     /// Share resolution runs inside the primary field's current binding.
-    pub(crate) async fn preload_current_field(
+    pub(crate) async fn preload_current_field<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         field: &FieldVariant,
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
@@ -44,9 +44,9 @@ impl PackRuntime {
         self.preload_field_binding(db_ops, field, scope).await
     }
 
-    async fn preload_field_binding(
+    async fn preload_field_binding<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         field: &FieldVariant,
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
