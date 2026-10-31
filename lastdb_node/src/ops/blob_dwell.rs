@@ -19,7 +19,7 @@
 
 use fold_db::db_operations::{DwellCursor, WriterWatch};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::Instrument;
 
 use super::paced_rest::rest;
