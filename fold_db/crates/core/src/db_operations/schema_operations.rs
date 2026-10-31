@@ -21,7 +21,7 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
     fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
-        molecule_uuid: crate::alternate_keys::molecule(schema, name),
+        molecule_uuid: crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
         source: format!(
             "alternate:{}",
             serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
@@ -243,11 +243,7 @@ impl DbOperations {
             .as_ref()
             .is_some_and(|schema| schema.uses_independent_fields())
         {
-            crate::fold_db_core::fold_db::alternate_key_changes::require_finished(
-                self,
-                schema_name,
-            )
-            .await?;
+            crate::db_operations::alternate_changes::require_finished(self, schema_name).await?;
         }
         if old
             .as_ref()

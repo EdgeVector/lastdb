@@ -1,0 +1,128 @@
+# Layer order of the fold_db core crate (package fold_db), bottom first.
+#
+# scripts/ci/layer-check.py reads this file. Each source file goes to the
+# layer that lists the longest prefix of its module path. A file may use its
+# own layer and the layers below it. A reference to a higher layer fails CI.
+# Cycles inside one layer are allowed.
+#
+# Models sit in the bottom layers; behavior sits above. To fix a failure,
+# move the referenced item down to the lowest layer that uses it, move the
+# calling code up to the layer that owns it, or invert the call with a narrow
+# trait in the lower layer.
+#
+# Two placements are deliberate:
+# - crypto and security sit in primitives, below the model, because model
+#   types carry Ed25519KeyPair and E2eKeys values.
+# - resident and memory_budget sit in runtime, below storage, because the disk
+#   pack reads and publishes the warm set (resident::core_set) and resident
+#   itself uses no store.
+
+[[layer]]
+name = "primitives"
+doc = "Leaf helpers with no domain meaning: encodings, constants, the clock, env parsing, key-prefix rules, and the crypto and signing primitives. No crate-internal dependency outside this layer."
+modules = [
+  "canonical",
+  "clock",
+  "constants",
+  "crypto",
+  "env_number",
+  "hex",
+  "json_order",
+  "kind_partition",
+  "mini_cutover",
+  "process_cpu",
+  "security",
+]
+
+[[layer]]
+name = "model"
+doc = "The data model: atoms, molecules, keys, schema types and logical rules, the access context, and the error kinds. Values and pure rules only; no store, no task, no I/O."
+modules = [
+  "access",
+  "atom",
+  "durable_flush",
+  "error",
+  "records",
+  "schema::interpreter",
+  "schema::logical_rules",
+  "schema::manifest_retention",
+  "schema::schema_types",
+  "schema::types",
+  "storage::error",
+  "sync_conflict",
+  "user_context",
+]
+
+[[layer]]
+name = "wire"
+doc = "File blob and sharing wire formats: pointer and access records, the blob seal, and signed share types. Pure codecs over the model."
+modules = [
+  "sharing::delivery_wire",
+  "sharing::file_blob_seal",
+  "sharing::signing",
+  "sharing::types",
+]
+
+[[layer]]
+name = "runtime"
+doc = "Process-local runtime state with no store: the warm set and persist lanes (resident), the memory budget, request phase accounting, disk read receipts, write preparation counters, and the mutation admission fence."
+modules = [
+  "memory_budget",
+  "read_receipts",
+  "request_phases",
+  "resident",
+  "sync::capture",
+  "write_preparation",
+]
+
+[[layer]]
+name = "storage"
+doc = "The store: storage traits and config, the disk pack (files, runs, transactions, restore proofs), current-key rules and key families, the molecule key store, the encrypting stores, and the content key proof."
+modules = [
+  "storage",
+]
+
+[[layer]]
+name = "operations"
+doc = "Typed record stores over the storage layer: the atom store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
+modules = [
+  "db_operations",
+  "sharing::blob_cas",
+  "sharing::store",
+]
+
+[[layer]]
+name = "alternate_keys"
+doc = "Alternate-key derivation, preparation, reads and writes over the operations layer."
+modules = [
+  "alternate_keys",
+]
+
+[[layer]]
+name = "schema_core"
+doc = "The schema registry service: schema load, state, staged cache, and read snapshots over the operations and storage layers."
+modules = [
+  "schema",
+]
+
+[[layer]]
+name = "engine"
+doc = "The database engine: FoldDB, the mutation manager, query, purge, drains, janitors, and the factory that builds a node."
+modules = [
+  "fold_db_core",
+]
+
+[[layer]]
+name = "sharing"
+doc = "The sharing root and the query slices over the engine."
+modules = [
+  "sharing",
+]
+
+[[layer]]
+name = "surface"
+doc = "The crate root re-exports and the account byte transport (sync)."
+modules = [
+  "crate",
+  "sync",
+]

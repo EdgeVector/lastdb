@@ -11,33 +11,19 @@ pub(super) const REPAIR_SCHEMA_PAGE_ROWS: usize = 32;
 /// Schema names are UTF-8, so this byte is above every valid first byte.
 pub(super) const REPAIR_SCHEMA_SCAN_END: &[u8] = &[0xff];
 
-/// Reserved internal key prefix for retention policies in `schema_states`.
-///
-/// Existing schema-state rows remain keyed by the bare schema name. The NUL
-/// framed prefix keeps policy records disjoint from valid schema names while
-/// retaining one node-local storage namespace.
-pub(super) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
-/// Reserved internal key prefix for retention anchors in `schema_states`.
-///
-/// One row names the schema that holds the retention state (policy, age index,
-/// HashRange partition registry) for an app-qualified schema name. Same
-/// framing and rationale as [`RETENTION_POLICY_KEY_PREFIX`].
-pub(super) const RETENTION_ANCHOR_KEY_PREFIX: &str = "\0retention_anchor\0";
-/// Node-local HashRange partition registry for retained schemas.
-///
-/// A retention policy does not define the data partitions. Successful writes
-/// add their hash to this registry, so a TTL sweep can query each observed
-/// partition without a cross-partition product scan.
-pub(super) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
+// The retention and receipt prefixes are key shapes that the storage import
+// check also needs, so they live in `storage::current_keys::families`.
+pub(super) use crate::storage::current_keys::families::{
+    RETENTION_AGE_KEY_PREFIX, RETENTION_AGE_LATEST_PREFIX, RETENTION_ANCHOR_KEY_PREFIX,
+    RETENTION_HASH_PARTITION_KEY_PREFIX, RETENTION_POLICY_KEY_PREFIX,
+    SCHEMA_DROP_RECEIPT_KEY_PREFIX,
+};
 /// Reserved internal key prefix for name-claim records in `schema_states`.
 ///
 /// Same framing and same rationale as [`RETENTION_POLICY_KEY_PREFIX`]: this is
 /// node-local operational state about an installed schema, so it lives in the
 /// node-local namespace rather than in the published schema artifact.
 pub(super) const NAME_CLAIM_KEY_PREFIX: &str = "\0name_claim\0";
-pub(super) const RETENTION_AGE_KEY_PREFIX: &str = "\0retention_age\0";
-pub(super) const RETENTION_AGE_LATEST_PREFIX: &str = "\0retention_age_latest\0";
-pub(super) const SCHEMA_DROP_RECEIPT_KEY_PREFIX: &str = "\0schema_drop_receipt\0";
 
 pub(super) fn schema_drop_receipt_key(schema_name: &str) -> String {
     format!("{SCHEMA_DROP_RECEIPT_KEY_PREFIX}{schema_name}")

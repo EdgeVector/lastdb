@@ -2,6 +2,8 @@
 
 use super::error::{StorageError, StorageResult};
 
+pub(crate) mod families;
+
 /// Raw replay must never write one part of the counter lifecycle by itself.
 pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> {
     if namespace != "main" {
@@ -9,9 +11,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
             || namespace == "cas_blobs"
             || namespace == "db_catalog"
             || namespace == "alternate_changes"
-            || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(
-                namespace, key,
-            ));
+            || families::is_replay_authority_key(namespace, key));
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let bare = source_key(key)?;
@@ -186,7 +186,7 @@ fn validate_suffix(suffix: &str) -> StorageResult<()> {
 
 fn validate_references(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        "bref" => crate::db_operations::atom_store::blob_counter::is_current_key(key),
+        "bref" => families::is_blob_reference_key(key),
         "mref" => {
             key.strip_prefix("mref:v1:e:").is_some_and(hex_pair)
                 || key
@@ -194,7 +194,7 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
                     .is_some_and(|target| hex_identity(target, 64))
                 || key
                     .strip_prefix("mref:v1:d\0")
-                    .is_some_and(crate::db_operations::atom_store::valid_drain_candidate_key)
+                    .is_some_and(families::valid_drain_candidate_key)
         }
         _ => true,
     };

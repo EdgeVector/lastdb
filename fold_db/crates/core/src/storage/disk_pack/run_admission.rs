@@ -2,8 +2,8 @@
 
 use super::{map, native_routing, run_node, StorageError, StorageResult, NODE_MARKER};
 use crate::atom::molecule_key_codec::current_key_format;
-use crate::crypto::content_key_proof;
-use crate::db_operations::atom_store::AtomStore;
+use crate::records::key_format::{validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY};
+use crate::storage::content_key_proof;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -61,7 +61,7 @@ fn verify(root: &Path, key: &[u8; 32]) -> StorageResult<()> {
 }
 
 pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult<()> {
-    let marker = AtomStore::CURRENT_KEY_FORMAT_KEY;
+    let marker = CURRENT_KEY_FORMAT_KEY;
     let cutoff = "layout:v3:delete-replay-cutoff";
     let coordinates = vec![
         (
@@ -92,7 +92,7 @@ pub(super) fn verify_proofs(main: &mut RunRead, key: &[u8; 32]) -> StorageResult
     if !current_key_format(marker) {
         return Err(invalid("the logical format differs from the node marker"));
     }
-    AtomStore::validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
+    validate_frozen_replay_floor(Some(marker), values[1].as_deref())?;
     let proof = values[2]
         .as_deref()
         .ok_or_else(|| invalid("the account proof is absent"))?;

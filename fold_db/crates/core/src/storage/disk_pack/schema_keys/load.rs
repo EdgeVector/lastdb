@@ -5,9 +5,9 @@ use crate::atom::molecule_key_codec::{decode_hash_range_any, molecule_record_pre
 use crate::resident::core_keys::KeyVisibility;
 
 impl PackRuntime {
-    pub(super) fn check_key_encoding(
+    pub(super) fn check_key_encoding<S: SchemaKeySource>(
         &self,
-        db_ops: &DbOperations,
+        db_ops: &S,
         entry: &Entry,
     ) -> Result<(), SchemaError> {
         let expected = encoding_identity(db_ops, &entry.id.1)?;
@@ -43,9 +43,9 @@ impl PackRuntime {
         Ok(())
     }
 
-    pub(super) async fn ensure_key_entry(
+    pub(super) async fn ensure_key_entry<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         entry: Arc<Entry>,
     ) -> Result<(), SchemaError> {
         let mut receiver = entry.phase.subscribe();
@@ -68,9 +68,9 @@ impl PackRuntime {
         }
     }
 
-    async fn start_key_load(
+    async fn start_key_load<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         entry: Arc<Entry>,
     ) -> Result<(), SchemaError> {
         // Serialize transient builds before source capture. Another load's
@@ -94,7 +94,7 @@ impl PackRuntime {
             encoding_identity: encoding_identity(&db_ops, &entry.id.1)?,
             membership_rules: "current-candidates-with-exact-visibility-v1".into(),
         };
-        let codec = db_ops.atoms().key_codec_for_molecule(&entry.id.1)?;
+        let codec = db_ops.key_codec_for_molecule(&entry.id.1)?;
         let page_charge = match self.reserve_key_work(&entry.id) {
             Ok(charge) => charge,
             Err(error) => {
@@ -148,9 +148,9 @@ impl PackRuntime {
         Ok(())
     }
 
-    async fn load_key_domain(
+    async fn load_key_domain<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         entry: &Arc<Entry>,
         domain: &Arc<CoreKeyDomain>,
         base: Arc<ReadContext>,
@@ -163,7 +163,6 @@ impl PackRuntime {
             .run_result(async {
                 Ok::<_, SchemaError>(
                     db_ops
-                        .atoms()
                         .active_molecule_generation(&entry.id.1, entry.id.0.as_deref())
                         .await?
                         .is_some(),
@@ -188,7 +187,7 @@ impl PackRuntime {
             }
             let scope = ReadContext::preload_page(self, &base, &page_charge)?;
             let rows = scope
-                .run_result(db_ops.atoms().scan_logical_tip_page(
+                .run_result(db_ops.scan_logical_tip_page(
                     &prefix,
                     after.as_deref(),
                     entry.id.0.as_deref(),
@@ -268,9 +267,9 @@ impl PackRuntime {
         }
     }
 
-    async fn finish_key_load(
+    async fn finish_key_load<S: SchemaKeySource>(
         self: &Arc<Self>,
-        db_ops: Arc<DbOperations>,
+        db_ops: Arc<S>,
         entry: &Arc<Entry>,
         domain: &Arc<CoreKeyDomain>,
         page_charge: &Arc<CoreKeyReservation>,
@@ -300,11 +299,7 @@ impl PackRuntime {
             let base = ReadContext::new(self)?;
             let scope = ReadContext::preload_page(self, &base, page_charge)?;
             let records = scope
-                .run_result(
-                    db_ops
-                        .atoms()
-                        .load_exact_per_key_records(entry.id.0.as_deref(), &keys),
-                )
+                .run_result(db_ops.load_exact_per_key_records(entry.id.0.as_deref(), &keys))
                 .await?;
             for (key, record) in keys.into_iter().zip(records) {
                 let (hash, range) = decode_hash_range_any(&key).ok_or_else(|| {

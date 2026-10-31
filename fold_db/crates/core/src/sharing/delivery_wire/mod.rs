@@ -38,11 +38,9 @@ pub const JWE_ZIP_GZIP: &str = "gzip";
 pub use crate::atom::file_pointer::{blob_ref_from_atom_value, LASTDB_FILE_KEY};
 /// Optional key for a reference-only generated thumbnail/poster inside a file pointer.
 pub const LASTDB_FILE_THUMBNAIL_KEY: &str = "thumbnail";
-/// Account-derived file encryption addressed by SHA-256 of its binary ciphertext.
-/// The plaintext digest and derived key stay inside the encrypted atom pointer.
-/// This is the only file-blob cipher suite.
-pub const FILE_BLOB_CIPHER_SUITE: &str =
-    "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
+/// The file blob cipher suite lives in the atom pointer model, which also
+/// recognizes private pointer hashes; the wire format re-exports it.
+pub use crate::atom::file_pointer::FILE_BLOB_CIPHER_SUITE;
 
 /// True when `suite` is [`FILE_BLOB_CIPHER_SUITE`].
 #[must_use]

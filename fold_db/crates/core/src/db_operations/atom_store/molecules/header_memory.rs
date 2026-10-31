@@ -1,7 +1,7 @@
 //! Existing typed headers share the core publication and query lifetime.
 
-use super::super::types::MoleculeHeader;
 use super::super::AtomStore;
+use crate::records::molecule_record::MoleculeHeader;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
 use serde::{de::DeserializeOwned, Serialize};

@@ -1,10 +1,10 @@
 //! Typed schema/profile admission against the same held encrypted backup root.
 
 use super::{budget, invalid, map, read_budget, rows::Rows, RunRead, StorageResult};
-use crate::db_operations::molecule_key_store::{
+use crate::schema::Schema;
+use crate::storage::molecule_key_store::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
-use crate::schema::Schema;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
 pub(super) fn verify(
@@ -66,7 +66,7 @@ pub(super) fn verify(
             batch(main, account_key, profile, chunk)?;
         }
         for (molecule, alternate_profile) in
-            crate::db_operations::molecule_key_store::schema_molecule_profiles(&schema)?
+            crate::storage::molecule_key_store::schema_molecule_profiles(&schema)?
         {
             if !molecules.contains(&molecule.as_str()) {
                 batch(main, account_key, alternate_profile, &[molecule.as_str()])?;

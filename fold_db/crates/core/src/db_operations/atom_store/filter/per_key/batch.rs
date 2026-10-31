@@ -1,4 +1,5 @@
 use super::*;
+use crate::records::molecule_record::{apply_generation_delete, merge_generation_slot};
 
 impl AtomStore {
     /// Batch-read exact `mk:` keys for one page.
@@ -76,7 +77,7 @@ impl AtomStore {
                 })?;
             for (slot, base) in generation_slots.into_iter().zip(generation) {
                 if base.is_some() {
-                    hit[slot] = Self::merge_generation_slot(hit[slot].take(), base);
+                    hit[slot] = merge_generation_slot(hit[slot].take(), base);
                 }
             }
 
@@ -104,7 +105,7 @@ impl AtomStore {
                 })?;
             for (slot, deletion) in delete_slots.into_iter().zip(deletes) {
                 if deletion.is_some() {
-                    hit[slot] = Self::apply_generation_delete(hit[slot].take(), deletion);
+                    hit[slot] = apply_generation_delete(hit[slot].take(), deletion);
                 }
             }
         }

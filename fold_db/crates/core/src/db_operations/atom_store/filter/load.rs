@@ -3,12 +3,12 @@
 use crate::atom::{molecule_key_codec, AtomEntry, KeyMetadata, MoleculeHashRange};
 use crate::schema::SchemaError;
 
-use super::super::types::{
+use super::super::AtomStore;
+use super::PageFill;
+use crate::records::molecule_record::{
     FilterLayout, MoleculeData, MoleculeHeader, MoleculeRangeForm, OneDSlot, PerKeyRecord,
     EMPTY_KEY_COMPONENT,
 };
-use super::super::AtomStore;
-use super::PageFill;
 
 mod exact;
 mod hash_range;

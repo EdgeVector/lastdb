@@ -1,8 +1,8 @@
 //! Ready core membership selects keys; unknown current tips fetch in batches.
 
-use super::types::PerKeyRecord;
 use super::AtomStore;
 use crate::atom::molecule_key_codec;
+use crate::records::molecule_record::PerKeyRecord;
 use crate::resident::core_keys::{CoreKeyLease, CoreStoredKey};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
