@@ -32,6 +32,15 @@ pub struct FieldMatchProbeResponse {
     pub matches: HashMap<String, Vec<FieldMatchProbeHit>>,
 }
 
+/// The field-match probe result both HTTP routers answer.
+#[derive(Debug)]
+pub enum FieldMatchProbeReply {
+    /// The probe scored the texts. HTTP 200.
+    Ready(FieldMatchProbeResponse),
+    /// The probe refused the request. HTTP 400. `detail` is the error text.
+    Refused { detail: String },
+}
+
 impl SchemaServiceState {
     /// Cosine similarity of embedded texts — used by component_cover.mjs embedding-beam.
     pub fn field_match_probe(
@@ -70,5 +79,20 @@ impl SchemaServiceState {
             matches.insert(left.id.clone(), hits);
         }
         Ok(FieldMatchProbeResponse { matches })
+    }
+
+    /// The same call as [`Self::field_match_probe`], classified for HTTP.
+    ///
+    /// A refusal stays `Refused` with the error text. The HTTP prefix stays
+    /// in each router.
+    #[must_use]
+    pub fn field_match_probe_reply(
+        &self,
+        request: &FieldMatchProbeRequest,
+    ) -> FieldMatchProbeReply {
+        match self.field_match_probe(request) {
+            Ok(response) => FieldMatchProbeReply::Ready(response),
+            Err(detail) => FieldMatchProbeReply::Refused { detail },
+        }
     }
 }

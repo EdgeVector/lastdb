@@ -3,6 +3,7 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{DeprecateSchemasRequest, NearMissesResponse};
 use serde_json::json;
@@ -24,14 +25,14 @@ pub(crate) fn post_debug_field_match_probe(
             );
         }
     };
-    match state.field_match_probe(&request) {
-        Ok(response) => {
+    match state.field_match_probe_reply(&request) {
+        FieldMatchProbeReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => json_response(
+        FieldMatchProbeReply::Refused { detail } => json_response(
             400,
-            &json!({"error": format!("Field match probe failed: {e}")}),
+            &json!({"error": format!("Field match probe failed: {detail}")}),
         ),
     }
 }
