@@ -74,13 +74,8 @@ impl AtomStore {
                     .await?,
             );
             bodies.extend(
-                self.main_store
-                    .inner()
-                    .exists_many(body_chunk.to_vec())
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read atom body records: {error}"))
-                    })?,
+                self.stored_keys_exist(body_chunk, "read atom body records")
+                    .await?,
             );
         }
         Ok(atoms
@@ -129,12 +124,7 @@ impl AtomStore {
             .collect();
         let mut is_new = Vec::with_capacity(keys.len());
         for chunk in keys.chunks(READ_CHUNK) {
-            let exists = self
-                .main_store
-                .inner()
-                .exists_many(chunk.to_vec())
-                .await
-                .map_err(|error| SchemaError::InvalidData(format!("read record keys: {error}")))?;
+            let exists = self.stored_keys_exist(chunk, "read record keys").await?;
             is_new.extend(exists.into_iter().map(|exists| !exists));
         }
         Ok(is_new)
@@ -191,18 +181,9 @@ impl AtomStore {
                 build_storage_key(scope, &atom_key_codec::body_key(atoms[slot])).into_bytes()
             })
             .collect();
-        let mut found = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            found.extend(
-                self.main_store
-                    .inner()
-                    .exists_many(chunk.to_vec())
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read atom body records: {error}"))
-                    })?,
-            );
-        }
+        let found = self
+            .stored_keys_exist(&keys, "read atom body records")
+            .await?;
         let mut out = vec![false; counters.len()];
         for (slot, exists) in slots.into_iter().zip(found) {
             out[slot] = exists;
