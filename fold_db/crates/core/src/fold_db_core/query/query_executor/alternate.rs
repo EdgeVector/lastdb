@@ -35,13 +35,7 @@ impl QueryExecutor {
         query: &Query,
         context: &AccessContext,
     ) -> Result<usize, SchemaError> {
-        let schema = self
-            .personal_alternate_schema(
-                query,
-                context,
-                "alternate counts require the personal database",
-            )
-            .await?;
+        let (schema, scope) = self.scoped_alternate_schema(query, context).await?;
         let name = query
             .key_name
             .as_deref()
@@ -61,13 +55,20 @@ impl QueryExecutor {
             let entries = self
                 .db_ops
                 .atoms()
-                .select_alternate_entries(&schema, name, filter, after.as_ref(), 128)
+                .select_alternate_entries(
+                    &schema,
+                    name,
+                    filter,
+                    after.as_ref(),
+                    128,
+                    scope.as_deref(),
+                )
                 .await?;
             let keys: Vec<_> = entries.iter().map(|entry| entry.primary.clone()).collect();
             let fields = self
                 .db_ops
                 .atoms()
-                .schema_fields_at_keys(&schema, &keys, None, &names)
+                .schema_fields_at_keys(&schema, &keys, scope.as_deref(), &names)
                 .await?;
             for (entry, fields) in entries.iter().zip(fields) {
                 if alternate_keys::derive_key(&schema, definition, &fields)?.as_ref()
@@ -112,13 +113,8 @@ impl QueryExecutor {
         cursor: Option<QueryCursor>,
         context: &AccessContext,
     ) -> Result<AlternatePage, SchemaError> {
-        let schema = self
-            .personal_alternate_schema(
-                &query,
-                context,
-                "alternate reads require the personal database scope",
-            )
-            .await?;
+        // The primary read below resolves the same scope from `context`.
+        let (schema, scope) = self.scoped_alternate_schema(&query, context).await?;
         let name = query
             .key_name
             .take()
@@ -149,6 +145,7 @@ impl QueryExecutor {
                 &filter,
                 after.as_ref(),
                 limit.saturating_add(1),
+                scope.as_deref(),
             )
             .await?;
         let has_more = entries.len() > limit;
@@ -184,12 +181,13 @@ impl QueryExecutor {
         })
     }
 
-    async fn personal_alternate_schema(
+    /// The schema and the storage scope of the caller's database: `None` for
+    /// the personal database, the instance prefix for an org database.
+    async fn scoped_alternate_schema(
         &self,
         query: &Query,
         context: &AccessContext,
-        scoped_message: &str,
-    ) -> Result<crate::schema::Schema, SchemaError> {
+    ) -> Result<(crate::schema::Schema, Option<String>), SchemaError> {
         let schema = self
             .prepare_query_schema(query)
             .await?
@@ -203,11 +201,8 @@ impl QueryExecutor {
                 context.storage_prefix.as_deref(),
             )
             .await?;
-        if scope.is_some() {
-            return Err(alternate_keys::invalid(scoped_message));
-        }
         validate_controls(query)?;
-        Ok(schema)
+        Ok((schema, scope))
     }
 }
 

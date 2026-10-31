@@ -1,19 +1,12 @@
 use super::*;
 
-/// Public schema admission is narrower than catalog metadata decoding.
+/// Public schema admission is narrower than catalog metadata decoding. An owned
+/// schema, with or without alternate keys, is admitted to the personal database
+/// and to an org database alike; the storage scope keeps their records apart.
 pub(crate) fn logical_layout_error(
     ctx: &AccessContext,
     schema: &DeclarativeSchemaDefinition,
 ) -> Option<UdsResponse> {
-    if schema.uses_independent_fields()
-        && (ctx.db_locator.is_some() || ctx.storage_prefix.is_some())
-    {
-        return Some(error_response(
-            400,
-            "independent app schemas currently require the personal database",
-            ctx,
-        ));
-    }
     fold_db::schema::require_logical_layout(&schema.schema_type)
         .err()
         .map(|error| error_response(400, &error.to_string(), ctx))

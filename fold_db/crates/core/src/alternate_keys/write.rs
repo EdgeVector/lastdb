@@ -15,11 +15,6 @@ impl AtomStore {
         if schema.alternate_keys.is_empty() || keys.is_empty() {
             return Ok(());
         }
-        if scope.is_some() {
-            return Err(invalid(
-                "alternate keys currently require the personal database scope",
-            ));
-        }
         let after = self.alternate_fields(schema, keys, scope).await?;
         if before.len() != keys.len() || after.len() != keys.len() {
             return Err(invalid("alternate change batch is incomplete"));
