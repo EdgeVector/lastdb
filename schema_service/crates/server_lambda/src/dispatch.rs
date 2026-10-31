@@ -10,6 +10,7 @@ use crate::http::json_response;
 use crate::routes;
 use crate::snapshot::handle_snapshot_export;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::ListLiveAppsReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -173,7 +174,10 @@ async fn dispatch_apps(
         // Public promoted-app shelf. This mirrors the actix route's
         // shared handler behavior: anonymous browsing is allowed, but
         // only Live, non-revoked apps appear.
-        ("GET", "/v1/apps") => json_response(200, &json!(state.list_live_apps())),
+        ("GET", "/v1/apps") => {
+            let ListLiveAppsReply { status, body } = state.list_live_apps_reply();
+            json_response(status, &body)
+        }
         ("GET", _) if p.starts_with("/v1/apps/") => routes::apps::get_app_v1(state, p),
         ("PUT", _) if p.starts_with("/v1/apps/") => routes::apps::put_app_v1(state, event, p).await,
         ("POST", _) if p.starts_with("/v1/apps/") && p.ends_with("/promote") => {

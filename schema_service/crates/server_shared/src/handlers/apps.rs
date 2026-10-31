@@ -5,7 +5,8 @@ use schema_service_core::app_release::{
     RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{
-    PromoteAppReply, PublicAppReply, RegisterAppReply, SchemaMutationChallengeReply, UpdateAppReply,
+    ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply,
+    SchemaMutationChallengeReply, UpdateAppReply,
 };
 
 use super::*;
@@ -285,7 +286,8 @@ pub async fn get_app(
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
 )]
 pub async fn list_apps(state: web::Data<SchemaServiceState>) -> impl Responder {
-    json_status(200, json!(state.list_live_apps()))
+    let ListLiveAppsReply { status, body } = state.list_live_apps_reply();
+    json_status(status, body)
 }
 
 /// `POST /v2/releases/{release_id}/compat` — write a verifier-signed compat row.
