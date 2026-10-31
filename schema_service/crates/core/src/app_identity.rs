@@ -143,6 +143,7 @@ mod register_reply;
 mod registry;
 mod types;
 mod update;
+mod update_reply;
 mod verify;
 
 pub use lifecycle_types::*;
@@ -150,6 +151,7 @@ pub use promote_reply::PromoteAppReply;
 pub use register_reply::RegisterAppReply;
 pub use registry::PublicAppReply;
 pub use types::*;
+pub use update_reply::UpdateAppReply;
 pub(crate) use verify::*;
 
 use metrics::*;
