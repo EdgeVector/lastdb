@@ -37,10 +37,7 @@ pub(crate) fn get_registry_index(
             let body = serde_json::to_value(index).map_err(serialization_error)?;
             json_response_cacheable(200, &body, &etag)
         }
-        RegistryIndexReply::Failed { detail } => json_response(
-            500,
-            &json!({"error": format!("Failed to export registry index: {detail}")}),
-        ),
+        RegistryIndexReply::Failed { body, .. } => json_response(500, &body),
     }
 }
 

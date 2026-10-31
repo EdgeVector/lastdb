@@ -28,8 +28,9 @@ pub async fn registry_index(
             .insert_header(("Cache-Control", "public, max-age=60"))
             .insert_header(("ETag", etag))
             .json(index),
-        RegistryIndexReply::Failed { detail } => {
-            internal_error("Failed to export registry index", detail)
+        RegistryIndexReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::schema", "{message}");
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }
