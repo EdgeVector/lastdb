@@ -184,7 +184,7 @@ WARM SET (LogicalResidentSet, store layer, plaintext above the encryption layer)
 - dirty_by_token: ordered map from token to key.
 - Hash views: for each (molecule, hash), a flag (Absent, Partial or Complete), an ordered list of ranges, and a flag no_barrier (true when every delete barrier read in the fill was absent and no barrier write for this hash came after).
 - Change counters: 1024 stripes. Every tip write bumps two stripes: the id stripe and the (molecule, hash) stripe. The counters live inside the set. write_put, write_delete, apply_batch and after_direct_write bump them. The bump happens after the store write, in the same lock section that installs the record. A counter never goes back.
-- Deleted dead state: schemas, fields, retired shared-value membership maps, covered_exact, hold counters.
+- Deleted dead state: schemas, fields, covered_exact, hold counters.
 - Unchanged: the absence-hint cache. The hash-group warm set for non-logical collections. The store write memory (its cap is Track S, see below).
 
 GHOST GAUGE (Stage A1, a live signal, not a test). A small set of 64-bit key hashes that simulates a 10000-record least recently used list over the key stream of every clean graph hit and every write operand. It holds no record and no body (about 1 MB). It runs at three sizes: 10000, 20000, 40000. It reports, for each read class (Hash-field point read, co-key secondary, atom, list certificate, write operand): calls, simulated misses, and the distinct hash groups a call would open. The curve over three sizes also gives Tom the data for the count decision.

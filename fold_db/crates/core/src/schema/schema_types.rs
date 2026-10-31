@@ -237,9 +237,10 @@ pub struct SchemaListEntry {
     pub purpose_statement: Option<String>,
     /// Schema type ("Single" | "Hash" | "Range" | "HashRange").
     pub schema_type: DeclarativeSchemaType,
-    /// Effective record ownership, including schemas with named alternate keys.
-    #[serde(default)]
-    pub independent_fields: bool,
+    /// Every installed schema owns its record values. Apps read this key to
+    /// confirm the owned layout before they write.
+    #[serde(default, rename = "independent_fields")]
+    pub owned_values: bool,
     /// Key configuration for keyed schemas.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<KeyConfig>,
@@ -269,14 +270,14 @@ pub struct SchemaListEntry {
 
 impl SchemaListEntry {
     /// Build a list projection from a full schema without cloning heavy field
-    /// metadata such as field hashes, molecule UUIDs, classifiers, or mappers.
+    /// metadata such as field hashes, molecule UUIDs, or classifiers.
     pub fn from_schema(schema: &DeclarativeSchemaDefinition, state: SchemaState) -> Self {
         Self {
             name: schema.name.clone(),
             descriptive_name: schema.descriptive_name.clone(),
             purpose_statement: schema.purpose_statement.clone(),
             schema_type: schema.schema_type.clone(),
-            independent_fields: schema.uses_independent_fields(),
+            owned_values: schema.has_owned_layout(),
             key: schema.key.clone(),
             fields: schema.fields.clone(),
             transform_fields: schema.transform_fields.clone(),

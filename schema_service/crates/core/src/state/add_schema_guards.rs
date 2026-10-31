@@ -88,7 +88,7 @@ impl SchemaServiceState {
         }
 
         // Different keys keep separate definitions. Canonical field reuse
-        // supplies metadata and cannot create cross-schema value authority.
+        // supplies definition metadata only.
         if cross_key {
             tracing::info!(
                 target: "schema_service::schema",

@@ -168,7 +168,7 @@ pub struct ManifestRetentionOutcome {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RetentionSharing {
     /// Other loaded schemas bound to the catalog schema (or to a schema it was
-    /// expanded from), by field mapper, retention alias or shared molecule.
+    /// expanded from), by retention alias or by a molecule that it holds.
     /// The declared manifest name is not listed.
     pub shared_with: Vec<String>,
     /// Schemas in the catalog schema's chain that another app owns.
@@ -220,8 +220,4 @@ pub struct RetentionPolicyInReach {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RetentionReach {
     pub policies: Vec<RetentionPolicyInReach>,
-    /// True when the schema is already bound to the catalog schema. Declaring
-    /// it again joins nothing new, so an app that declares its schemas on every
-    /// start is warned, not refused.
-    pub binding_bound: bool,
 }

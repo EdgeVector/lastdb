@@ -1906,12 +1906,6 @@ components:
           nullable: true
           additionalProperties:
             type: string
-        field_mappers:
-          type: object
-          nullable: true
-          additionalProperties:
-            type: string
-          description: Serialized as `"schema.field"` strings.
         hash:
           type: string
           nullable: true

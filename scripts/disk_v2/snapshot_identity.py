@@ -196,7 +196,7 @@ class Operation:
             add_model(self.model, batch, page["events"])
         ingest(self.a, pages[1]["events"])
         ingest(self.b, pages[0]["events"])
-        self.result["shared_values"] = [check_values(node, self.model) for node in (self.a, self.b)]
+        self.result["exchanged_values"] = [check_values(node, self.model) for node in (self.a, self.b)]
 
     def advance(self, source, receiver, label):
         previous = own_head(source)["sequence"]

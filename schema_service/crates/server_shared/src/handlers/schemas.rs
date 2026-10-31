@@ -1,5 +1,9 @@
 //! Schema read routes: registry index, listing, lookup, similarity and reload.
 
+use schema_service_core::builtin_schemas::AvailableSource;
+use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
+use schema_service_core::RegistryIndexReply;
+
 use super::*;
 
 #[allow(
@@ -10,24 +14,21 @@ pub async fn registry_index(
     req: HttpRequest,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    let current_etag = format!("\"{}\"", state.current_state_version());
-    if req
+    let if_none_match = req
         .headers()
         .get("if-none-match")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|etag| etag.trim() == current_etag)
-    {
-        return HttpResponse::NotModified()
-            .insert_header(("ETag", current_etag))
-            .finish();
-    }
-
-    match state.export_registry_index() {
-        Ok(index) => HttpResponse::Ok()
+        .and_then(|v| v.to_str().ok());
+    match state.registry_index_reply(if_none_match) {
+        RegistryIndexReply::NotModified { etag } => HttpResponse::NotModified()
+            .insert_header(("ETag", etag))
+            .finish(),
+        RegistryIndexReply::Ready { index, etag } => HttpResponse::Ok()
             .insert_header(("Cache-Control", "public, max-age=60"))
-            .insert_header(("ETag", format!("\"{}\"", index.registry_version)))
+            .insert_header(("ETag", etag))
             .json(index),
-        Err(e) => internal_error("Failed to export registry index", e),
+        RegistryIndexReply::Failed { detail } => {
+            internal_error("Failed to export registry index", detail)
+        }
     }
 }
 
@@ -49,7 +50,8 @@ pub async fn list_schemas(state: web::Data<SchemaServiceState>) -> impl Responde
 #[derive(serde::Deserialize)]
 pub struct AvailableSchemasQuery {
     /// Optional filter by schema source. Accepts `system_seed`, `starter_seed`,
-    /// `user`. When absent, all schemas are returned.
+    /// `user`. When absent, the list hides Schema.org leftovers and keeps templates.
+    /// An unknown value selects nothing.
     pub source: Option<String>,
 }
 
@@ -61,18 +63,9 @@ pub async fn get_available_schemas(
     state: web::Data<SchemaServiceState>,
     query: web::Query<AvailableSchemasQuery>,
 ) -> impl Responder {
-    use schema_types::SchemaSource;
-
-    // Parse the optional source filter. Unknown values fall through to "no
-    // match" (empty response) rather than 400 — the filter is best-effort
-    // and unknown sources simply select nothing.
-    let source_filter: Option<SchemaSource> = query.source.as_deref().and_then(|s| match s {
-        "system_seed" => Some(SchemaSource::SystemSeed),
-        "starter_seed" => Some(SchemaSource::StarterSeed),
-        "user" => Some(SchemaSource::User),
-        _ => None,
-    });
-
+    // Read first. A lock failure stays 500, including when `source` is unknown.
+    // `AvailableSource::keeps` then drops every schema for an unknown name.
+    let source = AvailableSource::parse(query.source.as_deref());
     let schemas = match read_schemas(&state) {
         Ok(s) => s,
         Err(r) => return r,
@@ -80,23 +73,12 @@ pub async fn get_available_schemas(
 
     let envelopes: Vec<SchemaEnvelope> = schemas
         .iter()
-        .filter(|(_, schema)| match source_filter {
-            Some(wanted) => schema.source == wanted,
-            // Default available is live language only: hide Schema.org
-            // leftovers; keep templates (`owner_app_id=templates`).
-            None => !schema_service_core::builtin_schemas::is_schema_org_leftover(schema),
-        })
+        .filter(|(_, schema)| source.keeps(schema))
         .map(|(name, schema)| SchemaEnvelope {
             schema: schema.clone(),
             system: state.is_system_schema(name),
         })
         .collect();
-
-    // If the user passed a source value that didn't parse to a known variant,
-    // return an empty list — don't silently return everything.
-    if query.source.is_some() && source_filter.is_none() {
-        return HttpResponse::Ok().json(AvailableSchemasResponse { schemas: vec![] });
-    }
 
     HttpResponse::Ok().json(AvailableSchemasResponse { schemas: envelopes })
 }
@@ -168,13 +150,11 @@ pub struct SimilarQuery {
 /// by [`find_similar`] and [`find_similar_transforms`]. Defaults to `0.5`
 /// when absent; returns a `400` response when it falls outside `[0.0, 1.0]`.
 pub(super) fn resolve_threshold(query: &SimilarQuery) -> Result<f64, HttpResponse> {
-    let threshold = query.threshold.unwrap_or(0.5);
-    if !(0.0..=1.0).contains(&threshold) {
-        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+    accepted_similarity_threshold(query.threshold).ok_or_else(|| {
+        HttpResponse::BadRequest().json(ErrorResponse {
             error: "Threshold must be between 0.0 and 1.0".to_string(),
-        }));
-    }
-    Ok(threshold)
+        })
+    })
 }
 
 #[allow(
@@ -199,19 +179,15 @@ pub async fn find_similar(
         threshold
     );
 
-    match state.find_similar_schemas(&schema_name, threshold) {
-        Ok(response) => HttpResponse::Ok().json(response),
-        Err(e) => {
-            let error_msg = format!("{e}");
-            if error_msg.contains("not found") {
-                HttpResponse::NotFound().json(ErrorResponse {
-                    error: format!("Schema '{schema_name}' not found"),
-                })
-            } else {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: format!("Failed to find similar schemas: {e}"),
-                })
-            }
+    match state.similar_schemas_reply(&schema_name, threshold) {
+        SimilarSchemasReply::Ready(response) => HttpResponse::Ok().json(response),
+        SimilarSchemasReply::Missing => HttpResponse::NotFound().json(ErrorResponse {
+            error: format!("Schema '{schema_name}' not found"),
+        }),
+        SimilarSchemasReply::Failed { detail } => {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: format!("Failed to find similar schemas: {detail}"),
+            })
         }
     }
 }

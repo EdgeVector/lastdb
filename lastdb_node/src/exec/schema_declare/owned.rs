@@ -85,8 +85,7 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<In
         if !related {
             continue;
         }
-        if !stored.uses_independent_fields()
-            || stored.owner_app_id != proposed.owner_app_id
+        if stored.owner_app_id != proposed.owner_app_id
             || stored.descriptive_name != proposed.descriptive_name
             || stored.schema_type != proposed.schema_type
             || stored.key != proposed.key
@@ -113,8 +112,8 @@ fn reuse(installed: &Schema) -> DirectDeclareResolution {
     }
 }
 
-/// Keep exact field meanings and the primary key. Resolver expansions and
-/// catalog value mappers do not authorize any change to an owned app record.
+/// Keep exact field meanings and the primary key. Resolver expansions do not
+/// authorize any change to an owned app record.
 fn owned_schema(
     declare: &DirectDeclareProposal,
     definition: schema_types::DeclarativeSchemaDefinition,
@@ -141,7 +140,7 @@ fn owned_schema(
     }
     let mut schema = requested.clone();
     // Only definition metadata crosses this boundary. No service molecule ID,
-    // predecessor, transform, mapper, or alternate layout owns local values.
+    // predecessor, transform, or alternate layout owns local values.
     schema.field_types = definition.field_types;
     schema.field_hashes = definition.field_hashes;
     schema.field_versions = definition.field_versions;
@@ -149,7 +148,7 @@ fn owned_schema(
     schema.field_classifications = definition.field_classifications;
     schema.field_data_classifications = definition.field_data_classifications;
     schema.field_interest_categories = definition.field_interest_categories;
-    schema.independent_fields = true;
+    schema.owned_values = true;
     schema.field_molecule_uuids = installed.and_then(|schema| schema.field_molecule_uuids.clone());
     if let Some(installed) = installed {
         schema.name = installed.name.clone();
@@ -229,10 +228,10 @@ pub(super) async fn load(
     } else {
         let mut definition =
             schema_types::DeclarativeSchemaDefinition::from(&declare.catalog_schema);
-        // Alternate declarations are node-owned and separately versioned.
+        // Alternate declarations and the storage marker are node-owned.
         // Older services can supply the same canonical field definitions.
         definition.alternate_keys.clear();
-        definition.independent_fields = false;
+        definition.owned_values = false;
         definition.field_molecule_uuids = None;
         client
             .add_schema_with_match_source(

@@ -31,12 +31,18 @@ pub(crate) struct DeclareRequestFacts {
     pub(crate) app_id: String,
     pub(crate) schema: String,
     pub(crate) proposal_identity_hash: Option<String>,
+    /// The definition maps a field to the values of another schema.
+    pub(crate) value_mappers: bool,
 }
 
 impl DeclareRequestFacts {
     pub(crate) fn from_body(body: &[u8]) -> Self {
         let raw = serde_json::from_slice::<Value>(body).unwrap_or_default();
         Self {
+            value_mappers: raw
+                .get("schema")
+                .and_then(|s| s.get("field_mappers"))
+                .is_some_and(|m| !m.is_null() && m.as_object().is_none_or(|map| !map.is_empty())),
             check: raw.get("intent").and_then(Value::as_str) == Some("check"),
             embedded_retention: raw.get("schema").and_then(|s| s.get("retention")).is_some(),
             app_id: raw
@@ -57,6 +63,17 @@ impl DeclareRequestFacts {
                 .and_then(Value::as_str)
                 .map(str::to_string),
         }
+    }
+
+    /// Every schema owns its record values. A definition that reads a field
+    /// through another schema asks for the retired cross-schema value sharing.
+    pub(crate) fn refuse_value_mappers(&self) -> Result<(), String> {
+        if self.value_mappers {
+            return Err(
+                "schema.field_mappers is not supported; each schema owns its values".into(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -116,7 +133,7 @@ pub(crate) fn normalize_direct_declare_proposal(
         schema.descriptive_name = Some(local_schema_id.rsplit('/').next().unwrap().to_string());
     }
     schema.name = local_schema_id.clone();
-    schema.independent_fields = true;
+    schema.owned_values = true;
     schema.validate_alternate_keys()?;
     schema.compute_identity_hash();
     schema

@@ -30,11 +30,11 @@ pub(super) fn verify(
         schema
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
-        if version == 2 && schema.uses_independent_fields() {
+        if version == 2 && schema.has_owned_layout() {
             return Err(invalid("format 4 cannot contain alternate declarations"));
         }
         if version < 4
-            && ((schema.uses_independent_fields()
+            && ((schema.has_owned_layout()
                 && schema.schema_type == crate::schema::types::SchemaType::HashRange)
                 || schema.alternate_keys.values().any(|key| {
                     key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash

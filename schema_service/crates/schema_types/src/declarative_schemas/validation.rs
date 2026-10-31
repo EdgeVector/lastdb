@@ -49,18 +49,6 @@ impl DeclarativeSchemaDefinition {
                     .map(String::as_str),
             )
             .chain(
-                self.field_mappers
-                    .iter()
-                    .flat_map(|map| map.keys())
-                    .map(String::as_str),
-            )
-            .chain(
-                self.field_mappers
-                    .iter()
-                    .flat_map(|map| map.values())
-                    .map(super::FieldMapper::source_field),
-            )
-            .chain(
                 self.field_molecule_uuids
                     .iter()
                     .flat_map(|map| map.keys())

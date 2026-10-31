@@ -166,9 +166,9 @@ both sockets:
    another app. The node does not refuse that write today, so your app code
    must keep this rule.
 3. To keep data that came from another app, write it into a schema in your own
-   namespace. Each schema owns its record values. Do not expect a write to one
-   schema to change a different schema, even when the two schemas use the same
-   field definitions. LastDB removes the implicit cross-schema value copy.
+   namespace. Each schema owns its record values. A write to one schema does
+   not change a different schema, even when the two schemas use the same field
+   definitions.
 4. The schema service reserves the namespaces `std`, `system`, and
    `templates`. A developer cannot register them.
 

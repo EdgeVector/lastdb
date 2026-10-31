@@ -12,9 +12,8 @@ pub enum SchemaAddOutcome {
     /// Existing schema was expanded with new fields (old schema name, expanded schema, mappers)
     Expanded(String, Schema, HashMap<String, String>),
     /// An Approved schema with the same `descriptive_name` already exists and
-    /// the incoming proposal cannot be cleanly expanded into it (e.g. different
-    /// `schema_type`, which would corrupt molecule reads via field-mapper
-    /// carry-over — see PR #923). The caller must rename the new schema or
+    /// the incoming proposal cannot be cleanly expanded into it (e.g. a
+    /// different `schema_type`). The caller must rename the new schema or
     /// adopt the existing canonical instead of registering a duplicate.
     DescriptiveNameConflict(DescriptiveNameConflict),
     /// The proposal was decomposed into nested components and at least one
