@@ -1,4 +1,4 @@
-//! Chunked typed reads by key.
+//! Chunked reads by key.
 //!
 //! The native get-many call accepts at most [`VALUE_READ_CHUNK`] keys.
 
@@ -26,6 +26,27 @@ impl AtomStore {
             out.extend(
                 self.main_store
                     .get_items::<T>(chunk)
+                    .await
+                    .map_err(|error| SchemaError::InvalidData(format!("{failure}: {error}")))?,
+            );
+        }
+        Ok(out)
+    }
+
+    /// Whether each key has a record, in the order given.
+    ///
+    /// `failure` is the text before the store error.
+    pub(super) async fn stored_keys_exist(
+        &self,
+        keys: &[Vec<u8>],
+        failure: &'static str,
+    ) -> Result<Vec<bool>, SchemaError> {
+        let mut out = Vec::with_capacity(keys.len());
+        for chunk in keys.chunks(VALUE_READ_CHUNK) {
+            out.extend(
+                self.main_store
+                    .inner()
+                    .exists_many(chunk.to_vec())
                     .await
                     .map_err(|error| SchemaError::InvalidData(format!("{failure}: {error}")))?,
             );
