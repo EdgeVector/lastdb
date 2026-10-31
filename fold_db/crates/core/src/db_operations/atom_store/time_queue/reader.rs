@@ -3,7 +3,7 @@
 //! The reader keeps the buckets it knows and one range walk (`RangeWalk`) for
 //! each of them. The walk is the cursor: it remembers the least key that the
 //! reader has not examined, and it moves over deleted keys without a restart.
-//! Every read is bounded by key space (`AtomStore::walk_step`), so a bucket
+//! Every read is bounded by key space (`RangeWalks::walk_step`), so a bucket
 //! that holds many deleted keys cannot stop the reader. A restart loses the
 //! state, and the reader then walks each live bucket once from its start. It
 //! never reads a bucket that is not in the directory.
@@ -13,7 +13,8 @@
 //! cursor moves only past keys that the caller handled.
 
 use super::keys::TimeQueue;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::ports::RangeWalks;
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::SchemaError;
 use std::collections::BTreeMap;
 
@@ -102,7 +103,11 @@ impl QueueReader {
     /// A bucket that the directory no longer lists leaves the state. A bucket
     /// whose token changed starts its walk again: an entry came after the walk
     /// began, and a walk that had finished would never see it.
-    pub(crate) async fn refresh(&mut self, store: &AtomStore, now: u64) -> Result<(), SchemaError> {
+    pub(crate) async fn refresh(
+        &mut self,
+        store: &impl RangeWalks,
+        now: u64,
+    ) -> Result<(), SchemaError> {
         let (start, end) = self.queue.directory_range(self.dir_floor, now);
         let mut walk = RangeWalk::new(start.as_bytes(), end.as_bytes(), DIRECTORY_PAGE);
         let mut listed: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
@@ -191,7 +196,7 @@ impl QueueReader {
     /// changes nothing in the state, so a caller that fails keeps its place.
     pub(crate) async fn read_due(
         &self,
-        store: &AtomStore,
+        store: &impl RangeWalks,
         bucket: u64,
         now: u64,
     ) -> Result<DuePage, SchemaError> {

@@ -146,7 +146,10 @@ impl<S: BlobPorts> BlobCounters<'_, S> {
     /// calls it now and then, so a bucket that starts during a long pass gets its
     /// turn. It is a bounded range walk.
     pub async fn blob_dwell_refresh(&self, cursor: &mut DwellCursor) -> Result<(), SchemaError> {
-        cursor.reader.refresh(self, self.blob_due_nanos()).await
+        cursor
+            .reader
+            .refresh(self.store, self.blob_due_nanos())
+            .await
     }
 
     /// One step: delete one chunk of due blobs, or retire one finished bucket.
@@ -199,7 +202,7 @@ impl<S: BlobPorts> BlobCounters<'_, S> {
                         ..DwellStep::default()
                     }));
                 }
-                let page = cursor.reader.read_due(self, bucket, due).await?;
+                let page = cursor.reader.read_due(self.store, bucket, due).await?;
                 if page.rows.is_empty() {
                     // The walk ended, or it met a key that is not due.
                     let waits = page.waits();

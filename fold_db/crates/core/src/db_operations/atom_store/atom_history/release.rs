@@ -51,9 +51,9 @@ impl<S: HistoryPorts> AtomHistory<'_, S> {
             return Ok(0);
         }
         let now = self.store.retention_state().clock_nanos();
-        reader.refresh(self, now).await?;
+        reader.refresh(self.store, now).await?;
         if let Some(bucket) = reader.candidates(now).into_iter().next() {
-            let page = reader.read_due(self, bucket, now).await?;
+            let page = reader.read_due(self.store, bucket, now).await?;
             let keys: Vec<_> = page.rows.iter().map(|(k, _)| k.clone()).collect();
             let released = self
                 .store

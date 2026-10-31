@@ -93,7 +93,7 @@ impl<S: BlobPorts> BlobCounters<'_, S> {
         ) else {
             return Ok(None);
         };
-        let chunk = match queue.layout().mend_slices(self, &slices, now).await {
+        let chunk = match queue.layout().mend_slices(self.store, &slices, now).await {
             Ok(chunk) => chunk,
             Err(error) => {
                 cursor.net.abandon();

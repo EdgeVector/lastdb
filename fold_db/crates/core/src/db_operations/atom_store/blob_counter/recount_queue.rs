@@ -93,7 +93,7 @@ impl<S: BlobPorts> BlobCounters<'_, S> {
             let stamp = BlobQueue::nanos(self.blob_clock_millis());
             queue
                 .layout()
-                .register_buckets(self, &missing, stamp)
+                .register_buckets(self.store, &missing, stamp)
                 .await?;
         }
         Ok(())

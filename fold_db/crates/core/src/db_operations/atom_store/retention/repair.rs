@@ -105,7 +105,11 @@ impl<S: RetentionPorts> Retention<'_, S> {
         }
         if !buckets.is_empty() {
             queue
-                .register_buckets(self, buckets, self.store.retention_state().clock_nanos())
+                .register_buckets(
+                    self.store,
+                    buckets,
+                    self.store.retention_state().clock_nanos(),
+                )
                 .await?;
             repaired.buckets = buckets.len() as u64;
         }

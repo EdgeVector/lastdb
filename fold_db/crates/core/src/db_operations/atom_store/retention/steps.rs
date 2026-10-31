@@ -163,7 +163,7 @@ impl<S: RetentionPorts> Retention<'_, S> {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<(), SchemaError> {
-        cursor.reader.refresh(self, now_nanos).await
+        cursor.reader.refresh(self.store, now_nanos).await
     }
 
     /// One batch of ordinary work: release one page of due records, or retire
@@ -214,7 +214,10 @@ impl<S: RetentionPorts> Retention<'_, S> {
                         ..StepOutcome::default()
                     }));
                 }
-                let page = cursor.reader.read_due(self, bucket, now_nanos).await?;
+                let page = cursor
+                    .reader
+                    .read_due(self.store, bucket, now_nanos)
+                    .await?;
                 if page.rows.is_empty() {
                     // The walk ended, or it met a key that is not due.
                     let waits = page.waits();
@@ -288,7 +291,7 @@ impl<S: RetentionPorts> Retention<'_, S> {
         ) else {
             return Ok(None);
         };
-        let chunk = match queue.mend_slices(self, &slices, now_nanos).await {
+        let chunk = match queue.mend_slices(self.store, &slices, now_nanos).await {
             Ok(chunk) => chunk,
             Err(error) => {
                 cursor.net.abandon();

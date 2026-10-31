@@ -26,7 +26,8 @@
 
 use super::keys::TimeQueue;
 use crate::db_operations::atom_store::counter::TipChangeSet;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::ports::{CommitTips, MainRows, RangeWalks, WriteScopes};
+use crate::db_operations::atom_store::RangeWalk;
 use crate::schema::SchemaError;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -132,7 +133,7 @@ impl TimeQueue {
     /// without a row, and one batch write when some bucket needs it.
     pub(crate) async fn mend_slices(
         &self,
-        store: &AtomStore,
+        store: &(impl CommitTips + MainRows + RangeWalks + WriteScopes),
         slices: &[u64],
         stamp: u64,
     ) -> Result<NetChunk, SchemaError> {
@@ -148,7 +149,7 @@ impl TimeQueue {
     /// nothing; `verify-refs` and `recount` use it too.
     pub(crate) async fn find_unlisted(
         &self,
-        store: &AtomStore,
+        store: &(impl MainRows + RangeWalks),
         slices: &[u64],
     ) -> Result<NetChunk, SchemaError> {
         let mut chunk = NetChunk {
@@ -163,7 +164,7 @@ impl TimeQueue {
             .map(|bucket| self.directory_key(*bucket).into_bytes())
             .collect();
         let rows = store
-            .raw()
+            .rows()
             .inner()
             .get_many(keys)
             .await
@@ -186,7 +187,7 @@ impl TimeQueue {
     /// it; it stops at the first live key.
     async fn holds_live_key(
         &self,
-        store: &AtomStore,
+        store: &impl RangeWalks,
         bucket: u64,
     ) -> Result<Option<bool>, SchemaError> {
         let (start, end) = self.bucket_range(bucket);
@@ -208,7 +209,7 @@ impl TimeQueue {
     /// retirement that read the old token fails and starts the bucket again.
     pub(crate) async fn register_buckets(
         &self,
-        store: &AtomStore,
+        store: &(impl CommitTips + WriteScopes),
         buckets: &[u64],
         stamp: u64,
     ) -> Result<(), SchemaError> {
