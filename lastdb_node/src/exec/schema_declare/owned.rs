@@ -1,6 +1,7 @@
 //! One owned app schema. Schema Service supplies definitions, never value aliases.
 
 use super::*;
+use std::collections::BTreeSet;
 
 pub(super) struct DirectDeclarePlan {
     pub(super) resolution: DirectDeclareResolution,
@@ -16,8 +17,58 @@ fn client(host: &Host) -> Result<schema_service_client::SchemaServiceClient, Str
     )
 }
 
-/// A repeat declare cannot convert old data, change its key, or discard a layout.
-fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<Schema>, String> {
+const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
+
+/// How a repeat declaration relates to the installed schema.
+enum Installed {
+    /// The same definition, or one that adds fields. It loads in place: the
+    /// existing fields keep their molecules and old records read a new field
+    /// as absent.
+    Load(Schema),
+    /// An older app declares a subset of the installed fields with equal
+    /// definitions. It reuses the installed schema and loads nothing.
+    Reuse(Schema),
+}
+
+impl Installed {
+    fn schema(&self) -> &Schema {
+        match self {
+            Self::Load(schema) | Self::Reuse(schema) => schema,
+        }
+    }
+}
+
+/// `Some(true)` when `proposed` adds fields or equals `stored`, `Some(false)`
+/// when it declares a subset. A field in both must keep its type and
+/// description. `None` for any other change.
+fn field_change(stored: &Schema, proposed: &Schema) -> Option<bool> {
+    let stored_fields: BTreeSet<&str> =
+        stored.fields.iter().flatten().map(String::as_str).collect();
+    let proposed_fields: BTreeSet<&str> = proposed
+        .fields
+        .iter()
+        .flatten()
+        .map(String::as_str)
+        .collect();
+    let equal_definitions = stored_fields.intersection(&proposed_fields).all(|field| {
+        stored.field_types.get(*field) == proposed.field_types.get(*field)
+            && stored.field_descriptions.get(*field) == proposed.field_descriptions.get(*field)
+    });
+    if !equal_definitions {
+        return None;
+    }
+    if stored_fields == proposed_fields {
+        return (stored.identity_hash == proposed.identity_hash).then_some(true);
+    }
+    if stored_fields.is_subset(&proposed_fields) {
+        return Some(true);
+    }
+    proposed_fields.is_subset(&stored_fields).then_some(false)
+}
+
+/// A repeat declare can add fields. It cannot convert old data, change a field,
+/// change the key, or discard a layout.
+fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<Installed>, String> {
     let proposed = &declare.catalog_schema;
     proposed.validate_alternate_keys()?;
     let schemas = host
@@ -35,21 +86,31 @@ fn check_local(host: &Host, declare: &DirectDeclareProposal) -> Result<Option<Sc
             continue;
         }
         if !stored.uses_independent_fields()
-            || stored.identity_hash != proposed.identity_hash
             || stored.owner_app_id != proposed.owner_app_id
             || stored.descriptive_name != proposed.descriptive_name
             || stored.schema_type != proposed.schema_type
             || stored.key != proposed.key
             || stored.alternate_keys != proposed.alternate_keys
-            || stored.field_descriptions != proposed.field_descriptions
-            || stored.field_types != proposed.field_types
             || installed.is_some()
         {
-            return Err("existing app data requires an explicit schema conversion or alternate-key change; declare cannot replace it".into());
+            return Err(BREAKING_CHANGE.into());
         }
-        installed = Some(stored.clone_for_read_shared());
+        let schema = stored.clone_for_read_shared();
+        installed = Some(match field_change(stored, proposed) {
+            Some(true) => Installed::Load(schema),
+            Some(false) => Installed::Reuse(schema),
+            None => return Err(BREAKING_CHANGE.into()),
+        });
     }
     Ok(installed)
+}
+
+/// The declaration reuses the installed schema of an older field set.
+fn reuse(installed: &Schema) -> DirectDeclareResolution {
+    DirectDeclareResolution {
+        runtime_schema: installed.name.clone(),
+        reused: true,
+    }
 }
 
 /// Keep exact field meanings and the primary key. Resolver expansions and
@@ -105,11 +166,17 @@ pub(super) async fn plan(
     declare: &DirectDeclareProposal,
 ) -> Result<DirectDeclarePlan, String> {
     let installed = check_local(host, declare)?;
-    let runtime = installed
-        .as_ref()
-        .map_or(declare.local_schema_id.as_str(), |schema| {
-            schema.name.as_str()
+    if let Some(Installed::Reuse(schema)) = &installed {
+        precheck_declare_retention(host, declare, &schema.name).await?;
+        return Ok(DirectDeclarePlan {
+            resolution: reuse(schema),
+            register_reason: None,
         });
+    }
+    let installed = installed.as_ref().map(Installed::schema);
+    let runtime = installed.map_or(declare.local_schema_id.as_str(), |schema| {
+        schema.name.as_str()
+    });
     let identity = declare
         .catalog_schema
         .identity_hash
@@ -120,7 +187,7 @@ pub(super) async fn plan(
         .await
         .map_err(|error| error.to_string())?;
     if let Some(envelope) = &found {
-        owned_schema(declare, envelope.schema.clone(), installed.as_ref())?;
+        owned_schema(declare, envelope.schema.clone(), installed)?;
     }
     precheck_declare_retention(host, declare, runtime).await?;
     Ok(DirectDeclarePlan {
@@ -137,11 +204,14 @@ pub(super) async fn load(
     declare: &DirectDeclareProposal,
 ) -> Result<DirectDeclareResolution, String> {
     let installed = check_local(host, declare)?;
-    let runtime = installed
-        .as_ref()
-        .map_or(declare.local_schema_id.as_str(), |schema| {
-            schema.name.as_str()
-        });
+    if let Some(Installed::Reuse(schema)) = &installed {
+        precheck_declare_retention(host, declare, &schema.name).await?;
+        return Ok(reuse(schema));
+    }
+    let installed = installed.as_ref().map(Installed::schema);
+    let runtime = installed.map_or(declare.local_schema_id.as_str(), |schema| {
+        schema.name.as_str()
+    });
     precheck_declare_retention(host, declare, runtime).await?;
     let identity = declare
         .catalog_schema
@@ -175,7 +245,7 @@ pub(super) async fn load(
             .map_err(|error| error.to_string())?
             .schema
     };
-    let schema = owned_schema(declare, definition, installed.as_ref())?;
+    let schema = owned_schema(declare, definition, installed)?;
     host.db
         .schema_manager()
         .load_schema_internal(schema)

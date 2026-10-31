@@ -43,6 +43,12 @@ The schema describes how its field molecules use keys. It does not store the rec
 Older declarations and remote templates can still encode `Single` or `Range`.
 The native logical query and write routes reject those layouts before they fetch molecules or change records.
 
+An app can declare its installed schema again:
+
+- **More fields.** The node accepts the new fields in place. The schema keeps its name, key, alternate keys and existing molecules. Each new field gets its own molecule. Old records read a new field as absent.
+- **Fewer fields, with equal definitions.** An older app version can declare a subset. The node reuses the installed schema and loads nothing.
+- **Any other change.** The node refuses a changed field type or description, a changed key, or changed alternate keys. The app declares a new schema name and copies its records explicitly.
+
 ### Field → molecule
 
 **Every field of a schema has its own molecule.** A molecule is an **index**:

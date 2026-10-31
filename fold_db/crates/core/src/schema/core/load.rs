@@ -250,15 +250,18 @@ impl SchemaCore {
         }
         molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
         schema.sync_molecule_uuids();
-        let retained_owned = existing.as_ref().is_some_and(|stored| {
-            stored.uses_independent_fields()
-                && stored.field_molecule_uuids == schema.field_molecule_uuids
-        });
+        // Each field keeps the molecule of the installed owned schema. A field
+        // that the installed schema lacks (a field added in place) uses its own
+        // deterministic molecule.
+        let retained = existing
+            .as_ref()
+            .filter(|stored| stored.uses_independent_fields())
+            .and_then(|stored| stored.field_molecule_uuids.as_ref());
         if schema.uses_independent_fields()
-            && !retained_owned
             && schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
                 ids.iter().any(|(field, id)| {
-                    *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                    retained.and_then(|retained| retained.get(field)) != Some(id)
+                        && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
                 })
             })
         {
