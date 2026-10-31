@@ -3,6 +3,7 @@
 use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
+use schema_service_core::state::{accepted_similarity_threshold, SimilarSchemasReply};
 use schema_service_core::{log_schema_mutation_gate_result, SchemaMutationChallengeRequest};
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{
@@ -79,34 +80,26 @@ pub(crate) fn get_schemas_similar(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let schema_name = p.trim_start_matches("/v1/schemas/similar/");
-    let threshold = parse_threshold(event);
-
-    if !(0.0..=1.0).contains(&threshold) {
+    let Some(threshold) = accepted_similarity_threshold(Some(parse_threshold(event))) else {
         return json_response(
             400,
             &json!({"error": "Threshold must be between 0.0 and 1.0"}),
         );
-    }
+    };
 
-    match state.find_similar_schemas(schema_name, threshold) {
-        Ok(response) => {
+    match state.similar_schemas_reply(schema_name, threshold) {
+        SimilarSchemasReply::Ready(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => {
-            let error_msg = format!("{e}");
-            if error_msg.contains("not found") {
-                json_response(
-                    404,
-                    &json!({"error": format!("Schema '{schema_name}' not found")}),
-                )
-            } else {
-                json_response(
-                    500,
-                    &json!({"error": format!("Failed to find similar schemas: {e}")}),
-                )
-            }
-        }
+        SimilarSchemasReply::Missing => json_response(
+            404,
+            &json!({"error": format!("Schema '{schema_name}' not found")}),
+        ),
+        SimilarSchemasReply::Failed { detail } => json_response(
+            500,
+            &json!({"error": format!("Failed to find similar schemas: {detail}")}),
+        ),
     }
 }
 

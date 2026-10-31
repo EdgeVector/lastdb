@@ -1,5 +1,23 @@
 use super::*;
 
+/// The similar-schema result both HTTP routers answer.
+#[derive(Debug)]
+pub enum SimilarSchemasReply {
+    /// The named schema exists. HTTP 200.
+    Ready(SimilarSchemasResponse),
+    /// The error text contains `not found`. HTTP 404.
+    Missing,
+    /// Any other failure. HTTP 500. `detail` is the error text.
+    Failed { detail: String },
+}
+
+/// `None` means 0.5. A value outside `0.0..=1.0` is refused.
+#[must_use]
+pub fn accepted_similarity_threshold(raw: Option<f64>) -> Option<f64> {
+    let threshold = raw.unwrap_or(0.5);
+    (0.0..=1.0).contains(&threshold).then_some(threshold)
+}
+
 impl SchemaServiceState {
     /// Find schemas similar to the given schema using Jaccard index on field name sets
     pub fn find_similar_schemas(
@@ -52,6 +70,25 @@ impl SchemaServiceState {
             threshold,
             similar_schemas: similar,
         })
+    }
+
+    /// The same call as [`Self::find_similar_schemas`], classified for HTTP.
+    ///
+    /// A missing schema stays `Missing` when the error text contains `not found`.
+    /// Every other error stays `Failed` with that text.
+    #[must_use]
+    pub fn similar_schemas_reply(&self, name: &str, threshold: f64) -> SimilarSchemasReply {
+        match self.find_similar_schemas(name, threshold) {
+            Ok(response) => SimilarSchemasReply::Ready(response),
+            Err(error) => {
+                let detail = error.to_string();
+                if detail.contains("not found") {
+                    SimilarSchemasReply::Missing
+                } else {
+                    SimilarSchemasReply::Failed { detail }
+                }
+            }
+        }
     }
 
     /// Batch check whether proposed schemas can reuse existing ones.
