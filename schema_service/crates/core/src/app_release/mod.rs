@@ -66,4 +66,5 @@ pub use grammar::*;
 pub use point_read::{ChannelReadReply, ReleaseReadReply};
 pub use read_v2::CompatRowsReply;
 pub use records::*;
+pub use state::SetChannelReply;
 use validate::*;

@@ -3,7 +3,7 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply};
+use schema_service_core::app_release::{ChannelReadReply, ReleaseReadReply, SetChannelReply};
 use schema_service_core::PublicAppReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
@@ -215,14 +215,11 @@ pub(crate) async fn put_apps_channels(
         Err(r) => return r,
     };
     match state
-        .set_channel(app_id, channel, cert, sig, &body_value)
+        .set_channel_reply(app_id, channel, cert, sig, &body_value)
         .await
     {
-        Ok(record) => json_response(200, &record.to_public_json()),
-        Err(e) => {
-            let (status, body) = e.to_http();
-            json_response(status, &body)
-        }
+        SetChannelReply::Ready(body) => json_response(200, &body),
+        SetChannelReply::Failed { status, body } => json_response(status, &body),
     }
 }
 
