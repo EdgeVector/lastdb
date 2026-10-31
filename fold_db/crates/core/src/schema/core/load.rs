@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 use super::locks::{lock_map, write_map};
 use super::SchemaCore;
 
-mod coherence;
-mod predecessor;
+mod molecule_map;
+pub(super) mod owned;
 mod rules;
 use crate::schema::types::{Schema, SchemaError};
 use crate::schema::SchemaState;
@@ -223,7 +223,7 @@ impl SchemaCore {
     }
 
     /// Prepare definitions, keep local molecule ownership, write durable metadata,
-    /// then publish the matching cache state and establish multi-key proteins.
+    /// then publish the matching cache state.
     pub async fn load_schema_internal(&self, mut schema: Schema) -> Result<(), SchemaError> {
         schema
             .validate_alternate_keys()
@@ -236,6 +236,7 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
+        owned::normalize_owned_declaration(&mut schema, existing.as_ref())?;
         if existing
             .as_ref()
             .is_some_and(|schema| schema.uses_independent_fields())
@@ -247,14 +248,20 @@ impl SchemaCore {
             )
             .await?;
         }
-        let predecessor = self.adopt_predecessor_molecule_uuids(&mut schema, existing.as_ref())?;
-        self.resolve_typed_field_mappers(&mut schema, existing.as_ref().or(predecessor.as_ref()))
-            .await?;
+        molecule_map::restore_owned_molecules(&mut schema, existing.as_ref());
         schema.sync_molecule_uuids();
+        // Each field keeps the molecule of the installed owned schema. A field
+        // that the installed schema lacks (a field added in place) uses its own
+        // deterministic molecule.
+        let retained = existing
+            .as_ref()
+            .filter(|stored| stored.uses_independent_fields())
+            .and_then(|stored| stored.field_molecule_uuids.as_ref());
         if schema.uses_independent_fields()
             && schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
                 ids.iter().any(|(field, id)| {
-                    *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                    retained.and_then(|retained| retained.get(field)) != Some(id)
+                        && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
                 })
             })
         {
@@ -288,7 +295,6 @@ impl SchemaCore {
         };
         // Native writes stage this publication until the complete disk root.
         self.publish_schema_cache(&name, schema, state)?;
-        self.apply_field_hash_coherence_on_load(&name).await?;
         Ok(())
     }
 

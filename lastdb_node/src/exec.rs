@@ -28,13 +28,10 @@ use base64::Engine as _;
 use fold_db::access::{parse_db_locator, storage_prefix_for, AccessContext, DbLocator};
 use fold_db::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use fold_db::schema::schema_types::SchemaWithState;
-use fold_db::schema::types::declarative_schemas::{FieldMapper, SchemaSource};
-use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyConfig, Schema, SchemaType};
+use fold_db::schema::types::declarative_schemas::SchemaSource;
+use fold_db::schema::types::{DeclarativeSchemaDefinition, Schema, SchemaType};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::DataRoute;
-use schema_service_client::types::{
-    SchemaResolveOutcome, SchemaResolveProposal, SchemaResolveResult,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

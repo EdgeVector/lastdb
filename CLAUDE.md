@@ -15,12 +15,12 @@ Policy: https://github.com/EdgeVector/.github/tree/main/generated-evidence.
 
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
-## Proteins are deprecated (Tom, 2026-10-29)
+## Owned values and named alternate keys
 
-New designs use one schema with named alternate keys for the same records.
-Canonical field reuse supplies definitions; it does not share record values.
-Follow `docs/protein-deprecation.md`. It supersedes older protein recommendations here and in app guides.
-Preserve existing protein data until an explicit conversion. Source work does not authorize a primary data change.
+Use one schema with named alternate keys for the same records.
+Canonical field reuse supplies definitions and types. It does not share record values.
+Follow `docs/multi-key-schemas.md`.
+Older data moves by a copy into a fresh home. Source work does not authorize a primary data change.
 
 ## Builds and benchmarks run in CI (Tom, 2026-10-23)
 
@@ -53,9 +53,8 @@ This rule supersedes the local build commands and coordination rules below.
 > Storage ladder: **schema → field → molecule → atom → file**. A schema is a
 > catalog, not a table; each *field* has its own molecule (an index from key
 > coordinates to the current atom); a "row" is assembled at read time from the
-> field molecules sharing the same key. Secondary access patterns are protein
-> member molecules for shared fields (dual-write only a thin projection),
-> never a filter over everything.
+> field molecules at the same key. A named alternate key finds the same records
+> through declared fields. A relationship with different data uses its own schema.
 >
 > **Read before you design:**
 > - `docs/lastdb-canonical-model.md` — CANONICAL. If any other doc or code
@@ -178,9 +177,9 @@ their clean core memory publication before the ack. No collection timer delays t
   `docs/lastdb-rehydrate.md` before a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.
-- Empty homes initialize directly as format 5. Existing format 4 homes keep their records and legacy schema behavior.
-  `lastdb db enable-alternate-keys` explicitly activates format 5 on a stopped home without rewriting encrypted data files.
-  Older formats receive an error. Startup does not convert data. Cloud activation stays disabled for this round.
+- Empty homes initialize directly as format 6. Existing format 4 and 5 homes retain their records.
+  No command upgrades a format 4 or 5 home in place; copy its records into a fresh home.
+  This release refuses shared-value schemas. Startup does not convert data. Cloud activation stays disabled for this round.
 - Dead-code passes use a compiler cascade and a zero-reference scan. Nothing
   else counts as proof.
 

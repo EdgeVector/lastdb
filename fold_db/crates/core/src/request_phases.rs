@@ -194,7 +194,6 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::SchemaLoad => &mut totals.schema_load_us,
             RequestPhase::SchemaReload => &mut totals.schema_reload_us,
             RequestPhase::RestoreMolecules => &mut totals.restore_molecules_us,
-            RequestPhase::ProteinSiblingFold => &mut totals.protein_sibling_fold_us,
             RequestPhase::Grouping => &mut totals.grouping_us,
             RequestPhase::IdempotencyCheck => &mut totals.idempotency_check_us,
             RequestPhase::SyncUuids => &mut totals.sync_uuids_us,

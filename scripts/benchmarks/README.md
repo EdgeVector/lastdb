@@ -259,7 +259,7 @@ The result uses its own homes and stays separate from the standard benchmark met
   This layout lets the baseline sweep use its complete per-hash read within the normal read-work limit.
   The candidate uses 256-key discovery pages. Neither source receives a larger read-work limit.
 - Live and expired schemas declare distinct canonical fields. The driver verifies disjoint field identities before the seed writes.
-  This prevents protein links between the two workloads. The artifact retains the actual schema identities and each backfill page.
+  Each schema owns its values. The artifact retains the actual schema identities and each backfill page.
 - `no-policy`: no retention policy, sweep disabled.
 - `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
 - `active-sweep`: the same policies, default TTL batch size and duty share.

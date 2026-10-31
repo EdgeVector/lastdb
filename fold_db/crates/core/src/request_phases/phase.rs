@@ -293,9 +293,6 @@ pub enum RequestPhase {
     /// reported here because the write path already measured it as a named
     /// step before this phase existed.
     RestoreMolecules,
-    /// Mutation: field_hash protein-sibling fold — preparing tip updates to
-    /// a shared atom when the entry molecule is protein-bound.
-    ProteinSiblingFold,
     /// Mutation: grouping the batch's mutations by schema before the
     /// per-schema loop runs.
     Grouping,

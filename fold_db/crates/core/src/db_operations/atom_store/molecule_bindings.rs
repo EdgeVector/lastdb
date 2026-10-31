@@ -29,9 +29,6 @@ use crate::storage::KvMutation;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// The native get-many API accepts at most this many keys per call.
-const READ_CHUNK: usize = 10_000;
-
 /// Format version of a bindings record.
 const BINDINGS_VERSION: u8 = 1;
 
@@ -93,18 +90,8 @@ impl AtomStore {
             .iter()
             .map(|molecule| molecule_bindings_key(molecule, storage_prefix))
             .collect();
-        let mut out = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            out.extend(
-                self.main_store
-                    .get_items::<MoleculeBindings>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule bindings: {error}"))
-                    })?,
-            );
-        }
-        Ok(out)
+        self.read_stored_values(&keys, "read molecule bindings")
+            .await
     }
 
     async fn flip_molecule_bindings(
@@ -193,19 +180,8 @@ impl AtomStore {
         unique: &BTreeMap<String, &MoleculeRefEdge>,
     ) -> Result<Vec<bool>, SchemaError> {
         let keys: Vec<Vec<u8>> = unique.keys().map(|key| key.as_bytes().to_vec()).collect();
-        let mut present = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            present.extend(
-                self.main_store
-                    .inner()
-                    .exists_many(chunk.to_vec())
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule binding records: {error}"))
-                    })?,
-            );
-        }
-        Ok(present)
+        self.stored_keys_exist(&keys, "read molecule binding records")
+            .await
     }
 }
 

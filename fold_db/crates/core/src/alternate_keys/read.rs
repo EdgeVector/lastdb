@@ -1,4 +1,5 @@
 //! One-hash selection of typed key-to-primary entries. No payload tips live here.
+//! An org database keeps its entries under its own storage scope prefix.
 
 use super::*;
 use crate::db_operations::atom_store::AtomStore;
@@ -12,6 +13,7 @@ impl AtomStore {
         filter: &HashRangeFilter,
         after: Option<&KeyValue>,
         limit: usize,
+        scope: Option<&str>,
     ) -> Result<Vec<AlternateEntry>, SchemaError> {
         if limit > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate page exceeds 4096 entries"));
@@ -26,6 +28,10 @@ impl AtomStore {
             }
             start = format!("{cursor}\0");
         }
+        let (start, end) = (
+            build_storage_key(scope, &start),
+            build_storage_key(scope, &end),
+        );
         let rows = self
             .raw()
             .inner()
@@ -35,7 +41,10 @@ impl AtomStore {
         for (key, value) in rows {
             let entry: AlternateEntry =
                 serde_json::from_slice(&value).map_err(|_| invalid("invalid alternate entry"))?;
-            if storage_key(self, schema, name, &entry.matched)?.as_bytes() != key {
+            if build_storage_key(scope, &storage_key(self, schema, name, &entry.matched)?)
+                .as_bytes()
+                != key
+            {
                 return Err(invalid(
                     "alternate entry coordinates differ from their storage key",
                 ));

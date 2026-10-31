@@ -28,7 +28,7 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
 /// This is **not** a property of the molecule type — it is a property of the
 /// path that hydrated it, and the two disagree:
 ///
-/// - [`AtomStore::load_molecule_for_write`] keeps **API form**, decoding
+/// - [`AtomStore::load_molecules_for_write`] keeps **API form**, decoding
 ///   nothing, because the write path holds the caller's plaintext keys.
 /// - [`AtomStore::load_all_mk_records`] (the full load behind
 ///   `field_read::refresh_from_db`) reassembles each slot by decoding the

@@ -29,9 +29,6 @@ impl FoldDB {
             mutation_log_capture,
             offline_maintenance,
         } = init;
-        if !offline_maintenance {
-            db_ops.atoms().freeze_replay_cutoff().await?;
-        }
         // Initialize pending task tracker
         let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
 
@@ -40,6 +37,9 @@ impl FoldDB {
                 .await
                 .map_err(|e| StorageError::IoError(std::io::Error::other(e.to_string())))?,
         );
+        if !offline_maintenance {
+            db_ops.atoms().freeze_replay_cutoff().await?;
+        }
 
         // Create QueryExecutor for handling all query operations
         let query_executor = QueryExecutor::new(&db_ops, Arc::clone(&schema_manager));
@@ -87,8 +87,6 @@ impl FoldDB {
 
         Self::log_memory_budget();
 
-        let background_protein_reaper = Self::start_protein_reaper(&db_ops, offline_maintenance);
-
         let background_conflict_janitor =
             Self::start_conflict_janitor(&db_ops, offline_maintenance);
 
@@ -100,7 +98,6 @@ impl FoldDB {
             query_executor,
             mutation_manager,
             pending_tasks,
-            background_protein_reaper,
             background_conflict_janitor,
             background_atom_history,
             background_molecule_drain,

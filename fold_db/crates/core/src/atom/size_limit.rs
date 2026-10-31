@@ -1,9 +1,9 @@
 //! Hard upper bound on atom field content size.
 //!
 //! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
-//! writes. It was 64 KiB before. At 10,000 resident records the worst case is
-//! 2.5 GiB of resident content, and a sealed 256 KiB atom is about 341 KiB,
-//! under the 400 KiB DynamoDB item limit.
+//! writes. It was 64 KiB before. The warm set byte limit bounds resident
+//! content, and a sealed 256 KiB atom is about 341 KiB, under the 400 KiB
+//! DynamoDB item limit.
 //!
 //! An atom may pack many small fields, up to the ceiling. It is still **not a
 //! blob store**: a list or log that grows is one record per entry in a

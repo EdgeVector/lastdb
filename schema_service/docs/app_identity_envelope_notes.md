@@ -95,6 +95,8 @@ pre-migration `main` build and its test suite working unchanged.
 
 1. Parse body → `{ app_id, metadata }`.
 2. `app_id` regex `^[a-z][a-z0-9-]{0,39}$` → `400 invalid_app_id`.
+   A reserved id (`std`, `system`, `templates`; `RESERVED_APP_IDS`) →
+   `400 reserved_app_id`.
 3. Metadata bounds (`display_name<=80`, `description<=500`,
    `homepage_url<=200`, `icon_url<=200?`, total `< 2KB` after JCS) →
    `400 invalid_metadata` (+ `detail`).

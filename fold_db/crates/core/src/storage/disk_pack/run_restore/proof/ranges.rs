@@ -13,7 +13,7 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if !matches!(version, 2 | 3) {
+    if !matches!(version, 2..=4) {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
@@ -32,6 +32,15 @@ pub(super) fn verify(
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
         if version == 2 && schema.uses_independent_fields() {
             return Err(invalid("format 4 cannot contain alternate declarations"));
+        }
+        if version < 4
+            && ((schema.uses_independent_fields()
+                && schema.schema_type == crate::schema::types::SchemaType::HashRange)
+                || schema.alternate_keys.values().any(|key| {
+                    key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash
+                }))
+        {
+            return Err(invalid("compound alternate declarations require format 6"));
         }
         let range = schema
             .key

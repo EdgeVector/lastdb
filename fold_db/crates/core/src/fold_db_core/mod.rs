@@ -10,6 +10,7 @@
 //! - [`pending_task_tracker`] — background task bookkeeping
 
 mod atom_history;
+mod background_task;
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
@@ -18,7 +19,7 @@ pub mod fold_db;
 pub mod molecule_drain;
 pub mod orchestration;
 pub mod pending_task_tracker;
-pub mod protein_reaper;
+
 pub mod query;
 
 pub mod mutation_manager;
@@ -34,10 +35,6 @@ pub use conflict_janitor_policy::{
 };
 pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
 pub use mutation_manager::{MutationManager, PurgeStats};
-pub use protein_reaper::{
-    BackgroundProteinReaperTask, ProteinReaperPolicy, DEFAULT_PROTEIN_REAPER_MS,
-    PROTEIN_REAPER_MS_ENV,
-};
 
 pub use fold_db::{
     CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB, HashRangeKeyFieldRepairReport,

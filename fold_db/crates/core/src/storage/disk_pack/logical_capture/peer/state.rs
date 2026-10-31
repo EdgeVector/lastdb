@@ -1,12 +1,14 @@
 use super::*;
 
 pub(super) async fn roster(runtime: &Arc<PackRuntime>) -> StorageResult<Roster> {
-    let own_origin = enabled_origin(runtime)?;
     let bytes = values(runtime, vec![roster_key()]).await?;
-    let roster: Roster = match &bytes[0] {
-        Some(bytes) => decode(bytes)?,
-        None => Roster::default(),
+    // A fresh capture-disabled home has no roster. A stored roster still needs
+    // its capture identity before any peer position can be trusted.
+    let Some(bytes) = &bytes[0] else {
+        return Ok(Roster::default());
     };
+    let own_origin = enabled_origin(runtime)?;
+    let roster: Roster = decode(bytes)?;
     roster.validate(&own_origin)?;
     Ok(roster)
 }

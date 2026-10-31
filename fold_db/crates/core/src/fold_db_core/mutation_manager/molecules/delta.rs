@@ -19,13 +19,6 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
     pub deferred_atoms: Option<Vec<Atom>>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,
-    pub sibling_updates: Vec<(
-        String,
-        crate::db_operations::MoleculeData,
-        HashSet<ChangedKey>,
-    )>,
-    pub sibling_origins: Vec<super::prepared::SiblingOrigin>,
-    pub sibling_moves: Vec<super::prepared::SiblingMove>,
     pub idempotency_entries: Vec<(String, String)>,
     pub changed_keys: HashMap<String, HashSet<ChangedKey>>,
     pub tracks_retention_age: bool,

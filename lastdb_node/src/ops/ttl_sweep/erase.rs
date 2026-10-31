@@ -3,7 +3,7 @@
 //! rest between batches.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use fold_db::clock::unix_secs;
 use fold_db::db_operations::WriterWatch;
@@ -98,8 +98,8 @@ pub(super) async fn purge_round_robin(
 }
 
 /// Keys in the next batch of a schema. The pace sets the size. A schema with
-/// many fields gets fewer keys, so the batch always fits in one native batch
-/// (16,384 operations). One key at least.
+/// many fields or alternate keys gets fewer keys, so the batch always fits in
+/// one native batch (16,384 operations). One key at least.
 fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
     use fold_db::fold_db_core::purge::budget::max_erase_keys;
     let fits = host
@@ -107,7 +107,7 @@ fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb
         .db_ops()
         .batch_operation_limit()
         .map_or(usize::MAX, |limit| {
-            max_erase_keys(verb == SweepVerb::Delete, backlog.fields, limit)
+            max_erase_keys(verb == SweepVerb::Delete, backlog.shape, limit)
         });
     pace_batch.min(fits).min(backlog.batch_cap()).max(1)
 }
@@ -212,22 +212,6 @@ async fn still_expired(
                 .collect(),
             cutoff,
         ))),
-    }
-}
-
-/// Rest for `pause`, and wake early when the node starts to stop.
-async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
-    const SLICE: Duration = Duration::from_millis(250);
-    let until = tokio::time::Instant::now() + pause;
-    while !shutdown.load(Ordering::Acquire) {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        tokio::time::sleep(left.min(SLICE)).await;
-        if left > SLICE && watch.rest_may_end() {
-            break;
-        }
     }
 }
 

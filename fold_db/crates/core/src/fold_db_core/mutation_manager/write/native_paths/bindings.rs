@@ -54,7 +54,7 @@ fn binding_sources(
         || edges.edges.iter().any(|edge| {
             !matches!(
                 edge.edge_type.as_str(),
-                "schema-field" | "protein-member" | "database-catalog-field"
+                "schema-field" | "database-catalog-field"
             )
         })
     {

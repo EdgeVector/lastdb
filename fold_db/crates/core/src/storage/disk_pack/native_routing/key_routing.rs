@@ -8,10 +8,6 @@ const ROUTED_PREFIXES: &[(&str, &str)] = &[
     ("fdep:v1:", "tips"),
     ("mref:v1:", "molecule_ref_edges"),
     ("bref:v3:", "atoms"),
-    ("protein:", "proteins"),
-    ("molprot:", "proteins"),
-    ("fldprot:", "proteins"),
-    ("pfq:", "proteins"),
     ("schemaidx\0", "indexes"),
 ];
 

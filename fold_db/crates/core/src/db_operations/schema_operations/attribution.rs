@@ -51,7 +51,6 @@ impl DbOperations {
             root_paths_written: 0,
             size_complete: meters.all_counter_domains_complete(),
             missing_molecule_counters: 0,
-            pending_protein_folds: 0,
             logical_value_bytes: 0,
             structure_bytes: 0,
             retained_history_bytes: 0,

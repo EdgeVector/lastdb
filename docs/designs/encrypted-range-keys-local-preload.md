@@ -26,7 +26,7 @@ In this document, "encrypted atom" and "atom content key" name that required add
 The [current preload design](../lastdb-schema-range-preload-design.md) loads complete keys only for explicitly selected HashRange schemas.
 Its local trees retain encoded range keys.
 Other schemas, and some capacity failures, use the ordered disk route.
-The current key allowance defaults to 128 MiB, separate from the warm set of 10,000 logical records.
+The current key allowance defaults to 128 MiB, separate from the warm set byte limit (256 MiB by default).
 
 The current `ope_v1` range codec preserves order and prefixes, but a decoder recovers the original bytes without its key.
 It does not supply range confidentiality.
@@ -154,7 +154,7 @@ An opaque whole-file backup alone does not supply this query service.
 A schema can reference several membership molecules, including shared fields and record-envelope membership.
 Readiness requires every source that the query can select under the existing membership contract.
 Do not combine unrelated field keys into a new record-existence rule.
-Compatible copied schemas can share a complete directory; different protein key layouts remain distinct.
+Compatible copied schemas can share a complete directory; named alternate address layouts remain distinct.
 
 Each directory revision has an authenticated manifest.
 It names its membership domains, key epochs, covered change position, complete chunk list, and expected counts.

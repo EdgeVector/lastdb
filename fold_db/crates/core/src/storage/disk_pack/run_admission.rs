@@ -11,6 +11,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 pub(super) const TYPED_NODE_BYTES: &[u8] =
+    b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n";
+pub(super) const FORMAT_FIVE_BYTES: &[u8] =
     b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n";
 pub(super) const FORMAT_FOUR_BYTES: &[u8] =
     b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n";
@@ -18,7 +20,8 @@ pub(super) const FORMAT_FOUR_BYTES: &[u8] =
 pub(super) fn profile(bytes: &[u8]) -> Option<u16> {
     match bytes {
         FORMAT_FOUR_BYTES => Some(2),
-        TYPED_NODE_BYTES => Some(3),
+        FORMAT_FIVE_BYTES => Some(3),
+        TYPED_NODE_BYTES => Some(4),
         _ => None,
     }
 }

@@ -198,9 +198,6 @@ pub struct DeclarativeSchemaDefinition {
     /// Maps field_name -> FieldValueType. Fields not in this map default to Any.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_types: HashMap<String, FieldValueType>,
-    /// Schema Service field identity hashes (name+description+type+version).
-    /// Local Mini uses these for same-key mapping vs different-key protein bind.
-    /// Maps field_name -> hex field_hash.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_hashes: HashMap<String, String>,
     /// Field identity version used when minting `field_hashes` (default 1).

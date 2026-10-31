@@ -3,7 +3,6 @@
 //! on 2026-10-24, compact plain records, and today's OPE range encoding.
 //! No primary or user data is read.
 //!
-#![allow(dead_code)]
 
 use sha2::{Digest, Sha256};
 
@@ -31,35 +30,29 @@ enum Body {
 }
 
 struct Shape {
-    name: &'static str,
     atoms: usize,
     bytes: usize,
     fields: u32,
     range: Range,
     body: Body,
-    /// A protein member of the content schemas replaces this schema.
-    replaced_by_protein: bool,
 }
 
 const SHAPES: &[Shape] = &include!("seed/shapes.rs");
 
 const fn shape(
-    name: &'static str,
+    _name: &'static str,
     atoms: usize,
     bytes: usize,
     fields: u32,
     range: Range,
     body: Body,
-    replaced_by_protein: bool,
 ) -> Shape {
     Shape {
-        name,
         atoms,
         bytes,
         fields,
         range,
         body,
-        replaced_by_protein,
     }
 }
 
@@ -191,10 +184,6 @@ pub struct Stream {
     pub atoms: u64,
 }
 
-pub struct StreamOptions {
-    pub proteins: bool,
-}
-
 fn slug_pool(rng: &mut Rng) -> Vec<String> {
     (0..RECORDS)
         .map(|n| {
@@ -214,21 +203,17 @@ fn slug_pool(rng: &mut Rng) -> Vec<String> {
         .collect()
 }
 
-pub fn build_stream(options: &StreamOptions) -> Stream {
+pub fn build_stream() -> Stream {
     let mut rng = Rng(0x5eed_d15c_0001);
     let slugs = slug_pool(&mut rng);
     let mut items = Vec::new();
     let mut logical = 0u64;
     let mut atoms = 0u64;
     let mut molecule_base = 0u32;
-    let mut content_atoms: Vec<[u8; 32]> = Vec::new();
     for (schema, shape) in SHAPES.iter().enumerate() {
         let base = molecule_base;
         // Up to three tips per atom, each in its own molecule, so no key repeats.
         molecule_base += shape.fields * 3;
-        if options.proteins && shape.replaced_by_protein {
-            continue;
-        }
         let mean = shape.bytes as f64 / shape.atoms as f64;
         let sigma = if shape.body == Body::Text { 1.1 } else { 0.5 };
         for n in 0..shape.atoms {
@@ -245,9 +230,6 @@ pub fn build_stream(options: &StreamOptions) -> Stream {
             let mut hash = [0u8; 16];
             hash[..8].copy_from_slice(&(schema as u64).to_le_bytes());
             hash[8..].copy_from_slice(&(record as u64).to_le_bytes());
-            if shape.body == Body::Text {
-                content_atoms.push(id);
-            }
             items.push(Item::Body {
                 id,
                 schema: schema as u32,
@@ -278,24 +260,6 @@ pub fn build_stream(options: &StreamOptions) -> Stream {
                     hash,
                     range,
                     atom: id,
-                });
-            }
-        }
-    }
-    if options.proteins {
-        // Members keyed by type and by type+status. Each member tip points at
-        // the shared content atom: no atom copy, no page rewrite.
-        for (n, slug) in slugs.iter().enumerate() {
-            let atom = content_atoms[n % content_atoms.len()];
-            for member in 0..2u32 {
-                let mut hash = [0u8; 16];
-                hash[..4].copy_from_slice(&member.to_le_bytes());
-                hash[4] = (n % 9) as u8;
-                items.push(Item::Tip {
-                    molecule: molecule_base + member,
-                    hash,
-                    range: Some(slug.clone()),
-                    atom,
                 });
             }
         }

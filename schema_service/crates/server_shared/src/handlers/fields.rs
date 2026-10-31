@@ -51,21 +51,7 @@ pub async fn declare_field(
     }
 
     match state.declare_field(&request).await {
-        Ok(record) => HttpResponse::Ok().json(json!({
-            "declaration_id": record.declaration_id,
-            "handle": record.handle,
-            "owner_app_id": record.owner_app_id,
-            "readers": record.readers,
-            "algo_version": record.algo_version,
-            "declared_at": record.declared_at,
-            "fields": record.fields.iter().map(|f| json!({
-                "name": f.name,
-                "type": f.field_type,
-                "description": f.description,
-                "version": f.version,
-                "identity": f.identity,
-            })).collect::<Vec<_>>(),
-        })),
+        Ok(record) => HttpResponse::Ok().json(record.declare_json()),
         Err(e) => {
             let (status, body) = e.to_http();
             json_status(status, body)

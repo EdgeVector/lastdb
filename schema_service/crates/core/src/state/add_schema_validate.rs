@@ -264,9 +264,6 @@ impl SchemaServiceState {
             }
         }
 
-        // Catalog field identity hashes (name+description+type+version) so
-        // local Mini can map (same key) or protein-bind (different keys).
-        // Runs *after* renames so hashes key under the final field names.
         schema.ensure_field_hashes();
 
         // Deduplicate fields before computing identity hash

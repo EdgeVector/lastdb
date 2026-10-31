@@ -61,8 +61,8 @@ impl SchemaServiceState {
         Ok(None)
     }
 
-    /// The gate approved a merge: return the existing canonical, map shared
-    /// fields for a multi-key sibling (and fall through to registration), or
+    /// The gate approved a merge: return the existing canonical, retain a
+    /// different key layout as a distinct definition, or
     /// expand the existing schema.
     async fn merge_into_candidate(
         &self,
@@ -87,15 +87,9 @@ impl SchemaServiceState {
             )));
         }
 
-        // Same product, different keys: field-map + keep both identities.
-        // Never classic expand (supersedes / can rewrite hash_field).
+        // Different keys keep separate definitions. Canonical field reuse
+        // supplies metadata and cannot create cross-schema value authority.
         if cross_key {
-            let shared = crate::state_expansion::shared_field_names(schema, &candidate.existing);
-            crate::state_expansion::apply_shared_field_mappers(
-                schema,
-                &candidate.existing_hash,
-                &shared,
-            );
             tracing::info!(
                 target: "schema_service::schema",
                 existing = %candidate.existing_hash,
@@ -103,11 +97,9 @@ impl SchemaServiceState {
                 existing_key = ?crate::state_expansion::key_layout_fingerprint(
                     &candidate.existing
                 ),
-                shared_fields = shared.len(),
-                "Multi-key sibling: mapping shared fields; registering new identity \
-                 (tip reindex required for the new key layout)",
+                "Different key layout: registering a distinct definition without value aliases",
             );
-            // Fall through to new registration with mappers installed.
+            // Fall through without modifying the proposal's field authorities.
             // Do not adopt the existing descriptive_name (would fight the
             // sibling pin); keep the proposal's name when distinct.
         } else {

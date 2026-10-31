@@ -5,7 +5,6 @@ use super::MoleculeHashRange;
 use crate::atom::{now_nanos, AtomEntry, Provenance};
 use chrono::Utc;
 
-/// The signed origin of one tip write, for a protein sibling tip.
 #[derive(Debug, Clone)]
 pub struct TipAuthor {
     pub written_at: u64,

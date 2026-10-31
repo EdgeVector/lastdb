@@ -52,6 +52,9 @@ impl SchemaServiceState {
         if !is_valid_app_id(&request.app_id) {
             return Err(AppRegisterError::InvalidAppId);
         }
+        if is_reserved_app_id(&request.app_id) {
+            return Err(AppRegisterError::ReservedAppId);
+        }
         validate_metadata(&request.metadata).map_err(AppRegisterError::InvalidMetadata)?;
         validate_app_version(&request.version).map_err(AppRegisterError::InvalidVersion)?;
         if let Some(cs) = &request.code_signature {

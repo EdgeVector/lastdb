@@ -3,18 +3,6 @@
 use super::*;
 
 impl AtomStore {
-    /// Load established contracts for every selected protein-move slot in one
-    /// batch. Unchanged peer fields can be cold after a daemon restart.
-    pub(crate) async fn load_molecule_key_bundles(
-        &self,
-        molecules: &[String],
-    ) -> Result<(), crate::schema::SchemaError> {
-        if let Some(store) = &self.molecule_keys {
-            store.load_existing(molecules).await?;
-        }
-        Ok(())
-    }
-
     /// Warm an existing molecule key bundle without creating storage state.
     /// Schema publication establishes keys; physical tools can inspect unbound molecules.
     pub(crate) async fn load_molecule_key_bundle(

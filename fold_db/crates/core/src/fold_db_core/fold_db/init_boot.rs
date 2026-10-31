@@ -37,31 +37,6 @@ impl FoldDB {
         crate::memory_budget::process_memory_budget().log_at_boot();
     }
 
-    /// Opt-in bounded reaper for the unbounded `protein:` class — see
-    /// `super::super::protein_reaper` for why a manual verb alone leaves
-    /// future leaks unreaped.
-    pub(super) fn start_protein_reaper(
-        db_ops: &Arc<DbOperations>,
-        offline_maintenance: bool,
-    ) -> super::super::protein_reaper::BackgroundProteinReaperTask {
-        if offline_maintenance {
-            return super::super::protein_reaper::BackgroundProteinReaperTask::disabled();
-        }
-        let protein_reaper_policy = super::super::protein_reaper::ProteinReaperPolicy::from_env();
-        info!(
-            target: "fold_node::database",
-            reaper_ms = ?protein_reaper_policy.interval.map(|d| d.as_millis() as u64),
-            "protein reaper policy (opt-in bounded background gc-proteins cadence)"
-        );
-        match protein_reaper_policy.interval {
-            Some(interval) => super::super::protein_reaper::BackgroundProteinReaperTask::spawn(
-                Arc::clone(db_ops),
-                interval,
-            ),
-            None => super::super::protein_reaper::BackgroundProteinReaperTask::disabled(),
-        }
-    }
-
     /// The janitor that releases kept conflict records at the end of their
     /// retention window. See `super::super::conflict_janitor`.
     pub(super) fn start_conflict_janitor(

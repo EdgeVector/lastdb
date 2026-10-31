@@ -27,7 +27,6 @@ fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
 
-fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|gc_orphan_proteins_in_scope|-|empty protein rows
 
 
 
@@ -101,3 +100,4 @@ fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|f
 
 fold_db/crates/core/src/alternate_keys/write.rs|stage_alternate_changes|-|writes only ak: typed primary-key references inside the native request; creates no atom, field tip, history or reference counter
 fold_db/crates/core/src/fold_db_core/fold_db/alternate_key_changes/finish.rs|cleanup|-|deletes bounded ak: pages only for an unbound retired generation or this change's unpublished generation; receipt cleanup uses alternate_changes; atom and field-tip lifecycle stays in the existing planner
+# Conversion coverage lives in its own namespace, never the atom store.

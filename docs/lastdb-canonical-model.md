@@ -1,4 +1,4 @@
-# LastDB canonical model — schema → field → molecule → atom → file, proteins, and the no-scan contract
+# LastDB canonical model — schema → field → molecule → atom → file and named keys
 
 > **CANONICAL.** Ratified 2026-07-27, written after the storage redesign to
 > re-fix the terms that drifted in translation. If another doc or a code
@@ -43,6 +43,12 @@ The schema describes how its field molecules use keys. It does not store the rec
 Older declarations and remote templates can still encode `Single` or `Range`.
 The native logical query and write routes reject those layouts before they fetch molecules or change records.
 
+An app can declare its installed schema again:
+
+- **More fields.** The node accepts the new fields in place. The schema keeps its name, key, alternate keys and existing molecules. Each new field gets its own molecule. Old records read a new field as absent.
+- **Fewer fields, with equal definitions.** An older app version can declare a subset. The node reuses the installed schema and loads nothing.
+- **Any other change.** The node refuses a changed field type or description, a changed key, or changed alternate keys. The app declares a new schema name and copies its records explicitly.
+
 ### Field → molecule
 
 **Every field of a schema has its own molecule.** A molecule is an **index**:
@@ -51,30 +57,21 @@ coordinates to the current **atom** for that field (the *tip*).
 Molecule identity uses SHA-256 over the fixed domain `lastdb:molecule-uuid:v1`, the schema name, and the field name.
 Each part has a four-byte length prefix. The digest uses unpadded base64url text.
 A writer can name the molecule from the schema and field without a fetch.
-An explicit field mapper can share another field's molecule.
+Canonical field identity describes a reusable definition. Each schema owns its record values.
 
 ### Named alternate keys and field definition reuse
 
-Proteins are deprecated for new app designs (Tom, 2026-10-29).
-Use named alternate keys when several keys must find the same logical record.
-Canonical field reuse supplies definitions and types. It does not imply shared record values.
-Existing protein relationships keep their behavior until an explicit conversion retires them.
-See [the app migration plan](protein-deprecation.md).
+A schema owns its values. Canonical field reuse supplies definitions and types.
+Equal field identities do not connect records in different schemas.
 
-A schema can opt into independent field values with `independent_fields: true` or named `alternate_keys`.
-That schema keeps its field molecules under one primary hash key.
-Each alternate molecule maps its declared key to the primary record key. It stores no payload atom or separate field tip.
-Equal canonical definitions alone do not connect those records to another schema.
-The independence marker remains after the last alternate key is removed.
+The primary key addresses the record. Each named alternate key uses fields declared in that schema.
+An alternate molecule maps its key to the primary record key. It stores no payload copy or separate field tip.
+The write updates the record and its alternate addresses in one native request.
+Queries return the primary key for subsequent mutations.
 
-Existing schemas retain their protein behavior for compatibility. An upgrade does not infer record correspondence between them.
-Format 4 homes stay readable and writable. Explicit activation on a stopped home enables format 5 and fences older writers.
-The owner backfills alternate declarations by supplied keys and publishes only after complete field-slot coverage.
-Primary atoms and author clocks remain unchanged. The owner can abort an unpublished change.
-See [the alternate-key spike](spikes/alternate-keys-without-proteins/README.md) for the current scope and public commands.
-
-The molecule is the only way in. To find data you present the key the molecule
-is built on; there is no other read path.
+Local schema declarations use independent field values. Startup refuses an older shared-value layout.
+Copy older data into a fresh home; no in-place conversion exists.
+See [the multi-key schema guide](multi-key-schemas.md) and [compound key rules](compound-alternate-keys.md).
 
 ### Atom
 
@@ -98,10 +95,11 @@ many small fields up to the ceiling, but it is not a blob store. Shape rules for
 data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
 Shape rules.
 
-**No history.** A rewrite keeps no older version. The replaced atom loses one
-reference, and its body goes when its last reference goes. The home has no `as_of`
-read and no per-key history. The one exception is a conflicting write (see
-Delete, purge and TTL).
+**Field history.** History stays off until a field policy retains earlier values.
+The `keep` policy retains a replaced value. The `ttl` policy sets its expiry.
+Each retained value holds an atom reference until its history entry leaves.
+A named alternate address has no separate payload history.
+See [field history](lastdb-atom-history.md). Conflicting writes have their separate retention rule below.
 
 ### File
 
@@ -165,83 +163,32 @@ packing independent facts into one atom couples their fate.
 
 ---
 
-## 2. Protein — molecules bound into one coherent set
+## 2. Named alternate keys
 
-The ladder continues: **atom → molecule → protein**.
+Use one schema when several keys must find the same record.
+For example, Card uses its slug as the primary key and a board key for the board list.
+The board key uses the board field and an ordered range from the column, position, and slug fields.
+Every required field is present in Card. The key needs no record correspondence with another schema.
 
-The problem proteins solve: several molecules keyed differently over the same
-data are, by themselves, unrelated — the data gets copied per key and an
-outside job (app dual-write + heal tools) must keep them from drifting. A
-**protein** binds them so coherence is intrinsic to the storage model, not
-bolted on by the app.
+- An exact primary read resolves field tips for the supplied primary key.
+- An alternate read resolves primary addresses, then reads the requested fields from those records.
+- A create adds the primary record and its alternate addresses in one transaction.
+- An update removes old alternate addresses and adds the new addresses in that transaction.
+- A delete removes the primary tips and their alternate addresses in that transaction.
+- Adding or removing a key on existing data uses the explicit owner change command and complete coverage checks.
 
-| Term | Meaning |
-|---|---|
-| **protein** | a record with its own **UUID** holding a **member list** of molecules |
-| **member molecule** | the same data *folded* under one particular key configuration |
-
-Rules:
-
-- **Field identity decides membership (Tom, 2026-10-29).** Every field with the
-  same canonical field identity shares one protein across all schemas on the node.
-  Local field names, app ownership, key differences, and schema field overlap do
-  not decide membership. A schema can contain any other fields.
-  Each protein uses the stable identity `field:{field_identity}`. Schema load joins
-  existing memberships and their back-references in one native batch.
-  The change preserves current tips and author clocks. It does not copy historical
-  keys into a new molecule; that operation still requires explicit source keys.
-- **Two-way pointers.** The protein lists its members; **every member molecule
-  stores its protein's UUID**. The whole set is reachable from any member.
-- **One atom set, shared.** Members are indexes into the same atoms, not
-  copies. There is no "canonical member" — with one copy of the data there is
-  nothing to canonicalize. The protein's UUID is the identity.
-- **Write propagation.** A write lands on whichever member the writer
-  addressed: new atom, that member's tip repointed. Core then follows the
-  member's protein UUID, walks the member list, and repoints every other
-  member's tip to the shared atom. O(members), correct by construction — the
-  protein is the authority on who must update, so drift cannot happen.
-  The native create/update request prepares the related molecule changes
-  before one core publication. Its ack does not precede those related tips.
-  A mixed create/delete call can also require a separate durable erasure phase.
-  This does not promise one atomic change for every mutation verb.
-- **App view:** each equal field binds independently. Schemas can use equal or
-  different keys and can contain different other fields. A write updates the
-  related molecules when the request supplies or resolves their required key fields.
-  A shared field name alone does not establish equal canonical field identity.
-- **Adding an access pattern = adding a member.** Register a molecule under
-  the new key, add it to the member list, set its protein UUID, backfill its
-  tips once. For existing personal data, the owner sends exact source keys to
-  `POST /api/db/backfill-protein-keys`. Each request accepts 1–64 keys and at most
-  4,096 source tips. It preserves the original atoms, author clocks, and key metadata
-  in one durable batch. Newer target tips and Delete barriers retain priority.
-  Schema load does not enumerate source keys or automatically backfill history.
-  The caller must supply every key that the new access path needs.
-  The operation refuses distinct sources that derive the same target slot.
-  It copies current visible tips; it does not replay historical source Delete barriers.
-- **Re-keying** (the one stateful op): when a member's key value changes, that
-  member moves partitions (drop old key, insert new). The protein owns it.
-- **Not a general graph.** Protein membership is the only molecule→molecule
-  link. Arbitrary molecule graphs are not a feature.
-
-**Status (restated 2026-08-17):** proteins are **shipped in core**
-(end-to-end proof 2026-07-28). Multi-key
-same-product **shared fields** bind into a protein and fold sibling tips
-to one atom. App dual-write remains only for a **thin projection** that
-is a different product shape, not the same field protein. Prefer protein
-fold for shared fields. Dual-write only a thin projection. Some app paths
-still write that thin projection by hand — leftover cutover, not the
-product model.
+Canonical field identity controls reusable descriptions and types. It does not select other records for a write.
+Unrelated records use separate schemas and retain separate values.
+Relationships with their own values also use separate keyed schemas.
 
 ---
 
 ## 3. Layer boundary
 
-**Core knows no application.** It has atoms, molecules, proteins, and keys —
-nothing else. It has no concept of boards, cards, slugs, or brain records. An
-app declares schemas, decides which access patterns it needs, and privately
-names what each key means; core only ever sees keyed molecules, atoms, and
-protein bindings. Secondary indexing is core's responsibility (the protein);
-naming and meaning are the app's.
+The core stores schemas, field molecules, atoms, and keys.
+An app defines what its records and keys mean.
+The core updates declared alternate addresses with the source record.
+The app owns relationships or summaries that contain different data.
 
 ---
 
@@ -253,9 +200,8 @@ name the access pattern:
 1. **Single entity by identity** → exact hash key on the primary schema, O(1).
 2. **A list** → a schema/molecule whose hash partitions the list and whose
    range key orders it; read as a range under that one hash, O(log M).
-3. **Another list shape** → another keyed molecule. Shared fields are a
-   protein member. Dual-write only a thin projection that is a different
-   product shape. Never a filter over everything.
+3. **Another list of the same records** → a named alternate key on the source schema.
+   A relationship with different data uses its own keyed schema.
 
 Dynamo vocabulary map:
 
@@ -267,7 +213,7 @@ Dynamo vocabulary map:
 | Item attributes | fields (assembled from tips + atoms at read time) |
 | `GetItem` | exact key → O(1) |
 | `Query` (PK + SK condition) | range under one hash → O(log M) |
-| GSI | protein member molecule (shared fields); thin projection may still be app dual-write |
+| Alternate lookup | A named key on the same schema |
 | `Scan` | **does not exist** |
 
 Never:
@@ -286,7 +232,6 @@ The logical model stays the same across memory, disk, and cloud:
 
 ```text
 schema → field → molecule → atom → file
-protein binds related molecules
 ```
 
 ### Native disk engine
@@ -297,6 +242,7 @@ A call captures the core state and its matching disk root.
 A miss fetches the required records in batches. The fetched logical records can stay warm.
 
 The recency list controls warm retention under a byte budget, which defaults to 256 MiB.
+The byte budget (`LASTDB_CORE_WARM_BYTES`) is the only warm set limit. There is no record count limit (Tom, 2026-10-30).
 The October 19 byte-limit decision replaces the old 10,000-logical-record cap.
 Each read enters the warm set. The purge removes least recently used clean records.
 The purge skips a record that a call still holds or a path reserved by private write preparation.
@@ -313,6 +259,8 @@ PR 387 and later PRs removed legacy Cloud Sync. The V2 byte backup uses a separa
 Capture saves an exact cut and a named file hold; its source code does not establish production cloud readiness.
 A successful native write completes its disk commit and core memory change before the ack.
 The disk queue starts immediately. No collection timer delays the ack.
+This order is the design (Tom, 2026-10-30): fast durable writes, then the ack.
+An ack always means that the write is on disk. There is no memory ack and no flush interval.
 An internal file change clears affected core records before a later call can use them.
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
@@ -364,9 +312,6 @@ cross-DB."
 - The copied schema **references the same molecules and the same atoms** as
   the source database. The node stores the data once; databases share it by
   reference.
-- This extends §2's "one atom set, shared" rule (protein members index the
-  same atoms, not copies) up one level: databases also reference shared
-  molecules/atoms rather than holding copies.
 - Molecule identity uses the framed tuple from §1.
   An explicit schema copy keeps the same molecule identities and atoms.
 
@@ -402,4 +347,4 @@ database catalog with per-molecule key bundles (it replaces the earlier
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
 | Atom size ceiling | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
-| Counter lifecycle design and what was built | `docs/design-lastdb-counter-lifecycle.md` |
+| Counter lifecycle design and what was built | `docs/lastdb-atom-counter.md` |

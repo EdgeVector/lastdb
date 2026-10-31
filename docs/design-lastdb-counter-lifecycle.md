@@ -49,7 +49,7 @@ What the design removes: reverse edge records, the live count with its `exact` f
 | S7 | `flush()` inside a scope returns at once. A "flush as barrier" call in a scope does nothing. | `write.rs:236-239` |
 | S8 | A batch holds at most 4,096 operations (older homes) or 16,384 (fresh home, feature bit 0x20), and 128 MiB. | `docs/lastdb-disk-complete-mutation-admission.md:37-45`, `transaction.rs:130-160` |
 | S9 | An ordinary read call has a budget of 10,000 examined keys. A write-preparation call has 40,000. Pages (4,096), blocks (16,384) and bytes (256 MiB) are the same. The budget is one total for the whole call. An error does not reset it. | `disk_pack/mod.rs:92-97`, vendor [`laststore/src/disk_pack/call.rs:26-40`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L26-L40) and [`:121-134`](https://github.com/EdgeVector/lastdb/blob/fadd60ab26ee8282576dbe54b710ba7ad0e754e5/vendor/laststore/src/disk_pack/call.rs#L121-L134), `home.rs:262-272`, `read/raw.rs:46-52` |
-| S10 | A memory ack returns before the flush (at most 500 ms later). A crash can lose a whole acked batch. It never keeps a part of one. | `docs/lastdb-rehydrate.md:94` |
+| S10 | Retired. When this plan was written, a memory ack returned before the flush (at most 500 ms later), and a crash could lose a whole acked batch. The design now sends the ack after the durable disk commit (Tom, 2026-10-30). | `docs/lastdb-canonical-model.md` |
 
 Run proofs (appendix A):
 
@@ -64,9 +64,9 @@ The count is `AtomLiveRefCount { live_refs, exact }` at key `aref:v2:e:<atom tok
 
 | Site | Trigger | Change | Evidence |
 |---|---|---|---|
-| `batch_put_items_with_atom_ref_v2` | every tip write: native job, protein sibling fold, generation activation | edge puts, then count puts, then source records, then edge deletes. The count changes only when an edge existence flips. | `transitions.rs:17-86`, `:207-258` |
+| `batch_put_items_with_atom_ref_v2` | every tip write: native job, generation activation | edge puts, then count puts, then source records, then edge deletes. The count changes only when an edge existence flips. | `transitions.rs:17-86`, `:207-258` |
 | `apply_live_ref_delta` | same | absent count with an edge or a negative delta: write `{0, exact:false}` and **cancel** the candidate. Underflow does the same. | `transitions.rs:261-358` |
-| `remove_molecules_keys_with_extra_and_trailing_batch` | client delete, purge, TTL purge, protein key move, dangling-tip repair | minus weight per removed tip, read from the durable tip. Header and `mgd` marker are a second batch. | `molecules/delete.rs:132-220`, `:186`, `:194` |
+| `remove_molecules_keys_with_extra_and_trailing_batch` | client delete, purge, TTL purge, dangling-tip repair | minus weight per removed tip, read from the durable tip. Header and `mgd` marker are a second batch. | `molecules/delete.rs:132-220`, `:186`, `:194` |
 | `missing_atom_ref_count_items` | atom birth, and settle after the tip phase | `{0, exact}` plus a candidate pair | `atom_ref_edges/counts_pending.rs:53-109`, `atoms/write.rs:126-155` |
 | `rearm_atom_gc_candidate_mutations` | body write over an old zero-count atom | new epoch, no audit | `atom_ref_gc/rearm.rs:80-145`, `atoms/write.rs:179-181` |
 | `commit_catalog_atom_ref_plan` | add or remove a schema in a database catalog | plus or minus one per tip of every field molecule, from a snapshot taken at prepare | `atom_ref_edges/catalog_refs.rs:52-291` |
@@ -79,10 +79,9 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 | Path | Same batch? | Why, and what follows |
 |---|---|---|
 | Create, update, rewrite (one request) | **Yes** | One scope: bodies, tips, counts, edges, sibling tips, schema record in one batch (`write/native.rs:62-109`, `persist/deferred_job.rs:9-33`). The author-clock record is an earlier batch (`native.rs:57-60`). It is not a reference. |
-| Client delete (native) | **Yes** | The lane job runs the whole attempt in one scope (`persist/purge_job.rs:41-46`, `protein_delete.rs:10-70`). Tips, counts and trailing edges are one `batch_mutate`; the header put joins the same pending batch (`delete.rs:186`, `:194`). The body stays. |
+| Client delete (native) | **Yes** | The lane job runs the whole attempt in one scope (`persist/purge_job.rs:41-46`). Tips, counts and trailing edges are one `batch_mutate`; the header put joins the same pending batch (`delete.rs:186`, `:194`). The body stays. |
 | Client purge, TTL purge | **Yes for tips and counts. No cleanup of the count record.** | Same scope. The body delete removes the body, locator and schema marker, but not the count record, the candidate records or the blob edges (`purge/guarded_steps.rs:269-300`). Run: after a purge the body answered 404 and the count record and a candidate record stayed (appendix A.4). |
 | Mixed create and delete in one request | **No: two batches** | The request splits into erasures (lane scope) and the rest (request scope) (`write/batch_inner.rs:31-67`). Each batch is consistent. The pair is not one atomic change. `docs/lastdb-canonical-model.md:125-126` says so. |
-| Protein sibling write | **Yes** | Sibling tips are staged in the same job (`deferred_job.rs:91-123`). |
 | Replay of a peer Put or Delete (MutationIntent) | **Yes** | Same code as a request (`write/replay.rs:75-83`). Cloud sync is off in this build, so no run. |
 | Replay of a Put that loses to a Delete barrier | **No: two batches** | Bodies and zero-count birth records first, history record and edge second (`replay.rs:214`, `:218`). |
 | Conflict recorder (M1) | **Yes in a request scope** | Edges and rows are one batch and join the tip batch (`conflict_record/write.rs:46-90`). The recorder writes **MutationHistory edges, which the count does not include.** |
@@ -100,7 +99,7 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 |---|---|---|
 | Grace window (24 h, `atom_ref_gc.rs:48`) | Order gaps. The old code wrote the body batch, then the tip batch, with a zero count in between. It also hides a false zero for a while. | **No.** One batch has no gap. A false zero is not hidden by waiting. |
 | Audit (probe lap, `admin_db/gc_atoms_probe.rs:18`) | A second proof that no tip names the atom, because the count and the tip were separate writes with no durable order. It walks every tip, tv, history, conflict and atom record with a physical scan. | **No.** The batch is atomic. The audit is the one full scan in the system. A verifier that only reports replaces it (section 7). |
-| Pending hold / "fold marker" (`aref:pending:v1:`) | The window of a catalog add between its holds and its count batch. Its only writer is the catalog add (`catalog_refs.rs:141-147`). After #221 no protein fold writes one (`persist/sibling.rs`, `deferred_job.rs:113`). | **No.** Catalog binding becomes one counter change (section 12). |
+| Pending hold / "fold marker" (`aref:pending:v1:`) | The window of a catalog add between its holds and its count batch. Its only writer is the catalog add (`catalog_refs.rs:141-147`). | **No.** Catalog binding becomes one counter change (section 12). |
 | Packing lock, backup cut hold (`fold_db/sync/status.rs:204-234`) | The legacy chunk backup and its packing. It returns false with no sync engine. | **No for native.** A native backup holds a complete root with a durable reference (`disk_pack/backup.rs:11-43`). It does not depend on atom deletes. |
 | Peer-apply interlock (`atom_store/peer_apply.rs`) | A conflict loser that no record names. | **No.** A fresh node has the recorder from its first write (decision 2). Recorder rows hold counted references. |
 | Re-arm, birth rows, `settle_atom_births` | The body-then-tip order gap. | **No.** |
@@ -115,7 +114,7 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 
 | Path | Reads and writes that decide a body | Evidence |
 |---|---|---|
-| Client delete (`delete`) | Tips only. The count falls by the weight. The body stays for the reaper. Writes a delete barrier record per field per key. | `purge/converge.rs`, `persist/protein_delete.rs` |
+| Client delete (`delete`) | Tips only. The count falls by the weight. The body stays for the reaper. Writes a delete barrier record per field per key. | `purge/converge.rs` |
 | Client purge (wire `purge`) | The CLI maps `purge` to `delete --must-exist` (`bin/lastdb/mutate_cmds.rs:8-20`), but the batch route passes `purge` to the hard-erasure path (run: it took the purge path and failed). | appendix A.3 |
 | TTL purge | Same path with the Skip policy and a tip write-time cutoff. | `lastdb_node/src/ops/ttl_sweep/send.rs:65-94` |
 | Hard-erasure lane job | Same code as above. | `persist/purge_job.rs:8-60` |
@@ -153,19 +152,16 @@ Measured (appendix A.1 to A.3):
 | Identity | A field gets a deterministic molecule uuid. No record is written. | `schema/types/declarative_schemas/runtime.rs:113-123` |
 | Schema install | `store_schema` writes the `mref:v1:e:` schema-field edges, the schema record, a meter, then deletes stale edges. Four steps. | `db_operations/schema_operations.rs:68-86` |
 | First write | The write creates the `mk:` tip records and the `mh:` header `{version, updated_at}`. No manifest. | `molecules/store/items.rs:201-236`, `molecules/load.rs:42` |
-| Protein member | Three separate puts: member edge, `protein:` record, `molprot:` record. | `protein/ops.rs:103-123` |
 | Slot removal | One function removes slots (section 1.2). It leaves an `mgd:v1` marker that nothing removes. | `molecules/delete.rs:132-319` |
 | Whole molecule removal | **No code removes a molecule.** Schema drop writes a receipt and deletes the catalog records, but no tip and no count. The reaper execute step is refused. | `schema_store/write.rs:130-170`, `dropped_schema_reap.rs:214-219` |
-| Counts | `MoleculeRefEdge` records (schema-field, protein-member, database-catalog-field) are set members, not counters. The only molecule counter is `MoleculeCatalogRefCount` at `mref:v1:c:database-catalog:<token>`, the number of database catalogs that name the molecule (`atom_ref_edges.rs:135`). No counter counts slots. | `molecule_ref_edges.rs:22-89`, `catalog_refs.rs:397-462` |
+| Counts | `MoleculeRefEdge` records (schema-field, database-catalog-field) are set members, not counters. The only molecule counter is `MoleculeCatalogRefCount` at `mref:v1:c:database-catalog:<token>`, the number of database catalogs that name the molecule (`atom_ref_edges.rs:135`). No counter counts slots. | `molecule_ref_edges.rs:22-89`, `catalog_refs.rs:397-462` |
 | Catalog add or remove | Loads the whole molecule (`load_molecule_per_key`) and changes the count of every atom. O(atoms in the molecule). | `catalog_refs.rs:132-149` |
-| Protein membership | Never removed. A protein-bound molecule can never be reaped. | read of `protein/ops.rs`, `dropped_schema_reap/walk.rs:306-310` |
 
 ### 1.7 Every way an atom gets a reference
 
 | Reference | Counted today | Edge today | Counted in the new design |
 |---|---|---|---|
 | Tip record of a molecule | Yes (weighted) | Tip | Yes, plus one per tip |
-| Protein sibling tip | Yes | Tip | Yes, one per sibling tip |
 | Conflict record (history, conflict) | **No** | MutationHistory (v2 or v1) | Yes, one per distinct atom per record |
 | Suppressed Put record | No | MutationHistory | Yes |
 | `tv:` chain | No | TipVersion | **Gone.** Current writes make none. |
@@ -269,7 +265,7 @@ What we gain: about 290 bytes for each edge on a large old home (`status_ops_cmd
 | Object | Counter | Where | Counts |
 |---|---|---|---|
 | Atom | `refs`, `blobs` (list of blob refs), `suspect` flag | `atom:<uuid>\0c` in `atoms` | tip records and conflict records that name the atom |
-| Molecule | `slots`, `records`, `bindings` | the `mh:{M}` header, collection `tips`. The write already rewrites the header. | `slots`: live tip records. `records`: live conflict records. `bindings`: schema-field, protein-member and database-catalog bindings. |
+| Molecule | `slots`, `records`, `bindings` | the `mh:{M}` header, collection `tips`. The write already rewrites the header. | `slots`: live tip records. `records`: live conflict records. `bindings`: schema-field and database-catalog bindings. |
 | Blob | `refs`, `zero_since` | next to the blob record | atoms whose counter lists the blob |
 | Conflict record | none of its own | rows `history`, `conflict`, `mcc`, `hcu` plus a slot directory record | It **holds** one reference per distinct atom it names. |
 
@@ -289,7 +285,6 @@ All rows run inside the gate (S5). "Read" means a batch read by key, with the ac
 | **Replay** of a peer Put or Delete | same as a request | same as a request. Applying the same mutation again gives delta zero. |
 | **Recorder row** (M1 Replaced or Dropped) | history record key (does it exist?); counters of the named atoms; molecule header | If the record is new: `+1` for each distinct atom it names, `records+1`, the record rows, the slot directory record, the queue record. If it exists: nothing. The loser body is written if absent. |
 | **Janitor release** | the record rows (history record gives the atoms); counters | Delete the record rows, `-1` for each distinct atom, `records-1`, delete on zero. |
-| **Protein sibling write, delete, key move** | tip of each sibling slot (found inside the gate from the protein list) | The same tip rules for each sibling molecule. One batch with the source. |
 | **Blob** | blob counter; atom counter's `blobs` list | New atom with blob refs: `blob.refs+1` each. Atom deleted on zero: `blob.refs-1` each. At zero the blob gets `zero_since`. See 12. |
 | **Catalog bind or unbind** | molecule header | `bindings±1` with the binding record. No atom change. |
 | **Restore** (native) | none | none. The root is the state. |
@@ -314,17 +309,16 @@ It aggregates per atom first. Sixteen purged keys that share one `bucket` atom g
 
 Input: a schema, K keys, a verb (purge or delete), a policy (Refuse or Skip), an optional tip write-time cutoff (TTL, Hash and Single schemas).
 
-**Before the gate (no store lock, metadata only):** resolve the schema, its fields, the molecule of each field, the storage form of each key (`storage_form_keys`, `purge/helpers.rs:68`), the protein member list. Cost: O(F × K). No store read of the schema.
+**Before the gate (no store lock, metadata only):** resolve the schema, its fields, the molecule of each field, the storage form of each key (`storage_form_keys`, `purge/helpers.rs:68`). Cost: O(F × K). No store read of the schema.
 
 **In the gate, one request scope:**
 
-1. Re-resolve protein peers from the store (as `current_delete_targets` does, `protein_delete.rs:60-90`). A move or write cannot change them before the batch publishes.
-2. **Read 1** (one batch read): the tip record of every (field, key, peer slot). Count: K × F plus peers. A key with no tip is "absent": refuse (Refuse) or drop (Skip).
-3. TTL guard: compare each tip's `written_at` with the cutoff. A newer tip drops the key from the batch. The tip record is already in memory, so the guard costs no read.
-4. **Read 2** (one batch read): the counter record of each distinct atom named. Count: at most K × F.
-5. **Read 3:** the molecule headers (F), and, for a molecule whose `records` is above zero, the slot directory of each removed slot (section 10).
-6. Run the planner. Stage one batch: delete the tip records, write or delete the counters, delete the bodies of zero-count atoms, write the headers, one ledger record, the retention index change (TTL), and the Search outbox delivery as an after-commit action.
-7. Accept the batch. Release the gate. Wait for the flush (the verb is durable) outside the gate.
+1. **Read 1** (one batch read): the tip record of every (field, key). Count: K × F. A key with no tip is "absent": refuse (Refuse) or drop (Skip).
+2. TTL guard: compare each tip's `written_at` with the cutoff. A newer tip drops the key from the batch. The tip record is already in memory, so the guard costs no read.
+3. **Read 2** (one batch read): the counter record of each distinct atom named. Count: at most K × F.
+4. **Read 3:** the molecule headers (F), and, for a molecule whose `records` is above zero, the slot directory of each removed slot (section 10).
+5. Run the planner. Stage one batch: delete the tip records, write or delete the counters, delete the bodies of zero-count atoms, write the headers, one ledger record, the retention index change (TTL), and the Search outbox delivery as an after-commit action.
+6. Accept the batch. Release the gate. Wait for the flush (the verb is durable) outside the gate.
 
 **Delete** and **overwrite** use the same planner. The only difference of `delete` is the delete barrier records it writes.
 
@@ -367,7 +361,7 @@ Every state after a crash is a prefix of whole batches. I1 holds in each such st
 | Crash point | State on disk | Safe because |
 |---|---|---|
 | Before accept (in the gate) | no change | nothing was written |
-| After a memory ack, before flush | the batch is lost whole | a lost batch is the same as a write that did not happen. The client was told "queued". Existing contract (S10). |
+| After a memory ack, before flush (retired route) | the batch is lost whole | The current design has no such window: the ack follows the durable disk commit (S10). |
 | During the journal append | no complete batch | recovery returns only complete batches (S2) |
 | After COMMIT, before `CURRENT` is published | recovery completes the batch | complete batch |
 | After batch N of a multi-batch job (TTL pass, mixed request, janitor page, molecule drain) | batches 1..N applied | each batch is valid alone. The keys of one record are in one batch. |
@@ -412,13 +406,10 @@ Decision 5: the database keeps every conflicting write until the retention janit
 
 ---
 
-## 11. Protein siblings
+## 11. Shared-value siblings (retired)
 
-- A sibling molecule holds its own tip records for a shared atom. Each is one reference (`protein/ops/tip.rs:45-82`, `persist/sibling.rs:6-18`).
-- A write stages the sibling tips in the same job (`deferred_job.rs:113-123`). One batch holds the source tip, the sibling tips and every counter change.
-- A delete resolves peers inside the gate (`protein_delete.rs:60-90`). It removes the sibling tips in the same batch.
-- A purge today expands only HashRange peers (`write/hard_erasure.rs:24-29`, `erasure.rs:88-160`). A sibling tip of another kind survives. With counters the body stays because the sibling tip holds a reference. No dangling tip. **No loss, but the record is not erased everywhere.** Q7 asks what a purge must do for a Hash sibling.
-- The PR 211 review finding "protein sibling bodies" disappears. A sibling tip is a counted reference. Nothing proves "no sibling" any more.
+- Each schema owns its record values. A write, delete or purge touches only the molecules of its own schema.
+- The sibling-tip analysis of the first draft no longer applies.
 
 ---
 
@@ -430,7 +421,7 @@ Decision 5: the database keeps every conflicting write until the retention janit
 |---|---|---|
 | `slots` | a tip record for a new key is written | a tip record is removed |
 | `records` | a conflict record is written | a conflict record is released |
-| `bindings` | a schema field binds the molecule; a protein adds the molecule as a member; a database catalog names it | the reverse event |
+| `bindings` | a schema field binds the molecule; a database catalog names it | the reverse event |
 
 **When a molecule may be purged:** `bindings == 0` **and** `slots == 0` **and** `records == 0`. Then one batch deletes the header, the order log records (`mord`, `moc`), the `mgd` markers, and the molecule key wrap. The counter is the only test.
 
@@ -445,7 +436,7 @@ The dwell exists for one reason: an upload comes before the atom that names it (
 
 ## 13. Cost model
 
-K keys, F fields, D distinct atoms (D ≤ K·F), P protein peers (0 here).
+K keys, F fields, D distinct atoms (D ≤ K·F).
 
 | | Today (guarded purge) | New |
 |---|---|---|
@@ -534,7 +525,7 @@ Total about 11,000 lines. Replaced by: the counter record type, the planner, the
 | R6 | We lose the referrer list. | Counter in `inventory`. Offline walk. Q3. |
 | R7 | The slot directory (Q4) adds a record for each conflict record. | About 100 bytes. Paid only by a conflicted slot. |
 | R8 | The blob dwell leaves bytes for a while. | A short dwell. Q4. |
-| R9 | A purge does not reach a Hash protein sibling. | Q7. The counter keeps data safe either way. |
+| R9 | Retired: shared-value siblings no longer exist. | None. |
 | R10 | Old defects stay: `mgd` markers grow, delete barriers grow. | Out of scope. Named here so no reader thinks this design fixes them. |
 | R11 | Two builds with two counter models open one home. | The format fence (S1). |
 | R12 | A request with many fields exceeds the operation limit. | Refuse before the gate with a clear limit error. Chunk by key for erasure. |
@@ -548,7 +539,7 @@ Rules for every step: small pull request; the existing gates (format, lint, buil
 
 | Step | Change | Independent review plan | Run-proof |
 |---|---|---|---|
-| **S1 Counter and planner** | Format fence (next free required-feature bit). `AtomCounter` in `atoms`. Body key `atom:<uuid>\0b`, counter `\0c`. The planner. Tip write, delete, purge, TTL purge and protein siblings go through it. Delete on zero. The underflow rule. The writer-boundary lint. The purge algorithm of section 6. **Removes in the same PR:** tip and history edges, the live count, candidates, queue, birth, re-arm, settle, atom stripe locks on counters, manifests, markers, the whole-schema proof, the schema purge barrier. | R1: read the planner against I1 to I4 and list every write of `mk:`, conflict and counter keys. R2: read the batch composition, the operation budget and the gate hold. R3: list every reader of an atom body key and prove each moved. | (a) Matrix on a fresh home: create, rewrite same value, rewrite new value, delete, purge, shared atom (many keys one value), purge of the last holder. After each step read the raw counter records with `lastdb-disk-home` and compare with the tips from queries (the harness of A.5). (b) `SIGKILL` loop with mixed writes and purges, as A.5. (c) The TTL doc setup: 6 fields, 2,400 rows, 2,100 expired, two writers, default knobs. All 2,100 erased. Batch time, gate hold and writer latency recorded and compared with section 14. (d) A purge of 64 keys of a 24-field schema. (e) Atom read by id: 404 after the last holder is purged, 200 while one holder remains. (f) Backup, restore, same invariant. |
+| **S1 Counter and planner** | Format fence (next free required-feature bit). `AtomCounter` in `atoms`. Body key `atom:<uuid>\0b`, counter `\0c`. The planner. Tip write, delete, purge and TTL purge go through it. Delete on zero. The underflow rule. The writer-boundary lint. The purge algorithm of section 6. **Removes in the same PR:** tip and history edges, the live count, candidates, queue, birth, re-arm, settle, atom stripe locks on counters, manifests, markers, the whole-schema proof, the schema purge barrier. | R1: read the planner against I1 to I4 and list every write of `mk:`, conflict and counter keys. R2: read the batch composition, the operation budget and the gate hold. R3: list every reader of an atom body key and prove each moved. | (a) Matrix on a fresh home: create, rewrite same value, rewrite new value, delete, purge, shared atom (many keys one value), purge of the last holder. After each step read the raw counter records with `lastdb-disk-home` and compare with the tips from queries (the harness of A.5). (b) `SIGKILL` loop with mixed writes and purges, as A.5. (c) The TTL doc setup: 6 fields, 2,400 rows, 2,100 expired, two writers, default knobs. All 2,100 erased. Batch time, gate hold and writer latency recorded and compared with section 14. (d) A purge of 64 keys of a 24-field schema. (e) Atom read by id: 404 after the last holder is purged, 200 while one holder remains. (f) Backup, restore, same invariant. |
 | **S2 Remove the audit machinery** | Delete the probe, the reaper, the delete pass, the orphan walker, the cadence, the status fields, the knobs, the peer-apply row, `gc-atoms`. Rewrite `docs/lastdb-atom-refcount-grace-window-gc.md`. | Compiler cascade and zero-reference scan. Reviewer greps for each removed name and each env knob. | `lastdb status` has no gc block. Daemon starts and stops clean. Rerun S1 (a) to (c). |
 | **S3 Recorder through the planner, janitor, Q4** | Recorder writes counted references, `records` counter, slot directory, queue record. Janitor S4 with a release batch. Purge reads the slot directory. | R1: crash order of the recorder. R3: the janitor deletes records and references only, never an atom directly. A third reader checks that a purge releases the losers of its key. | The two-home proofs P1 to P10 of `design-lastdb-multi-device-conflicts.md` 4.2 with a short window. A purge of a conflicted key leaves no loser body and no record. |
 | **S4 Molecule counters** | `slots`, `records`, `bindings` in the header. Catalog bind and unbind O(1). Remove the `mref` edges, the catalog weight, the prepare registry and the pending holds. | Read every writer of a binding. | Bind and unbind a catalog on a 2,000-key molecule: constant cost. Atoms untouched. |
@@ -571,7 +562,7 @@ S1 is the one large step. I could not split it, because the planner replaces the
 | Q4 | How long is the blob dwell? Is blob deletion by counter in this round? | One hour. Yes. An upload and its atom come close together. |
 | Q5 | A conflict record keeps both atoms (as M1 does for Replaced) or only the loser? | Only the loser for Dropped (M1 already does). Keep both for Replaced as M1 decided. Cost is bytes for the window. |
 | Q6 | Add the slot directory record (one per conflict record) so a purge ends retention of the key's losers? | Yes. Without it a purge cannot meet Q4 of 2026-10-14. |
-| Q7 | Must a purge reach every protein sibling, also for Hash schemas? | Yes. Today only HashRange peers are erased. |
+| Q7 | Retired: shared-value siblings no longer exist. | None. |
 | Q8 | Build the molecule drain now? Today nothing removes a molecule. | Later. S4 gives the counters. |
 | Q9 | Does the node run `verify-refs` on a cadence, or only on request? | On request. A routine may call it. |
 | Q10 | On underflow, erase the tip and keep the body (my rule), or refuse the verb? | Erase the tip, keep the body, report. A compliance purge must not fail for a counter fault. |
@@ -586,7 +577,7 @@ S1 is the one large step. I could not split it, because the planner replaces the
 - **Why a client purge failed at 1,000 rows after some churn.** The trace of a clean purge used 27,746 of 40,000 keys. The failing run logged no stage line. I suspect the planning walk, which has the 10,000 budget. Not proven.
 - **Whether tombstones count in the examined-key budget of a TTL listing.** The query receipt has no `examined_keys` field. In my run `requested_keys` fell with the live keys (3,203 to 1,006), so I saw no sign of inflation.
 - **Whether the reaper ever removes the count and candidate records a purge leaves.** I did not wait 24 hours. By reading, a candidate without a body gets no audit verdict.
-- **Peer replay, the recorder in a native scope, protein purge and the catalog paths.** Read, not run. Cloud sync is off.
+- **Peer replay, the recorder in a native scope and the catalog paths.** Read, not run. Cloud sync is off.
 - **Layer 3.** Not designed.
 - **Primary-size behavior.** All runs used synthetic homes of 1,000 to 3,000 keys.
 - **A helper's claims** that I did not re-check: the edge deactivation from the in-memory tip (1.8), and some details of the catalog path.
@@ -634,7 +625,6 @@ that were left (verbs, key families, a status gauge, comments).
 | Size of an erase request | `3·K·F + F + K + 1` operations, 2 examined keys for each tip | At most `4·K·F` (purge) and `5·K·F` (delete) operations plus `F + 8` for each chunk, and 12 and 13 examined keys for each tip | The build measured 3.8 to 5.0 operations and 9 to 12 examined keys for each tip. The read budget is the smaller bound. |
 | Locks | No lock beyond the gate | A Delete (not a Purge) also takes the tip-commit locks of its keys | It orders the Delete against a memory delete that registered its barrier before the persist lane ran. |
 | Molecule drain | A cursor over the tips of a dead molecule, from the header | Candidate rows `mref:v1:d\0{scope}\0{molecule}` written in the batch that lowers `bindings` to zero; bounded batches through the planner; counters read again in the gate; the drain also releases kept conflict records; a schema whose molecules drain answers HTTP 409 on install | The first review found that a schema drop with a large database-scope instance failed with HTTP 500. The drop now removes only the catalog rows and bindings, and the drain erases the instance. |
-| Protein siblings of an erase | Q7: reach every sibling, also a Hash sibling | A purge and a delete reach HashRange siblings only | Not built. A sibling of another layout keeps its tip, so its atom stays. |
 | Pacing of background tasks | The duty and rest knobs stay | The janitor, the dwell pass and the molecule drain (S7c) rest for a share of the time that writers wait, with a sticky writer watch; a write scope that stages nothing (the `verify-refs` fence) is not a writer. The TTL sweep rests for a share of the batch wall time. | A background batch seals the write queue, so writers wait for its flush even though the gate is free. |
 | Storage part limit | Not in the plan | A ledger and one maintenance worker for disk format v1, which is removed (decision D1) | Runs of S3 and S5 stopped taking writes at the limit of 65,536 dependency parts. |
 | Body deletes and memory acknowledgement | Not discussed | The typed publication accepts the atom counter key and the body key, so a write whose old atom reaches zero keeps the memory-acknowledgement path | Without it, such a write took the disk-first path and waited about 250 ms for the flush. |
@@ -672,9 +662,8 @@ The measured runs used synthetic homes on a shared development host, so the load
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.
 - A molecule counter fault has no repair path, and no molecule recount exists. A lost drain candidate row leaves a
   dead molecule that only `lastdb db inventory` (`unbound_sample`) and `lastdb db molecule-drain` can find.
-- The molecule drain leaves the key bundle (`mkb:`, `mkw:`), `protein:` records without members, delete-ledger rows
+- The molecule drain leaves the key bundle (`mkb:`, `mkw:`), delete-ledger rows
   and search entries.
-- A purge and a delete reach HashRange protein siblings only (Q7).
 - A background batch of the janitor, the dwell pass or the drain seals the write queue. Writers wait for its flush.
 - A TTL `delete` leaves two delete-barrier rows for each field of each key (about 3,170 bytes) that nothing prunes.
   The default verb is `purge` for this reason.
@@ -721,4 +710,4 @@ With `RUST_LOG=lastdb::native_read_budget=debug`, one purge of 16 keys on 1,000 
 
 Design documents read: `docs/lastdb-atom-refcount-grace-window-gc.md` (replaced by `docs/lastdb-atom-counter.md` in S1), `docs/lastdb-ttl-sweep.md`, `docs/lastdb-rehydrate.md`, `docs/lastdb-disk-journal.md`, `docs/lastdb-disk-complete-mutation-admission.md`, `docs/lastdb-disk-file-lifetime.md`, `docs/lastdb-canonical-model.md`, the multi-device conflicts design, PR 211 (open, stale, superseded by this design).
 
-PR 211 review findings and this design: protein sibling bodies (a sibling tip is a counted reference, 11); a gate that skipped the pending-hold and v1 edge checks (no such gates exist, 7); serial awaits per candidate (batch reads, 6); a stamp written only when a boot mints the identity (no stamps, 9).
+PR 211 review findings and this design: a gate that skipped the pending-hold and v1 edge checks (no such gates exist, 7); serial awaits per candidate (batch reads, 6); a stamp written only when a boot mints the identity (no stamps, 9).

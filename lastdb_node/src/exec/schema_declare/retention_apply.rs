@@ -1,12 +1,9 @@
 //! Applying and previewing a manifest retention at declare time.
 //!
-//! A TTL sweep runs through the catalog schema the declare resolved to. It
-//! removes a record from every molecule that schema names, so it reaches every
-//! schema bound to it. Before any policy is written the declare checks, in
-//! order:
+//! A TTL sweep uses the owned schema's record molecules. Before a policy
+//! changes, the declaration checks these facts:
 //!
-//! 1. The catalog schema belongs to this app and no other schema is bound to
-//!    it (`shared_with`). Otherwise the TTL is refused.
+//! 1. The schema belongs to this app and has no conflicting retention owner.
 //! 2. A TTL that would delete records that already exist needs an explicit
 //!    confirmation: a new TTL on a Range or HashRange schema that holds data,
 //!    or a TTL shorter than the manifest TTL running.
@@ -14,35 +11,14 @@
 //! Every change to a policy leaves a durable audit row.
 
 use super::retention::{read_policy, validate_declare_retention};
-use super::retention_assess::{assess, NEEDS_ONE_SCHEMA};
+use super::retention_assess::assess;
 use super::retention_unmanaged::unmanaged_report;
 use super::*;
 use crate::retention_audit::{self, RetentionAuditEvent};
 use fold_db::schema::SchemaRetentionPolicy;
 
-/// The catalog schema both installed names share, when the resolution names one.
-pub(crate) fn resolution_anchor(resolution: &DirectDeclareResolution) -> Option<&str> {
-    match resolution {
-        DirectDeclareResolution::Register { catalog_hash, .. }
-        | DirectDeclareResolution::Reuse { catalog_hash, .. } => Some(catalog_hash.as_str()),
-        DirectDeclareResolution::Compose { .. } => None,
-    }
-}
-
-/// The schema a registration replaces (an expansion), for a read-only check.
-fn resolution_predecessors(resolution: &DirectDeclareResolution) -> Vec<String> {
-    match resolution {
-        DirectDeclareResolution::Register {
-            replaced_schema: Some(replaced),
-            ..
-        } => vec![replaced.clone()],
-        _ => Vec::new(),
-    }
-}
-
-/// Run after the declare bound the schema, before it returns: make the policy
-/// follow the schema to its catalog schema, then apply the declared TTL, or
-/// report a running manifest TTL the manifest no longer declares.
+/// Preserve the policy for an explicitly converted schema, then apply the
+/// declared TTL or report a manifest TTL that still runs.
 pub(crate) async fn finish_declare_retention(
     host: &Host,
     req: &UdsRequest,
@@ -50,13 +26,11 @@ pub(crate) async fn finish_declare_retention(
     declare: &DirectDeclareProposal,
     resolution: &DirectDeclareResolution,
 ) -> Result<Option<Value>, String> {
-    let anchor = resolution_anchor(resolution);
-    let moved_from = match anchor {
-        Some(anchor) => follow_schema(host, req, ctx, declare, anchor).await?,
-        None => None,
-    };
+    let anchor = resolution.runtime_schema.as_str();
+    let moved_from = follow_schema(host, req, ctx, declare, anchor).await?;
     let Some(retention) = declare.retention else {
-        let report = unmanaged_report(host, declare, anchor, moved_from.as_deref(), &[]).await?;
+        let report =
+            unmanaged_report(host, declare, Some(anchor), moved_from.as_deref(), &[]).await?;
         // The pre-check ran under the same lock, so a refusal here means the
         // state changed under it: fail loudly, never a 200 with `blocked`.
         if let Some(blocked) = report
@@ -73,7 +47,6 @@ pub(crate) async fn finish_declare_retention(
     };
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
-    let anchor = anchor.ok_or_else(|| NEEDS_ONE_SCHEMA.to_string())?;
     let binding = declare.local_schema_id.as_str();
     let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
     if let Some(reason) = assessment.refusal(declare, anchor, retention.confirmed()) {
@@ -155,8 +128,8 @@ fn audit_event(
     )
 }
 
-/// Move the policy with the schema when the manifest name is bound to a new
-/// catalog schema (the app added a field). Writes an audit row for the move.
+/// Preserve an explicitly converted schema's retained policy association.
+/// Every policy move keeps its durable audit rows.
 async fn follow_schema(
     host: &Host,
     req: &UdsRequest,
@@ -203,18 +176,14 @@ pub(crate) async fn preview_declare_retention(
     declare: &DirectDeclareProposal,
     resolution: &DirectDeclareResolution,
 ) -> Result<Option<Value>, String> {
-    let anchor = resolution_anchor(resolution);
-    // A declare the Schema Service would expand has no stored mappers yet:
-    // seed the chain with the schema it replaces.
-    let predecessors = resolution_predecessors(resolution);
+    let anchor = resolution.runtime_schema.as_str();
     let Some(retention) = declare.retention else {
-        return unmanaged_report(host, declare, anchor, None, &predecessors).await;
+        return unmanaged_report(host, declare, Some(anchor), None, &[]).await;
     };
     let (ttl_seconds, layout) = validate_declare_retention(declare)?
         .ok_or_else(|| "the declare carries no retention".to_string())?;
-    let anchor = anchor.ok_or_else(|| NEEDS_ONE_SCHEMA.to_string())?;
     let binding = declare.local_schema_id.as_str();
-    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &predecessors).await?;
+    let assessment = assess(host, declare, anchor, ttl_seconds, layout, &[]).await?;
     let current: Option<SchemaRetentionPolicy> = read_policy(host, binding).await?;
     let blocked = assessment.refusal(declare, anchor, retention.confirmed());
     Ok(Some(super::retention_reply::preview_report(

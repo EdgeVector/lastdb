@@ -1,7 +1,7 @@
 # The molecule drain
 
 The drain removes a dead molecule: the keys of a dropped schema first, then the
-rows that the molecule owns. The counters decide. Design: `docs/design-lastdb-counter-lifecycle.md`
+rows that the molecule owns. The counters decide. Design: `docs/lastdb-atom-counter.md`
 section 12 (step S7). The counters themselves: `docs/lastdb-molecule-counters.md`.
 
 Code: `fold_db/crates/core/src/db_operations/atom_store/molecule_drain/` (the engine),
@@ -37,8 +37,8 @@ The paths that unbind:
 
 | Path | What it unbinds |
 |---|---|
-| `POST /api/schemas/drop`, `FoldDB::drop_schema_and_bindings` | first the database catalog rows of the schema, each with its bindings and with no instance reclaim (`delete_catalog_rows_for_drop`: up to 64 rows in one batch); then, in one batch with the schema record, the schema-field bindings and the protein members |
-| `store_schema` with a changed molecule set | the stale schema-field bindings, and the protein members of the molecules they leave |
+| `POST /api/schemas/drop`, `FoldDB::drop_schema_and_bindings` | first the database catalog rows of the schema, each with its bindings and with no instance reclaim (`delete_catalog_rows_for_drop`: up to 64 rows in one batch); then, in one batch with the schema record, the schema-field bindings |
+| `store_schema` with a changed molecule set | the stale schema-field bindings |
 | `DELETE /api/db/catalog` | the catalog bindings of the row, in the scope of the row |
 
 A **crash between the drop and the drain** loses nothing. The candidate row is part
@@ -106,8 +106,6 @@ there. The next wake finishes it.
   node-global and serves the molecule in every scope. The counters of one scope cannot
   show that no other scope uses it, so the drain leaves the bundle. The catalog
   reclaim of an instance does the same.
-- `protein:{uuid}` records that lost all their members. `lastdb db gc-proteins`
-  removes them.
 - The search index entries of a dropped schema, the keep-small meters and the
   hard-delete audit ledger. The drain writes no ledger row.
 
@@ -236,8 +234,8 @@ replace the single hash without a change to the drain steps.
   no such check: the put binds the molecules of that scope again, and the drain stops
   at its next batch.
 - **A changed molecule set in `store_schema` erases the data of the old field.** The
-  install unbinds the molecules the schema no longer names. When no other schema or
-  protein names such a molecule, its last binding goes and the drain erases its keys.
+  install unbinds the molecules the schema no longer names. When no schema field or
+  database catalog names such a molecule, its last binding goes and the drain erases its keys.
   Before this step the old molecule and its keys stayed for ever (the counters did not
   exist), so a repair that points a field at another molecule kept the old keys. Now it
   loses them. This is the rule of the counters (the count of bindings is the only
@@ -255,8 +253,7 @@ replace the single hash without a change to the drain steps.
   planner into a dead molecule is erased by the drain, `slots` goes below zero, and the
   header stays `suspect` for ever. A molecule recount would repair it; it is not built.
 - **The drain leaves some rows.** The node-global key bundle (`mkb:`, `mkw:`), the
-  `protein:` records that lost all their members (`lastdb db gc-proteins`), the `fldprot:`
-  rows, the delete-ledger rows, the search index entries and the keep-small meters of the
+  delete-ledger rows, the search index entries and the keep-small meters of the
   erased keys.
 - **The drop reads the whole catalog.** `drop_schema_and_bindings` uses `list_entries`,
   the hygiene enumeration of the catalog (a scan of one row for each database and
@@ -279,7 +276,7 @@ replace the single hash without a change to the drain steps.
   one at the start of each run). `lastdb db inventory` writes rows and counts as a writer; `lastdb
   status`, `lastdb liveness explain` and a `lastdb db molecule-drain` call that names no molecule open
   no write scope.
-- A write that was acknowledged from memory before the drop and flushes after the drain
+- A write that the node accepted before the drop and that commits after the drain
   finished creates a tip in a molecule with no binding and no candidate. `lastdb db inventory`
   counts it under `unbound with tips`; queue it with `lastdb db molecule-drain`.
 - The drain does not repair a counter (see above).

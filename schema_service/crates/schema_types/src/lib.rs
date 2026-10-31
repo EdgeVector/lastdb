@@ -4,6 +4,7 @@
 //! fold_db-free consumers depend on this crate instead of `fold_db`.
 
 pub mod alternate_keys;
+pub mod alternate_parts;
 pub mod clock;
 pub mod data_classification;
 pub mod declarative_schemas;

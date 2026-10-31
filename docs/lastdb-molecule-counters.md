@@ -11,7 +11,7 @@ No other structure allows a drop and no other structure blocks one.
 |---|---|---|
 | `slots` | tip records (`mk:{M}:...`) of the molecule in the scope | the molecule header `mh:{M}` |
 | `records` | conflict records (history rows tagged `conflict` or `suppressed`) that name the molecule | the molecule header `mh:{M}` |
-| `bindings` | binding records of the molecule: schema field, protein member, database catalog | `mref:v1:n:{target}` next to the binding records `mref:v1:e:{target}\0{source}` |
+| `bindings` | binding records of the molecule: schema field or database catalog | `mref:v1:n:{target}` next to the binding records `mref:v1:e:{target}\0{source}` |
 
 `{target}` is the hex SHA-256 of the molecule uuid. A scope adds its prefix before
 the key, as for every other record.
@@ -21,7 +21,7 @@ The drain that removes a dead molecule is step S7: `docs/lastdb-molecule-drain.m
 ## Why `bindings` is not in the header
 
 The presence of a header means "the molecule lives at this prefix". The write path
-(`load_molecule_for_write`), the filtered load and the share fan-out read it that
+(the exact-key loader), the filtered load and the share fan-out read it that
 way. A bind comes before the first tip, so a bind that created the header would
 change what a first write does. `slots` and `records` change only with tips, and the
 header exists whenever tips exist, so they sit in the header and cost no extra
@@ -61,8 +61,6 @@ Writers of a binding record:
 | Writer | When | Scope |
 |---|---|---|
 | `store_schema`, `drop_schema` (`db_operations/schema_operations.rs`) | a schema is stored or dropped | personal |
-| `protein_add_member_in_scope` (`protein/ops.rs`) | a protein gets a member | personal |
-| `protein_release_members` (`protein/ops/release.rs`) | a schema drop or a changed schema leaves a molecule that only a protein names; the protein lets it go | personal |
 | `bind_catalog_molecules`, `unbind_catalog_molecules` (`catalog_bindings.rs`) | a catalog row is written or deleted | the instance of the row |
 
 The catalog row and its binding records are written in one batch by the share route,
@@ -135,9 +133,6 @@ Faults of these phases:
 
 ## Known limits
 
-- A protein member binding goes only when a schema drop (or a changed schema) leaves a
-  molecule that only a protein names (`protein_release_members`). A protein member of a
-  molecule that a schema or a catalog still names stays.
 - Complete mutation replay uses the normal counter writer. Raw lifecycle replay is refused before any effects.
   Restore excludes cleanup until all restored scopes pass exact counter validation.
   See `docs/counter-safe-replay-restore.md`. Cloud activation stays disabled.
@@ -156,8 +151,8 @@ Faults of these phases:
   Recover the missing bindings or complete an explicit owner-approved drain first.
   It refuses a missing live header, unreadable holder, or discarded storage record.
   It creates no atom body or missing schema definition.
-- After a drain the node-global key bundle (`mkb:`, `mkw:`), the `protein:` records without
-  members, the delete-ledger rows and the search entries of the erased keys stay.
+- After a drain the node-global key bundle (`mkb:`, `mkw:`), the delete-ledger rows,
+  and the search entries of the erased keys stay.
 - The schema drop reads the whole database catalog with `list_entries` (a scan of a small
   table that has one row for each database and schema).
 - A molecule whose `records` counter names kept conflict records that no slot directory entry

@@ -110,7 +110,6 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_idempotency_check_us",
     "sum_grouping_us",
     "sum_restore_molecules_us",
-    "sum_protein_sibling_fold_us",
     "sum_spawn_indexing_us",
     "sum_sync_uuids_us",
     "sum_schema_reload_us",

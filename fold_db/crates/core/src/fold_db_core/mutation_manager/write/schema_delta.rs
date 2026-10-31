@@ -82,9 +82,7 @@ impl MutationManager {
             deferred_atoms,
             search_batch,
             share_prefixes,
-            sibling_updates: Vec::new(),
-            sibling_origins: Vec::new(),
-            sibling_moves: Vec::new(),
+
             idempotency_entries,
             changed_keys,
             tracks_retention_age,

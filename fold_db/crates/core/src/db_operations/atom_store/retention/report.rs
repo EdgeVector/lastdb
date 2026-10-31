@@ -2,6 +2,7 @@
 
 use super::keys::{QUEUE_DIRECTORY, QUEUE_ENTRIES};
 use crate::db_operations::atom_store::time_queue::TimeQueue;
+use crate::env_number::{self, EnvNumber};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -14,12 +15,10 @@ pub const DEFAULT_CONFLICT_RETENTION_SECS: u64 = 30 * 24 * 60 * 60;
 
 /// The window in seconds. Unset, empty, zero or invalid gives the default.
 pub(crate) fn parse_retention_secs(raw: Option<&str>) -> u64 {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return DEFAULT_CONFLICT_RETENTION_SECS;
-    };
-    match raw.parse::<u64>() {
-        Ok(secs) if secs > 0 => secs,
-        _ => {
+    match env_number::parse(raw) {
+        EnvNumber::Missing => DEFAULT_CONFLICT_RETENTION_SECS,
+        EnvNumber::Value { value, .. } if value > 0 => value,
+        EnvNumber::Value { raw, .. } | EnvNumber::Invalid { raw } => {
             tracing::warn!(
                 raw,
                 env = CONFLICT_RETENTION_SECS_ENV,

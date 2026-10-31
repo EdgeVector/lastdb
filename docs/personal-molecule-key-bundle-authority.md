@@ -10,9 +10,9 @@ Corrupt metadata or a missing node wrap refuses the operation.
 Personal writes do not create bundles or change atom body encryption.
 Named database writes retain the existing bundle creation path.
 
-Personal batches load their original schemas before protein Delete expansion reads source fields.
-They then load any additional sibling schemas before preconditions, prior-tip reads, and key plans.
-The change does not alter sibling selection, namespaces, access checks, count semantics, or the warm set record rules.
+Personal batches load their addressed schemas before preconditions, prior-tip reads, and key plans.
+The schema supplies its own field molecules and named alternate keys.
+Namespaces, access checks, count semantics, and warm set record rules retain their existing authority.
 
 The source omission is established. A real cold personal query on accepted 857 returned zero for an expected document.
 The document's physical key format and the cause of that observed zero remain unproved until an actual read with the changed source.

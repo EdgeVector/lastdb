@@ -29,7 +29,7 @@ impl AtomStore {
         &self,
         set: TipChangeSet<'_>,
     ) -> Result<TipCommit, SchemaError> {
-        self.require_atomic_scope()?;
+        self.require_write_scope()?;
         let TipChangeSet {
             history,
             scope,
@@ -167,8 +167,8 @@ impl AtomStore {
         watch.note(molecules);
     }
 
-    /// A native store commits one batch only inside a request scope.
-    pub(in crate::db_operations::atom_store) fn require_atomic_scope(
+    /// A native writer needs a request scope.
+    pub(in crate::db_operations::atom_store) fn require_write_scope(
         &self,
     ) -> Result<(), SchemaError> {
         let Some(runtime) = self

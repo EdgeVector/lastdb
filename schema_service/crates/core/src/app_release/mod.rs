@@ -54,6 +54,7 @@ mod compat_write;
 mod errors;
 mod grammar;
 mod persistence;
+mod point_read;
 mod read_v2;
 mod records;
 mod state;

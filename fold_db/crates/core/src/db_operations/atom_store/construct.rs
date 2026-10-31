@@ -15,7 +15,6 @@ impl AtomStore {
             main_store,
             serving_replay_cutoff: Arc::default(),
             namespaced_store: None,
-            protein_membership_gate: Arc::default(),
             content_key,
             molecule_keys: None,
             molecule_commit_locks: Arc::default(),

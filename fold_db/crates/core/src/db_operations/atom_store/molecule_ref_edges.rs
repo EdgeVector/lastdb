@@ -1,16 +1,3 @@
-//! Binding records of a molecule: one record for each active source.
-//!
-//! A binding record is a set member that says "this source names this molecule":
-//! a schema field, a protein member, or a database catalog. The record is the
-//! state that makes a bind or an unbind idempotent. It is not an authority. The
-//! counter `bindings` next to the records (see `molecule_bindings.rs`) is the
-//! only test of whether a molecule is bound, and it changes in the same batch as
-//! the record that flips.
-//!
-//! The key is addressable by the target molecule, so the schema-field sources of
-//! one molecule are one range read under one hash. The memory-acknowledgement
-//! path reads them to name every schema that shares a molecule.
-
 use super::AtomStore;
 use crate::hex::hex_lower;
 use crate::schema::types::field::build_storage_key;
@@ -43,27 +30,6 @@ impl MoleculeRefEdge {
                     .expect("schema field identity is serializable")
             ),
             edge_type: "schema-field".to_string(),
-        }
-    }
-
-    /// A protein member source. A JSON tuple preserves field-name boundaries
-    /// and distinguishes no range field from an explicitly empty field name.
-    /// One molecule can have several key layouts in one protein.
-    #[must_use]
-    pub fn protein_member(
-        protein_uuid: &str,
-        molecule_uuid: &str,
-        hash_field: &str,
-        range_field: Option<&str>,
-    ) -> Self {
-        Self {
-            molecule_uuid: molecule_uuid.to_string(),
-            source: format!(
-                "protein:{}",
-                serde_json::to_string(&(protein_uuid, molecule_uuid, hash_field, range_field))
-                    .expect("protein member identity is serializable")
-            ),
-            edge_type: "protein-member".to_string(),
         }
     }
 

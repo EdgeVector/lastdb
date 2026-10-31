@@ -36,7 +36,7 @@ Source: saved report, lines 350–356.
 That size includes files and values that a range-key preload does not need.
 It does not establish a count of distinct range keys for each schema.
 A September 26 summary's 17.16 million tips also does not establish that count.
-One record can have many field tips and several protein key layouts.
+The historical seed used multiple field tips and key layouts for each logical record.
 Source: saved tip summary.
 
 The estimates below use explicit synthetic key counts.
@@ -56,7 +56,7 @@ No primary home or archived home supplies data for this study.
 
 BoardCards declares 24 fields.
 The range selector can use one authoritative membership set; it does not need 24 copies of the keys.
-Different memberships still count separately, including tags, graph links, and protein key layouts.
+Different memberships still count separately, including tags, graph links, and alternate key layouts.
 A field with different membership cannot reuse another field's completeness claim.
 
 Source snapshots are code evidence, not proof of the installed app state:

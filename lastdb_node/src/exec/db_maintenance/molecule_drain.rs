@@ -8,7 +8,7 @@ use super::*;
 /// queues it for the drain when it is dead or refused. The answer says which:
 /// `dead` (nothing names it), `bound`, `refused` (a counter or a record keeps it
 /// from a drain: the drain never removes it) or `absent`. Without a `molecule`
-/// the call only reads the report. Either way the drain task wakes at once. The
+/// the call only reads the report. An enqueue wakes the drain task. The
 /// call deletes nothing itself: the task removes the molecule batch by batch.
 pub(in crate::exec) async fn execute_db_molecule_drain_route(
     req: &UdsRequest,
@@ -84,14 +84,14 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
             }
         }
     };
-    // A call that names no molecule only reports. It does not wake the task: a wake
-    // ends the back-off of a failed wake, and a poller would cancel it. Queueing a
-    // molecule wakes the task after its batch commits (`molecule_drain_enqueue`).
-    // The durable candidate rows, counted up to 10,000 with bounded reads.
-    let (candidates, capped) = atoms
-        .molecule_drain_candidates(10_000)
-        .await
-        .unwrap_or((0, false));
+    // A status poll must not wake the task or reset its failure back-off.
+    // A failed count must not report an empty queue.
+    let (candidates, capped) = match atoms.molecule_drain_candidates(10_000).await {
+        Ok(value) => value,
+        Err(error) => {
+            return mapped_error_response("molecule drain count failed", error.into(), ctx)
+        }
+    };
     json_ok(&envelope(
         &serde_json::json!({
             "molecule_drain": {

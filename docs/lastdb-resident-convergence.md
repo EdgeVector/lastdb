@@ -317,8 +317,7 @@ What this means for steps 3 to 6:
 - Step 3 as written adds three behaviors to the logical set (range coverage, the
   Skip-Delete overlay, and records that are acknowledged but not yet in the
   store). Nothing reads them until step 4. They cannot be verified by the two
-  bars alone, because the bars do not exercise coverage tickets, protein sibling
-  folds or Skip Deletes. A shadow comparison (the logical set answers every
+  bars alone, because the bars do not exercise coverage tickets or Skip Deletes. A shadow comparison (the logical set answers every
   graph read in parallel and a counter in `/api/status` counts disagreements) is
   the proof that fits the no-tests rule, and it must be built first.
 - Step 5 changes the optimistic-concurrency gate (`PreparedSlotRevision`,
@@ -339,8 +338,7 @@ building the doc's step 3 without the shadow comparison cannot be verified.
 - This is a live write path with no test suite. A wrong lock order or a missed
   revision bump shows up as a lost or reordered write, not a compile error.
 - As written, the bars read and update one Board field. They do not appear to
-  exercise protein sibling folds or Skip Deletes, so step 3 needs a manual check
-  of those two paths.
+  exercise Skip Deletes, so step 3 needs a manual check of that path.
 
 ## Status log
 
@@ -362,7 +360,7 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
 - 2026-10-12, warm set design: `docs/lastdb-warm-set-design.md` written and open for
   Tom's decisions. No code change.
 - 2026-10-13, designs: `docs/lastdb-blind-write-design.md` and
-  `docs/lastdb-write-ahead-journal-design.md` (since deleted) written. Built since the warm set
+  `docs/lastdb-write-ahead-journal-design.md` (both since deleted) written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
   (The atom GC reaper and its verb were removed by the counter lifecycle,

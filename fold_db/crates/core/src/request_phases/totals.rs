@@ -35,7 +35,6 @@ pub struct RequestPhaseTotals {
     pub schema_load_us: u64,
     pub schema_reload_us: u64,
     pub restore_molecules_us: u64,
-    pub protein_sibling_fold_us: u64,
     pub grouping_us: u64,
     pub idempotency_check_us: u64,
     pub sync_uuids_us: u64,

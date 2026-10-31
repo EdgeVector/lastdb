@@ -79,19 +79,7 @@ impl AppRegisterOutcome {
         let r = self.record();
         (
             status,
-            json!({
-                "status": outcome,
-                "app_id": r.app_id,
-                "owner_dev_pubkey": r.owner_dev_pubkey,
-                "registered_at": r.registered_at,
-                "metadata": r.metadata,
-                "version": r.version,
-                "code_signature": r.code_signature,
-                "source": r.source,
-                "artifact": r.artifact,
-                "uses": r.uses,
-                "env": env_label,
-            }),
+            r.mutation_json([("status", json!(outcome)), ("env", json!(env_label))]),
         )
     }
 }
@@ -104,6 +92,8 @@ pub enum AppRegisterError {
     /// ([`validate_app_id_charset`] — registration-time anti-confusable
     /// guard for the exact-byte principal semantics). 400.
     InvalidAppIdCharset(String),
+    /// The `app_id` is in [`RESERVED_APP_IDS`]. 400.
+    ReservedAppId,
     InvalidMetadata(String),
     InvalidVersion(String),
     /// The declared `code_signature` violates the bounds
@@ -139,6 +129,7 @@ impl AppRegisterError {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::InvalidAppIdCharset(_) => "invalid_app_id_charset",
+            Self::ReservedAppId => "reserved_app_id",
             Self::InvalidMetadata(_) => "invalid_metadata",
             Self::InvalidVersion(_) => "invalid_version",
             Self::InvalidCodeSignature(_) => "invalid_code_signature",
@@ -161,6 +152,7 @@ impl AppRegisterError {
                 400,
                 json!({ "reason": "invalid_app_id_charset", "detail": detail }),
             ),
+            Self::ReservedAppId => (400, json!({ "reason": "reserved_app_id" })),
             Self::InvalidMetadata(detail) => (
                 400,
                 json!({ "reason": "invalid_metadata", "detail": detail }),

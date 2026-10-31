@@ -10,6 +10,14 @@ publishes your app + its schemas to the shared registry. `folddb dev` only
 runs a local dev/test node. This SDK reads and writes a user's data on their
 node, scoped to what they consented to.
 
+> **CAUTION — current state of `lastdbd`.** The node serves no consent route
+> (`/api/apps/request-consent`) and reads no capability token. Every same-user
+> caller on the owner socket runs as the owner. A local app uses
+> [`ownerClient`](#owner-socket--your-own-apps-ownerclient) with `socketPath`.
+> The consent flow in the example below (`connect`, `requestConsent`,
+> `awaitConsent`) is the planned design for an app socket. Follow the
+> [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace).
+
 > **The firm app contract.** The small, stable surface a zero-UI app depends on
 > — the app-facing primitives, the machine-actionable error taxonomy, and the
 > compatibility fixtures that make a LastDB route change break in ONE place —
@@ -117,6 +125,13 @@ two connection surfaces, and which one your app talks decides whether it runs as
 the node owner or as an attributed third-party app. Pick by *who runs the app*,
 not by how it connects.
 
+> **CAUTION — current state of `lastdbd`.** `lastdbd` serves only the owner
+> socket. It has no app socket, no consent route, and no code-signature check.
+> Every same-user caller runs as the owner. The node does not check the
+> namespace of a write. The **App socket** column below is the planned design.
+> Until it ships, follow the [interop rule](#interop-rule-read-by-full-name-write-your-own-namespace)
+> in your app code.
+
 | | **Owner socket** | **App socket** |
 |---|---|---|
 | For | apps **you develop and trust** (your own tooling) | apps **you publish** for other people to run |
@@ -137,6 +152,25 @@ owner socket regardless, so the app socket's write-own rule is an
 same node from clobbering each other's data (single-writer-per-molecule, so
 cross-app reads stay trustworthy), not an adversary defense. That is exactly why
 self-authored code just uses the owner socket: you already trust it.
+
+### Interop rule: read by full name, write your own namespace
+
+A schema has the runtime name `{app_id}/{local}`. The `app_id` is the
+namespace of the app that owns the schema. Every app follows these rules on
+both sockets:
+
+1. Read another app's schema by its full name, for example
+   `other-app/Contact`. A bare name such as `Contact` can resolve to a schema of
+   a different app, or fail with `409` when two apps use the same name.
+2. Write only the schemas in your own namespace. Do not write a schema of
+   another app. The node does not refuse that write today, so your app code
+   must keep this rule.
+3. To keep data that came from another app, write it into a schema in your own
+   namespace. Each schema owns its record values. Do not expect a write to one
+   schema to change a different schema, even when the two schemas use the same
+   field definitions. LastDB removes the implicit cross-schema value copy.
+4. The schema service reserves the namespaces `std`, `system`, and
+   `templates`. A developer cannot register them.
 
 ### Owner socket — your own apps (`ownerClient`)
 
@@ -197,8 +231,8 @@ if (!db.hasCapability) {                                  // first run: no capab
 
 // Reads: any schema the consumer consented to — including other apps' data.
 await db.query('some-other-app/PublicNote', { fields: ['id', 'text'] });
-// Writes: confined to your own namespace. A write to another app's namespace is
-// rejected by the node (the mutation-chokepoint ownership check), not the SDK.
+// Writes: only your own namespace (the interop rule above). The node does not
+// check this today.
 await db.mutate('my-app/Note', {
   mutationType: 'create',
   fields: { id: 'n1', text: 'hi' },
@@ -206,20 +240,26 @@ await db.mutate('my-app/Note', {
 });
 ```
 
-The write-own confinement is enforced by the **node** at its mutation chokepoint
-(keyed off the attributed app identity), not by this SDK — a cross-namespace
-write surfaces as a `403` `PermissionDeniedError` / `CapabilityDeniedError` (see
-[Typed errors](#typed-errors)). The owner-socket path has no such restriction.
+Neither the node nor this SDK enforces write-own today. `lastdbd` has no app
+identity on the data path, so it accepts a write to any namespace. A planned
+app socket can refuse a cross-namespace write with a `403`
+`PermissionDeniedError` / `CapabilityDeniedError` (see
+[Typed errors](#typed-errors)). Until then, the rule is the app author's job.
 
-### Schema resolution and edge adapters
+### Schema resolution and field names
 
-Apps should resolve their app-facing schema names through Schema Service before
-using the data path. The SDK accepts a `schemaResolver` that returns
-`ResolveResult { identity, schema, adapter, outcome }`: `identity` is the
-global schema identity, `schema` is the runtime node schema when it differs,
-and `adapter.appToCatalog` rewrites local field names to catalog names before
-`query`/`mutate` reaches storage. Reads are mapped back through
-`adapter.catalogToApp` or the reverse one-to-one map.
+An app reads and writes its own schemas by their runtime names
+(`{app_id}/{local}`), for example `my-app/Note`. A runtime name is the stable
+contract on the wire. A schema's identity hash changes when the app adds a
+field, so do not use the identity hash as a name.
+
+The SDK accepts an optional `schemaResolver` that returns
+`ResolveResult { identity, schema, adapter, outcome }`. `schema` is the runtime
+schema to use. `adapter.appToCatalog` renames the app's field names to the
+field names of that one schema before `query`/`mutate`, and reads map back
+through `adapter.catalogToApp` or the reverse one-to-one map. The rename is
+client-side only. It does not connect two schemas, and the node keeps no field
+mapping: each schema owns its values.
 
 ```ts
 const db = await connect({
@@ -228,8 +268,8 @@ const db = await connect({
   schemaResolver: async (schemaName) => {
     if (schemaName !== 'LocalNote') return undefined;
     return {
-      identity: 'global-schema-identity-hash',
-      schema: 'catalog/Note',
+      identity: 'my-app-note-identity-hash',
+      schema: 'my-app/Note',
       outcome: 'adapted',
       adapter: {
         appToCatalog: { title: 'name', body: 'body_text' },
@@ -240,15 +280,15 @@ const db = await connect({
 
 await db.mutate('LocalNote', {
   mutationType: 'create',
-  fields: { title: 'hello', body: 'catalog-shaped at the edge' },
+  fields: { title: 'hello', body: 'renamed at the edge' },
   key: { hash: null, range: 'n1' },
 });
 ```
 
-This keeps storage global and catalog-shaped. A resolver returning
-`undefined`/`null` is an explicit pass-through for already-catalog-shaped
-callers; creating a new shared-surface language remains a separate publisher
-flow, not a runtime fallback.
+A resolver that returns `undefined`/`null` passes the name through unchanged.
+Do not resolve a name to a schema of another app for a write. To keep data
+from another app, read its schema by full name and write the records into your
+own schema.
 
 [d1]: fbrain `decision-2026-07-10-apps-read-all-write-own-namespace`
 [d2]: fbrain `decision-local-security-loose-stance`

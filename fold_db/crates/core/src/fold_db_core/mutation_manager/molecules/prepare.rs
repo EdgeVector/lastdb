@@ -48,6 +48,11 @@ impl MutationManager {
             };
 
         if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
+            if schema.uses_independent_fields() {
+                return Err(SchemaError::InvalidData(
+                    "an independent Hash mutation cannot supply an undeclared range key".into(),
+                ));
+            }
             warn!(
                 schema = %schema_name,
                 mutation = %mutation.uuid,

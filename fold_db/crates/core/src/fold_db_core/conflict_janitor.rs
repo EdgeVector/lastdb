@@ -58,7 +58,9 @@
 //! | `LASTDB_CONFLICT_JANITOR_NET_SECS` | Seconds between two sweeps of the safety net of the queue (0 turns it off). Default 3600. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use super::background_task::BackgroundTask;
 use std::time::Duration;
 
 use super::conflict_janitor_pace::{backoff_after, rest, rest_after};
@@ -81,8 +83,7 @@ const FULL_PASS_EVERY: u64 = 60;
 /// Aborted on [`super::fold_db::FoldDB::shutdown`] before the final
 /// durability flush, and on Drop.
 pub struct BackgroundConflictJanitorTask {
-    join: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    stop: Arc<AtomicBool>,
+    task: BackgroundTask,
 }
 
 impl BackgroundConflictJanitorTask {
@@ -90,8 +91,7 @@ impl BackgroundConflictJanitorTask {
     #[must_use]
     pub fn disabled() -> Self {
         Self {
-            join: Mutex::new(None),
-            stop: Arc::new(AtomicBool::new(true)),
+            task: BackgroundTask::disabled(),
         }
     }
 
@@ -159,17 +159,13 @@ impl BackgroundConflictJanitorTask {
             }
         });
         Self {
-            join: Mutex::new(Some(handle)),
-            stop,
+            task: BackgroundTask::started(handle, stop),
         }
     }
 
     /// Signal the loop to exit and abort the task.
     pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.join.lock().expect("conflict janitor join lock").take() {
-            handle.abort();
-        }
+        self.task.stop("conflict janitor join lock");
     }
 }
 

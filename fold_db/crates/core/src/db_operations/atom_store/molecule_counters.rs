@@ -15,9 +15,6 @@ use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The native get-many API accepts at most this many keys per call.
-const READ_CHUNK: usize = 10_000;
-
 /// Molecules in one call that get the read of a binding record. Each is a range
 /// read, and one call spends a budget of 4,096 metadata pages.
 const RECORD_CHECKS: usize = 256;
@@ -32,7 +29,6 @@ pub struct MoleculeCountersView {
     pub slots: u64,
     /// Conflict records that name the molecule in this scope.
     pub records: u64,
-    /// Binding records (schema field, protein member, database catalog).
     pub bindings: u64,
     /// A counter disagreed with a change, or the header carries no counters.
     pub suspect: bool,
@@ -130,17 +126,9 @@ impl AtomStore {
             .iter()
             .map(|molecule| build_storage_key(storage_prefix, &header_key(molecule)))
             .collect();
-        let mut headers: Vec<Option<Value>> = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(READ_CHUNK) {
-            headers.extend(
-                self.main_store
-                    .get_items::<Value>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read molecule headers: {error}"))
-                    })?,
-            );
-        }
+        let headers = self
+            .read_stored_values::<Value>(&keys, "read molecule headers")
+            .await?;
         let bindings = self
             .read_binding_counters(molecules, storage_prefix)
             .await?;

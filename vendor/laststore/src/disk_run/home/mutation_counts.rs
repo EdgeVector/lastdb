@@ -54,12 +54,6 @@ fn names(collection: &str) -> Names {
             "v2_mref_key_bytes",
             "v2_mref_value_bytes",
         ],
-        "proteins" => [
-            "v2_proteins_puts",
-            "v2_proteins_deletes",
-            "v2_proteins_key_bytes",
-            "v2_proteins_value_bytes",
-        ],
         "indexes" => [
             "v2_indexes_puts",
             "v2_indexes_deletes",

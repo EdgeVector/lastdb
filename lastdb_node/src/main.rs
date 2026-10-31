@@ -164,14 +164,7 @@ fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
     }
 }
 
-fn init_resident_key_cap() -> Result<(), String> {
-    if std::env::var_os(fold_db::resident::RETIRED_KEY_CAP_ENV).is_some() {
-        eprintln!(
-            "lastdbd: {} is retired and ignored; the warm set is limited by {}",
-            fold_db::resident::RETIRED_KEY_CAP_ENV,
-            fold_db::resident::CORE_WARM_BYTES_ENV
-        );
-    }
+fn init_core_warm_bytes() -> Result<(), String> {
     let warm_bytes = fold_db::resident::init_core_warm_bytes_from_env()?;
     if warm_bytes != fold_db::resident::DEFAULT_CORE_WARM_BYTES {
         eprintln!(
@@ -332,7 +325,7 @@ fn run() -> Result<(), String> {
     let home = host::resolve_home(cli.data_dir)?;
     let data_dir = home.join("data");
     let _footprint_proof_pin = footprint_proof::footprint_proof_pin_from_env()?;
-    init_resident_key_cap()?;
+    init_core_warm_bytes()?;
 
     // Refuse an unservable data dir before ANY boot work: the socket-path length
     // check is pure arithmetic, but both binds happen after `Host::boot` and

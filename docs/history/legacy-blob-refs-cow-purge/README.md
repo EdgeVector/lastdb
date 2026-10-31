@@ -29,7 +29,7 @@ Product writers already refuse new `ref:` blobs (dep PR #1213 / card
 | Primary `legacy_blob_refs` du | **7.4M** (unchanged; no purge executed against primary) |
 | Primary writes this run | **none** |
 
-Captured plane map (prior session, `cow-status.txt`): cold/sync plane lists
+Captured plane map (prior session, `cow-status.txt`, since removed): cold/sync plane lists
 `legacy_blob_refs` among cold collections (~80.8 MiB cold/sync aggregate on that
 snapshot; collection file tree remains 7.4M on disk).
 

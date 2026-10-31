@@ -1,42 +1,5 @@
-//! Declared fields — an app declares a field, gets a handle, and reuses it.
-//!
-//! > You declare a field. You get a handle. Use it in any schema.
-//! > Two schemas using the same handle hold the same field, so their data
-//! > stays in step.
-//!
-//! Design: brain `design-lastdb-declared-fields`. Nothing here is inferred:
-//! there is no threshold, no similarity matching, and no fallback path.
-//!
-//! # Why this exists at all
-//!
-//! Schema Service already had a canonical-field registry, and it is *not* the
-//! broken part. That registry answers **what does this field mean** — search,
-//! sensitivity, classification — and it is deliberately network-global:
-//! `builtin_canonical_fields` plus LLM classification normalize semantically
-//! equivalent fields across every schema on the network.
-//!
-//! Coherence asks a different question: **should a write here land there?**
-//! Answering it with a meaning-scoped identifier is what made
-//! `created_at` / `"RFC 3339 timestamp"` / `String` byte-identical across 46
-//! unrelated schemas on the live primary. This module adds the identifier for
-//! the second question and leaves the first one exactly as it was.
-//!
-//! # What is minted, and what is derived
-//!
-//! Declaring mints one immutable thing: a **declaration id**. Everything else
-//! is derived from it by [`schema_types::compute_declared_field_identity`],
-//! which lives in the leaf crate `schema_types` precisely so a node can
-//! recompute — and therefore verify — an identity offline and get exactly what
-//! Schema Service got. Only *creating* a declaration needs SS, which is what
-//! stops two offline nodes minting conflicting ids for the same handle.
-//!
-//! # Ownership is an attribute, never an input
-//!
-//! `owner_app_id` is not part of any identity. 949 of 1,141 live schemas carry
-//! none, so an app-keyed identity would serve a minority — and ownership is
-//! mutable while identity is not. Transferring a declaration leaves every field
-//! identity byte-identical; a permission change must never cascade into
-//! re-identifying every protein and every stamped schema.
+//! Declared fields retain their canonical identity across local names.
+//! Definition reuse is independent of record values and alternate keys.
 
 use std::collections::{HashMap, HashSet};
 
@@ -72,8 +35,6 @@ pub struct DeclaredField {
     /// prose must never unbind schemas that already stamped this field.
     #[serde(default)]
     pub description: String,
-    /// Bumped by the declarer when meaning or type changes incompatibly.
-    /// A bump mints a new identity, hence a new protein.
     pub version: u32,
     /// The derived identity. Stored so reads never recompute, but it is a
     /// pure function of `(declaration_id, name, field_type, version)`.
@@ -113,6 +74,29 @@ impl DeclaredFieldRecord {
     #[must_use]
     pub fn permits(&self, app_id: &str) -> bool {
         self.owner_app_id == app_id || self.readers.iter().any(|r| r == app_id)
+    }
+
+    /// `POST /v1/fields/declare` body.
+    ///
+    /// The field key is `type`. A lookup of the stored record uses the serde
+    /// name `field_type` instead.
+    #[must_use]
+    pub fn declare_json(&self) -> Value {
+        json!({
+            "declaration_id": self.declaration_id,
+            "handle": self.handle,
+            "owner_app_id": self.owner_app_id,
+            "readers": self.readers,
+            "algo_version": self.algo_version,
+            "declared_at": self.declared_at,
+            "fields": self.fields.iter().map(|field| json!({
+                "name": field.name,
+                "type": field.field_type,
+                "description": field.description,
+                "version": field.version,
+                "identity": field.identity,
+            })).collect::<Vec<_>>(),
+        })
     }
 }
 

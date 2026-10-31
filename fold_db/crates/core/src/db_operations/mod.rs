@@ -31,9 +31,9 @@ pub mod tip_atoms;
 // Re-exports
 pub use admin_db::{
     DbInventory, HistoryClearReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
-    MoleculeKeyRow, MoleculeKeysReport, ProteinGcReport, SchemaCurrentStorageReport,
-    SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
-    SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
+    MoleculeKeyRow, MoleculeKeysReport, SchemaCurrentStorageReport, SchemaHistoryClearStat,
+    SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaRecordKey,
+    SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub(crate) use atom_store::ChangedKey;
 pub use atom_store::{

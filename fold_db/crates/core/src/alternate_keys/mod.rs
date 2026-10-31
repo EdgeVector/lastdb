@@ -10,6 +10,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+mod derivation;
 mod fields;
 mod preparation;
 pub(crate) use preparation::affected_keys;
@@ -70,7 +71,12 @@ pub(crate) fn derive_key(
     definition: &schema_types::AlternateKey,
     fields: &RecordFields,
 ) -> Result<Option<KeyValue>, SchemaError> {
-    let mut coordinates = Vec::new();
+    if definition.omit_empty_hash
+        && fields.get(&definition.hash_field).and_then(Value::as_str) == Some("")
+    {
+        return Ok(None);
+    }
+    let mut coordinates = BTreeMap::new();
     for field in definition.fields() {
         match fields.get(field) {
             None | Some(Value::Null)
@@ -83,7 +89,8 @@ pub(crate) fn derive_key(
                     .get_field_type(field)
                     .validate(value)
                     .map_err(|_| invalid("alternate key field has an invalid type"))?;
-                coordinates.push(
+                coordinates.insert(
+                    field,
                     scalar_key_coordinate(value)
                         .ok_or_else(|| invalid("alternate key field requires a scalar value"))?
                         .into_owned(),
@@ -92,10 +99,7 @@ pub(crate) fn derive_key(
             None => return Err(invalid("required alternate key field is absent")),
         }
     }
-    Ok(Some(KeyValue::new(
-        Some(coordinates.remove(0)),
-        coordinates.pop(),
-    )))
+    derivation::key(definition, fields, &coordinates).map(Some)
 }
 
 pub(crate) fn storage_key(

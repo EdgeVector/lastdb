@@ -54,7 +54,6 @@ impl MutationManager {
         let mut flush = std::time::Duration::ZERO;
         let mut restore_molecules = std::time::Duration::ZERO;
         let mut schema_reload = std::time::Duration::ZERO;
-        let mut protein_sibling_fold = std::time::Duration::ZERO;
         let mut grouping = std::time::Duration::ZERO;
         let mut idempotency_check = std::time::Duration::ZERO;
         let mut sync_uuids = std::time::Duration::ZERO;
@@ -72,7 +71,6 @@ impl MutationManager {
                 "flush" => flush += *elapsed,
                 "  - restore_molecules" => restore_molecules += *elapsed,
                 "schema_reload" => schema_reload += *elapsed,
-                "  - protein_sibling_fold" => protein_sibling_fold += *elapsed,
                 "grouping" => grouping += *elapsed,
                 "idempotency_check" => idempotency_check += *elapsed,
                 "sync_uuids" => sync_uuids += *elapsed,
@@ -96,7 +94,6 @@ impl MutationManager {
         }
         let named_other = restore_molecules
             + schema_reload
-            + protein_sibling_fold
             + grouping
             + idempotency_check
             + sync_uuids
@@ -121,7 +118,6 @@ impl MutationManager {
         add_phase(RequestPhase::MoleculeGate, molecule_lock_wait);
         add_phase(RequestPhase::RestoreMolecules, restore_molecules);
         add_phase(RequestPhase::SchemaReload, schema_reload);
-        add_phase(RequestPhase::ProteinSiblingFold, protein_sibling_fold);
         add_phase(RequestPhase::Grouping, grouping);
         add_phase(RequestPhase::IdempotencyCheck, idempotency_check);
         add_phase(RequestPhase::SyncUuids, sync_uuids);

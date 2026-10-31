@@ -54,10 +54,6 @@ pub struct SchemaCurrentStorageReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub incomplete_reason: Option<String>,
     pub counter_epoch: u64,
-    /// Retired: the protein fold queue is removed. Always 0. Kept so
-    /// installed clients can still parse this report.
-    #[serde(default)]
-    pub pending_protein_folds: u64,
     pub declared_molecule_count: u64,
     pub missing_molecule_counters: u64,
     pub measured_at: DateTime<Utc>,
@@ -117,7 +113,6 @@ impl SchemaCurrentStorageReport {
             complete: false,
             incomplete_reason: None,
             counter_epoch: 0,
-            pending_protein_folds: 0,
             declared_molecule_count,
             missing_molecule_counters: 0,
             measured_at: Utc::now(),
@@ -171,19 +166,6 @@ pub struct DbInventory {
     #[serde(default)]
     pub attribution: crate::db_operations::AttributionSummary,
     pub notes: Vec<String>,
-}
-
-/// Report from deleting empty, unbound `protein:` rows.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProteinGcReport {
-    pub dry_run: bool,
-    pub proteins_scanned: u64,
-    pub proteins_with_members: u64,
-    pub proteins_referenced_by_backref: u64,
-    pub molprot_backrefs_scanned: u64,
-    pub orphan_proteins: u64,
-    pub proteins_deleted: u64,
-    pub bytes_freed_approx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

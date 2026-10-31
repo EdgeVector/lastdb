@@ -86,7 +86,7 @@ impl AtomStore {
     /// because the atom that names it comes after the upload. The caller holds
     /// the native write gate and has put the row in the same request scope.
     pub(crate) async fn register_blob_upload(&self, blob_ref: &str) -> Result<(), SchemaError> {
-        self.require_atomic_scope()?;
+        self.require_write_scope()?;
         let before = self.read_blob_counters(&[blob_ref]).await?;
         let plan = match &before[0] {
             // A counter that does not decode is `suspect` once a planner run

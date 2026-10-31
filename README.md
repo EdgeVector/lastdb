@@ -1,9 +1,9 @@
 # LastDB
 
-Proteins are deprecated for new app designs. Use one schema with named alternate keys for alternate access to the same records.
-Keep canonical field definition reuse separate from shared values.
-Existing protein schemas remain supported during explicit app and data conversion.
-See [the deprecation and app migration plan](docs/protein-deprecation.md).
+Use one schema with named alternate keys when several keys must find the same records.
+Keep canonical field definition reuse separate from mutable record values.
+Existing homes move by a copy into a fresh home, not by an in-place conversion.
+See [the multi-key schema guide](docs/multi-key-schemas.md).
 
 Search delivery is off by default. Use `lastdbd --enable-search` when LastSeek needs the change feed.
 See [optional Search and its queue limit](docs/lastdb-optional-search.md).

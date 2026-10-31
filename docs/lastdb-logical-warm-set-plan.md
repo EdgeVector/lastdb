@@ -109,7 +109,7 @@ No primary, archived home, or existing home supplies product data for this plan.
 - Ready range and sample calls do no disk key discovery.
 - Fetch unknown tips, document-copy state, atoms, predicate fields, and sort fields in batches.
 - Publish key changes with current logical writes before the ack.
-- Preserve current protein propagation, source precedence, sample order, bounds, and preview cap.
+- Publish primary records and alternate addresses together; preserve source precedence, sample order, bounds, and preview cap.
 - Physical flush and LastDB compaction preserve logical readiness.
 - Logical replacement and incompatible definitions update or invalidate readiness before visibility.
 - Reject history reads and unsupported key shapes at the common public boundary.
@@ -219,9 +219,9 @@ An error or budget stop cannot establish empty membership.
 Keep pending changes that the captured disk root does not contain, including through a concurrent flush.
 
 Complete the writer inventory for every domain that an opted-in schema can reference.
-Cover queued and durable writes, shared aliases, proteins, imports, retention, backfill, generation activation, and administrative writes.
+Cover queued and durable writes, explicit catalog references, alternate-key changes, imports, retention, backfill, generation activation, and administrative writes.
 Publish inserts, deletes, eligibility changes, and both sides of key moves with current values before the ack.
-Preserve the current protein propagation schedule.
+Publish primary values and their alternate addresses in the same accepted native request.
 
 Prepare and reserve complete changes before publication.
 Define the later-change subscription that a loader uses and preserve its references through flush.
@@ -452,13 +452,13 @@ Use format, syntax, lint, build, and real product operations for validation.
 | Physical flush and LastDB compaction | Current membership and Ready remain intact. |
 | Count predicates and ordering | Correct values, visibility, count meaning, bounds, and metadata under one boundary. |
 | Sample and preview | Complete source, existing order and fallback, maximum of 10, independent of warm value recency. |
-| Shared schemas and proteins | Compatible aliases share keys; different layouts remain separate; current propagation schedule remains correct. |
+| Catalog references and alternate keys | Explicit references keep their authority; alternate addresses resolve primary records without payload copies. |
 | Cancellation and deadline | One caller cannot corrupt shared load state; resources remain bounded. |
 | Shutdown and reopen | Stored data remains correct; the next selected-schema query performs a fresh load. |
 
 The matrix states the wider completion contract, not the list of completed product receipts.
 The measured and planned final cases are the explicit cohorts above, with their status stated separately.
-Mixed metadata, missing fields, document copies, broader proteins, and larger sizes still need separate product evidence.
+Mixed metadata, missing fields, document copies, broader alternate layouts, and larger sizes still need separate product evidence.
 Keep first-use cost separate from the later seek and selected-value costs.
 Use format, syntax, lint, build, and product operational checks; add or run no tests or fixture harness.
 

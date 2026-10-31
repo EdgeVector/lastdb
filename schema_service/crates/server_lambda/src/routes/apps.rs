@@ -3,8 +3,11 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::app_release::{
+    registry_unavailable_json, unknown_app_json, unknown_channel_json, unknown_release_json,
+};
 use schema_service_server_shared::state::SchemaServiceState;
-use serde_json::{json, Value};
+use serde_json::json;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.
@@ -12,27 +15,13 @@ pub(crate) async fn post_app_v1(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.register_app(cert, sig, &body_value).await {
         Ok(outcome) => {
@@ -70,7 +59,7 @@ pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response
                 .contains(&record.owner_dev_pubkey);
             json_response(200, &record.to_public_json(revoked))
         }
-        None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
+        None => json_response(404, &unknown_app_json(app_id)),
     }
 }
 
@@ -88,27 +77,13 @@ pub(crate) async fn put_app_v1(
     if app_id.is_empty() || app_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     }
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.update_app(app_id, cert, sig, &body_value).await {
         Ok(outcome) => {
@@ -138,14 +113,9 @@ pub(crate) async fn promote_app_v1(
     if app_id.is_empty() || app_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     }
-    let (Some(cert), Some(sig)) = (
-        header_str(event, "x-exemem-dev-cert"),
-        header_str(event, "x-signature"),
-    ) else {
-        return json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        );
+    let (cert, sig) = match v2_cert_headers(event) {
+        Ok(pair) => pair,
+        Err(r) => return r,
     };
     match state.promote_app(app_id, cert, sig).await {
         Ok(outcome) => {
@@ -174,18 +144,9 @@ pub(crate) async fn post_apps_v2(
     state: &SchemaServiceState,
     event: &Request,
 ) -> Result<Response<Body>, Error> {
-    let body = match parse_body(event) {
-        Ok(b) => b,
-        Err(r) => return Ok(r),
-    };
-    let body_value: Value = match serde_json::from_str(&body) {
+    let body_value = match app_metadata_body(event) {
         Ok(v) => v,
-        Err(e) => {
-            return json_response(
-                400,
-                &json!({"reason": "invalid_metadata", "detail": format!("invalid JSON: {e}")}),
-            );
-        }
+        Err(r) => return r,
     };
     let (cert, sig) = match v2_cert_headers(event) {
         Ok(pair) => pair,
@@ -299,35 +260,35 @@ pub(crate) async fn put_apps_channels(
     }
 }
 
-// Anonymous read: the desired release id + the channel generation.
-pub(crate) fn get_apps_channels(
+// Anonymous read: the desired release id + the channel generation. Read from
+// storage, not this instance's memory: another instance may have moved it.
+pub(crate) async fn get_apps_channels(
     state: &SchemaServiceState,
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &json!({"reason": "invalid_app_id"}));
     };
-    match state.get_channel(app_id, channel) {
-        Some(record) => json_response(200, &record.to_public_json()),
-        None => json_response(
-            404,
-            &json!({"reason": "unknown_channel", "app_id": app_id, "channel": channel}),
-        ),
+    match state.get_channel(app_id, channel).await {
+        Ok(Some(record)) => json_response(200, &record.to_public_json()),
+        Ok(None) => json_response(404, &unknown_channel_json(app_id, channel)),
+        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
     }
 }
 
-// Anonymous read: one release manifest by its exact key.
-pub(crate) fn get_releases(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
+// Anonymous read: one release manifest by its exact key, from storage.
+pub(crate) async fn get_releases(
+    state: &SchemaServiceState,
+    p: &str,
+) -> Result<Response<Body>, Error> {
     let release_id = p.trim_start_matches("/v2/releases/").trim_end_matches('/');
     if release_id.is_empty() || release_id.contains('/') {
         return json_response(400, &json!({"reason": "invalid_release_id"}));
     }
-    match state.get_release(release_id) {
-        Some(record) => json_response(200, &record.to_public_json()),
-        None => json_response(
-            404,
-            &json!({"reason": "unknown_release", "release_id": release_id}),
-        ),
+    match state.get_release(release_id).await {
+        Ok(Some(record)) => json_response(200, &record.to_public_json()),
+        Ok(None) => json_response(404, &unknown_release_json(release_id)),
+        Err(e) => json_response(503, &registry_unavailable_json(&e.to_string())),
     }
 }
 
@@ -345,7 +306,7 @@ pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response
                 .contains(&record.owner_dev_pubkey);
             json_response(200, &record.to_public_json(revoked))
         }
-        None => json_response(404, &json!({"reason": "unknown_app", "app_id": app_id})),
+        None => json_response(404, &unknown_app_json(app_id)),
     }
 }
 

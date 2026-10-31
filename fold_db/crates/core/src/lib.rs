@@ -24,9 +24,7 @@
 
 pub mod access;
 pub mod atom;
-/// Protein — UUID'd molecule set with bi-directional membership.
-pub mod protein;
-pub use protein::{Protein, ProteinMember, PROTEIN_SCHEMA_MARKER};
+
 /// Core logical memory, record retention, and background persist work.
 pub mod resident;
 pub use resident::{
@@ -39,6 +37,7 @@ pub mod constants;
 pub mod crypto;
 pub mod db_operations;
 pub mod durable_flush;
+mod env_number;
 pub mod error;
 pub mod fold_db_core;
 pub mod hex;

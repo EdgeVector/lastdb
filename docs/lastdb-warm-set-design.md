@@ -2,6 +2,10 @@
 
 Status (2026-10-27): this proposal describes the LastStore segment engine (hash group files, store write memory, `LASTSTORE_*` settings), which decision D1 (2026-10-26) removed.
 
+CAUTION: The write route below (memory ack, then a flush every 500 ms) is retired.
+The 10,000 logical-record key budget below is also deleted. The warm set has a byte limit (256 MiB by default, `LASTDB_CORE_WARM_BYTES`).
+The design is fast durable writes, then the ack (Tom, 2026-10-30). See [the canonical model](lastdb-canonical-model.md).
+
 Update (2026-10-17): [the logical warm set design](lastdb-logical-warm-set-design.md)
 supersedes this proposal's memory model. It uses one logical state for reads and
 writes, with Hash and HashRange as the two key types. The text below retains the
@@ -14,8 +18,8 @@ Status (2026-10-12): design for Tom's review. Nothing here is implemented. It
 supersedes the "Revised order" in `docs/lastdb-resident-convergence.md` for
 steps 3 to 6. Steps 1, 2, 2b and 2c of that document are merged.
 
-Related designs: `docs/lastdb-blind-write-design.md` (the write path: ack from memory with
-no read first, protein siblings as background writes) and
+Related designs: `docs/lastdb-blind-write-design.md` (since deleted; the write path: ack
+from memory with no read first) and
 `docs/lastdb-write-ahead-journal-design.md` (since deleted; a store journal; not built, group
 reduction goes first).
 
@@ -180,7 +184,7 @@ WARM SET (LogicalResidentSet, store layer, plaintext above the encryption layer)
 - dirty_by_token: ordered map from token to key.
 - Hash views: for each (molecule, hash), a flag (Absent, Partial or Complete), an ordered list of ranges, and a flag no_barrier (true when every delete barrier read in the fill was absent and no barrier write for this hash came after).
 - Change counters: 1024 stripes. Every tip write bumps two stripes: the id stripe and the (molecule, hash) stripe. The counters live inside the set. write_put, write_delete, apply_batch and after_direct_write bump them. The bump happens after the store write, in the same lock section that installs the record. A counter never goes back.
-- Deleted dead state: schemas, fields, proteins, molecule_proteins, covered_exact, hold counters.
+- Deleted dead state: schemas, fields, retired shared-value membership maps, covered_exact, hold counters.
 - Unchanged: the absence-hint cache. The hash-group warm set for non-logical collections. The store write memory (its cap is Track S, see below).
 
 GHOST GAUGE (Stage A1, a live signal, not a test). A small set of 64-bit key hashes that simulates a 10000-record least recently used list over the key stream of every clean graph hit and every write operand. It holds no record and no body (about 1 MB). It runs at three sizes: 10000, 20000, 40000. It reports, for each read class (Hash-field point read, co-key secondary, atom, list certificate, write operand): calls, simulated misses, and the distinct hash groups a call would open. The curve over three sizes also gives Tom the data for the count decision.
@@ -239,7 +243,7 @@ HOT LIST COST TO WATCH. The field layer reads one delete barrier id for each rec
 
 Steps 1 to 6 exist today in write mode. NEW marks a change.
 1. Reserve before any state change: change-feed slot, author-clock slot, capture permit (100 ms limit), lane slot and defer bytes. NEW: the defer reserve counts entries, and counts the records this call will write (about 2 x keys x fields). NEW: refuse with PersistQueueFull(records) when the warm set holds 5000 records with a flush token plus the incoming count. The check is in the write-mode branch only. Replay and restore are exempt (they use mode off). A refusal waits up to 200 ms first. A failing flush is a separate alarm that this check must not hide. NEW (Tom decides, Stage G1): refuse when the oldest unwritten ack is older than the age bound.
-2. Prepare outside the apply gate. NEW: take the slot snapshot FIRST, before any operand read and before the protein sibling build. A publish after that point changes the counter and forces a reseed. If a field has no molecule id yet, resolve the id first, then take the snapshot, then read the tips. Then build atoms, changed keys and operands. NEW operand rule: for each key, read the write queue first, then the warm set, then the store.
+2. Prepare outside the apply gate. NEW: take the slot snapshot FIRST, before any operand read. A publish after that point changes the counter and forces a reseed. If a field has no molecule id yet, resolve the id first, then take the snapshot, then read the tips. Then build atoms, changed keys and operands. NEW operand rule: for each key, read the write queue first, then the warm set, then the store.
 3. Apply gate (the short memory-only step). Take slot gates in sorted order. Compare slot counters. Retry up to 64 times. Check delete barriers.
 4. Publish to the write queue. NEW: for each slot, ONE lock section on the slot table makes the slot if absent (durable = floor of its bucket, read inside the lock), takes a new value from next_revision, and returns (predecessor, target). The tickets use these returned values. The code never reads the predecessor in a separate step. Atoms get atom_pins plus 1. Tips get the dirty mark and the key index entry.
 5. NEW: the capture job is sent at the LAST publish point of the request, inside the gate. The scope knows how many publish points a request has (1 for create or update, 2 for a mixed batch, one for each schema in a multi-schema Skip Delete). Then fill the lane envelope and drop the gates.

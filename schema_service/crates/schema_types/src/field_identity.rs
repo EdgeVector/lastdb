@@ -1,10 +1,5 @@
-//! Schema Service field identity: stable hash over name + description + type + version.
-//!
-//! Local nodes read the catalog `field_hash` and interpret:
-//! - same hash + same key layout → mapped / shared payload molecule
-//! - same hash + different key layout → one protein per field (fold coherence)
-//!
-//! See brain `design-lastdb-field-hash-auto-protein`.
+//! Canonical field hashes identify reusable definitions and types.
+//! A matching hash does not share record values or connect schema molecules.
 
 use crate::FieldValueType;
 use sha2::{Digest, Sha256};
@@ -50,34 +45,6 @@ pub fn compute_field_hash(
 /// the same field only when someone passed the same handle.
 pub const DECLARED_FIELD_IDENTITY_ALGO_VERSION: u32 = 2;
 
-/// Declared-field identity — the value a schema stamps into `field_hashes`,
-/// and (per `design-lastdb-declared-fields`) the protein id itself.
-///
-/// `declaration_id` is minted by Schema Service when an app declares a field
-/// and is immutable for the life of that declaration. Everything else here is
-/// content the declarer supplied.
-///
-/// **Deliberately excluded from the identity:**
-///
-/// - `owner_app_id` — 949 of 1,141 live schemas carry none, so an app-keyed
-///   identity would serve a minority; and ownership is *mutable* while identity
-///   is not. Transferring a declaration to another app must leave every field
-///   identity byte-identical, or a permission change would cascade into a
-///   re-identification of every protein and every stamped schema. Ownership is
-///   an attribute of the declaration, never an input to the hash.
-/// - `description` — free text that gets corrected. Hashing it would mean a
-///   typo fix silently re-identifies the field and unbinds every schema that
-///   already stamped it. `version` is the deliberate signal for an
-///   incompatible change; prose is not.
-///
-/// Because the formula is derivable, a node holding a schema that already
-/// carries a `declaration_id` can recompute and verify the identity **offline**
-/// and get exactly what Schema Service got. Only *creating* a declaration needs
-/// SS — which is what stops two offline nodes from minting conflicting ids for
-/// the same handle.
-///
-/// Serialization is stable: a JSON object with fixed key order (not a HashMap),
-/// so the digest is reproducible across languages and releases.
 #[must_use]
 pub fn compute_declared_field_identity(
     declaration_id: &str,

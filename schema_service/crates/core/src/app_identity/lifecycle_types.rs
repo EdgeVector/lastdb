@@ -63,21 +63,7 @@ impl AppUpdateOutcome {
     /// `mirrored_envs` array.)
     pub fn to_http(&self, env_label: &str) -> (u16, Value) {
         let r = self.record();
-        (
-            200,
-            json!({
-                "app_id": r.app_id,
-                "owner_dev_pubkey": r.owner_dev_pubkey,
-                "registered_at": r.registered_at,
-                "metadata": r.metadata,
-                "version": r.version,
-                "code_signature": r.code_signature,
-                "source": r.source,
-                "artifact": r.artifact,
-                "uses": r.uses,
-                "env": env_label,
-            }),
-        )
+        (200, r.mutation_json([("env", json!(env_label))]))
     }
 }
 
@@ -182,21 +168,8 @@ impl AppPromoteOutcome {
     /// the flip without a follow-up snapshot fetch.
     pub fn to_http(&self) -> (u16, Value) {
         let r = self.record();
-        (
-            200,
-            json!({
-                "app_id": r.app_id,
-                "owner_dev_pubkey": r.owner_dev_pubkey,
-                "registered_at": r.registered_at,
-                "metadata": r.metadata,
-                "version": r.version,
-                "code_signature": r.code_signature,
-                "source": r.source,
-                "artifact": r.artifact,
-                "uses": r.uses,
-                "tier": r.tier,
-            }),
-        )
+        let tier = json!(r.tier);
+        (200, r.mutation_json([("tier", tier)]))
     }
 }
 

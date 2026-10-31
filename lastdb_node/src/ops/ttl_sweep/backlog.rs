@@ -1,5 +1,6 @@
 //! A schema's discovery cursor and its one temporary page of expired keys.
 
+use fold_db::fold_db_core::purge::budget::EraseShape;
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
 
@@ -7,9 +8,9 @@ use fold_db::schema::types::KeyValue;
 pub(super) struct Backlog {
     pub(super) schema_name: String,
     pub(super) schema_type: DeclarativeSchemaType,
-    /// Fields of the schema. A batch of keys must fit in one native batch, and
-    /// its size follows from this count.
-    pub(super) fields: usize,
+    /// Fields and alternate keys of the schema. A batch of keys must fit in
+    /// one native batch, and its size follows from this shape.
+    pub(super) shape: EraseShape,
     /// A cap on the batch size after a batch hit a size limit. `usize::MAX`
     /// means no cap.
     batch_cap: usize,
@@ -26,14 +27,14 @@ impl Backlog {
     pub(super) fn new(
         schema_name: String,
         schema_type: DeclarativeSchemaType,
-        fields: usize,
+        shape: EraseShape,
         cutoff: u64,
         source: super::discovery::Source,
     ) -> Self {
         Self {
             schema_name,
             schema_type,
-            fields,
+            shape,
             batch_cap: usize::MAX,
             cutoff,
             source,

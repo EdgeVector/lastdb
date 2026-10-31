@@ -1,7 +1,5 @@
 use super::*;
 
-#[path = "db_format_cmds.rs"]
-mod db_format_cmds;
 #[path = "db_snapshot_identity_cmds.rs"]
 pub(crate) mod db_snapshot_identity_cmds;
 
@@ -28,9 +26,6 @@ pub(crate) use db_ledger_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
-#[path = "db_reclaim_cmds.rs"]
-mod db_reclaim_cmds;
-pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
@@ -91,10 +86,6 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
-        DbOfflineCommand::EnableAlternateKeys {
-            json,
-            i_know_this_is_primary,
-        } => db_format_cmds::enable(home, json, i_know_this_is_primary),
         DbOfflineCommand::SnapshotIdentityPrepare(args) => {
             db_snapshot_identity_cmds::run(home, &args, true)
         }
