@@ -1,5 +1,6 @@
 //! Single-mutation steps using the existing host interface.
 
+use fold_db::schema::types::KeyValuePageOrder;
 use std::collections::HashSet;
 
 use fold_db::access::AccessContext;

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::atom::Atom;
 use crate::db_operations::ChangedKey;
+use crate::schema::field_write::FieldWrite;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 
 use super::super::helpers::ModifiedFieldKeys;
@@ -83,7 +84,7 @@ impl MutationManager {
     ) -> bool {
         field.write_mutation(
             key,
-            crate::schema::types::field::WriteContext {
+            crate::schema::field_write::WriteContext {
                 atom: atom.clone(),
                 pub_key: mutation.pub_key.clone(),
                 source_file_name: mutation.source_file_name.clone(),

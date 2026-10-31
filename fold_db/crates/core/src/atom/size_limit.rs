@@ -30,27 +30,12 @@ use serde_json::Value;
 
 use crate::schema::types::SchemaError;
 
-/// Product default hard limit (256 KiB). Prefer [`max_atom_content_bytes`] at
-/// runtime so env overrides apply.
-pub const DEFAULT_MAX_ATOM_CONTENT_BYTES: usize = 256 * 1024;
-
-/// Absolute ceiling even if `LASTDB_MAX_ATOM_CONTENT_BYTES` is set higher.
-/// Keeps the abuse fence while allowing limited ops headroom.
-pub const ABSOLUTE_MAX_ATOM_CONTENT_BYTES: usize = 1024 * 1024;
-
-/// Floor for the configured limit (reject absurdly small ops knobs).
-pub const MIN_MAX_ATOM_CONTENT_BYTES: usize = 1024;
-
-/// Env var that raises/lowers the atom content limit within
-/// \[`MIN_MAX_ATOM_CONTENT_BYTES`, `ABSOLUTE_MAX_ATOM_CONTENT_BYTES`\].
-pub const MAX_ATOM_CONTENT_BYTES_ENV: &str = "LASTDB_MAX_ATOM_CONTENT_BYTES";
-
-/// Guidance for a rejected write, by the shape of the data. The `413` body
-/// `hint` and the error message both carry this text.
-pub const ATOM_CONTENT_TOO_LARGE_HINT: &str = "For a list or log that grows, write one record \
-    per entry in a HashRange schema (hash = partition, range = entry key). For large opaque \
-    bytes, store a file blob (CAS) and keep a pointer in the atom; many small fields may be \
-    packed into one atom up to the limit.";
+/// The fixed numbers and text are model data; this module resolves and logs.
+pub use lastdb_model::atom::content_limit::{
+    atom_content_byte_len, ABSOLUTE_MAX_ATOM_CONTENT_BYTES, ATOM_CONTENT_TOO_LARGE_HINT,
+    DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES_ENV,
+    MIN_MAX_ATOM_CONTENT_BYTES,
+};
 
 static EFFECTIVE_LIMIT: OnceLock<usize> = OnceLock::new();
 
@@ -146,27 +131,6 @@ fn clamp_atom_content_limit(n: usize) -> usize {
     }
     n
 }
-
-/// Serialized byte length of atom content JSON (`Value::to_string`).
-#[must_use]
-pub fn atom_content_byte_len(content: &Value) -> usize {
-    content.to_string().len()
-}
-
-/// Fraction of the **effective** limit above which an accepted write is
-/// reported as running out of headroom.
-///
-/// A single-row list index that is rewritten in full on every mutation grows
-/// monotonically, so it does not fail until the write that crosses the ceiling
-/// — and that write is a half-commit, not a clean refusal. Reporting at 80%
-/// turns "it wedged" into "it will wedge", with bytes remaining, while there is
-/// still room to bound the document.
-pub const HEADROOM_ALARM_FRACTION: f64 = 0.8;
-
-/// A fraction outside `(0.5, 1.0)` is either constant noise or never fires.
-/// Enforced at compile time rather than in a test — both operands are constants,
-/// so a runtime assertion could never fail anyway.
-const _: () = assert!(HEADROOM_ALARM_FRACTION > 0.5 && HEADROOM_ALARM_FRACTION < 1.0);
 
 /// The write-path choke point: enforce the limit **and** record what happened,
 /// with the schema name attached in both directions.

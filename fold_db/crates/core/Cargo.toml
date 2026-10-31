@@ -59,6 +59,8 @@ reqwest = { version = "0.12", features = ["json", "multipart", "blocking", "stre
 observability = { path = "../observability" }
 # Pure wire schema types (shared with schema_service; no storage).
 schema_types = { workspace = true }
+# Pure LastDB models: atoms, molecules, schemas, keys, mutations (no behavior).
+lastdb_model = { workspace = true }
 
 ed25519-compact = "2.2.0"
 aes-gcm-siv = "0.11"

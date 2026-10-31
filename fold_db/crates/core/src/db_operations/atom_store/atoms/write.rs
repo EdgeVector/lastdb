@@ -1,4 +1,5 @@
 use super::*;
+use crate::atom::AtomClock;
 use crate::db_operations::atom_store::counter::TipCommit;
 
 impl AtomStore {

@@ -6,6 +6,7 @@ use crate::json_order::compare_json_values;
 use crate::schema::types::field::FieldValue;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::operations::{FieldPredicate, QueryOrderBy, SortOrder};
+use crate::schema::types::KeyValuePageOrder;
 use crate::schema::{Schema, SchemaError};
 use std::collections::HashMap;
 

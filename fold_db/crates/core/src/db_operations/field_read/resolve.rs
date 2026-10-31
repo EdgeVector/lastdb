@@ -1,4 +1,5 @@
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 
 /// Resolves field values by refreshing the field, applying filters, and
 /// fetching atom content. See prior docs for tombstone visibility.
@@ -14,7 +15,7 @@ pub async fn resolve_value(
 /// [`resolve_value`], but hydrating only the requested `window` of the
 /// matched keys.
 ///
-/// `window` is `(offset, limit)` over the [`KeyValue::cmp_page_order`]
+/// `window` is `(offset, limit)` over the `KeyValuePageOrder::cmp_page_order`
 /// enumeration of the keys this filter matched — applied **after** the
 /// molecule tombstone-flag gate and **before** any atom body is loaded.
 /// That placement is the whole point: key enumeration walks the molecule

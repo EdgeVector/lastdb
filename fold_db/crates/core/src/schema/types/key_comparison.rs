@@ -152,16 +152,25 @@ impl KeyComparisonContext {
     }
 
     pub(crate) fn compare_current_keys(left: &KeyValue, right: &KeyValue) -> Ordering {
-        Self::compare_current_ranges(
-            left.range.as_deref().unwrap_or(""),
-            right.range.as_deref().unwrap_or(""),
-        )
-        .then_with(|| {
-            left.hash
-                .as_deref()
-                .unwrap_or("")
-                .cmp(right.hash.as_deref().unwrap_or(""))
-        })
+        left.cmp_page_order_with(right, Self::compare_current_ranges)
+    }
+}
+
+/// The canonical page order of [`KeyValue`] under the active key comparison
+/// context: ascending `range` by the captured range rule, then ascending
+/// `hash`. Outside a context the range order is UTF-8 text order.
+///
+/// The model's [`KeyValue::cmp_page_order_with`] takes the range comparison as
+/// an argument; this trait supplies the task-local context that the read
+/// installed with [`KeyComparisonContext::run`].
+pub trait KeyValuePageOrder {
+    /// See [`KeyValue::cmp_page_order_with`] for the order contract.
+    fn cmp_page_order(&self, other: &Self) -> Ordering;
+}
+
+impl KeyValuePageOrder for KeyValue {
+    fn cmp_page_order(&self, other: &Self) -> Ordering {
+        KeyComparisonContext::compare_current_keys(self, other)
     }
 }
 

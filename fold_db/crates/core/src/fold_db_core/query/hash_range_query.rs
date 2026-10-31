@@ -40,6 +40,7 @@ mod pending_values;
 mod predicates;
 mod primary_selection;
 mod received_window;
+mod redacted_filter;
 mod resolve;
 mod secondary;
 mod secondary_rules;
@@ -56,7 +57,7 @@ pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
 
 /// Log-safe `Option<HashRangeFilter>`: `None`, or the filter's
-/// [`HashRangeFilter::redacted`] view.
+/// [`redacted_filter::RedactedHashRangeFilter`] view.
 ///
 /// Exists so the query log lines keep the `Some(..)`/`None` shape they always
 /// had while the key material inside goes through `redact_id!`. Printing the
@@ -70,7 +71,11 @@ struct OptRedactedFilter<'a>(&'a Option<HashRangeFilter>);
 impl std::fmt::Display for OptRedactedFilter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            Some(filter) => write!(f, "Some({})", filter.redacted()),
+            Some(filter) => write!(
+                f,
+                "Some({})",
+                redacted_filter::RedactedHashRangeFilter(filter)
+            ),
             None => f.write_str("None"),
         }
     }

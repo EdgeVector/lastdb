@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::db_operations::field_read;
+use crate::schema::types::KeyValuePageOrder;
 
 impl CandidatePages {
     /// The discovery batch uses only keys after this round's global cursor.

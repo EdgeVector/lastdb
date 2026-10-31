@@ -1,6 +1,7 @@
 //! Send one batch of expired keys to the erase, and drop the keys of a purge
 //! that are already gone.
 
+use fold_db::schema::types::MutationIds;
 use std::collections::HashMap;
 
 use fold_db::schema::types::operations::Mutation;

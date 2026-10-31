@@ -4,18 +4,6 @@ use super::*;
 use crate::db_operations::atom_store::AtomStore;
 use std::collections::BTreeSet;
 
-impl Schema {
-    /// The fields that derive the alternate keys of one record, with the primary
-    /// hash field. An erase budget counts the same set.
-    pub(crate) fn alternate_dependency_fields(&self) -> BTreeSet<&str> {
-        self.alternate_keys
-            .values()
-            .flat_map(schema_types::AlternateKey::fields)
-            .chain(self.key.iter().filter_map(|key| key.hash_field.as_deref()))
-            .collect()
-    }
-}
-
 impl AtomStore {
     pub(crate) async fn alternate_fields(
         &self,

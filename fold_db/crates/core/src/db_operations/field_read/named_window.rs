@@ -1,6 +1,7 @@
 //! Select a named layout before its result window, with bounded body batches.
 
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 
 /// Query semantics can require another declared coordinate's field value.
 /// Owned batches avoid a borrow across the next physical tip read.

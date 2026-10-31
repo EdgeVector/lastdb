@@ -1,6 +1,7 @@
 //! Shared aggregate rules and mutation construction, without storage or locks.
 
 use super::*;
+use crate::schema::types::MutationIds;
 
 pub(super) fn association_matches(
     guard: &AggregateGuard,

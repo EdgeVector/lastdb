@@ -1,32 +1,12 @@
-pub mod aggregate;
-pub mod aggregate_state;
-pub mod author_clock;
-mod being_dropped;
-pub mod cas;
-pub mod data_classification;
-pub mod declarative_schemas;
-pub mod errors;
-pub mod field;
-pub mod field_value_type;
+//! Schema model types live in `lastdb_model::schema::types`. This module keeps
+//! the old `crate::schema::types` path and adds the behavior the model must
+//! not hold: the task-local key comparison context and the page order that
+//! reads it, and the uuid v4 constructor of a mutation.
+
+pub use lastdb_model::schema::types::*;
+
 pub mod key_comparison;
-pub mod key_config;
-pub mod key_value;
-pub mod mutation;
-pub mod operations;
-pub mod query_cursor;
-pub mod schema;
-pub use aggregate::{AggregateFinalize, AggregateRepair, AggregateSet};
-pub use aggregate_state::{AggregateApply, AggregateGuard, AggregateMemberRecord, AggregateWinner};
-pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
-pub use cas::CasExpectation;
-pub use data_classification::DataClassification;
-pub use declarative_schemas::{DeclarativeSchemaDefinition, FieldMapper, SchemaSource};
-pub use errors::SchemaError;
-pub use field::{FieldKind, FieldVariant};
-pub use field_value_type::FieldValueType;
-pub use key_config::KeyConfig;
-pub use key_value::KeyValue;
-pub use mutation::Mutation;
-pub use operations::{MutationType, Operation, Query, SortOrder, ValueFilter};
-pub use query_cursor::QueryCursor;
-pub use schema::{DeclarativeSchemaType as SchemaType, Schema};
+mod mutation_ids;
+
+pub use key_comparison::KeyValuePageOrder;
+pub use mutation_ids::MutationIds;

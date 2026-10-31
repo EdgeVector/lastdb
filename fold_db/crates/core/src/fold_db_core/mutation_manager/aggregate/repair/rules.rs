@@ -1,6 +1,7 @@
 //! Member reconciliation computes facts; the entry point orders cleanup and refusal.
 
 use super::*;
+use crate::schema::types::MutationIds;
 
 pub(super) struct RepairPlan {
     pub(super) totals: BTreeMap<String, i64>,

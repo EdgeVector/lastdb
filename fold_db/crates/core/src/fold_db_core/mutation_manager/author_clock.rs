@@ -3,11 +3,9 @@
 use crate::clock::unix_nanos;
 use std::sync::Arc;
 
-use crate::schema::types::author_clock::{
-    sign_mutation_author_clock, verify_mutation_author_clock,
-};
 use crate::schema::types::{Mutation, MutationAuthorClockState};
 use crate::schema::SchemaError;
+use crate::security::mutation_author::{sign_mutation_author_clock, verify_mutation_author_clock};
 
 use crate::db_operations::DbOperations;
 use crate::fold_db_core::pending_task_tracker::{PendingTask, PendingTaskTracker};

@@ -24,16 +24,17 @@
 // Internal modules
 pub mod core;
 
+pub mod field_write;
 pub mod interpreter;
-mod logical_rules;
 pub mod manifest_retention;
 pub mod schema_types;
+/// Model types from `lastdb_model`, plus the core behavior over them.
 pub mod types;
 
 // Public re-exports
 pub use core::SchemaCore;
 pub use interpreter::SchemaInterpreter;
-pub use logical_rules::{
+pub use lastdb_model::schema::logical_rules::{
     require_logical_filter, require_logical_layout, require_logical_query_controls,
 };
 pub use manifest_retention::{

@@ -1,5 +1,6 @@
 use super::write_fields::*;
 use super::*;
+use fold_db::schema::types::MutationIds;
 
 pub(super) async fn write_snapshot(host: &Host, snapshot: &StatusSnapshot) -> Result<(), String> {
     let sample_id = sample_id(snapshot.sampled_at);

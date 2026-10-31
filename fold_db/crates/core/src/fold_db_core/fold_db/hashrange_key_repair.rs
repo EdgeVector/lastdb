@@ -1,5 +1,7 @@
 //! Bounded repair for sparse HashRange key-field molecules.
 
+use crate::schema::types::KeyValuePageOrder;
+use crate::schema::types::MutationIds;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};

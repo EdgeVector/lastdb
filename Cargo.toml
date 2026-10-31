@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     # fold_db internal crates
     "fold_db/crates/core",
+    # Pure LastDB models split out of core: data plus pure functions, no
+    # clock, I/O, random ids or ambient state (scripts/ci/model-purity-lint.sh).
+    "fold_db/crates/model",
     "fold_db/crates/observability",
 
     # schema_service crates
@@ -69,6 +72,7 @@ members = [
 # the default product crates.
 default-members = [
     "fold_db/crates/core",
+    "fold_db/crates/model",
     "fold_db/crates/observability",
     "schema_service/crates/core",
     "schema_service/crates/server_shared",
@@ -372,6 +376,7 @@ redundant_clone = "deny"
 # Internal crates — path deps. The dual-fold_db trap dies here:
 # cargo unifies path deps by definition, so there is only one fold_db.
 fold_db = { path = "fold_db/crates/core" }
+lastdb_model = { path = "fold_db/crates/model" }
 # default-features = false at the workspace key so members can opt into
 # `features = ["otel"]` (or leave bare for Lambda light). Package `default =
 # ["otel"]` still applies to path deps that do not go through this key.

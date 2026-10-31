@@ -1,6 +1,7 @@
 //! A primary's presence survives membership filtering and result windows.
 
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 use std::collections::HashSet;
 
 pub(super) struct PrimaryRequest<'a> {

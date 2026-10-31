@@ -1,8 +1,6 @@
 use super::error::{CryptoError, CryptoResult};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_compact::x25519;
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -68,19 +66,17 @@ impl E2eKeys {
     /// Domain tag `hk|v1` is disjoint from a raw search term. The encoding is
     /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
     /// `escape_segment` remains safe. `blind_key` is the molecule bundle's key.
+    ///
+    /// The pure function is model code: `lastdb_model::atom::molecule_key_codec::blind_hash_key`.
     pub fn blind_hash_key(
         blind_key: &[u8; 32],
         molecule_uuid: &str,
         plaintext_hash: &str,
     ) -> String {
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(blind_key).expect("HMAC accepts any key length");
-        mac.update(b"hk|v1");
-        mac.update(&[0u8]);
-        mac.update(molecule_uuid.as_bytes());
-        mac.update(&[0u8]);
-        mac.update(plaintext_hash.as_bytes());
-        let result = mac.finalize().into_bytes();
-        URL_SAFE_NO_PAD.encode(&result[..16])
+        lastdb_model::atom::molecule_key_codec::blind_hash_key(
+            blind_key,
+            molecule_uuid,
+            plaintext_hash,
+        )
     }
 }

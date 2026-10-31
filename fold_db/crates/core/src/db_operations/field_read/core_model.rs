@@ -1,6 +1,7 @@
 //! Exact current reads use the shared core model before the disk resolver.
 
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 
 /// A missing filter cannot certify an exact key selection.
 pub(super) async fn resolve_core_model(
