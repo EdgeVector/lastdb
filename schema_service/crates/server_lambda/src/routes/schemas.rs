@@ -7,7 +7,8 @@ use schema_service_core::state::{
     accepted_similarity_threshold, SchemaResolveReply, SimilarSchemasReply,
 };
 use schema_service_core::{
-    log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeRequest,
+    log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
+    SchemaMutationChallengeRequest,
 };
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::{
@@ -130,15 +131,12 @@ pub(crate) fn post_schemas_mutation_challenge(
             );
         }
     };
-    match state.issue_schema_mutation_challenge(&request, request_ip(event).as_deref()) {
-        Ok(response) => {
+    match state.issue_schema_mutation_challenge_reply(&request, request_ip(event).as_deref()) {
+        SchemaMutationChallengeReply::Created(response) => {
             let body = serde_json::to_value(response).map_err(serialization_error)?;
             json_response(201, &body)
         }
-        Err(error) => {
-            let (status, body) = error.to_http();
-            json_response(status, &body)
-        }
+        SchemaMutationChallengeReply::Failed { status, body } => json_response(status, &body),
     }
 }
 

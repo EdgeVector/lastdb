@@ -98,4 +98,33 @@ impl SchemaServiceState {
             counter_start: 0,
         })
     }
+
+    /// Classify [`Self::issue_schema_mutation_challenge`] for the HTTP routers.
+    ///
+    /// `Created` is the challenge. `Failed` keeps the status and body from
+    /// [`SchemaMutationGateError::to_http`]. Each router still parses the
+    /// request and reads the client address.
+    #[must_use]
+    pub fn issue_schema_mutation_challenge_reply(
+        &self,
+        request: &SchemaMutationChallengeRequest,
+        remote_ip: Option<&str>,
+    ) -> SchemaMutationChallengeReply {
+        match self.issue_schema_mutation_challenge(request, remote_ip) {
+            Ok(response) => SchemaMutationChallengeReply::Created(response),
+            Err(error) => {
+                let (status, body) = error.to_http();
+                SchemaMutationChallengeReply::Failed { status, body }
+            }
+        }
+    }
+}
+
+/// The mutation challenge both HTTP routers answer.
+#[derive(Debug)]
+pub enum SchemaMutationChallengeReply {
+    /// The challenge was issued. HTTP 201.
+    Created(SchemaMutationChallengeResponse),
+    /// The issue failed. `status` and `body` come from the gate error.
+    Failed { status: u16, body: Value },
 }
