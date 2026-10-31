@@ -3,8 +3,8 @@
 //! The mutation manager merges the fields of a record (decision D1). This
 //! file reads the records by key and puts the changed ones, with their
 //! alternate entry changes and their file blob counter changes, in one batch
-//! of the native request. A record write creates no atom, tip, history row or
-//! atom counter.
+//! of the native request. A record write creates no atom, tip or atom counter.
+//! Its field history entries hold copies of old values (`atom_history/records.rs`).
 //!
 //! A read by record key checks the record warm set first (decision D2). A
 //! record that the read finds on disk, or that a flushed write puts, enters
@@ -126,15 +126,18 @@ impl AtomStore {
     /// Put the changed records, their alternate entry changes and their file
     /// blob counter changes in one batch of the native request. A blob that a
     /// record stops naming loses one reference, and a blob that it starts
-    /// naming gains one. The caller holds the native write gate and read each
-    /// `before` in the same scope.
+    /// naming gains one. `alternates` also carries the field history rows of
+    /// the records, and `history_blobs` their blob changes, so each blob
+    /// counter changes once for the net delta. The caller holds the native
+    /// write gate and read each `before` in the same scope.
     pub(crate) async fn stage_records(
         &self,
         changes: Vec<RecordChange>,
         alternates: Vec<KvMutation>,
+        history_blobs: BlobDeltas,
     ) -> Result<(), SchemaError> {
         self.require_write_scope()?;
-        let mut blobs = BlobDeltas::default();
+        let mut blobs = history_blobs;
         let mut batch = Vec::with_capacity(changes.len() + alternates.len());
         let mut written = Vec::with_capacity(changes.len());
         for change in changes {

@@ -154,8 +154,10 @@ async fn erase_batch(
     let dropped = listed - keys.len();
     // A Hash or Single key ages by its tip write time, so the erase spares a
     // key with a tip written at or after the cutoff. A rewrite that is acked
-    // but not yet in the age index is spared this way. Range and HashRange keys
-    // age by the key, so a rewrite does not change their age.
+    // but not yet in the age index is spared this way. In a format 7 home the
+    // write time is the newest field stamp of the record, and the delete takes
+    // its floor at the cutoff. Range and HashRange keys age by the key, so a
+    // rewrite does not change their age.
     let tip_cutoff_nanos = matches!(
         backlog.schema_type,
         DeclarativeSchemaType::Hash | DeclarativeSchemaType::Single

@@ -2,10 +2,11 @@
 //!
 //! Each mutation reads its record in the request's write scope and merges its
 //! fields by stamp (decision D1). The records, their alternate entry changes,
-//! the idempotency entries and the file blob counter changes join the
-//! request's one batch. A format 7 home writes no atom, tip or molecule
-//! counter. Writers that the record model does not cover yet are refused
-//! here, before any byte is staged.
+//! the idempotency entries, the file blob counter changes, the field history
+//! entries, the delete audit rows and the retention age rows join the
+//! request's one batch (`record_effects.rs`). A format 7 home writes no atom,
+//! tip or molecule counter. Writers that the record model does not cover yet
+//! are refused here, before any byte is staged.
 
 use super::*;
 use crate::db_operations::atom_store::{record_scope, RecordChange};
@@ -20,6 +21,7 @@ use std::sync::Arc;
 
 use super::super::cas_rules::{check_expectation, CurrentHead};
 use super::super::molecules::field_rules::validate_field_value;
+use super::record_effects::ChangedRecord;
 
 impl MutationManager {
     /// Stage one schema group as records. A key appears once in a group, so a
@@ -52,6 +54,7 @@ impl MutationManager {
 
         let alternates = !schema.alternate_keys.is_empty();
         let mut changes = Vec::with_capacity(mutations.len());
+        let mut changed = Vec::with_capacity(mutations.len());
         let (mut changed_keys, mut before_fields, mut after_fields) =
             (Vec::new(), Vec::new(), Vec::new());
         for (((mutation, key), record_key), before) in
@@ -61,6 +64,7 @@ impl MutationManager {
             if !merge_mutation(schema_name, &schema, mutation, &mut after)? {
                 continue;
             }
+            changed.push(ChangedRecord { mutation, key });
             if alternates {
                 changed_keys.push(key.clone());
                 before_fields.push(if let Some(record) = &before {
@@ -83,7 +87,14 @@ impl MutationManager {
             &after_fields,
             scope.as_deref(),
         )?;
-        atoms.stage_records(changes, entries).await?;
+        self.stage_records_with_effects(
+            &schema,
+            (storage_prefix, scope.as_deref()),
+            &changed,
+            changes,
+            entries,
+        )
+        .await?;
         runtime.record_read_stage("record-stores-done", keys.len());
 
         if !idempotency_entries.is_empty() {
@@ -130,15 +141,6 @@ impl MutationManager {
             .is_empty()
         {
             return Err(unsupported("a write to a schema with an active share rule"));
-        }
-        if self
-            .db_ops
-            .schemas()
-            .get_schema_retention_policy(&schema.name)
-            .await?
-            .is_some()
-        {
-            return Err(unsupported("a write to a schema with a retention policy"));
         }
         for mutation in mutations {
             if mutation.provenance.is_some() || mutation.imported_version.is_some() {
@@ -243,6 +245,21 @@ fn merge_mutation(
         mutation.mutation_type,
         MutationType::Delete | MutationType::Purge
     ) {
+        // The TTL sweep of a Hash or Single schema ages a record by its write
+        // time. A record written at or after the cutoff is not expired. An
+        // expired record is deleted with its floor at the cutoff, so a write
+        // with a later stamp that arrives after the sweep stays.
+        if let Some(cutoff) = mutation.erase_tips_before_nanos {
+            if record.written_at().is_some_and(|at| at >= cutoff) {
+                return Ok(false);
+            }
+            return Ok(record.delete(FieldStamp {
+                written_at: cutoff,
+                logical_counter: 0,
+                device_id: String::new(),
+                mutation_id: stamp.mutation_id,
+            }));
+        }
         return Ok(record.delete(stamp));
     }
     let mut changed = false;

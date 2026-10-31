@@ -126,7 +126,9 @@ pub struct Mutation {
     /// its write time (the TTL sweep on a Hash or Single schema): a tip written
     /// at or after this time, in unix nanoseconds, is not erased. The check
     /// reads the tip's own write clock under the tip lock, so a rewrite that is
-    /// acked but not yet indexed survives. Ordinary API serialization omits it;
+    /// acked but not yet indexed survives. A format 7 home reads the record's
+    /// newest field stamp in the write scope instead, and puts the delete floor
+    /// at this time. Ordinary API serialization omits it;
     /// the signed mutation-intent envelope carries it explicitly for replay.
     #[serde(skip)]
     pub erase_tips_before_nanos: Option<u64>,

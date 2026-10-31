@@ -5,7 +5,10 @@ mod key_counts;
 mod policy;
 mod purge;
 mod read;
+mod record_reads;
+mod records;
 mod release;
+pub(crate) use records::RecordHistoryRows;
 // The archive row shapes are records that the storage layer also reads.
 pub(crate) use crate::records::atom_history::{
     is_archive, ArchiveMetadata, ArchiveRecord, HistoryBinding, HistoryMode,
@@ -39,8 +42,16 @@ fn history_walk(
     cursor: Option<&str>,
     limit: usize,
 ) -> Result<super::RangeWalk, crate::schema::SchemaError> {
-    let base = prefix(slot)?;
-    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&base);
+    prefix_walk(&prefix(slot)?, cursor, limit)
+}
+
+/// A bounded walk of the history rows under one exact prefix, from a cursor.
+fn prefix_walk(
+    base: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<super::RangeWalk, crate::schema::SchemaError> {
+    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(base);
     let start = match cursor {
         None => start.into_bytes(),
         Some(cursor) => base64::engine::general_purpose::URL_SAFE_NO_PAD

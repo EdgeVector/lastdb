@@ -23,6 +23,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
         family,
         "ak" | "mk"
             | "rk"
+            | "rh"
             | "mh"
             | "ahf"
             | "ahk"
@@ -111,6 +112,8 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         .or_else(|| bare.strip_prefix("rk:"))
     {
         validate_record(rest)?;
+    } else if let Some(rest) = bare.strip_prefix("rh:") {
+        validate_record_history(rest)?;
     } else if let Some(molecule) = bare
         .strip_prefix("mh:")
         .or_else(|| bare.strip_prefix("mcc:"))
@@ -178,6 +181,19 @@ fn validate_record(rest: &str) -> StorageResult<()> {
         .ok_or_else(|| unsupported("invalid molecule key"))?;
     validate_molecule(molecule)?;
     validate_suffix(suffix)
+}
+
+/// `rh:{S}:{sha(record key)}:{field identity}:{id}`: a field history entry
+/// of a format 7 home. `S` is the record space of the schema.
+fn validate_record_history(rest: &str) -> StorageResult<()> {
+    let mut parts = rest.split(':');
+    let space = parts.next().unwrap_or_default();
+    validate_molecule(space)?;
+    let digests: Vec<&str> = parts.collect();
+    if digests.len() != 3 || !digests.iter().all(|part| hex_identity(part, 64)) {
+        return Err(unsupported("invalid record history key"));
+    }
+    Ok(())
 }
 
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
@@ -319,6 +335,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "ak"
             | "mk"
             | "rk"
+            | "rh"
             | "mh"
             | "mgp"
             | "mgr"

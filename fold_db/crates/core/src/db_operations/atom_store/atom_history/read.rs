@@ -83,7 +83,7 @@ impl AtomStore {
     }
 }
 
-fn validate_id(id: &str) -> Result<(), SchemaError> {
+pub(super) fn validate_id(id: &str) -> Result<(), SchemaError> {
     if id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Ok(());
     }

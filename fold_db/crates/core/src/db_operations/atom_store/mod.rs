@@ -61,6 +61,7 @@ pub(crate) mod time_queue;
 mod writer_watch;
 
 pub(crate) use crate::records::plain_atom::decode_plain_atom;
+pub(crate) use atom_history::RecordHistoryRows;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
     DwellStep, NetStep, DWELL_CHUNK,
