@@ -172,6 +172,19 @@ pub(crate) fn parse_body(event: &Request) -> Result<String, Response<Body>> {
 
 /// The parsed JSON body, or the 400 to return.
 pub(crate) fn v2_body(event: &Request) -> Result<Value, Result<Response<Body>, Error>> {
+    json_body(event, "invalid_manifest")
+}
+
+/// The parsed JSON body for an app register or update, or the 400 to return.
+/// The reason is `invalid_metadata`. A release body uses `invalid_manifest`.
+pub(crate) fn app_metadata_body(event: &Request) -> Result<Value, Result<Response<Body>, Error>> {
+    json_body(event, "invalid_metadata")
+}
+
+fn json_body(
+    event: &Request,
+    reason: &'static str,
+) -> Result<Value, Result<Response<Body>, Error>> {
     let raw = match parse_body(event) {
         Ok(b) => b,
         Err(r) => return Err(Ok(r)),
@@ -179,13 +192,13 @@ pub(crate) fn v2_body(event: &Request) -> Result<Value, Result<Response<Body>, E
     serde_json::from_str(&raw).map_err(|e| {
         json_response(
             400,
-            &json!({"reason": "invalid_manifest", "detail": format!("invalid JSON: {e}")}),
+            &json!({"reason": reason, "detail": format!("invalid JSON: {e}")}),
         )
     })
 }
 
 /// The `X-Exemem-Dev-Cert` + `X-Signature` pair, or the 401 to return.
-/// Every `/v2` write needs both; a read needs neither.
+/// An app write needs both. A read needs neither.
 pub(crate) fn v2_cert_headers(
     event: &Request,
 ) -> Result<(&str, &str), Result<Response<Body>, Error>> {
