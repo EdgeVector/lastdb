@@ -56,6 +56,10 @@ pub(crate) trait KeyCodecs: Sync {
         &self,
         molecule_uuid: &str,
     ) -> impl Future<Output = Result<(), SchemaError>> + Send;
+    fn history_key_codec(
+        &self,
+        molecule_uuid: &str,
+    ) -> impl Future<Output = Result<MoleculeKeyCodec, SchemaError>> + Send;
 }
 
 /// Atom bodies and the read scope of one body read.
@@ -70,6 +74,10 @@ pub(crate) trait AtomReads: Sync {
         storage_prefix: Option<&str>,
     ) -> impl Future<Output = Result<Vec<Option<Atom>>, SchemaError>> + Send;
     fn body_storage_key(&self, atom: &str, scope: Option<&str>) -> String;
+    fn get_atoms_by_storage_keys(
+        &self,
+        keys: &[String],
+    ) -> impl Future<Output = Result<Vec<Option<Atom>>, SchemaError>> + Send;
 }
 
 /// The write gate: a background job, or a request that writes.
@@ -142,6 +150,11 @@ pub(crate) trait RetentionStates: Sync {
     fn retention_state(&self) -> &RetentionState;
 }
 
+/// The signal that wakes the atom history task when history turns on.
+pub(crate) trait HistorySignals: Sync {
+    fn history_activation(&self) -> &tokio::sync::Notify;
+}
+
 /// The report and the wake signal of the molecule drain task.
 pub(crate) trait DrainStates: Sync {
     fn drain_state(&self) -> &DrainState;
@@ -195,6 +208,11 @@ pub(crate) trait DeleteBarrierReads: Sync {
         &self,
         molecule_keys: &[String],
     ) -> impl Future<Output = Result<HashMap<String, DeleteBarrier>, SchemaError>> + Send;
+    fn delete_target_tips_with_generations(
+        &self,
+        molecule_keys: &[String],
+        storage_prefix: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<Option<PerKeyRecord>>, SchemaError>> + Send;
 }
 
 /// Molecule headers and immutable generations (the molecules concept).

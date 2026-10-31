@@ -16,10 +16,13 @@ use crate::storage::StorageError;
 
 pub(crate) use super::delete_replay::CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY;
 
+/// This logical format includes framed molecule identities and exact
+/// tuple-based binding sources. Snapshots require the same marker key.
+pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
+
 impl AtomStore {
-    /// This logical format includes framed molecule identities and exact
-    /// tuple-based binding sources. Snapshots require the same marker key.
-    pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
+    /// The marker key of the current key format, as a store constant.
+    pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = CURRENT_KEY_FORMAT_KEY;
 
     pub(crate) async fn require_current_key_format(&self) -> Result<(), StorageError> {
         let stored = self

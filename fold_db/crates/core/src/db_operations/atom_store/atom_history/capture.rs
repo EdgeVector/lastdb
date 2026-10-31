@@ -3,12 +3,12 @@ use super::*;
 use crate::atom::{molecule_key_codec, FieldKey, MutationEvent};
 use crate::db_operations::atom_store::conflict_record::Recorded;
 use crate::db_operations::atom_store::counter::RecordRefs;
-use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, RecordSlot};
+use crate::db_operations::atom_store::{PerKeyRecord, RecordSlot};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use std::collections::{BTreeMap, HashMap};
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     pub(crate) async fn prepare_atom_history(
         &self,
         mode: HistoryMode,
@@ -34,7 +34,11 @@ impl AtomStore {
         }
         // Keep the generation reader out of the normal write future's frame.
         // Its allocation is needed only when history is enabled.
-        let rows = Box::pin(self.delete_target_tips_with_generations(&fallback, scope)).await?;
+        let rows = Box::pin(
+            self.store
+                .delete_target_tips_with_generations(&fallback, scope),
+        )
+        .await?;
         let mut visible = old.clone();
         for (key, record) in fallback.into_iter().zip(rows) {
             if let Some(record) = record {
@@ -72,14 +76,14 @@ impl AtomStore {
             .iter()
             .map(|(_, _, _, m)| format!("ahf:v1:{m}"))
             .collect();
-        let bindings: Vec<Option<HistoryBinding>> = self.main_store.get_items(&keys).await?;
+        let bindings: Vec<Option<HistoryBinding>> = self.store.rows().get_items(&keys).await?;
         let policy_keys: Vec<_> = bindings
             .iter()
             .flatten()
             .map(|b| build_storage_key(scope, &format!("ahp:v1:{}", b.field)))
             .collect();
         let policies: Vec<Option<FieldHistoryPolicy>> =
-            self.main_store.get_items(&policy_keys).await?;
+            self.store.rows().get_items(&policy_keys).await?;
         let mut policies = policies.into_iter();
         let mut recorded = Recorded::default();
         for ((key, new, previous, molecule), binding) in changed.into_iter().zip(bindings) {
@@ -92,7 +96,7 @@ impl AtomStore {
                 molecule_key_codec::decode_hash_range(key, molecule).ok_or_else(|| {
                     SchemaError::InvalidData("history tip has invalid coordinates".into())
                 })?;
-            let now = self.retention_state().clock_nanos();
+            let now = self.store.retention_state().clock_nanos();
             let expires_at = history_expiry(policy, now)?;
             let identity =
                 serde_json::to_vec(&(key, &previous.entry, new.as_ref().map(|r| &r.entry)))

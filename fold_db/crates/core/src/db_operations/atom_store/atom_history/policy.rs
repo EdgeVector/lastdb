@@ -1,10 +1,10 @@
 use super::*;
-use crate::db_operations::atom_store::{counter::TipChangeSet, AtomStore};
+use crate::db_operations::atom_store::counter::TipChangeSet;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use serde_json::json;
 
-impl AtomStore {
+impl<S: HistoryPorts> AtomHistory<'_, S> {
     pub(crate) async fn bind_history_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
         self.bind_history_schemas(std::iter::once(schema)).await
     }
@@ -34,11 +34,12 @@ impl AtomStore {
                     .collect::<Vec<_>>()
             })
             .collect();
-        self.commit_tip_changes(TipChangeSet {
-            rows,
-            ..TipChangeSet::default()
-        })
-        .await?;
+        self.store
+            .commit_tip_changes(TipChangeSet {
+                rows,
+                ..TipChangeSet::default()
+            })
+            .await?;
         Ok(())
     }
 
@@ -48,7 +49,7 @@ impl AtomStore {
         scope: Option<&str>,
     ) -> Result<FieldHistoryPolicy, SchemaError> {
         let key = build_storage_key(scope, &format!("ahp:v1:{field}"));
-        Ok(self.main_store.get_item(&key).await?.unwrap_or_default())
+        Ok(self.store.rows().get_item(&key).await?.unwrap_or_default())
     }
 
     pub async fn set_field_history_policy(
@@ -73,22 +74,26 @@ impl AtomStore {
             // Wake before the write: cancellation after native acceptance must
             // not strand a committed policy without its expiry worker. The
             // worker's existing format guard waits for visible activation.
-            self.history_activation.notify_one();
+            self.store.history_activation().notify_one();
         }
-        self.in_background_scope(async {
-            let mut writes = vec![crate::storage::KvMutation::put(
-                build_storage_key(scope, &format!("ahp:v1:{field}")).into_bytes(),
-                serde_json::to_vec(&policy).map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-            )];
-            if policy != FieldHistoryPolicy::Off {
-                writes.push(crate::storage::KvMutation::put(
-                    Self::CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
-                    crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT.to_vec(),
-                ));
-            }
-            self.main_store.inner().batch_mutate(writes).await?;
-            Ok(())
-        })
-        .await
+        self.store
+            .in_background_scope(async {
+                let mut writes = vec![crate::storage::KvMutation::put(
+                    build_storage_key(scope, &format!("ahp:v1:{field}")).into_bytes(),
+                    serde_json::to_vec(&policy)
+                        .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
+                )];
+                if policy != FieldHistoryPolicy::Off {
+                    writes.push(crate::storage::KvMutation::put(
+                        super::super::key_format::CURRENT_KEY_FORMAT_KEY
+                            .as_bytes()
+                            .to_vec(),
+                        crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT.to_vec(),
+                    ));
+                }
+                self.store.rows().inner().batch_mutate(writes).await?;
+                Ok(())
+            })
+            .await
     }
 }

@@ -10,6 +10,7 @@
 mod delete;
 mod drain;
 mod filter;
+mod history;
 mod retention;
 mod schema_keys;
 mod store;

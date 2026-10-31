@@ -19,6 +19,14 @@ impl DeleteBarrierReads for AtomStore {
     ) -> Result<HashMap<String, DeleteBarrier>, SchemaError> {
         Self::winning_delete_barriers(self, molecule_keys).await
     }
+
+    async fn delete_target_tips_with_generations(
+        &self,
+        molecule_keys: &[String],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
+        Self::delete_target_tips_with_generations(self, molecule_keys, storage_prefix).await
+    }
 }
 
 impl AtomStore {

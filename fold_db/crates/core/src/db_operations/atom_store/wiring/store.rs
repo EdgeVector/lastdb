@@ -44,6 +44,13 @@ impl KeyCodecs for AtomStore {
     async fn load_molecule_key_bundle(&self, molecule_uuid: &str) -> Result<(), SchemaError> {
         Self::load_molecule_key_bundle(self, molecule_uuid).await
     }
+
+    async fn history_key_codec(
+        &self,
+        molecule_uuid: &str,
+    ) -> Result<MoleculeKeyCodec, SchemaError> {
+        Self::history_key_codec(self, molecule_uuid).await
+    }
 }
 
 impl AtomReads for AtomStore {
@@ -64,6 +71,13 @@ impl AtomReads for AtomStore {
 
     fn body_storage_key(&self, atom: &str, scope: Option<&str>) -> String {
         Self::body_storage_key(self, atom, scope)
+    }
+
+    async fn get_atoms_by_storage_keys(
+        &self,
+        keys: &[String],
+    ) -> Result<Vec<Option<Atom>>, SchemaError> {
+        Self::get_atoms_by_storage_keys(self, keys).await
     }
 }
 
