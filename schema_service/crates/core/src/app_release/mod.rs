@@ -50,7 +50,6 @@ use crate::app_identity::{
 use crate::lock_helpers::{read_lock, write_lock};
 use crate::state::SchemaServiceState;
 
-mod compat_write;
 mod errors;
 mod grammar;
 mod persistence;
@@ -63,12 +62,10 @@ mod set_channel_reply;
 mod state;
 mod validate;
 
-pub use compat_write::CompatWriteReply;
 pub use errors::*;
 pub use grammar::*;
 pub use point_read::{ChannelReadReply, ReleaseReadReply};
 pub use publish_reply::PublishReleaseReply;
-pub use read_v2::CompatRowsReply;
 pub use records::*;
 pub use revoke_reply::RevokeReleaseReply;
 pub use set_channel_reply::SetChannelReply;

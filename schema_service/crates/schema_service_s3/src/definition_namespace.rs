@@ -53,8 +53,7 @@ impl S3BlobPersistence {
                 | "near_misses.json"
                 | "declared_fields.json"
         ) || key.starts_with("releases/")
-            || key.starts_with("channels/")
-            || key.starts_with("compat/");
+            || key.starts_with("channels/");
         if is_definition {
             Cow::Owned(format!("{namespace}/{key}"))
         } else {

@@ -204,12 +204,6 @@ fn v2_scope() -> actix_web::Scope {
             "/releases/{release_id}/verification",
             web::get().to(handlers::get_release_verification),
         )
-        // Compat-row write and read — verifier-signed compatibility attestations.
-        .service(
-            web::resource("/releases/{release_id}/compat")
-                .route(web::post().to(handlers::write_compat_row))
-                .route(web::get().to(handlers::list_compat_rows)),
-        )
         .route("/apps/{app_id}", web::get().to(handlers::get_app))
 }
 

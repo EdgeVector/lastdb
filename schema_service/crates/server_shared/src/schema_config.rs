@@ -68,9 +68,6 @@ fn app_identity_from_env() -> AppIdentityConfig {
             .ok()
             .map(|raw| parse_revoked_dev_pubkeys(&raw))
             .unwrap_or_default(),
-        verifier_pubkey: std::env::var("APP_REGISTRY_VERIFIER_PUBKEY")
-            .ok()
-            .and_then(|raw| parse_verifier_pubkey(&raw)),
         // DEV only. `AppIdentityConfig::registration_is_open` ignores it in PROD.
         open_registration: var_truthy("SCHEMA_OPEN_REGISTRATION"),
     }
@@ -108,11 +105,6 @@ fn parse_revoked_dev_pubkeys(raw: &str) -> HashSet<String> {
         .filter(|entry| !entry.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-fn parse_verifier_pubkey(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn mutation_gate_from_env() -> SchemaMutationGateConfig {

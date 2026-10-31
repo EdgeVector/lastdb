@@ -1,8 +1,7 @@
 //! Mutation challenge and app/release/channel registry routes.
 
 use schema_service_core::app_release::{
-    ChannelReadReply, CompatRowsReply, CompatWriteReply, PublishReleaseReply, ReleaseReadReply,
-    RevokeReleaseReply, SetChannelReply,
+    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{
     ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply,
@@ -288,45 +287,4 @@ pub async fn get_app(
 pub async fn list_apps(state: web::Data<SchemaServiceState>) -> impl Responder {
     let ListLiveAppsReply { status, body } = state.list_live_apps_reply();
     json_status(status, body)
-}
-
-/// `POST /v2/releases/{release_id}/compat` — write a verifier-signed compat row.
-///
-/// The signature must come from the configured `verifier_pubkey` in
-/// `AppIdentityConfig`. App owner DevCerts are rejected. Gated by
-/// `X-Signature` (an ed25519-signed envelope containing the body hash).
-pub async fn write_compat_row(
-    req: HttpRequest,
-    path: web::Path<String>,
-    payload: web::Json<Value>,
-    state: web::Data<SchemaServiceState>,
-) -> impl Responder {
-    let release_id = path.into_inner();
-    let body = payload.into_inner();
-    let Some(sig) = header_value(&req, "X-Signature") else {
-        return json_status(
-            401,
-            json!({ "reason": "signature_required", "detail": "missing X-Signature header" }),
-        );
-    };
-    match state.compat_write_reply(&release_id, &sig, &body).await {
-        CompatWriteReply::Created(body) => json_status(201, body),
-        CompatWriteReply::Failed { status, body } => json_status(status, body),
-    }
-}
-
-/// `GET /v2/releases/{release_id}/compat` — list compat rows for a release.
-///
-/// Anonymous read. Returns all compatibility verification rows for the given
-/// release, each showing which LastDB contract version the release was verified
-/// against and by which verifier.
-pub async fn list_compat_rows(
-    path: web::Path<String>,
-    state: web::Data<SchemaServiceState>,
-) -> impl Responder {
-    let release_id = path.into_inner();
-    match state.compat_rows_reply(&release_id).await {
-        CompatRowsReply::Ready(body) => json_status(200, body),
-        CompatRowsReply::Failed { status, body } => json_status(status, body),
-    }
 }

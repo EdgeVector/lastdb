@@ -83,11 +83,6 @@ pub struct AppIdentityConfig {
     /// offline mechanism the design's "redeploy schema_service" remedy
     /// relies on for key compromise. Refreshed on deploy.
     pub revoked_dev_pubkeys: HashSet<String>,
-    /// Verifier Ed25519 public key (base64) that is allowed to write
-    /// compatibility rows. Only signatures from this key are accepted
-    /// on `POST /v2/releases/{release_id}/compat`. Set from
-    /// `APP_REGISTRY_VERIFIER_PUBKEY` env var.
-    pub verifier_pubkey: Option<String>,
     /// Requested DEV open registration (`SCHEMA_OPEN_REGISTRATION`). Read it
     /// through [`Self::registration_is_open`], which refuses it in PROD.
     pub open_registration: bool,
@@ -99,7 +94,6 @@ impl Default for AppIdentityConfig {
             deployment_env: Env::Dev,
             trusted_roots: HashMap::new(),
             revoked_dev_pubkeys: HashSet::new(),
-            verifier_pubkey: None,
             open_registration: false,
         }
     }

@@ -122,10 +122,6 @@ are passed into the state constructors at these call sites:
 - `schema_service/crates/server_shared/examples/semantic/checks.rs`
   `observe` passes the same four shell values into `new_with_external`.
   The caller supplies `FoldDbFastEmbedder`. Storage is in-memory.
-- `lastdb_node/examples/v2_registry_client_proof/roundtrip.rs` passes
-  `SchemaConfig::from_env()`, `SystemClock`, `DedicatedThreadRuntime`,
-  `SystemIds`, and `DisabledEmbeddingModel`, then calls
-  `configure_app_identity`. Persistence is `S3BlobPersistence`.
 - `scripts/schema_core_baseline/src/state.rs` `open_state` passes
   `SchemaConfig::default()`, `SystemClock`, `DedicatedThreadRuntime`,
   `SystemIds`, and `DisabledEmbeddingModel`, then calls
