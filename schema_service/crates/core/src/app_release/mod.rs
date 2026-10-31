@@ -60,6 +60,7 @@ mod records;
 mod state;
 mod validate;
 
+pub use compat_write::CompatWriteReply;
 pub use errors::*;
 pub use grammar::*;
 pub use point_read::{ChannelReadReply, ReleaseReadReply};
