@@ -8,7 +8,7 @@
 //! here, before any byte is staged.
 
 use super::*;
-use crate::db_operations::atom_store::RecordChange;
+use crate::db_operations::atom_store::{record_scope, RecordChange};
 use crate::schema::types::cas::CasExpectation;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -279,16 +279,6 @@ fn record_head(
         atom_uuid: None,
         value,
     })
-}
-
-/// The storage scope that the schema fields carry, as the alternate entries
-/// of the molecule path use.
-fn record_scope(schema: &Schema) -> Option<String> {
-    schema
-        .runtime_fields
-        .values()
-        .find_map(|field| field.common().storage_prefix())
-        .map(str::to_owned)
 }
 
 fn unsupported(what: &str) -> SchemaError {

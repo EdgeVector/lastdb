@@ -29,6 +29,19 @@ impl HashRangeQueryProcessor {
         let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
         let filter = comparison.canonical_filter(filter)?;
         let window = comparison.canonical_window(window)?;
+        if self.record_home() {
+            let context = std::sync::Arc::clone(&comparison);
+            return self
+                .current_query_scope(
+                    comparison,
+                    async move {
+                        self.query_records(schema, fields, filter, window, options, &context)
+                            .await
+                    }
+                    .boxed(),
+                )
+                .await;
+        }
         self.current_query_scope(
             comparison,
             self.query_captured(schema, fields, filter, window, options)
