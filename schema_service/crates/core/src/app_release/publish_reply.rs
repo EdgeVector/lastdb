@@ -8,12 +8,13 @@ pub enum PublishReleaseReply {
     /// The publish finished. `status` and `body` come from
     /// [`ReleasePublishOutcome::to_http`]. A new release is HTTP 201.
     /// A repeat publish is HTTP 200. `record` is the stored release.
+    /// The box keeps this variant near the failure variant in size.
     /// The Lambda router sends the verifier job from `record`.
     /// The other router does not.
     Ready {
         status: u16,
         body: Value,
-        record: ReleaseRecord,
+        record: Box<ReleaseRecord>,
     },
     /// The publish failed. `status` and `body` come from
     /// [`ReleaseError::to_http`].
@@ -47,7 +48,7 @@ impl SchemaServiceState {
                 PublishReleaseReply::Ready {
                     status,
                     body: http_body,
-                    record,
+                    record: Box::new(record),
                 }
             }
             Err(error) => {
