@@ -3,7 +3,7 @@
 use schema_service_core::app_release::{
     ChannelReadReply, CompatRowsReply, CompatWriteReply, ReleaseReadReply,
 };
-use schema_service_core::PublicAppReply;
+use schema_service_core::{PublicAppReply, SchemaMutationChallengeReply};
 
 use super::*;
 
@@ -16,13 +16,11 @@ pub async fn issue_schema_mutation_challenge(
     payload: web::Json<SchemaMutationChallengeRequest>,
     state: web::Data<SchemaServiceState>,
 ) -> impl Responder {
-    match state.issue_schema_mutation_challenge(&payload.into_inner(), request_ip(&req).as_deref())
+    match state
+        .issue_schema_mutation_challenge_reply(&payload.into_inner(), request_ip(&req).as_deref())
     {
-        Ok(response) => HttpResponse::Created().json(response),
-        Err(error) => {
-            let (status, body) = error.to_http();
-            json_status(status, body)
-        }
+        SchemaMutationChallengeReply::Created(response) => HttpResponse::Created().json(response),
+        SchemaMutationChallengeReply::Failed { status, body } => json_status(status, body),
     }
 }
 

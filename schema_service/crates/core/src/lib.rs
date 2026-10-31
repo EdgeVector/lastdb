@@ -147,11 +147,12 @@ pub use schema_embedding_artifact::{
 pub use schema_mutation_gate::{
     catalog_size_difficulty_bits, log_schema_mutation_gate_result,
     max_difficulty_bits_for_challenge_ttl, node_signature_payload, pow_input, pow_satisfies,
-    schema_payload_hash, SchemaMutationChallengeRequest, SchemaMutationChallengeResponse,
-    SchemaMutationGateConfig, SchemaMutationGateError, SchemaMutationGateHeaders,
-    SchemaMutationGateQuotaStore, SchemaMutationGateStore, HEADER_DEV_PUBKEY,
-    HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC,
-    HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
+    schema_payload_hash, SchemaMutationChallengeReply, SchemaMutationChallengeRequest,
+    SchemaMutationChallengeResponse, SchemaMutationGateConfig, SchemaMutationGateError,
+    SchemaMutationGateHeaders, SchemaMutationGateQuotaStore, SchemaMutationGateStore,
+    HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE,
+    HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
+    HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 pub use schema_resolver_enforce_gate::{
     schema_resolver_enforce_gate_failures, schema_resolver_enforce_gate_pass,
