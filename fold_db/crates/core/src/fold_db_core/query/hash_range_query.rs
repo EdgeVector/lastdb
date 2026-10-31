@@ -40,6 +40,7 @@ mod pending_values;
 mod predicates;
 mod primary_selection;
 mod received_window;
+mod records;
 mod redacted_filter;
 mod resolve;
 mod secondary;

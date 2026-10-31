@@ -28,6 +28,17 @@ pub(crate) struct RecordChange {
     pub after: StoredRecord,
 }
 
+/// The storage scope of the records of a schema: the prefix that its fields
+/// carry in an org database, as the alternate entries of the molecule path
+/// use. `None` is the personal database.
+pub(crate) fn record_scope(schema: &Schema) -> Option<String> {
+    schema
+        .runtime_fields
+        .values()
+        .find_map(|field| field.common().storage_prefix())
+        .map(str::to_owned)
+}
+
 impl AtomStore {
     /// The storage key of the record at one canonical primary key. The record
     /// space codec of the schema blinds the hash and types the range.

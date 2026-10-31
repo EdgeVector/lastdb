@@ -1,0 +1,152 @@
+name: Record home product proof
+
+# ci-required calls this workflow. A product diff runs the format 7 (record
+# model) fresh-home proof.
+# Any other pull request skips that build and still reports success.
+on:
+  workflow_call:
+    inputs:
+      base_sha:
+        description: Pull request base SHA. Empty outside a pull request.
+        type: string
+        default: ""
+      head_sha:
+        description: Pull request head SHA. Empty outside a pull request.
+        type: string
+        default: ""
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: record-home-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    name: Select record home proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run the proof only for a product diff
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [ "$EVENT" = "pull_request" ]; then
+            if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+              echo "pull request SHAs were not passed; run the proof"
+            else
+              merge_base="$(git merge-base "$BASE" "$HEAD" 2>/dev/null || true)"
+              if [ -z "$merge_base" ]; then
+                echo "merge-base failed; run the proof"
+              else
+                run=false
+                while IFS= read -r path; do
+                  [ -z "$path" ] && continue
+                  case "$path" in
+                    fold_db/*|lastdb_node/*|lastdb_host/*|lastdb_uds/*|scripts/operations/record_home.py|scripts/benchmarks/node.py|.github/workflows/record-home.yml)
+                      run=true
+                      ;;
+                  esac
+                done < <(git diff --name-only "$merge_base" "$HEAD")
+              fi
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "Record home proof selected: $run"
+
+  records:
+    name: Fresh format 7 home records
+    needs: select
+    if: needs.select.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: schema-node-operations-debug
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the product in CI
+        run: cargo build --locked -p lastdb_node --bin lastdbd
+      - name: Exercise the actual daemon on a fresh generated format 7 home
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/record_home.py --daemon "$PWD/target/debug/lastdbd" \
+            --revision "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/record-home" 2>&1 | tee "$RUNNER_TEMP/record-home.log"
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: record-home-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/record-home
+            ${{ runner.temp }}/record-home.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish the result
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+        run: |
+          {
+            echo "## Record home product proof"
+            echo "Source: $GITHUB_SHA"
+            echo "Result: $RESULT"
+            echo "Fresh generated home only. No primary access, local build, or benchmark."
+            echo "Artifact: $ARTIFACT_URL"
+            echo "Artifact SHA256: $ARTIFACT_DIGEST"
+            echo "Expiration: 7 days after this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: Record home proof result
+    needs:
+      - select
+      - records
+    if: always() && needs.select.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require success or a deliberate skip
+        env:
+          RECORDS: ${{ needs.records.result }}
+          SELECTED: ${{ needs.select.outputs.run }}
+        run: |
+          echo "records result: $RECORDS"
+          echo "selected: $SELECTED"
+          case "$SELECTED:$RECORDS" in
+            true:success|false:skipped)
+              {
+                echo "## Record home proof result"
+                echo "Records job: $RECORDS"
+                echo "Selected: $SELECTED"
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "record home proof did not pass"
+              exit 1
+              ;;
+          esac

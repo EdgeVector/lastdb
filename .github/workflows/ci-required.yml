@@ -252,6 +252,15 @@ jobs:
       base_sha: ${{ github.event.pull_request.base.sha || '' }}
       head_sha: ${{ github.event.pull_request.head.sha || '' }}
 
+  record_home:
+    name: Record home product proof
+    permissions:
+      contents: read
+    uses: ./.github/workflows/record-home.yml
+    with:
+      base_sha: ${{ github.event.pull_request.base.sha || '' }}
+      head_sha: ${{ github.event.pull_request.head.sha || '' }}
+
   ci-required:
     name: ci-required
     needs:
@@ -261,6 +270,7 @@ jobs:
       - diff_file_size
       - secret_scan
       - atom_history
+      - record_home
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -272,7 +282,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

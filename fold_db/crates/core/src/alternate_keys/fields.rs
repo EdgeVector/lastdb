@@ -26,6 +26,27 @@ impl AtomStore {
         if names.len().saturating_mul(keys.len()) > MAX_ALTERNATE_ENTRIES {
             return Err(invalid("alternate field dependencies exceed 4096 records"));
         }
+        // A format 7 home keeps the fields of a key in one record.
+        if self.record_home() {
+            let storage = keys
+                .iter()
+                .map(|key| self.record_key(schema, key, scope))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(self
+                .read_records(&storage)
+                .await?
+                .into_iter()
+                .map(|record| {
+                    record.map_or_else(RecordFields::new, |record| {
+                        record
+                            .fields
+                            .into_iter()
+                            .filter(|(name, _)| names.contains(name.as_str()))
+                            .collect()
+                    })
+                })
+                .collect());
+        }
         let mut slots = Vec::new();
         let mut coordinates = Vec::new();
         for (index, key) in keys.iter().enumerate() {
