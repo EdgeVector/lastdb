@@ -4,9 +4,6 @@ use super::enrolled::pin_enrolled;
 use super::rules::summary_mutation;
 use super::*;
 
-mod rules;
-use rules::FinalizeAction;
-
 impl MutationManager {
     /// Mark one independently repaired summary valid if no source write raced.
     pub async fn finalize_aggregate_summary_with_access_receipt(
@@ -15,7 +12,7 @@ impl MutationManager {
         access_context: &crate::access::AccessContext,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.refuse_logical_capture("aggregate operations")?;
-        rules::validate_request(&finalize)?;
+        aggregate_plan::validate_finalize_request(&finalize)?;
         self.with_enrolled_aggregate_target(
             finalize,
             access_context,
@@ -48,12 +45,12 @@ impl MutationManager {
         guard: &AggregateGuard,
         storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let grant_key = Self::aggregate_repair_grant_key(
+        let grant_key = aggregate_plan::repair_grant_key(
             storage_prefix,
             &guard.target_schema_name,
             &guard.target_key,
         );
-        let finalized_key = Self::aggregate_finalized_grant_key(
+        let finalized_key = aggregate_plan::finalized_grant_key(
             storage_prefix,
             &guard.target_schema_name,
             &guard.target_key,
@@ -79,9 +76,14 @@ impl MutationManager {
         let status = self
             .read_finalize_summary(&finalize, &target_key, guard, storage_prefix)
             .await?;
-        let action =
-            rules::finalize_action(&finalize, guard, grant, &status, active_grant.is_some())?;
-        if matches!(action, FinalizeAction::AlreadyValid) {
+        let action = aggregate_plan::finalize_action(
+            &finalize,
+            guard,
+            grant,
+            &status,
+            active_grant.is_some(),
+        )?;
+        if matches!(action, aggregate_plan::FinalizeAction::AlreadyValid) {
             if active_grant.is_some() {
                 self.retire_active_repair_grant(&finalized_key, &grant_key, grant)
                     .await?;

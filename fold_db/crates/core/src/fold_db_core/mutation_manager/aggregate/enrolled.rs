@@ -3,7 +3,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use super::rules::association_matches;
+use super::super::plan::aggregate::association_matches;
 use super::*;
 
 type EnrolledFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SchemaError>> + Send + 'a>>;

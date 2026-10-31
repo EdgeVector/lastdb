@@ -2,17 +2,16 @@
 
 use std::collections::HashMap;
 
+use super::super::plan::key_fields::{checked_key_shape, requested_key};
+use super::super::plan::molecules::{validate_field_value, PreparedFieldAtom};
 use super::super::MutationManager;
-use super::prepared::PreparedFieldAtom;
 use crate::atom::Atom;
 use crate::db_operations::AtomStore;
-use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use tracing::warn;
 
 mod key_fields;
-mod key_rules;
 
 /// Atom preparation outputs retain the mutation position for every field.
 pub(in crate::fold_db_core::mutation_manager) struct PreparedAtoms {
@@ -28,58 +27,16 @@ impl MutationManager {
         schema: &Schema,
         mutation: &Mutation,
     ) -> Result<KeyValue, SchemaError> {
-        crate::schema::require_logical_layout(&schema.schema_type)?;
-        // Prefer the pre-computed key_value from the mutation (set by the
-        // ingestion service with date normalization and proper field extraction).
-        // Fall back to KeyValue::from_mutation() only when both fields are None.
-        let mut key_value =
-            if mutation.key_value.hash.is_some() || mutation.key_value.range.is_some() {
-                mutation.key_value.clone()
-            } else {
-                let key_config = schema.key.clone();
-                KeyValue::from_mutation(
-                    &mutation.fields_and_values,
-                    key_config.as_ref().ok_or_else(|| {
-                        SchemaError::InvalidData(format!(
-                        "Schema '{schema_name}' has no key configuration. Cannot execute mutation."
-                    ))
-                    })?,
-                )
-            };
-
-        if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
-            if schema.uses_independent_fields() {
-                return Err(SchemaError::InvalidData(
-                    "an independent Hash mutation cannot supply an undeclared range key".into(),
-                ));
-            }
+        let requested = requested_key(schema_name, schema, mutation)?;
+        if requested.dropped_range {
             warn!(
                 schema = %schema_name,
                 mutation = %mutation.uuid,
                 "Ignoring range key supplied for hash-only schema mutation"
             );
-            key_value.range = None;
         }
-
-        // Validate that the key matches the schema type.
-        // A mismatch means a bug upstream — fail loudly.
-        match &schema.schema_type {
-            DeclarativeSchemaType::Hash if key_value.hash.is_none() => Err(
-                SchemaError::InvalidData(format!(
-                    "Hash schema '{}' mutation {} has no hash key",
-                    schema_name, mutation.uuid
-                )),
-            ),
-            DeclarativeSchemaType::HashRange
-                if key_value.hash.is_none() || key_value.range.is_none() =>
-            {
-                Err(SchemaError::InvalidData(format!(
-                    "HashRange schema '{}' mutation {} requires both hash and range keys, got hash={:?} range={:?}",
-                    schema_name, mutation.uuid, key_value.hash, key_value.range
-                )))
-            }
-            _ => Ok(key_value),
-        }.and_then(|key| self.db_ops.molecule_keys().canonical_key(schema, key))
+        checked_key_shape(schema_name, schema, mutation, requested.key_value)
+            .and_then(|key| self.db_ops.molecule_keys().canonical_key(schema, key))
     }
 
     /// Creates atoms and computes key values for all mutations in a schema group.
@@ -112,12 +69,7 @@ impl MutationManager {
             // (usually empty → zero atoms).
             let fields_to_write: &HashMap<String, serde_json::Value> = &mutation.fields_and_values;
             for (field_name, value) in fields_to_write {
-                if !super::field_rules::validate_field_value(
-                    schema_name,
-                    schema,
-                    field_name,
-                    value,
-                )? {
+                if !validate_field_value(schema_name, schema, field_name, value)? {
                     continue;
                 }
                 let atom = AtomStore::create_atom(

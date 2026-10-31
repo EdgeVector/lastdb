@@ -1,4 +1,5 @@
-//! Storage-free key-field selection, consistency, and value conversion rules.
+//! Mutation key decisions: the requested key, its shape check, and the
+//! key-field selection, consistency, and value conversion rules.
 
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -6,9 +7,81 @@ use crate::schema::types::{FieldValueType, KeyValue, Mutation, MutationType, Sch
 use crate::schema::SchemaError;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 
-pub(super) type KeyFieldPairs<'a> = [Option<(&'a str, &'a str)>; 2];
+/// The key a mutation asks for, before the schema's canonical key form.
+pub(in crate::fold_db_core::mutation_manager) struct RequestedKey {
+    pub(in crate::fold_db_core::mutation_manager) key_value: KeyValue,
+    /// A hash-only schema ignored a supplied range key. The caller logs it.
+    pub(in crate::fold_db_core::mutation_manager) dropped_range: bool,
+}
 
-pub(super) fn key_field_pairs<'a>(
+/// Prefer the pre-computed `key_value` from the mutation (set by the
+/// ingestion service with date normalization and proper field extraction).
+/// Fall back to the schema key fields only when both components are `None`.
+pub(in crate::fold_db_core::mutation_manager) fn requested_key(
+    schema_name: &str,
+    schema: &Schema,
+    mutation: &Mutation,
+) -> Result<RequestedKey, SchemaError> {
+    crate::schema::require_logical_layout(&schema.schema_type)?;
+    let mut key_value = if mutation.key_value.hash.is_some() || mutation.key_value.range.is_some() {
+        mutation.key_value.clone()
+    } else {
+        KeyValue::from_mutation(
+            &mutation.fields_and_values,
+            schema.key.as_ref().ok_or_else(|| {
+                SchemaError::InvalidData(format!(
+                    "Schema '{schema_name}' has no key configuration. Cannot execute mutation."
+                ))
+            })?,
+        )
+    };
+    let mut dropped_range = false;
+    if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
+        if schema.uses_independent_fields() {
+            return Err(SchemaError::InvalidData(
+                "an independent Hash mutation cannot supply an undeclared range key".into(),
+            ));
+        }
+        key_value.range = None;
+        dropped_range = true;
+    }
+    Ok(RequestedKey {
+        key_value,
+        dropped_range,
+    })
+}
+
+/// Validate that the key matches the schema type.
+/// A mismatch means a bug upstream — fail loudly.
+pub(in crate::fold_db_core::mutation_manager) fn checked_key_shape(
+    schema_name: &str,
+    schema: &Schema,
+    mutation: &Mutation,
+    key_value: KeyValue,
+) -> Result<KeyValue, SchemaError> {
+    match &schema.schema_type {
+        DeclarativeSchemaType::Hash if key_value.hash.is_none() => {
+            Err(SchemaError::InvalidData(format!(
+                "Hash schema '{}' mutation {} has no hash key",
+                schema_name, mutation.uuid
+            )))
+        }
+        DeclarativeSchemaType::HashRange
+            if key_value.hash.is_none() || key_value.range.is_none() =>
+        {
+            Err(SchemaError::InvalidData(format!(
+                "HashRange schema '{}' mutation {} requires both hash and range keys, got hash={:?} range={:?}",
+                schema_name, mutation.uuid, key_value.hash, key_value.range
+            )))
+        }
+        _ => Ok(key_value),
+    }
+}
+
+pub(in crate::fold_db_core::mutation_manager) type KeyFieldPairs<'a> =
+    [Option<(&'a str, &'a str)>; 2];
+
+pub(in crate::fold_db_core::mutation_manager) fn key_field_pairs<'a>(
     schema_name: &str,
     schema: &'a Schema,
     mutation: &Mutation,
@@ -64,7 +137,7 @@ pub(super) fn key_field_pairs<'a>(
     Ok([hash, Some((range_field, range))])
 }
 
-pub(super) fn validated_materialized_key_field(
+pub(in crate::fold_db_core::mutation_manager) fn validated_materialized_key_field(
     schema_name: &str,
     schema: &Schema,
     mutation: &Mutation,

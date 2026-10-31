@@ -6,8 +6,8 @@ use crate::db_operations::ChangedKey;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
+use super::super::plan::molecules::{cold_field_loads, FieldLoadPlan};
 use super::super::MutationManager;
-use super::field_rules::{cold_field_loads, FieldLoadPlan};
 
 impl MutationManager {
     /// Discard a prior preparation before resolving its current native keys.

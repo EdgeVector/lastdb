@@ -91,7 +91,7 @@ impl MutationManager {
             .write_mutations_batch_inner(data_mutations, ctx.storage_prefix, ctx.origin)
             .await;
         match data_result {
-            Ok(receipt) => Self::require_durable_receipt(receipt, "data generation"),
+            Ok(receipt) => aggregate_plan::require_durable_receipt(receipt, "data generation"),
             Err(error) => {
                 // A flush failure can follow resident publication. Persist the
                 // invalid marker again and retain the matching reservations.

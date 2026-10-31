@@ -132,10 +132,7 @@ impl MutationManager {
                         .remove(&mutation.uuid)
                         .expect("new mutation has a matching idempotency hash");
                     (
-                        crate::schema::types::field::build_storage_key(
-                            storage_prefix,
-                            &format!("idem:{hash}"),
-                        ),
+                        super::super::super::plan::idempotency::cache_key(storage_prefix, &hash),
                         mutation.uuid.clone(),
                     )
                 })

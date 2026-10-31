@@ -3,19 +3,6 @@
 use super::*;
 
 impl MutationManager {
-    /// Whether the schema feeds the retention-age or hash-partition trackers.
-    fn retention_tracking(
-        schema: &crate::schema::types::Schema,
-        storage_prefix: Option<&str>,
-    ) -> (bool, bool) {
-        use crate::schema::types::schema::DeclarativeSchemaType as Kind;
-        let tracks_age =
-            storage_prefix.is_none() && matches!(&schema.schema_type, Kind::Hash | Kind::Single);
-        let tracks_hash_partitions =
-            storage_prefix.is_none() && matches!(&schema.schema_type, Kind::HashRange);
-        (tracks_age, tracks_hash_partitions)
-    }
-
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
     /// Publishes no resident tip change.
     pub(super) async fn prepare_schema_delta(
@@ -38,7 +25,7 @@ impl MutationManager {
             .active_share_prefixes(&schema_name, storage_prefix)
             .await?;
         let (tracks_retention_age, tracks_retention_hash_partitions) =
-            Self::retention_tracking(&schema, storage_prefix);
+            super::super::plan::molecules::retention_tracking(&schema, storage_prefix);
         Self::add_timing(timing_breakdown, "schema_load", load_start.elapsed());
 
         let phase1_start = std::time::Instant::now();
@@ -52,7 +39,7 @@ impl MutationManager {
             "  - create_atoms_batch",
             phase1_start.elapsed(),
         );
-        let changed_keys = super::super::molecules::field_rules::changed_keys_by_field(
+        let changed_keys = super::super::plan::molecules::changed_keys_by_field(
             &schema,
             &schema_mutations,
             &mutation_key_values,
