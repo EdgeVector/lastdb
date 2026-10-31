@@ -257,7 +257,7 @@ fn hash(mut input: File) -> StorageResult<Digest> {
         }
         hash.update(&buffer[..n]);
     }
-    Digest::try_from(crate::hex::hex_lower(hash.finalize())).map_err(protocol)
+    Digest::try_from(lastdb_model::hex::hex_lower(hash.finalize())).map_err(protocol)
 }
 impl Inner {
     pub fn available(&self) -> bool {

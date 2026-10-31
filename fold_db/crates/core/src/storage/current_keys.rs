@@ -84,7 +84,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     ) {
         return Err(unsupported("retired key family"));
     }
-    if crate::kind_partition::KIND_PARTITION_KINDS.contains(&family)
+    if lastdb_model::kind_partition::KIND_PARTITION_KINDS.contains(&family)
         && bare.as_bytes().get(family.len()) == Some(&b':')
     {
         let current_compound = match family {
@@ -283,7 +283,7 @@ fn hex_identity(value: &str, width: usize) -> bool {
 }
 
 fn fixed_scope(key: &str) -> Option<&str> {
-    if let Some((_, bare)) = crate::kind_partition::split_org_storage_prefix(key) {
+    if let Some((_, bare)) = lastdb_model::kind_partition::split_org_storage_prefix(key) {
         return Some(bare);
     }
     if let Some(rest) = key.strip_prefix("from:") {

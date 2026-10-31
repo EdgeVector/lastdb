@@ -61,7 +61,7 @@ pub(crate) struct Repaired {
 /// `conflict\0{molecule}:{stamp}` with the stamp the first 64 bits of the digest
 /// in 20 digits. A record of another tag has no conflict row.
 fn conflict_key_of(scope: Option<&str>, history: &str) -> Option<String> {
-    let rest = crate::kind_partition::rest_of(history, "history")?;
+    let rest = lastdb_model::kind_partition::rest_of(history, "history")?;
     let mut parts = rest.rsplitn(3, ':');
     let digest = parts.next()?;
     if parts.next()? != "conflict" {
@@ -71,7 +71,7 @@ fn conflict_key_of(scope: Option<&str>, history: &str) -> Option<String> {
     let stamp = u64::from_str_radix(digest.get(..16)?, 16).ok()?;
     Some(build_storage_key(
         scope,
-        &crate::kind_partition::anchored("conflict", &format!("{molecule}:{stamp:020}")),
+        &lastdb_model::kind_partition::anchored("conflict", &format!("{molecule}:{stamp:020}")),
     ))
 }
 

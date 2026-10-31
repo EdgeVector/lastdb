@@ -130,8 +130,8 @@ pub(super) fn record_molecules(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, 
         if !is_counted_record_key(&key) {
             continue;
         }
-        let molecule =
-            crate::kind_partition::rest_of(&key, "history").and_then(|rest| rest.split(':').next());
+        let molecule = lastdb_model::kind_partition::rest_of(&key, "history")
+            .and_then(|rest| rest.split(':').next());
         if let Some(molecule) = molecule.filter(|molecule| !molecule.is_empty()) {
             *molecules.entry(molecule.to_string()).or_insert(0u32) += 1;
         }

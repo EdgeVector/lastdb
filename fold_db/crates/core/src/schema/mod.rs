@@ -27,6 +27,7 @@ pub mod core;
 pub mod field_write;
 pub mod interpreter;
 pub mod manifest_retention;
+pub mod mutation_author;
 pub mod schema_types;
 /// Model types from `lastdb_model`, plus the core behavior over them.
 pub mod types;

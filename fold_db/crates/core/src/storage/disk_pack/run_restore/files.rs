@@ -363,7 +363,7 @@ fn inspect(path: &Path, captured: bool) -> StorageResult<(Digest, u64)> {
     {
         return Err(invalid("run restore file changed"));
     }
-    let digest = Digest::try_from(crate::hex::hex_lower(hasher.finalize()))
+    let digest = Digest::try_from(lastdb_model::hex::hex_lower(hasher.finalize()))
         .map_err(|_| invalid("run restore file digest"))?;
     Ok((digest, count))
 }

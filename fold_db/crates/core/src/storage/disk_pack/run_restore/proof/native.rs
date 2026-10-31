@@ -45,9 +45,9 @@ pub(super) fn verify(proof: &Proof<'_>, dependency: &files::FileDependency) -> S
             collection: "cas_blobs".into(),
             key,
             stored_row_bytes: copied.body_bytes,
-            stored_row_sha256: cloud_backup_protocol::Digest::try_from(crate::hex::hex_lower(
-                copied.body_sha256,
-            ))
+            stored_row_sha256: cloud_backup_protocol::Digest::try_from(
+                lastdb_model::hex::hex_lower(copied.body_sha256),
+            )
             .map_err(|_| invalid("run backup native CAS digest format"))?,
         };
         files::verify_native_cas(row, &raw_path, proof.key, dependency, &policy)?;

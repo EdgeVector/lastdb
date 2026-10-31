@@ -5,10 +5,10 @@
 //! This keeps one normal atom write independent of the number of schemas that
 //! later reach a shared atom.
 
-use crate::hex::hex_lower;
 use crate::schema::SchemaError;
 use crate::storage::traits::KvStore;
 use crate::storage::{StorageError, TypedKvStore};
+use lastdb_model::hex::hex_lower;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;

@@ -77,7 +77,7 @@ impl DbOperations {
                 for id in ids {
                     let key = build_storage_key(
                         storage_prefix,
-                        &crate::kind_partition::anchored("conflict", &id),
+                        &lastdb_model::kind_partition::anchored("conflict", &id),
                     );
                     match self
                         .atoms()
@@ -103,8 +103,8 @@ impl DbOperations {
         }
 
         let base_prefix = match molecule_uuid {
-            Some(mol) => crate::kind_partition::anchored("conflict", &format!("{mol}:")),
-            None => crate::kind_partition::anchored("conflict", ""),
+            Some(mol) => lastdb_model::kind_partition::anchored("conflict", &format!("{mol}:")),
+            None => lastdb_model::kind_partition::anchored("conflict", ""),
         };
         let prefix = build_storage_key(storage_prefix, &base_prefix);
 

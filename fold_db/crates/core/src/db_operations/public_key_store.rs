@@ -5,11 +5,11 @@
 
 use std::sync::Arc;
 
-use crate::constants::SINGLE_PUBLIC_KEY_ID;
 use crate::schema::SchemaError;
 use crate::security::PublicKeyInfo;
 use crate::storage::traits::KvStore;
 use crate::storage::TypedKvStore;
+use lastdb_model::constants::SINGLE_PUBLIC_KEY_ID;
 
 /// Domain store for system public-key persistence.
 #[derive(Clone)]

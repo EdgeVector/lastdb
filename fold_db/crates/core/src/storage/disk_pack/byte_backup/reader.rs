@@ -138,7 +138,7 @@ impl ByteBackupReader {
             return Err(io::Error::other("byte source exact stream length"));
         }
         if self.bytes == expected
-            && crate::hex::hex_lower(self.hash.clone().finalize())
+            && lastdb_model::hex::hex_lower(self.hash.clone().finalize())
                 != self.object.input.object.sha256.as_str()
         {
             return Err(io::Error::other("byte source stream checksum"));

@@ -1,4 +1,4 @@
-use crate::hex::hex_lower;
+use lastdb_model::hex::hex_lower;
 use std::future::Future;
 use std::pin::Pin;
 

@@ -73,7 +73,7 @@ pub(super) fn name_claim_key(schema_name: &str) -> String {
 }
 
 pub(super) fn retention_fingerprint(value: &str) -> String {
-    crate::hex::sha256_hex(value)
+    lastdb_model::hex::sha256_hex(value)
 }
 
 pub(super) fn retention_age_prefix(schema_name: &str) -> String {

@@ -57,7 +57,7 @@ impl AtomStore {
             ));
         }
         let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
-        let base = crate::kind_partition::anchored(
+        let base = lastdb_model::kind_partition::anchored(
             "dellog",
             &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
         );

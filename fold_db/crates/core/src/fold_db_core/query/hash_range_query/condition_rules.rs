@@ -2,12 +2,12 @@
 
 use super::predicates::field_predicate_matches;
 use super::CokeyRows;
-use crate::json_order::compare_json_values;
 use crate::schema::types::field::FieldValue;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::operations::{FieldPredicate, QueryOrderBy, SortOrder};
 use crate::schema::types::KeyValuePageOrder;
 use crate::schema::{Schema, SchemaError};
+use lastdb_model::json_order::compare_json_values;
 use std::collections::HashMap;
 
 /// Current field conditions and projection controls for one captured query.

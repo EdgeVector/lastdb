@@ -37,7 +37,7 @@ fn history_walk(
     limit: usize,
 ) -> Result<super::RangeWalk, crate::schema::SchemaError> {
     let base = prefix(slot)?;
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(&base);
+    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&base);
     let start = match cursor {
         None => start.into_bytes(),
         Some(cursor) => base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -68,11 +68,11 @@ pub(crate) fn queue() -> TimeQueue {
 }
 
 pub(crate) fn digest(value: &[u8]) -> String {
-    crate::hex::hex_lower(Sha256::digest(value))
+    lastdb_model::hex::hex_lower(Sha256::digest(value))
 }
 
 pub(crate) fn is_archive(key: &str) -> bool {
-    crate::kind_partition::rest_of(key, "history")
+    lastdb_model::kind_partition::rest_of(key, "history")
         .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }
 

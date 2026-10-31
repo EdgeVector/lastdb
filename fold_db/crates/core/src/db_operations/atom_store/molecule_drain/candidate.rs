@@ -95,7 +95,7 @@ impl Candidate {
 
 /// The half-open key range of the whole list.
 pub(crate) fn list_bounds() -> (Vec<u8>, Vec<u8>) {
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(CANDIDATE_FAMILY);
+    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(CANDIDATE_FAMILY);
     (start.into_bytes(), end.into_bytes())
 }
 

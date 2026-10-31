@@ -138,7 +138,7 @@ impl AtomStore {
         limit: usize,
         execute: bool,
     ) -> Result<Value, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(prefix);
         let mut start = start.into_bytes();
         if let Some(after) = after_key {
             start = after.to_vec();

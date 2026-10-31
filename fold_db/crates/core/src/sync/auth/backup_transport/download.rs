@@ -120,7 +120,8 @@ impl Bounded {
                 self.finished = true;
                 if result.is_err()
                     || !buffer.filled().is_empty()
-                    || crate::hex::hex_lower(self.hash.clone().finalize()) != self.expected.as_str()
+                    || lastdb_model::hex::hex_lower(self.hash.clone().finalize())
+                        != self.expected.as_str()
                 {
                     Poll::Ready(Err(io::Error::other("native object bytes differ")))
                 } else {

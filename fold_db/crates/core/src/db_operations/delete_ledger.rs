@@ -154,7 +154,7 @@ impl AtomStore {
     ) -> Result<Vec<AtomDeleteLedgerEntry>, SchemaError> {
         let prefix = build_storage_key(
             storage_prefix,
-            &crate::kind_partition::anchored("dellog", ""),
+            &lastdb_model::kind_partition::anchored("dellog", ""),
         );
         let rows = self
             .raw()

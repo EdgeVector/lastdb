@@ -140,7 +140,7 @@ fn fold_header(
 ) {
     totals.headers += 1;
     let header = serde_json::from_slice::<serde_json::Value>(value).ok();
-    let target = crate::hex::hex_lower(Sha256::digest(molecule.as_bytes()));
+    let target = lastdb_model::hex::hex_lower(Sha256::digest(molecule.as_bytes()));
     let view = crate::db_operations::atom_store::molecule_view(
         molecule,
         header.as_ref(),

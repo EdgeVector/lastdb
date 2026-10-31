@@ -6,11 +6,11 @@
 //! the same `blob_ref`, the same DEK and the same pointer. They compile with the
 //! `sharing` feature only; the cloud-sync engine imports them.
 
-use crate::hex::hex_lower;
 use crate::sharing::delivery_wire::{
     file_blob_cipher_suite_supported, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
 };
 use hkdf::Hkdf;
+use lastdb_model::hex::hex_lower;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -88,7 +88,7 @@ impl FileBlobRef {
 }
 
 pub(crate) fn decode_hex_32(input: &str) -> Result<[u8; 32], FileBlobSealError> {
-    crate::hex::hex_decode_array::<32>(input).ok_or_else(|| {
+    lastdb_model::hex::hex_decode_array::<32>(input).ok_or_else(|| {
         FileBlobSealError::new(format!(
             "file blob DEK must be 64 hex chars, got {} chars",
             input.len()

@@ -13,7 +13,6 @@
 //! - Integration with network and permissions layers
 
 pub mod keys;
-pub mod mutation_author;
 pub mod signing;
 pub mod types;
 

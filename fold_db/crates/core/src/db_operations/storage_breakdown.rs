@@ -179,7 +179,7 @@ impl AtomStore {
         // Every body is one record at `atom:{uuid}\0b`.
         let mut walk = BreakdownWalk::new(schema_names);
         let colon = build_storage_key(storage_prefix, "atom:");
-        let (scan_prefix, scan_end) = crate::kind_partition::colon_plane_bounds(&colon);
+        let (scan_prefix, scan_end) = lastdb_model::kind_partition::colon_plane_bounds(&colon);
 
         // `atom:` is every field value in the database, and each row is decoded
         // into an `Atom` that is larger resident than the bytes it came from.

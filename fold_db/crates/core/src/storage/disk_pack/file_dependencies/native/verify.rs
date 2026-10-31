@@ -33,7 +33,7 @@ pub(super) fn verify(
         let mut json = scratch::Scratch::create(&json_path, policy)?;
         let opened = open_at_rest_stream(account_key, &mut raw, &mut json)
             .map_err(|_| invalid("native CAS account envelope"))?;
-        if crate::hex::hex_lower(opened.stored_sha256) != proof.stored_row_sha256.as_str() {
+        if lastdb_model::hex::hex_lower(opened.stored_sha256) != proof.stored_row_sha256.as_str() {
             return Err(invalid("native CAS raw source digest"));
         }
         let json = json.finish()?;
@@ -55,7 +55,7 @@ pub(super) fn verify(
             return Err(invalid("account-v2 native CAS requires ENC text"));
         }
         let key = zeroize::Zeroizing::new(
-            crate::hex::hex_decode_array::<32>(&dependency.access().dek)
+            lastdb_model::hex::hex_decode_array::<32>(&dependency.access().dek)
                 .ok_or_else(|| invalid("file dependency key format"))?,
         );
         let verified = open_at_rest_stream(&key, &mut inner, &mut io::sink())
@@ -65,8 +65,8 @@ pub(super) fn verify(
         }
         crate::sharing::file_blob_seal::verify_file_blob_identity(
             dependency.access(),
-            &crate::hex::hex_lower(verified.plaintext_sha256),
-            &crate::hex::hex_lower(verified.envelope_sha256),
+            &lastdb_model::hex::hex_lower(verified.plaintext_sha256),
+            &lastdb_model::hex::hex_lower(verified.envelope_sha256),
         )
         .map_err(|_| invalid("native CAS file identity"))?;
         Ok(proof)
