@@ -2,13 +2,13 @@
 
 use crate::cors;
 use lambda_http::{Body, Error, Request, Response};
+use schema_service_core::state::SchemaByNameReply;
 use schema_service_core::{
     SchemaMutationGateHeaders, HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE,
     HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
     HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 use schema_service_server_shared::state::SchemaServiceState;
-use schema_service_server_shared::types::SchemaEnvelope;
 use serde_json::{json, Value};
 
 /// Pull the `X-API-Key` header from a request. Header lookup is
@@ -222,14 +222,15 @@ pub(crate) async fn get_schema_by_name(
     state: &SchemaServiceState,
     schema_name: &str,
 ) -> Result<Response<Body>, Error> {
-    match state.lookup_schema_by_name(schema_name).await {
-        Ok(Some(schema)) => {
-            let system = state.is_system_schema(&schema.name);
-            let envelope = SchemaEnvelope { schema, system };
+    match state.schema_by_name_reply(schema_name).await {
+        SchemaByNameReply::Ready(envelope) => {
             let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Ok(None) => json_response(404, &json!({"error": "Schema not found"})),
-        Err(e) => json_response(500, &json!({"error": format!("Failed to get schema: {e}")})),
+        SchemaByNameReply::Missing => json_response(404, &json!({"error": "Schema not found"})),
+        SchemaByNameReply::Failed { detail } => json_response(
+            500,
+            &json!({"error": format!("Failed to get schema: {detail}")}),
+        ),
     }
 }

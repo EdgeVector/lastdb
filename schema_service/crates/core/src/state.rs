@@ -49,6 +49,7 @@ mod resolve;
 mod vocabulary_validation;
 
 pub use backfill::BackfillPurposeReport;
+pub use lookup::SchemaByNameReply;
 pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};
 pub use resolve::{
     accepted_similarity_threshold, SimilarSchemasReply, MAX_SCHEMA_RESOLVE_PROPOSALS,

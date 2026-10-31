@@ -3,6 +3,17 @@
 use super::*;
 use std::collections::hash_map::Entry;
 
+/// The named-schema result both HTTP routers answer.
+#[derive(Debug)]
+pub enum SchemaByNameReply {
+    /// The named schema exists. HTTP 200.
+    Ready(SchemaEnvelope),
+    /// No schema has that name. HTTP 404.
+    Missing,
+    /// Any other failure. HTTP 500. `detail` is the error text.
+    Failed { detail: String },
+}
+
 impl SchemaServiceState {
     /// Resolve public reposts against durable definitions, including expansions.
     /// A cached predecessor cannot establish which canonical is current.
@@ -65,6 +76,24 @@ impl SchemaServiceState {
             }
         }
         Ok(schema)
+    }
+
+    /// The same call as [`Self::lookup_schema_by_name`], classified for HTTP.
+    ///
+    /// `Ready` carries the envelope. `system` follows [`Self::is_system_schema`]
+    /// for the stored schema name. An empty lookup stays `Missing`.
+    #[must_use]
+    pub async fn schema_by_name_reply(&self, name: &str) -> SchemaByNameReply {
+        match self.lookup_schema_by_name(name).await {
+            Ok(Some(schema)) => {
+                let system = self.is_system_schema(&schema.name);
+                SchemaByNameReply::Ready(SchemaEnvelope { schema, system })
+            }
+            Ok(None) => SchemaByNameReply::Missing,
+            Err(error) => SchemaByNameReply::Failed {
+                detail: error.to_string(),
+            },
+        }
     }
 
     fn stored_schema_by_description(
