@@ -50,7 +50,9 @@ mod vocabulary_validation;
 
 pub use backfill::BackfillPurposeReport;
 pub use near_misses::{DEFAULT_NEAR_MISSES_LIMIT, MAX_NEAR_MISSES_LIMIT};
-pub use resolve::MAX_SCHEMA_RESOLVE_PROPOSALS;
+pub use resolve::{
+    accepted_similarity_threshold, SimilarSchemasReply, MAX_SCHEMA_RESOLVE_PROPOSALS,
+};
 
 /// Compose the key used in `descriptive_name_index` (and
 /// `descriptive_name_embeddings`) so dedup is scoped by `owner_app_id`.
