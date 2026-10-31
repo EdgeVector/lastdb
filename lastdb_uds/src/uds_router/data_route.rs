@@ -306,10 +306,6 @@ pub enum DataRoute {
     DbSchemaRetention,
     /// `POST /api/db/alternate-keys` — owner-only declaration backfill and publication.
     DbAlternateKeys,
-    /// `POST /api/db/repair-schema-molecule-map` — compare-and-set repair of
-    /// one installed schema's field-to-molecule metadata. Owner only. The
-    /// request is a dry run unless `execute=true`.
-    DbRepairSchemaMoleculeMap,
     /// `POST /api/db/repair-hashrange-key-fields` — plan or repair sparse
     /// declared key-field molecules for one named HashRange partition.
     /// Owner only. Body: `{ schema, api_hash, execute?: bool }`.
