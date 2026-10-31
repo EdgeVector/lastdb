@@ -1,6 +1,6 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
-use schema_service_core::state::DedupeNamesReply;
+use schema_service_core::state::{DedupeNamesReply, DeprecateSchemasReply};
 
 use super::*;
 
@@ -189,16 +189,11 @@ pub async fn deprecate_schemas(
     state: web::Data<SchemaServiceState>,
     request: web::Json<DeprecateSchemasRequest>,
 ) -> impl Responder {
-    match state.deprecate_schemas(request.into_inner()).await {
-        Ok(report) => HttpResponse::Ok().json(report),
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::deprecate",
-                "deprecate-schemas failed: {}", e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("deprecate-schemas failed: {e}"),
-            })
+    match state.deprecate_schemas_reply(request.into_inner()).await {
+        DeprecateSchemasReply::Ready(body) => HttpResponse::Ok().json(body),
+        DeprecateSchemasReply::Failed { message, body } => {
+            tracing::error!(target: "schema_service::deprecate", "{message}");
+            HttpResponse::InternalServerError().json(body)
         }
     }
 }

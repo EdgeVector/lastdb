@@ -11,6 +11,16 @@ pub enum DedupeNamesReply {
     Failed { message: String, body: Value },
 }
 
+/// The schema deprecation both HTTP routers answer.
+#[derive(Debug)]
+pub enum DeprecateSchemasReply {
+    /// The deprecation finished. HTTP 200. The value is the report.
+    Ready(Value),
+    /// The deprecation failed. HTTP 500. `message` is the log line. `body` is
+    /// `{ "error": message }`.
+    Failed { message: String, body: Value },
+}
+
 /// `(owner_app_id, descriptive_name, [(identity_hash, field_count)])`.
 type DuplicateGroup = (Option<String>, String, Vec<(String, usize)>);
 /// `(schema_name, label)` of a schema selected for deprecation.
@@ -291,5 +301,24 @@ impl SchemaServiceState {
             deprecated,
             not_found,
         })
+    }
+
+    /// Classify [`Self::deprecate_schemas`] for the HTTP cleanup.
+    ///
+    /// `Ready` is the report. `Failed` keeps the same error text both routers
+    /// return. The Actix router still writes the log.
+    #[must_use]
+    pub async fn deprecate_schemas_reply(
+        &self,
+        request: DeprecateSchemasRequest,
+    ) -> DeprecateSchemasReply {
+        match self.deprecate_schemas(request).await {
+            Ok(report) => DeprecateSchemasReply::Ready(json!(report)),
+            Err(error) => {
+                let message = format!("deprecate-schemas failed: {error}");
+                let body = json!({ "error": message });
+                DeprecateSchemasReply::Failed { message, body }
+            }
+        }
     }
 }
