@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 
 use super::super::helpers::strip_record_prefix;
-use super::super::types::{ChangedKey, MoleculeData, MoleculeHeader, PerKeyRecord};
+use super::super::types::{MoleculeData, MoleculeHeader, PerKeyRecord};
 use super::super::AtomStore;
 use super::generation::MaterializeReadCost;
 
@@ -122,43 +122,6 @@ impl AtomStore {
             out.push((hash, range, r.entry, r.meta));
         }
         Ok((out, cost))
-    }
-
-    /// Load a molecule for a **keyed write** that will touch only `changed`,
-    /// fetching just those keys' existing `mk:` records (O(changed) point gets)
-    /// instead of scanning the whole field. The returned molecule carries the
-    /// real header `version`/`updated_at` and is marked as a tail. It does not
-    /// read the order log.
-    ///
-    /// This is the write-side analogue of [`Self::load_filtered_molecule_filled`]: the
-    /// schema cache evicts materialized molecules after every batch (so keyed
-    /// reads stay O(1) — see `FieldVariant::clear_molecule`), which would
-    /// otherwise force `restore_missing_molecules` to re-scan and re-deserialize
-    /// every `mk:` record (O(field)) on *every* write. Loading only the touched
-    /// keys keeps a single keyed update O(changed) as the field grows.
-    ///
-    /// Returns `Ok(None)` — caller must fall back to the full
-    /// [`crate::schema::types::field::FieldVariant::refresh_from_db`] path — when
-    /// there is **no `mh:{M}` header at the exact `storage_prefix` prefix** (absent
-    /// molecule, or data at a *different* prefix such as a first write under a
-    /// share/org prefix). In that case the persist step's full-rewrite path needs
-    /// the whole molecule in memory. We therefore probe ONLY the exact prefix —
-    /// no dual-read fallback.
-    pub(crate) async fn load_molecule_for_write(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-        changed: &std::collections::HashSet<ChangedKey>,
-    ) -> Result<Option<MoleculeData>, SchemaError> {
-        Ok(self
-            .load_molecules_for_write(&[super::MoleculeWriteLoad {
-                molecule: molecule_uuid,
-                scope: storage_prefix,
-                changed,
-            }])
-            .await?
-            .pop()
-            .expect("one keyed molecule write request"))
     }
 
     /// Read `mh:{M}` at the exact storage prefix. `None` means the molecule

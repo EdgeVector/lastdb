@@ -15,24 +15,25 @@ class Seed:
     def __init__(self, node, helper):
         self.node, self.helper = node, helper
         self.sources = {source: {} for source in (None, 0, 1)}
+        self.separate = {}
         self.offered, self.ordinal, self.paths = hashlib.sha256(), 0, []
 
     def schema(self):
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-            "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+            "schema_type": "HashRange", "independent_fields": True,
+            "key": {"hash_field": "bucket", "range_field": "id"},
             "fields": FIELDS + EXTRA_FIELDS, "field_types": {"bucket": "String", "id": "String"},
             "field_descriptions": {
                 name: "received range batches " + name for name in FIELDS + EXTRA_FIELDS}}})
-        alternate_fields = ["bucket", "id", "title", "body"]
+        alternate_fields = FIELDS + EXTRA_FIELDS
         alternate_descriptions = {name: "received range batches " + name for name in alternate_fields}
-        alternate_descriptions["id"] = "received range alternate membership id"
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": HIDDEN_SCHEMA, "descriptive_name": HIDDEN_SCHEMA,
-            "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+            "schema_type": "HashRange", "independent_fields": True,
+            "key": {"hash_field": "bucket", "range_field": "id"},
             "fields": alternate_fields, "field_types": {"bucket": "String", "id": "String"},
-            "field_descriptions": alternate_descriptions,
-            "field_mappers": {name: SCHEMA + "." + name for name in ("bucket", "title", "body")}}})
+            "field_descriptions": alternate_descriptions}})
         self.node.call("/api/db/flush", {})
         self.node.stop()
         (self.node.home / ".received-range-ci").write_text("generated CI input only\n")
@@ -47,10 +48,12 @@ class Seed:
                 "key_value": {"hash": hashed, "range": ranged}, "pub_key": "generated-ci",
                 "mutation_type": action, "synchronous": True,
                 "source_file_name": marker(source) if hashed == CONDITION_HASH else None})
-            if action in ("delete", "purge"):
+            if alternate:
+                self.separate[(hashed, ranged)] = value
+            elif action in ("delete", "purge"):
                 self.sources[source].pop((hashed, ranged), None)
             else:
-                self.sources[source][(hashed, ranged)] = None if alternate else value
+                self.sources[source][(hashed, ranged)] = value
         raw = json.dumps({"source": source, "mutations": mutations}, sort_keys=True, separators=(",", ":")).encode() + b"\n"
         self.offered.update(raw)
         stream.write(raw)
@@ -107,12 +110,10 @@ class Seed:
         result = {}
         for source in (1, 0, None):
             for coordinate, value in self.sources[source].items():
-                if value is None:
-                    result.pop(coordinate, None)
-                else:
-                    result[coordinate] = value
+                result[coordinate] = value
         return result
 
     def final_hash(self):
         snapshot = [[hashed, ranged, value] for (hashed, ranged), value in sorted(self.expected().items())]
-        return hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+        separate = [[hashed, ranged, value] for (hashed, ranged), value in sorted(self.separate.items())]
+        return hashlib.sha256(json.dumps([snapshot, separate], sort_keys=True).encode()).hexdigest()

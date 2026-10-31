@@ -32,7 +32,7 @@ pub(super) fn print_molecule_liveness(molecules: &[serde_json::Value]) {
         println!("  Slots (tip records): {}", number("slots"));
         println!("  Records (conflict records): {}", number("records"));
         println!(
-            "  Bindings (schema field, protein member, database catalog): {}",
+            "  Bindings (schema field, database catalog): {}",
             number("bindings")
         );
         println!("  Suspect: {}", flag("suspect"));

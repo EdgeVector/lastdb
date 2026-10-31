@@ -23,7 +23,7 @@ attribution source evidence before the API returns.
 ## Chosen architecture
 
 The schema catalog starts the user-data walk. The walker follows declared
-field molecules, key slots, tips, atoms, blobs, proteins, history, and valid
+field molecules, key slots, tips, atoms, blobs, alternate addresses, history, and valid
 reference edges. System and retention roots run in the same epoch.
 
 The ledger stores fixed-size object rows, bounded path rows, cursor rows, and
@@ -68,14 +68,14 @@ event. A failed or ambiguous mutation leaves a visible blocker.
 
 ### 2. Build the bounded graph projector
 
-- Add resumable pages for schema catalogs, molecules, tips, proteins, atoms,
+- Add resumable pages for schema catalogs, molecules, tips, alternate addresses, atoms,
   blobs, history, and system roots.
 - Write object rows and bounded proof paths in the attribution ledger.
 - Apply source events after the base walk. Re-read canonical rows from each
   locator. Never replay an event into an earlier copy.
 - Classify unsupported or unreadable evidence as `unknown`.
 
-**Verify:** fixtures cover shared atoms, protein members, atom cycles, blobs,
+**Required product evidence:** real operational output covers shared atoms, alternate addresses, atom cycles, blobs,
 history roots, system roots, interrupted cursors, and a write during the walk.
 
 ### 3. Finish inline size attribution
@@ -115,7 +115,7 @@ System, retention, attributed, and unknown rows never delete.
 - Add `lastdb db inventory` proof and size sections.
 - Add attribution status, schema report, copy verification, and dry-run
   promotion-plan commands.
-- Add the terminal harness and a direct `lastdb-dev` isolated-copy test.
+- Use CI product commands on fresh generated data. Keep tests and fixture harnesses retired.
 - Document the runbook, capacity need, rollback, and no-source-delete rule.
 
 **Verify:** the terminal proof below exits zero and prints `PASS`.
@@ -132,26 +132,27 @@ milestone driver creates later cards only after the dependency frontier clears.
 
 ## Terminal verification
 
-Run this only in a new `lastdb-dev` home or an isolated copy. Never use
-`~/.lastdb`.
+This plan requires product evidence from CI on fresh generated data.
+Do not start a local node, copy the primary, or create a fixture harness.
+Source inspection alone does not prove these results.
 
-1. Create two schemas, a shared protein atom, a blob, a retained history atom,
-   a system root, and one injected unrooted test object.
+1. Use two schemas with independent values, named alternate keys, a blob,
+   retained field history, and the actual system roots from product operations.
 2. Start attribution. Write one record while the projector runs. Finish the
    event catch-up and take the exact isolated copy.
 3. Run the copy scrub and compaction. Restore the copy in a fresh home.
 4. Assert all of these facts:
    - source digest did not change;
-   - the injected object alone was deleted;
+   - only data with complete authority for removal was deleted;
    - the copy reports zero `unattributed-residue` user objects;
    - the copy reports zero `unknown` user objects;
-   - the shared atom keeps both schema paths;
+   - canonical field reuse leaves schema values independent and alternate keys resolve the correct primary records;
    - history and system roots remain;
    - the concurrent write has one source event and one attribution path;
    - a later write receives a durable source event and inline size before its
      response returns.
 
-The harness prints `PASS` only when each fact holds.
+The CI summary must link the source revisions, commands, and retained operational artifacts for each claimed result.
 
 ## Open questions resolved by this plan
 

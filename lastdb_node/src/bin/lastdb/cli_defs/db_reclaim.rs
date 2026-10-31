@@ -57,17 +57,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// GC: delete empty, unbound `protein:` rows.
-    ///
-    /// Historical clients leaked one empty protein per failed bind probe.
-    /// Bound proteins are protected by their member list and by `molprot:`
-    /// back-refs. Default is dry-run. Pass `--execute` to apply.
-    GcProteins {
-        #[arg(long)]
-        execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
     /// Read the durable atom hard-delete audit trail (purge and delete), oldest first.
     ///
     /// Answers "was this atom body deleted on purpose, or lost?" from the store's

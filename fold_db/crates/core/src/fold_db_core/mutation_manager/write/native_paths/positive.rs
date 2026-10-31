@@ -38,9 +38,8 @@ impl MutationManager {
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
         scope: Option<&str>,
-        siblings: bool,
     ) -> Result<(), SchemaError> {
-        for (molecule, data, _) in super::changed_field_slots(job, siblings) {
+        for (molecule, data, _) in super::changed_field_slots(job) {
             self.db_ops
                 .atoms()
                 .stage_molecule_header(runtime, molecule, data, scope)?;

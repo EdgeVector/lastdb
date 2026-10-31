@@ -98,8 +98,6 @@ pub struct AtomCounter {
     /// the counter or the body names a blob without its size.
     #[serde(rename = "sz", default, skip_serializing_if = "Option::is_none")]
     pub size: Option<AtomSize>,
-    /// Original atom owner for meter attribution when a protein peer removes
-    /// its last reference. Missing old counters cannot establish that owner.
     #[serde(rename = "src", default, skip_serializing_if = "Option::is_none")]
     pub source_schema: Option<String>,
     /// A planner found a count that disagrees with a removal. The body stays,

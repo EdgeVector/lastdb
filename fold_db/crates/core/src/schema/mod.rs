@@ -23,7 +23,6 @@
 
 // Internal modules
 pub mod core;
-pub mod field_hash_coherence;
 
 pub mod interpreter;
 mod logical_rules;
@@ -33,9 +32,6 @@ pub mod types;
 
 // Public re-exports
 pub use core::SchemaCore;
-pub use field_hash_coherence::{
-    shared_field_identities, KeyLayoutFingerprint, SharedFieldIdentity,
-};
 pub use interpreter::SchemaInterpreter;
 pub use logical_rules::{
     require_logical_filter, require_logical_layout, require_logical_query_controls,

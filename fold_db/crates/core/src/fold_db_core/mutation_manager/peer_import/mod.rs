@@ -95,9 +95,6 @@ impl MutationManager {
         // Do not collapse a page to its final tips: intermediate losers retain
         // their normal conflict facts and counted atom references.
         for (name, outcomes) in schemas {
-            self.schema_manager
-                .apply_field_hash_coherence_on_load(name)
-                .await?;
             let mut job = self
                 .prepare_peer_job(name, &outcomes, &event.origin)
                 .await?;

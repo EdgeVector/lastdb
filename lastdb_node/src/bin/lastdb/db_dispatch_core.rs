@@ -85,7 +85,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             execute,
             json,
         } => db_clear_history(socket, schema.as_deref(), keep_last, execute, json),
-        DbReclaimCommand::GcProteins { execute, json } => db_gc_proteins(socket, execute, json),
         DbReclaimCommand::DeleteLedger { limit, json } => db_delete_ledger(socket, limit, json),
     }
 }

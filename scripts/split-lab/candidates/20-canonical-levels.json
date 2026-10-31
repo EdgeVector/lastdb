@@ -3,7 +3,7 @@
  "note": "Units follow schema -> field -> molecule -> atom -> file. warm_set is a cache over molecule/atom; cloud sits beside file; shared is the leaf.",
  "mixed_files": {
   "atom/mod.rs": "molecule (KeyMetadata, LWW order, molecule uuid) + atom re-exports",
-  "db_operations/atom_store/mod.rs": "atom (AtomStore struct) + molecule state: tip locks, delete barriers, MoleculeKeyStore, protein gate, keep-small meters",
+  "db_operations/atom_store/mod.rs": "atom (AtomStore struct) + molecule state: tip locks, delete barriers, MoleculeKeyStore, keep-small meters",
   "db_operations/atom_store/construct.rs": "atom + molecule (same struct)",
   "db_operations/atom_store/counter/commit.rs": "molecule (tip records) + atom (bodies, counters, blob counters) in one batch",
   "storage/disk_pack/mod.rs": "file (PackRuntime, run homes) + warm_set (owns CoreWarmSet)",
@@ -73,12 +73,11 @@
     "db_operations/schema_operations/",
     "db_operations/logical_membership.rs",
     "db_operations/atom_history.rs",
-    "protein/",
     "alternate_keys/",
     "fold_db_core/mutation_manager/molecules/prepare/key_rules.rs"
    ],
    "pure": false,
-   "about": "Schema definitions, schema store/load/cache/state, key declarations, alternate keys, proteins."
+   "about": "Schema definitions, schema store/load/cache/state, key declarations, alternate keys."
   },
   {
    "name": "field",

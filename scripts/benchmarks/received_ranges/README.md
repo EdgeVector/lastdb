@@ -1,6 +1,8 @@
 # Received-data range operations
 
 The workflow builds the exact PR base and head on GitHub Actions.
+The removal PR uses its compatible prerequisite as the base.
+Both sources accept schema-owned HashRange records before the removal comparison.
 It uses the actual LastDB daemon and ordinary owner-socket reads.
 Each run uses a new generated home under `RUNNER_TEMP`.
 It has no primary, archive, cloud, or real sender input.
@@ -15,12 +17,11 @@ Local records duplicate every sixteenth key, plus selected boundary keys.
 The four fields identify the source and contain a generated 256-byte body.
 Every returned field must match the expected source precedence.
 Local values take precedence. Source zero precedes source one.
-An alternate schema uses the same `(bucket,id)` key and explicit mappers for `bucket`, `title`, and `body`.
-Its unmapped `id` has a distinct description and molecule.
-The local write supplies no value in the first schema's `id` molecule.
-Those local primary values take precedence before schema membership excludes them.
-The recipe verifies 640 excluded keys before a valid refill and a 576-key all-hidden tail.
-Received values at those same keys must remain hidden.
+An independent schema uses the same `(bucket,id)` key and canonical field definitions.
+It owns separate values and molecules for all fields.
+Local writes to that schema supply 640 prefix keys and 576 tail keys.
+They do not replace or exclude received records in the target schema.
+The recipe verifies complete values in both schemas before and after reopen.
 
 The public mutation API does not accept a received namespace override.
 The CI-only `received_range_seed` executable therefore uses the ordinary mutation manager.
@@ -50,7 +51,7 @@ An unexpected error or an incomplete candidate operation fails the workflow.
 
 Both variants receive a complete known-key prefill immediately before the latency sample, after the broad walks.
 The latency comparison uses 32 identical 128-key intervals with 64-record pages.
-Two matched pairs run on format 4 homes: blinded hash keys and typed range keys.
+Two matched pairs use typed range keys and each release's default fresh-home format.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.

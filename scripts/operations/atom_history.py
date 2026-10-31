@@ -53,7 +53,7 @@ def cli(node, binary, *args, success=True):
 
 
 def install(node):
-    for name, cross in [("HistoryById", False), ("HistoryByBucket", True)]:
+    for name, cross in [("HistoryById", False), ("HistoryByBucket", True), ("HistoryAlternate", False)]:
         definition = {
             "source": "system_seed", "name": name, "descriptive_name": name,
             "schema_type": "HashRange" if cross else "Hash",
@@ -62,7 +62,10 @@ def install(node):
             "field_types": {f: "String" for f in ["id", "bucket", "value"]},
             "field_descriptions": {f: "History example " + f for f in ["id", "bucket", "value"]},
             "field_versions": {f: 1 for f in ["id", "bucket", "value"]},
+            "independent_fields": True,
         }
+        if name == "HistoryAlternate":
+            definition["alternate_keys"] = {"by_bucket": {"hash_field": "bucket", "range_field": "id"}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
 
 
@@ -132,28 +135,47 @@ def capture_rules(node):
     print("first write, same atom, and one replace passed", flush=True)
 
 
-def protein_move(node):
+def alternate_key_move(node):
+    schema = "HistoryAlternate"
     key = {"hash": "move-one"}
     old = {"hash": "from", "range": "move-one"}
     new = {"hash": "to", "range": "move-one"}
-    mutate(node, "HistoryById", key,
+    mutate(node, schema, key,
            {"id": "move-one", "bucket": "from", "value": "stable"}, "create")
-    require(history(node, {"op": "list"}, key=key)["entries"] == [],
+    require(history(node, {"op": "list"}, schema, key)["entries"] == [],
             "source value history existed before the key move")
-    require(history(node, {"op": "list"}, "HistoryByBucket", old)["entries"] == [],
-            "old protein key had history before the move")
-    mutate(node, "HistoryById", key, {"bucket": "to"}, "update")
-    require(history(node, {"op": "list"}, key=key)["entries"] == [],
+    def lookup(coordinates):
+        page = node.call("/api/query", {
+            "schema_name": schema, "key_name": "by_bucket",
+            "fields": ["id", "bucket", "value"], "filter": {"HashRangeKey": coordinates},
+        })[0]
+        require(not page.get("has_more"), "alternate move lookup was truncated")
+        return page["results"]
+    require(len(lookup(old)) == 1 and not lookup(new), "initial alternate key membership differs")
+    mutate(node, schema, key, {"bucket": "to"}, "update")
+    require(history(node, {"op": "list"}, schema, key)["entries"] == [],
             "unchanged value atom entered source history")
-    moved = history(node, {"op": "list"}, "HistoryByBucket", old)
-    require(len(moved["entries"]) == 1,
-            "old protein key did not archive one value: " + json.dumps(moved))
-    require(moved["entries"][0]["reason"] == "delete", "old protein key reason was not delete")
-    require(history(node, {"op": "get", "id": moved["entries"][0]["id"]}, "HistoryByBucket", old)["value"]
-            == "stable", "departing value differs")
-    require(history(node, {"op": "list"}, "HistoryByBucket", new)["entries"] == [],
-            "new protein key had history")
-    print("protein key move archived the old key as delete", flush=True)
+    require(not lookup(old), "the old alternate key still resolves")
+    current = lookup(new)
+    require(len(current) == 1 and current[0]["key"]["hash"] == "move-one"
+            and current[0]["fields"]["value"] == "stable", "the new alternate key lost its primary value")
+    mutate(node, schema, key, {}, "delete")
+    moved = history(node, {"op": "list"}, schema, key)
+    require(len(moved["entries"]) == 1 and moved["entries"][0]["reason"] == "delete",
+            "primary delete did not archive exactly one value")
+    require(history(node, {"op": "get", "id": moved["entries"][0]["id"]}, schema, key)["value"]
+            == "stable", "the primary delete archived another value")
+    require(not lookup(old) and not lookup(new), "a deleted record remains under an alternate key")
+    try:
+        history(node, {"op": "restore", "id": moved["entries"][0]["id"], "absent": True}, schema, key)
+    except RuntimeError as error:
+        require("HTTP 400" in str(error) and "required alternate key field is absent" in str(error),
+                "incomplete record restore failed for another reason")
+    else:
+        raise RuntimeError("a field-only restore created a record without its required alternate fields")
+    require(history(node, {"op": "list"}, schema, key) == moved,
+            "a refused incomplete restore changed the field or its history")
+    print("alternate key move preserved the value and primary delete archived it once", flush=True)
 
 
 def expiry_body(node):
@@ -213,15 +235,26 @@ def exercise(node, binary):
     require(history(node, {"op": "list"})["entries"] == [], "off policy retained a value")
     cli(node, binary, "policy", "keep")
     capture_rules(node)
-    protein_move(node)
+    alternate_key_move(node)
     expiry_body(node)
     write(node, "third")
     page = cli(node, binary, "list")
     require(len(page["entries"]) == 1, "keep policy did not retain one transition")
     entry = page["entries"][0]["id"]
     require(cli(node, binary, "get", entry)["value"] == "second", "old atom value differs")
-    sibling = history(node, {"op": "list"}, "HistoryByBucket", {"hash": "bucket-one", "range": "one"})
-    require(len(sibling["entries"]) == 1, "canonical field policy missed the related molecule")
+    independent_key = {"hash": "bucket-one", "range": "one"}
+    mutate(node, "HistoryByBucket", independent_key,
+           {"id": "one", "bucket": "bucket-one", "value": "independent-first"}, "create")
+    mutate(node, "HistoryByBucket", independent_key, {"value": "independent-second"}, "update")
+    independent = history(node, {"op": "list"}, "HistoryByBucket", independent_key)
+    require(len(independent["entries"]) == 1, "canonical field policy missed the independent schema")
+    require(history(node, {"op": "get", "id": independent["entries"][0]["id"]}, "HistoryByBucket", independent_key)["value"]
+            == "independent-first", "independent field history contains another schema's value")
+    require(cli(node, binary, "get", entry)["value"] == "second", "field reuse changed another schema's history")
+    current = node.call("/api/query", {"schema_name": "HistoryById", "fields": ["value"],
+                                        "filter": {"HashKey": "one"}})[0]["results"]
+    require(len(current) == 1 and current[0]["fields"]["value"] == "third",
+            "field reuse changed another schema's current value")
     expected = page["current"]["mutation"]
     cli(node, binary, "restore", entry, "--expected-mutation", expected)
     cli(node, binary, "restore", entry, "--expected-mutation", expected, success=False)

@@ -227,13 +227,7 @@ pub(super) fn schema_owner_for_hint(host: &Host, schema: Option<&str>) -> Option
 pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::OpKind {
     use crate::request_telemetry::OpKind;
     match route {
-        // `ProteinGet` / `ProteinOfMolecule` are reads and must rank as such:
-        // counting them as mutations inflated `kanban verb=mutation` and made
-        // the offender tables name the wrong op class during triage.
-        DataRoute::Query
-        | DataRoute::ListRecordKeys
-        | DataRoute::ProteinGet
-        | DataRoute::ProteinOfMolecule => OpKind::Query,
+        DataRoute::Query | DataRoute::ListRecordKeys => OpKind::Query,
         DataRoute::Mutation | DataRoute::AggregateRepair | DataRoute::AggregateFinalize => {
             OpKind::Mutation
         }

@@ -19,8 +19,6 @@ pub struct ResidentHealth {
     pub atom_rehydrates: u64,
     pub file_blob_hits: u64,
     pub file_blob_rehydrates: u64,
-    pub protein_hits: u64,
-    pub protein_rehydrates: u64,
     /// Retired background totals. Live queue measurements use persist_lane_*.
     pub persist_enqueued: u64,
     pub persist_flushed: u64,
@@ -93,8 +91,6 @@ impl Default for ResidentHealth {
             atom_rehydrates: 0,
             file_blob_hits: 0,
             file_blob_rehydrates: 0,
-            protein_hits: 0,
-            protein_rehydrates: 0,
             persist_enqueued: 0,
             persist_flushed: 0,
             deferred_persist_failed: 0,

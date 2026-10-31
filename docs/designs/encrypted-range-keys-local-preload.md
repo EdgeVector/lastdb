@@ -154,7 +154,7 @@ An opaque whole-file backup alone does not supply this query service.
 A schema can reference several membership molecules, including shared fields and record-envelope membership.
 Readiness requires every source that the query can select under the existing membership contract.
 Do not combine unrelated field keys into a new record-existence rule.
-Compatible copied schemas can share a complete directory; different protein key layouts remain distinct.
+Compatible copied schemas can share a complete directory; named alternate address layouts remain distinct.
 
 Each directory revision has an authenticated manifest.
 It names its membership domains, key epochs, covered change position, complete chunk list, and expected counts.

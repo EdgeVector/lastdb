@@ -1,6 +1,6 @@
 # Compound alternate keys
 
-A schema owns its values. Canonical field identities can match across schemas without shared values or proteins.
+A schema owns its values. Canonical field identities can match across schemas while their record values remain separate.
 Schema Service keeps different key layouts as separate definitions and does not create value aliases between them.
 Existing published definitions retain their metadata until an explicit compatible conversion. Registration does not rewrite existing values.
 
@@ -107,3 +107,14 @@ An ordinary independent source can use this explicit transition too.
 The durable conversion scope and every status reply retain the target identity and complete map.
 The app must preserve this scope across a restart and save the new definition identity before the finish action.
 Requests without these optional properties keep the original conversion contract.
+
+## Upgrade from a shared-value release
+
+This release refuses a schema that uses the retired shared-value layout. Startup does not convert data.
+Convert each app on the compatible release (#793) before you install this release:
+
+1. Stop the daemon. On a format 4 or 5 home, run `lastdb db enable-alternate-keys`. Add `--i-know-this-is-primary` only for an approved primary change.
+2. Start the compatible daemon. Install the app releases that contain the conversion command.
+3. Run `kanban multi-key-convert --apply --maintenance`, `brain multi-key-convert --apply --maintenance`, and `lastsecrets schema-values-convert --apply --maintenance`.
+4. Each command shows its plan without `--apply`. Use `--abort` before publication to restore the source state.
+5. Stop the compatible daemon cleanly. Then start this release.

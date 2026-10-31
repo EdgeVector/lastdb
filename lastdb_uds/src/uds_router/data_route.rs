@@ -290,9 +290,6 @@ pub enum DataRoute {
     /// `GET /api/db/native-status` — read native completion and writer state.
     /// OWNER only. This does not request a flush.
     DbNativeStatus,
-    /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
-    /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
-    DbGcProteins,
     /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
@@ -307,9 +304,6 @@ pub enum DataRoute {
     /// `POST /api/db/schema-retention` — owner read/set/clear of the
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
-    /// `POST /api/db/backfill-protein-keys` — replay at most 64 named source
-    /// keys into an existing protein member. Owner only; no key enumeration.
-    DbBackfillProteinKeys,
     /// `POST /api/db/alternate-keys` — owner-only declaration backfill and publication.
     DbAlternateKeys,
     /// `POST /api/db/repair-schema-molecule-map` — compare-and-set repair of
@@ -339,24 +333,4 @@ pub enum DataRoute {
     /// `POST /api/app/changes` — durable ordered mutation metadata, scoped to
     /// schemas visible to the verified app (or the owner on the owner socket).
     AppChanges,
-    /// `GET /api/protein/{uuid}` — load a protein record by UUID.
-    ///
-    /// Read-only by design. Proteins used to be an app-facing write surface
-    /// (`POST /api/protein{,/member,/write,/fold}`), which made every app that
-    /// wanted multi-key coherence responsible for creating proteins, binding
-    /// members, and driving folds itself — and made a mistake in any one of them
-    /// an app's way to corrupt another app's tips. The node now detects
-    /// multi-key siblings and binds them on schema load (`field_hash_coherence`),
-    /// and folds on the ordinary mutation path, so nothing outside the engine
-    /// needs to name a protein. What remains here is introspection.
-    ProteinGet,
-    /// `GET /api/protein/of-molecule/{molecule_uuid}` — resolve the protein a
-    /// molecule is already bound to, or `null` when unbound.
-    ///
-    /// Exists so a client can **adopt** an existing binding without writing.
-    /// Without it, the only way to learn the binding was to `POST /api/protein`
-    /// (a durable write), attempt the bind, and read the owning UUID out of the
-    /// rejection message — which orphaned the just-created protein on every
-    /// call, permanently, because nothing deletes `protein:` rows.
-    ProteinOfMolecule,
 }

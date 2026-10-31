@@ -22,9 +22,6 @@
     "crypto/",
     "security/",
     "mini_cutover/",
-    "protein/mod.rs",
-    "protein/types.rs",
-    "protein/keys.rs",
     "schema/mod.rs",
     "schema/interpreter.rs",
     "schema/schema_types.rs",
@@ -57,8 +54,6 @@
     "memory_budget/",
     "db_operations/",
     "schema/core/",
-    "protein/ops.rs",
-    "protein/ops/",
     "sharing/blob_cas.rs",
     "sharing/blob_cas/",
     "sharing/store.rs",
@@ -148,7 +143,6 @@
     "fold_db_core/conflict_janitor_pace.rs",
     "fold_db_core/conflict_janitor_policy.rs",
     "fold_db_core/molecule_drain.rs",
-    "fold_db_core/protein_reaper.rs",
     "fold_db_core/fold_db/admin_db.rs",
     "fold_db_core/fold_db/admin_db/",
     "fold_db_core/fold_db/alternate_key_changes.rs",
@@ -156,8 +150,6 @@
     "fold_db_core/fold_db/catalog_gc.rs",
     "fold_db_core/fold_db/hashrange_key_repair.rs",
     "fold_db_core/fold_db/maintenance_admission.rs",
-    "fold_db_core/fold_db/protein_backfill.rs",
-    "fold_db_core/fold_db/protein_backfill/",
     "fold_db_core/fold_db/schema_drop.rs",
     "fold_db_core/purge/retention_backfill.rs",
     "sync/auth/",
@@ -213,7 +205,7 @@
     "storage/disk_pack/logical_capture/verify.rs"
    ],
    "pure": false,
-   "about": "Background and lifecycle work: molecule drain, retention janitor, protein reaper, blob dwell, counter recount/verify, compaction, backup capture/restore/transport, catalog GC, admin inventory and repair."
+   "about": "Background and lifecycle work: molecule drain, retention janitor, blob dwell, counter recount/verify, compaction, backup capture/restore/transport, catalog GC, admin inventory and repair."
   },
   {
    "name": "node",

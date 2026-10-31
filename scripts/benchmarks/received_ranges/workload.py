@@ -1,6 +1,6 @@
 """Actual daemon reads from independently seeded received and local scopes."""
 
-from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, TOTAL, key, latency, prefix, query, validate, walk
+from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, HIDDEN_SCHEMA, SCHEMA, TOTAL, key, latency, prefix, query, validate, walk
 from ranges import comparison_tag
 from seed import Seed
 from conditions import Conditions, capture_phases
@@ -33,11 +33,15 @@ class Workload:
         return [walk(self.node, expected, request, label + "-" + name, self.baseline)
                 for name, request in selectors]
 
+    def separate_values(self):
+        request = {**prefix(), "schema_name": HIDDEN_SCHEMA}
+        return walk(self.node, self.seed.separate, request, "separate-schema-values")
+
     def edges(self):
         cases = [("overlap-boundary", query(key(8160), key(8240), 7)),
             ("second-source-only", query(key(23000), key(23500), 37)),
-            ("all-hidden-tail", query(key(24000), key(TOTAL), 37)),
-            ("hidden-prefix-refill", query(key(5000), key(5800), 37)),
+            ("separate-schema-tail", query(key(24000), key(TOTAL), 37)),
+            ("separate-schema-overlap", query(key(5000), key(5800), 37)),
             ("empty-interval", query(key(77), key(77), 7)),
             ("inverted-interval", query(key(78), key(77), 7)),
             ("empty-prefix", prefix("", 2, EDGE_HASH)),
@@ -79,6 +83,7 @@ class Workload:
 
     def run(self):
         self.seed.populate()
+        separate = [self.separate_values()]
         broad = self.broad("seeded")
         known = [self.keyed("complete-known-key-prefill-immediately-before-latency")]
         memory_before = self.node.status("immediately-before-narrow-latency")
@@ -100,12 +105,14 @@ class Workload:
         narrow_coverage = capture_phases(self.node, measured, full_records=True)
         boundaries = self.edges()
         self.seed.changed()
+        separate.append(self.separate_values())
         known.append(self.keyed("delete-purge-update-and-reopened"))
         reopened = self.broad("changed-reopened")
         conditions = Conditions(self.node, SCHEMA, self.seed.expected()).run()
         preload = self.preload()
         return {"received_records_per_source": COUNT, "sources": 2, "overlap_records": 8192,
-            "known_key_passes": known, "broad": broad, "boundaries": boundaries,
+            "known_key_passes": known, "separate_schema_values": separate,
+            "broad": broad, "boundaries": boundaries,
             "reopened": reopened, "preload": preload, "narrow_latency": latency(measured),
             "narrow_samples": measured, "ordered_mutation_sha256": self.seed.offered.hexdigest(),
             "narrow_phase_coverage": narrow_coverage,

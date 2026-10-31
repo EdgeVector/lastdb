@@ -36,7 +36,6 @@ pub(super) fn phase_timings(
         idempotency_check_us: phase_totals.idempotency_check_us,
         grouping_us: phase_totals.grouping_us,
         restore_molecules_us: phase_totals.restore_molecules_us,
-        protein_sibling_fold_us: phase_totals.protein_sibling_fold_us,
         spawn_indexing_us: phase_totals.spawn_indexing_us,
         sync_uuids_us: phase_totals.sync_uuids_us,
         schema_reload_us: phase_totals.schema_reload_us,

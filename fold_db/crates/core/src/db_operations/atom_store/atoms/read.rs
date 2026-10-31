@@ -42,10 +42,6 @@ impl AtomStore {
         uuids: &[&str],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Option<Atom>>, SchemaError> {
-        // Several selected tips can name the same atom, including protein
-        // members and repeated key-field values. Resolve and certify its body
-        // once in this captured namespace; logical path admission still runs
-        // for every selected tip in the caller.
         let mut identities = HashMap::with_capacity(uuids.len());
         let mut keys = Vec::new();
         let mut uses = Vec::<usize>::new();

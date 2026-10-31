@@ -12,9 +12,6 @@ use fold_db::schema::{
 };
 use serde_json::{json, Map};
 
-pub(super) const NEEDS_ONE_SCHEMA: &str =
-    "a retention needs one catalog schema, and this declare composed several";
-
 pub(super) struct Assessment {
     pub(super) ttl_seconds: u64,
     pub(super) layout: RetentionLayout,
@@ -67,7 +64,20 @@ async fn existing_data(host: &Host, binding: &str, anchor: &str) -> Result<bool,
             continue;
         };
         let map = schema.field_molecule_uuids.clone().unwrap_or_default();
-        if has_live_key(host, key_molecule(&schema, &map)).await? {
+        let molecule = schema
+            .key
+            .as_ref()
+            .and_then(|key| key.hash_field.as_ref())
+            .and_then(|field| map.get(field));
+        let Some(molecule) = molecule else { continue };
+        let (keys, _, _) = host
+            .db
+            .db_ops()
+            .atoms()
+            .list_live_record_keys(molecule, 1, None, None)
+            .await
+            .map_err(|error| format!("failed to probe key molecule {molecule}: {error}"))?;
+        if !keys.is_empty() {
             return Ok(true);
         }
     }

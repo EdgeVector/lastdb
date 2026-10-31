@@ -58,12 +58,6 @@
    ]
   },
   {
-   "name": "protein",
-   "paths": [
-    "protein/"
-   ]
-  },
-  {
    "name": "request_phases",
    "paths": [
     "request_phases/",

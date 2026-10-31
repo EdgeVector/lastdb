@@ -22,7 +22,7 @@ Capture refuses a foreign home binding or missing established control state.
 
 The first release accepts locally authored, personal Create and Update requests on plain Hash and HashRange schemas.
 The schema and each field require canonical identities.
-The normal mutation route refuses imports, Delete, Purge, TTL, aggregate operations, protein members, mapped fields, share rules, share subscriptions, and file blob references.
+The normal mutation route refuses imports, Delete, Purge, TTL, aggregate operations, mapped fields, share rules, share subscriptions, and file blob references.
 It also refuses existing molecule generations and alternate field layouts.
 The admission check runs before attribution records or author-clock changes.
 The native admission fence also refuses unsupported internal logical writes before their batch can commit.

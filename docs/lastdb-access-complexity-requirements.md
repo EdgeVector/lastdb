@@ -1,21 +1,14 @@
 # LastDB access complexity requirements
 
-**Protein deprecation, Tom, 2026-10-29:** Use named alternate keys on one schema for the same records.
-Keep unrelated records in separate schemas. Keep canonical field reuse separate from record values.
-The [conversion rules](protein-deprecation.md) replace the protein recommendations below.
-The keyed-access complexity requirements remain in force.
-
-**Status:** product requirement (won't-undo)  
-**Audience:** engine, apps, agents  
-**Model:** Dynamo-style NoSQL — **not SQL**
-
----
+Use named alternate keys on one schema for the same records.
+Keep unrelated records in separate schemas. Canonical field reuse supplies definitions and types.
+See [the conversion guide](multi-key-schema-conversion.md).
 
 ## One-sentence rule
 
 LastDB supports **keyed access only**: point get by hash (and optional exact range), and **ordered range under a single hash**. There is **no full scan**. There is **no SQL-style table scan or ad-hoc field filter as a query plan**.
 
-If the access pattern is not expressible as a hash (and optional range under that hash), you **design a second keyed schema**, not a scan. Prefer protein fold for shared fields. Dual-write only a thin projection.
+A field definition does not connect mutable values across schemas. Each alternate key addresses the source schema records.
 
 ---
 
@@ -81,7 +74,7 @@ The [native write report](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c109
 
 **There is no full scan.** LastDB is not SQL. Apps must not depend on scan, and the engine must not treat scan as a supported query class for product work.
 
-If you need another list shape, **add a second Hash / HashRange schema** whose hash (and range encoding) makes the query **O(1)** or **O(log M)** under one partition. Shared payload fields fold via protein. Dual-write only a thin projection.
+For another list of the same records, declare a named alternate key with a hash and a suitable range.
 
 ---
 
@@ -89,7 +82,7 @@ If you need another list shape, **add a second Hash / HashRange schema** whose h
 
 1. **Name the query** before the schema (point by id, list by board, list by column, …).
 2. **Primary schema** serves the truth key (usually Hash by slug/id) → **O(1)** get.
-3. **Other shapes** get a **second schema**. Shared fields use protein fold. Dual-write only a thin projection.
+3. **Other reads of the same records** use named alternate keys on the source schema.
 4. **Range keys** are designed so useful lists are **prefix or between under one hash** → **O(log M)**.
 5. Never “we’ll scan and filter later.”
 
@@ -98,7 +91,7 @@ If you need another list shape, **add a second Hash / HashRange schema** whose h
 | Intent | Schema | Complexity |
 |--------|--------|------------|
 | Card by slug | `Card` HashKey(slug) | **O(1)** |
-| Cards on a board | `BoardCards` HashRange(hash=board, range=`col#pos#slug`) | **O(log M)** for that board’s partition |
+| Cards on a board | Card named key `by_board`, hash=board, range=`column#position#slug` | **O(log M)** for that board’s partition |
 | One column | same + range prefix `todo#` | **O(log M)** |
 
 ---
@@ -110,7 +103,7 @@ LastDB does **not** require or promise:
 - `SELECT * FROM table`
 - Full-table scan + predicate pushdown
 - JOINs as a storage primitive
-- Secondary indexes for arbitrary fields as a general SQL feature. Multi-key same-product fields fold via protein. Thin projections may still be app dual-write.
+- An arbitrary field predicate without a declared key. Named alternate keys still require explicit hash and range coordinates.
 - Field-equality filters that ignore key layout
 
 ---
@@ -121,7 +114,7 @@ LastDB does **not** require or promise:
 [ ] Query is point (O(1)) or hash-scoped range (O(log M))
 [ ] Hash partition is known for every range query
 [ ] No full scan, no scan-then-filter, no unscoped enumerate-all
-[ ] Secondary list shapes use a second keyed schema (protein fold for shared fields; dual-write only a thin projection)
+[ ] Other reads of the same records use named alternate keys on the source schema
 [ ] Field count not used as a scaling variable in analysis
 ```
 

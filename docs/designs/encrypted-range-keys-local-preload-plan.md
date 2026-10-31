@@ -67,7 +67,7 @@ Keep the existing atom and file encryption suites unless a separate defect requi
 Review the encryption contract before selection of the new stored form.
 
 Inventory each reader and writer with its source path, required change, and operational check.
-Include raw administrative writes, imports, protein updates, retention, conflicts, replay, conversion, backup, and restore.
+Include raw administrative writes, imports, alternate-key changes, retention, conflicts, replay, conversion, backup, and restore.
 Locate plaintext range copies in controls, cursors, metadata, logs, and object names.
 Include durable app notifications, conflict values, retained sync markers, and the local search inbox privacy boundary.
 The old decoder search alone cannot establish complete coverage.
@@ -100,7 +100,7 @@ The current home format remains selected until the complete local route exists.
 
 Make the encrypted directory the stored form of authoritative membership, rather than an independently maintained second membership authority.
 Retain the existing membership precedence for fields and record envelopes.
-Different protein key layouts keep distinct domains.
+Named alternate address layouts keep distinct domains.
 
 Store encrypted directory entries and a complete directory root in the native snapshot.
 Use exact opaque keys for tip and control lookups.
@@ -126,7 +126,7 @@ Raw opaque keys cannot reconstruct a plaintext range through the former decoder.
 Cover these writer families before cutover:
 
 - Ordinary insert, overwrite, delete, purge, and key move.
-- Protein updates, copied-schema bindings, shared scopes, and backfill.
+- Named alternate-key changes, explicit catalog references, shared scopes, and backfill.
 - Conflict retention, expiry, and the release of atom or file references.
 - Imports, replay, administrative replacements, and generation changes.
 - File-bearing writes and the controls that preserve their dependencies.
@@ -159,7 +159,7 @@ Update all query routes that currently depend on encoded order or prefixes:
 - Exact HashRange reads and batch reads.
 - Range bounds, prefixes, cursors, limits, and pages under one hash.
 - Record envelopes, samples, counts, and field-source fallback.
-- Predicate and sort-field fetches, copied fields, and protein layouts.
+- Predicate and sort-field fetches, explicit catalog references, and named alternate layouts.
 - Administrative key output and any supported API that returns original keys.
 
 Select plaintext ranges in memory, then batch-fetch missing tips and atoms by opaque identifiers.
@@ -282,7 +282,7 @@ The initial key download remains visible as a separate cost from later exact fet
 | Complete key memory | `fold_db/crates/core/src/resident/core_keys.rs` and `resident/core_keys/` |
 | Load and publication | `fold_db/crates/core/src/storage/disk_pack/schema_keys.rs` and `storage/disk_pack/schema_keys/` |
 | Query selection | `fold_db/crates/core/src/db_operations/atom_store/schema_keys/`, `filter/`, `schema/types/field/filter_utils/` |
-| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/`, `protein/` |
+| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/`, `fold_db_core/fold_db/alternate_key_changes/` |
 | Format and recovery | `fold_db/crates/core/src/storage/current_keys.rs`, `mini_cutover/`, `storage/disk_pack/byte_backup/` |
 | Cloud contract and client | `cloud_backup_protocol/src/`, `fold_db/crates/core/src/sync/auth/`, `sync/engine/` |
 | Cloud service | `exemem_service/lambdas/storage_service/src/` in `exemem-infra` |

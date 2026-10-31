@@ -186,12 +186,12 @@ Record writes retain the existing best-effort relationship-binding retry; that
 check does not store or reload the unchanged catalog definition.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
-Concurrent schema declarations cannot create competing proteins for the same unbound molecule.
-Schema and protein definitions use one shared namespace on the node.
-Related writes and deletes read those definitions, then use the caller's database scope for the records.
+Schema declarations preserve each schema's own installed molecule map.
+Schema definitions use one shared namespace on the node.
+Writes and deletes read those definitions, then use the caller's database scope for the records.
 The definition lookup does not select data from another database.
 Schema publication establishes the fixed encryption keys for every final field molecule.
-This includes related molecules before a write reaches them through a protein.
+Named alternate addresses change with the primary record in one native transaction.
 Personal and named databases use the same keys for the same molecule identity.
 Private key creation follows the native write boundary and one lock order.
 A failed schema change cannot publish its private keys in the shared cache.

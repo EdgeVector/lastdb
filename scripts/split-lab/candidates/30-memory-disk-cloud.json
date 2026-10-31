@@ -4,7 +4,7 @@
   {
    "name": "model",
    "pure": true,
-   "about": "Place-neutral value types and codecs: atom, molecule, key codecs, schema and mutation types, protein records, canonical bytes, encryption codecs, keys, wire formats.",
+   "about": "Place-neutral value types and codecs: atom, molecule, key codecs, schema and mutation types, canonical bytes, encryption codecs, keys, wire formats.",
    "paths": [
     "access/db_handle.rs",
     "access/mod.rs",
@@ -20,9 +20,6 @@
     "json_order.rs",
     "kind_partition.rs",
     "mini_cutover/",
-    "protein/keys.rs",
-    "protein/mod.rs",
-    "protein/types.rs",
     "schema/field_hash_coherence.rs",
     "schema/interpreter.rs",
     "schema/logical_rules.rs",
@@ -85,7 +82,7 @@
   {
    "name": "disk",
    "pure": false,
-   "about": "The native disk home: KV traits, encrypting stores, disk_pack commit queue and transactions, run files, merge and cleanup, restore, the mutation log journal, file blobs and their pointer directory, persist lanes, the place-blind logical atom store (tips, counters, molecules, retention, drain, recount, verify, alternate-key and protein rows), its paced workers, and space meters.",
+   "about": "The native disk home: KV traits, encrypting stores, disk_pack commit queue and transactions, run files, merge and cleanup, restore, the mutation log journal, file blobs and their pointer directory, persist lanes, the place-blind logical atom store (tips, counters, molecules, retention, drain, recount, verify, alternate-key rows), its paced workers, and space meters.",
    "paths": [
     "alternate_keys/",
     "atom/history_event_memo.rs",
@@ -109,9 +106,6 @@
     "fold_db_core/conflict_janitor_pace.rs",
     "fold_db_core/conflict_janitor_policy.rs",
     "fold_db_core/molecule_drain.rs",
-    "fold_db_core/protein_reaper.rs",
-    "protein/ops.rs",
-    "protein/ops/",
     "resident/lane.rs",
     "resident/lane/",
     "resident/metrics.rs",
@@ -160,7 +154,6 @@
     "error.rs",
     "fold_db_core/",
     "lib.rs",
-    "protein/",
     "schema/core/",
     "sharing/query_slice.rs",
     "sharing/query_slice/",

@@ -1,9 +1,8 @@
 # LastDB access model for agents
 
-**Protein deprecation, Tom, 2026-10-29:** New designs use one schema with named alternate keys for the same records.
-Canonical field reuse does not share record values.
-The [conversion rules](protein-deprecation.md) supersede the protein recommendations below.
-Existing protein descriptions document compatibility behavior until an explicit app conversion.
+Use one schema with named alternate keys for the same records.
+Keep reusable field definitions separate from mutable record values.
+See [the explicit conversion guide](multi-key-schema-conversion.md).
 
 > **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal, read this file.
 > Then `docs/lastdb-canonical-model.md` (the canonical model), `docs/lastdb-access-complexity-requirements.md`
@@ -27,9 +26,10 @@ Existing protein descriptions document compatibility behavior until an explicit 
 
 ## 1. One-sentence model
 
-**Design for the query you need.** Primary data is keyed one way (e.g. card by slug). Other queries use a **second schema**. Shared payload fields bind into a **protein** and fold sibling tips. Dual-write only a **thin projection** that is a different product shape — same idea as a Dynamo GSI projection the app maintains.
-
-This is intentional NoSQL. It is not “almost SQL.” Do not invent field-equality filters, JOINs, or full-table scans.
+Design each key for a required read. A schema owns its records and field molecules.
+Named alternate keys address those same records through fields declared in the schema.
+An alternate read returns the primary key. Mutations use that primary key.
+The native request updates the record and its alternate addresses atomically.
 
 ---
 
@@ -52,27 +52,17 @@ Full requirement: `docs/lastdb-access-complexity-requirements.md`.
 
 ---
 
-## 3. Dynamo map (use this vocabulary)
+## 3. Key map
 
-| Dynamo | LastDB / fold_db |
-|--------|------------------|
-| Table | Schema (`DeclarativeSchemaDefinition`) |
-| Partition key | HashKey (or HashRange **hash** component) |
-| Sort key | RangeKey (HashRange **range** component) |
-| Item attributes | Fields (assembled at query time from tips + atoms) |
-| `GetItem` | exact `HashKey` / `HashRangeKey` → **O(1)** |
-| `Query` on PK (+ SK prefix/between) | hash-scoped range → **O(log M)** |
-| GSI / second table for another access pattern | **Second schema** — multi-key same-product payload fields: **node proteins + tip fold**; thin projections may still be app dual-write |
-| `Scan` | **Not a product operation** — do not use; design another key |
-| LSI/GSI dual-write (platform) | Prefer proteins for multi-key same-product fields; app dual-write only for projections that are not the same field protein |
+| Required read | LastDB address |
+|---|---|
+| One record | Primary hash, or primary hash and range |
+| Ordered records under one hash | A declared range, with a fixed hash |
+| The same records through another key | A named alternate key on the same schema |
+| Several known records | A batch of exact keys |
+| Relationships with their own values | A separate keyed schema |
 
-If you already know Dynamo access-pattern design, you already know 80% of how to use this database.
-
-**Multi-key proteins (2026-07-30+):** When two schemas index the **same product**
-under **different keys**, Mini binds shared field identities into proteins and
-propagates new mutations by folding sibling tips to the **same atom**. Apps do
-**not** reach into proteins and should not dual-write those payload fields after
-bind. The write fold is described in `docs/lastdb-canonical-model.md`, section 2.
+Canonical field identity supplies definitions and types. It does not connect record values across schemas.
 
 ---
 
@@ -112,10 +102,10 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 | Intent | How |
 |--------|-----|
 | Load one card / brain record by slug | **HashKey** on the primary schema (`Card`, Concept, …) via CLI `show` / `get` — **O(1)** |
-| List a board / column | **BoardCards** HashRange: hash = board, optional range prefix = `column#` — **O(log M)** for that board; via `kanban list` / `list --column` |
-| Point update | Mutate **primary** fields; prefer protein fold for shared fields; dual-write only a thin projection (prefer the product CLI over raw multi-schema surgery) |
+| List a board / column | Card named key `by_board`: hash = board, optional column range prefix; via `kanban list` |
+| Point update | Mutate the primary record. The native request updates its declared alternate addresses. Prefer the product CLI. |
 | Remove data | `Delete` (writes a barrier), `Purge` (hard erase, no barrier), or a manifest TTL. The atom counter frees each body whose last reference goes, in the same batch. Send at most the number of keys that the 400 error names. See `docs/lastdb-atom-counter.md` |
-| Another list shape | New keyed Hash/HashRange schema — protein fold for shared fields; dual-write only a thin projection; never scan |
+| Another list of the same records | Declare a named alternate key from the schema fields. |
 | Read several independent things from **different schemas** | **`POST /api/queries/batch`** — `{"queries":[<`/api/query` body>, …]}`, up to 64, replies in request order with one `status` per item. Not a join: items cannot use each other's results. Within one schema use `HashRangeKeys`. See `docs/designs/lastdb-query-batch-route.md` |
 | Health / load | `lastdb status` (exit 0 iff the owner socket answers `/health`) + socket `/api/status` request_ops; `lastdb ops` (`docs/lastdb-ops-telemetry.md`) |
 | Am I compatible with this node? | `GET /api/version` (both sockets, no state) → `{ok, api_version, build, capabilities, instance_id}`. Compare the `api_version` your client was built against; `/health` carries the same `api_version`. A `400 {"kind":"unknown_key"}` on a data route means the node does not know a key you sent — the client is newer than the node; upgrade the node (`brew upgrade lastdb`), do not rewrite the request. The key itself is never echoed (I4) |
@@ -137,51 +127,20 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 
 ---
 
-## 6. Primary vs secondary (dual-write)
+## 6. Record values and alternate addresses
 
-### Primary
+Keep one source schema for each logical record type.
+Declare alternate keys for different reads of those same records.
+The alternate stores the primary address and no payload copy.
+An update changes the affected addresses in the same native transaction as the record.
 
-- **Source of truth** for the entity (e.g. Card by slug, including body).
-- Access: HashKey(slug) / show / get → **O(1)**.
+Use separate schemas for relationships, counters, tags, links, or files with their own data.
+Collect known keys first. Batch independent reads and mutations.
+Equal canonical field definitions can hold different values at equal keys in separate schemas.
 
-### Secondary index (here)
-
-Two different product shapes share the “second access pattern” vocabulary:
-
-#### A. Multi-key siblings of the same product (node proteins)
-
-- Two schemas, **different key layouts**, same product (e.g. BoardCards by board vs MilestoneCards by milestone).
-- Shared **payload fields** share field identity and bind into **proteins**.
-- On **mutate**, the node **folds sibling tips** to the same atom — apps use one write path; both keys stay addressable.
-- Existing data when a layout joins: the owner supplies exact source keys to
-  `POST /api/db/backfill-protein-keys`. This personal-schema operation accepts
-  1–64 keys per request and preserves the original atoms and author clocks.
-  Schema load does not automatically backfill historical keys.
-  The operation refuses ambiguous target slots and does not replay historical source Delete barriers.
-
-#### B. Thin denormalized projection (app dual-write)
-
-- A **second schema** for a **different query shape** that is **not** the same field protein (classic thin membership / GSI-style projection).
-- Usually a **thin projection** (titles, columns, positions — **not** full body).
-- **Dual-written:** on every logical create/move/update of the primary, the app **also** updates the secondary (put new tip keys, delete old sort keys, purge orphans).
-- List access: hash-scoped range → **O(log M)**.
-
-### Important: proteins vs dual-write
-
-Atoms/molecules are addressable. **Multi-key same-product fields** now use
-**proteins** (shared atom, tip fold) — do **not** re-implement that from the app
-and do **not** poke `protein:` / `molprot:` keys.
-
-**Thin projections** that are a different product shape may still be
-**denormalized dual-writes** (separate molecules/atoms for list fields). Same
-idea as a Dynamo GSI projection the app maintains.
-
-Implications:
-
-- Prefer proteins for multi-key same-product payload; dual-write only where the product still requires a thin projection.
-- **Drift** (list ≠ show) remains a failure mode for dual-written projections.
-- **Heal** tools re-sync secondary from primary **truth** when dual-write is in play. Only run heals when primary point-reads are healthy.
-- Primary remains truth; secondary list structure is disposable when it is a projection.
+An existing shared-value layout requires an explicit conversion with the previous release before the upgrade.
+Preserve the complete key domain, values, clocks, metadata, and app configuration.
+Follow [the conversion guide](multi-key-schema-conversion.md).
 
 ---
 
@@ -239,7 +198,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 [ ] Access pattern named (point O(1) / hash-scoped range O(log M)) — not “SELECT *”
 [ ] Using primary HashKey for single-entity truth
 [ ] Using product secondary (BoardCards / CLI list) for board list — never full scan
-[ ] Mutations go through product CLI; prefer protein fold for shared fields; dual-write only a thin projection
+- Keep alternate keys on the source schema and field definition reuse separate from record values.
 [ ] No bulk secondary heal while primary reads fail
 [ ] Socket health: kanban list / targeted brain get — not brain doctor / :9001
 [ ] Load: lastdb status (exit 0 = socket reachable) / ops (or /api/status request_ops) before blaming “node down”
@@ -254,7 +213,7 @@ A person who reads that seed can derive the file encryption keys. Database encry
 
 | What | Where |
 |------|--------|
-| **Canonical model (schema→field→molecule→atom→file, proteins)** | `docs/lastdb-canonical-model.md` |
+| **Canonical model (schema→field→molecule→atom→file and named keys)** | `docs/lastdb-canonical-model.md` |
 | **rehydrate (resident-first miss path)** | `docs/lastdb-rehydrate.md` |
 | **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` |
 | **Atom counter, delete, purge, crash states** | `docs/lastdb-atom-counter.md` |
@@ -266,8 +225,9 @@ A person who reads that seed can derive the file encryption keys. Database encry
 
 ---
 
-## 11. Framing for humans and agents
+## 11. Model for humans and agents
 
-> LastDB is **Dynamo-shaped NoSQL**. **Get = O(1). Range under a hash = O(log M). No full scan.** Primary key = one query shape. Second schemas for other shapes: protein fold for shared fields; dual-write only a thin projection. Field/molecule/atom is how values are stored under the hood; day-to-day you think **table + PK/SK + optional projection table**.
-
-That framing is accurate and lower cognitive load than “it’s not SQL so everything is novel.” The novel parts are **protein fold for shared fields**, **app-owned thin-projection dual-write**, **field-assembled items**, and **at-rest block encryption** (the store decrypts an AES-256-GCM run-file block when it reads that block from disk, and a read served from the warm set decrypts no block; the read parses the plain atom JSON with no second open; key encodings optional) — not the idea of partition/sort keys.
+A schema owns each record and its field molecules.
+Declare named alternate keys for other reads of those records.
+Reuse canonical field definitions across schemas while each schema keeps separate values.
+Use an explicit conversion for an older value layout before the upgrade.

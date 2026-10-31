@@ -40,8 +40,6 @@ impl MutationManager {
             retention_write: tracks_age.then(|| keys.clone()),
             retention_hash_partitions: tracks_hashes.then_some(keys),
             schema_name: name.to_string(),
-            sibling_updates: Vec::new(),
-            sibling_moves: Vec::new(),
         })
     }
 }

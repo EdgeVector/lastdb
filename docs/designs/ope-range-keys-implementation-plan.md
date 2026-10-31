@@ -106,7 +106,7 @@ Refresh each family against accepted main before its implementation package.
 | Optional ready-memory selection | Use equivalent bounds and term order; recover selected originals from authenticated records |
 | Disk fallback | Return equivalent results without complete preload or a whole pack-file fetch |
 | Copied fields and received sources | Use each authorized source's compatible molecule grant and stored format |
-| Protein changes and conditional writes | Preserve exact-key checks and the related molecule publication boundary |
+| Alternate-key changes and conditional writes | Preserve exact-key checks and the related molecule publication boundary |
 | Deletes, retention, and maintenance | Preserve barrier identities, expiry checks, counts, and durable selection precedence |
 | Replay, conflicts, and change events | Preserve order facts and protect retained private key copies |
 

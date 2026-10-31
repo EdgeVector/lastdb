@@ -99,7 +99,7 @@ Proof JSON: `~/.lastdb-test-copies/proofs/plane-residue-cow-tipdrain-dryrun-2026
 `drain_tip_residue_collection` enumerates with `list_prefix_paged(collection,
 "", …)` — an *empty* prefix, so no filtering — and propagates open errors. A
 `scanned=0` from it therefore means the collection is genuinely empty, not
-unread. All 17 drains in the harness (tip, protein, index) reported
+unread. All 17 drains in the harness (tip, retired shared-value, index) reported
 `scanned=0`.
 
 So the 12.3 MiB was allocated extents behind previously-deleted records, not

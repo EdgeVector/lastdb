@@ -28,28 +28,7 @@ struct SlotRemovalPlan {
 }
 
 impl AtomStore {
-    /// Remove named slots from many per-key molecules in **one** batch with the
-    /// counter changes that the removed tips cause.
-    ///
-    /// `removed_slots` are **storage-form** `(hash, range)` pairs: the segments
-    /// the molecule is keyed by. `data` is the molecule **after** the removal;
-    /// only its header (`version`/`updated_at`) is read.
-    ///
-    /// Purge of a multi-field schema (BoardCards has 24 fields) used to pay one
-    /// delete and one header put per field, and measured ~8.6 s of exclusive
-    /// hold for one record. Now one planner call per storage scope writes every
-    /// tip delete, every counter change, every body delete at zero, and every
-    /// header. The `mord:`/`moc:` order log stays as it is: removing `mk:` rows
-    /// can only widen the `moc:{M} >= count(mk:{M}:…)` margin that
-    /// `db order-log-audit` checks, never invert it.
-    pub(crate) async fn remove_molecules_keys_batch(
-        &self,
-        removals: &[MoleculeKeyRemoval<'_>],
-    ) -> Result<TipCommit, SchemaError> {
-        self.remove_slots(removals, Vec::new(), false, true).await
-    }
-
-    /// [`Self::remove_molecules_keys_batch`] for an erase (delete, purge, TTL
+    /// Erase selected keys (delete, purge, TTL
     /// sweep), with caller rows (delete barriers, ledger rows) that join the
     /// same batch. The erase ends the retention of the kept conflict records of
     /// the slots it removes: the same batch releases them (`retention`).

@@ -1,32 +1,3 @@
-//! Core logical memory and shared process counters.
-//!
-//! [`CoreWarmSet`] owns schemas, molecule definitions, complete selected keys,
-//! sparse current tips, confirmed absence, and full atom objects. A call
-//! captures a disk root and retains selected current values while its revision
-//! matches. Held owners keep earlier values charged; path order controls retention.
-//!
-//! Native writes reserve one request and publish typed core effects. The
-//! private disk queue owns prepared output and flush work. Ordinary reads
-//! cannot inspect it. Unsupported raw controls finish on disk before their
-//! invalidation becomes visible.
-//!
-//! [`PersistLaneMetrics`] holds background purge counters. Typed values, logical
-//! keys, and retained read versions belong only to the core model.
-//!
-//! ## Shared logical contract
-//!
-//! ```text
-//! schema → field → molecule (tips) → atom (file reference only)
-//! protein binds molecules
-//! ```
-//!
-//! The warm set is limited by charged bytes ([`core_warm_bytes`]). A call holds
-//! its selected paths. The purge skips held records and writes that still
-//! await flush; when only those remain, a new record enters over the limit.
-//! CAS file bytes stay outside the logical model. Queries return file
-//! references and access metadata rather than retaining file contents.
-//! See `docs/lastdb-rehydrate.md` for the explicit backend boundary.
-
 mod config;
 pub(crate) mod core_keys;
 mod core_set;

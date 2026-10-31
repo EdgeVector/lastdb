@@ -60,10 +60,6 @@ pub struct HomeStorageInclusiveAppAttribution {
     pub overlap_logical_bytes: u64,
     /// Inclusive app bytes divided by unique app bytes, in basis points.
     pub amplification_basis_points: Option<u64>,
-    /// Retired: the protein fold queue is removed. Always 0. Kept so
-    /// installed clients can still parse this report.
-    #[serde(default)]
-    pub pending_protein_folds: u64,
     pub apps: Vec<HomeStorageAppAttributionRow>,
     #[serde(default)]
     pub unresolved_scopes: Vec<String>,
@@ -81,7 +77,6 @@ impl Default for HomeStorageInclusiveAppAttribution {
             inclusive_app_logical_bytes: 0,
             overlap_logical_bytes: 0,
             amplification_basis_points: None,
-            pending_protein_folds: 0,
             apps: Vec::new(),
             unresolved_scopes: vec!["attribution_not_measured".to_string()],
         }
@@ -146,7 +141,6 @@ pub fn build_inclusive_app_attribution(
             inclusive_app_logical_bytes,
             unique_logical_bytes,
         ),
-        pending_protein_folds: 0,
         apps,
         unresolved_scopes,
     }

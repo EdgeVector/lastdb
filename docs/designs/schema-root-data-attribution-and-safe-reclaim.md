@@ -2,7 +2,7 @@
 
 > **SUPERSEDED.** The atom counter is the only authority for the life of an atom
 > body, a molecule and a file blob (`docs/lastdb-atom-counter.md`,
-> `docs/design-lastdb-counter-lifecycle.md`). No reachability walk, audit, candidate
+> `docs/lastdb-atom-counter.md`). No reachability walk, audit, candidate
 > queue or grace window takes part in a delete. This document describes the original
 > schema-root attribution design and stays as history. Its reclaim-safety rules and its
 > acceptance checklist are not an active plan.
@@ -56,7 +56,6 @@ LastDB stores a record through this ladder:
 
 ```text
 schema catalog -> declared field -> molecule -> tip -> atom -> file blob
-                                      \-> protein member molecule
 ```
 
 Today, the database has several useful physical diagnostics. It can inspect a
@@ -194,15 +193,15 @@ The maintenance graph has these durable edge classes.
 | From | To | Source | Meaning |
 |---|---|---|---|
 | schema root | declared field molecule | schema catalog | The schema declares the field. |
-| protein | member molecule | protein record | Members share one logical value set. |
+| named alternate address | primary record key | owned schema declaration | Another key addresses the same primary record without a payload copy. |
 | molecule key slot | tip | molecule index | The key slot has a current value. |
 | tip | atom | tip body locator | The atom stores the field value. |
 | atom | file blob | validated atom reference | The blob stores large payload bytes. |
 | atom | atom | validated atom reference | A structured value can name another atom. |
 
 The catalog, valid retention policy, and node system roots form the root set.
-Proteins add valid paths between member molecules. A tip may point at one
-shared atom from several molecule keys. An atom or blob can have several
+Canonical field reuse adds no value edge between schemas.
+A tip may point at one atom from several explicitly authorized molecule keys. An atom or blob can have several
 schema attributions.
 
 The walker must keep two values for each object:
@@ -256,7 +255,7 @@ until the operator starts the separate copy scrub command.
 4. Derive each declared field molecule from the schema and field identity.
 5. Read each molecule's durable key slots in bounded pages.
 6. Add tip-to-atom edges from every resolved tip.
-7. Read protein membership and add protein-to-member edges.
+7. Validate named alternate addresses against their declared primary records.
 8. Decode validated atom references and add atom-to-atom and atom-to-blob
    edges.
 9. Classify every remaining object as schema, retention, system, derived,
@@ -366,8 +365,8 @@ edge graph.
    candidate queue when its count reaches zero.
 5. A schema catalog update adds or retires schema-root edges in the same
    catalog generation.
-6. Protein membership updates add or remove their member edges with the
-   protein update.
+6. A named alternate address changes with its primary record in the same native request.
+   It adds no separate payload atom reference.
 7. The mutation appends one ordered attribution event. The event identifies its
    source row and event sequence.
 
@@ -464,7 +463,7 @@ The implementation passes only when these checks pass on an isolated copy and
 then on a supervised live run.
 
 1. The report lists every catalog schema, declared molecule, and system root.
-2. A live record keeps every schema and protein attribution path.
+2. A live record keeps every authorized schema attribution path and its alternate addresses.
 3. A shared atom records every reaching schema without duplicated storage.
 4. A history root keeps its atom after the current tip no longer reaches it.
 5. Every inspected user-data object has one final attribution class.

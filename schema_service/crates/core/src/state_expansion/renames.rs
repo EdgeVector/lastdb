@@ -240,9 +240,6 @@ fn migrate_field_metadata(schema: &mut Schema, old_name: &str, canonical: &str) 
     // entries) lets a later canonical lookup silently overwrite the
     // caller's type with whatever the registry happens to hold.
     migrate_entry(&mut schema.field_types, old_name, canonical);
-    // field_hashes / field_versions are catalog identity for local
-    // map-vs-protein coherence. Migrate with renames so a post-hash
-    // canonicalize does not drop the hash under the old name.
     migrate_entry(&mut schema.field_hashes, old_name, canonical);
     migrate_entry(&mut schema.field_versions, old_name, canonical);
 }

@@ -206,9 +206,6 @@ phase_timings! {
         /// Mutation: restoring molecules missing from the resident graph for the
         /// keys this batch touches. Storage IO.
         restore_molecules_us => "restore_molecules",
-        /// Mutation: field_hash protein-sibling fold — preparing tip updates to
-        /// a shared atom when the entry molecule is protein-bound.
-        protein_sibling_fold_us => "protein_sibling_fold",
         /// Mutation: spawning the background index-mutation task (the spawn call
         /// itself, not the off-task indexing work).
         spawn_indexing_us => "spawn_indexing",

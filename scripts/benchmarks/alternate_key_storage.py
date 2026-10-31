@@ -48,7 +48,7 @@ def write(node, mutations):
     require(node.call("/api/db/flush", {})[0].get("durable") is True, "storage flush is not durable")
 
 
-def verify(node, alternate, model, deleted):
+def verify(node, model, deleted):
     keys = sorted(set(model) | deleted)
     requests = 0
     for offset in range(0, len(keys), 64):
@@ -57,15 +57,13 @@ def verify(node, alternate, model, deleted):
                 "filter": {"HashRangeKeys": [[key, ""] for key in chunk]}, "limit": len(chunk)}
         check_rows(node.call("/api/query", body)[0], {key: model[key] for key in chunk if key in model})
         requests += 1
-    for name, field, peer in (("by_group", "group_id", "ByGroup"), ("by_owner", "owner_id", "ByOwner")):
+    for name, field in (("by_group", "group_id"), ("by_owner", "owner_id")):
         seen = set()
         # Include all declared hash values, even if a change leaves one empty.
         for number in range(GROUPS):
             value = f"{'g' if field == 'group_id' else 'o'}{number:02}"
-            body = {"schema_name": "Task" if alternate else peer, "fields": FIELDS,
+            body = {"schema_name": "Task", "key_name": name, "fields": FIELDS,
                     "filter": {"HashKey": value}, "limit": 1000}
-            if alternate:
-                body["key_name"] = name
             reply = node.call("/api/query", body)[0]
             expected = {key: fields for key, fields in model.items() if fields[field] == value}
             require(not reply.get("has_more"), "storage comparison truncated an alternate result")
@@ -78,8 +76,8 @@ def verify(node, alternate, model, deleted):
             "primary_and_both_alternates_equal": True}
 
 
-def checkpoint(node, alternate, model, deleted, output, name):
-    verified = verify(node, alternate, model, deleted)
+def checkpoint(node, model, deleted, output, name):
+    verified = verify(node, model, deleted)
     # Qualification uses caller-owned records, independent of atoms, tips, or compression.
     require(verified["source_bytes"] >= 16 * 1024 * 1024, "source corpus is below 16 MiB")
     report = node.call("/api/db/schemas")[0]["schema_storage"]
@@ -89,21 +87,20 @@ def checkpoint(node, alternate, model, deleted, output, name):
     result = {"verified": verified, "schema_storage": report, "disk": disk, "cleanup": receipt}
     save(output / f"{name}.json", result)
     node.start()
-    require(verify(node, alternate, model, deleted) == verified, "reopen changed the source records")
+    require(verify(node, model, deleted) == verified, "reopen changed the source records")
     return result
 
 
 def storage_arm(args, label, pair, output):
-    alternate = label == "candidate"
     environment = {**PRIMARY_SETTINGS, **ENVIRONMENT}
     node = Node(getattr(args, label), getattr(args, label + "_revision"), output,
                 environment=environment, temporary_directory=Path(os.environ["RUNNER_TEMP"]).resolve())
     model = {f"space-{i:05}": record(i) for i in range(COUNT)}
     try:
         node.start()
-        declare(node, alternate, records=0)
+        declare(node, records=0)
         write(node, [mutation(key, fields, "create") for key, fields in model.items()])
-        seeded = checkpoint(node, alternate, model, set(), output, "seed")
+        seeded = checkpoint(node, model, set(), output, "seed")
         changes = []
         for number in range(512):
             fields = record(number, version=1, moved=True)
@@ -114,7 +111,7 @@ def storage_arm(args, label, pair, output):
             del model[key]
             changes.append(mutation(key, operation="delete"))
         write(node, changes)
-        changed = checkpoint(node, alternate, model, deleted, output, "changes")
+        changed = checkpoint(node, model, deleted, output, "changes")
         return {"label": label, "pair": pair, "seed": seeded, "changes": changed}
     finally:
         node.close()

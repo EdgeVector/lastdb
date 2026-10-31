@@ -171,17 +171,9 @@ impl MutationManager {
         mut delta: PreparedSchemaDelta,
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
-    ) -> Result<std::time::Duration, SchemaError> {
+    ) -> Result<(), SchemaError> {
         self.schema_manager
             .require_queryable_schema(&delta.schema_name)?;
-        // Membership must precede the protein reads that select sibling tips.
-        // This also upgrades a reopened home on its first ordinary mutation.
-        measure(
-            "schema_coherence_us",
-            self.schema_manager
-                .apply_field_hash_coherence_on_load(&delta.schema_name),
-        )
-        .await?;
         let alternate_keys = crate::alternate_keys::affected_keys(
             &delta.schema,
             &delta.schema_mutations,
@@ -201,11 +193,10 @@ impl MutationManager {
                 .alternate_fields(&delta.schema, &alternate_keys, scope.as_deref())
                 .await?
         };
-        let (modified_fields, fold_elapsed) = measure(
-            "rebase_us",
-            self.rebase_delta_for_publish(&mut delta, heads),
-        )
-        .await?;
+        let modified_fields = measure("rebase_us", async {
+            self.rebase_delta_for_publish(&mut delta, heads)
+        })
+        .await;
         heads.record(&delta);
         self.collect_logical_delta(&delta, runtime)?;
         let pending_persist_task = delta.pending_persist_task.take();
@@ -229,7 +220,7 @@ impl MutationManager {
             })?;
         }
         transaction::retain(runtime, pending_persist_task)?;
-        Ok(fold_elapsed)
+        Ok(())
     }
 }
 
@@ -260,7 +251,5 @@ fn into_native_job(
         retention_write,
         retention_hash_partitions,
         schema_name: delta.schema_name,
-        sibling_updates: delta.sibling_updates,
-        sibling_moves: delta.sibling_moves,
     }
 }

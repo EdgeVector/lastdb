@@ -236,7 +236,6 @@ fn collection_label(name: &[u8]) -> &'static str {
         "atoms",
         "tips",
         "molecule_ref_edges",
-        "proteins",
         "indexes",
         "metadata",
         "schema_states",

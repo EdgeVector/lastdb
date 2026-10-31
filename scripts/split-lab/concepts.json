@@ -1,7 +1,7 @@
 {
   "schema": "^schema/(core/|declarative|interpreter|logical_rules|manifest_retention|field_hash|schema_types|types/(declarative_schemas|operations|errors|schema\\.rs))|^db_operations/(schema_store|schema_operations|db_catalog_store|metadata_store)|schema_keys",
   "field": "^schema/types/field/|^schema/types/(key_value|key_comparison)",
-  "molecule": "molecule|^protein/",
+  "molecule": "molecule",
   "atom": "^atom/(atom_|tombstone|file_pointer|provenance|size_limit|delete_barrier|history_event|mutation_event)|^db_operations/atom_store/(atoms|counter|atom_history)|^db_operations/(tip_atoms|atom_history)",
   "file blob": "blob|file_pointer|file_dependencies|cas_",
   "write path": "^fold_db_core/mutation_manager/|^schema/types/mutation|write_preparation",

@@ -29,7 +29,6 @@ pub struct MoleculeCountersView {
     pub slots: u64,
     /// Conflict records that name the molecule in this scope.
     pub records: u64,
-    /// Binding records (schema field, protein member, database catalog).
     pub bindings: u64,
     /// A counter disagreed with a change, or the header carries no counters.
     pub suspect: bool,

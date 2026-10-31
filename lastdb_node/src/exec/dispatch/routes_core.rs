@@ -94,10 +94,6 @@ pub(super) async fn dispatch_search_app(
         }
         DataRoute::AtomHistory => heap_route!(execute_atom_history_route, req, ctx, host).await,
         DataRoute::AtomContent => heap_route!(execute_atom_content_route, req, ctx, host).await,
-        DataRoute::ProteinGet => heap_route!(execute_protein_get_route, req, ctx, host).await,
-        DataRoute::ProteinOfMolecule => {
-            heap_route!(execute_protein_of_molecule_route, req, ctx, host).await
-        }
         // No upload-storage backend in the minimal daemon; blob routes are
         // structurally absent — content-free 404, exactly like an
         // unrecognized path (I4).

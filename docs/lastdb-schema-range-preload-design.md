@@ -52,7 +52,7 @@ The study's one-set-per-layout estimate applies only where one source establishe
 A domain identity includes the storage scope, membership molecule, key layout, compatible encoding identity, and logical membership rules.
 Schema names and definitions reference that domain through the logical owner.
 Copied schemas can share it only when all those facts match.
-Different protein key layouts remain separate, even when they share atoms.
+Named alternate layouts retain separate address domains and resolve the primary records.
 
 Ready means that the domain contains the complete candidate keys under its compatible definitions.
 It does not mean that every candidate is visible, or that the candidate count is an exact visible-record count.
@@ -171,7 +171,7 @@ The writer inventory includes durable writes, imports, retention, backfill, and 
 The shared native publication route does not by itself prove every writer's end-to-end behavior.
 Current product receipts cover the generated batch writes, not every writer in that inventory.
 Keep those evidence gaps visible before compatibility removal or a wider cutover.
-Protein updates affect their domains when the corresponding related update becomes accepted.
+Named alternate addresses change with their primary records in the same accepted request.
 Do not change their current propagation schedule.
 Copied-schema aliases observe the same domain update where their definitions permit sharing.
 

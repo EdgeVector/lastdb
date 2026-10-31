@@ -27,7 +27,6 @@ fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
 
-fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|gc_orphan_proteins_in_scope|-|empty protein rows
 
 
 

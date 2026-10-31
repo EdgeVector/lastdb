@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::write_preparation::measure;
-use futures::FutureExt;
 
 impl MutationManager {
     /// Produce all stored bytes in the native request's private preparation
@@ -23,12 +22,11 @@ impl MutationManager {
         measure("side_records_us", self.store_deferred_side_records(job)).await
     }
 
-    /// Persist modified molecules, then the protein sibling tip updates.
+    /// Persist the changed fields in the native request.
     async fn persist_deferred_molecules(
         &self,
         job: &mut DeferredPersistJob,
     ) -> Result<(), SchemaError> {
-        self.persist_sibling_key_moves(job).boxed().await?;
         let bodies = job.deferred_atoms.as_deref().unwrap_or_default();
         self.persist_modified_molecules(
             &mut job.schema,
@@ -46,23 +44,7 @@ impl MutationManager {
             error
         })?;
 
-        let prefix = job
-            .schema
-            .runtime_fields
-            .values()
-            .find_map(|field| field.common().storage_prefix())
-            .map(str::to_string);
-        self.persist_sibling_tip_updates(&job.sibling_updates, bodies, prefix.as_deref())
-            .await
-            .map_err(|error| {
-                tracing::error!(
-                    error = %error,
-                    schema = %job.schema_name,
-                    siblings = job.sibling_updates.len(),
-                    "deferred resident-write protein sibling tip persist failed"
-                );
-                error
-            })
+        Ok(())
     }
 
     /// Idempotency and retention records of one native job.

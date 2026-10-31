@@ -2,8 +2,8 @@
 
 use crate::schema::types::{Schema, SchemaError};
 
-/// Same-identity loads refresh metadata. Incoming mappers win; stored molecules
-/// fill only absent, unmapped fields. No hydrated molecule enters the cache.
+/// Same-identity loads refresh metadata and retain the schema's owned molecules.
+/// No hydrated molecule enters the cache.
 pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result<(), SchemaError> {
     if schema.alternate_keys != stored.alternate_keys
         || schema.uses_independent_fields() != stored.uses_independent_fields()
@@ -13,17 +13,10 @@ pub(super) fn prepare_refresh(schema: &mut Schema, mut stored: Schema) -> Result
                 .into(),
         ));
     }
-    let mapped_fields: std::collections::HashSet<String> = schema
-        .field_mappers
-        .as_ref()
-        .map(|m| m.keys().cloned().collect())
-        .unwrap_or_default();
     let mut molecules = schema.field_molecule_uuids.take().unwrap_or_default();
     if let Some(stored_molecules) = stored.field_molecule_uuids.take() {
         for (field, uuid) in stored_molecules {
-            if !mapped_fields.contains(&field) {
-                molecules.entry(field).or_insert(uuid);
-            }
+            molecules.entry(field).or_insert(uuid);
         }
     }
     schema.field_molecule_uuids = (!molecules.is_empty()).then_some(molecules);

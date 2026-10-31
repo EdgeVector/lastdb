@@ -43,8 +43,6 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
             | "mgd"
             | "fdep"
             | "cas_blob"
-            | "protein"
-            | "molprot"
     ))
 }
 
@@ -53,7 +51,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
 pub(crate) fn counter_namespace_alias(namespace: &str) -> bool {
     matches!(
         namespace,
-        "atoms" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges" | "proteins"
+        "atoms" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges"
     )
 }
 
@@ -114,7 +112,6 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     } else if let Some(molecule) = bare
         .strip_prefix("mh:")
         .or_else(|| bare.strip_prefix("mcc:"))
-        .or_else(|| bare.strip_prefix("molprot:"))
     {
         validate_molecule(molecule)?;
     } else if let Some(rest) = bare.strip_prefix("mgp:v1:") {
@@ -336,10 +333,6 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "conflict"
             | "dellog"
             | "schemaidx"
-            | "protein"
-            | "molprot"
-            | "fldprot"
-            | "pfq"
             | "cas_blob"
             | "gcatoms-meta"
             | "gcatoms-probe-ref"

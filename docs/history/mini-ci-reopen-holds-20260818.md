@@ -52,7 +52,7 @@ Historic kill: Forge **#1304** reaped three times (Mini fmt+clippy ~1m10s). Goal
 | Typed rejection + query wiring landed as Forgejo **#1400** | `merged_at=2026-08-08T15:42:05-07:00`, merge `608ee6d43` |
 | Merge is ancestor of current main | `git merge-base --is-ancestor 608ee6d43 HEAD` → true |
 | `execute_query_route` | `require_keys(&obj, QUERY_REQUIRED_KEYS)` then `Reject::new(RejectKind::InvalidValue)` — no bare `Bad Request` on this route |
-| Leftover bare 400s | ratchet in `exec.rs` allows **11** `content_free(400, "Bad Request")` sites on **other** routes (batch mutations, get-schema, molecule/atom/protein, search/native-index). Owned by `papercut-lastdb-ten-owner-socket-routes-still-answer-the-bare-11-byte-bad-request`, **not** this parent |
+| Leftover bare 400s | ratchet in `exec.rs` allows **11** `content_free(400, "Bad Request")` sites on **other** routes (batch mutations, get-schema, molecule/atom, retired shared-value, search/native-index). Owned by `papercut-lastdb-ten-owner-socket-routes-still-answer-the-bare-11-byte-bad-request`, **not** this parent |
 
 **Recommendation 2026-08-18: (B) no remaining Mini repair for `/api/query`. Close parent `done` against #1400.** Do not reopen #1304. Remaining owner-socket bare 400s are a different card.
 
