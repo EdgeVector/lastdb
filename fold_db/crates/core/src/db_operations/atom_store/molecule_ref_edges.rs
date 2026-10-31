@@ -1,7 +1,7 @@
 use super::AtomStore;
-use crate::hex::hex_lower;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
+use lastdb_model::hex::hex_lower;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -108,7 +108,7 @@ impl AtomStore {
             storage_prefix,
             &format!("{MOLECULE_REF_PREFIX}{}\0", molecule_target(molecule_uuid)),
         );
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(&prefix);
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&prefix);
         let found = self
             .main_store
             .inner()

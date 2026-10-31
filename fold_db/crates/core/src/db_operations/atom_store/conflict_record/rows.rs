@@ -38,7 +38,7 @@ impl TipConflict {
     pub(super) fn conflict_key(&self, storage_prefix: Option<&str>) -> String {
         build_storage_key(
             storage_prefix,
-            &crate::kind_partition::anchored("conflict", &self.conflict_id()),
+            &lastdb_model::kind_partition::anchored("conflict", &self.conflict_id()),
         )
     }
 
@@ -122,7 +122,7 @@ fn suppressed_by(entry: &AtomEntry) -> SuppressedByTip {
 /// Delete. Each such row holds one reference to every atom it names. A history
 /// row of another shape holds none.
 pub(crate) fn is_counted_record_key(key: &str) -> bool {
-    let Some(rest) = crate::kind_partition::rest_of(key, "history") else {
+    let Some(rest) = lastdb_model::kind_partition::rest_of(key, "history") else {
         return false;
     };
     let mut parts = rest.rsplitn(3, ':');

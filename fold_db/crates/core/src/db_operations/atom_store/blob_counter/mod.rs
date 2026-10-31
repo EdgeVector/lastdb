@@ -59,7 +59,7 @@ pub use recount_report::BlobRecountReport;
 pub(crate) use report::BlobEvents;
 pub use report::{BlobCounterReport, BlobCounterView, DwellGuard};
 
-use crate::hex::hex_lower;
+use lastdb_model::hex::hex_lower;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

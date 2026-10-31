@@ -10,7 +10,7 @@ impl AtomStore {
         what: &str,
         page_rows: usize,
     ) -> Result<PagedRows<T>, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(prefix);
         self.scan_range_pages_with_limit(&start, &end, what, page_rows)
             .await
     }

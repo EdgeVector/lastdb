@@ -23,7 +23,10 @@
 //! and the operations that can be performed on it.
 
 pub mod access;
+/// Atom and molecule model types from `lastdb_model`, plus core clock stamps.
 pub mod atom;
+// Pure model modules. They moved to `lastdb_model`; the old paths stay.
+pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 
 /// Core logical memory, record retention, and background persist work.
 pub mod resident;
@@ -31,18 +34,13 @@ pub use resident::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneMetrics,
     PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
 };
-pub mod canonical;
 pub mod clock;
-pub mod constants;
 pub mod crypto;
 pub mod db_operations;
 pub mod durable_flush;
 mod env_number;
 pub mod error;
 pub mod fold_db_core;
-pub mod hex;
-pub mod json_order;
-pub mod kind_partition;
 /// One accounted process memory budget — the warm set limit projected to RSS,
 /// with the deferred-write window derived from what is left under the node's
 /// RSS guard.

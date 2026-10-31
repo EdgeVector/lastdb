@@ -1,4 +1,5 @@
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 
 pub(super) async fn scan_hash_range_matches(
     db_ops: &Arc<DbOperations>,

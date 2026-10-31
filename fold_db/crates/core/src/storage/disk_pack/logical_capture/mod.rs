@@ -60,7 +60,7 @@ fn encode<T: Serialize>(value: &T) -> StorageResult<Vec<u8>> {
     // their scalar representation; the cloud RFC8785 encoder rejects >2^53-1.
     let value = serde_json::to_value(value)
         .map_err(|_| invalid("cannot encode logical capture metadata"))?;
-    serde_json::to_vec(&crate::canonical::CanonicalValue(&value))
+    serde_json::to_vec(&lastdb_model::canonical::CanonicalValue(&value))
         .map_err(|_| invalid("cannot encode logical capture metadata"))
 }
 
@@ -73,7 +73,7 @@ fn invalid(message: &str) -> StorageError {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    crate::hex::hex_lower(bytes)
+    lastdb_model::hex::hex_lower(bytes)
 }
 
 fn unhex<const N: usize>(text: &str) -> StorageResult<[u8; N]> {

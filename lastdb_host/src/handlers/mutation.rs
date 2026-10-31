@@ -3,6 +3,7 @@
 //! `request` shows the single-request steps, and `plan` holds pure request
 //! rules. The write helpers here use the existing host interface directly.
 
+use fold_db::schema::types::MutationIds;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;

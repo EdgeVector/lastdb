@@ -84,14 +84,14 @@ fn alternate_bounds(
                 "{PREFIX}{}",
                 prefix.strip_prefix("mk:").expect("typed prefix")
             );
-            Ok(crate::kind_partition::exact_prefix_bounds(&prefix))
+            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&prefix))
         }
         HashRangeFilter::HashRangePrefix { hash, prefix } => {
             codec
                 .require_text_range_prefix()
                 .map_err(|_| invalid("alternate range prefix requires a text field"))?;
             let prefix = encode(hash, Some(prefix))?;
-            Ok(crate::kind_partition::exact_prefix_bounds(&prefix))
+            Ok(lastdb_model::kind_partition::exact_prefix_bounds(&prefix))
         }
         HashRangeFilter::HashRangeRange { hash, start, end } => {
             Ok((encode(hash, Some(start))?, encode(hash, Some(end))?))

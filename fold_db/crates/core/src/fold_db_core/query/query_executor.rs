@@ -97,7 +97,7 @@ impl QueryExecutor {
     /// [`Self::query_with_access`], hydrating only one page of the matched rows.
     ///
     /// `window` is `(offset, limit)` over the canonical
-    /// [`KeyValue::cmp_page_order`] enumeration of the keys `query.filter`
+    /// `KeyValuePageOrder::cmp_page_order` enumeration of the keys `query.filter`
     /// matched. It is applied before atom bodies are loaded, so a keyed read of
     /// a large partition costs a page rather than the partition.
     ///

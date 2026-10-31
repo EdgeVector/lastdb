@@ -2,15 +2,15 @@
 
 use super::types::{JweEnvelope, LastDbSlicePayload, SignedLastDbSlicePayload};
 use super::{JWE_ZIP_GZIP, LASTDB_SLICE_MEDIA_TYPE};
-use crate::canonical::CanonicalWriter;
 use crate::error::FoldDbError;
-use crate::hex::hex_lower;
 use crate::security::{Ed25519KeyPair, KeyUtils};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use lastdb_model::canonical::CanonicalWriter;
+use lastdb_model::hex::hex_lower;
 use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use std::io::Write;

@@ -19,16 +19,11 @@
 
 [[layer]]
 name = "primitives"
-doc = "Leaf helpers with no domain meaning: encodings, constants, the clock, env parsing, key-prefix rules, and the crypto and signing primitives. No crate-internal dependency outside this layer."
+doc = "Leaf helpers with no domain meaning: the clock, env parsing, process and cutover probes, and the crypto and signing primitives. The pure encodings, constants, and key-prefix rules live in lastdb_model. No crate-internal dependency outside this layer."
 modules = [
-  "canonical",
   "clock",
-  "constants",
   "crypto",
   "env_number",
-  "hex",
-  "json_order",
-  "kind_partition",
   "mini_cutover",
   "process_cpu",
   "security",
@@ -36,7 +31,7 @@ modules = [
 
 [[layer]]
 name = "model"
-doc = "The data model: atoms, molecules, keys, schema types and logical rules, the access context, and the error kinds. Values and pure rules only; no store, no task, no I/O."
+doc = "The core side of the data model. atom and schema::types re-export lastdb_model and add the clock stamps, mutation ids, and key order context that the model must not hold. Also the shared records, the access context, and the error kinds. No store and no I/O."
 modules = [
   "access",
   "atom",
@@ -44,7 +39,6 @@ modules = [
   "error",
   "records",
   "schema::interpreter",
-  "schema::logical_rules",
   "schema::manifest_retention",
   "schema::schema_types",
   "schema::types",

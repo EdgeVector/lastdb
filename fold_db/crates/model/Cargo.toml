@@ -1,0 +1,29 @@
+[package]
+autotests = false
+name = "lastdb_model"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "LastDB data models: atoms, molecules, schemas, keys and mutations. No clock, no I/O, no ambient state."
+
+# Pure dependencies only. The model reads no clock, makes no random id, opens
+# no file or socket and keeps no process state. `scripts/ci/model-purity-lint.sh`
+# enforces this list and the source markers. Core (`fold_db`) owns behavior.
+[dependencies]
+base64.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
+hmac = { workspace = true }
+schema_types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[lib]
+bench = false
+doctest = false
+test = false
+name = "lastdb_model"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

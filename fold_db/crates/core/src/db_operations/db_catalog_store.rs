@@ -152,7 +152,7 @@ pub async fn drop_prefixed_rows_for_instance(
         return Ok(0);
     }
     let prefix = format!("{instance_id}:");
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(&prefix);
+    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(&prefix);
     let rows = current_scope_rows(main, start.as_bytes(), end.as_bytes()).await?;
     let mut selected = Vec::new();
     for (key, value) in rows {

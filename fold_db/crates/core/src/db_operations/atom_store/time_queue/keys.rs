@@ -11,7 +11,7 @@
 //! `bucket` is the start of the slice in nanoseconds, not an index, so a change
 //! of the slice length cannot make an old bucket name a different slice.
 
-use crate::kind_partition::exact_prefix_bounds;
+use lastdb_model::kind_partition::exact_prefix_bounds;
 use serde_json::{json, Value};
 
 /// Digits of a nanosecond number in a key. `u64::MAX` has 20.

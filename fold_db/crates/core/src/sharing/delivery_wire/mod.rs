@@ -35,12 +35,11 @@ pub const JWE_ZIP_GZIP: &str = "gzip";
 /// JSON object key for a portable file pointer stored as an atom value.
 /// Canonical home is `crate::atom::file_pointer`; re-exported here for the
 /// wire-format callers that have always imported it from delivery_wire.
-pub use crate::atom::file_pointer::{blob_ref_from_atom_value, LASTDB_FILE_KEY};
+pub use crate::atom::file_pointer::{
+    blob_ref_from_atom_value, FILE_BLOB_CIPHER_SUITE, LASTDB_FILE_KEY,
+};
 /// Optional key for a reference-only generated thumbnail/poster inside a file pointer.
 pub const LASTDB_FILE_THUMBNAIL_KEY: &str = "thumbnail";
-/// The file blob cipher suite lives in the atom pointer model, which also
-/// recognizes private pointer hashes; the wire format re-exports it.
-pub use crate::atom::file_pointer::FILE_BLOB_CIPHER_SUITE;
 
 /// True when `suite` is [`FILE_BLOB_CIPHER_SUITE`].
 #[must_use]

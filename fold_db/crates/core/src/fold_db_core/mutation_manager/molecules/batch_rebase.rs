@@ -1,5 +1,6 @@
 //! One physical-slot base shared by every schema delta in an apply transaction.
 
+use crate::atom::MoleculeClock;
 use std::collections::HashMap;
 
 use crate::atom::{AtomEntry, KeyMetadata, MoleculeHashRange};

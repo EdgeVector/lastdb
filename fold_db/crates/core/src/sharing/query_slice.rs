@@ -183,7 +183,7 @@ async fn resolve_blob_bytes(
     if let Some(resolver) = blob_resolver {
         if let Some(bytes) = resolver(blob_ref)? {
             if let Some(access) = access {
-                if crate::hex::sha256_hex(&bytes) != access.file_hash {
+                if lastdb_model::hex::sha256_hex(&bytes) != access.file_hash {
                     return Err(FoldDbError::SecurityError(
                         "resolved plaintext differs from the file pointer".into(),
                     ));

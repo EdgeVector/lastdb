@@ -82,7 +82,7 @@ fn produce(
         .read(&mut extra)
         .map_err(|_| BackupTransportError::Source)?
         != 0
-        || crate::hex::hex_lower(hash.finalize()) != expected.as_str()
+        || lastdb_model::hex::hex_lower(hash.finalize()) != expected.as_str()
     {
         return Err(BackupTransportError::Integrity("upload source"));
     }

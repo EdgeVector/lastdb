@@ -3,6 +3,7 @@
 use super::*;
 use crate::atom::file_pointer::blob_refs_of_atom;
 use crate::atom::Atom;
+use crate::atom::AtomClock;
 use crate::schema::types::aggregate_state::aggregate_guard_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;

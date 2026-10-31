@@ -5,6 +5,7 @@ use super::*;
 use crate::db_operations::field_read;
 use crate::schema::types::field::FieldKind;
 use crate::schema::types::FieldVariant;
+use crate::schema::types::KeyValuePageOrder;
 
 const CANDIDATE_BATCH_LIMIT: usize = 256;
 const SOURCE_READ_CONCURRENCY: usize = 4;

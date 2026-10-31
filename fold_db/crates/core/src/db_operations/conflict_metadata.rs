@@ -54,7 +54,8 @@ mod read {
             if molecule.is_empty() || molecule.len() > 128 || molecule.contains([':', '\0']) {
                 return Unknown;
             }
-            let prefix = crate::kind_partition::anchored("conflict", &format!("{molecule}:"));
+            let prefix =
+                lastdb_model::kind_partition::anchored("conflict", &format!("{molecule}:"));
             let Ok(rows) = self
                 .atoms()
                 .raw()

@@ -1,4 +1,5 @@
 use super::*;
+use fold_db::schema::types::MutationIds;
 
 /// Remove rows from a telemetry series by HARD DELETE, in one batch.
 ///

@@ -60,7 +60,7 @@ pub(super) fn certified_source(
 }
 
 fn same_scope(key: &str, scope: Option<&str>) -> bool {
-    let Some(suffix) = crate::kind_partition::rest_of(key, "atom") else {
+    let Some(suffix) = lastdb_model::kind_partition::rest_of(key, "atom") else {
         return false;
     };
     let prefix_len = key.len() - suffix.len() - "atom".len() - 1;

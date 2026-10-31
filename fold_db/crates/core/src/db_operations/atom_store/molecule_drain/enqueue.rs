@@ -154,7 +154,7 @@ impl AtomStore {
 
     /// Whether at least one row begins with `prefix`: a range read of one row.
     async fn rows_under(&self, prefix: &str) -> Result<bool, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+        let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(prefix);
         let mut walk =
             crate::db_operations::atom_store::RangeWalk::new(start.as_bytes(), end.as_bytes(), 1);
         Ok(!self.walk_step(&mut walk).await?.rows.is_empty())

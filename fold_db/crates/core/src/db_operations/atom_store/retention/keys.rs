@@ -99,5 +99,5 @@ pub(super) fn slot_key(scope: Option<&str>, molecule: &str, hash: &str, range: &
 
 /// The half-open range of every key that begins with `prefix`.
 pub(super) fn prefix_range(prefix: &str) -> (String, String) {
-    crate::kind_partition::exact_prefix_bounds(prefix)
+    lastdb_model::kind_partition::exact_prefix_bounds(prefix)
 }

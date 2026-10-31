@@ -1,6 +1,7 @@
 //! Bounded candidate keys precede namespace precedence and layout membership.
 
 use super::*;
+use crate::schema::types::KeyValuePageOrder;
 
 /// A raw tip batch does not certify that any candidate has a visible atom.
 pub(crate) struct HashRangeCandidatePage {

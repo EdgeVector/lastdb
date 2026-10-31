@@ -90,7 +90,7 @@ pub(super) fn row_walk(candidate: &Candidate, index: usize, rows: usize) -> Opti
 }
 
 fn prefix_walk(prefix: &str, rows: usize) -> RangeWalk {
-    let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+    let (start, end) = lastdb_model::kind_partition::exact_prefix_bounds(prefix);
     RangeWalk::new(start.as_bytes(), end.as_bytes(), rows)
 }
 

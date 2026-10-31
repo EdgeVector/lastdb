@@ -33,7 +33,7 @@ use super::types::ShareRule;
 /// `active` toggles on deactivate, and signature/writer_pubkey are the
 /// signature bindings themselves.
 pub fn canonical_bytes(rule: &ShareRule) -> Vec<u8> {
-    crate::canonical::CanonicalWriter::with_capacity(
+    lastdb_model::canonical::CanonicalWriter::with_capacity(
         rule.rule_id.len()
             + rule.recipient_pubkey.len()
             + rule.share_prefix.len()

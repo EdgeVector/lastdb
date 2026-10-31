@@ -14,7 +14,7 @@
 //! `db_hash` geometry matches design-cloud-sync-prefix-db-hash: stable opaque
 //! id derived from the database identity (here: the canonical locator string).
 
-use crate::hex::sha256_hex;
+use lastdb_model::hex::sha256_hex;
 
 /// HTTP header carrying the request DB handle (locator or 64-hex).
 pub const LASTDB_DB_HEADER: &str = "X-LastDB-Db";

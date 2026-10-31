@@ -5,6 +5,7 @@ use super::*;
 use crate::db_operations::field_read::{self, fetch_atoms_with_key_metadata_async_with_prefix};
 use crate::schema::types::field::{FieldVariant, KeyedAtomMatch, SAMPLE_PEEK_CAP};
 use crate::schema::types::key_value::scalar_key_coordinate;
+use crate::schema::types::KeyValuePageOrder;
 use std::collections::HashSet;
 
 /// Pages/counts require completeness; a sample can stop at enough valid members.

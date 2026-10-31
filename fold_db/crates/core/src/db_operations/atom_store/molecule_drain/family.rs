@@ -94,7 +94,8 @@ impl AtomStore {
     /// Whether the molecule has at least one tip record in the scope: a range read
     /// of at most one row.
     pub(super) async fn tip_present(&self, candidate: &Candidate) -> Result<bool, SchemaError> {
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(&tip_prefix(candidate));
+        let (start, end) =
+            lastdb_model::kind_partition::exact_prefix_bounds(&tip_prefix(candidate));
         let found = self
             .main_store
             .inner()

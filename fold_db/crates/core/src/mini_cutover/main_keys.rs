@@ -1,6 +1,6 @@
 //! Current main-key physical placement. No older collection fallback exists.
 
-use crate::kind_partition::{colon_prefix_matches, split_org_storage_prefix};
+use lastdb_model::kind_partition::{colon_prefix_matches, split_org_storage_prefix};
 
 /// Classify one `main` key (raw bytes) into its destination collection.
 /// Returns `None` for an unknown prefix — callers must fail loudly.

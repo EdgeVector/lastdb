@@ -100,6 +100,6 @@ impl ArchiveRecord {
 
 /// True for the key of an archive row in the field history family.
 pub(crate) fn is_archive(key: &str) -> bool {
-    crate::kind_partition::rest_of(key, "history")
+    lastdb_model::kind_partition::rest_of(key, "history")
         .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }

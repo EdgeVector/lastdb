@@ -1,6 +1,7 @@
 //! Grant keys, fingerprints, named locks, and target key resolution for aggregate writes.
 
 use super::*;
+use crate::schema::types::MutationIds;
 
 impl MutationManager {
     pub(super) fn aggregate_repair_grant_key(

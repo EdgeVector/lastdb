@@ -1,7 +1,7 @@
 //! Compact complete-atom certificates; the caller owns the decoded body.
 
 use super::*;
-use crate::canonical::{push_field, CanonicalValue};
+use lastdb_model::canonical::{push_field, CanonicalValue};
 use sha2::{Digest, Sha256};
 
 /// Bind every Atom field, including optional metadata and its physical time.

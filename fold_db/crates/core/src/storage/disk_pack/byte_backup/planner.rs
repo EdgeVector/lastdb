@@ -210,5 +210,5 @@ pub(super) fn expected_receipt(input: &TransferInput) -> StorageResult<ObjectRec
     Ok(receipt)
 }
 fn hex(value: [u8; 32]) -> StorageResult<Digest> {
-    Digest::try_from(crate::hex::hex_lower(value)).map_err(protocol)
+    Digest::try_from(lastdb_model::hex::hex_lower(value)).map_err(protocol)
 }

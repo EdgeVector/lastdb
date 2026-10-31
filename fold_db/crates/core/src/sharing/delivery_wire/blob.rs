@@ -4,8 +4,8 @@ use super::types::{ContentAddressedAtom, ContentAddressedBlob, FileBlobAccess};
 use super::validate::validate_file_blob_access_for_ref;
 use super::FILE_BLOB_CIPHER_SUITE;
 use crate::error::FoldDbError;
-use crate::hex::hex_lower;
 use base64::{engine::general_purpose::STANDARD as B64_STD, Engine as _};
+use lastdb_model::hex::hex_lower;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -84,7 +84,7 @@ pub fn content_addressed_blob_from_envelope(
 }
 
 fn decode_hex_32_key(input: &str) -> Result<[u8; 32], FoldDbError> {
-    crate::hex::hex_decode_array::<32>(input).ok_or_else(|| {
+    lastdb_model::hex::hex_decode_array::<32>(input).ok_or_else(|| {
         FoldDbError::SecurityError(format!(
             "file KDK must be 64 hex chars, got {} chars",
             input.len()

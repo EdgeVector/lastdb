@@ -1,6 +1,7 @@
 //! Prepare original peer tips; the normal store owns winner and counter facts.
 
 use super::*;
+use crate::atom::MoleculeClock;
 use crate::atom::{ImportedTip, MoleculeHashRange};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::Schema;

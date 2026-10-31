@@ -273,7 +273,7 @@ fn barrier_base(key: &str) -> Option<String> {
     let marker = key.find("rdel:v2:")?;
     let (_, tail) = key[marker..].split_once('\0')?;
     let (len, hex) = tail.split_once(':')?;
-    let bytes = crate::hex::hex_decode(hex)?;
+    let bytes = lastdb_model::hex::hex_decode(hex)?;
     if len.parse::<usize>().ok()? != bytes.len() {
         return None;
     }

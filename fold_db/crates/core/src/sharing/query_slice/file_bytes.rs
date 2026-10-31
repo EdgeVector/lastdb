@@ -32,7 +32,7 @@ pub(super) async fn resolve_local_blob_bytes(
     let bytes = crate::sharing::delivery_wire::decode_blob_bytes_with_dek(&blob, &access.dek)?;
     crate::sharing::file_blob_seal::verify_file_blob_identity(
         access,
-        &crate::hex::sha256_hex(&bytes),
+        &lastdb_model::hex::sha256_hex(&bytes),
         &blob.content_sha256,
     )?;
     if access.encrypted_size_bytes.is_some_and(|size| {
