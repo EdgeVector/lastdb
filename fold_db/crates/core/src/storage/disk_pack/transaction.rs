@@ -9,6 +9,8 @@ mod leases;
 mod logical_capture;
 pub(crate) use logical_capture::mark_logical_capture;
 pub(super) use logical_capture::require_captured_changes;
+mod record_layout;
+pub(super) use record_layout::require_record_layout;
 pub(crate) mod publication;
 mod request;
 mod resources;

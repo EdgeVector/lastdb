@@ -66,21 +66,29 @@ impl MutationManager {
     /// update gate. It is the same class of work — one persisted-head read per
     /// guarded mutation, under the same native gate — so it shares the phase rather
     /// than minting a second name for the same number.
+    ///
+    /// A format 7 home (`records`) checks both against the stored records.
     pub(in crate::fold_db_core::mutation_manager::write) async fn check_batch_preconditions(
         &self,
         new_mutations: &[Mutation],
         storage_prefix: Option<&str>,
+        records: bool,
     ) -> Result<(), SchemaError> {
         let cas_precondition_start = std::time::Instant::now();
-        let cas_result = match self
-            .check_cas_preconditions(new_mutations, storage_prefix)
-            .await
-        {
-            Ok(()) => {
-                self.check_must_exist_preconditions(new_mutations, storage_prefix)
-                    .await
+        let cas_result = if records {
+            self.check_record_preconditions(new_mutations, storage_prefix)
+                .await
+        } else {
+            match self
+                .check_cas_preconditions(new_mutations, storage_prefix)
+                .await
+            {
+                Ok(()) => {
+                    self.check_must_exist_preconditions(new_mutations, storage_prefix)
+                        .await
+                }
+                Err(error) => Err(error),
             }
-            Err(error) => Err(error),
         };
         crate::request_phases::add_phase(
             crate::request_phases::RequestPhase::CasPrecondition,
@@ -140,6 +148,20 @@ impl MutationManager {
                     )
                 })
                 .collect();
+            // A format 7 home stores one record at each key: no atom, tip or
+            // molecule delta to prepare.
+            if runtime.record_home() {
+                self.stage_record_group(
+                    &schema_name,
+                    schema_mutations,
+                    idempotency_entries,
+                    storage_prefix,
+                    runtime,
+                )
+                .await?;
+                prepare_elapsed += prepare_started.elapsed();
+                continue;
+            }
             let delta = self
                 .prepare_schema_delta(
                     schema_name,

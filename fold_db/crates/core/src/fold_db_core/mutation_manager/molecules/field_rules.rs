@@ -15,7 +15,7 @@ pub(super) struct FieldLoadPlan<'a> {
 }
 
 /// Only a declared field can receive a value.
-pub(super) fn validate_field_value(
+pub(in crate::fold_db_core::mutation_manager) fn validate_field_value(
     schema_name: &str,
     schema: &Schema,
     field_name: &str,
