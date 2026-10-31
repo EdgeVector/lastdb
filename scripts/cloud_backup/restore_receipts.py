@@ -18,13 +18,15 @@ from restore_log import position, verified as verified_log_routes
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 HEX = re.compile(r"[0-9a-f]{64}")
 NIL = "00000000-0000-0000-0000-000000000000"
-# Existing homes stay format 4 or 5; fresh homes use format 6. Kept recovery
-# restores a previous green snapshot and hashes those bytes in place; it does
-# not upgrade the marker.
+# Existing homes stay format 4 or 5; fresh homes use format 6, or format 7 (the
+# record model) when the daemon creates them with LASTDB_RECORD_HOME=1. Kept
+# recovery restores a previous green snapshot and hashes those bytes in place;
+# it does not upgrade the marker.
 NODE_V4 = b"format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
 NODE_V5 = b"format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 NODE_V6 = b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
-NODE_PROFILE = {NODE_V4: (2, 4), NODE_V5: (3, 5), NODE_V6: (4, 6)}
+NODE_V7 = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+NODE_PROFILE = {NODE_V4: (2, 4), NODE_V5: (3, 5), NODE_V6: (4, 6), NODE_V7: (5, 7)}
 MAX_FILES = 4096
 
 
@@ -138,7 +140,7 @@ def matched_node_marker(size, expected, node_markers):
     return matched
 
 
-def inventory(home, root, node_markers=(NODE_V5, NODE_V6)):
+def inventory(home, root, node_markers=(NODE_V5, NODE_V6, NODE_V7)):
     entries = owned(root, "entries/placeholder").parent
     files, seen, matched = [], set(), None
     for name in sorted(names(entries)):
@@ -202,7 +204,7 @@ def replayed_inventory(home, root, replay, accepted, observe):
 
 
 def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None,
-             node_markers=(NODE_V5, NODE_V6)) -> dict:
+             node_markers=(NODE_V5, NODE_V6, NODE_V7)) -> dict:
     """Return safe native hash evidence after the CLI's completed offline restore.
 
     The caller validates baseline selectors before it invokes the CLI. The
@@ -230,7 +232,7 @@ def restored(home: Path, report: dict, baseline: dict, replay=None, observe=None
     if replay is None:
         files, marker = inventory(home, root, node_markers)
     else:
-        # Replay restores a fresh format 5 or 6 run. Only kept recovery allows format 4.
+        # Replay restores a fresh format 5, 6 or 7 run. Only kept recovery allows format 4.
         files, routes = replayed_inventory(home, root, replay,
             read_json(owned(root, "selection.json"))["accepted"], observe)
         marker = node_marker(home)
