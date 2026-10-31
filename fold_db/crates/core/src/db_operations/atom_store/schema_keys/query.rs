@@ -2,7 +2,7 @@
 
 use super::*;
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     pub(crate) async fn load_query_tip_records(
         &self,
         scope: Option<&str>,
@@ -10,7 +10,7 @@ impl AtomStore {
         keys: &[KeyValue],
     ) -> Result<Vec<Option<TipRow>>, SchemaError> {
         let runtime = self.schema_keys_runtime();
-        let codec = self.key_codec_for_molecule(molecule)?;
+        let codec = self.store.key_codec_for_molecule(molecule)?;
         let mut output = vec![None; keys.len()];
         let mut slot_keys = Vec::new();
         let mut misses = Vec::new();
@@ -46,7 +46,10 @@ impl AtomStore {
                 }
             }
         }
-        let fetched = self.load_visible_per_key_records(scope, &slot_keys).await?;
+        let fetched = self
+            .store
+            .load_visible_per_key_records(scope, &slot_keys)
+            .await?;
         for ((at, base), hit) in misses.into_iter().zip(&slot_keys).zip(fetched) {
             if let Some(record) = &hit {
                 self.note_selected_query_tip_key(scope, molecule, &keys[at], record, base)?;

@@ -3,7 +3,7 @@
 use super::*;
 use crate::schema::types::key_value::KeyValue;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Hash selectors keep the caller's API hash for the later filter pass.
     /// The exact batch reader retains the winning physical tip before remapping.
     pub(super) async fn load_1d_hash_key(
@@ -33,6 +33,7 @@ impl AtomStore {
     ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
         let api_key = KeyValue::new(Some(hash.to_owned()), None);
         let hit = self
+            .store
             .load_query_tip_records(scope, molecule, &[api_key])
             .await?
             .pop()
@@ -58,6 +59,7 @@ impl AtomStore {
             api_keys.push(KeyValue::new(Some(hash.to_owned()), Some(range.to_owned())));
         }
         let hits = self
+            .store
             .load_query_tip_records(target.storage_prefix, molecule, &api_keys)
             .await?;
         let mut records = Vec::with_capacity(keys.len());

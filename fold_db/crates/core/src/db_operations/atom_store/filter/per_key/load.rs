@@ -1,6 +1,6 @@
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Check one exact Delete barrier for each returned molecule row. A range
     /// read never walks the barriers; it checks only the keys it already found.
     pub(crate) async fn filter_delete_barriers_for_records(
@@ -15,7 +15,7 @@ impl AtomStore {
             .iter()
             .map(|(base, _)| build_storage_key(storage_prefix, base))
             .collect();
-        let barriers = self.winning_delete_barriers(&final_keys).await?;
+        let barriers = self.store.winning_delete_barriers(&final_keys).await?;
         Ok(rows
             .into_iter()
             .filter_map(|(base, record)| {

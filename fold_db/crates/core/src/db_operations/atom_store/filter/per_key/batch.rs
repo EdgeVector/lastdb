@@ -1,6 +1,7 @@
+use super::super::super::helpers::{apply_generation_delete, merge_generation_slot};
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Batch-read exact `mk:` keys for one page.
     ///
     /// `base_keys` are already encoded
@@ -28,7 +29,8 @@ impl AtomStore {
             .map(|base| build_storage_key(storage_prefix, base))
             .collect();
         let mut hit = self
-            .main_store
+            .store
+            .rows()
             .get_items::<PerKeyRecord>(&storage_keys)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("batch read per-key records: {e}")))?;
@@ -48,6 +50,7 @@ impl AtomStore {
 
         for (molecule_uuid, slots) in &slots_by_molecule {
             let Some(pointer) = self
+                .store
                 .active_molecule_generation(molecule_uuid, storage_prefix)
                 .await?
             else {
@@ -66,7 +69,8 @@ impl AtomStore {
                 }
             }
             let generation = self
-                .main_store
+                .store
+                .rows()
                 .get_items::<super::super::super::MoleculeGenerationSlot>(&generation_keys)
                 .await
                 .map_err(|error| {
@@ -76,7 +80,7 @@ impl AtomStore {
                 })?;
             for (slot, base) in generation_slots.into_iter().zip(generation) {
                 if base.is_some() {
-                    hit[slot] = Self::merge_generation_slot(hit[slot].take(), base);
+                    hit[slot] = merge_generation_slot(hit[slot].take(), base);
                 }
             }
 
@@ -94,7 +98,8 @@ impl AtomStore {
                 }
             }
             let deletes = self
-                .main_store
+                .store
+                .rows()
                 .get_items::<super::super::super::MoleculeGenerationDelete>(&delete_keys)
                 .await
                 .map_err(|error| {
@@ -104,7 +109,7 @@ impl AtomStore {
                 })?;
             for (slot, deletion) in delete_slots.into_iter().zip(deletes) {
                 if deletion.is_some() {
-                    hit[slot] = Self::apply_generation_delete(hit[slot].take(), deletion);
+                    hit[slot] = apply_generation_delete(hit[slot].take(), deletion);
                 }
             }
         }
@@ -136,7 +141,8 @@ impl AtomStore {
                 )
             })
             .collect();
-        self.load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
+        self.store
+            .load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
             .await
     }
 }

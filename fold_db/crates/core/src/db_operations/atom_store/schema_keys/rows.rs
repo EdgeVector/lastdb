@@ -3,7 +3,7 @@
 use super::*;
 use std::collections::HashMap;
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     /// Native narrowed molecules project their API keys after this location
     /// receipt. A full receipt cannot silently become a UUID-only body lookup.
     pub(crate) fn note_selected_query_tip(
@@ -48,6 +48,7 @@ impl AtomStore {
             return Ok(());
         }
         let base = self
+            .store
             .key_codec_for_molecule(molecule)?
             .api_hash_range_record_key(
                 molecule,
@@ -175,7 +176,8 @@ impl AtomStore {
                 .api_key
                 .as_ref()
                 .map(|api_key| {
-                    self.key_codec_for_molecule(&key.molecule)?
+                    self.store
+                        .key_codec_for_molecule(&key.molecule)?
                         .api_hash_range_record_key(
                             &key.molecule,
                             api_key.hash.as_deref().unwrap_or_default(),
@@ -200,14 +202,21 @@ impl AtomStore {
         }
         missing.sort();
         missing.dedup();
-        let records = self.load_exact_per_key_records(scope, &missing).await?;
+        let records = self
+            .store
+            .load_exact_per_key_records(scope, &missing)
+            .await?;
         let rows = missing
             .iter()
             .cloned()
             .zip(records)
             .filter_map(|(base, record)| record.map(|record| (base, record)))
             .collect();
-        known.extend(self.filter_delete_barriers_for_records(rows, scope).await?);
+        known.extend(
+            self.store
+                .filter_delete_barriers_for_records(rows, scope)
+                .await?,
+        );
         self.retain_missing_preloaded_keys(scope, &keys, &missing, &known)
             .await?;
         Ok(keys

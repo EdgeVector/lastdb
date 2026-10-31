@@ -1,13 +1,13 @@
 //! Select one fixed-encoding range window before batched current-tip resolution.
 
+use super::super::hash_selection::HashTipSelection;
 use super::*;
-use crate::db_operations::atom_store::filter::HashTipSelection;
 use crate::resident::core_keys::CoreKeyRange;
 use std::ops::Bound;
 
 type SelectedWindow = (Vec<CoreStoredKey>, Option<String>);
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     pub(crate) async fn preloaded_window(
         &self,
         molecule: &str,
@@ -20,7 +20,7 @@ impl AtomStore {
         let Some(runtime) = self.schema_keys_runtime() else {
             return Ok(None);
         };
-        let codec = self.key_codec_for_molecule(molecule)?;
+        let codec = self.store.key_codec_for_molecule(molecule)?;
         after = after
             .map(|range| codec.storage_range(molecule, &range))
             .transpose()

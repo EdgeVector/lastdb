@@ -33,7 +33,7 @@ struct KeyList<'a> {
     membership: Membership<'a>,
 }
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Keys-only page of the live physical membership of one molecule.
     /// The continuation remains an exclusive physical `mk:` key.
     pub async fn list_live_record_keys(
@@ -89,7 +89,8 @@ impl AtomStore {
     }
 
     async fn list_record_keys_read(&self, request: KeyList<'_>) -> Result<KeyPage, SchemaError> {
-        self.atom_read_scope(self.list_record_keys_captured(request).boxed())
+        self.store
+            .atom_read_scope(self.list_record_keys_captured(request).boxed())
             .await
     }
 
@@ -100,8 +101,10 @@ impl AtomStore {
         if request.limit == 0 {
             return Ok((Vec::new(), None, false));
         }
-        self.load_molecule_key_bundle(request.molecule).await?;
-        let codec = self.key_codec_for_molecule(request.molecule)?;
+        self.store
+            .load_molecule_key_bundle(request.molecule)
+            .await?;
+        let codec = self.store.key_codec_for_molecule(request.molecule)?;
         let prefix = match request.hash {
             Some(hash) => codec
                 .api_hash_range_scan_prefix_for_hash(request.molecule, hash)
@@ -149,9 +152,8 @@ impl AtomStore {
                 break;
             }
             if self
-                .namespaced_store
-                .as_ref()
-                .and_then(|store| store.disk_pack_runtime())
+                .store
+                .native_runtime()
                 .is_some_and(|runtime| runtime.list_page_should_yield())
             {
                 unfinished = true;

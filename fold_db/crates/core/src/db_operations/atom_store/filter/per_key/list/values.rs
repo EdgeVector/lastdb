@@ -5,7 +5,7 @@ use crate::atom::MoleculeKeyCodec;
 use crate::schema::types::key_value::{scalar_key_coordinate, KeyValue};
 use serde_json::Value;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     pub(super) async fn list_key_values(
         &self,
         request: &KeyList<'_>,

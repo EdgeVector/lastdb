@@ -3,7 +3,7 @@
 use super::*;
 use std::collections::HashMap;
 
-impl AtomStore {
+impl<S: SchemaKeyPorts> SchemaKeys<'_, S> {
     pub(super) async fn retain_missing_preloaded_keys(
         &self,
         scope: Option<&str>,
@@ -19,6 +19,7 @@ impl AtomStore {
             }
             let Some(api) = &key.api_key else { continue };
             let base = self
+                .store
                 .key_codec_for_molecule(&key.molecule)?
                 .api_hash_range_record_key(
                     &key.molecule,
@@ -35,7 +36,10 @@ impl AtomStore {
         if requested.is_empty() {
             return Ok(());
         }
-        let records = self.load_visible_per_key_records(scope, &slot_keys).await?;
+        let records = self
+            .store
+            .load_visible_per_key_records(scope, &slot_keys)
+            .await?;
         for ((key, base), record) in requested.into_iter().zip(slot_keys).zip(records) {
             if record.is_none() {
                 self.note_missing_query_key(

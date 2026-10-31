@@ -1,6 +1,6 @@
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// HashRange field. The narrowable shapes all stay within a single hash, so
     /// the fetch is bounded to that hash's record subtree:
     /// - `HashRangeKey { hash, range }` → one `get`.
@@ -55,6 +55,7 @@ impl AtomStore {
         after: Option<(&str, &str)>,
     ) -> Result<Vec<(String, String)>, SchemaError> {
         if let Some(keys) = self
+            .store
             .preloaded_hash_range_keys_page_window(molecule_uuid, storage_prefix, take, after)
             .await?
         {
@@ -68,7 +69,8 @@ impl AtomStore {
             &molecule_key_codec::molecule_record_prefix(molecule_uuid),
         );
         let keys = self
-            .main_store
+            .store
+            .rows()
             .list_keys_with_prefix(&scan_prefix)
             .await
             .map_err(|e| {
@@ -208,7 +210,7 @@ impl AtomStore {
             return Ok(None);
         };
 
-        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        let codec = self.store.key_codec_for_molecule(molecule_uuid)?;
         let mut records = Vec::with_capacity(scanned.len());
         for (k, r) in scanned {
             let (storage_hash, storage_range) = molecule_key_codec::decode_hash_range_any(&k)
@@ -228,7 +230,8 @@ impl AtomStore {
             };
             let api_key =
                 crate::schema::types::key_value::KeyValue::new(Some(hash.clone()), Some(api_range));
-            self.note_selected_query_tip(storage_prefix, molecule_uuid, &api_key, &r, &k)?;
+            self.store
+                .note_selected_query_tip(storage_prefix, molecule_uuid, &api_key, &r, &k)?;
             records.push((hash, range, r.entry, r.meta));
         }
         // The transient molecule is only the narrowed `mk:` window.

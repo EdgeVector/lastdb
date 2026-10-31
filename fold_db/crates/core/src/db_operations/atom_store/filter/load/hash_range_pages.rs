@@ -1,6 +1,6 @@
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// `Page` / `PageAfter` / `SampleN` from authoritative molecule keys.
     /// Returns `Ok(None)` when the filter is not one of those shapes.
     pub(super) async fn load_hash_range_page(
@@ -119,6 +119,7 @@ impl AtomStore {
             })
             .collect();
         let hits = self
+            .store
             .load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
             .await?;
         let mut records = Vec::with_capacity(keys.len());

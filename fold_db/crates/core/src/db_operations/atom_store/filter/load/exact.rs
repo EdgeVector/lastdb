@@ -2,7 +2,7 @@
 
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     pub(super) async fn load_exact_query_without_header(
         &self,
         molecule: &str,

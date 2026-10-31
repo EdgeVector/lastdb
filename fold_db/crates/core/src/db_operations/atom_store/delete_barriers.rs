@@ -1,17 +1,38 @@
+//! Delete barrier reads: exact Delete target tips and barrier winners.
+
 use std::collections::HashMap;
 
 use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
 use crate::schema::SchemaError;
 
-use super::{AtomStore, PerKeyRecord};
+use super::ports::{MainRows, NativeRuntime, PendingDeletes, PerKeyReads};
+use super::PerKeyRecord;
 
-impl AtomStore {
+/// The ports the delete barrier concept reads through.
+pub(crate) trait DeleteBarrierPorts:
+    MainRows + NativeRuntime + PendingDeletes + PerKeyReads
+{
+}
+
+impl<T: MainRows + NativeRuntime + PendingDeletes + PerKeyReads> DeleteBarrierPorts for T {}
+
+/// Delete barrier reads over the ports of one store.
+pub(crate) struct DeleteBarriers<'s, S> {
+    store: &'s S,
+}
+
+impl<'s, S: DeleteBarrierPorts> DeleteBarriers<'s, S> {
+    pub(crate) fn new(store: &'s S) -> Self {
+        Self { store }
+    }
+
     /// Read exact Delete target tips in one batch.
     pub(crate) async fn delete_target_tips(
         &self,
         molecule_keys: &[String],
     ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        self.main_store
+        self.store
+            .rows()
             .get_items(molecule_keys)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read Delete target tips: {error}")))
@@ -37,7 +58,8 @@ impl AtomStore {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.load_exact_per_key_records(storage_prefix, &base_keys)
+        self.store
+            .load_exact_per_key_records(storage_prefix, &base_keys)
             .await
     }
 
@@ -58,9 +80,8 @@ impl AtomStore {
             .map(|key| delete_barrier_key(key.as_bytes()))
             .collect();
         let captured = self
-            .namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
+            .store
+            .native_runtime()
             .is_some_and(|runtime| runtime.captured_view_active());
         // Native views read their own captured disk and private staged barriers.
         // The global pending map can contain a different Delete that later
@@ -69,14 +90,11 @@ impl AtomStore {
         let pending: Vec<Option<DeleteBarrier>> = if captured {
             vec![None; keys.len()]
         } else {
-            let guard = self
-                .pending_delete_barriers
-                .lock()
-                .expect("pending_delete_barriers poisoned");
-            keys.iter().map(|key| guard.get(key).cloned()).collect()
+            self.store.pending_delete_barriers_for(&keys)
         };
         let durable: Vec<Option<DeleteBarrier>> = self
-            .main_store
+            .store
+            .rows()
             .get_items(&storage_keys)
             .await
             .map_err(|error| {

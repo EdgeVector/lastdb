@@ -48,21 +48,7 @@ impl AtomStore {
     /// narrower than the key validation of the storage layer on purpose: a verb
     /// never needs a `cloud:` or `from:` scope or a reserved name.
     pub fn validate_scope(scope: Option<&str>) -> Result<(), SchemaError> {
-        let Some(scope) = scope else {
-            return Ok(());
-        };
-        let lower_hex = scope.len() == 64
-            && scope
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
-        if lower_hex {
-            return Ok(());
-        }
-        let shown: String = scope.chars().take(80).collect();
-        Err(SchemaError::InvalidData(format!(
-            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
-             or a database scope of exactly 64 lowercase hex characters"
-        )))
+        super::super::helpers::validate_scope(scope)
     }
 
     /// Read the molecule inside the write gate and queue it for the drain when it

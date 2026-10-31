@@ -4,8 +4,8 @@ use crate::atom::molecule_key_codec;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
+use super::super::helpers::strip_per_key_storage_prefix;
 use super::super::types::PerKeyRecord;
-use super::super::AtomStore;
 use super::PageFill;
 
 mod batch;

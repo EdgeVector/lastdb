@@ -1,6 +1,6 @@
 use super::*;
 
-impl AtomStore {
+impl<S: FilterPorts> Filter<'_, S> {
     /// Key-narrowed scan for the single-hash filter shapes. Returns `Ok(None)`
     /// for shapes that fall through to the full path.
     pub(super) async fn scan_hash_range_narrowed(
@@ -18,6 +18,7 @@ impl AtomStore {
                     Some(range.clone()),
                 );
                 let hit = self
+                    .store
                     .load_query_tip_records(storage_prefix, molecule_uuid, &[key])
                     .await?
                     .pop()
@@ -49,11 +50,13 @@ impl AtomStore {
         hash: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         let prefix = self
+            .store
             .key_codec_for_molecule(molecule_uuid)?
             .api_hash_range_scan_prefix_for_hash(molecule_uuid, hash)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
         super::super::prefer_preloaded_rows(
-            self.preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
+            self.store
+                .preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
                 .await,
             || self.scan_per_key_prefix(&prefix, storage_prefix),
         )
@@ -68,7 +71,7 @@ impl AtomStore {
         hash: &str,
         prefix: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        let codec = self.store.key_codec_for_molecule(molecule_uuid)?;
         codec.require_text_range_prefix().map_err(codec_error)?;
         if prefix.is_empty() {
             return self
@@ -86,7 +89,8 @@ impl AtomStore {
         // Use the same prefix selector in memory and on disk. No synthetic
         // upper bound needs to exist in the caller's text coordinates.
         super::super::prefer_preloaded_rows(
-            self.preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
+            self.store
+                .preloaded_per_key_prefix_for_api(&prefix, storage_prefix, Some(hash))
                 .await,
             || self.scan_per_key_prefix(&prefix, storage_prefix),
         )
@@ -102,7 +106,7 @@ impl AtomStore {
         start: &str,
         end: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        let codec = self.store.key_codec_for_molecule(molecule_uuid)?;
         let storage_hash = codec
             .storage_hash(molecule_uuid, hash)
             .map_err(codec_error)?;
@@ -118,7 +122,8 @@ impl AtomStore {
         let start = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &start);
         let end = molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &end);
         super::super::prefer_preloaded_rows(
-            self.preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
+            self.store
+                .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
                 .await,
             || self.scan_per_key_range(&start, &end, storage_prefix),
         )
