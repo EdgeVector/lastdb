@@ -83,7 +83,7 @@ The declare refuses a TTL, before it binds the schema, when:
    declare resolved to. It erases a record from every molecule that schema
    names, so it reaches every schema bound to it, whoever wrote the record. The
    declare refuses with `shared_with=[...]` when another loaded schema is bound
-   to the catalog schema (by field mapper, retention alias or shared molecule),
+   to the catalog schema (by retention alias or shared molecule),
    or when another app owns the catalog schema or a schema it was expanded
    from. The same check runs again when the policy is written. Two manifest
    schemas of the same shape can resolve to one catalog schema: `lastdb app
@@ -108,10 +108,8 @@ The declare refuses a TTL, before it binds the schema, when:
    plain `app/LogExt` that adds one field to the readable name of a TTL'd
    `app/Log` is expanded from `app/Log`'s catalog schema, so it is refused. The
    refusal names the holders and says what to do: give the schema its own
-   shape, or clear the TTL. A schema that is **already bound** is only warned:
-   an app that declares its schemas on every start must keep starting, and the
-   warning says its records are under the TTL. A refused declare drops the
-   catalog schema it loaded when nothing uses it.
+   shape, or clear the TTL. A refused declare drops the catalog schema it
+   loaded when nothing uses it.
 
 A refusal in 1 to 3 or 5 happens before the schema is bound: nothing is bound,
 no alias or policy is written. If the policy cannot be written after the bind
