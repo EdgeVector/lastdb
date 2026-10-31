@@ -1,5 +1,6 @@
 //! Reset, snapshot, dedupe, deprecation and match telemetry routes.
 
+use schema_service_core::snapshot::SnapshotExportReply;
 use schema_service_core::state::{
     DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
 };
@@ -82,27 +83,7 @@ pub async fn reset_database(
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
 )]
 pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Responder {
-    match state.export_snapshot() {
-        Ok(envelope) => {
-            // Strip embeddings before responding — they balloon the
-            // response past Lambda's 6 MB sync-invoke cap (verified in
-            // prod 2026-05-05). See `handle_snapshot_export` in
-            // `server_lambda` for the full rationale; the dev binary
-            // mirrors the behavior so consumers see the same shape
-            // across both surfaces.
-            HttpResponse::Ok().json(envelope.without_embeddings())
-        }
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::snapshot",
-                "Failed to export snapshot: {}",
-                e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to export snapshot: {e}"),
-            })
-        }
-    }
+    write_snapshot_reply(state.export_snapshot_reply())
 }
 
 /// `GET /v1/snapshot/shared-only` — shared-surface projection of the registry.
@@ -115,17 +96,15 @@ pub async fn snapshot_export(state: web::Data<SchemaServiceState>) -> impl Respo
     reason = "actix-web route handler — signature must be async to satisfy the Handler trait"
 )]
 pub async fn snapshot_export_shared_only(state: web::Data<SchemaServiceState>) -> impl Responder {
-    match state.export_shared_only_snapshot() {
-        Ok(envelope) => HttpResponse::Ok().json(envelope.without_embeddings()),
-        Err(e) => {
-            tracing::error!(
-                target: "schema_service::snapshot",
-                "Failed to export shared-only snapshot: {}",
-                e
-            );
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("Failed to export shared-only snapshot: {e}"),
-            })
+    write_snapshot_reply(state.export_shared_only_snapshot_reply())
+}
+
+fn write_snapshot_reply(reply: SnapshotExportReply) -> HttpResponse {
+    match reply {
+        SnapshotExportReply::Ready(envelope) => HttpResponse::Ok().json(envelope),
+        SnapshotExportReply::Failed { message } => {
+            tracing::error!(target: "schema_service::snapshot", "{message}");
+            HttpResponse::InternalServerError().json(ErrorResponse { error: message })
         }
     }
 }

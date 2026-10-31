@@ -10,7 +10,7 @@
 use crate::api_key;
 use crate::http::{extract_api_key, json_response, serialization_error, unauthorized};
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::snapshot::SnapshotEnvelope;
+use schema_service_core::snapshot::SnapshotExportReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 use std::sync::Arc;
@@ -95,17 +95,13 @@ async fn reject_unless_authorized(
 /// expose them via a dedicated endpoint (e.g. GET /v1/snapshot/embeddings
 /// backed by an S3 presigned URL or paginated chunks) rather than inflating
 /// this response.
-fn snapshot_response<E: std::fmt::Display>(
-    exported: Result<SnapshotEnvelope, E>,
-    failure_prefix: &str,
-) -> Result<Response<Body>, Error> {
-    match exported {
-        Ok(envelope) => {
-            let body =
-                serde_json::to_value(envelope.without_embeddings()).map_err(serialization_error)?;
+fn write_snapshot_reply(reply: SnapshotExportReply) -> Result<Response<Body>, Error> {
+    match reply {
+        SnapshotExportReply::Ready(envelope) => {
+            let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        Err(e) => json_response(500, &json!({"error": format!("{failure_prefix}: {e}")})),
+        SnapshotExportReply::Failed { message } => json_response(500, &json!({ "error": message })),
     }
 }
 
@@ -117,7 +113,7 @@ pub(crate) async fn handle_snapshot_export(
     if let Some(resp) = reject_unless_authorized(event, "Snapshot fetch rejected").await? {
         return Ok(resp);
     }
-    snapshot_response(state.export_snapshot(), "Failed to export snapshot")
+    write_snapshot_reply(state.export_snapshot_reply())
 }
 
 /// `GET /v1/snapshot/shared-only` — auth-gated shared-surface projection.
@@ -135,8 +131,5 @@ pub(crate) async fn handle_snapshot_export_shared_only(
     {
         return Ok(resp);
     }
-    snapshot_response(
-        state.export_shared_only_snapshot(),
-        "Failed to export shared-only snapshot",
-    )
+    write_snapshot_reply(state.export_shared_only_snapshot_reply())
 }

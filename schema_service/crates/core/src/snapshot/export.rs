@@ -69,6 +69,31 @@ where
     envelope
 }
 
+/// The snapshot export both HTTP routers answer.
+///
+/// Success is HTTP 200 and the envelope with embeddings removed. Failure is
+/// HTTP 500. `message` is the error text. The Lambda router still checks
+/// `X-API-Key`. The actix router still writes the log.
+#[derive(Debug)]
+pub enum SnapshotExportReply {
+    /// The export finished. The envelope has embeddings removed.
+    Ready(Box<SnapshotEnvelope>),
+    /// The export failed. `message` is `{prefix}: {error}`.
+    Failed { message: String },
+}
+
+fn classify_snapshot_export(
+    exported: FoldDbResult<SnapshotEnvelope>,
+    failure_prefix: &str,
+) -> SnapshotExportReply {
+    match exported {
+        Ok(envelope) => SnapshotExportReply::Ready(Box::new(envelope.without_embeddings())),
+        Err(error) => SnapshotExportReply::Failed {
+            message: format!("{failure_prefix}: {error}"),
+        },
+    }
+}
+
 impl SchemaServiceState {
     /// Capture the current registry state as a [`SnapshotEnvelope`].
     ///
@@ -138,5 +163,24 @@ impl SchemaServiceState {
                 || self.is_system_schema(&schema.name)
                 || offline_is_system_schema(schema)
         }))
+    }
+
+    /// Classify [`Self::export_snapshot`] for the HTTP routers.
+    ///
+    /// The export method stays public. Each router still writes its response.
+    #[must_use]
+    pub fn export_snapshot_reply(&self) -> SnapshotExportReply {
+        classify_snapshot_export(self.export_snapshot(), "Failed to export snapshot")
+    }
+
+    /// Classify [`Self::export_shared_only_snapshot`] for the HTTP routers.
+    ///
+    /// The export method stays public. Each router still writes its response.
+    #[must_use]
+    pub fn export_shared_only_snapshot_reply(&self) -> SnapshotExportReply {
+        classify_snapshot_export(
+            self.export_shared_only_snapshot(),
+            "Failed to export shared-only snapshot",
+        )
     }
 }
