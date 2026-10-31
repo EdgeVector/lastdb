@@ -27,7 +27,7 @@ impl MutationManager {
             return Ok(keys
                 .iter()
                 .zip(records)
-                .filter(|(_, record)| !record.as_ref().is_some_and(StoredRecord::is_live))
+                .filter(|(_, record)| !record.as_deref().is_some_and(StoredRecord::is_live))
                 .map(|(key, _)| key.clone())
                 .collect());
         }
