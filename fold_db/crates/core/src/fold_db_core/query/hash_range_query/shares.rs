@@ -45,6 +45,20 @@ impl HashRangeQueryProcessor {
         })
     }
 
+    /// Alternate entries index only records written on this node. A sender
+    /// need not grant every key field, so received records have no entries
+    /// and an alternate read would omit them. Refuse while any sender is active.
+    pub(crate) async fn refuse_received_data(&self) -> Result<(), SchemaError> {
+        if self.collect_received_from_namespaces().await?.is_empty() {
+            return Ok(());
+        }
+        Err(SchemaError::InvalidData(
+            "alternate keys do not cover data received from other users; \
+             read this schema by its primary key"
+                .into(),
+        ))
+    }
+
     /// Resolve a field's values from a specific storage namespace by
     /// temporarily rewriting the field's `storage_prefix`. The field's
     /// structure is cloned with molecule data stripped so the caller's schema

@@ -176,6 +176,8 @@ Every required field is present in Card. The key needs no record correspondence 
 - An update removes old alternate addresses and adds the new addresses in that transaction.
 - A delete removes the primary tips and their alternate addresses in that transaction.
 - Adding or removing a key on existing data uses the explicit owner change command and complete coverage checks.
+- An alternate read works in the personal database and in an org database.
+- An alternate read refuses while the node receives data from another user. Received records have no alternate addresses. Read them by the primary key.
 
 Canonical field identity controls reusable descriptions and types. It does not select other records for a write.
 Unrelated records use separate schemas and retain separate values.

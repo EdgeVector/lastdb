@@ -202,6 +202,7 @@ impl QueryExecutor {
             )
             .await?;
         validate_controls(query)?;
+        self.hash_range_processor.refuse_received_data().await?;
         Ok((schema, scope))
     }
 }
