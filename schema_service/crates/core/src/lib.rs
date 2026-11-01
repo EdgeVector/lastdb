@@ -133,7 +133,7 @@ pub use resolver_pack_consumer::{
     ObjectFetchResult, ResolverBootstrapConfig, ResolverBootstrapConfigError, ResolverPackCache,
     ResolverPackConsumer, ResolverPackConsumerConfig, ResolverPackFallbackReason,
     ResolverPackFetchError, ResolverPackLoadOutcome, ResolverPackLoadSource,
-    ResolverPackObjectStore, ResolverPackResolutionRoute, ResolverPackTelemetrySnapshot,
+    ResolverPackObjectStore, ResolverPackTelemetrySnapshot,
 };
 pub use resolver_runtime::{NativeResolverState, ResolverRuntime, RuntimeTelemetry};
 pub use schema_config::{RegistryIndexSigningKey, SchemaConfig};

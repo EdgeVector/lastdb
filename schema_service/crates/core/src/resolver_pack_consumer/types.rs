@@ -161,42 +161,6 @@ impl LoadedResolverPack {
                 .collect(),
         }
     }
-
-    pub fn route_decision(&self, decision: ResolverDecision) -> ResolverPackResolutionRoute {
-        match decision {
-            ResolverDecision::UseExisting if self.resolver_config.permissions.use_existing => {
-                ResolverPackResolutionRoute::UseLocal
-            }
-            ResolverDecision::UseComponents if self.resolver_config.permissions.use_components => {
-                ResolverPackResolutionRoute::UseLocal
-            }
-            ResolverDecision::ExpandExistingIfAllowed
-                if self.resolver_config.permissions.expand_existing =>
-            {
-                ResolverPackResolutionRoute::UseLocal
-            }
-            ResolverDecision::NeedsLiveSchemaService => {
-                ResolverPackResolutionRoute::LiveServiceFallback {
-                    reason: "needs_live_schema_service",
-                }
-            }
-            ResolverDecision::Ambiguous => ResolverPackResolutionRoute::LiveServiceFallback {
-                reason: "ambiguous_candidates",
-            },
-            ResolverDecision::Reject => ResolverPackResolutionRoute::LiveServiceFallback {
-                reason: "resolver_reject",
-            },
-            _ => ResolverPackResolutionRoute::LiveServiceFallback {
-                reason: "policy_requires_live_check",
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolverPackResolutionRoute {
-    UseLocal,
-    LiveServiceFallback { reason: &'static str },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
