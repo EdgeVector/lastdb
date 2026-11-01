@@ -57,11 +57,6 @@ impl Tally {
     pub(super) fn len(&self) -> usize {
         self.counts.len()
     }
-
-    /// Every key with its count.
-    pub(super) fn entries(&self) -> impl Iterator<Item = (u128, u32)> + '_ {
-        self.counts.iter().map(|(key, count)| (*key, *count))
-    }
 }
 
 /// The atoms that a planner batch changed while a run reads.
