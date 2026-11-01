@@ -38,8 +38,7 @@ impl MutationManager {
         let schema = self
             .load_schema_for_delta(schema_name, storage_prefix)
             .await?;
-        self.require_record_write(&schema, &mutations, storage_prefix)
-            .await?;
+        Self::require_record_write(&mutations)?;
         let scope = record_scope(&schema);
         let atoms = self.db_ops.atoms();
         let mut keys = Vec::with_capacity(mutations.len());
@@ -124,22 +123,16 @@ impl MutationManager {
 
     /// Refuse each writer that a record cannot hold yet. The molecule path
     /// keeps serving these in format 4 to 6 homes.
-    async fn require_record_write(
-        &self,
-        schema: &Schema,
-        mutations: &[Mutation],
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        if !self
-            .active_share_prefixes(&schema.name, storage_prefix)
-            .await?
-            .is_empty()
-        {
-            return Err(unsupported("a write to a schema with an active share rule"));
-        }
+    ///
+    /// A signed import keeps the sender's key and signature on each tip in
+    /// the molecule path. A record names no writer (decision D7), so it
+    /// cannot hold them. An import's `imported_version` signs only a Single
+    /// field, which a record home does not have; a keyed field ignores it in
+    /// the molecule path too.
+    fn require_record_write(mutations: &[Mutation]) -> Result<(), SchemaError> {
         for mutation in mutations {
-            if mutation.provenance.is_some() || mutation.imported_version.is_some() {
-                return Err(unsupported("an imported write"));
+            if mutation.provenance.is_some() {
+                return Err(unsupported("a signed imported write"));
             }
             if mutation.aggregate_set.is_some() || mutation.aggregate_derived_internal {
                 return Err(unsupported("an aggregate write"));

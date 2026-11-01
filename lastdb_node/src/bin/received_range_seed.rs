@@ -6,10 +6,15 @@
 // The mutation future crosses enough nested types to exceed rustc's default.
 #![recursion_limit = "256"]
 
+use fold_db::access::{AccessContext, CallerTransport};
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::operations::Query;
 use fold_db::schema::types::Mutation;
-use fold_db::sharing::types::ShareSubscription;
+use fold_db::sharing::types::{ShareRule, ShareScope, ShareSubscription};
 use lastdb_node::Host;
 use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -18,6 +23,11 @@ const SENDERS: [&str; 2] = [
     "11111111111111111111111111111111",
     "22222222222222222222222222222222",
 ];
+/// The send check shares this generated schema. Its hash is outside every
+/// workload selector.
+const SEND_SCHEMA: &str = "ReceivedRangeBatchesAlternate";
+const SEND_HASH: &str = "send-check";
+const SEND_FIELDS: [&str; 4] = ["bucket", "id", "title", "body"];
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +122,7 @@ async fn populate(host: &Host, input: &Path) -> Result<usize, Box<dyn std::error
         }
     }
     activate_generated_receivers(host).await?;
+    count += check_generated_send(host).await?;
     host.db
         .db_ops()
         .namespaced_store()
@@ -145,6 +156,139 @@ async fn activate_generated_receivers(host: &Host) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+/// The generated share rule of the send check: one recipient scope for the
+/// send schema.
+async fn activate_generated_send_rule(host: &Host) -> Result<String, Box<dyn std::error::Error>> {
+    let share_prefix = format!("share:{}:generated-send-check", SENDERS[0]);
+    let rule = ShareRule {
+        rule_id: "generated-send-check".into(),
+        recipient_pubkey: format!("generated-ci-{}", SENDERS[0]),
+        recipient_display_name: "generated send check".into(),
+        scope: ShareScope::Schema(SEND_SCHEMA.into()),
+        share_prefix: share_prefix.clone(),
+        share_e2e_secret: Vec::new(),
+        active: true,
+        created_at: 1,
+        writer_pubkey: "generated-ci".into(),
+        signature: String::new(),
+    };
+    let rules = host.db.db_ops().open_namespace("share_rules").await?;
+    rules
+        .batch_put(vec![(
+            rule.rule_id.as_bytes().to_vec(),
+            serde_json::to_vec(&rule)?,
+        )])
+        .await?;
+    Ok(share_prefix)
+}
+
+/// A personal write to a schema with an active share rule also writes each
+/// changed record in the rule's scope. Write two records and update one, then
+/// read the hash in both scopes; the values must match. Returns the number of
+/// mutations.
+///
+/// Only a format 7 home runs the check. A molecule home (format 4 to 6)
+/// copies the complete key set of each touched field molecule to the share
+/// scope; with the 1,216 generated keys of the send schema, that copy exceeds
+/// the 16,384-operation cap of one native mutation, and the write fails.
+async fn check_generated_send(host: &Host) -> Result<usize, Box<dyn std::error::Error>> {
+    if !host.db.db_ops().atoms().record_home() {
+        return Ok(0);
+    }
+    let share_prefix = activate_generated_send_rule(host).await?;
+    let batches = [
+        vec![
+            send_mutation("create", "a", &send_record("a", "first"))?,
+            send_mutation("create", "b", &send_record("b", "second"))?,
+        ],
+        vec![send_mutation(
+            "update",
+            "b",
+            &json!({"title": "second-updated"}),
+        )?],
+    ];
+    let mut count = 0;
+    for batch in batches {
+        let offered = batch.len();
+        let accepted = host
+            .db
+            .mutation_manager()
+            .write_mutations_batch_async(batch, None)
+            .await?;
+        if accepted.len() != offered {
+            return Err("the generated send batch has an incomplete acknowledgement".into());
+        }
+        count += offered;
+    }
+    let personal = read_send_hash(host, None).await?;
+    let shared = read_send_hash(host, Some(share_prefix)).await?;
+    let updated = personal
+        .get("title")
+        .and_then(|values| values.get("b"))
+        .and_then(Value::as_str);
+    if personal.values().any(|values| values.len() != 2) || updated != Some("second-updated") {
+        return Err("the generated send check misses a personal record".into());
+    }
+    if shared != personal {
+        return Err("the share scope differs from the personal records it copies".into());
+    }
+    Ok(count)
+}
+
+/// One generated personal record of the send check.
+fn send_record(range: &str, title: &str) -> Value {
+    json!({
+        "bucket": SEND_HASH,
+        "id": range,
+        "title": title,
+        "body": format!("{SEND_HASH}-{range}"),
+    })
+}
+
+/// One generated personal mutation of the send check under the send hash.
+fn send_mutation(action: &str, range: &str, fields: &Value) -> Result<Mutation, serde_json::Error> {
+    serde_json::from_value(json!({
+        "uuid": uuid::Uuid::new_v4().to_string(),
+        "schema_name": SEND_SCHEMA,
+        "fields_and_values": fields,
+        "key_value": {"hash": SEND_HASH, "range": range},
+        "pub_key": "generated-ci",
+        "mutation_type": action,
+        "synchronous": true,
+        "source_file_name": null,
+    }))
+}
+
+/// The values of the send hash in one scope, by field and range.
+async fn read_send_hash(
+    host: &Host,
+    scope: Option<String>,
+) -> Result<BTreeMap<String, BTreeMap<String, Value>>, Box<dyn std::error::Error>> {
+    let query = Query::new_with_filter(
+        SEND_SCHEMA.to_string(),
+        SEND_FIELDS.iter().map(ToString::to_string).collect(),
+        Some(HashRangeFilter::HashKey(SEND_HASH.to_string())),
+    );
+    let access = AccessContext::owner(host.user_hash.clone())
+        .with_transport(CallerTransport::InProcess)
+        .with_storage_prefix(scope);
+    let rows = host
+        .db
+        .query_executor()
+        .query_with_access(query, &access)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(field, values)| {
+            let values = values
+                .into_iter()
+                .map(|(key, value)| (key.range.unwrap_or_default(), value.value))
+                .collect();
+            (field, values)
+        })
+        .collect())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let home = checked_home()?;
@@ -155,11 +299,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
     let result = populate(&host, &input).await;
+    let send_check = host.db.db_ops().atoms().record_home();
     host.db.shutdown().await?;
     println!(
         "{}",
         serde_json::json!({"mutations": result?, "durable": true,
-        "received_sources": SENDERS, "generated_data_only": true})
+        "received_sources": SENDERS, "generated_data_only": true, "send_check": send_check})
     );
     Ok(())
 }

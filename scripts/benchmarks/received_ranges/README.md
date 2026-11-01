@@ -31,6 +31,16 @@ It does not edit snapshot bytes or contact a sender.
 The generated subscriptions contain no cloud grant or encryption secret.
 The homes have no cloud configuration or sync engine.
 
+In a format 7 home, the candidate helper also checks the send side of sharing.
+It writes one generated share rule for the independent schema.
+It writes two personal records under the hash `send-check` and updates one record.
+It then reads that hash in the personal scope and in the rule's share scope.
+The values must match, or the helper fails the run.
+No workload selector reads the hash `send-check`.
+A format 4 to 6 home skips this check.
+That home copies the complete key set of each touched field molecule to the share scope.
+With the 1,216 local keys of the independent schema, one copy exceeds the 16,384-operation cap of one native mutation.
+
 Each exact source supplies its own helper for its storage format.
 Both helpers receive identical generated mutations. The recipe checks the input hashes and final values before a comparison.
 The manifest records both helper revisions, executable SHA256 values, and input hashes.
@@ -38,6 +48,15 @@ Seed time is excluded from all query latency results.
 The exact base and candidate daemons perform every measured read.
 One toolchain builds both daemons into separate fresh optimized targets.
 Only dependency downloads use the cache.
+
+## Format 7 candidate
+
+A manual dispatch can set the `candidate_record_home` input.
+The driver then starts only the candidate with `LASTDB_RECORD_HOME=1`.
+The candidate seed helper receives the same setting.
+The run fails unless the candidate home marker is format 7, which stores one record per key.
+The baseline keeps the default fresh-home format of its release.
+The summary names the home format of each run.
 
 ## Range operations and latency
 
@@ -131,5 +150,5 @@ The measurement step permits 55 minutes. The workflow permits 90 minutes.
 Actions command:
 
 ```text
-python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-seed-helper <base-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output>
+python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-seed-helper <base-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output> [--candidate-record-home]
 ```
