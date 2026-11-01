@@ -4,7 +4,7 @@ use schema_service_core::app_release::{
     ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{
-    ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply,
+    missing_dev_cert_body, ListLiveAppsReply, PromoteAppReply, PublicAppReply, RegisterAppReply,
     SchemaMutationChallengeReply, UpdateAppReply,
 };
 
@@ -29,19 +29,15 @@ pub async fn issue_schema_mutation_challenge(
 
 /// Extract the app_identity v3.1 `X-Exemem-Dev-Cert` + `X-Signature` header
 /// pair, returning a `401 cert_invalid` response when either is missing.
-/// Shared by `register_app`, `update_app`, and `promote_app` so the missing-
-/// header 401 body shape (`reason: "cert_invalid"`, `detail: "missing ..."`)
-/// stays in lockstep across the three handlers.
+/// Shared by `register_app`, `update_app`, and `promote_app`. The body comes
+/// from [`missing_dev_cert_body`], which the Lambda router also writes.
 fn require_dev_cert_headers(req: &HttpRequest) -> Result<(String, String), HttpResponse> {
     match (
         header_value(req, "X-Exemem-Dev-Cert"),
         header_value(req, "X-Signature"),
     ) {
         (Some(cert), Some(sig)) => Ok((cert, sig)),
-        _ => Err(json_status(
-            401,
-            json!({ "reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header" }),
-        )),
+        _ => Err(json_status(401, missing_dev_cert_body())),
     }
 }
 

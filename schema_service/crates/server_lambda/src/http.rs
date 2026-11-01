@@ -4,9 +4,9 @@ use crate::cors;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::state::SchemaByNameReply;
 use schema_service_core::{
-    SchemaMutationGateHeaders, HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE,
-    HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER, HEADER_POW_DIFFICULTY_BITS,
-    HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
+    missing_dev_cert_body, SchemaMutationGateHeaders, HEADER_DEV_PUBKEY, HEADER_NODE_PUBLIC_KEY,
+    HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC, HEADER_POW_COUNTER,
+    HEADER_POW_DIFFICULTY_BITS, HEADER_POW_EXPIRES_AT, HEADER_POW_NONCE,
 };
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::{json, Value};
@@ -183,7 +183,8 @@ fn json_body(
 }
 
 /// The `X-Exemem-Dev-Cert` + `X-Signature` pair, or the 401 to return.
-/// An app write needs both. A read needs neither.
+/// An app write needs both. A read needs neither. The 401 body is
+/// [`missing_dev_cert_body`], which the actix router also writes.
 pub(crate) fn v2_cert_headers(
     event: &Request,
 ) -> Result<(&str, &str), Result<Response<Body>, Error>> {
@@ -192,10 +193,7 @@ pub(crate) fn v2_cert_headers(
         header_str(event, "x-signature"),
     ) {
         (Some(cert), Some(sig)) => Ok((cert, sig)),
-        _ => Err(json_response(
-            401,
-            &json!({"reason": "cert_invalid", "detail": "missing X-Exemem-Dev-Cert or X-Signature header"}),
-        )),
+        _ => Err(json_response(401, &missing_dev_cert_body())),
     }
 }
 
