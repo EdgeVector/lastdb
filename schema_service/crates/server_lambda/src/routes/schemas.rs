@@ -4,7 +4,7 @@ use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
-    similarity_threshold_reply, BatchReuseReply, FieldVocabularyReply, SchemaAddReply,
+    similarity_threshold_reply, FieldVocabularyReply, SchemaAddReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -305,11 +305,9 @@ pub(crate) fn post_schemas_batch_check_reuse(
             Err(response) => return response,
         };
 
-    match state.batch_reuse_reply(&request.schemas) {
-        BatchReuseReply::Ready(response) => {
-            json_response(200, &json!({ "matches": response.matches }))
-        }
-        BatchReuseReply::Failed { body, .. } => json_response(500, &body),
+    match state.batch_reuse_reply(&request.schemas).into_http() {
+        Ok(response) => json_response(200, &json!({ "matches": response.matches })),
+        Err((status, body, _)) => json_response(status, &body),
     }
 }
 

@@ -93,6 +93,21 @@ pub enum BatchReuseReply {
     Failed { message: String, body: Value },
 }
 
+impl BatchReuseReply {
+    /// The reuse response, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. The actix router
+    /// still records match telemetry on that response. Failed is 500.
+    /// The log line is the actix error text. The Lambda router ignores
+    /// that line.
+    pub fn into_http(self) -> Result<crate::types::BatchSchemaReuseResponse, (u16, Value, String)> {
+        match self {
+            Self::Ready(response) => Ok(response),
+            Self::Failed { message, body } => Err((500, body, message)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Find schemas similar to the given schema using Jaccard index on field name sets
     pub fn find_similar_schemas(

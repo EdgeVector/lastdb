@@ -1,7 +1,5 @@
 //! Reuse checks, schema resolution, field-match probes and health.
 
-use schema_service_core::state::BatchReuseReply;
-
 use super::*;
 
 #[allow(
@@ -14,8 +12,8 @@ pub async fn batch_check_reuse(
 ) -> impl Responder {
     let request = payload.into_inner();
 
-    match state.batch_reuse_reply(&request.schemas) {
-        BatchReuseReply::Ready(response) => {
+    match state.batch_reuse_reply(&request.schemas).into_http() {
+        Ok(response) => {
             for entry in &request.schemas {
                 match response.matches.get(&entry.descriptive_name) {
                     Some(m) if m.is_superset => {
@@ -35,9 +33,9 @@ pub async fn batch_check_reuse(
             }
             HttpResponse::Ok().json(response)
         }
-        BatchReuseReply::Failed { message, body } => {
+        Err((status, body, message)) => {
             tracing::error!(target: "schema_service::schema", "{message}");
-            HttpResponse::InternalServerError().json(body)
+            json_status(status, body)
         }
     }
 }
