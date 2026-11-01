@@ -1,20 +1,16 @@
-//! A format 7 home stores records. It refuses a field molecule writer.
+//! Every home is format 7 and stores records. It refuses a field molecule writer.
 //!
-//! The native create, update and delete path and the peer import write
-//! records in a format 7 home. The other data writers (purge, restore,
-//! aggregates) still write field molecule tips, delete barriers or
-//! generations. Until each moves to records, its request fails before native
-//! acceptance instead of mixing the two layouts in one home.
+//! The native create, update, delete and purge path and the peer import write
+//! records. The format 6 maintenance passes that remain (the tip planner
+//! behind retention release and the molecule drain) still stage field
+//! molecule tips, delete barriers or generations. Such a request fails before
+//! native acceptance instead of mixing the two layouts in one home.
 
 use super::*;
 
 pub(in crate::storage::disk_pack) fn require_record_layout(
-    runtime: &PackRuntime,
     operations: &[HomeMutation],
 ) -> StorageResult<()> {
-    if !runtime.record_home() {
-        return Ok(());
-    }
     for operation in operations {
         if matches!(
             super::logical_capture::tips_family(operation)?.as_deref(),

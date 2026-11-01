@@ -35,7 +35,6 @@
 
 use crate::alternate_keys::MAX_ALTERNATE_ENTRIES;
 use crate::schema::types::Schema;
-use crate::storage::StorageError;
 
 /// Keys in one chunk of an erase. A chunk reads its tips, plans, and stages.
 pub const ERASE_CHUNK_KEYS: usize = 64;
@@ -154,40 +153,4 @@ pub fn max_erase_keys(delete: bool, shape: EraseShape, limit: usize) -> usize {
         keys -= 1;
     }
     keys
-}
-
-/// Refuse an erase request that cannot fit in one batch. The caller runs this
-/// before it takes the write gate or stages any row.
-pub(crate) fn check_erase_size(
-    delete: bool,
-    keys: usize,
-    shape: EraseShape,
-    limit: usize,
-) -> Result<(), StorageError> {
-    if fits(delete, keys, shape, limit) {
-        return Ok(());
-    }
-    let needed = erase_operations_upper_bound(delete, keys, shape);
-    let reads = erase_reads_upper_bound(delete, keys, shape);
-    let verb = if delete { "delete" } else { "purge" };
-    let max = max_erase_keys(delete, shape, limit);
-    let fields = shape.fields;
-    let size = if shape.alternates == 0 {
-        format!("{fields} fields")
-    } else {
-        format!("{fields} fields and {} alternate keys", shape.alternates)
-    };
-    let advice = if max == 0 {
-        format!("a schema of {size} is too wide for one {verb} request")
-    } else {
-        format!("send at most {max} keys of {size} in one request")
-    };
-    Err(StorageError::MutationLimit {
-        detail: format!(
-            "this {verb} of {keys} keys of {size} needs up to {needed} storage \
-             operations and {reads} reads; one request holds at most {limit} operations, \
-             {WRITE_REQUEST_READ_KEYS} reads and {MAX_ALTERNATE_ENTRIES} alternate \
-             entries; {advice}"
-        ),
-    })
 }

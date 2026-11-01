@@ -18,55 +18,15 @@ impl MoleculeHashRange {
         )
     }
 
-    /// Creates a new empty MoleculeHashRange under an **already-assigned**
-    /// molecule UUID.
-    ///
-    /// Use this when the caller knows which molecule the field is bound to,
-    /// for example a persisted `field_molecule_uuids` entry that the schema
-    /// load restored. [`Self::new_at`] derives the UUID from the pair it is
-    /// handed, so calling it for a field with a persisted binding silently
-    /// re-anchors the field onto a second molecule.
-    #[must_use]
-    pub fn with_uuid_at(uuid: String, updated_at: DateTime<Utc>) -> Self {
-        Self::empty(uuid, updated_at)
-    }
-
     fn empty(uuid: String, updated_at: DateTime<Utc>) -> Self {
         Self {
             uuid,
             atom_uuids: HashMap::new(),
-            pending_tip_conflicts: Vec::new(),
             updated_at,
             order_is_tail: false,
-            loaded_is_partial: false,
             version: 0,
             key_metadata: HashMap::new(),
         }
-    }
-
-    /// Explode into per-key records `(hash, range, entry, metadata)` for
-    /// per-key storage. The molecule-level `(uuid, version, updated_at)`
-    /// travel in the header alongside these records.
-    ///
-    /// **Cost:** materialises a `Vec` of the ENTIRE molecule, cloning every
-    /// hash, range and [`AtomEntry`]. That is what the persist path wants — it
-    /// writes all of them. It is the wrong tool for finding ONE slot: use
-    /// [`Self::get_atom_entry`], which is a hashmap lookup. Calling this per key
-    /// is how bulk purge stayed `O(R)`-per-record after being batched in `N`;
-    /// see `collect_target_chain`.
-    pub fn per_key_records(&self) -> Vec<(String, String, AtomEntry, Option<KeyMetadata>)> {
-        let mut out = Vec::new();
-        for (hash, ranges) in &self.atom_uuids {
-            for (range, entry) in ranges {
-                let meta = self
-                    .key_metadata
-                    .get(hash)
-                    .and_then(|m| m.get(range))
-                    .cloned();
-                out.push((hash.clone(), range.clone(), entry.clone(), meta));
-            }
-        }
-        out
     }
 
     /// Whether this molecule is a write-only tail rather than a full snapshot.
@@ -86,20 +46,6 @@ impl MoleculeHashRange {
         records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
     ) -> Self {
         Self::from_records(uuid, version, updated_at, records, false)
-    }
-
-    /// Rebuild a write-only molecule from just the touched records.
-    ///
-    /// [`Self::order_is_tail`] is true. A tail takes the shared append guard.
-    /// A full rewrite of a tail molecule is refused. This constructor does not
-    /// read `moc:` and does not build an order vector.
-    pub fn from_write_records(
-        uuid: String,
-        version: u64,
-        updated_at: DateTime<Utc>,
-        records: Vec<(String, String, AtomEntry, Option<KeyMetadata>)>,
-    ) -> Self {
-        Self::from_records(uuid, version, updated_at, records, true)
     }
 
     fn from_records(
@@ -125,10 +71,8 @@ impl MoleculeHashRange {
             atom_uuids,
             updated_at,
             order_is_tail,
-            loaded_is_partial: false,
             version,
             key_metadata,
-            pending_tip_conflicts: Vec::new(),
         }
     }
 }

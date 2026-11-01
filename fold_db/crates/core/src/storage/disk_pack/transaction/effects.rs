@@ -2,27 +2,7 @@
 
 use super::*;
 use crate::resident::CoreMemorySource;
-use crate::storage::disk_pack::logical_paths::LogicalPathRecord;
 use std::any::Any;
-use std::collections::HashSet;
-
-pub(crate) fn stage_paths(
-    runtime: &PackRuntime,
-    records: Vec<LogicalPathRecord>,
-) -> StorageResult<()> {
-    let pending = current(runtime)?;
-    let mut paths = pending.paths.lock().expect("native private paths");
-    // Keep one final effect per core path, including present/absent replacements.
-    let records: BTreeMap<_, _> = records
-        .into_iter()
-        .map(|record| (record.path.core(), record))
-        .collect();
-    check_room(&paths, records.values())?;
-    let replaced: HashSet<_> = records.keys().cloned().collect();
-    paths.retain(|record| !replaced.contains(&record.path.core()));
-    paths.extend(records.into_values());
-    Ok(())
-}
 
 pub(crate) fn stage_core_memory<T: Any + Send + Sync>(
     runtime: &PackRuntime,
@@ -99,20 +79,6 @@ pub(super) fn forget_superseded(pending: &PendingBatch, operations: &[HomeMutati
             .map(|operation| (operation.collection.clone(), operation.key.clone()))
             .collect::<Vec<_>>(),
     );
-    let changed: HashSet<_> = coordinates
-        .iter()
-        .map(|(collection, key)| (collection.as_str(), key.as_str()))
-        .collect();
-    pending
-        .paths
-        .lock()
-        .expect("native private paths")
-        .retain(|record| {
-            !record
-                .source_coordinates()
-                .iter()
-                .any(|(collection, key)| changed.contains(&(collection.as_str(), key.as_str())))
-        });
     pending
         .definitions
         .lock()
@@ -128,26 +94,4 @@ pub(super) fn forget_superseded(pending: &PendingBatch, operations: &[HomeMutati
                 })
             })
         });
-}
-
-fn check_room<'a>(
-    paths: &[LogicalPathRecord],
-    next_paths: impl Iterator<Item = &'a LogicalPathRecord>,
-) -> StorageResult<()> {
-    let mut sizes = BTreeMap::new();
-    for record in paths {
-        sizes.insert(record.path.core(), record.retained_bytes());
-    }
-    for record in next_paths {
-        sizes.insert(record.path.core(), record.retained_bytes());
-    }
-    let bytes = sizes
-        .values()
-        .try_fold(0usize, |sum, bytes| sum.checked_add(*bytes));
-    if sizes.len() > 10_000 || bytes.is_none_or(|bytes| bytes > 128 * 1024 * 1024) {
-        return Err(StorageError::WriteResourceLimit {
-            detail: "native typed effects exceed their path or byte cap".into(),
-        });
-    }
-    Ok(())
 }

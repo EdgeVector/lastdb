@@ -133,16 +133,6 @@ impl SlotTable {
             self.names.remove(&entry.key.molecule);
         }
     }
-
-    pub(super) fn try_reserve(&mut self, additional: usize) -> Result<(), CoreCapacity> {
-        let (entries, hasher) = (&self.entries, &self.hasher);
-        self.index
-            .try_reserve(additional, |id| entry_hash(hasher, entries, *id))
-            .map_err(|_| super::model::capacity())?;
-        self.entries
-            .try_reserve(additional)
-            .map_err(|_| super::model::capacity())
-    }
 }
 
 fn key_hash(hasher: &RandomState, key: &SlotKey) -> u64 {

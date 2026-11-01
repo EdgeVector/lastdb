@@ -131,12 +131,6 @@ impl RetentionState {
         self.undecodable.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// An erase released records with the keys it removed.
-    pub(crate) fn note_purge(&self, released: u64) {
-        self.released_by_purge
-            .fetch_add(released, Ordering::Relaxed);
-    }
-
     /// An erase passed some slots to the janitor with a drain marker: the slots
     /// held more records than one request releases, or the erase did not read
     /// them (it reads the directory of at most 256 slots).

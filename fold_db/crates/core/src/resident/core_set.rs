@@ -28,7 +28,7 @@ pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
 pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
-pub(crate) use model::{CoreModelChange, CoreModelStats, CoreModelUpdate};
+pub(crate) use model::{CoreModelStats, CoreModelUpdate};
 pub(crate) use records::RecordCoordinate;
 
 /// Stable identity of one used field path. Its current atom is not its key.

@@ -112,19 +112,4 @@ impl AtomStore {
             .map(|count| count.map_or(0, |count| count.records))
             .collect())
     }
-
-    pub(crate) async fn atom_history_presence(
-        &self,
-        slots: &[String],
-    ) -> Result<Vec<bool>, SchemaError> {
-        let keys = slots
-            .iter()
-            .map(|s| count_key(s))
-            .collect::<Result<Vec<_>, _>>()?;
-        let rows: Vec<Option<KeyCount>> = self.main_store.get_items(&keys).await?;
-        Ok(rows
-            .into_iter()
-            .map(|c| c.is_some_and(|c| c.records > 0))
-            .collect())
-    }
 }

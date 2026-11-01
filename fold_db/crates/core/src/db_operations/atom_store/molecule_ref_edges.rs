@@ -86,16 +86,6 @@ pub(super) fn molecule_bindings_key(molecule_uuid: &str, storage_prefix: Option<
     )
 }
 
-/// The binding records of one molecule, and whether the counter agrees.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MoleculeRefLookup {
-    /// The `bindings` counter equals the number of records read and is not
-    /// `suspect`. A false value means the records and the counter disagree: the
-    /// caller must not rely on the list.
-    pub complete: bool,
-    pub edges: Vec<MoleculeRefEdge>,
-}
-
 impl AtomStore {
     /// Whether the molecule has at least one binding record in the scope: a range
     /// read of at most one row under one hash.
@@ -118,57 +108,5 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("read molecule binding records: {error}"))
             })?;
         Ok(!found.is_empty())
-    }
-
-    /// Read one molecule's binding records (one range read under one hash) and
-    /// compare their number with the `bindings` counter.
-    pub async fn molecule_ref_edges_for_molecule(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<MoleculeRefLookup, SchemaError> {
-        self.atom_read_scope(
-            self.molecule_ref_edges_for_molecule_captured(molecule_uuid, storage_prefix),
-        )
-        .await
-    }
-
-    async fn molecule_ref_edges_for_molecule_captured(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<MoleculeRefLookup, SchemaError> {
-        let prefix = build_storage_key(
-            storage_prefix,
-            &format!("{MOLECULE_REF_PREFIX}{}\0", molecule_target(molecule_uuid)),
-        );
-        let rows = self
-            .main_store
-            .scan_items_with_prefix::<MoleculeRefEdge>(&prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("read molecule binding records: {error}"))
-            })?;
-        if rows.iter().any(|(key, edge)| {
-            edge.molecule_uuid != molecule_uuid || edge.storage_key(storage_prefix) != *key
-        }) {
-            return Err(SchemaError::StorageRead {
-                detail: "molecule binding record disagrees with its selected target key".into(),
-            });
-        }
-        let counter = self
-            .read_binding_counters(
-                std::slice::from_ref(&molecule_uuid.to_string()),
-                storage_prefix,
-            )
-            .await?
-            .pop()
-            .flatten()
-            .unwrap_or_default();
-        let edges: Vec<_> = rows.into_iter().map(|(_, edge)| edge).collect();
-        Ok(MoleculeRefLookup {
-            complete: !counter.suspect && counter.bindings == edges.len() as u64,
-            edges,
-        })
     }
 }

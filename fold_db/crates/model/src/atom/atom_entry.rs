@@ -205,13 +205,6 @@ impl AtomEntry {
         entry
     }
 
-    /// Return this entry with the sync device that wrote it.
-    #[must_use]
-    pub fn with_origin_device(mut self, origin_device: String) -> Self {
-        self.origin_device = origin_device;
-        self
-    }
-
     /// Optional base64-encoded public key. Current constructors leave it empty.
     #[must_use]
     pub fn writer_pubkey(&self) -> &str {
@@ -245,24 +238,6 @@ impl AtomEntry {
     #[must_use]
     pub fn prev_tip_id(&self) -> &str {
         self.extra.as_ref().map_or("", |extra| &extra.prev_tip_id)
-    }
-
-    /// Set the signer fields. Empty values leave no boxed part behind.
-    pub fn set_signer(
-        &mut self,
-        writer_pubkey: String,
-        signature: String,
-        signature_version: u8,
-        provenance: Option<Provenance>,
-    ) {
-        let prev_tip_id = self.take_extra().prev_tip_id;
-        self.set_extra(AtomEntryExtra {
-            writer_pubkey,
-            signature,
-            signature_version,
-            provenance,
-            prev_tip_id,
-        });
     }
 
     /// Set the reserved link field.

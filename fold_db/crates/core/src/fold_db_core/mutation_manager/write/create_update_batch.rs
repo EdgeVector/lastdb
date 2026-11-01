@@ -33,7 +33,6 @@ impl MutationManager {
             return Ok(ResidentCommitReceipt::empty());
         }
         // Synchronous requests wait for complete durability.
-        // Each backend owns its publication and failure boundary.
         let force_durable = mutations
             .iter()
             .any(|mutation| mutation.synchronous == Some(true));
@@ -42,7 +41,7 @@ impl MutationManager {
         self.reject_derived_and_blocked(&mutations)?;
 
         // The native transaction gate covers every condition and its complete
-        // publication, including unguarded writes through shared molecules.
+        // publication.
         Self::log_batch_start(mutations.len());
 
         let start_time = std::time::Instant::now();
@@ -85,7 +84,7 @@ impl MutationManager {
         // Phase -1: Reject historical derived writes before anything else
         // touches them. No live writer is allowed to mint
         // `Provenance::Derived`; keeping the check here prevents forged or
-        // stale derived writes from polluting atoms. User mutations
+        // stale derived writes from polluting records. User mutations
         // (`Provenance::User` or `None`) are untouched.
         for mutation in mutations {
             validate_derived_provenance(mutation)?;
@@ -93,10 +92,8 @@ impl MutationManager {
 
         self.reject_blocked_mutation_targets(mutations)?;
 
-        // Create/update do not wait on the schema-wide purge barrier. Janitor
-        // purge is later (mixed batches enqueue; this path never runs
-        // process_hard_erasures). Last writer wins. Compliance Purge keeps
-        // exclusive on its own request. Recording the phase as ~0 keeps
+        // No write waits on a schema-wide purge barrier: a purge merges into
+        // its record in the native request. Recording the phase as ~0 keeps
         // request-ops comparable.
         crate::request_phases::add_phase(
             crate::request_phases::RequestPhase::PurgeBarrier,
@@ -147,9 +144,7 @@ impl MutationManager {
         ResidentCommitReceipt {
             mutation_ids: all_ids,
             // Stamped by the caller batch entry point, which is the only
-            // scope that knows this pipeline run is one logical operation —
-            // a mixed batch calls this function once and peels erasures
-            // around it.
+            // scope that knows this pipeline run is one logical operation.
             revision: None,
             operations,
             // Queued permits a later flush. Explicit durability waits for disk;

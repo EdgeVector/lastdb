@@ -4,48 +4,17 @@ use crate::atom::molecule_key_codec;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::super::counter::{TipChange, TipChangeSet};
 use super::super::{
     AtomStore, MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot,
     PerKeyRecord,
 };
 
-mod activate;
 mod deletes;
 mod merge;
 mod paging;
 mod slots;
-
-/// A read-only cut captured before a complete generation snapshot is built.
-/// Ordinary writes continue after this value is created.
-pub(crate) struct PreparedMoleculeGeneration {
-    // Covers the complete cut-to-activation lifetime, including source reads.
-    _cleanup_guard: std::sync::Arc<tokio::sync::OwnedRwLockReadGuard<()>>,
-    generation: String,
-    observed: HashMap<(String, String), PerKeyRecord>,
-    previous_generation: Option<String>,
-    reclaim_generation: Option<String>,
-}
-
-/// One complete immutable body and the rows that select it.
-pub(crate) struct PreparedMoleculeGenerationActivation {
-    pub(crate) molecule_uuid: String,
-    pub(crate) prepared: PreparedMoleculeGeneration,
-    pub(crate) base_records: Vec<(String, PerKeyRecord)>,
-    pub(crate) activation_items: Vec<(String, Value)>,
-}
-
-struct ReadyMoleculeGenerationActivation {
-    molecule_uuid: String,
-    prepared: PreparedMoleculeGeneration,
-    generation: String,
-    stale_direct: Vec<((String, String), PerKeyRecord)>,
-    activation_items: Vec<(String, Value)>,
-}
 
 pub(crate) const MATERIALIZE_PAGE_ROWS: usize = 32;
 

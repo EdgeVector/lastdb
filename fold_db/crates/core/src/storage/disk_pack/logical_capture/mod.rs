@@ -1,4 +1,4 @@
-//! Opt-in authored field outcomes share the data's encrypted native commit.
+//! Opt-in authored record outcomes share the data's encrypted native commit.
 //! This stream has no recovery authority, reader dependency, pruning, or cloud worker.
 
 use super::*;
@@ -6,12 +6,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 mod adoption;
-mod body;
 mod bounded;
 mod export;
 mod identity;
 mod model;
-pub(crate) mod outcome;
 mod peer;
 mod reader;
 mod record_outcome;
@@ -27,9 +25,7 @@ pub use adoption::{
     SnapshotAdoptionReplaySource, SnapshotAdoptionRequirement,
 };
 pub(crate) use bounded::preflight_outcome_size;
-pub(crate) use model::Outcomes;
-pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position};
-pub use outcome::AcceptedFieldOutcome;
+pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position, RetiredFieldOutcome};
 pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition};
 pub use record_outcome::{AcceptedRecordOutcome, RecordFieldOutcome};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};

@@ -1,12 +1,11 @@
-//! The native write of a format 7 home: one record value at each primary key.
+//! The native write: one record value at each primary key.
 //!
 //! Each mutation reads its record in the request's write scope and merges its
 //! fields by stamp (decision D1). The records, their alternate entry changes,
 //! the idempotency entries, the file blob counter changes, the field history
 //! entries, the delete audit rows and the retention age rows join the
-//! request's one batch (`record_effects.rs`). A format 7 home writes no atom,
-//! tip or molecule counter. Writers that the record model does not cover yet
-//! are refused here, before any byte is staged.
+//! request's one batch (`record_effects.rs`). Writers that a record cannot
+//! hold are refused here, before any byte is staged.
 
 use super::*;
 use crate::db_operations::atom_store::{record_scope, RecordChange};
@@ -20,7 +19,7 @@ use lastdb_model::record_value::{FieldMerge, FieldStamp, StoredRecord};
 use std::sync::Arc;
 
 use super::super::cas_rules::{check_expectation, CurrentHead};
-use super::super::molecules::field_rules::validate_field_value;
+use super::super::key_values::validate_field_value;
 use super::record_effects::ChangedRecord;
 
 impl MutationManager {
@@ -105,7 +104,7 @@ impl MutationManager {
                 .await?;
         }
         // The retention hash partitions are the keys a later TTL pass reads
-        // by hash; record them as the molecule path does.
+        // by hash.
         if storage_prefix.is_none() && schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops
                 .schemas()
@@ -122,14 +121,12 @@ impl MutationManager {
         Ok(())
     }
 
-    /// Refuse each writer that a record cannot hold yet. The molecule path
-    /// keeps serving these in format 4 to 6 homes.
+    /// Refuse each writer that a record cannot hold.
     ///
-    /// A signed import keeps the sender's key and signature on each tip in
-    /// the molecule path. A record names no writer (decision D7), so it
-    /// cannot hold them. An import's `imported_version` signs only a Single
-    /// field, which a record home does not have; a keyed field ignores it in
-    /// the molecule path too.
+    /// A signed import would keep the sender's key and signature with each
+    /// value. A record names no writer (decision D7), so it cannot hold them.
+    /// An import's `imported_version` signs only a Single field, which no home
+    /// has. Aggregate writes were dropped (Tom, 2026-11-01).
     fn require_record_write(mutations: &[Mutation]) -> Result<(), SchemaError> {
         for mutation in mutations {
             if mutation.provenance.is_some() {
@@ -211,7 +208,7 @@ impl MutationManager {
             }
             let found = record.is_live() || with_history.contains(key.as_str());
             if let Some((noun, suffix)) = loud_erasure(mutation).filter(|_| !found) {
-                // The wording of the erase lane for one absent key.
+                // The miss wording for one absent key.
                 return Err(SchemaError::InvalidData(format!(
                     "{noun} target not found: schema '{}', key {} — refusing to silently no-op \
                      {suffix}",
@@ -220,7 +217,7 @@ impl MutationManager {
                 )));
             }
             if let Some(expected) = &mutation.expected {
-                check_expectation(mutation, expected, record_head(&record, expected)?)?;
+                check_expectation(mutation, expected, record_head(&record, expected))?;
             }
         }
         Ok(())
@@ -312,7 +309,7 @@ fn merge_mutation(
 
 /// The stamp of every field that one mutation writes. The author clock set the
 /// write time and the logical counter before the native request; the device is
-/// the author-clock writer, as for a tip.
+/// the author-clock writer.
 fn field_stamp(mutation: &Mutation) -> Result<FieldStamp, SchemaError> {
     let written_at = mutation.imported_written_at.ok_or_else(|| {
         SchemaError::InvalidData("a record write lacks the author-clock write time".into())
@@ -330,28 +327,20 @@ fn field_stamp(mutation: &Mutation) -> Result<FieldStamp, SchemaError> {
     })
 }
 
-/// The CAS head of one field in a record. A removed field is absent. A record
-/// has no atom, so a content hash expectation has nothing to compare.
-fn record_head(
-    record: &StoredRecord,
-    expected: &CasExpectation,
-) -> Result<CurrentHead, SchemaError> {
-    if matches!(expected, CasExpectation::ContentHash { .. }) {
-        return Err(unsupported("a content hash precondition"));
-    }
+/// The CAS head of one field in a record. A removed field is absent.
+fn record_head(record: &StoredRecord, expected: &CasExpectation) -> CurrentHead {
     let field = expected.field();
     let value = record.fields.get(field).cloned();
     let mutation_uuid = value
         .as_ref()
         .and(record.stamps.get(field))
         .map(|stamp| stamp.mutation_id.clone());
-    Ok(CurrentHead {
+    CurrentHead {
         mutation_uuid,
-        atom_uuid: None,
         value,
-    })
+    }
 }
 
 fn unsupported(what: &str) -> SchemaError {
-    SchemaError::InvalidData(format!("a format 7 home does not store {what} yet"))
+    SchemaError::InvalidData(format!("LastDB does not store {what}"))
 }

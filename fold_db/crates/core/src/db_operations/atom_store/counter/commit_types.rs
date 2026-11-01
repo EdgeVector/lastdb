@@ -1,8 +1,6 @@
-use super::{AtomSize, DeletedAtom};
 use crate::atom::Atom;
 use crate::db_operations::atom_store::PerKeyRecord;
 use serde_json::Value;
-use std::collections::HashMap;
 
 /// One tip record change. `new == None` removes the tip record.
 pub(crate) struct TipChange {
@@ -52,7 +50,6 @@ pub(crate) struct GuardedDelete {
 /// Everything one planner run needs.
 #[derive(Default)]
 pub(crate) struct TipChangeSet<'a> {
-    pub history: super::super::atom_history::HistoryMode,
     pub scope: Option<&'a str>,
     pub tips: Vec<TipChange>,
     /// Bodies that this request created. The planner writes a body only for an
@@ -82,55 +79,17 @@ pub(crate) struct BodySources<'a> {
     pub source: Option<Option<&'a str>>,
 }
 
-/// The keep-small debit of one removed tip: its storage key, its stored row
-/// length, and its atom's size when the commit knew it.
-pub(crate) type TipDebit = (
-    String,
-    u64,
-    Option<crate::db_operations::MoleculeTipCounterSource>,
-);
-
-/// The tip a changed key held before the run, read inside the write gate.
-#[derive(Debug, Clone)]
-pub(crate) struct PreviousTip {
-    /// Length of the stored tip record, as the keep-small meters count rows.
-    pub row_bytes: u64,
-    pub atom_uuid: String,
-}
-
 /// What a planner run did, for reports and meters.
 #[derive(Debug, Default)]
 pub(crate) struct TipCommit {
-    /// Bodies that this run wrote, for the keep-small meters.
-    pub created: Vec<Atom>,
     /// Atoms whose count reached zero. The run deleted their bodies.
-    pub deleted: Vec<DeletedAtom>,
+    pub deleted: u64,
     /// History rows of conflict records this run released.
     pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
-    /// Old tips of changed keys, for the keep-small replacement debit.
-    pub previous: HashMap<String, PreviousTip>,
-    /// The size of each atom whose count changed, from its counter or from
-    /// the body this run created. An atom whose counter has no size is absent.
-    pub atom_sizes: HashMap<String, AtomSize>,
-    /// Each molecule header row the run wrote, with its old and new length,
-    /// read under the scoped key.
-    pub headers: Vec<super::molecule::HeaderChange>,
+    /// Changed keys that held a tip before the run.
+    pub old_tips: u64,
     /// Guarded deletes that found the expected bytes and deleted the key.
     pub guarded_deleted: u64,
-}
-
-impl TipCommit {
-    /// Fold the result of a later planner call of the same request into this one.
-    pub(crate) fn absorb(&mut self, other: Self) {
-        self.created.extend(other.created);
-        self.deleted.extend(other.deleted);
-        self.records_released += other.records_released;
-        self.counter_events += other.counter_events;
-        self.previous.extend(other.previous);
-        self.atom_sizes.extend(other.atom_sizes);
-        self.headers.extend(other.headers);
-        self.guarded_deleted += other.guarded_deleted;
-    }
 }

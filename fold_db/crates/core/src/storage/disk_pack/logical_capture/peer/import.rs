@@ -27,13 +27,8 @@ impl PackRuntime {
         let own_origin = enabled_origin(self)?;
         let pending = transaction::PendingBatch::current(self)
             .ok_or_else(|| invalid("logical peer import needs the data's native transaction"))?;
+        // Verification admits version 2 record events only.
         let origin = verify_page(&events)?;
-        let version = if self.record_home() { 2 } else { 1 };
-        if events.iter().any(|event| event.version != version) {
-            return Err(invalid(
-                "logical peer import needs version 2 events in a format 7 home and version 1 elsewhere",
-            ));
-        }
         if origin == own_origin {
             return Err(invalid(
                 "logical peer import refuses this device's own origin",

@@ -8,17 +8,12 @@ use std::collections::BTreeSet;
 impl CaptureEvent {
     pub fn verify(&self) -> StorageResult<()> {
         bounded::serialized_size(self)?;
-        // Version 1 carries field outcomes only, version 2 record outcomes only.
-        let shape = match self.version {
-            1 => self.records.is_empty(),
-            2 => self.outcomes.is_empty(),
-            _ => false,
-        };
-        if !shape || self.sequence == 0 {
+        // Only version 2 record outcomes remain. A version 1 event carried
+        // the field tips of a format 4 to 6 home.
+        if self.version != 2 || !self.outcomes.is_empty() || self.sequence == 0 {
             return Err(invalid("logical capture event version or sequence differs"));
         }
         mutation_ids(&self.mutation_ids)?;
-        outcomes(&self.outcomes, &self.mutation_ids)?;
         records(&self.records, &self.mutation_ids)?;
         unhex::<32>(&self.previous_sha256)?;
         let expected = unhex::<32>(&self.sha256)?;
@@ -61,27 +56,9 @@ pub(super) fn mutation_ids(ids: &[String]) -> StorageResult<()> {
     Ok(())
 }
 
-pub(super) fn outcomes(
-    entries: &[AcceptedFieldOutcome],
-    mutation_ids: &[String],
-) -> StorageResult<()> {
-    if entries.len() > MAX_OUTCOMES {
-        return Err(StorageError::MutationLimit {
-            detail: "logical capture exceeds 1024 field outcomes".into(),
-        });
-    }
-    if entries
-        .iter()
-        .any(|entry| !mutation_ids.contains(&entry.tip.mutation_uuid))
-    {
-        return Err(invalid("logical capture outcome has an unnamed mutation"));
-    }
-    Ok(())
-}
-
 /// Each record outcome changes something, and each of its stamps names a
 /// mutation of the event. One request is one record outcome for each key, and
-/// the field outcomes of the event stay under the field cap of version 1.
+/// the field outcomes of the event stay under the field cap.
 pub(super) fn records(
     entries: &[AcceptedRecordOutcome],
     mutation_ids: &[String],

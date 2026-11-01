@@ -39,14 +39,8 @@ impl DbOperations {
         policy: FieldHistoryPolicy,
         scope: Option<&str>,
     ) -> Result<(), SchemaError> {
-        let schemas = self.get_all_schemas().await?;
         self.atoms()
-            .in_background_scope(async {
-                self.atoms().bind_history_schemas(schemas.values()).await?;
-                self.atoms()
-                    .set_field_history_policy(&target.field_identity, policy, scope)
-                    .await
-            })
+            .set_field_history_policy(&target.field_identity, policy, scope)
             .await
     }
 }

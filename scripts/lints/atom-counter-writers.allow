@@ -38,8 +38,6 @@ fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|note_keep_small_h
 
 
 
-fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|reclaim_expired_generations|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
-fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|write_generation_bodies|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
 
 fold_db/crates/core/src/db_operations/conflict_index_heal.rs|prune_conflict_index|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
 fold_db/crates/core/src/db_operations/conflict_index_heal.rs|stamp_conflict_index|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
@@ -100,8 +98,6 @@ lastdb_node/src/bin/received_range_seed.rs|activate_generated_send_rule|-|CI-onl
 fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs|record_atom_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no atom, tip, or counter keys
 fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|finish|-|exclusive restore completion deletes only its durable pending marker after exact read-only counter verification
 
-fold_db/crates/core/src/alternate_keys/write.rs|stage_alternate_changes|-|writes only ak: typed primary-key references inside the native request; creates no atom, field tip, history or reference counter
 fold_db/crates/core/src/db_operations/atom_store/records.rs|stage_records|-|format 7 home: puts rk: record values, their ak: entry changes, the rh: field history copies with their ahq: queue and ahk: count rows, and the blob planner rows of blob_counter_mutations in one native batch; creates no atom, field tip, archive row or atom counter
 fold_db/crates/core/src/db_operations/atom_store/atom_history/records.rs|commit_history_release|-|format 7 home: releases rh: field history copies with their ahq: queue entries, ahk: count rows and the blob planner rows of blob_counter_mutations in one native batch; no tip, atom, archive row or atom counter
-fold_db/crates/core/src/fold_db_core/fold_db/alternate_key_changes/finish.rs|cleanup|-|deletes bounded ak: pages only for an unbound retired generation or this change's unpublished generation; receipt cleanup uses alternate_changes; atom and field-tip lifecycle stays in the existing planner
 # Conversion coverage lives in its own namespace, never the atom store.

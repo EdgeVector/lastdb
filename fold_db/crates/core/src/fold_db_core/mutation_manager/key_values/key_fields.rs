@@ -1,6 +1,6 @@
 //! Normalize omitted declared key fields in the same private field batch.
 
-use super::super::super::MutationManager;
+use super::super::MutationManager;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use std::collections::HashMap;
@@ -37,12 +37,11 @@ impl MutationManager {
     /// Make omitted declared key fields part of the same field batch as
     /// the caller's payload.
     ///
-    /// A mutation can carry its coordinates only in `key_value`. Before this
-    /// normalization, that shape advanced payload molecules but left the
-    /// declared hash/range-field molecules sparse. Mutating the prepared copy
-    /// here keeps the request and mutation-intent wire shapes unchanged while
-    /// making atom preparation, changed-key restore, resident apply, Search,
-    /// and durable persistence use one complete atomic field set.
+    /// A mutation can carry its coordinates only in `key_value`. Mutating the
+    /// prepared copy here keeps the request and mutation-intent wire shapes
+    /// unchanged while every record holds its key fields: a walk of the record
+    /// space recovers each API key from them, and Search sees the complete
+    /// field set.
     pub(in crate::fold_db_core::mutation_manager) fn materialize_key_fields(
         &self,
         schema_name: &str,

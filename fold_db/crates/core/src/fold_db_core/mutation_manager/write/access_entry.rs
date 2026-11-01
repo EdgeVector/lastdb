@@ -11,7 +11,7 @@ impl MutationManager {
     /// no longer gate this path (consent-only local control).
     ///
     /// When `access_context.storage_prefix` is set (org multi-DB handle from
-    /// `X-LastDB-Db`), molecule keys land under `{prefix}:…` so cohabiting DBs
+    /// `X-LastDB-Db`), record keys land under `{prefix}:…` so cohabiting DBs
     /// on one Mini node stay isolated.
     pub async fn write_mutations_with_access_receipt(
         &self,

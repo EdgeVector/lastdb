@@ -5,7 +5,6 @@ pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
 /// The read path for one schema field: the field is an argument, not the reader.
-pub(crate) mod alternate_changes;
 pub mod atom_history;
 pub mod atom_store;
 pub mod attribution_ledger;
@@ -39,7 +38,6 @@ pub use admin_db::{
     SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaRecordKey,
     SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
-pub(crate) use atom_store::ChangedKey;
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
     BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
@@ -72,15 +70,9 @@ pub use keep_small::{
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.
+pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use conflict_metadata::{MoleculeConflictState, SELECTED_CONFLICT_MAX_MOLECULES};
 pub use conflict_operations::HomeConflictAnnotation;
-// Replay appends one event in the same batch that records a conflict. The
-// engine is gated behind `cloud-sync`. A default-feature build must not
-// re-export these or clippy fails on the unused names.
-pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
-pub(crate) use conflict_operations::{
-    home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
-};
 pub use core::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
     with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,

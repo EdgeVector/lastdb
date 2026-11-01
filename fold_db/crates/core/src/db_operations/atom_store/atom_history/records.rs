@@ -295,7 +295,7 @@ fn capture_value(
         record_prefix(record, Some(capture.identity))?,
         digest(&identity)
     );
-    let expires_at = super::capture::history_expiry(capture.policy, now)?;
+    let expires_at = history_expiry(capture.policy, now)?;
     let queue_key = match expires_at {
         Some(at) => {
             let id = digest(key.as_bytes());
@@ -350,4 +350,19 @@ pub(super) fn decode_row(
     let key = String::from_utf8(key).map_err(invalid)?;
     let entry = serde_json::from_slice(bytes).map_err(invalid)?;
     Ok((key, entry))
+}
+
+/// The expiry time of a history entry under `policy`, or `None` to keep it.
+fn history_expiry(policy: FieldHistoryPolicy, now: u64) -> Result<Option<u64>, SchemaError> {
+    Ok(match policy {
+        FieldHistoryPolicy::Ttl { seconds } => Some(
+            now.checked_add(
+                seconds
+                    .checked_mul(1_000_000_000)
+                    .ok_or_else(|| SchemaError::InvalidData("history TTL overflow".into()))?,
+            )
+            .ok_or_else(|| SchemaError::InvalidData("history expiry overflow".into()))?,
+        ),
+        _ => None,
+    })
 }

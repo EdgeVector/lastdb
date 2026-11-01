@@ -3,15 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    pub(super) fn add_appended(meter: &mut SchemaMeter, bytes: u64) {
-        let today = utc_day(Utc::now());
-        if meter.appended_day != today {
-            meter.appended_day = today;
-            meter.appended_bytes = 0;
-        }
-        meter.appended_bytes = meter.appended_bytes.saturating_add(bytes);
-    }
-
     pub(super) fn mark_schema_dirty(&self, schema: Option<&str>) {
         let name = schema
             .filter(|s| !s.is_empty())
@@ -27,15 +18,6 @@ impl KeepSmallMeters {
         self.dirty_schemas
             .lock()
             .map(|mut dirty| std::mem::take(&mut *dirty))
-            .unwrap_or_default()
-    }
-
-    /// A private native candidate must not consume the live dirty set.
-    #[must_use]
-    pub(crate) fn dirty_schema_names(&self) -> HashSet<String> {
-        self.dirty_schemas
-            .lock()
-            .map(|dirty| dirty.clone())
             .unwrap_or_default()
     }
 
@@ -56,27 +38,6 @@ impl KeepSmallMeters {
         if let Ok(mut dirty) = self.dirty_schemas.lock() {
             dirty.clear();
         }
-    }
-
-    pub(super) fn with_schema(&self, schema: &str, f: impl FnOnce(&mut SchemaMeter)) {
-        let Ok(mut map) = self.schemas.lock() else {
-            return;
-        };
-        let meter = map
-            .entry(schema.to_string())
-            .or_insert_with(|| SchemaMeter {
-                schema_name: schema.to_string(),
-                display_name: None,
-                live_bytes: 0,
-                atom_count: 0,
-                appended_bytes: 0,
-                appended_day: utc_day(Utc::now()),
-                tip_bytes: 0,
-                bookkeeping_bytes: 0,
-            });
-        f(meter);
-        drop(map);
-        self.mark_schema_dirty(Some(schema));
     }
 
     pub fn apply_display_names(&self, names: &HashMap<String, String>) {

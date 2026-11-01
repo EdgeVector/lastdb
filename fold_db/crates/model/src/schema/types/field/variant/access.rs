@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::atom::MoleculeHashRange;
 use crate::schema::types::key_value::KeyValue;
 
 use super::{FieldKind, FieldValue, FieldVariant};
@@ -22,32 +21,9 @@ impl FieldVariant {
         molecule.get_key_metadata(hash, range)
     }
 
-    /// Returns whether a molecule is present in this field.
-    #[must_use]
-    pub fn has_molecule(&self) -> bool {
-        self.molecule.is_some()
-    }
-
     /// Drop the in-memory materialized molecule. See prior docs.
     pub fn clear_molecule(&mut self) {
         self.molecule = None;
-    }
-
-    /// Borrow the hydrated molecule data for persistence without deep-copying
-    /// large fields.
-    #[must_use]
-    pub fn molecule_data(&self) -> Option<&MoleculeHashRange> {
-        self.molecule.as_ref()
-    }
-
-    /// Mutable access for draining pending tip versions after persist.
-    pub fn molecule_data_mut(&mut self) -> Option<&mut MoleculeHashRange> {
-        self.molecule.as_mut()
-    }
-
-    /// Install a freshly-loaded molecule into this field's slot.
-    pub fn set_molecule_data(&mut self, data: MoleculeHashRange) {
-        self.molecule = Some(data);
     }
 
     /// Returns the writer public key from a Single molecule, if present and non-empty.

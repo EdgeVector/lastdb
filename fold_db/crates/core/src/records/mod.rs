@@ -4,7 +4,6 @@
 //! restore proofs and file dependency checks, so they sit in the model layer
 //! below both. Nothing here opens a store or starts a task.
 
-pub(crate) mod alternate_change;
 pub(crate) mod atom_history;
 pub(crate) mod key_format;
 pub(crate) mod molecule_record;
