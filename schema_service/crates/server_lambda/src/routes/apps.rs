@@ -3,7 +3,7 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply, SetChannelReply};
+use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply};
 use schema_service_core::{
     invalid_app_id_body, reason_only_body, PromoteAppReply, RegisterAppReply, UpdateAppReply,
 };
@@ -177,13 +177,11 @@ pub(crate) async fn put_apps_channels(
         Ok(parts) => parts,
         Err(response) => return response,
     };
-    match state
+    let (status, body) = state
         .set_channel_reply(app_id, channel, cert, sig, &body_value)
         .await
-    {
-        SetChannelReply::Ready(body) => json_response(200, &body),
-        SetChannelReply::Failed { status, body } => json_response(status, &body),
-    }
+        .into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: the desired release id + the channel generation. Read from

@@ -11,6 +11,19 @@ pub enum SetChannelReply {
     Failed { status: u16, body: Value },
 }
 
+impl SetChannelReply {
+    /// The HTTP status and body for this write.
+    ///
+    /// Ready is 200. Failed keeps the status from the release error.
+    #[must_use]
+    pub fn into_http(self) -> (u16, Value) {
+        match self {
+            Self::Ready(body) => (200, body),
+            Self::Failed { status, body } => (status, body),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Classify [`Self::set_channel`] for the HTTP routers.
     ///

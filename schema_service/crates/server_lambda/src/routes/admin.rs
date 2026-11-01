@@ -3,9 +3,7 @@
 use crate::http::*;
 use crate::snapshot::handle_snapshot_export_shared_only;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::{
-    DedupeNamesReply, DeprecateSchemasReply, SchemaMatchTelemetryReply,
-};
+use schema_service_core::state::SchemaMatchTelemetryReply;
 use schema_service_core::FieldMatchProbeReply;
 use schema_service_server_shared::state::SchemaServiceState;
 use schema_service_server_shared::types::DeprecateSchemasRequest;
@@ -82,10 +80,8 @@ pub(crate) async fn post_admin_warm_embeddings(
 pub(crate) async fn post_admin_dedupe_descriptive_names(
     state: &SchemaServiceState,
 ) -> Result<Response<Body>, Error> {
-    match state.dedupe_names_reply().await {
-        DedupeNamesReply::Ready(body) => json_response(200, &body),
-        DedupeNamesReply::Failed { body, .. } => json_response(500, &body),
-    }
+    let (status, body, _) = state.dedupe_names_reply().await.into_http();
+    json_response(status, &body)
 }
 
 // Surgical cleanup for polluted registry entries. Marks schemas
@@ -100,10 +96,8 @@ pub(crate) async fn post_admin_deprecate_schemas(
             Ok(request) => request,
             Err(response) => return response,
         };
-    match state.deprecate_schemas_reply(request).await {
-        DeprecateSchemasReply::Ready(body) => json_response(200, &body),
-        DeprecateSchemasReply::Failed { body, .. } => json_response(500, &body),
-    }
+    let (status, body, _) = state.deprecate_schemas_reply(request).await.into_http();
+    json_response(status, &body)
 }
 
 pub(crate) fn get_admin_schema_match_telemetry(
