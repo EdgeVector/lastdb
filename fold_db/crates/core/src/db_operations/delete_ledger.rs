@@ -1,11 +1,11 @@
-//! Audit facts about completed atom erasures.
+//! Audit facts about completed record erasures.
 //!
 //! A native erase stages one final audit row in the same snapshot batch as
 //! its data removals. The row has no recovery role. It never drives replay,
 //! repairs a counter, or authorizes another delete.
 //!
 //! The row retains counts, caller, schema, time, and a key fingerprint. It
-//! retains no atom content, atom UUIDs, or plaintext subject key. Existing
+//! retains no field value, record UUIDs, or plaintext subject key. Existing
 //! version-1 attempted-operation rows remain historical audit facts only.
 //! Audit rows have no automatic retention policy.
 
@@ -19,7 +19,7 @@ use crate::schema::SchemaError;
 
 /// Bare key prefix for ledger rows. Rows sort in time order under a prefix scan
 /// because the timestamp component is fixed-width zero-padded nanoseconds.
-pub const ATOM_DELETE_LEDGER_PREFIX: &str = "dellog:";
+pub const RECORD_DELETE_LEDGER_PREFIX: &str = "dellog:";
 
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
@@ -27,9 +27,9 @@ pub const LEDGER_VERB_DELETE: &str = "delete";
 /// Live `Delete` tip converge (`purge::converge_delete_tips`).
 ///
 /// Deliberately NOT [`LEDGER_VERB_DELETE`]. Converge removes tip (`mk:`) rows
-/// and their `tv:` chains and reclaims **no atom body** — byte reclaim is the
+/// and their `tv:` chains and reclaims **no record body** — byte reclaim is the
 /// separate janitor pass (`design-lastdb-delete-converge-then-reclaim`). A
-/// consumer that sums `atoms_deleted` over `delete` rows to answer "what
+/// consumer that sums `records_deleted` over `delete` rows to answer "what
 /// removed this body" must not be handed rows that never removed one, so the
 /// converge lane gets its own verb rather than a `delete` row with a zero.
 pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
@@ -37,7 +37,7 @@ pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
 /// One audit row per hard-delete batch. Version 2 joins the native erase
 /// atomically and always has `committed: true`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AtomDeleteLedgerEntry {
+pub struct RecordDeleteLedgerEntry {
     /// Row format version. Bump when fields change meaning, not when adding.
     pub version: u32,
     /// [`LEDGER_VERB_PURGE`], [`LEDGER_VERB_DELETE`] or [`LEDGER_VERB_DELETE_CONVERGE`].
@@ -57,8 +57,8 @@ pub struct AtomDeleteLedgerEntry {
     /// module docs for why the key itself is not stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_fingerprint: Option<String>,
-    /// `atom:` bodies removed.
-    pub atoms_deleted: u64,
+    /// `record:` bodies removed.
+    pub records_deleted: u64,
     /// `history:` rows removed (purge only).
     #[serde(default)]
     pub history_rows_deleted: u64,
@@ -72,7 +72,7 @@ pub struct AtomDeleteLedgerEntry {
     pub embedding_rows_deleted: u64,
     /// Total storage keys in the delete batch — bodies plus their locators,
     /// schema-index rows and (purge) history rows. The number that actually
-    /// hit the store, as opposed to the logical atom count.
+    /// hit the store, as opposed to the logical record count.
     #[serde(default)]
     pub storage_keys_deleted: u64,
     /// Live `mk:` tips removed by the same native snapshot batch. Historical
@@ -84,18 +84,18 @@ pub struct AtomDeleteLedgerEntry {
     /// before the row is written and are not counted here.
     #[serde(default)]
     pub records_converged: u64,
-    /// Purge only: how many of the hard-deleted atoms carried a file-blob
+    /// Purge only: how many of the hard-deleted records carried a file-blob
     /// reference (a `$lastdb_file` content pointer or `file_blob_ref` /
     /// `file_hash` metadata). A count, never the refs themselves — a blob_ref
     /// is a hash of the file's plaintext, so retaining it would be the same
-    /// confirmation oracle the atoms-uuid rule closes (see module docs). A
+    /// confirmation oracle the records-uuid rule closes (see module docs). A
     /// nonzero value tells compliance that sealed blob bytes may now be
     /// orphaned. The blob counter reclaims them when the dwell passes.
     #[serde(default)]
-    pub file_pointer_atoms_purged: u64,
+    pub file_pointer_records_purged: u64,
 }
 
-impl AtomDeleteLedgerEntry {
+impl RecordDeleteLedgerEntry {
     /// All-zero row for `verb`, stamped now. Constructors below customize it;
     /// keeping the zeroing in one place is what lets a new counter field land
     /// as one struct field + one line here instead of an edit per verb.
@@ -108,13 +108,13 @@ impl AtomDeleteLedgerEntry {
             committed: true,
             schema: None,
             key_fingerprint: None,
-            atoms_deleted: 0,
+            records_deleted: 0,
             history_rows_deleted: 0,
             embedding_rows_deleted: 0,
             storage_keys_deleted: 0,
             tips_removed: 0,
             records_converged: 0,
-            file_pointer_atoms_purged: 0,
+            file_pointer_records_purged: 0,
         }
     }
 
@@ -147,11 +147,11 @@ impl RecordStore {
     /// `limit` of 0 means unbounded. This is a prefix scan by design: the ledger
     /// is an append-only time series read by administrative audit, not a
     /// key-addressed record, and the prefix bounds it to ledger rows alone.
-    pub async fn list_atom_delete_ledger(
+    pub async fn list_record_delete_ledger(
         &self,
         storage_prefix: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<AtomDeleteLedgerEntry>, SchemaError> {
+    ) -> Result<Vec<RecordDeleteLedgerEntry>, SchemaError> {
         let prefix = build_storage_key(
             storage_prefix,
             &lastdb_model::kind_partition::anchored("dellog", ""),
@@ -171,7 +171,7 @@ impl RecordStore {
 
         let mut out = Vec::new();
         for (k, v) in rows {
-            match serde_json::from_slice::<AtomDeleteLedgerEntry>(&v) {
+            match serde_json::from_slice::<RecordDeleteLedgerEntry>(&v) {
                 Ok(entry) => out.push(entry),
                 Err(e) => {
                     // An unreadable audit row is worth knowing about, but must

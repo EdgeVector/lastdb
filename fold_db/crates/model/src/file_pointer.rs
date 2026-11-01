@@ -1,8 +1,8 @@
-//! The `$lastdb_file` pointer shape — the core codec for "this atom's value
+//! The `$lastdb_file` pointer shape — the core codec for "this record's value
 //! is a reference to a content-addressed file blob".
 //!
-//! Lives in `atom` (not `sharing`) because the pointer is part of the core
-//! data model: the resident ladder tracks `file_blob_ref` per atom, and the
+//! Lives in `record` (not `sharing`) because the pointer is part of the core
+//! data model: the resident ladder tracks `file_blob_ref` per record, and the
 //! purge/GC paths must recognize pointers on every build, sharing feature or
 //! not. `sharing::delivery_wire` re-exports these names for its existing
 //! callers and layers access/thumbnail metadata handling on top.
@@ -11,17 +11,17 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// JSON object key for a portable file pointer stored as an atom value.
+/// JSON object key for a portable file pointer stored as a record value.
 pub const LASTDB_FILE_KEY: &str = "$lastdb_file";
 
 /// Account-derived file encryption addressed by SHA-256 of its binary ciphertext.
-/// The plaintext digest and derived key stay inside the encrypted atom pointer.
+/// The plaintext digest and derived key stay inside the encrypted record pointer.
 /// This is the only file-blob cipher suite. `sharing::delivery_wire` re-exports it.
 pub const FILE_BLOB_CIPHER_SUITE: &str =
     "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
 
 /// If `value` is a `$lastdb_file` pointer, return its blob_ref when present.
-pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
+pub fn blob_ref_from_value(value: &Value) -> Option<&str> {
     value
         .get(LASTDB_FILE_KEY)
         .and_then(|v| v.as_object())
@@ -29,7 +29,7 @@ pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
-/// Every blob ref an atom names — content pointer plus metadata
+/// Every blob ref a record names — content pointer plus metadata
 /// (`file_blob_ref` verbatim; legacy `file_hash` as `sha256:{hash}`). Only a
 /// duplicate account-v2 plaintext hash is suppressed: it is not a CAS address.
 ///
@@ -38,12 +38,12 @@ pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
 /// personal/sharing write paths record them in content, and a count that reads
 /// only one of the two lets the dwell pass delete blobs the other still
 /// needs.
-pub fn blob_refs_of_atom(
+pub fn blob_refs_of_value(
     content: &Value,
     metadata: Option<&HashMap<String, String>>,
 ) -> Vec<String> {
     let mut refs = Vec::new();
-    if let Some(r) = blob_ref_from_atom_value(content) {
+    if let Some(r) = blob_ref_from_value(content) {
         refs.push(r.to_string());
     }
     if let Some(r) = content

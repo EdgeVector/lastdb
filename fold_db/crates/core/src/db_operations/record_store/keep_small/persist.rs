@@ -4,7 +4,7 @@ impl RecordStore {
     /// Mark the meters dirty and point-put them if the debounce interval has
     /// elapsed, so a later boot sees roughly the same live totals.
     ///
-    /// Called when a schema install seeds its molecule counters. A persist
+    /// Called when a schema install seeds its field key counters. A persist
     /// writes the small header plus shards for schemas that changed since the
     /// last durable write. A skipped write leaves the dirty flag set;
     /// [`Self::flush_keep_small`] still lands it. See
@@ -114,7 +114,7 @@ impl RecordStore {
         snapshot.clean_stop = Some(clean_stop);
         if !clean_stop && snapshot.trust.global.state.is_complete() {
             snapshot.trust.global = MeterDomainTrust::incomplete("dirty_snapshot");
-            snapshot.trust.molecules = MeterDomainTrust::incomplete("dirty_snapshot");
+            snapshot.trust.field_keys = MeterDomainTrust::incomplete("dirty_snapshot");
             for domain in snapshot.trust.schemas.values_mut() {
                 *domain = MeterDomainTrust::incomplete("dirty_snapshot");
             }

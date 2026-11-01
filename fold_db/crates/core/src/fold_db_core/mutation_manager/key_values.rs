@@ -57,7 +57,7 @@ impl MutationManager {
                 )))
             }
             _ => Ok(key_value),
-        }.and_then(|key| self.db_ops.molecule_keys().canonical_key(schema, key))
+        }.and_then(|key| self.db_ops.field_keys().canonical_key(schema, key))
     }
 }
 

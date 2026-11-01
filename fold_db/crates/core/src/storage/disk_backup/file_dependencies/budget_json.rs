@@ -4,7 +4,7 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use std::fmt;
 
-const HEAP_MAX: usize = lastdb_storage_policy::backup_decode::ATOM_JSON_TREE_MAX_BYTES as usize;
+const HEAP_MAX: usize = lastdb_storage_policy::backup_decode::RECORD_JSON_TREE_MAX_BYTES as usize;
 struct Seed<'a> {
     left: &'a mut usize,
 }
@@ -22,8 +22,8 @@ pub(super) fn decode(bytes: &[u8]) -> StorageResult<Value> {
     let mut reader = serde_json::Deserializer::from_slice(bytes);
     let value = Seed { left: &mut left }
         .deserialize(&mut reader)
-        .map_err(|_| invalid("decoded atom JSON allocation cap"))?;
-    reader.end().map_err(|_| invalid("atom JSON suffix"))?;
+        .map_err(|_| invalid("decoded record JSON allocation cap"))?;
+    reader.end().map_err(|_| invalid("record JSON suffix"))?;
     Ok(value)
 }
 impl<'de> DeserializeSeed<'de> for Seed<'_> {
@@ -91,14 +91,14 @@ impl<'de> Visitor<'de> for Seed<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> std::result::Result<Value, A::Error> {
         let mut out = Map::new();
         while let Some(k) = a.next_key::<String>()? {
-            // Includes map node space and temporary metadata-map conversion at Atom decode.
+            // Includes map node space and temporary metadata-map conversion at Record decode.
             Seed { left: self.left }.charge::<A::Error>(
                 k.capacity()
                     .checked_add(256)
                     .ok_or_else(|| de::Error::custom("JSON capacity"))?,
             )?;
             if out.contains_key(&k) {
-                return Err(de::Error::custom("duplicate atom field"));
+                return Err(de::Error::custom("duplicate record field"));
             }
             let value = a.next_value_seed(Seed { left: self.left })?;
             out.insert(k, value);

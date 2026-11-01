@@ -5,7 +5,7 @@ fkanban card per gap — see [Gaps → follow-up cards](#gaps--follow-up-cards).
 
 **Current V2 boundary (2026-10-26):** The current node uses compact V2 run files.
 Data, logical keys, and lookup blocks use compression followed by AES-256-GCM.
-Atom JSON is plain inside those encrypted blocks. Native cloud backup retains the same ciphertext.
+Record JSON is plain inside those encrypted blocks. Native cloud backup retains the same ciphertext.
 Every home stores canonical ordered scalar range payloads inside those blocks. No range uses OPE.
 An older home moves with one manual copy into a new home. The program has no converter.
 See [the complete typed V2 contract](../designs/typed-range-field-contract.md) for profiles, key authority, recovery, and measured release limits.
@@ -54,12 +54,12 @@ File paths are repo-relative.
 
 ## Operation Trinity status (2026-07-29)
 
-Update (2026-10-26): the Son atom content seal in item 2 is retired. A disk
-format v2 atom row is plain JSON with no content seal. Inside the run files,
+Update (2026-10-26): the Son field value seal in item 2 is retired. A disk
+format v2 record row is plain JSON with no content seal. Inside the run files,
 the AES-256-GCM block encryption of each run file protects it. The code has no
-atom content seal, no dual-read or strict atom content open, and no `ATB:`
-binary atom row. In the run files, the file KDK (the `dek` field of the
-`$lastdb_file` pointer) lives in the plain atom row.
+field value seal, no dual-read or strict field value open, and no `ATB:`
+binary record row. In the run files, the file KDK (the `dek` field of the
+`$lastdb_file` pointer) lives in the plain record row.
 
 CAUTION: With Search on, or after an offline `lastdb search-rebuild`,
 searchable field values are plain JSON on disk, outside the run files, with no
@@ -92,14 +92,14 @@ their old contents.
 
 Target posture for Mini personal data (no plaintext fallbacks):
 
-1. **Father — molecules:** every home blinds the HashKey with `blind_v1`. A
+1. **Father — field keys:** every home blinds the HashKey with `blind_v1`. A
    RangeKey is the typed range payload inside the encrypted run blocks; no
    range uses OPE. Storage `mk:` keys must not embed an API plaintext hash
    segment; the API still accepts plaintext HashKey/RangeKey (Option I).
-2. **Son — atoms:** field `content` sealed under account E2E key (`ENC:…`).
+2. **Son — records:** field `content` sealed under account E2E key (`ENC:…`).
    **Binary default (unset env) is dual-read** so legacy plain still opens during
    migrate. **Product primaries after reseal** must set durable
-   `LASTDB_ATOM_CONTENT_STRICT=1` on the LaunchAgent forever (fail-closed open).
+   `LASTDB_FIELD_VALUE_STRICT=1` on the LaunchAgent forever (fail-closed open).
    File KDK (per-blob DEK) lives inside sealed content / access metadata.
    (Retired in disk format v2: see the update note above.)
 3. **Holy Ghost — files:** cloud CAS under per-blob DEK; durable local `cas_blobs`
@@ -111,11 +111,11 @@ Target posture for Mini personal data (no plaintext fallbacks):
 | Asset | Where it lives | Sensitivity |
 |---|---|---|
 | File blob bytes (photos, packs, imports) | Local `cas_blobs` in the CAS run home (`disk-cas`) + cloud CAS | Highest — raw user files |
-| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain atom row, inside an AES-256-GCM run-file block. Search inbox batches do not carry it (older inbox files can; see the CAUTION above) | Critical — unlocks blob bytes |
+| File KDK / per-blob DEK | `dek` in the `$lastdb_file` pointer of the plain record row, inside an AES-256-GCM run-file block. Search inbox batches do not carry it (older inbox files can; see the CAUTION above) | Critical — unlocks blob bytes |
 
 Mini file-blob plane is **live** (`/api/db/file-blob`, fetch, fork). Durable local
 cache must not store plaintext blob bytes when a DEK is available. Inside the
-run files, an atom row and its file KDK are plain JSON, and the AES-256-GCM
+run files, a record row and its file KDK are plain JSON, and the AES-256-GCM
 block encryption is their only protection at rest. Blob bytes also have the
 per-blob DEK. The Search inbox is outside the run files and has no encryption
 (see the CAUTION above).
@@ -153,7 +153,7 @@ Out of scope (separate workstreams):
 **V2 note (2026-10-27):** Most locations in this table come from the
 LastStore segment engine (2026-07). In disk format v2, the `cas_blobs`
 collection is in the CAS run home (`disk-cas`), and each other collection,
-for example `atoms`, `metadata`, `schemas` or `lineage_forward`, is in the
+for example `records`, `metadata`, `schemas` or `lineage_forward`, is in the
 main run home (`disk-run`). No collection has its own directory, and each
 block of a run file uses AES-256-GCM. The `native_index`, `node_identity`,
 `node_config` and consent collections and the `fold_db_node/` paths do not
@@ -161,10 +161,10 @@ exist now.
 
 | Asset | Where it lives (see the V2 note) | Sensitivity |
 |---|---|---|
-| Atom content (user records, "molecules") | Last Store `atoms` collection plus sealed tip rows | Highest — the user's actual data |
-| Derived metadata (idempotency, process results, per-atom metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
+| Field value (user records, "field keys") | Last Store `records` collection plus sealed tip rows | Highest — the user's actual data |
+| Derived metadata (idempotency, process results, per-record metadata) | Last Store metadata / idempotency / process-result collections | High — derived from content |
 | Embedding vectors | Last Store `native_index` collection (`emb:` / `graveyard:emb:` keys) | High — embeddings of private content leak that content |
-| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain atom row, inside an AES-256-GCM run-file block; not in Search inbox batches); desktop `UploadStorage` removed | Highest |
+| Uploaded file blobs (photos, PDFs, imports) | Mini local `cas_blobs` + cloud CAS under per-blob DEK (file KDK in the plain record row, inside an AES-256-GCM run-file block; not in Search inbox batches); desktop `UploadStorage` removed | Highest |
 | Schemas, schema states, views, transforms, lineage | Last Store schema/catalog and lineage collections | Medium — reveals what kinds of data the user keeps and how records relate |
 | Permissions & trust data | Last Store permission/public-key collections | Medium |
 | Consent ledger (app grants) | Last Store app-identity consent collection (`fold_db_node/src/fold_node/consent.rs`) | Medium-high — which apps may read what |
@@ -229,7 +229,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
                                           ├─ encryption_key ── AES-256-GCM ──► `main`, `metadata`
                                           │                                    namespaces, file blobs,
                                           │                                    node_config sensitive fields
-                                          └─ (no index key: HashKeys use each molecule bundle's blind key, see 4.4)
+                                          └─ (no index key: HashKeys use each field_key bundle's blind key, see 4.4)
 ```
 
 - Master-key resolution: `fold_db_node/src/secure_store.rs`
@@ -248,7 +248,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
 
 | Surface | Mechanism | Key | Caveat |
 |---|---|---|---|
-| `main` (atoms), `metadata` namespaces | `EncryptingNamespacedStore` → `EncryptingKvStore` (`ENC:` + base64 envelope), wired unconditionally in `fold_db/crates/core/src/fold_db_core/factory.rs` | E2E encryption_key | `migration_mode: true` is hardcoded — plaintext values are accepted on read, forever |
+| `main` (records), `metadata` namespaces | `EncryptingNamespacedStore` → `EncryptingKvStore` (`ENC:` + base64 envelope), wired unconditionally in `fold_db/crates/core/src/fold_db_core/factory.rs` | E2E encryption_key | `migration_mode: true` is hardcoded — plaintext values are accepted on read, forever |
 | Uploaded file blobs | *n/a in Mini* — former desktop path used `encrypt_envelope` before local/B2 upload storage | E2E encryption_key | removed with desktop upload-storage surface |
 | Node identity tree | `ENC:` envelope (`identity.rs`) | master key | **os-keychain builds only**; plaintext otherwise |
 | `node_config` sensitive fields | `ENC:` envelope (`NodeConfigStore::with_crypto_key`) | E2E encryption_key | plaintext-read fallback for legacy values |
@@ -271,7 +271,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
   sync bookkeeping (`sync_cursors`), and non-sensitive `node_config`
   fields.
 - **Sled keys everywhere** — only *values* are encrypted; key names
-  (schema names, atom UUIDs, org hashes) are plaintext by design to keep
+  (schema names, record UUIDs, org hashes) are plaintext by design to keep
   `scan_prefix` working.
 
 ### 4.4 The load-bearing weaknesses
@@ -286,7 +286,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    **plaintext** in the `node_identity` tree. The E2E key is a pure
    function of that seed (`E2eKeys::from_ed25519_seed`). So adversary A1
    reads the seed off the disk, derives the E2E key, and decrypts
-   `main`, `metadata`, and every file blob. The encryption of atom
+   `main`, `metadata`, and every file blob. The encryption of record
    content is *vacuous* against the primary adversary in the default
    shipped configuration. A password manager never has this property.
 2. **`migration_mode = true`, permanently.** The factory hardcodes
@@ -296,7 +296,7 @@ node identity Ed25519 seed ──X25519──► HKDF-SHA256 (salt "fold:e2e:v1"
    bug that writes plaintext) is invisible.
 3. **Search blind tokens are not a production path.** The unused search
    helper `E2eKeys::blind_token` is removed. Storage HashKeys use
-   `E2eKeys::blind_hash_key` with the `blind_key` of each molecule's key
+   `E2eKeys::blind_hash_key` with the `blind_key` of each field key's key
    bundle. `E2eKeys` derives no index key. The native index is
    embedding-based and stored plaintext.
 4. **No rotation story.** One static master key, one static E2E key
@@ -328,7 +328,7 @@ connection; default off), it copies the encrypted run files.
 
 §4.1 through §4.4 above preserve the **sled-era** design record and are not the
 current Mini storage map. In 2026-07 the shipped backend was
-LastStore, whose at-rest policy was **atoms-only sealing** (fold #782): atom
+LastStore, whose at-rest policy was **records-only sealing** (fold #782): record
 content, blobs, tips, change feed and sync capture carried the value-level `ENC:`
 seal; the boot-critical catalogs in `LASTSTORE_PLAINTEXT_NAMESPACES` did not.
 
@@ -337,7 +337,7 @@ seal; the boot-critical catalogs in `LASTSTORE_PLAINTEXT_NAMESPACES` did not.
 
 | collection | encrypted | plaintext |
 |---|---|---|
-| `atoms` | 12252 | 0 |
+| `records` | 12252 | 0 |
 | `tips` (write target), `field_update_order_log`, `sync_capture`, `change_feed`, `cas_blobs` | all | 0 |
 | `field_tips` (2026-07-25 pin; leftover residue, not a write target) | all | 0 |
 | `schemas` | 0 | 37 |
@@ -391,7 +391,7 @@ layer**, and their device-local protection is the host filesystem's
   `lastdb backup` / restore moves homes around. It also applies to any host
   without full-disk encryption.
 - What leaks is **schema shape and descriptive names**, plus derived
-  index/state metadata — never atom content. Much of the list is
+  index/state metadata — never field value. Much of the list is
   uninteresting on its own terms: `public_keys` is public by definition,
   `idempotency` is UUIDs, `schema_states` is `"Available"`. The entries worth
   arguing about are `schemas`, `node_id_schema_permissions` (access-control
@@ -438,10 +438,10 @@ invented or expanded by agents:
 
 | Layer | What | Crypto |
 |---|---|---|
-| Hash key | molecule HashKey in storage | blind (`blind_v1`) |
-| Range key | molecule RangeKey in storage | typed range payload inside an AES-256-GCM run-file block |
-| Atom content | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain atom row |
-| File blob | CAS / file bytes | per-blob DEK; KDK in the plain atom row, inside an AES-256-GCM run-file block (not in Search inbox batches) |
+| Hash key | field key HashKey in storage | blind (`blind_v1`) |
+| Range key | field key RangeKey in storage | typed range payload inside an AES-256-GCM run-file block |
+| Field value | field `content` | seal under account E2E key (`ENC:`); retired in disk format v2, where the run-file block encryption protects the plain record row |
+| File blob | CAS / file bytes | per-blob DEK; KDK in the plain record row, inside an AES-256-GCM run-file block (not in Search inbox batches) |
 
 Consequences for this section:
 
@@ -542,7 +542,7 @@ Three candidates, evaluated honestly:
 
 | Option | What it is | Pros | Cons |
 |---|---|---|---|
-| **(a) KvStore-trait seam** — extend the existing `EncryptingNamespacedStore` decorator to encrypt **all** namespaces (default-encrypt, explicit allowlist of plaintext namespaces = empty) | Values-only encryption above the local store, exactly where `main`/`metadata` already encrypt | Mechanism already exists, tested, and proven in prod; zero Last Store format risk; keys stay plaintext so `scan_prefix` and iteration order are untouched; org-crypto routing already lives here; per-namespace DEK selection is natural | Local-store keys (schema names, atom ids) stay visible; every direct store caller bypasses it (consent store, job tracker — those must be moved behind the seam or wrapped individually); ~30 % size overhead from `ENC:`+base64 (fixable by storing raw envelope bytes instead of base64 for binary-safe trees) |
+| **(a) KvStore-trait seam** — extend the existing `EncryptingNamespacedStore` decorator to encrypt **all** namespaces (default-encrypt, explicit allowlist of plaintext namespaces = empty) | Values-only encryption above the local store, exactly where `main`/`metadata` already encrypt | Mechanism already exists, tested, and proven in prod; zero Last Store format risk; keys stay plaintext so `scan_prefix` and iteration order are untouched; org-crypto routing already lives here; per-namespace DEK selection is natural | Local-store keys (schema names, record ids) stay visible; every direct store caller bypasses it (consent store, job tracker — those must be moved behind the seam or wrapped individually); ~30 % size overhead from `ENC:`+base64 (fixable by storing raw envelope bytes instead of base64 for binary-safe trees) |
 | **(b) Per-tree/per-prefix encryption** inside each domain store | Each store (consent, lineage, …) encrypts its own values | Fine-grained control | N stores × N implementations of the same wrapper; guaranteed drift (the consent tree exists precisely because someone bypassed the seam); no single audit point |
 | **(c) Filesystem-level (FileVault / LUKS / per-directory encryption)** | Rely on OS disk encryption | Zero code; covers local-store keys and file metadata too | Not portable policy (user may not have FileVault on; Linux servers vary); protects nothing once the volume is mounted (any A2 backup of the mounted FS is plaintext); invisible to `folddb doctor`; outsources the core product promise — a password manager does not say "just turn on FileVault" |
 | **(d) Encrypted storage engine** (swap the local store for an encrypted LSM / SQLCipher-style engine) | Engine-level pages encrypted, keys included | Strongest coverage incl. key names | A storage-engine migration is a different, much larger project; the local storage engine is load-bearing everywhere (pool semantics, idle-reaper, multi-process locking) |

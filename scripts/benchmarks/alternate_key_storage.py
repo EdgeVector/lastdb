@@ -78,7 +78,7 @@ def verify(node, model, deleted):
 
 def checkpoint(node, model, deleted, output, name):
     verified = verify(node, model, deleted)
-    # Qualification uses caller-owned records, independent of atoms, tips, or compression.
+    # Qualification uses caller-owned records, independent of records, tips, or compression.
     require(verified["source_bytes"] >= 16 * 1024 * 1024, "source corpus is below 16 MiB")
     report = node.call("/api/db/schemas")[0]["schema_storage"]
     receipt = cleanup.request_and_wait(node)
@@ -132,7 +132,7 @@ def original_seed_arm(args, label, output):
         case.node.stop()
         result = {"label": label, "profile": ORIGINAL_SEED, "writes": writes, "reads": reads,
                   "listed": listed, "logical": logical, "disk": case.disk(), "cleanup": receipt,
-                  "qualifies_for_legacy_atom_volume_gate": logical["bytes"] >= MINIMUM_LOGICAL,
+                  "qualifies_for_legacy_record_volume_gate": logical["bytes"] >= MINIMUM_LOGICAL,
                   "alternate_keys_declared": False}
         save(output / "original-seed.json", result)
         return result
@@ -162,19 +162,19 @@ def report(args, pairs, audits):
             require(bsize > 0 and nsize > 0, "storage comparison lacks database files")
             lines.append(f"| {pair} | {phase} | {facts['records']} | {facts['source_bytes'] / 2**20:.2f} | "
                          f"{bsize / 2**20:.2f} | {nsize / 2**20:.2f} | {(nsize / bsize - 1) * 100:+.1f}% |")
-    lines += ["", "The native atom report is retained separately. It counts each serialized atom body once,",
+    lines += ["", "The native record report is retained separately. It counts each serialized record body once,",
               "including provenance; it excludes alternate entries and field tips. It is not the fixed input size.",
               "The existing disk ratio gates retain their thresholds.", "", "### Original disk-proof seed audit", "",
               "This audit uses the original 3,000-base seed and declares no alternate keys.",
-              "Its atom-volume qualification is reported separately from data correctness.", "",
-              "A format 7 home stores one record value per key and no atoms.", "",
+              "Its record-volume qualification is reported separately from data correctness.", "",
+              "A format 7 home stores one record value per key and no records.", "",
               "| Source | Logical MiB | Stored records | Live records verified | Meets old 16 MiB minimum |",
               "|---|---:|---:|---:|---|"]
     for audit in audits:
         logical = audit["logical"]
         lines.append(f"| {audit['label']} | {logical['bytes'] / 2**20:.2f} | "
                      f"{logical['records']} | {audit['reads']['live']} | "
-                     f"{audit['qualifies_for_legacy_atom_volume_gate']} |")
+                     f"{audit['qualifies_for_legacy_record_volume_gate']} |")
     lines += ["", "The original audit is not the alternate-key space comparison.", ""]
     text = "\n".join(lines)
     save(args.output / "summary.json", {"baseline": args.baseline_revision, "candidate": args.candidate_revision,

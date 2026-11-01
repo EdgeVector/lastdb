@@ -7,7 +7,7 @@
 //! accepted batches and the pending batch of the request, and the one
 //! `batch_mutate` at the end joins that pending batch.
 //!
-//! A release names a conflict row (`rcf:`). The row holds no atom or file blob
+//! A release names a conflict row (`rcf:`). The row holds no record or file blob
 //! reference, so a release only deletes: the row, its queue rows, and the marker
 //! of the record when no live entry of it is left (`record_conflicts/release.rs`).
 

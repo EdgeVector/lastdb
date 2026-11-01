@@ -107,7 +107,7 @@ pub struct ExternalFileDependency {
 /// Hash the exact decrypted whole file-pointer value, including its outer
 /// `$lastdb_file` wrapper and every optional member, with RFC 8785 canonical JSON.
 /// The caller validates the existing pointer format before this pure hash step.
-/// Atom identifiers, atom metadata and encryption envelopes are not inputs.
+/// Record identifiers, record metadata and encryption envelopes are not inputs.
 pub fn logical_pointer_sha256(pointer: &serde_json::Value) -> Result<Digest, ProtocolError> {
     // The input already is a JSON value; canonical_bytes would clone its tree.
     let bytes =

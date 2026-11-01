@@ -1,5 +1,5 @@
 //! Semantic proof against two fixed, authenticated disk V2 roots.
-mod atoms;
+mod blobs;
 mod keys;
 mod native;
 mod ranges;
@@ -49,7 +49,7 @@ pub(super) fn verify(
     };
     // Every optional inventory cursor and fork must close before nested reads
     // retry. The next attempt repeats exact scratch cleanup and its sync barrier
-    // before any account, schema, atom, directory or CAS validation.
+    // before any account, schema, record, directory or CAS validation.
     drop(reserved);
     if key_heads && result.as_ref().err().is_some_and(descriptor_pressure) {
         drop(result);
@@ -79,9 +79,9 @@ fn verify_once(
         Stage::Schemas,
         ranges::verify(main, account_key, version, key_heads),
     )?;
-    let atoms = phase(Stage::Atoms, atoms::verify(&proof))?;
+    let proved = phase(Stage::Blobs, blobs::verify(&proof))?;
     phase(Stage::Tips, records::verify_tips(&proof))?;
-    Ok(atoms)
+    Ok(proved)
 }
 
 fn descriptor_pressure(error: &StorageError) -> bool {
@@ -142,7 +142,7 @@ fn fork_mapped(read: &RunRead, budget: ReadBudget) -> StorageResult<RunRead> {
     read.fork_bounded(budget).map_err(map)
 }
 
-/// Account admission is separate from the complete atom and file proof.
+/// Account admission is separate from the complete record and file proof.
 pub(super) fn verify_account(main: &RunRead, key: &[u8; 32], version: u16) -> StorageResult<()> {
     keys::verify(main, key, version)
 }
@@ -157,7 +157,7 @@ struct Proof<'a> {
 
 fn read_budget(bytes: u64, keys: u64) -> ReadBudget {
     ReadBudget {
-        pages: budget::ATOM_INVENTORY_PAGES,
+        pages: budget::RECORD_INVENTORY_PAGES,
         blocks: budget::NATIVE_STREAM_BLOCKS,
         bytes,
         keys,

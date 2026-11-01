@@ -3,7 +3,7 @@
 The logical path is schema → record → file blob, plus alternate entries.
 Every home is format 7 (the record model). A schema owns its records and their values.
 Canonical field identity supplies reusable definitions and types.
-Field molecules, tips and atoms do not exist.
+Separate field-key rows and tips do not exist.
 
 ## Records and alternate keys
 

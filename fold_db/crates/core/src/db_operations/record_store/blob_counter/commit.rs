@@ -1,7 +1,7 @@
 //! The store side of the blob planner: read the counters, plan, build the writes.
 //!
 //! [`RecordStore::blob_counter_mutations`] is called by the record write
-//! (`records.rs`), the history release (`atom_history/records.rs`) and the scope
+//! (`records.rs`), the history release (`field_history/records.rs`) and the scope
 //! drop inside the native write request scope. It returns the mutations that
 //! join the one batch of the row change, so a blob count and the references it
 //! counts change together. [`RecordStore::register_blob_upload`] is
@@ -51,9 +51,9 @@ impl RecordStore {
     }
 
     /// A reference that makes the counter of a blob whose row is gone is a late
-    /// reference: the dwell deleted the blob (the counter with it), and an atom
+    /// reference: the dwell deleted the blob (the counter with it), and a record
     /// that names it arrives afterwards. The write goes through, because a blob
-    /// that comes from a peer arrives after the atom that names it. The report
+    /// that comes from a peer arrives after the record that names it. The report
     /// counts it and logs the blob, `lastdb liveness explain blob` says
     /// `referenced_row_missing`, and `lastdb db verify-refs` reports
     /// `blob_counter_without_blob`. One keyed read of the rows of the blobs that
@@ -84,7 +84,7 @@ impl RecordStore {
     }
 
     /// A blob row was put. A blob with no reference starts or renews its dwell,
-    /// because the atom that names it comes after the upload. The caller holds
+    /// because the record that names it comes after the upload. The caller holds
     /// the native write gate and has put the row in the same request scope.
     pub(crate) async fn register_blob_upload(&self, blob_ref: &str) -> Result<(), SchemaError> {
         self.require_write_scope()?;
@@ -150,7 +150,7 @@ impl RecordStore {
         // The three reads see one committed root. A dwell chunk deletes the row,
         // the counter and the queue entry in one batch, so one root shows all of
         // them or none of them.
-        self.atom_read_scope(self.read_blob_views(blobs)).await
+        self.record_read_scope(self.read_blob_views(blobs)).await
     }
 
     async fn read_blob_views(&self, blobs: &[String]) -> Result<Vec<BlobCounterView>, SchemaError> {

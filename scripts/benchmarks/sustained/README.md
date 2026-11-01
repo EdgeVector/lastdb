@@ -14,7 +14,7 @@ The default recipe offers 100, 1,000, and 5,000 record updates per second for
 ## What the sizes mean
 
 The corpus size counts generated body bytes. The default body contains 1,024
-bytes. Keys, atoms, molecules, and other record metadata add bytes. Compression
+bytes. Keys, records, field keys, and other record metadata add bytes. Compression
 can reduce file bytes. The report keeps these measures separate.
 
 The initial corpus must reach its size within the seed duration cap. The optional

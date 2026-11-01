@@ -2,10 +2,10 @@
 
 use super::{budget, invalid, map, read_budget, rows::Rows, RunRead, StorageResult};
 use crate::schema::Schema;
-use crate::storage::molecule_key_store::{
+use crate::storage::field_key_store::{
     node_bundle_storage_keys, verify_frozen_typed_profile, NODE_KEY_ROW_MAX_BYTES,
 };
-use schema_types::molecule_range_profile::MoleculeRangeProfile;
+use schema_types::field_range_profile::FieldRangeProfile;
 
 pub(super) fn verify(
     main: &RunRead,
@@ -36,30 +36,30 @@ pub(super) fn verify(
             .as_ref()
             .and_then(|key| key.range_field.as_deref())
             .map(|path| schema.key_field_type(path));
-        let profile = MoleculeRangeProfile::for_field_type(range.as_ref())
+        let profile = FieldRangeProfile::for_field_type(range.as_ref())
             .map_err(|_| invalid("run backup range field has no typed profile"))?;
-        let mut molecules = schema
+        let mut field_keys = schema
             .runtime_fields
             .values()
             .map(|field| {
                 field
                     .common()
-                    .molecule_uuid
+                    .field_key_id
                     .as_deref()
-                    .ok_or_else(|| invalid("run backup field molecule is absent"))
+                    .ok_or_else(|| invalid("run backup field key is absent"))
             })
             .collect::<StorageResult<Vec<_>>>()?;
-        molecules.sort_unstable();
-        molecules.dedup();
-        for chunk in molecules.chunks(128) {
+        field_keys.sort_unstable();
+        field_keys.dedup();
+        for chunk in field_keys.chunks(128) {
             batch(main, account_key, profile, chunk)?;
         }
         // A format 7 home adds the record space of each schema.
-        for (molecule, alternate_profile) in
-            crate::storage::molecule_key_store::schema_molecule_profiles(&schema, true)?
+        for (field_key, alternate_profile) in
+            crate::storage::field_key_store::schema_field_key_profiles(&schema, true)?
         {
-            if !molecules.contains(&molecule.as_str()) {
-                batch(main, account_key, alternate_profile, &[molecule.as_str()])?;
+            if !field_keys.contains(&field_key.as_str()) {
+                batch(main, account_key, alternate_profile, &[field_key.as_str()])?;
             }
         }
     }
@@ -69,18 +69,21 @@ pub(super) fn verify(
 fn batch(
     main: &RunRead,
     account_key: &[u8; 32],
-    profile: MoleculeRangeProfile,
-    molecules: &[&str],
+    profile: FieldRangeProfile,
+    field_keys: &[&str],
 ) -> StorageResult<()> {
-    let mut coordinates = Vec::with_capacity(molecules.len() * 2);
-    for molecule in molecules {
+    let mut coordinates = Vec::with_capacity(field_keys.len() * 2);
+    for field_key in field_keys {
         coordinates.extend(
-            node_bundle_storage_keys(molecule)?.map(|key| ("molecule_keys".to_owned(), key)),
+            node_bundle_storage_keys(field_key)?.map(|key| ("molecule_keys".to_owned(), key)),
         );
     }
     let mut read = super::fork_mapped(
         main,
-        read_budget(budget::ATOM_INVENTORY_READ_BYTES, coordinates.len() as u64),
+        read_budget(
+            budget::RECORD_INVENTORY_READ_BYTES,
+            coordinates.len() as u64,
+        ),
     )?;
     let values = read
         .get_many_bounded(&coordinates, NODE_KEY_ROW_MAX_BYTES)
@@ -89,11 +92,11 @@ fn batch(
         .collect::<laststore::Result<Vec<_>>>()
         .map_err(map)?;
     if values.len() != coordinates.len() {
-        return Err(invalid("run backup molecule contract batch is incomplete"));
+        return Err(invalid("run backup field key contract batch is incomplete"));
     }
-    for (molecule, rows) in molecules.iter().zip(values.chunks_exact(2)) {
+    for (field_key, rows) in field_keys.iter().zip(values.chunks_exact(2)) {
         verify_frozen_typed_profile(
-            molecule,
+            field_key,
             profile,
             account_key,
             rows[0].as_deref(),

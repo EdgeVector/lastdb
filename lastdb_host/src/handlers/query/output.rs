@@ -9,7 +9,7 @@ pub enum QueryResponseFormat {
     #[default]
     /// Rows include the full field metadata.
     Full,
-    /// Rows keep a molecule id per field, then fold that into one conflict flag.
+    /// Rows keep a field key id per field, then fold that into one conflict flag.
     Values,
     /// Return a count for the keyed scope and do not build row metadata.
     Count,

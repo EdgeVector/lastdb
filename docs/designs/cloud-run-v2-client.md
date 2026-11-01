@@ -116,7 +116,7 @@ The client freezes one accepted backup before it fetches its objects.
 It verifies the complete receipt set, object hashes, extent bounds, and final native file hashes.
 It restores both run homes into a fresh absent destination.
 It creates fresh ephemeral LOCK files; it does not copy a source owner lock.
-It validates both descriptors, encrypted CURRENT files, exact referenced run closure, account key proof, and atom-to-file dependencies.
+It validates both descriptors, encrypted CURRENT files, exact referenced run closure, account key proof, and record-to-file dependencies.
 It publishes the node wrapper and recovery receipt only after those checks pass.
 It preserves the captured native identities and ciphertext bytes.
 It does not convert disk V2 into disk V1 or create a node on a primary copy.

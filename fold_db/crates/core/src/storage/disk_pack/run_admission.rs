@@ -3,7 +3,7 @@
 use super::{map, native_routing, run_node, StorageError, StorageResult, NODE_MARKER};
 use crate::records::key_format::{validate_frozen_replay_floor, CURRENT_KEY_FORMAT_KEY};
 use crate::storage::content_key_proof;
-use lastdb_model::molecule_key_codec::current_key_format;
+use lastdb_model::field_key_codec::current_key_format;
 use laststore::disk_run::home::{ReadBudget, RunRead};
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -16,8 +16,7 @@ pub(in crate::storage) const RECORD_NODE_BYTES: &[u8] =
     b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n";
 /// The backup profile version of a format 7 home.
 pub(in crate::storage) const RECORD_PROFILE: u16 = 5;
-// Formats 4 to 6 store atoms and molecules. They stay recognized so that a
-// refusal can name the format it found.
+// Older node markers. `require_record` refuses every profile except format 7.
 pub(super) const TYPED_NODE_BYTES: &[u8] =
     b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n";
 pub(super) const FORMAT_FIVE_BYTES: &[u8] =

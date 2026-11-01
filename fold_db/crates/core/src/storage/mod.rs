@@ -32,8 +32,8 @@ pub mod encrypting_namespaced_store;
 /// Kv-level at-rest encryptor — implementation detail of [`EncryptingNamespacedStore`].
 pub(crate) mod encrypting_store;
 pub mod error;
-/// Per-molecule key bundles: the storage key material behind molecule hashes.
-pub mod molecule_key_store;
+/// per-field-key key bundles: the storage key material behind field key hashes.
+pub mod field_key_store;
 pub mod traits;
 
 // Re-exports for convenience

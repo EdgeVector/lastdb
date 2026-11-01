@@ -44,8 +44,8 @@ as required, rather than an empty or completed request.
 
 ## Scope
 
-Cleanup removes old versions and tombstones that normal atom and blob rules
-already delete. The atom counter remains the only authority for atom deletion.
+Cleanup removes old versions and tombstones that normal record and blob rules
+already delete. The record counter remains the only authority for record deletion.
 This operation does not delete a live CAS record because it appears unused.
 Recovery of a failed final CAS delete is a separate operation.
 

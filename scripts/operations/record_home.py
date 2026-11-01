@@ -240,7 +240,7 @@ def ledger(node):
 
 
 def history(node, action, key="hist"):
-    return node.call("/api/atom-history", {
+    return node.call("/api/field-history", {
         "location": {"schema": "RecordById", "field": "value", "key": {"hash": key}},
         "action": action,
     })[0]
@@ -256,7 +256,7 @@ def field_history(node):
     mutate(node, "RecordById", {"hash": "hist"}, {"value": "h2"})
     page = history(node, {"op": "list"})
     entries = page["entries"]
-    require(len(entries) == 1 and entries[0]["reason"] == "replace" and "atom" not in entries[0],
+    require(len(entries) == 1 and entries[0]["reason"] == "replace" and "record" not in entries[0],
             "an overwrite did not add one copied entry: " + repr(entries))
     entry = entries[0]["id"]
     require(history(node, {"op": "get", "id": entry})["value"] == "h1", "the history entry holds another value")

@@ -79,7 +79,7 @@ The service refuses an implicit conversion of a nonempty legacy definition store
 The earlier `canonical-v1/` store stays intact for recovery.
 Old definitions stay available for recovery.
 App identities, permissions, credentials, and quotas keep their common stores.
-The primary home, archive, atoms, files, and daemon stay outside this rollout.
+The primary home, archive, records, files, and daemon stay outside this rollout.
 
 Use real isolated DEV app operations before the separate production phase.
 Keep the normal deployment gates, canary period, alarms, and rollback definitions.

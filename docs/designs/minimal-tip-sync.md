@@ -13,7 +13,7 @@
 
 ## Summary
 
-Make **local latest** cheap and **multi-device sync** still possible by replacing fat per-slot `AtomEntry` tips with thin tips `{ content_id, written_at, device_id }`. History, HashRange page/order indexes, and per-tip signatures become **policy**, not the default cost of every write.
+Make **local latest** cheap and **multi-device sync** still possible by replacing fat per-slot `RecordEntry` tips with thin tips `{ content_id, written_at, device_id }`. History, HashRange page/order indexes, and per-tip signatures become **policy**, not the default cost of every write.
 
 ## Goals
 
@@ -27,13 +27,13 @@ Make **local latest** cheap and **multi-device sync** still possible by replacin
 - Removing native search from Mini (see `native-index-posture.md`).
 - Full CRDT / OT.
 - Mandatory as-of for every schema.
-- Reintroducing `schemaidx` full atom copies.
+- Reintroducing `schemaidx` full record copies.
 
 ## Physical model (target)
 
 | Key | Value | Default |
 |-----|--------|---------|
-| `atom:{C}` / `a:{C}` | Immutable value | Always |
+| value bytes | Immutable value | Always |
 | `mk:{M}:{key}` (or future `t:`) | **Thin tip head** `{ c, t, d, prev_tip_id? }` | Always |
 | `tv:{version_id}` | Archived tip version (same shape as head) | On overwrite |
 | `history:…` | Legacy mutation event log | **Off** (not written). API version 15 removed `clear-history` |
@@ -41,7 +41,7 @@ Make **local latest** cheap and **multi-device sync** still possible by replacin
 | `cas_blobs` / blob ids | File bytes | Files only |
 | Presence `k:{S}:{K}` | Record exists | Optional list helper |
 
-**Thin tip fields:** `atom_uuid` (c), `written_at` (t), `device_id` (d), optional
+**Thin tip fields:** `value_id` (c), `written_at` (t), `device_id` (d), optional
 `prev_tip_id` (link to previous **tip version** node).
 
 **Dropped from default path:** per-tip `writer_pubkey`, `signature`, `provenance`;
@@ -53,14 +53,14 @@ Instead of a fat `history:` MutationEvent log, each overwrite **archives** the
 prior tip head under `tv:{id}` and points the new head at it:
 
 ```text
-mk:  →  { c: atom-3, t3, d, prev_tip_id: v2 }
-tv:v2 → { c: atom-2, t2, d, prev_tip_id: v1 }
-tv:v1 → { c: atom-1, t1, d, prev_tip_id: "" }
+mk:  →  { c: record-3, t3, d, prev_tip_id: v2 }
+tv:v2 → { c: record-2, t2, d, prev_tip_id: v1 }
+tv:v1 → { c: record-1, t1, d, prev_tip_id: "" }
 ```
 
-- **Molecule** stays the field container; chain is **per tip slot** (per record key)
+- **Field key** stays the field container; chain is **per tip slot** (per record key)
 - `as_of T`: walk `prev_tip_id` until `written_at <= T`
-- Atoms stay immutable values; tips/versions only store ids
+- Records stay immutable values; tips/versions only store ids
 - Legacy `history:` rows may still exist until purged; new mutations do not append them
 
 ## LWW / sync

@@ -19,7 +19,7 @@ pub struct CatalogDeleteReclaimResult {
     pub deleted: bool,
     pub instance_id: Option<String>,
     pub reclaimed_rows: usize,
-    /// Instance cleanup retains node-global molecule domain wraps.
+    /// Instance cleanup retains node-global field key domain wraps.
     pub reclaimed_wraps: usize,
     pub search_tombstones: usize,
 }
@@ -58,10 +58,10 @@ impl FoldDB {
         let storage_prefix = existing
             .as_ref()
             .and_then(|entry| entry.instance_id.clone());
-        let _molecule_guards = self
-            .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
+        let _field_key_guards = self
+            .lock_schema_field_keys(schema.as_ref(), storage_prefix.as_deref())
             .await;
-        // The native gate precedes molecule locks, as it does for normal writes.
+        // The native gate precedes field key locks, as it does for normal writes.
         // It also protects the last-reference decision from a concurrent catalog write.
         let deleted = catalog.delete(db_locator, schema_name).await?;
         let instance_id = existing.and_then(|entry| entry.instance_id);
@@ -124,8 +124,8 @@ impl FoldDB {
         for row in rows {
             let existing = catalog.get(&row.db_locator, schema_name).await?;
             let storage_prefix = existing.and_then(|entry| entry.instance_id);
-            let _molecule_guards = self
-                .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
+            let _field_key_guards = self
+                .lock_schema_field_keys(schema.as_ref(), storage_prefix.as_deref())
                 .await;
             if catalog.delete(&row.db_locator, schema_name).await? {
                 removed += 1;
@@ -134,27 +134,27 @@ impl FoldDB {
         Ok(removed)
     }
 
-    /// Take the commit lock of every molecule the schema owns, in sorted
+    /// Take the commit lock of every field key the schema owns, in sorted
     /// order so concurrent deleters cannot deadlock. Schema share uses this
     /// same order.
-    pub(super) async fn lock_schema_molecules(
+    pub(super) async fn lock_schema_field_keys(
         &self,
         schema: Option<&Schema>,
         storage_prefix: Option<&str>,
     ) -> Vec<impl Sized> {
-        let mut molecule_uuids: Vec<String> = schema
-            .and_then(|schema| schema.field_molecule_uuids.as_ref())
+        let mut field_key_ids: Vec<String> = schema
+            .and_then(|schema| schema.field_key_ids.as_ref())
             .into_iter()
-            .flat_map(|molecules| molecules.values().cloned())
+            .flat_map(|field_keys| field_keys.values().cloned())
             .collect();
-        molecule_uuids.sort_unstable();
-        molecule_uuids.dedup();
-        let mut guards = Vec::with_capacity(molecule_uuids.len());
-        for molecule_uuid in &molecule_uuids {
+        field_key_ids.sort_unstable();
+        field_key_ids.dedup();
+        let mut guards = Vec::with_capacity(field_key_ids.len());
+        for field_key_id in &field_key_ids {
             guards.push(
                 self.db_ops()
                     .records()
-                    .lock_molecule_commit(molecule_uuid, storage_prefix)
+                    .lock_field_key_commit(field_key_id, storage_prefix)
                     .await,
             );
         }
@@ -162,7 +162,7 @@ impl FoldDB {
     }
 
     /// When no catalog entry references `instance` any more, drop its search
-    /// entries and `{instance}:` rows in main. Molecule domain wraps are global;
+    /// entries and `{instance}:` rows in main. Field key domain wraps are global;
     /// this instance-only proof cannot authorize their removal.
     async fn reclaim_unreferenced_instance(
         &self,

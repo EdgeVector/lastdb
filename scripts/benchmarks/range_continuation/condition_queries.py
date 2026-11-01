@@ -96,5 +96,5 @@ def validate(result, expected, spec, reference=None, *, conditioned=True):
         if reference is not None:
             metadata = {name: reference[key]["metadata"][name] for name in projected}
             if row["metadata"] != metadata:
-                raise RuntimeError("A keyed condition response changes atom, molecule, writer, or source metadata")
+                raise RuntimeError("A keyed condition response changes record, field key, writer, or source metadata")
     return rows

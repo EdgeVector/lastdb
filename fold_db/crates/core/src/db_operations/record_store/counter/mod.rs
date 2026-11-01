@@ -9,7 +9,7 @@
 //!   references of the records and the field history, repairs the blob counters
 //!   and the blob queue, and gives the retention queue buckets their rows back.
 //!
-//! The atom counters, the tip records and the atom bodies of format 6 are gone.
+//! The record counters, the tip records and the record bodies of format 6 are gone.
 
 mod commit;
 mod guarded;
@@ -20,7 +20,7 @@ mod verify;
 
 pub(crate) use commit::{GuardedDelete, ReleaseRequest, RowChanges};
 pub use recount::{RecountOptions, RecountReport};
-pub use report::AtomCounterReport;
+pub use report::VerifyRefsReport;
 pub(crate) use verify::VerifyState;
 pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 

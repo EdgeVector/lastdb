@@ -1,0 +1,196 @@
+name: Record history memory attribution
+
+on:
+  workflow_dispatch:
+    inputs:
+      fresh_pair:
+        description: Build an exact source pair and require huge pages disabled
+        type: boolean
+        default: false
+      baseline_revision:
+        description: Full baseline SHA for a fresh pair
+        type: string
+        default: 71fb949a89d1ba77909ca9d57cfcfaf7d7418d45
+      candidate_revision:
+        description: Full candidate SHA for a fresh pair
+        type: string
+        default: 730b3a2fdc9f53b17741b02ba5c9b5b3dc307895
+      pairs:
+        description: Alternating fresh pairs on one runner
+        type: choice
+        options: ["4", "6"]
+        default: "4"
+      disable_thp:
+        description: Disable transparent huge pages in both original programs
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  historical:
+    if: inputs.fresh_pair != true
+    name: Attribute the exact PR 708 programs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASELINE_SHA: 71fb949a89d1ba77909ca9d57cfcfaf7d7418d45
+      CANDIDATE_SHA: 18bc31a40ea5253563aececc1a30fd030da0949b
+      BUILD_CONTEXT: 269671646d3b8594616ed1dbd07727a8a75c922b42621f562175e9053e99636b
+      BUNDLE_SHA256: 2e85b0f43dc902698247cdffee751ca1ad806e258abe13af0bd2a68145279858
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: 18bc31a40ea5253563aececc1a30fd030da0949b
+          path: historical-driver
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 40827041301
+          artifact-ids: 12877551303
+          path: ${{ runner.temp }}/historical-programs
+          merge-multiple: true
+      - name: Verify the original programs, source identities, and checksums
+        run: |
+          mkdir "$RUNNER_TEMP/transfer"
+          BENCH_OUTPUT="$RUNNER_TEMP/transfer" python3 historical-driver/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/programs" --archive "$RUNNER_TEMP/historical-programs/programs.tar.gz"
+      - name: Attribute memory on fresh generated homes
+        env:
+          DISABLE_THP: ${{ inputs.disable_thp }}
+        run: |
+          options=()
+          if [ "$DISABLE_THP" = "true" ]; then options+=(--disable-thp); fi
+          python3 driver/scripts/operations/field_history_memory.py --programs "$RUNNER_TEMP/programs" \
+            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution" "${options[@]}"
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: field-history-memory-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/memory-attribution
+            ${{ runner.temp }}/transfer
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish attribution provenance
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+          DISABLE_THP: ${{ inputs.disable_thp }}
+        run: |
+          {
+            echo "## PR 708 memory attribution"
+            echo "Diagnostic source: $GITHUB_SHA"
+            echo "Baseline: $BASELINE_SHA; candidate: $CANDIDATE_SHA"
+            echo "Original run: 40827041301; verified program bundle: $BUNDLE_SHA256"
+            echo "Disable transparent huge pages in both programs: $DISABLE_THP"
+            echo "Result: $RESULT"
+            echo "Artifact: $ARTIFACT_URL"
+            echo "Artifact SHA256: $ARTIFACT_DIGEST"
+            echo "Expiration: 7 days after this run."
+            echo "Generated CI homes only. This diagnostic does not replace benchmark-complete."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  plan:
+    if: inputs.fresh_pair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      baseline: ${{ steps.plan.outputs.baseline }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      driver: ${{ steps.plan.outputs.driver }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate exact sources before any build
+        id: plan
+        env:
+          BASE_SHA: ${{ inputs.baseline_revision }}
+          HEAD_SHA: ${{ inputs.candidate_revision }}
+        run: python3 scripts/benchmarks/plan.py --always --output "$RUNNER_TEMP/paired-plan.json"
+
+  build:
+    needs: plan
+    uses: ./.github/workflows/bench-build.yml
+    with:
+      baseline: ${{ needs.plan.outputs.baseline }}
+      candidate: ${{ needs.plan.outputs.candidate }}
+      driver: ${{ needs.plan.outputs.driver }}
+      profile: standard
+
+  paired:
+    name: Compare the exact sources with huge pages disabled
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      BASELINE_SHA: ${{ needs.plan.outputs.baseline }}
+      CANDIDATE_SHA: ${{ needs.plan.outputs.candidate }}
+      BUILD_CONTEXT: ${{ needs.build.outputs.context }}
+      BUNDLE_SHA256: ${{ needs.build.outputs.bundle_sha256 }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.driver }}
+          path: driver
+          persist-credentials: false
+      - name: Prepare external result directory
+        run: |
+          mkdir "$RUNNER_TEMP/paired-memory"
+          echo "BENCH_OUTPUT=$RUNNER_TEMP/paired-memory" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/paired-programs
+          merge-multiple: true
+      - name: Verify both program sources, compiler recipe, and checksums
+        run: |
+          python3 driver/scripts/benchmarks/programs.py unpack \
+            --root "$RUNNER_TEMP/programs" --archive "$RUNNER_TEMP/paired-programs/programs.tar.gz"
+      - name: Measure alternating source pairs with kernel and allocator controls
+        env:
+          PAIRS: ${{ inputs.pairs }}
+        run: |
+          python3 driver/scripts/operations/field_history_memory.py --programs "$RUNNER_TEMP/programs" \
+            --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" \
+            --output "$BENCH_OUTPUT/measurements" --disable-thp --pairs "$PAIRS"
+      - name: Validate and summarize the direct comparison
+        run: python3 driver/scripts/operations/field_history_paired_report.py --output "$BENCH_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        id: evidence
+        if: always()
+        with:
+          name: field-history-paired-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paired-memory/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify uploaded measurements and record their source and expiration
+        if: always() && steps.evidence.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.evidence.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.evidence.outputs.artifact-digest }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/paired-artifact.json"
+          python3 driver/scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/paired-artifact.json" \
+            --output "$RUNNER_TEMP/paired-receipt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: field-history-paired-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paired-receipt/
+          retention-days: 14
+          if-no-files-found: error

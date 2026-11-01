@@ -11,7 +11,7 @@ use fold_db::schema::types::key_comparison::KeyComparisonContext;
 pub(in crate::handlers) struct RowDrops {
     /// Rows whose stored value could not be resolved.
     pub(in crate::handlers) unresolved: usize,
-    /// Rows whose atom body is a content tombstone.
+    /// Rows whose record body is a content tombstone.
     pub(in crate::handlers) tombstoned: usize,
     /// Drops that still consume a slot after any internal candidate refill.
     unfilled_slots: usize,
@@ -58,7 +58,7 @@ impl From<fold_db::db_operations::QueryRowDrops> for RowDrops {
 /// Read query rows, optionally hydrating only `window` of the matched rows.
 ///
 /// `window` is `(offset, limit)` over the canonical key order and is applied
-/// inside the query executor, before atom bodies load — it is the push-down
+/// inside the query executor, before record bodies load — it is the push-down
 /// itself, not a slice of the result. Callers pass `None` to materialize every
 /// matched row, which is what the value-filtered and two-pass shapes need.
 ///
@@ -138,13 +138,13 @@ async fn execute_rows_captured<H: HostNode>(
     let schema_name = query.schema_name.clone();
     let sort_helper = super::row_rules::unprojected_sort_field(&query);
 
-    // Scope the tally to this request. Atom hydration happens inside
+    // Scope the tally to this request. Record hydration happens inside
     // `query_with_access`, so the scope has to wrap that call and nothing
     // wider — a node-lifetime counter sampled before/after would attribute
     // concurrent requests' dangling edges to this one.
     let executor = host.fold_db();
     let executor = executor.query_executor();
-    // `hydrate` spans the executor call (where atom bodies load) through
+    // `hydrate` spans the executor call (where record bodies load) through
     // response construction, total-order sort, and projection. Conflict annotation
     // is deliberately NOT included: it is its own phase below, because it is
     // the one step whose cost is a storage-plane artifact rather than a
@@ -159,7 +159,7 @@ async fn execute_rows_captured<H: HostNode>(
     // which is exactly the case an operator most wants decomposed.
     // Charged before the error check so a failed executor call still reports
     // where its time went, for the same reason `hydrate` is charged below it.
-    request_phases::add_phase(RequestPhase::HydrateAtoms, hydrate_started.elapsed());
+    request_phases::add_phase(RequestPhase::HydrateRecords, hydrate_started.elapsed());
     let records = match result.map_err(HostError::from) {
         Ok(records) => records,
         Err(err) => {

@@ -4,7 +4,7 @@
 //! holds the common field metadata.
 //!
 //! A field is a value. It never reads the store. A format 7 home reads
-//! records, not field molecules.
+//! records, not field keys.
 
 mod kind;
 mod value;

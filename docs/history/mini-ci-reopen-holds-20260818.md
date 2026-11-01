@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-19
 **Card:** `hga-invest-fold-mini-ci-reopen-root-cause-20260818`
-**Parents:** `teardown-sync-pin-log-unbounded-chain-walk`, `papercut-lastdb-query-400-actionable-errors`, `lastdb-remove-transform-schema-serde-residue`, `lastdb-resident-models-molecule-key-set`, `lastdb-projection-is-a-filter-row-drop`
+**Parents:** `teardown-sync-pin-log-unbounded-chain-walk`, `papercut-lastdb-query-400-actionable-errors`, `lastdb-remove-transform-schema-serde-residue`, `lastdb-resident-models-field-key-set`, `lastdb-projection-is-a-filter-row-drop`
 **Investigator:** routine `last-stack-fkanban-pickup-w3` run `2026-08-19T21-20-32-779Z`
 
 ## Question
@@ -52,7 +52,7 @@ Historic kill: Forge **#1304** reaped three times (Mini fmt+clippy ~1m10s). Goal
 | Typed rejection + query wiring landed as Forgejo **#1400** | `merged_at=2026-08-08T15:42:05-07:00`, merge `608ee6d43` |
 | Merge is ancestor of current main | `git merge-base --is-ancestor 608ee6d43 HEAD` → true |
 | `execute_query_route` | `require_keys(&obj, QUERY_REQUIRED_KEYS)` then `Reject::new(RejectKind::InvalidValue)` — no bare `Bad Request` on this route |
-| Leftover bare 400s | ratchet in `exec.rs` allows **11** `content_free(400, "Bad Request")` sites on **other** routes (batch mutations, get-schema, molecule/atom, retired shared-value, search/native-index). Owned by `papercut-lastdb-ten-owner-socket-routes-still-answer-the-bare-11-byte-bad-request`, **not** this parent |
+| Leftover bare 400s | ratchet in `exec.rs` allows **11** `content_free(400, "Bad Request")` sites on **other** routes (batch mutations, get-schema, field key/record, retired shared-value, search/native-index). Owned by `papercut-lastdb-ten-owner-socket-routes-still-answer-the-bare-11-byte-bad-request`, **not** this parent |
 
 **Recommendation 2026-08-18: (B) no remaining Mini repair for `/api/query`. Close parent `done` against #1400.** Do not reopen #1304. Remaining owner-socket bare 400s are a different card.
 
@@ -68,13 +68,13 @@ Historic kill: Forge **#1303** / **#1315** reopen-churn; Mini fmt+clippy RED ~1m
 
 **Recommendation 2026-08-18: (A) re-drive as a fresh thin slice on current `origin/main`.** Do **not** reopen #1303/#1315 and do **not** force-push the preserved monopr (27 files, +62/−299). Slice 1 only: drop `transform_fields` from `schema_types` / declarative schema product types + keep legacy JSON accept-and-ignore if the legacy read test still requires it. Mini gate to go green: current `fmt + clippy (lastdb_node Mini lane)` including `cargo fmt --all -- --check` and `cargo clippy -p lastdb_node --lib --bins -- -D warnings`. Host slices (node call-sites, fmt-only follow-up) as later PRs.
 
-### 4. `lastdb-resident-models-molecule-key-set`
+### 4. `lastdb-resident-models-field-key-set`
 
 Historic kill: **#1318** / **#1325** / **#1347** Mini RED (`lastdb_node --lib` ~292s near-pass / OOM class). Hold-cleared once after #1345, then reaped again.
 
 | Fact | Source |
 |------|--------|
-| Product landed as Forgejo **#1465** "Model a resident molecule key set" | `merged_at=2026-08-11T19:10:45-07:00`, merge `d6af113b2` |
+| Product landed as Forgejo **#1465** "Model a resident field key set" | `merged_at=2026-08-11T19:10:45-07:00`, merge `d6af113b2` |
 | Merge is ancestor of current main | `git merge-base --is-ancestor d6af113b2 HEAD` → true |
 | Code on main | `ResidentGraph::resident_key_set_range`, completeness/demote, metrics, tests `key_set_range_walk_is_ordered_and_complete_hits` |
 

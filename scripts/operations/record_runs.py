@@ -280,7 +280,7 @@ def ledger(node):
 
 
 def drop_history(node, key, action):
-    return node.call("/api/atom-history", {
+    return node.call("/api/field-history", {
         "location": {"schema": "RecordDrop", "field": "value", "key": {"hash": key}},
         "action": action,
     })[0]

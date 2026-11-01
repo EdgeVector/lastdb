@@ -52,7 +52,7 @@ pub const DEFAULT_SELF_METRIC_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// `LASTDB_REQUEST_OPS_ROLLUP_MAX_ROWS` to bypass the derivation entirely.
 pub const DEFAULT_REQUEST_OPS_ROLLUP_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Measured cost of one tip plus its atom on the primary, in bytes.
+/// Measured cost of one tip plus its record on the primary, in bytes.
 ///
 /// From `lastdb db inventory` on the live primary 2026-08-03: the `mk:` tip
 /// plane was 1,134,259,272 B over 2,044,361 keys = 555 B/key. Used only to

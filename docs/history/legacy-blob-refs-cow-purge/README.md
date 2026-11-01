@@ -11,13 +11,13 @@ Date: 2026-08-05
 
 | Class | Criterion | Action |
 |-------|-----------|--------|
-| **safe** | molecule already has per-key coverage (`mh:{M}` or any `mk:{M}:…`) | dry-run counts; `--execute` deletes |
+| **safe** | field key already has per-key coverage (`mh:{M}` or any `mk:{M}:…`) | dry-run counts; `--execute` deletes |
 | **blocked** | no per-key coverage (sole-copy residue) | never force-deleted; samples returned |
 
 `purge_complete` is true only when `keys_blocked == 0` and (dry-run or all safe keys deleted).
 
 Product writers already refuse new `ref:` blobs (dep PR #1213 / card
-`lastdb-stop-writing-legacy-ref-molecule-blobs`).
+`lastdb-stop-writing-legacy-ref-field-key-blobs`).
 
 ## CoW surface (primary untouched)
 

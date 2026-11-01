@@ -54,14 +54,14 @@ function rowWitness(row, state) {
   for (const field of Object.keys(fields)) {
     const info = metadata[field];
     require(info && typeof info === "object" && !Array.isArray(info),
-      "A present snapshot field lacks its actual atom metadata");
-    require(typeof info.atom_uuid === "string" && info.atom_uuid.length > 0, "A snapshot field lacks its current atom");
-    // New owned molecules are expected. Every other public tip attribute must
+      "A present snapshot field lacks its actual record metadata");
+    require(typeof info.value_id === "string" && info.value_id.length > 0, "A snapshot field lacks its current record");
+    // New owned field_keys are expected. Every other public tip attribute must
     // remain exact, including an absent writer on an unsigned local tip.
-    references[field] = Object.fromEntries(Object.entries(info).filter(([name]) => name !== "molecule_uuid"));
+    references[field] = Object.fromEntries(Object.entries(info).filter(([name]) => name !== "field_key_id"));
   }
   require(Object.keys(metadata).every((field) => Object.hasOwn(fields, field)), "Snapshot metadata has no field value");
-  return { key, fields: Object.keys(fields).length, atoms: Object.keys(references).length,
+  return { key, fields: Object.keys(fields).length, records: Object.keys(references).length,
     values_sha256: digest(fields), references_sha256: digest(references) };
 }
 
@@ -184,5 +184,5 @@ export function assertSnapshotsEqual(before, after, names = Object.keys(before.s
   for (const name of names)
     require(before.schemas[name] && after.schemas[name]
       && stable(before.schemas[name]) === stable(after.schemas[name]),
-    "Actual values, keys, current atoms, or author metadata changed for " + name);
+    "Actual values, keys, current records, or author metadata changed for " + name);
 }

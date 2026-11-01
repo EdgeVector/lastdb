@@ -27,7 +27,7 @@ pub struct NativeCasProof {
     pub stored_row_bytes: u64,
 }
 
-/// Drop the native reader and atom JSON before this disk-backed decode stage.
+/// Drop the native reader and record JSON before this disk-backed decode stage.
 /// The caller owns raw_path; this function removes its exact private siblings.
 pub fn verify_native_cas(
     proof: NativeCasProof,

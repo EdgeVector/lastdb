@@ -20,7 +20,7 @@ pub(crate) fn op_kind_from_str(raw: &str) -> Option<lastdb_node::request_telemet
         "schema" => Some(lastdb_node::request_telemetry::OpKind::Schema),
         "search" => Some(lastdb_node::request_telemetry::OpKind::Search),
         "history" => Some(lastdb_node::request_telemetry::OpKind::History),
-        "atom" => Some(lastdb_node::request_telemetry::OpKind::Atom),
+        "record" => Some(lastdb_node::request_telemetry::OpKind::Record),
         "deliver" => Some(lastdb_node::request_telemetry::OpKind::Deliver),
         "local_watch" => Some(lastdb_node::request_telemetry::OpKind::LocalWatch),
         "file_blob" => Some(lastdb_node::request_telemetry::OpKind::FileBlob),

@@ -9,13 +9,13 @@ pub struct AppLogicalBinding {
     pub schema_binding: String,
     /// `None` is a system schema, not an unknown app.
     pub app_id: Option<String>,
-    pub molecules: Vec<AppLogicalMolecule>,
+    pub field_keys: Vec<AppLogicalFieldKey>,
 }
 
-/// One logical molecule counter referenced by a schema binding.
+/// One logical field key counter referenced by a schema binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppLogicalMolecule {
-    pub molecule_id: String,
+pub struct AppLogicalFieldKey {
+    pub field_key_id: String,
     /// Missing means the write-path counter cannot prove this unit yet.
     pub logical_bytes: Option<u64>,
 }
@@ -37,8 +37,8 @@ pub struct HomeStorageAppAttributionRow {
     /// Inclusive divided by exclusive, in basis points. `None` means the app
     /// reaches shared data but has no exclusive denominator.
     pub amplification_basis_points: Option<u64>,
-    pub molecule_count: u64,
-    pub shared_molecule_count: u64,
+    pub field_key_count: u64,
+    pub shared_field_key_count: u64,
     pub schema_bindings: Vec<String>,
 }
 
@@ -48,13 +48,13 @@ pub struct HomeStorageInclusiveAppAttribution {
     pub metric: String,
     pub measured_at: DateTime<Utc>,
     pub complete: bool,
-    /// Every valid logical molecule reached by at least one app, once.
+    /// Every valid logical field key reached by at least one app, once.
     pub unique_logical_bytes: u64,
-    /// Valid logical molecules reached only by system schemas.
+    /// Valid logical field keys reached only by system schemas.
     pub system_unique_logical_bytes: u64,
     /// `unique_logical_bytes + system_unique_logical_bytes`.
     pub total_unique_logical_bytes: u64,
-    /// Sum of all app rows. Shared molecules repeat once per reaching app.
+    /// Sum of all app rows. Shared field keys repeat once per reaching app.
     pub inclusive_app_logical_bytes: u64,
     /// `inclusive_app_logical_bytes - unique_logical_bytes`.
     pub overlap_logical_bytes: u64,
@@ -94,13 +94,13 @@ pub(super) struct LogicalUnit {
 pub(super) struct AppLogicalBucket {
     pub(super) exclusive_logical_bytes: u64,
     pub(super) shared_logical_bytes: u64,
-    pub(super) molecule_count: u64,
-    pub(super) shared_molecule_count: u64,
+    pub(super) field_key_count: u64,
+    pub(super) shared_field_key_count: u64,
     pub(super) schema_bindings: BTreeSet<String>,
 }
 
-/// Build the inclusive logical ledger without reading any atom or tip plane.
-/// A molecule contributes once to the unique ledger and once to every app
+/// Build the inclusive logical ledger without reading any record or tip plane.
+/// A field key contributes once to the unique ledger and once to every app
 /// that reaches it through a declared schema binding.
 #[must_use]
 pub fn build_inclusive_app_attribution(
@@ -116,7 +116,7 @@ pub fn build_inclusive_app_attribution(
     let mut app_buckets: BTreeMap<String, AppLogicalBucket> = BTreeMap::new();
 
     if !counters_complete {
-        push_scope(&mut unresolved_scopes, "molecule_counters_incomplete");
+        push_scope(&mut unresolved_scopes, "field_key_counters_incomplete");
     }
 
     let units = collect_logical_units(bindings, &mut app_buckets, &mut unresolved_scopes);
@@ -168,23 +168,23 @@ fn collect_logical_units(
         }
 
         let mut seen = BTreeSet::new();
-        for molecule in &binding.molecules {
-            if !seen.insert(molecule.molecule_id.as_str()) {
+        for field_key in &binding.field_keys {
+            if !seen.insert(field_key.field_key_id.as_str()) {
                 continue;
             }
-            let Some(logical_bytes) = molecule.logical_bytes else {
+            let Some(logical_bytes) = field_key.logical_bytes else {
                 push_scope(
                     unresolved_scopes,
-                    &format!("missing_molecule_counter:{}", molecule.molecule_id),
+                    &format!("missing_field_key_counter:{}", field_key.field_key_id),
                 );
                 continue;
             };
-            let unit = units.entry(molecule.molecule_id.clone()).or_default();
+            let unit = units.entry(field_key.field_key_id.clone()).or_default();
             match unit.logical_bytes {
                 Some(existing) if existing != logical_bytes => {
                     push_scope(
                         unresolved_scopes,
-                        &format!("molecule_counter_conflict:{}", molecule.molecule_id),
+                        &format!("field_key_counter_conflict:{}", field_key.field_key_id),
                     );
                     unit.logical_bytes = Some(existing.max(logical_bytes));
                 }
@@ -223,11 +223,11 @@ fn assign_units_to_apps(
         let shared = unit.apps.len() > 1;
         for app_id in &unit.apps {
             let bucket = app_buckets.entry(app_id.clone()).or_default();
-            bucket.molecule_count = bucket.molecule_count.saturating_add(1);
+            bucket.field_key_count = bucket.field_key_count.saturating_add(1);
             if shared {
                 bucket.shared_logical_bytes =
                     bucket.shared_logical_bytes.saturating_add(logical_bytes);
-                bucket.shared_molecule_count = bucket.shared_molecule_count.saturating_add(1);
+                bucket.shared_field_key_count = bucket.shared_field_key_count.saturating_add(1);
             } else {
                 bucket.exclusive_logical_bytes =
                     bucket.exclusive_logical_bytes.saturating_add(logical_bytes);
@@ -260,8 +260,8 @@ fn attribution_rows(
                     inclusive_logical_bytes,
                     bucket.exclusive_logical_bytes,
                 ),
-                molecule_count: bucket.molecule_count,
-                shared_molecule_count: bucket.shared_molecule_count,
+                field_key_count: bucket.field_key_count,
+                shared_field_key_count: bucket.shared_field_key_count,
                 schema_bindings: bucket.schema_bindings.into_iter().collect(),
             }
         })

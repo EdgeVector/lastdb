@@ -1,8 +1,8 @@
 //! Tombstone content shape.
 //!
-//! A tombstone is an Atom whose `content` is the reserved JSON object
+//! A tombstone is an Record whose `content` is the reserved JSON object
 //! `{"_fold_tombstone": {"key": "...", "reason": "...", "actor": "..."}}`.
-//! At molecule resolution, tombstones are filtered from query results
+//! At field key resolution, tombstones are filtered from query results
 //! unless the caller explicitly asks for `include_tombstones = true`.
 //!
 //! This module owns the shape and the predicate so every read surface

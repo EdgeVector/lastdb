@@ -129,7 +129,7 @@ async fn run_recount(
     .await
     .map_err(|e| format!("create_fold_db: {e}"))?;
     if all_scopes {
-        match db.atom_counter_scopes().await {
+        match db.verify_ref_scopes().await {
             Ok(named) => {
                 for scope in named {
                     if !options.scopes.contains(&Some(scope.clone())) {

@@ -95,7 +95,7 @@ Equal numeric scores use ascending range keys as their tie order.
 Each case has 32 warm requests per run after a complete condition reference read.
 Each case also has one request after its own process restart, with schema preload off.
 The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
-Every returned value and each field's atom, molecule, writer, and source metadata must match the same-home reference.
+Every returned value and each field's record, field key, writer, and source metadata must match the same-home reference.
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
 The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary primary-field metadata contract.
 The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
@@ -106,7 +106,7 @@ The check does not impose a new order on the original metadata map. Absent or em
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.
 It matches the exact request IDs and client name. Every warm cell requires 32 matches; every fresh-process cell requires one.
-The existing samples retain the server duration and reported `hydrate_atoms_us` and `hydrate_format_us` phases.
+The existing samples retain the server duration and reported `hydrate_records_us` and `hydrate_format_us` phases.
 The core query phase includes the value copy. The format phase measures the later response format work.
 These status calls stay outside the timed and memory windows. Absent phase fields remain unreported; the report does not use zero.
 The request counter does not measure the native guard's examined-key count.

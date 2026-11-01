@@ -31,7 +31,7 @@ impl PhaseTimings {
     /// right number to rank keys by.
     ///
     /// `hydrate_us` is the node's one declared PARENT: it is charged over the
-    /// whole materialization span while `hydrate_atoms` / `hydrate_format` /
+    /// whole materialization span while `hydrate_records` / `hydrate_format` /
     /// `hydrate_sort` / `hydrate_filter` partition that same span exactly
     /// (an invariant of the phase recorder). Every other phase surface
     /// in this node treats its buckets as disjoint — `apply` and `persist`
@@ -64,7 +64,7 @@ impl PhaseTimings {
     #[must_use]
     pub(super) fn double_counted_us(&self) -> u64 {
         let hydrate_children = self
-            .hydrate_atoms_us
+            .hydrate_records_us
             .saturating_add(self.hydrate_format_us)
             .saturating_add(self.hydrate_sort_us)
             .saturating_add(self.hydrate_filter_us);

@@ -16,8 +16,8 @@ impl RecordStore {
             serving_replay_cutoff: Arc::default(),
             namespaced_store: None,
             content_key,
-            molecule_keys: None,
-            molecule_commit_locks: Arc::default(),
+            field_keys: None,
+            field_key_commit_locks: Arc::default(),
             keep_small: Arc::new(KeepSmallMeters::default()),
             keep_small_persist: None,
             keep_small_last_persist: Arc::default(),
@@ -39,11 +39,11 @@ impl RecordStore {
     }
 
     #[must_use]
-    pub(crate) fn with_molecule_keys(
+    pub(crate) fn with_field_keys(
         mut self,
-        molecule_keys: crate::db_operations::MoleculeKeyStore,
+        field_keys: crate::db_operations::FieldKeyStore,
     ) -> Self {
-        self.molecule_keys = Some(molecule_keys);
+        self.field_keys = Some(field_keys);
         self
     }
 

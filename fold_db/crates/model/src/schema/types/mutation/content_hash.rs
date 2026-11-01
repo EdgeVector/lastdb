@@ -12,7 +12,7 @@ impl Mutation {
     /// The domain, field count, and length prefixes preserve every boundary.
     /// Optional JSON fields preserve absence separately from an empty value.
     /// UUID and local acceptance/durability policy remain outside this hash;
-    /// the author signature binds UUID separately. Atom identity stays unchanged.
+    /// the author signature binds UUID separately. Record identity stays unchanged.
     #[must_use]
     pub fn content_hash(&self) -> String {
         let mut digest = Sha256::new();

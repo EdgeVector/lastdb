@@ -13,7 +13,7 @@
 //! - the tip delete,
 //! - the `mgd` marker that records the removed key,
 //! - the body delete and the counter delete, when this tip holds the last
-//!   reference to its atom (a shared atom costs a counter write instead),
+//!   reference to its record (a shared record costs a counter write instead),
 //! - for a delete, one barrier row.
 //!
 //! Measured on a fresh home with a unique value in every field: a purge of
@@ -29,7 +29,7 @@
 //! A schema with named alternate keys costs more for each key. The erase
 //! deletes at most one entry for each alternate key. It reads the fields that
 //! derive those keys twice, before and after the tip removal, and each read is
-//! a tip and its atom. One request also holds at most
+//! a tip and its record. One request also holds at most
 //! [`MAX_ALTERNATE_ENTRIES`] of those field reads and of those entry changes,
 //! across all its chunks.
 
@@ -54,7 +54,7 @@ pub const PURGE_READS_PER_TIP: usize = 12;
 /// Examined keys for each tip of a delete, at most (one more than a purge).
 pub const DELETE_READS_PER_TIP: usize = 13;
 /// Examined keys for each alternate source field of each key, at most: the tip
-/// and its atom, read before and after the erase.
+/// and its record, read before and after the erase.
 pub const ALTERNATE_READS_PER_FIELD: usize = 4;
 
 /// The parts of a schema that set the cost of erasing one key.

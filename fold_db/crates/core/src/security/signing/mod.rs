@@ -2,9 +2,9 @@
 
 use crate::security::{Ed25519PublicKey, KeyUtils};
 
-/// Verifies a molecule signature against canonical bytes.
+/// Verifies a field key signature against canonical bytes.
 /// Returns true if valid, false otherwise. Never panics.
-pub fn verify_molecule_signature(
+pub fn verify_field_key_signature(
     canonical_bytes: &[u8],
     signature_base64: &str,
     writer_pubkey_base64: &str,

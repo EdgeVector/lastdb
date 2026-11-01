@@ -83,7 +83,7 @@ def measure(binary, recipe, folder):
         inventory, _, _ = node.call("/api/db/inventory")
         result["inventory"] = inventory["inventory"]
         result["after_inventory"] = snapshot(workload, ROUNDS + 3)
-        if (result["inventory"]["per_schema_atoms_total_bytes"]
+        if (result["inventory"]["per_schema_records_total_bytes"]
                 != result["after_reopen"]["logical_storage"]["total_logical_bytes"]):
             raise ValueError("The inventory and pre-inventory logical record totals differ")
         native, _, _ = node.call("/api/db/native-status")

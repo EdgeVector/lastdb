@@ -63,7 +63,7 @@ pub(super) static COMPRESS_COUNTERS: AtRestCompressionCounters = AtRestCompressi
 ///
 /// Reported so an operator can see ratio and percent saved rather than trust
 /// an estimate — policy item 5 of
-/// `preference-lastdb-storage-compress-atoms-and-blobs`.
+/// `preference-lastdb-storage-compress-records-and-blobs`.
 ///
 /// **Scope: the KV seam.** The only site that compresses, the namespaced KV
 /// seam (`EncryptingKvStore`) that wraps only `cas_blobs`, counts through

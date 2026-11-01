@@ -59,10 +59,11 @@ pub struct DbInventory {
     pub main_classes: Vec<MainKeyClass>,
     pub main_total_keys: u64,
     pub main_total_bytes: u64,
-    /// The live records of each schema (`record_count`, `record_bytes`). The
-    /// name stays from the atom inventory, because benchmark readers use it.
-    pub per_schema_atoms: Vec<SchemaStorage>,
-    pub per_schema_atoms_total_bytes: u64,
+    /// The live records of each schema (`record_count`, `record_bytes`).
+    #[serde(default, alias = "per_schema_atoms")]
+    pub per_schema_records: Vec<SchemaStorage>,
+    #[serde(default, alias = "per_schema_atoms_total_bytes")]
+    pub per_schema_records_total_bytes: u64,
     /// The range reads this inventory made. A read that used its key budget in a
     /// run of deleted keys went on above the last key it examined (`skips`). A
     /// read that hit another budget of one call was retried with fewer rows or a
@@ -90,7 +91,7 @@ pub(in crate::db_operations) const INVENTORY_PAGE_BYTE_BUDGET: u64 = 8 * 1024 * 
 /// scan.
 ///
 /// A fixed record limit cannot bound all values: some records contain few bytes
-/// while `atom:` rows run to `ABSOLUTE_MAX_ATOM_CONTENT_BYTES` (1 MiB). A page
+/// while `record:` rows run to `ABSOLUTE_MAX_FIELD_VALUE_BYTES` (1 MiB). A page
 /// large enough to keep the small classes cheap in round trips is a spike on
 /// the large ones, so the first page is deliberately small and each page
 /// re-aims the next from the average row size it just measured.

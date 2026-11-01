@@ -11,24 +11,24 @@ pub struct KeepSmallSnapshot {
     /// Version 2 stores aggregate state directly. Older snapshots require
     /// journal replay and cannot establish meter trust in this implementation.
     /// A version 2 snapshot of an older program also holds `totals`, the
-    /// format 6 atom, tip and bookkeeping totals; serde ignores it on hydrate.
+    /// format 6 record, tip and bookkeeping totals; serde ignores it on hydrate.
     #[serde(default)]
     pub version: u32,
     pub schemas: HashMap<String, SchemaMeter>,
-    /// One compact counter per molecule that this process has observed on the
+    /// One compact counter per field key that this process has observed on the
     /// normal mutation path.  Missing old snapshots are intentionally not
-    /// treated as a measured zero; `molecule_counters_complete` says whether
+    /// treated as a measured zero; `field_key_counters_complete` says whether
     /// this collection is safe to present as complete.
     #[serde(default)]
-    pub molecules: HashMap<String, MoleculeStorageCounter>,
+    pub field_keys: HashMap<String, FieldKeyStorageCounter>,
     #[serde(default)]
-    pub molecule_counters_complete: bool,
+    pub field_key_counters_complete: bool,
     /// Exact source state for every counter row. Old snapshots omit this and
     /// therefore remain fail-closed until an isolated-copy bootstrap runs.
     #[serde(default)]
-    pub molecule_counter_sources_complete: bool,
+    pub field_key_counter_sources_complete: bool,
     #[serde(default)]
-    pub molecule_schema: HashMap<String, String>,
+    pub field_key_schema: HashMap<String, String>,
     /// `Some(true)` only when the shutdown flush wrote this snapshot and no
     /// process has booted on the home since. Every other writer — the
     /// debounced persist, an initial hard-erase baseline or bootstrap flush, and the
@@ -40,7 +40,7 @@ pub struct KeepSmallSnapshot {
     /// need a live epoch after the restart, only that the last writer of this
     /// row is known.
     pub clean_stop: Option<bool>,
-    /// Independent provenance for global, schema, and molecule counters.
+    /// Independent provenance for global, schema, and field key counters.
     pub trust: MeterTrustPayload,
 }
 
@@ -51,9 +51,9 @@ pub struct KeepSmallSchemaShard {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<SchemaMeter>,
     #[serde(default)]
-    pub molecules: HashMap<String, MoleculeStorageCounter>,
+    pub field_keys: HashMap<String, FieldKeyStorageCounter>,
     #[serde(default)]
-    pub molecule_schema: HashMap<String, String>,
+    pub field_key_schema: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trust: Option<MeterDomainTrust>,
 }
@@ -67,7 +67,7 @@ pub const KEEP_SMALL_SNAPSHOT_VERSION: u32 = 2;
 pub const KEEP_SMALL_SNAPSHOT_KEY: &str = "keep_small:meters";
 /// Prefix for one [`KeepSmallSchemaShard`] per measured schema.
 pub const KEEP_SMALL_SCHEMA_SHARD_PREFIX: &str = "keep_small:meters:schema:";
-/// Shard for molecule rows that have no owning schema yet.
+/// Shard for field key rows that have no owning schema yet.
 pub const KEEP_SMALL_UNATTRIBUTED_SHARD_KEY: &str = "keep_small:meters:unattributed";
 /// Sentinel schema name for [`KEEP_SMALL_UNATTRIBUTED_SHARD_KEY`] dirty tracking.
 pub const KEEP_SMALL_UNATTRIBUTED_SCHEMA: &str = "\u{1}unattributed";
@@ -91,12 +91,12 @@ pub fn keep_small_schema_shard_key(schema: &str) -> String {
     out
 }
 
-pub(super) fn schema_owner_for_molecule(
-    molecule_uuid: &str,
-    molecule_schema: &HashMap<String, String>,
+pub(super) fn schema_owner_for_field_key(
+    field_key_id: &str,
+    field_key_schema: &HashMap<String, String>,
 ) -> String {
-    molecule_schema
-        .get(molecule_uuid)
+    field_key_schema
+        .get(field_key_id)
         .cloned()
         .unwrap_or_else(|| KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string())
 }

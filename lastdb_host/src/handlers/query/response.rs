@@ -97,7 +97,7 @@ pub(in crate::handlers) fn overfetched_offset_payload(
 }
 
 /// Reconcile a bounded page with an independent key count. Unresolved and
-/// tombstoned records counted by the molecule still consume a page slot.
+/// tombstoned records counted by the field key still consume a page slot.
 pub(in crate::handlers) fn counted_page_payload(
     page: Vec<Value>,
     total_count: usize,
@@ -200,7 +200,7 @@ pub(in crate::handlers) fn format_rows(
                             .map(|(field, metadata)| {
                                 (
                                     field,
-                                    serde_json::json!({"molecule_uuid": metadata.molecule_uuid}),
+                                    serde_json::json!({"field_key_id": metadata.field_key_id}),
                                 )
                             })
                             .collect(),

@@ -22,7 +22,7 @@
 //! floor: a field write at or below it does not bring the record back, and a
 //! newer write makes a new record. A tombstone is a value with no fields.
 
-use crate::file_pointer::{blob_refs_of_atom, is_private_pointer_hash};
+use crate::file_pointer::{blob_refs_of_value, is_private_pointer_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -38,7 +38,7 @@ pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 /// The stamp of one field write. The field order is the merge order: write
 /// time, then the logical counter, then the device ID, then the mutation ID.
-/// This is the order of a tip without the atom ID.
+/// This is the order of a tip without the record ID.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(from = "StampWire", into = "StampWire")]
 pub struct FieldStamp {
@@ -243,12 +243,12 @@ impl StoredRecord {
         let mut refs: Vec<String> = self
             .fields
             .values()
-            .flat_map(|value| blob_refs_of_atom(value, None))
+            .flat_map(|value| blob_refs_of_value(value, None))
             .collect();
         if let Some(meta) = &self.meta {
             let mut metadata: HashMap<String, String> = meta.metadata.clone().into_iter().collect();
-            // An atom drops the plaintext hash of its own account-v2 pointer
-            // (`blob_refs_of_atom`). The record metadata can describe the
+            // A record drops the plaintext hash of its own account-v2 pointer
+            // (`blob_refs_of_value`). The record metadata can describe the
             // pointer of any field, so each field gets the same check.
             if metadata.get("file_hash").is_some_and(|hash| {
                 self.fields
@@ -257,7 +257,7 @@ impl StoredRecord {
             }) {
                 metadata.remove("file_hash");
             }
-            refs.extend(blob_refs_of_atom(&Value::Null, Some(&metadata)));
+            refs.extend(blob_refs_of_value(&Value::Null, Some(&metadata)));
         }
         refs.sort_unstable();
         refs.dedup();

@@ -16,7 +16,7 @@ Cloud cleanup completes for one frozen request only when all these facts hold:
 6. The allocation ledger releases each confirmed deletion exactly once.
 7. The service saves a terminal receipt for that exact request, directory, and plan.
 
-Local atom counters and TTL cannot authorize cloud object deletion.
+Local record counters and TTL cannot authorize cloud object deletion.
 Old accepted snapshots can still need bytes that the local node no longer needs.
 Cleanup cannot promise removal from a backup that the owner keeps.
 It also cannot promise erasure of an independent exported copy.

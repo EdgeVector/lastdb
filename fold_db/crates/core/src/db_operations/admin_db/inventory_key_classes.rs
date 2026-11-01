@@ -44,7 +44,7 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "crb:v1\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
     ),
     (
-        "atom_delete_ledger",
+        "record_delete_ledger",
         "dellog\0",
         "dellog:{ts}:{uuid} — hard-delete audit row (purge / delete). Never removed by a janitor.",
     ),

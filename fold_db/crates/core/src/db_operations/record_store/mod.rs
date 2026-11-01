@@ -12,18 +12,18 @@
 //! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
 //! - [`schema_release`] — the release of the rows of a dropped schema
 //! - [`read_scope`] — one memory and disk boundary for a read
-//! - [`locks`] — write scopes, molecule commit and blob liveness locks
+//! - [`locks`] — write scopes, field key commit and blob liveness locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
-pub mod atom_history;
 pub(crate) mod blob_counter;
 mod bounded_range;
 mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_replay;
+pub mod field_history;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod file_blob_seal;
@@ -43,7 +43,6 @@ mod schema_release;
 pub(crate) mod time_queue;
 mod writer_watch;
 
-pub(crate) use atom_history::RecordHistoryRows;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
     DwellStep, NetStep, DWELL_CHUNK,
@@ -51,8 +50,9 @@ pub use blob_counter::{
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub use counter::{
-    AtomCounterReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
+    RecountOptions, RecountReport, VerifyRefsReport, VerifyReport, VerifyRequest, VerifySummary,
 };
+pub(crate) use field_history::RecordHistoryRows;
 pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};
@@ -120,29 +120,29 @@ pub struct RecordStore {
     /// drain tests attach it explicitly.
     namespaced_store: Option<Arc<dyn NamespacedStore>>,
     /// The account key that seals a local CAS file blob (see
-    /// `file_blob_seal.rs`). Atom rows do not use it: an atom row is plain
+    /// `file_blob_seal.rs`). Record rows do not use it: a record row is plain
     /// JSON, and the block encryption of each run file protects it at rest.
     content_key: Option<[u8; 32]>,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
-    molecule_keys: Option<crate::db_operations::MoleculeKeyStore>,
-    /// Per-molecule commit guards: the SHORT critical section that makes
-    /// (read `moc:` → build items → commit batch) atomic for one molecule.
+    field_keys: Option<crate::db_operations::FieldKeyStore>,
+    /// per-field-key commit guards: the SHORT critical section that makes
+    /// (read `moc:` → build items → commit batch) atomic for one field key.
     ///
-    /// The molecule order log is a **dense** sequence — `mord:{M}:{seq}` with
+    /// The field key order log is a **dense** sequence — `mord:{M}:{seq}` with
     /// `moc:{M}` as its length — so the base is read at persist time and
     /// re-stamped in the same batch. Two writers interleaved between that read
     /// and that put would stamp the same seq and the second would clobber the
     /// first, silently: both `mk:` records survive, and only `SampleN`, which
-    /// walks the log, sees the hole. The molecule header (`version`,
-    /// `updated_at`) rides the same batch and is molecule-wide state too, so it
+    /// walks the log, sees the hole. The field key header (`version`,
+    /// `updated_at`) rides the same batch and is field-key-wide state too, so it
     /// is covered by the same guard rather than a second one.
     ///
     /// This is deliberately NOT the write gate. The long-held gate is
-    /// `MutationManager::acquire_molecule_write_locks`, now per-`(molecule,
+    /// `MutationManager::acquire_field_key_write_locks`, now per-`(field key,
     /// hash, range)`; this one is taken *inside* the durable put and released
-    /// as soon as the batch lands. Lock order is always key-then-molecule, so
+    /// as soon as the batch lands. Lock order is always key-then-field-key, so
     /// the two cannot deadlock.
-    molecule_commit_locks:
+    field_key_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
     /// Incremental live-budget / churn meters. Point-read cheap.
     keep_small: Arc<KeepSmallMeters>,
@@ -159,7 +159,7 @@ pub struct RecordStore {
     /// that lands afterwards persists at once with `clean_stop = false`.
     keep_small_clean_stop_written: Arc<AtomicBool>,
     /// Serialize whole-snapshot writes so an older export cannot land after a
-    /// newer export under concurrent molecule commits.
+    /// newer export under concurrent field key commits.
     keep_small_persist_lock: Arc<tokio::sync::Mutex<()>>,
     /// Totals, the last queue reading and recent faults of the blob counters.
     blob_events: Arc<blob_counter::BlobEvents>,
@@ -201,20 +201,19 @@ impl RecordStore {
         &self.range_walks
     }
 
-    pub(crate) fn key_codec_for_molecule(
+    pub(crate) fn key_codec_for_field_key(
         &self,
-        molecule_uuid: &str,
-    ) -> Result<lastdb_model::molecule_key_codec::MoleculeKeyCodec, crate::schema::SchemaError>
-    {
+        field_key_id: &str,
+    ) -> Result<lastdb_model::field_key_codec::FieldKeyCodec, crate::schema::SchemaError> {
         let codec = self
-            .molecule_keys
+            .field_keys
             .as_ref()
-            .map(|store| store.codec_for_molecule(molecule_uuid))
+            .map(|store| store.codec_for_field_key(field_key_id))
             .transpose()?
             .flatten();
         codec.ok_or_else(|| {
             crate::schema::SchemaError::InvalidData(
-                "the typed molecule has no admitted range profile".into(),
+                "the typed field key has no admitted range profile".into(),
             )
         })
     }
@@ -226,7 +225,7 @@ impl RecordStore {
         &self.main_store
     }
 
-    /// Flush all pending writes in the atom namespace to durable storage.
+    /// Flush all pending writes in the record namespace to durable storage.
     pub async fn flush(&self) -> Result<(), crate::storage::StorageError> {
         self.main_store.inner().flush().await
     }

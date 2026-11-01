@@ -5,9 +5,9 @@
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the row commit and the blob planner modules only.
 
-fold_db/crates/core/src/db_operations/record_store/atom_history/policy.rs|set_field_history_policy|C|writes only a canonical field policy and the logical format fence in one native transaction; no history row or blob counter write
+fold_db/crates/core/src/db_operations/record_store/field_history/policy.rs|set_field_history_policy|C|writes only a canonical field policy and the logical format fence in one native transaction; no history row or blob counter write
 
-fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legacy|-|bounded cleanup inside the reserved idempotency namespace; deletes only validated legacy idem keys and writes its cleanup marker in the native request snapshot; no tip, atom or counter keys
+fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legacy|-|bounded cleanup inside the reserved idempotency namespace; deletes only validated legacy idem keys and writes its cleanup marker in the native request snapshot; no tip, record or counter keys
 
 fold_db/crates/core/src/db_operations/record_store/delete_replay.rs|raise_replay_cutoff|-|explicit stopped-home maintenance (`lastdb db recount --delete-cutoff`): puts the one replay cutoff row; no record, history, blob counter or conflict row
 
@@ -25,15 +25,15 @@ fold_db/crates/core/src/storage/encrypting_store/kv_store_impl.rs|restore_batch_
 
 fold_db/crates/core/src/storage/traits/kv.rs|restore_batch_put|C R|store trait: default restore of one row
 
-lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-only generated share_subscriptions controls in an isolated owned home; mutation manager owns all tip, atom, and counter writes
-lastdb_node/src/bin/received_range_seed.rs|activate_generated_send_rule|-|CI-only generated share_rules control for the send check in an isolated owned home; mutation manager owns all tip, atom, record, and counter writes
+lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-only generated share_subscriptions controls in an isolated owned home; mutation manager owns all tip, record, and counter writes
+lastdb_node/src/bin/received_range_seed.rs|activate_generated_send_rule|-|CI-only generated share_rules control for the send check in an isolated owned home; mutation manager owns all tip, record, record, and counter writes
 
-fold_db/crates/core/src/db_operations/record_store/erase_meters.rs|record_atom_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no atom, tip, or counter keys
+fold_db/crates/core/src/db_operations/record_store/erase_meters.rs|record_record_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no record, tip, or counter keys
 fold_db/crates/core/src/db_operations/record_store/counter/restore_validation.rs|finish|-|exclusive restore completion deletes only its durable pending marker after exact read-only counter verification
 
 fold_db/crates/core/src/db_operations/record_store/record_conflicts/purge.rs|purged_record_conflicts|C|builds the deletes of the rcf: rows, their queue entries and the rcm: marker of purged records; the caller puts them in the purge batch
-fold_db/crates/core/src/db_operations/record_store/records.rs|stage_records|-|format 7 home: puts rk: record values, their ak: entry changes, the rh: field history copies with their ahq: queue and ahk: count rows, and the blob planner rows of blob_counter_mutations in one native batch; creates no atom, field tip, archive row or atom counter
-fold_db/crates/core/src/db_operations/record_store/atom_history/records.rs|commit_history_release|-|format 7 home: releases rh: field history copies with their ahq: queue entries, ahk: count rows and the blob planner rows of blob_counter_mutations in one native batch; no tip, atom, archive row or atom counter
-fold_db/crates/core/src/db_operations/record_store/atom_history/release.rs|release_dropped_history|-|format 7 schema drop: releases the rh: field history copies of a dropped schema with their ahq: queue entries, deletes their ahk: count rows and writes the blob planner rows of blob_counter_mutations in one native batch, inside the write scope of one release batch; no tip, atom, archive row or atom counter
+fold_db/crates/core/src/db_operations/record_store/records.rs|stage_records|-|format 7 home: puts rk: record values, their ak: entry changes, the rh: field history copies with their ahq: queue and ahk: count rows, and the blob planner rows of blob_counter_mutations in one native batch; creates no record, field tip, archive row or record counter
+fold_db/crates/core/src/db_operations/record_store/field_history/records.rs|commit_history_release|-|format 7 home: releases rh: field history copies with their ahq: queue entries, ahk: count rows and the blob planner rows of blob_counter_mutations in one native batch; no tip, record, archive row or record counter
+fold_db/crates/core/src/db_operations/record_store/field_history/release.rs|release_dropped_history|-|format 7 schema drop: releases the rh: field history copies of a dropped schema with their ahq: queue entries, deletes their ahk: count rows and writes the blob planner rows of blob_counter_mutations in one native batch, inside the write scope of one release batch; no tip, record, archive row or record counter
 fold_db/crates/core/src/db_operations/record_store/schema_release.rs|release_batch|-|format 7 schema drop: in one write scope, reads one bounded batch of the rk: records or ak: entries of a dropped schema again by key and deletes them, with the rcf:/rcm: deletes of purged_record_conflicts and the blob planner rows of blob_counter_mutations, in one native batch
-# Conversion coverage lives in its own namespace, never the atom store.
+# Conversion coverage lives in its own namespace, never the record store.

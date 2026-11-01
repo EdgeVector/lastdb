@@ -34,7 +34,7 @@ def capture_phases(node, samples, *, full_records=False):
         operation = matched[sample["request_id"]]
         sample["server_request_ops"] = operation if full_records else {"duration_ms": operation["duration_ms"],
             "phases": {name: value for name, value in operation.get("phases", {}).items()
-                       if name in ("hydrate_atoms_us", "hydrate_format_us")}}
+                       if name in ("hydrate_records_us", "hydrate_format_us")}}
     return {"requests": len(samples), "matched": len(matched), "complete": True,
             "ring_capacity": operations.get("ring_capacity")}
 

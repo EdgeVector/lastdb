@@ -91,7 +91,7 @@ the next sampler tick, up to one tick after the write. The explain route and
 
 ## Records
 
-All records are in the `atoms` collection of the main store. The blob row itself
+All records are in the `records` collection of the main store. The blob row itself
 stays in the `cas_blobs` plane, keyed by its `blob_ref`.
 
 | Record | Key | Value |
@@ -155,7 +155,7 @@ queue, and what catches it, is in "What can go wrong with the queue" below.
 ## Who changes a counter
 
 1. **The record write and the history release** (`record_store/records.rs`,
-   `record_store/atom_history/records.rs`) in the batch of the change. A record or a
+   `record_store/field_history/records.rs`) in the batch of the change. A record or a
    history entry that names a blob raises it. A replaced or removed record, and a
    released history entry, lowers it. The blob changes are summed for the whole
    batch first. `blob_counter::BlobDeltas` does that, and

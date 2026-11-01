@@ -71,7 +71,7 @@ No automatic task performs these recovery steps or changes the primary.
 
 ## CI size figures
 
-The required 1.5× limit uses database files under `data/` and `blobs/`, divided by logical atom bytes.
+The required 1.5× limit uses database files under `data/` and `blobs/`, divided by logical record bytes.
 The size pass sets Search off and verifies its state before and after each run. Every checkpoint requires an empty Search queue.
 CI separately reports the Search inbox, other home files, and the whole home.
 Each checkpoint retains file lengths and allocated blocks. The raw categories add to the whole home.

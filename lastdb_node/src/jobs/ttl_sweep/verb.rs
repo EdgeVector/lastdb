@@ -14,8 +14,8 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 
 /// How the sweep erases an expired key.
 ///
-/// Both verbs remove the tips of the key, and the atom counter removes each
-/// atom body whose count reaches zero in the same batch. Neither needs a proof
+/// Both verbs remove the tips of the key, and the record counter removes each
+/// record body whose count reaches zero in the same batch. Neither needs a proof
 /// over the whole schema or a schema barrier.
 ///
 /// `purge` (default) is the hard-erasure verb. It leaves no delete barrier.

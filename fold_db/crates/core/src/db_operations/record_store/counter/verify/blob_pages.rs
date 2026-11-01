@@ -38,7 +38,7 @@ impl RecordStore {
         (start, end, asked): Request,
     ) -> Result<BlobsPage, SchemaError> {
         let queue = self.blob_events.queue();
-        self.atom_read_scope(async {
+        self.record_read_scope(async {
             let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             let counters: Vec<BlobRead> = rows
@@ -117,7 +117,7 @@ impl RecordStore {
         (start, end, asked): Request,
     ) -> Result<QueuePage, SchemaError> {
         let queue = self.blob_events.queue();
-        self.atom_read_scope(async {
+        self.record_read_scope(async {
             let scan = self.read_verify_page(&start, &end, asked).await?;
             let (rows, resume) = (scan.rows, scan.resume);
             // The buckets of the page against the directory, at the same root.

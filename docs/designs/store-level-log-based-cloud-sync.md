@@ -58,7 +58,7 @@ flowchart TB
 
 1. **Local-first invariant (won't-undo):** `put` / `delete` / `batch_*` success depends only on local storage + local at-rest crypto. No outbox capacity check, no network, no sync engine failure mapped to `StorageError` on the write path.
 2. **Optional cloud:** absence, pause, quota exhaustion, full staging queue, offline = **degraded backup only** (`SyncState::Dirty` / `Offline` + status metrics), never frozen Mini.
-3. **Log-based multi-device merge:** device A and B write offline; on reconnect both device logs apply through existing replay (`replay_per_key_record` LWW on `written_at`, HashRange `MergeMolecule`, conflict records). Prefer wire-compat with existing `LogEntry` / sealed objects in R2. **v1 optimizes local R/W latency, not cloud RTO** (see Observability).
+3. **Log-based multi-device merge:** device A and B write offline; on reconnect both device logs apply through existing replay (`replay_per_key_record` LWW on `written_at`, HashRange `MergeFieldKey`, conflict records). Prefer wire-compat with existing `LogEntry` / sealed objects in R2. **v1 optimizes local R/W latency, not cloud RTO** (see Observability).
 4. **Store-level capture:** change capture is **derived from store state or store-adjacent cold path**, not interleaved as a precondition of every API write.
 5. **Reuse, don’t reinvent:** keep `SyncEngine` transfer, auth/presign, bootstrap, compact, backup_snapshot, download cursors, poison gates, and merge.
 6. **Incremental PR plan** with independent mergeability; first ship removes write-path coupling; multi-device incremental is gated before re-enable.
@@ -121,7 +121,7 @@ App / Typed layers
 | Upload/download cycle | `sync/engine/cycle.rs` (`do_sync`) | Yes |
 | Transfer / S3 / personal index | `sync/engine/transfer/` | Yes |
 | Snapshot create/seal/bootstrap | `sync/snapshot/`, `engine/backup.rs`, `engine/bootstrap.rs`, `engine/compact.rs` | Yes |
-| Replay + molecule merge | `sync/engine/replay/` (`apply.rs`, `records.rs`, `merge.rs`, `order.rs`) | Yes — multi-device truth |
+| Replay + field key merge | `sync/engine/replay/` (`apply.rs`, `records.rs`, `merge.rs`, `order.rs`) | Yes — multi-device truth |
 | Download cursors | `sync_cursors` NS on **raw** `cursor_store` (`base_store`) | Yes — skip in capture |
 | Outbox NS | `sync_outbox` | Retarget as **upload staging only** |
 | Quarantine NS | `sync_replay_quarantine` | Skip in capture |
@@ -133,14 +133,14 @@ App / Typed layers
 
 | Key class | Merge rule (in `replay/*`) |
 |-----------|----------------------------|
-| `mk:{M}:…` per-key molecule records | LWW on payload `AtomEntry.written_at`; conflict rows when different `atom_uuid` |
+| `mk:{M}:…` per-key field key records | LWW on payload `RecordEntry.written_at`; conflict rows when different `value_id` |
 | `mh:{M}` headers | field-wise max (`version`, `updated_at`) |
 | `mord:` / `moc:` / legacy `mo:` order logs | keep-if-absent / larger count / longest vector — **not** `written_at` LWW |
 | Legacy `ref:` blobs | migrate-on-receive → per-key |
 | Opaque keys (incl. `native_index` emb) | unconditional put of incoming |
 | Deletes | replay delete path (existing) |
 
-**Do not use `LogEntry.timestamp_ms` for molecule LWW.** Code already passes `_timestamp_ms` / `_device_id` unused into `replay_put`. Device `device_id` remains for audit and object identity. Capture must **not** invent new causality from wall-clock batch order.
+**Do not use `LogEntry.timestamp_ms` for field key LWW.** Code already passes `_timestamp_ms` / `_device_id` unused into `replay_put`. Device `device_id` remains for audit and object identity. Capture must **not** invent new causality from wall-clock batch order.
 
 ### Namespace policy (full inventory)
 
@@ -148,7 +148,7 @@ Source: `db_operations/core/mod.rs` open list + sync bookkeeping + encrypting in
 
 | Namespace | Class | Capture / snapshot / log? | Notes |
 |-----------|-------|---------------------------|-------|
-| `main` | **sync** | Yes | Atoms, molecules, history, conflicts |
+| `main` | **sync** | Yes | Records, field keys, history, conflicts |
 | `metadata` | **sync** | Yes | |
 | `schemas` | **sync** | Yes | |
 | `schema_states` | **sync** | Yes | Opened by DbOperations; **not** local-only today |
@@ -217,7 +217,7 @@ App / Typed layers
 
 | Option | Idea | Multi-device log? | Hot-path risk | Cost |
 |--------|------|------------------|---------------|------|
-| **A** WAL / atom mutation journal tail | Tail storage WAL or atom MutationEvents | Incomplete | Low | Missing infrastructure |
+| **A** WAL / record mutation journal tail | Tail storage WAL or record MutationEvents | Incomplete | Low | Missing infrastructure |
 | **B** Periodic store vs watermark diff | Scan / compare → synthetic Puts/Deletes | Yes (if watermark = store baseline) | None | Scan cost |
 | **C** Fire-and-forget dirty hints | Post-write `try_send` | Hints only | Low if never await | Drop under burst |
 | **D** Checkpoint cold path only when cloud on | Cold path | Yes | None | Same as B/C hybrid |
@@ -288,10 +288,10 @@ During `download_entries` / replay / bootstrap apply:
 | Replay outcome | Watermark action | Pending-export (C11) |
 |----------------|------------------|----------------------|
 | **Remote Put applied** (`accepted_incoming == true`, store now holds incoming bytes) | Absorb fingerprint of **incoming / post-put stored** logical bytes | Clear pending for key if present (remote won; local staged divergence obsolete) |
-| **Remote Put not applied** (local wins LWW / same-atom no-op with store unchanged) | **Do not** advance watermark for that key — leave prior baseline so local divergence remains export-dirty | Leave pending as-is (or recompute on next capture tick) |
+| **Remote Put not applied** (local wins LWW / same-record no-op with store unchanged) | **Do not** advance watermark for that key — leave prior baseline so local divergence remains export-dirty | Leave pending as-is (or recompute on next capture tick) |
 | **Remote Delete applied** (key removed from store) | Remove key from watermark | Clear pending Put/Delete for key |
 | **Remote Delete no-op** (key already absent) | No watermark change | No change |
-| **Molecule conflict recorded but local bytes kept** | Treat as **not applied** for watermark (same as local win) | Leave export-dirty if store ≠ watermark |
+| **Field key conflict recorded but local bytes kept** | Treat as **not applied** for watermark (same as local win) | Leave export-dirty if store ≠ watermark |
 | **Opaque unconditional put of incoming** | Absorb incoming (store changed to remote) | Clear pending |
 
 3. **Bootstrap / snapshot restore** that materializes keys into an empty (or scoped) store: absorb all restored capture-eligible keys to match restored store (those bytes already exist on cloud via snapshot; no need to re-log). Subsequent local edits remain export-dirty via normal B.
@@ -308,7 +308,7 @@ During `download_entries` / replay / bootstrap apply:
 **Tests:**
 
 - After peer replay of 10k keys with **no** local divergence, next capture tick stages **0** ops (absorb applied remotes).
-- **Local-win:** A has newer unexported molecule field; B older uploaded; after A download/replay, capture **must still stage Put** for A’s bytes; watermark must **not** equal store for that key until upload-ack.
+- **Local-win:** A has newer unexported field key field; B older uploaded; after A download/replay, capture **must still stage Put** for A’s bytes; watermark must **not** equal store for that key until upload-ack.
 
 ### C11. Pending export (staged-but-unacked) — de-dupe under upload caps
 
@@ -509,7 +509,7 @@ if let Some(setup) = sync_setup {
 ```rust
 LogEntry {
   seq: u64,              // unique id; R2 key log/{seq}.enc
-  timestamp_ms: u64,     // client wall clock at capture — NOT molecule LWW
+  timestamp_ms: u64,     // client wall clock at capture — NOT field_key LWW
   device_id: String,
   op: LogOp,             // Put | Delete | BatchPut | BatchDelete
 }
@@ -581,7 +581,7 @@ Unchanged `Snapshot { version, created_at_ms, device_id, last_seq, namespaces…
 
 ### Guarantees
 
-- Molecule fields: convergent LWW on `written_at`; conflicts stored as today.
+- Field key fields: convergent LWW on `written_at`; conflicts stored as today.
 - Order-log / header keys: existing order-independent rules in `apply.rs` / `order.rs`.
 - Opaque / emb: last applied put wins.
 - Deletes of **any** origin: C2.
@@ -767,7 +767,7 @@ Same-commit outbox preserves “no lost intent” without capacity reject, but *
 | K12 | Watermark advances **only after successful upload** (or successful snapshot reset) | Prevent silent permanent loss |
 | K13 | Replay absorbs **only when remote apply changes store**; local-win / unapplied remote leaves export-dirty | Prevent re-export storms **without** hiding unexported local LWW winners |
 | K14 | Capture payloads are **logical portable bytes** at encrypting seam; seal with E2E content key | Factory seam policy |
-| K15 | **Do not use log `timestamp_ms` for molecule LWW** | Merge only in `replay/*` |
+| K15 | **Do not use log `timestamp_ms` for field key LWW** | Merge only in `replay/*` |
 | K16 | v1 optimizes local R/W latency, not cloud RTO | Upload caps stay conservative |
 | K17 | **Pending-export map (C11)** de-dupes staged-but-unacked keys; watermark still upload-ack only | Avoid re-stage thrash under `max_upload_entries_per_cycle=1` |
 
@@ -809,7 +809,7 @@ Same-commit outbox preserves “no lost intent” without capacity reject, but *
 8c. **Pending de-dupe (C11):** diverge 5k keys, many capture ticks with `max_upload_entries_per_cycle=1` → staging depth O(keys) not O(ticks×keys); after drain, watermark matches store.
 9. **Skip internal NS:** outbox/capture/`__at_rest_strict_markers` produce 0 ops.
 10. **Namespace policy matrix** unit test for full table including `__at_rest_strict_markers`.
-11. **Molecule + order-log + header** two-engine merge (not only `mk:`).
+11. **Field key + order-log + header** two-engine merge (not only `mk:`).
 12. **Opaque + native_index emb** round-trip.
 13. **Concurrent scan** eventual convergence only.
 14. **Namespace wipe** multi-tick Deletes vs watermark.
@@ -925,7 +925,7 @@ flowchart LR
 - Absorb watermark to “post-replay store” for keys where local won / remote was not applied.
 - Re-stage keys already in pending with the same fingerprint.
 - Capture `sync_outbox` / `sync_capture` / `sync_cursors` / quarantine / `__at_rest_strict_markers`.
-- Use `timestamp_ms` for molecule LWW.
+- Use `timestamp_ms` for field key LWW.
 - Touch deliver outbox, desktop DMG, dual LastGit.
 - Restart primary `lastdbd` to “fix” sync on Tom’s machine.
 - Re-enable cloud_sync after PR1 only.
@@ -1001,4 +1001,4 @@ migration_outbox_age_secs: 3600
 
 ## Summary
 
-Rip **write-path** CDC (`SyncingKvStore` above encrypting seam → durable outbox) out of the Mini hot path so local R/W never depends on cloud. Produce **store-derived, wire-compatible `LogEntry` streams** via a cold **export-baseline watermark** capturer (optional dirty hints later); keep existing **snapshot + upload/download + molecule merge**. Capture correctness (logical seam, peer deletes, upload-ack watermark, **outcome-gated replay absorb**, **pending-export de-dupe**, internal NS skip, scan resume) is **blocking for PR2**. Phase PR1 for immediate local-first (**snapshot-only**, multi-device log paused); re-enable cloud only after PR2 multi-device tests.
+Rip **write-path** CDC (`SyncingKvStore` above encrypting seam → durable outbox) out of the Mini hot path so local R/W never depends on cloud. Produce **store-derived, wire-compatible `LogEntry` streams** via a cold **export-baseline watermark** capturer (optional dirty hints later); keep existing **snapshot + upload/download + field key merge**. Capture correctness (logical seam, peer deletes, upload-ack watermark, **outcome-gated replay absorb**, **pending-export de-dupe**, internal NS skip, scan resume) is **blocking for PR2**. Phase PR1 for immediate local-first (**snapshot-only**, multi-device log paused); re-enable cloud only after PR2 multi-device tests.

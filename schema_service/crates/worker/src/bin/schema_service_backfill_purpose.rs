@@ -241,7 +241,7 @@ fn built_in_fbrain_six_kinds_mapping() -> HashMap<String, String> {
     [
         (
             "Concept",
-            "A reusable knowledge atom — a definition, idea, or fact \
+            "A reusable knowledge record — a definition, idea, or fact \
              that other artifacts can reference.",
         ),
         (

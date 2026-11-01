@@ -39,7 +39,7 @@ Let:
 - **Multi-get exact keys = O(K)**  
   K known `(hash, range)` pairs → K point gets, whatever partitions they span. This is the only bounded shape that is **not** confined to one hash. The batch must never cost more than reading the partitions it names; if it does, the caller is better off not using it, which defeats the operation.
 
-  The table above stated this from the start and the query planner did not implement it: `HashRangeKeys` was absent from `load_filtered_molecule`'s match until 2026-09-06, so it fell to the O(field) full read. The row loss was the worse half — the full path leaves range slots in storage form, and the in-memory apply has no codec, so an OPE-encoded home matched none of them and the batch returned FEWER rows than it was given, with no error. A bound in this table is a claim about a code path; a variant missing from the planner satisfies no bound at all.
+  The table above stated this from the start and the query planner did not implement it: `HashRangeKeys` was absent from `load_filtered_field_key`'s match until 2026-09-06, so it fell to the O(field) full read. The row loss was the worse half — the full path leaves range slots in storage form, and the in-memory apply has no codec, so an OPE-encoded home matched none of them and the batch returned FEWER rows than it was given, with no error. A bound in this table is a claim about a code path; a variant missing from the planner satisfies no bound at all.
 
 - **Field count is not an asymptotic parameter**  
   Schemas have a fixed, small field set. Projecting more fields changes a constant factor, not big‑O.

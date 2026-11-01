@@ -33,7 +33,7 @@
 //! state inside the native write gate, so a write during the drop is refused.
 //!
 //! The alternate entries are the entries of the current alternate revision
-//! (`alternate_molecule_uuid`). The schema keeps no history of revisions, and
+//! (`alternate_field_key_id`). The schema keeps no history of revisions, and
 //! needs none: an installed schema cannot change its alternate keys. A refresh
 //! that changes them is refused (`schema/core/load/rules.rs`), and so is an
 //! owned declaration (`exec/schema_declare/owned.rs`). So the current revision
@@ -43,12 +43,12 @@
 
 use super::blob_counter::BlobDeltas;
 use super::{record_scope, RangeWalk, RecordStore};
-use crate::records::atom_history::RECORD_HISTORY_PREFIX;
+use crate::records::field_history::RECORD_HISTORY_PREFIX;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
+use lastdb_model::field_key_id::{alternate_field_key_id, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::kind_partition::exact_prefix_bounds;
-use lastdb_model::molecule_uuid::{alternate_molecule_uuid, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 
 /// Rows that one release batch reads and deletes, at most.
@@ -89,10 +89,10 @@ impl RecordStore {
         let records = build_storage_key(scope.as_deref(), &format!("{RECORD_PREFIX}{space}:"));
         out.records = self.release_family(&records, Family::Records).await?;
         for name in schema.alternate_keys.keys() {
-            let molecule = alternate_molecule_uuid(schema, name);
+            let field_key = alternate_field_key_id(schema, name);
             let alternates = build_storage_key(
                 scope.as_deref(),
-                &format!("{ALTERNATE_ENTRY_PREFIX}{molecule}:"),
+                &format!("{ALTERNATE_ENTRY_PREFIX}{field_key}:"),
             );
             out.alternates += self.release_family(&alternates, Family::Alternates).await?;
         }

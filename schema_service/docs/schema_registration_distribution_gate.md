@@ -54,7 +54,7 @@ local-only declaration mode for new durable app or agent writes.
 Both request shapes accept only `intent: "catalog_sync"` (or its default).
 Unknown controls such as `copy_rows`, `local_mint`, or an implicit migration
 intent are rejected and audited. A field addition keeps the installed schema's
-molecules for its existing fields. Incompatible key-layout migration is a separate,
+field keys for its existing fields. Incompatible key-layout migration is a separate,
 explicitly designed operation and cannot be smuggled into declaration.
 
 ### Distribution Readiness

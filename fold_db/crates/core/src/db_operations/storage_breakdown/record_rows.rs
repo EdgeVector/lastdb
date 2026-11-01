@@ -1,6 +1,6 @@
 //! Format 7 rows of the per-schema logical storage breakdown.
 //!
-//! A format 7 home stores no atoms. Each record is one value at
+//! A format 7 home stores no records. Each record is one value at
 //! `rk:{S}:{esc(hash)}\0{range}`, where `S` is the record space of one schema
 //! (`record_space_uuid`). The logical size of a record is the length of that
 //! stored value: the encoded `StoredRecord` that the write path puts

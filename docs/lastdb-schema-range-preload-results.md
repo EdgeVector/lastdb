@@ -5,7 +5,7 @@ This report does not mark the wider reader/writer cutover complete.
 
 Review follow-up: two source fixes follow these measurements.
 Captured reads now retain the batch owner for each memory reservation.
-Repeated secondary reads now retain the selected atom location.
+Repeated secondary reads now retain the selected record location.
 The first review executable is `ff832181fa11303c3c8675c2b4eb4158536d788459555ca9b6ba0b1c6d33dce9`.
 The elapsed times below still describe candidate 5, before these two fixes.
 The [first review receipts](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/schema-preload-review-fixes-20261017/review-result.json) record the checks, their limits, and a separate memory-cap problem.
@@ -270,7 +270,7 @@ The captured old queries return coherent old results; current and post-flush rea
 Those receipts establish request overlap, not publication while the initial load remains active.
 Reads before an explicit flush do not exclude an automatic flush.
 
-The final read-source checks retain the chosen physical atom file through API projection.
+The final read-source checks retain the chosen physical record file through API projection.
 They check that source before warm reuse.
 A full optional receipt cache cannot silently remove a required file hint; the required-source refusal returns an explicit resource error.
 These checks preserve the captured read boundary when another write publishes.

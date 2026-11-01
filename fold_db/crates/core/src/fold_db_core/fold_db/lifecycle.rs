@@ -46,7 +46,7 @@ impl FoldDB {
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
         self.background_conflict_janitor.stop();
-        if let Err(error) = self.background_atom_history.stop().await {
+        if let Err(error) = self.background_field_history.stop().await {
             pre_flush_errors.push(error);
         }
         let pending_task_timeout = self

@@ -97,7 +97,7 @@ async fn keyed_page(
     Ok(
         serde_json::json!({"schema": request.requested, "schema_id": canonical, "key_name": name,
         "key_field": definition.hash_field, "hash_field": definition.hash_field, "range_field": definition.range_field,
-        "hash_filter": hash, "molecule": fold_db::alternate_keys::molecule(&schema, name),
+        "hash_filter": hash, "field_key": fold_db::alternate_keys::field_key(&schema, name),
         "keys": keys, "primary_keys": primary_keys, "has_more": page["has_more"], "truncated": page["has_more"], "next_cursor": next}),
     )
 }

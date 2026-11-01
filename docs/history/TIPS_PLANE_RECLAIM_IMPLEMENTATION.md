@@ -59,7 +59,7 @@ A comprehensive bash script that automates the operational procedure documented 
 4. Archives receipts documenting each deletion batch:
    - Rows deleted
    - Bytes reclaimed
-   - Molecules compacted
+   - Field keys compacted
 
 **Safety Guarantees**:
 - Rollback point written before first `--execute` deletion
@@ -101,7 +101,7 @@ Script honors decisions from brain records:
   - Superseded versions: 7 days (604,800 seconds)
 - `design-lastdb-keep-database-under-1gib`
   - Target: ≤ 1 GiB tips plane
-- `design-purged-atom-retirement-receipt`
+- `design-purged-record-retirement-receipt`
   - Receipt-proven deletion batches for cloud sync compatibility
 
 ### Continuation of Prior Work
@@ -149,9 +149,9 @@ curl -s --unix-socket ~/.lastdb/data/folddb.sock \
   "http://localhost/api/schemas?include_system=true" | \
   jq -r '.schemas[].name' | sort > active-schemas.txt
 
-# List all schema molecule records in tips plane
-lastdb db list-molecules --collection tips | \
-  jq -r '.molecules[].schema // empty' | sort | uniq > all-schemas.txt
+# List all schema field_key records in tips plane
+lastdb db list-field-keys --collection tips | \
+  jq -r '.field_keys[].schema // empty' | sort | uniq > all-schemas.txt
 
 # Dropped schemas are in all-schemas but not in active
 comm -23 all-schemas.txt active-schemas.txt > dropped-schemas.txt
@@ -275,7 +275,7 @@ For contextual information, see:
 brain get decision-2026-08-26-retention-windows-order-log-30d-versions-7d-fleet-ttl
 brain get design-lastdb-keep-database-under-1gib
 brain get design-lastdb-storage-activation-flip-sweep-compact
-brain get design-purged-atom-retirement-receipt
+brain get design-purged-record-retirement-receipt
 brain get concepts-lastdb-canonical-model
 ```
 

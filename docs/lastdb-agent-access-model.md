@@ -78,7 +78,7 @@ You do **not** need the full engine lecture for day-to-day CRUD. Minimum:
 
 A Card with title+body+column is **one stored record**. The node does not join separate field values at read time.
 
-Deeper: `docs/lastdb-canonical-model.md` (the record, the write path, delete and TTL), `docs/lastdb-rehydrate.md` (memory and disk, written for the molecule model).
+Deeper: `docs/lastdb-canonical-model.md` (the record, the write path, delete and TTL), `docs/lastdb-rehydrate.md` (memory and disk, written for the field key model).
 
 ### Shape rules
 
@@ -115,7 +115,7 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 |--------------|-----|
 | Full scan as list | **Not supported**; not Dynamo Query; historical node meltdowns |
 | Rewrite one growing document on every append | Each write re-encrypts the whole record and fails at the 64 KiB record cap. One record per entry |
-| Read a field value by an atom id | Atoms do not exist. API version 15 removed `GET /api/atom/{id}`. Read by key |
+| Read a field value by a value id | That read is gone. API version 15 removed it. Read by key |
 | Rely on an older version or a history read | A rewrite keeps no older version. There is no `as_of` read |
 | Field-equality filter like `{ column: "todo" }` as if SQL WHERE | Filters are key-shaped only; fake filters 400 or force client fallbacks |
 | Cross-partition range without hash | Same class as scan — design a hash that partitions the list |
@@ -211,11 +211,11 @@ A person who reads that seed can derive the file encryption keys. Database encry
 | What | Where |
 |------|--------|
 | **Canonical model (schema → record → file blob and named keys)** | `docs/lastdb-canonical-model.md` |
-| **rehydrate (resident-first miss path, molecule model)** | `docs/lastdb-rehydrate.md` |
+| **rehydrate (resident-first miss path, field key model)** | `docs/lastdb-rehydrate.md` |
 | **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` |
 | **Delete, purge, TTL, file blobs** | `docs/lastdb-canonical-model.md` §1 · `docs/lastdb-blob-counter.md` |
 | **TTL sweep and manifest retention** | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
-| **Record cap (64 KiB) and the peer field value limit** | `docs/lastdb-canonical-model.md` §1 · `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
+| **Record cap (64 KiB) and the peer field value limit** | `docs/lastdb-canonical-model.md` §1 · `fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md` |
 | ENC model | this file §8 |
 | Ops telemetry | `docs/lastdb-ops-telemetry.md` |
 | Safe Mini upgrade | skill `lastdb-safe-upgrade` |

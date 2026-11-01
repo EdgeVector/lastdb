@@ -1,12 +1,11 @@
 # LastDB logical warm set work plan
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
-CAUTION: This plan records the October 18 implementation sequence and its earlier limits and write policy.
+CAUTION: This plrecords the October 18 implementation sequence and its earlier limits and write policy.
 Use the [memory and disk routes](lastdb-rehydrate.md) and [native summary](lastdb-disk-native-node.md) for current behavior.
 All native writes now wait for disk commit and clean memory publication. The warm set uses a byte limit.
 
@@ -51,10 +50,10 @@ The cutover results separate the full API workflows from that response-only chec
 The earlier matched measurements use product source `7876211b6d64dff43ceddd602656017b74860fe9` and merged main `011b29f3a74eac3eb3a977678630c40345157ed4`.
 Those measurements do not measure the later cutover.
 The older reports below preserve the earlier preload and core-memory comparisons.
-The candidate uses CoreWarmSet for partial molecules and full atoms.
+The candidate uses CoreWarmSet for partial field keys and full records.
 Its least recently used list holds logical path references.
 CoreKeyDomain now supplies complete candidate keys, with a separate byte owner and a shared first-query gate.
-CoreWarmSet also retains current typed schema and molecule definitions, plus their required controls.
+CoreWarmSet also retains current typed schema and field key definitions, plus their required controls.
 Queries share these objects and retain their memory charges through their full lifetime.
 Accepted changes clear affected definitions before the new state becomes visible.
 Confirmed absence uses the same dependency rules; read errors never enter memory as absence.
@@ -65,15 +64,15 @@ It establishes the review fixes on a small generated home; it does not close the
 Ready describes complete candidates; it does not promise an exact visible-record count.
 Selected batches or current warm tips still resolve metadata, generation controls, and `rdel` delete barriers.
 
-Each authorized warm path records every possible winning tip source, the required delete barriers, and its selected atom source.
+Each authorized warm path records every possible winning tip source, the required delete barriers, and its selected record source.
 An ordinary key change clears the paths that depend on that source, rather than all warm paths.
-A structural replacement clears the affected molecule. An invalid source key still clears authority conservatively.
+A structural replacement clears the affected field key. An invalid source key still clears authority conservatively.
 Confirmed missing keys enter the same logical set only after complete winner and barrier checks.
 An incomplete receipt keeps the body available but requires the ordinary tip check.
 
-Equal data can have different atom dates or source details.
-Those full atom copies coexist at their selected keys; they do not remove each other's warm state.
-Fully equal atoms still share memory. Equal content UUIDs alone do not establish full atom equality.
+Equal data can have different record dates or source details.
+Those full record copies coexist at their selected keys; they do not remove each other's warm state.
+Fully equal records still share memory. Equal content UUIDs alone do not establish full record equality.
 
 The preserved spike replay returns correct values for its measured workloads and respects its lowered path cap.
 It does not establish every supported use case.
@@ -100,7 +99,7 @@ No primary, archived home, or existing home supplies product data for this plan.
 - Selected HashRange schemas use first-query preload across all required membership sources and hashes.
 - Authorize the query scope and resolve schema bindings before the preload gate.
 - One engine-owned load serves concurrent first queries and obeys explicit resource limits.
-- Complete membership lives in the core logical model, with sparse tips and atom values.
+- Complete membership lives in the core logical model, with sparse tips and record values.
 - The full logical-record cap stays 10,000. Complete keys use a separate explicit byte allowance.
 - The candidate defaults to a numeric 128 MiB key allowance per native runtime; `LASTDB_SCHEMA_KEY_BYTES` overrides it.
 - Process-start `LASTDB_SCHEMA_PRELOAD_SCHEMAS` selects comma-separated schema names, identity hashes, or `*`; an empty value selects none.
@@ -110,10 +109,10 @@ No primary, archived home, or existing home supplies product data for this plan.
 - Active conflict histories retain their existing event reads. Unknown values and unselected range membership still require disk work.
 - Complete source dependencies replace global tip invalidation for ordinary recognized writes.
 - Confirmed missing states require complete winning-source and delete-barrier coverage, under the same captured read state.
-- Different full atom copies with one content UUID coexist; each logical key retains its selected copy.
+- Different full record copies with one content UUID coexist; each logical key retains its selected copy.
 - A deleted key's later create reuses the retained key and tree allowance, rather than another charge for the same capacity.
 - Ready range and sample calls do no disk key discovery.
-- Fetch unknown tips, document-copy state, atoms, predicate fields, and sort fields in batches.
+- Fetch unknown tips, document-copy state, records, predicate fields, and sort fields in batches.
 - Publish key changes with current logical writes before the ack.
 - Publish primary records and alternate addresses together; preserve source precedence, sample order, bounds, and preview cap.
 - Physical flush and LastDB compaction preserve logical readiness.
@@ -175,11 +174,11 @@ Completion: the before executable survives candidate rebuilds, and its workload 
 
 The preload-on-first-query policy and selected schema identities are built.
 Inventory the existing membership sources for ranges, sample, and known-empty fallback.
-Name each source's scope, molecule, layout, encoding, visibility rules, and required hashes.
+Name each source's scope, field key, layout, encoding, visibility rules, and required hashes.
 Share domains only when those facts match; do not derive record existence from arbitrary field unions.
 
-Extend MoleculeHashRange and CoreWarmSet with key-only membership and sparse tips and atoms.
-A key can exist without a fabricated AtomEntry or atom UUID.
+Extend FieldKeyHashRange and CoreWarmSet with key-only membership and sparse tips and records.
+A key can exist without a fabricated RecordEntry or record UUID.
 Keep shared key identities where practical and retain the direct exact lookup route.
 Give ready calls a complete-domain lifetime reference across all candidate chunks.
 
@@ -196,18 +195,18 @@ Each page permits 256 records and 16 MiB of read work.
 Keep the 10,000 full-path cap and existing memory guard.
 
 Separate full-path purge from whole-domain key purge.
-Tip and atom purge preserves complete membership.
+Tip and record purge preserves complete membership.
 Whole-domain purge clears readiness under the publication lock before removal.
 Capacity-refused schemas wait for an explicit retry or relevant resource change before another full load.
 
 Add per-call phase costs and operational load state without key values.
-Record load count, keys loaded, accounted bytes, wait time, membership I/O, tip I/O, atom I/O, retries, and refusal reason.
+Record load count, keys loaded, accounted bytes, wait time, membership I/O, tip I/O, record I/O, retries, and refusal reason.
 Keep process memory separate from the key allowance's accounted bytes.
 
-Primary sources: [molecule](../fold_db/crates/core/src/atom/molecule_hash_range/mod.rs), [owner](../fold_db/crates/core/src/resident/core_set.rs), [purge](../fold_db/crates/core/src/resident/core_set/lifecycle.rs), [status](../fold_db/crates/core/src/storage/disk_pack/view.rs).
+Primary sources: [field key](../fold_db/crates/core/src/record/field_key_hash_range/mod.rs), [owner](../fold_db/crates/core/src/resident/core_set.rs), [purge](../fold_db/crates/core/src/resident/core_set/lifecycle.rs), [status](../fold_db/crates/core/src/storage/disk_pack/view.rs).
 
 Completion: format, lint, and build checks pass for the new key and resource-owner types.
-Their source contract requires no full atom or tip for each key.
+Their source contract requires no full record or tip for each key.
 The selected-schema policy remains opt-in at process start.
 Package 3 supplies the runtime evidence for several hashes and more than 10,000 keys within the byte cap.
 
@@ -239,11 +238,11 @@ Ordinary `mk`, `mgd`, and `mgr` changes update candidates without a whole-domain
 An `mgp` logical replacement invalidates the affected domain and requires a later load.
 The captured generation flag handles physical tip deletion without loss of a retained generation candidate.
 
-A related schema can change the same molecules as the first generated example.
+A related schema can change the same field keys as the first generated example.
 Source coverage at the native boundary does not prove every caller's end-to-end behavior.
 The final route inventory covers the native writer boundary. Its source-only routes still require separate runtime evidence.
 
-Primary sources: [view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs), [prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs), [membership pages](../fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs).
+Primary sources: [view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs), [prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs), [membership pages](../fold_db/crates/core/src/db_operations/record_store/filter/partition_page.rs).
 
 Completion: every affected writer has a named publication route and the required product receipt.
 The final candidate has the common route and bounded product receipts. The final route report names the remaining broader proof gaps.
@@ -277,7 +276,7 @@ The write continues, and the schema records DiskOnly with a reason.
 An I/O error remains an error; an incomplete source never becomes a ready empty schema.
 Avoid a failed full preload on every later query.
 
-Primary sources: [logical owner](../fold_db/crates/core/src/resident/core_set.rs), [current view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [loader pages](../fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs).
+Primary sources: [logical owner](../fold_db/crates/core/src/resident/core_set.rs), [current view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [loader pages](../fold_db/crates/core/src/db_operations/record_store/filter/partition_page.rs).
 
 Completion: a fresh selected schema with several hashes and over 10,000 keys reaches Ready under its byte allowance.
 Concurrent first-query product calls share each required domain load.
@@ -292,7 +291,7 @@ An exact query to a selected HashRange schema also starts or joins that gate onc
 After it, exact value resolution uses only supplied keys.
 A ready range seeks within its named hash and selects ordered memory keys.
 
-Check known warm tips before a missing-tip batch, then resolve missing atoms in a dependent batch.
+Check known warm tips before a missing-tip batch, then resolve missing records in a dependent batch.
 Collect paths across fields and keys; do not await one physical request for each key.
 Keep unknown, confirmed absence, selected tip, and full value distinct in the shared record lookup.
 Known membership stays in the separate complete-key part; it does not establish a selected tip.
@@ -300,11 +299,11 @@ Retain only selected verified tips. Add a value after its fetch, without another
 Preserve a matching retained full value after a metadata-only call.
 Keep dirty writes complete and retain their memory owners through older captured reads.
 Use the same recency order, source invalidation, and whole-record purge for tips and full values.
-Preserve full metadata and the slot-specific atom association.
+Preserve full metadata and the slot-specific record association.
 Admit confirmed absence only after every possible winner and required delete barrier is checked.
 Retain those source dependencies exactly as for a present tip.
 If a candidate receipt is incomplete, keep the value for body reuse but do not authorize direct logical lookup.
-Keep full atom copies separate when their dates or source details differ, even when their content UUID is equal.
+Keep full record copies separate when their dates or source details differ, even when their content UUID is equal.
 
 Resolve document-copy precedence before predicates, order, limits, and projection.
 Fetch unprojected predicate and sort fields in batches.
@@ -345,7 +344,7 @@ Then implement the packed-key locator pages in the [fast range design](https://g
 That design targets disk format v1, which is removed. A disk format v2 route needs a new design.
 Update accessors, byte-based splits, capacity quotes, validators, LastDB compaction, and dependency walks together.
 Include backup readers and required format-feature rejection.
-Keep encrypted tip bytes, shared atoms, file packing, and semantic cloud mutation order.
+Keep encrypted tip bytes, shared records, file packing, and semantic cloud mutation order.
 Retain explicit support and cost accounting for oversized range keys.
 
 Use the existing typed range codec for compact range bytes in memory.
@@ -369,7 +368,7 @@ Remove Single and standalone Range across declarations, callers, and clients tog
 Reject as_of at every public entry point.
 
 Run the matched comparison described below after the final source changes.
-Keep first query, later key selection, tip resolution, atom fetch, and response time separate.
+Keep first query, later key selection, tip resolution, record fetch, and response time separate.
 Report read, write ack, flush, memory, file, queue, and cloud-part costs with each material regression.
 Preserve source, executable, configuration, input, result, and cleanup receipts.
 Stop owned synthetic nodes and use supported exact-path cleanup after receipt preservation.
@@ -384,7 +383,7 @@ Use fresh synthetic homes and ordinary Mini write/read calls.
 Collect records into bounded mutation batches and collect keys into batch reads.
 Size mutation batches by field-path count, bytes, and request limits, not record count alone.
 Use the same generated inputs for each reference and candidate home.
-Keep key count separate from atom and file-blob size.
+Keep key count separate from record and file-blob size.
 
 | Synthetic cohort | Key shape and purpose |
 |---|---|
@@ -410,7 +409,7 @@ For each declared cohort, compare three configurations:
 3. That same final candidate with the selected schema policy on.
 
 Record first exact and first range queries separately, including their full preload time.
-Record later ranges and sample, tip and atom misses, returned records, order, metadata, count meaning, and page flags.
+Record later ranges and sample, tip and record misses, returned records, order, metadata, count meaning, and page flags.
 The current comparison uses one fresh home for each configuration and cohort, with five repeated reads for each width.
 Record first-query observations separately; one observation does not establish a first-load distribution.
 Report the repeated-read median and observed p95; with five samples, that p95 is the maximum sample.
@@ -429,7 +428,7 @@ The extra ordinary run covers physical compaction and current membership after d
 Concurrent-load calls return coherent old and current results, but both write acks arrive after Ready.
 Publication while Loading, whole-domain purge, and temporary-change refusal still need separate product evidence.
 Measure later ready key selection explicitly: disk key-discovery work must be zero.
-An overall read can still need batched disk fetches for unknown tips and atom values.
+An overall read can still need batched disk fetches for unknown tips and record values.
 Cloud sync stays off in synthetic homes.
 Changed cloud-part costs remain unmeasured; a source change or a local read benchmark does not establish them.
 
@@ -472,16 +471,16 @@ Use format, syntax, lint, build, and product operational checks; add or run no t
 
 | Area | Current source and planned change |
 |---|---|
-| Core key model | [MoleculeHashRange](../fold_db/crates/core/src/atom/molecule_hash_range/mod.rs): separate ordered membership from required AtomEntry storage. |
+| Core key model | [FieldKeyHashRange](../fold_db/crates/core/src/record/field_key_hash_range/mod.rs): separate ordered membership from required RecordEntry storage. |
 | Logical owner | [CoreWarmSet](../fold_db/crates/core/src/resident/core_set.rs): own complete key domains, sparse values, and load state. |
 | Capacity and purge | [Lifecycle](../fold_db/crates/core/src/resident/core_set/lifecycle.rs): separate full-path purge from whole-domain key purge and byte accounting. |
 | Common query gate | [Query execution](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs): start or join the schema load after scope and binding resolution. |
 | Complete key selection | [Core filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs): support ordered complete keys without full warm tips. |
 | Tip and value batches | [Core resolver](../fold_db/crates/core/src/db_operations/field_read/core_model.rs), [tip receipts](../fold_db/crates/core/src/db_operations/field_read/core_receipts.rs): preserve unknown states and source metadata. |
-| Current disk source | [Tip pages](../fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs): expose bounded current membership and explicit exhaustion. |
+| Current disk source | [Tip pages](../fold_db/crates/core/src/db_operations/record_store/filter/partition_page.rs): expose bounded current membership and explicit exhaustion. |
 | Publication and flush | [Current view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs): publish key changes and retain loader changes through flush. |
-| Native and shared writes | [Prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs): complete typed scope and shared-molecule publication. |
-| Sample | [HashRange loader](../fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range_pages.rs): use complete membership without all-value materialization. |
+| Native and shared writes | [Prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs): complete typed scope and shared-field-key publication. |
+| Sample | [HashRange loader](../fold_db/crates/core/src/db_operations/record_store/filter/load/hash_range_pages.rs): use complete membership without all-value materialization. |
 | Document copies | Copy reads (file removed): resolve precedence before predicates and pages. |
 | Public response | [Query handler](../lastdb_host/src/handlers/query.rs), [response order](../lastdb_host/src/handlers/query/rows.rs): preserve public limits, cursors, metadata, and exact results. |
 | Definitions and old key types | Registration, schema types, generated clients, retention, republish, imports, and bulk-root controls. |
@@ -494,7 +493,7 @@ Use format, syntax, lint, build, and product operational checks; add or run no t
 - Full paths stay within 10,000; complete key memory stays within its separate byte allowance.
 - Every supported write updates or invalidates membership before visibility and ack.
 - Ordinary writes, flush, and physical LastDB compaction do not force complete-key reloads.
-- Tip and atom purge preserves keys; whole-domain purge clears readiness before removal.
+- Tip and record purge preserves keys; whole-domain purge clears readiness before removal.
 - Unknown tips, values, and predicate fields use batches and never become false absence.
 - Counts, preview, document-copy precedence, sharing, and typed range bounds remain correct.
 - Refusal, cancellation, restart, and incompatible controls have explicit bounded behavior.

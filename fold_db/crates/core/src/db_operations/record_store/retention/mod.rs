@@ -1,7 +1,7 @@
 //! Retention of kept conflict rows: the queue and the release.
 //!
 //! The database keeps every conflicting write of a record as a conflict row
-//! (`rcf:`, `record_conflicts`). The row holds no atom or file blob reference.
+//! (`rcf:`, `record_conflicts`). The row holds no record or file blob reference.
 //! This module decides when a row ends: when its retention window passes.
 //!
 //! Every new row writes one entry in a time-bucketed queue (`time_queue`) in

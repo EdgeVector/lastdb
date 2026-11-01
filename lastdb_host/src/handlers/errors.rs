@@ -80,7 +80,7 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
-            SchemaError::MissingSelectedAtom | SchemaError::StorageRead { .. } => {
+            SchemaError::MissingSelectedRecord | SchemaError::StorageRead { .. } => {
                 Self::internal(err.to_string())
             }
             // Blocked and cross-app/isolation ACL denials (I3c) both map to a
@@ -122,11 +122,11 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            schema_err @ (SchemaError::AtomContentTooLarge { .. }
+            schema_err @ (SchemaError::FieldValueTooLarge { .. }
             | SchemaError::RecordTooLarge { .. }) => Self::new(
                 413,
                 schema_err
-                    .atom_content_too_large_body()
+                    .field_value_too_large_body()
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),

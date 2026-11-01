@@ -3,7 +3,7 @@
 The schemas follow the brain app on the primary (workspace design
 `docs/design-lastdb-disk-size-20261024.md`, section 2.4): list pages, list
 locators, token sets, edge sets, a type directory, and content records. Each
-content put also writes its index records, as the brain does, so most atoms
+content put also writes its index records, as the brain does, so most records
 are small and the list pages change often. Bodies are markdown text of up to
 64 KiB. The model keeps the exact fields that each key must read back, and
 the keys that a delete removed. One seed number always gives the same data.

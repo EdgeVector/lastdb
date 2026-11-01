@@ -146,7 +146,7 @@ These checks reject invalid measurements. They do not form a test suite.
 
 A PR run compares its exact merge revision with that merge's first parent.
 The event's base value can lag the base used for the candidate merge tree.
-The plan records that value and uses the actual merge parent for the comparison.
+The plrecords that value and uses the actual merge parent for the comparison.
 The candidate includes current base changes, so the comparison measures the proposed merge result.
 An older branch cannot turn unrelated changes on main into a claimed PR speed change.
 A main push uses its new tip and the previous tip from the push event.
@@ -281,7 +281,7 @@ These checks establish overlap with the case; they do not claim that every reque
 The retained ledger timestamps describe that exposure.
 Exact keyed reads verify every accepted fresh value after the measured window.
 Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
-Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
+Cleanup uses persisted field key identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
 Every home restarts before the final fresh-value reads.
 These calls use ordinary generated records. They inject no damaged age entries or active generations.
 Payload construction and validation stay outside request latency. Throughput includes client overhead.
@@ -365,7 +365,7 @@ The ratio is retained disk bytes divided by logical record bytes:
 - Database disk uses the greater of file lengths and allocated blocks under `data/` and `blobs/`.
   The Search inbox, other home files, and whole home stay separate. Each raw category retains both byte counts.
 - Logical size uses `GET /api/db/schemas`: the stored value bytes of the live records (`total_record_bytes`).
-  Tombstones stay out. The report keeps the field name `logical_atom_bytes` for this value.
+  Tombstones stay out. The report keeps the field name `logical_record_bytes` for this value.
   This is the same measure as `lastdb db schemas` and the existing disk-v2 node proof.
   It is not the request payload size or the file-length measure called `logical_bytes` in filesystem samples.
 - The required maximum ratio includes every settled checkpoint in the single candidate run.

@@ -23,7 +23,7 @@ cargo nextest run -p fold_db -- query_defined_multi_schema_slice_roundtrips
 | Piece | Status |
 |-------|--------|
 | `payload.blobs[]` | First-class; CAS over **raw** file bytes |
-| File field atoms | `$lastdb_file` **pointer only** (no embedded `content_b64`) |
+| File field records | `$lastdb_file` **pointer only** (no embedded `content_b64`) |
 | Legacy `$file` embed | Auto-promoted to pointer + blob on materialize |
 | Local CAS on import | `sharing/blob_cas` collection `cas_blobs` |
 | Recipient load path | `blob_cas::get_blob_bytes` / `resolve_file_bytes` |
@@ -36,7 +36,7 @@ the sealed slice** (`blobs[]`) and still available after import.
 1. Mini UDS stage/import endpoints (no product socket surface yet).
 2. Discovery `approve_deliver_request` still delivers JSON field bags — must
    call `materialize_query_slice` + transport sealed `lastdb.slice.v1`.
-3. Import is mutation rewrite (not full signed molecule transplant).
+3. Import is mutation rewrite (not full signed field key transplant).
 4. Multi-schema still = multi query legs.
 
 ## Library surfaces
@@ -49,4 +49,4 @@ the sealed slice** (`blobs[]`) and still available after import.
 
 1. Discovery approve → materialize query legs from DiscoverableSet → sealed slice.
 2. Mini owner-socket deliver stage + peer import.
-3. Optional: signed molecule transplant when provenance is required.
+3. Optional: signed field key transplant when provenance is required.

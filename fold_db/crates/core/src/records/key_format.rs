@@ -7,7 +7,7 @@ use crate::storage::error::StorageResult;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
-/// This logical format includes framed molecule identities and exact
+/// This logical format includes framed field key identities and exact
 /// tuple-based binding sources. Snapshots require the same marker key.
 pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
 
@@ -30,7 +30,7 @@ pub(crate) fn validate_frozen_replay_floor(
     marker: Option<&[u8]>,
     cutoff: Option<&[u8]>,
 ) -> StorageResult<u64> {
-    if !marker.is_some_and(lastdb_model::molecule_key_codec::current_key_format) {
+    if !marker.is_some_and(lastdb_model::field_key_codec::current_key_format) {
         return Err(invalid("the format marker is not the node format"));
     }
     let Some(bytes) = cutoff else {

@@ -29,7 +29,7 @@ pub fn format_recovery_phrase_notice(mnemonic: &str, emit_secret: bool) -> Strin
              ===========================================================\n\
              This phrase is your account root: identity, content encryption, \
              and HashKey blinding. Enabling cloud later reuses it — \
-             no re-encryption of molecule keys.\n"
+             no re-encryption of field keys.\n"
         )
     } else {
         "=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===\n"

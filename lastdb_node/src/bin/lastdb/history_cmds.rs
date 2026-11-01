@@ -1,4 +1,4 @@
-//! Selected-key atom history commands over the owner socket.
+//! Selected-key field history commands over the owner socket.
 use super::*;
 
 #[derive(Args, Debug)]
@@ -80,7 +80,7 @@ pub(super) fn run(data_dir: Option<PathBuf>, args: HistoryArgs) -> Result<(), St
             "key": {"hash": args.key_hash, "range": args.key_range}},
         "database": args.database, "action": action,
     });
-    let result = db_post_json(&socket, "/api/atom-history", &body)?;
+    let result = db_post_json(&socket, "/api/field-history", &body)?;
     println!(
         "{}",
         serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?

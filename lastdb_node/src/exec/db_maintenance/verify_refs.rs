@@ -62,7 +62,7 @@ pub(in crate::exec) async fn execute_db_verify_refs_scopes_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    match host.db.atom_counter_scopes().await {
+    match host.db.verify_ref_scopes().await {
         Ok(scopes) => json_ok(&envelope(
             &serde_json::json!({ "scopes": scopes }),
             ctx.user_id.as_str(),

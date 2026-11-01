@@ -45,7 +45,7 @@ The [LastStore engine](../vendor/laststore/README.md) describes the file reads a
 The marker is an exact byte contract. Its filename alone does not prove compatibility.
 A missing delete replay cutoff record means cutoff 0.
 The node checks the logical format and account proof before ordinary access or writer cleanup.
-The [typed range contract](designs/typed-range-field-contract.md) defines the complete scalar and molecule profiles.
+The [typed range contract](designs/typed-range-field-contract.md) defines the complete scalar and field key profiles.
 
 Every home uses blinded hashes and typed ordered ranges inside encrypted blocks.
 No environment setting selects another key encoding.
@@ -73,8 +73,8 @@ The nonce contains four zero bytes followed by the eight-byte big-endian counter
 Data counters start at zero; lookup counters start at `1 << 62`; the top counter is `1 << 63`.
 The writer uses zstd level 3 only when the compressed bytes and length prefix are smaller.
 
-Keys, lookup contents, atoms, tips, counters, and control values all receive block encryption.
-Atoms use plain logical JSON within those encrypted blocks, without another atom envelope.
+Keys, lookup contents, records, tips, counters, and control values all receive block encryption.
+Records use plain logical JSON within those encrypted blocks, without another record envelope.
 Portable file ciphertext retains its separate format inside CAS records.
 Descriptors, footers, frame headers, file lengths, and file counts remain readable.
 The private identity seed remains a separate local file and never enters a native backup.
@@ -124,14 +124,14 @@ Backup holds retain bytes independently. Local compaction cannot promise erasure
 | `CURRENT` file | At most 64 MiB; its writer also checks the payload before encryption |
 | Manifest shape | At most 32 tiered levels and 4096 runs per level, merge set, or base |
 | Native commit | At most 16,384 physical mutations |
-| Logical atom content | 256 KiB default; configured range 1 KiB through 1 MiB |
+| Logical field value | 256 KiB default; configured range 1 KiB through 1 MiB |
 | Logical warm set | 256 MiB default byte budget; no former 10,000-record retention cap |
 | Pending native writes | 512 MiB shared memory allowance |
 | Ordinary read work | Separate limits for keys, pages, blocks, and cumulative bytes; an explicit resource error ends excess work |
 | Backup work | 96 MiB memory, four streams with 1 MiB buffers, and 1 GiB durable spool policy |
 
 These limits do not define a maximum for the complete process memory size.
-The physical value limit does not enlarge the logical atom limit.
+The physical value limit does not enlarge the logical record limit.
 The read work limit does not define the logical warm-set size or the database record count.
 
 The current block targets are 16 KiB, with ten filter bits per key.
@@ -155,7 +155,7 @@ An incomplete upload never replaces the preceding accepted recovery point.
 
 The client profile and encrypted recovery metadata describe the physical and logical contracts.
 The service does not decode them. A native format change does not require cloud knowledge of LastDB files.
-The current backup feature set is 176: record references 16, large batches 32, and atom records 128.
+The current backup feature set is 176: record references 16, large batches 32, and record records 128.
 Those feature bits occur in client backup metadata, not in the local home descriptor.
 
 A compatible change preserves every accepted byte meaning and reads existing supported files without conversion.

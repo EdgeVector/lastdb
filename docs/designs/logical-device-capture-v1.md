@@ -23,7 +23,7 @@ Capture refuses a foreign home binding or missing established control state.
 The first release accepts locally authored, personal Create and Update requests on plain Hash and HashRange schemas.
 The schema and each field require canonical identities.
 The normal mutation route refuses imports, Delete, Purge, TTL, aggregate operations, mapped fields, share rules, share subscriptions, and file blob references.
-It also refuses existing molecule generations and alternate field layouts.
+It also refuses existing field key generations and alternate field layouts.
 The admission check runs before attribution records or author-clock changes.
 The native admission fence also refuses unsupported internal logical writes before their batch can commit.
 
@@ -31,8 +31,8 @@ Ordinary CAS and `must_exist` checks still decide whether the original local req
 
 The source delta includes normalized key fields and canonical API coordinates.
 After all schema groups stage their writes, capture reads the exact stored tip records in one batch.
-It compares the full authored order, including the atom identity and mutation UUID.
-It then fetches the selected atom bodies, including metadata that atom deduplication retained.
+It compares the full authored order, including the record identity and mutation UUID.
+It then fetches the selected record bodies, including metadata that record deduplication retained.
 The event records the final accepted fields, their schema and field identities, their original tips, and their per-key metadata.
 Repeated writes to one physical key produce one final field fact.
 
@@ -48,7 +48,7 @@ It uses `serde_json` number encoding and preserves exact integers, including nan
 The cloud manifest encoder has different integer limits and does not encode these logical events.
 
 The event contains no source request predicates, blinded storage keys, or native reference counters.
-The event, its metadata, the device head, the atoms, and their local reference counts share one native commit.
+The event, its metadata, the device head, the records, and their local reference counts share one native commit.
 A capacity or preparation error drops the complete private batch.
 
 Ordinary reads do not read this stream.
@@ -59,7 +59,7 @@ The fixed limits are:
 - 256 KiB for the serialized source request, with a byte count before buffer allocation.
 - 1,024 declared fields across the addressed schemas and 1,024 final field outcomes.
 - 1 MiB for encoded candidate outcomes, with a byte count before each retained clone.
-- 1 MiB for the selected raw atom bodies, with a bound before a large body can enter memory.
+- 1 MiB for the selected raw record bodies, with a bound before a large body can enter memory.
 - 1 MiB for a signed event and an explicit export page.
 - Four events per export call.
 - 64 MiB of encoded event backlog; a full backlog refuses the complete data write.
@@ -99,18 +99,18 @@ The receiver refuses a gap or a different event at a known sequence.
 An exact repeat does not change data or advance the import position.
 The native snapshot retains the last import position and one compact hash receipt per accepted source sequence.
 
-The imported field facts retain their original atoms, tips, per-key metadata, and authored order.
+The imported field facts retain their original records, tips, per-key metadata, and authored order.
 When an original tip has no device identity, the receiver uses the authenticated stream origin for conflict retention.
 This change does not alter the tip order.
-The receiver checks the canonical schema, field, molecule, and key before it writes the facts.
-It computes its own atom reference counts and uses the existing conflict rule.
+The receiver checks the canonical schema, field, field key, and key before it writes the facts.
+It computes its own record reference counts and uses the existing conflict rule.
 A later field fact wins under the existing complete tip order; arrival order does not decide the winner.
 The receiver also advances its local author clock from the authenticated facts.
 It refuses a new field fact at or below the existing home-wide replay cutoff.
 
 App notifications name the accepted keys and original mutation identities.
 They use the operation `update`, because a field outcome does not retain the original request verb.
-The receiver sends Search the actual accepted fields and stored atom bodies.
+The receiver sends Search the actual accepted fields and stored record bodies.
 A losing field fact does not produce an update notification.
 
 The field facts, conflict records, local reference counts, author clock, and import position share one native commit.

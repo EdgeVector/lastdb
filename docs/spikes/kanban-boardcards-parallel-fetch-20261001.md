@@ -10,7 +10,7 @@ The variable selects 1 through 8. Invalid values and zero also select one; value
 An individual query can set `secondary_concurrency` to override the daemon value for that request.
 The per-query value is also bounded to 1 through 8. Omit it to use the daemon default.
 History queries keep the serial path.
-The query still fetches atom bodies in one batch after the slot reads. The response format does not change.
+The query still fetches record bodies in one batch after the slot reads. The response format does not change.
 
 ## Small comparison
 
@@ -30,9 +30,9 @@ The sample is small, and the test runs on a development build with local storage
 
 ## Interpretation
 
-Parallelism helps the field slot phase. It does not remove slot work, atom body reads, response bytes, or field metadata.
+Parallelism helps the field slot phase. It does not remove slot work, record body reads, response bytes, or field metadata.
 The code still holds the same final result in memory. It also holds pending results for up to four fields at once.
-The change does not alter stored atoms or shared atom references. A single summary atom remains a separate design option.
+The change does not alter stored records or shared record references. A single summary record remains a separate design option.
 That option could remove field metadata and read work, but it would change write behavior and the data model.
 
 The test does not measure many concurrent board users, write contention, or a shared production database.

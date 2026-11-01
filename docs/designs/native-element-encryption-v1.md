@@ -6,10 +6,10 @@ The element rules below apply inside those blocks.
 The current policy wraps only local CAS blob records.
 Tom set this policy on 2026-10-23.
 
-- Atom rows are plain JSON inside those blocks, with no content seal and no outer storage envelope.
+- Record rows are plain JSON inside those blocks, with no content seal and no outer storage envelope.
 - Tip values, counters, history, conflicts, metadata, and change-feed values use direct storage.
 - Local CAS records receive an account storage envelope around their existing file envelope.
-- Molecule key bundles and sensitive identity fields keep their explicit key encryption.
+- Field key bundles and sensitive identity fields keep their explicit key encryption.
 - Hash blinding and the range codec keep their existing behavior.
 
 ## Record policy
@@ -23,9 +23,9 @@ The wrapper encrypts the complete local CAS record, including the blob metadata 
 Every CAS write receives the outer account envelope, the binary `ENB:` form.
 The CAS reader requires that envelope. A record with only its file envelope is an error.
 
-A disk format v2 atom row has no content seal. The block encryption protects it.
-Inside a decrypted block, the atom header is readable: atom identity, schema, source filename, creation time, and optional metadata.
-Tips retain their key encoding, while their atom pointer and per-key metadata remain readable.
+A disk format v2 record row has no content seal. The block encryption protects it.
+Inside a decrypted block, the record header is readable: record identity, schema, source filename, creation time, and optional metadata.
+Tips retain their key encoding, while their record pointer and per-key metadata remain readable.
 Other direct control records can also contain original API keys and private metadata.
 Native cloud backups copy these exact stored bytes and preserve that visibility.
 This is an explicit policy change, not whole-file encryption.
@@ -50,7 +50,7 @@ SHA-256 of that complete envelope becomes the public `sha256:<hash>` CAS address
 The `ENC:` prefix and base64 text are storage representation, not another encryption step.
 Names and media types do not enter the address.
 
-The atom row contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
+The record row contains the original hash, file key, encrypted-byte address, suite, and encrypted size.
 That row is plain JSON inside an encrypted run-file block.
 The raw CAS record contains the encrypted-byte hash and encrypted bytes.
 It contains neither the original hash nor the file key.
@@ -60,7 +60,7 @@ No new file-key lookup or account secret is stored.
 The same file on devices with the same account identity produces the same key, envelope, and address.
 A repeat local write reuses the existing CAS record.
 Another account produces a different key and address.
-A shared atom supplies its original file key, so a recipient needs no sender account secret.
+A shared record supplies its original file key, so a recipient needs no sender account secret.
 Repair reproduces the original envelope from that file key and verifies its address before any write.
 
 Files use the account-v2 suite and an encrypted-byte address.
@@ -86,13 +86,13 @@ Native restore requires the marker for its node profile and the explicit encrypt
 It checks both before destination publication.
 Inactive restored-home validation uses the same two-key check.
 An existing home with a missing proof refuses startup. Fresh creation writes the proof and marker in one native transaction.
-The file readers still authenticate their existing encrypted content. A disk format v2 atom row has no content seal.
+The file readers still authenticate their existing encrypted content. A disk format v2 record row has no content seal.
 The metadata and file-dependency decoders read the direct control records.
 
 The run-file format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
 Inside the encrypted blocks, new backups retain only the CAS storage wrapper and explicit key encryption.
-An atom row has no content seal.
+A record row has no content seal.
 
 ## File size and memory
 

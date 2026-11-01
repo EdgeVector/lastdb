@@ -1,7 +1,7 @@
 //! Named alternate keys belong to one schema; field identities remain independent.
 
 use crate::declarative_schemas::DeclarativeSchemaDefinition;
-use crate::molecule_range_profile::MoleculeRangeProfile;
+use crate::field_range_profile::FieldRangeProfile;
 use crate::schema_type::DeclarativeSchemaType;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -140,7 +140,7 @@ impl DeclarativeSchemaDefinition {
                 if !fields.iter().any(|name| name == field) {
                     return Err("an alternate key names an undeclared field".into());
                 }
-                MoleculeRangeProfile::for_field_type(Some(&self.key_field_type(field)))?;
+                FieldRangeProfile::for_field_type(Some(&self.key_field_type(field)))?;
             }
         }
         Ok(())
@@ -148,7 +148,7 @@ impl DeclarativeSchemaDefinition {
 
     /// Separate from schema identity: a layout change cannot remint record identity.
     ///
-    /// The leading `true` is a fixed hash input. Alternate molecule IDs and
+    /// The leading `true` is a fixed hash input. Alternate field key IDs and
     /// stored capture outcomes already hold these revision bytes, so the input
     /// stays.
     pub fn alternate_key_revision(&self) -> String {

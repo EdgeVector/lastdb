@@ -22,7 +22,7 @@ pub struct NativeDiskStatus {
     /// Decoded records of a format 7 home in the warm set.
     pub core_warm_records: usize,
     pub core_warm_tip_only_paths: usize,
-    pub core_warm_molecules: usize,
+    pub core_warm_field_keys: usize,
     pub core_warm_held: usize,
     pub core_warm_dirty: usize,
     pub core_warm_hits: u64,
@@ -116,7 +116,7 @@ impl PackRuntime {
             core_warm_paths: core.paths,
             core_warm_records: core.records,
             core_warm_tip_only_paths: core.tip_only_paths,
-            core_warm_molecules: core.molecules,
+            core_warm_field_keys: core.field_keys,
             core_warm_held: core.held,
             core_warm_dirty: core.dirty,
             core_warm_hits: core.hits,

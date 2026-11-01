@@ -1,8 +1,8 @@
 # Schema-root data attribution and safe reclaim
 
-> **SUPERSEDED.** The atom counter is the only authority for the life of an atom
-> body, a molecule and a file blob (`docs/lastdb-atom-counter.md`,
-> `docs/lastdb-atom-counter.md`). No reachability walk, audit, candidate
+> **SUPERSEDED.** The record counter is the only authority for the life of a record
+> body, a field key and a file blob (`docs/lastdb-verify-ref.md`,
+> `docs/lastdb-verify-ref.md`). No reachability walk, audit, candidate
 > queue or grace window takes part in a delete. This document describes the original
 > schema-root attribution design and stays as history. Its reclaim-safety rules and its
 > acceptance checklist are not an active plan.
@@ -55,12 +55,12 @@ ambiguous object remains `unknown`; it blocks promotion and deletion.
 LastDB stores a record through this ladder:
 
 ```text
-schema catalog -> declared field -> molecule -> tip -> atom -> file blob
+schema catalog -> declared field -> field_key -> tip -> record -> file blob
 ```
 
 Today, the database has several useful physical diagnostics. It can inspect a
 schema, reap tips from a dropped schema, and garbage-collect unreferenced
-atoms. These commands do not yet form one schema-root proof.
+records. These commands do not yet form one schema-root proof.
 
 The gap causes two failures:
 
@@ -71,7 +71,7 @@ The gap causes two failures:
    schema.
 
 `schemaidx:` copies are a useful example. They are derived copies, not live
-data roots. A catalog-to-atom proof must classify them as derived residue,
+data roots. A catalog-to-record proof must classify them as derived residue,
 then remove and compact them without an app decision.
 
 ## Boundary
@@ -90,7 +90,7 @@ product query route. It records a checkpoint after every page.
 
 ## Complexity and storage cost
 
-Let `F` be declared field molecules, `T` live tip slots, `E` durable local
+Let `F` be declared field keys, `T` live tip slots, `E` durable local
 reference edges, `N` physical objects in the inspected planes, and `A`
 materialized schema-to-object associations.
 
@@ -109,24 +109,24 @@ complete derived index for its class. This pass is owner maintenance only.
 The permanent cost is the active local edge set and one counter per target.
 The temporary cost is one epoch row per object. The database deletes epoch
 rows only after it writes the proof receipt. It does not retain a second full
-copy of atom content.
+copy of field value.
 
-The default design does not store a full schema-root list inside an atom. A
-shared atom can have many schema paths. An inline list makes a normal write
+The default design does not store a full schema-root list inside a record. A
+shared record can have many schema paths. An inline list makes a normal write
 large and makes shared values ambiguous. The database stores fixed-size local
 edges in sidecar keyspaces. It derives schema paths from those edges during an
 inventory walk.
 
 ## Inline logical size attribution
 
-The schema-root walk reuses the existing per-molecule write-path size counter.
-Each attributed molecule row can carry three fixed-size values: logical value
-bytes, molecule structure bytes, and retained history bytes. This does not add
-a second atom walk for size reporting.
+The schema-root walk reuses the existing per-field-key write-path size counter.
+Each attributed field key row can carry three fixed-size values: logical value
+bytes, field key structure bytes, and retained history bytes. This does not add
+a second record walk for size reporting.
 
-These values are logical, not exclusive physical ownership. One shared atom can
-contribute logical bytes to more than one molecule. The physical object walker
-counts that atom once for reclaim proof. A missing or pending size counter makes
+These values are logical, not exclusive physical ownership. One shared record can
+contribute logical bytes to more than one field key. The physical object walker
+counts that record once for reclaim proof. A missing or pending size counter makes
 the size report incomplete. It does not turn a reachable object into residue or
 change its attribution class.
 
@@ -154,7 +154,7 @@ The durable ledger has two different roles:
   projector can then catch up from a known frontier.
 - The epoch rows prove one historic snapshot. They cost O(N + A) rows for the
   walk and can expire after the verified copy receipt. They do not become a
-  permanent copy of atom content.
+  permanent copy of field value.
 
 The first copy operation uses a short owner maintenance write gate. It gates
 only the final frontier check, durable flush, snapshot receipt, and copy
@@ -172,7 +172,7 @@ makes the size report incomplete. It does not make a reachable object residue.
 The migration emits one fixed-size attribution row for each inspected object.
 The row has the object class, root count, path digest set reference, and source
 sequence. Exact root identities and path digests use bounded sidecar rows. The
-database never puts an unbounded root list inside an atom or one metadata row.
+database never puts an unbounded root list inside a record or one metadata row.
 
 | Class | Meaning | Migration action |
 |---|---|---|
@@ -192,16 +192,16 @@ The maintenance graph has these durable edge classes.
 
 | From | To | Source | Meaning |
 |---|---|---|---|
-| schema root | declared field molecule | schema catalog | The schema declares the field. |
+| schema root | declared field key | schema catalog | The schema declares the field. |
 | named alternate address | primary record key | owned schema declaration | Another key addresses the same primary record without a payload copy. |
-| molecule key slot | tip | molecule index | The key slot has a current value. |
-| tip | atom | tip body locator | The atom stores the field value. |
-| atom | file blob | validated atom reference | The blob stores large payload bytes. |
-| atom | atom | validated atom reference | A structured value can name another atom. |
+| field key slot | tip | field key index | The key slot has a current value. |
+| tip | record | tip body locator | The record stores the field value. |
+| record | file blob | validated record reference | The blob stores large payload bytes. |
+| record | record | validated record reference | A structured value can name another record. |
 
 The catalog, valid retention policy, and node system roots form the root set.
 Canonical field reuse adds no value edge between schemas.
-A tip may point at one atom from several explicitly authorized molecule keys. An atom or blob can have several
+A tip may point at one record from several explicitly authorized field keys. A record or blob can have several
 schema attributions.
 
 The walker must keep two values for each object:
@@ -216,7 +216,7 @@ partitioned by object hash. The queue and rows stay on disk. The process holds
 one page at a time.
 
 The count is a reclaim aid. It is not a complete attribution or reclaim proof.
-An unrooted atom cycle can have nonzero inbound counts. The complete graph mark
+An unrooted record cycle can have nonzero inbound counts. The complete graph mark
 and attribution row are the proof. The database must treat a missing or stale
 edge as `unknown`, not as zero.
 
@@ -243,7 +243,7 @@ objects by itself.
 The migration builds attribution proof on the source database, then creates
 one exact isolated copy. It walks the source schema by schema into one common
 attribution ledger. It does not make one database copy per schema. Separate
-copies can duplicate a shared atom or hide a cross-schema path.
+copies can duplicate a shared record or hide a cross-schema path.
 
 `lastdb db attribution init` builds the attribution ledger. It is read-only
 until the operator starts the separate copy scrub command.
@@ -252,11 +252,11 @@ until the operator starts the separate copy scrub command.
    retention.
 2. Reserve a source event frontier `H0` and record the catalog generation.
 3. Read every catalog schema through the catalog maintenance iterator.
-4. Derive each declared field molecule from the schema and field identity.
-5. Read each molecule's durable key slots in bounded pages.
-6. Add tip-to-atom edges from every resolved tip.
+4. Derive each declared field key from the schema and field identity.
+5. Read each field key's durable key slots in bounded pages.
+6. Add tip-to-record edges from every resolved tip.
 7. Validate named alternate addresses against their declared primary records.
-8. Decode validated atom references and add atom-to-atom and atom-to-blob
+8. Decode validated record references and add record-to-record and record-to-blob
    edges.
 9. Classify every remaining object as schema, retention, system, derived,
     residue, or unknown.
@@ -280,7 +280,7 @@ until the operator starts the separate copy scrub command.
 18. Compact the copy, restore it fresh, and repeat the full attribution report.
 
 The source database stays unchanged through every destructive copy step. A failed decode, a
-missing atom, a cursor error, or an `unknown` row leaves the epoch incomplete.
+missing record, a cursor error, or an `unknown` row leaves the epoch incomplete.
 It blocks copy scrub, promotion, and source deletion.
 
 The pass can take time. It uses durable cursors and a fixed page budget.
@@ -339,9 +339,9 @@ generation, exact copy identity and frontier, and classification state. It never
 object in one metadata value. The cursor uses a physical shard and an ordered
 key position, not a list of all remaining object names. The current
 implementation provides durable `r` object rows and `p` root-path rows. It
-also walks the catalog-to-molecule layer and records one
-`schema-attributed` molecule proof for each declared schema field. It adds
-bounded molecule-tip pages, physical-object cursors, residue classification,
+also walks the catalog-to-field-key layer and records one
+`schema-attributed` field key proof for each declared schema field. It adds
+bounded field-key-tip pages, physical-object cursors, residue classification,
 receipts, and copy scrub in later slices.
 
 ## Ongoing attribution maintenance
@@ -356,17 +356,17 @@ The edge projector and its edge-maintenance hooks remain required work. Until
 they ship, the database has a complete source trail but does not claim a live
 edge graph.
 
-1. A write creates the new atom and its validated child references.
-2. The durable mutation records its tip-to-atom attribution edge before it
+1. A write creates the new record and its validated child references.
+2. The durable mutation records its tip-to-record attribution edge before it
    acknowledges the write.
 3. A tip replacement removes the old live edge only after the new edge is
    durable.
-4. A tip delete removes its edge and adds the atom to the zero-inbound
+4. A tip delete removes its edge and adds the record to the zero-inbound
    candidate queue when its count reaches zero.
 5. A schema catalog update adds or retires schema-root edges in the same
    catalog generation.
 6. A named alternate address changes with its primary record in the same native request.
-   It adds no separate payload atom reference.
+   It adds no separate payload record reference.
 7. The mutation appends one ordered attribution event. The event identifies its
    source row and event sequence.
 
@@ -379,7 +379,7 @@ If attribution maintenance falls behind, the database marks the affected scope
 scope. Reads and writes can continue.
 
 A post-cutover update can replace a legacy tip. The write records that the old
-tip stopped being live, but it does not delete the old atom. The atom stays
+tip stopped being live, but it does not delete the old record. The record stays
 `unknown` until the backfill resolves every possible attribution path.
 
 ## Owner commands
@@ -405,7 +405,7 @@ physical rows as application data.
 The report shows two values for shared data. `inclusive_bytes` charges the
 full reachable value to every schema that reaches it. `unique_node_bytes`
 counts each physical object once. The report never invents an arbitrary split
-of a shared atom.
+of a shared record.
 
 `copy-scrub` accepts only a complete attribution epoch for its named copy. It
 deletes only `unattributed-residue` rows from the copy. It emits a receipt for
@@ -427,7 +427,7 @@ and a new approval.
 3. Do not delete during an incomplete or stale attribution epoch.
 4. Do not permit source deletion through `copy-scrub`.
 5. Do not use retired `schemaidx:` copies as a source-of-truth edge.
-6. Do not let a missing atom reduce another object's inbound count.
+6. Do not let a missing record reduce another object's inbound count.
 7. Do not compact before the copy delete receipt is durable.
 8. Require a successful cloud delete receipt before claiming cross-replica
    deletion. A local copy delete can complete while cloud sync is blocked.
@@ -435,7 +435,7 @@ and a new approval.
 10. Keep each delete batch bounded, resumable, and idempotent.
 11. Treat live tip-version history and valid `as_of` retention as roots until
     the configured history policy removes them.
-12. Build the root set from every catalog in the node. Molecules and atoms can
+12. Build the root set from every catalog in the node. Field keys and records can
     cross database boundaries on one node.
 
 ## Migration and compatibility
@@ -462,12 +462,12 @@ root iterator for the catalog. It does not add an unscoped query endpoint.
 The implementation passes only when these checks pass on an isolated copy and
 then on a supervised live run.
 
-1. The report lists every catalog schema, declared molecule, and system root.
+1. The report lists every catalog schema, declared field key, and system root.
 2. A live record keeps every authorized schema attribution path and its alternate addresses.
-3. A shared atom records every reaching schema without duplicated storage.
-4. A history root keeps its atom after the current tip no longer reaches it.
+3. A shared record records every reaching schema without duplicated storage.
+4. A history root keeps its record after the current tip no longer reaches it.
 5. Every inspected user-data object has one final attribution class.
-6. An unreadable atom, missing edge, or interrupted page produces `unknown`
+6. An unreadable record, missing edge, or interrupted page produces `unknown`
    and blocks copy scrub and promotion.
 7. The copy scrub deletes only `unattributed-residue` rows from the copy.
 8. A second copy scrub is idempotent.
@@ -475,7 +475,7 @@ then on a supervised live run.
    logical deletion.
 10. A fresh copy restore has zero `unattributed-residue` and zero `unknown`
     user-data rows.
-11. An unrooted atom cycle becomes `unattributed-residue` after the complete
+11. An unrooted record cycle becomes `unattributed-residue` after the complete
     root-mark pass.
 12. A write during initialization appears exactly once after event replay.
 13. A missing event-log row leaves the epoch incomplete and blocks promotion.
@@ -484,8 +484,8 @@ then on a supervised live run.
 
 ## Relationship to existing work
 
-- The atom GC tip-fold gate (a real-data clone harness, deleted 2026-10-12)
-  showed that atom reclaim must preserve live fold paths. This design makes
+- The record GC tip-fold gate (a real-data clone harness, deleted 2026-10-12)
+  showed that record reclaim must preserve live fold paths. This design makes
   those paths explicit and durable.
 - `DELETE_RETURNS_BYTES` (removed) defined the delete-to-compaction chain of the
   LastStore engine. This design supplied the schema-root proof before that chain began.
@@ -493,5 +493,5 @@ then on a supervised live run.
   command replaces its limited dropped-tip proof with a complete lifecycle
   proof.
 - `lastdb db inventory` already reports byte totals, plane roles, and partial
-  per-schema atom data. Attribution extends that report. It does not replace
+  per-schema record data. Attribution extends that report. It does not replace
   the existing owner-only inventory route.

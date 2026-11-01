@@ -31,13 +31,13 @@
 //!   the schema service never reissued or replaced them. See
 //!   `projects/view-compute-as-mutations` for the full chain.
 //! * **Sync replay is convergent.** Two devices replaying the same log
-//!   compute identical atoms because the WASM they fetch (by hash, from
+//!   compute identical records because the WASM they fetch (by hash, from
 //!   here) is bit-identical. There is no version-skew failure mode —
 //!   a `wasm_hash` mismatch is forgery, not stale data.
 //! * **fold_db needs no migration plumbing for view changes.** The local
 //!   schema cache can assume a view's shape is final from registration
 //!   on; reorganizing the data model means registering new schemas
-//!   that field-map onto the old molecules, not editing the old schema.
+//!   that field-map onto the old field keys, not editing the old schema.
 //!
 //! "Approved" is the gate. Pre-approval, drafts are scratchpad. Once
 //! approval succeeds the artifact is frozen; any subsequent change is

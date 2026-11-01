@@ -89,18 +89,18 @@ pub mod backup_decode {
     /// Optional authenticated block cursors retain at most this many file handles.
     /// Other inputs keep the streaming path; this never limits backup file count.
     pub const PROOF_BLOCK_CURSOR_HANDLES: usize = 32;
-    /// Maximum atom body bytes admitted during backup decode.
-    pub const ATOM_BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
-    /// Maximum decoded atom JSON tree, half of `decoded_values_bytes`.
-    pub const ATOM_JSON_TREE_MAX_BYTES: u64 = super::BACKUP_RESOURCES.decoded_values_bytes / 2;
+    /// Maximum record body bytes admitted during backup decode.
+    pub const RECORD_BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
+    /// Maximum decoded record JSON tree, half of `decoded_values_bytes`.
+    pub const RECORD_JSON_TREE_MAX_BYTES: u64 = super::BACKUP_RESOURCES.decoded_values_bytes / 2;
     /// Maximum directory record size, in bytes, for backup decode.
     pub const DIRECTORY_MAX_BYTES: u64 = 4096;
     /// Read allowance, in bytes, for a directory during backup decode.
     pub const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
-    /// Read allowance, in bytes, for an atom inventory.
-    pub const ATOM_INVENTORY_READ_BYTES: u64 = 64 * 1024 * 1024;
-    /// Maximum atom-inventory pages considered during backup decode.
-    pub const ATOM_INVENTORY_PAGES: u64 = 4096;
+    /// Read allowance, in bytes, for a record inventory.
+    pub const RECORD_INVENTORY_READ_BYTES: u64 = 64 * 1024 * 1024;
+    /// Maximum record-inventory pages considered during backup decode.
+    pub const RECORD_INVENTORY_PAGES: u64 = 4096;
     /// Read allowance, in bytes, for a native stream lookup.
     pub const NATIVE_STREAM_LOOKUP_READ_BYTES: u64 = 128 * 1024 * 1024;
     /// Maximum native stream blocks considered during a lookup.

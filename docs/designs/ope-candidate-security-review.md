@@ -16,7 +16,7 @@ Its definition does not permit arbitrary information about later plaintext bits.
 The vendor [extension note](https://cipherstash.com/research/backward-carry-ope) claims that its transform adds no leakage.
 The following counterexample contradicts that claim for the candidate's exact profile.
 
-Compare two possible one-byte datasets in one molecule, hash, and epoch:
+Compare two possible one-byte datasets in one field key, hash, and epoch:
 
 - Dataset A contains `0x00` and `0x80`.
 - Dataset B contains `0x40` and `0xc0`.

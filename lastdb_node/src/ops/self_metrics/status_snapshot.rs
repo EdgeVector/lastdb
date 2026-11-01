@@ -131,7 +131,7 @@ pub struct StatusSnapshot {
     /// In-process request/op offender ranking (self-reported clients).
     #[serde(default)]
     pub request_ops: crate::request_telemetry::RequestTelemetrySnapshot,
-    /// Write-path product limits (atom size fence, …) — always present so
+    /// Write-path product limits (record size fence, …) — always present so
     /// operators and agents see them without reading docs.
     #[serde(default)]
     pub limits: LimitsHealth,
@@ -156,7 +156,7 @@ pub struct StatusSnapshot {
     /// The reference verifier: the last run of `lastdb db verify-refs` and a
     /// run in progress. `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
+    pub verify_refs: Option<fold_db::db_operations::VerifyRefsReport>,
     /// The blob counters: totals, the dwell queue at the last pass, counter
     /// faults. `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]

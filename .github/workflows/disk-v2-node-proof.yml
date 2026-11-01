@@ -4,11 +4,11 @@ name: Disk v2 node proof
 # EdgeVector workspace). A real lastdbd starts on an empty home, which must be
 # v2 from the first start, and writes a seed with the shape of the primary
 # (scripts/disk_v2). The proof fails when the v2 node folder is above 2.0x of
-# the logical atom bytes at any sample, or when a key list, a read, or the
-# logical atoms of a seed schema change. The disk format v1 conversion cases
+# the logical record bytes at any sample, or when a key list, a read, or the
+# logical records of a seed schema change. The disk format v1 conversion cases
 # went with disk format v1 (Tom, 2026-10-26: decision D1).
 # The paths are the code that the node reads or writes with: the run homes,
-# the at-rest envelopes and seals, the atom codec, and the node start that
+# the at-rest envelopes and seals, the record codec, and the node start that
 # selects the home.
 on:
   pull_request:
@@ -19,8 +19,8 @@ on:
       - 'fold_db/crates/core/src/storage/disk_pack/**'
       - 'fold_db/crates/core/src/storage/encrypting_*'
       - 'fold_db/crates/core/src/storage/encrypting_*/**'
-      - 'fold_db/crates/core/src/atom/**'
-      - 'fold_db/crates/model/src/atom/**'
+      - 'fold_db/crates/core/src/record/**'
+      - 'fold_db/crates/model/src/record/**'
       - 'fold_db/crates/core/src/crypto/**'
       - 'fold_db/crates/core/src/mini_cutover/**'
       - 'fold_db/crates/core/src/db_operations/record_store/**'

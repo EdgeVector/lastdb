@@ -96,16 +96,16 @@ pub(super) async fn execute_home_storage_route(ctx: &AccessContext, host: &Host)
 }
 
 /// Build the logical app ledger from the in-memory schema catalog and
-/// write-path molecule counters. This reads no atom, tip, or filesystem plane.
+/// write-path field key counters. This reads no record, tip, or filesystem plane.
 pub(super) fn collect_home_app_attribution(
     host: &Host,
 ) -> crate::home_storage::HomeStorageInclusiveAppAttribution {
     use crate::home_storage::{
-        build_inclusive_app_attribution, AppLogicalBinding, AppLogicalMolecule,
+        build_inclusive_app_attribution, AppLogicalBinding, AppLogicalFieldKey,
     };
 
     let meters = host.db.db_ops().records().keep_small();
-    let counters_complete = meters.molecule_counters_complete();
+    let counters_complete = meters.field_key_counters_complete();
     let schema_manager = host.db.schema_manager();
     let mut unresolved = Vec::new();
     let entries = if let Ok(entries) = schema_manager.get_schema_list_entries_with_states() {
@@ -120,23 +120,23 @@ pub(super) fn collect_home_app_attribution(
             unresolved.push(format!("schema_metadata_unavailable:{}", entry.name));
             continue;
         };
-        let mut molecule_ids: Vec<String> = schema
+        let mut field_key_ids: Vec<String> = schema
             .runtime_fields
             .values()
-            .filter_map(|field| field.common().molecule_uuid().cloned())
+            .filter_map(|field| field.common().field_key_id().cloned())
             .collect();
-        molecule_ids.sort_unstable();
-        molecule_ids.dedup();
-        let molecules = molecule_ids
+        field_key_ids.sort_unstable();
+        field_key_ids.dedup();
+        let field_keys = field_key_ids
             .into_iter()
-            .map(|molecule_id| {
-                let logical_bytes = meters.molecule_counter(&molecule_id).map(|counter| {
+            .map(|field_key_id| {
+                let logical_bytes = meters.field_key_counter(&field_key_id).map(|counter| {
                     counter
                         .logical_value_bytes()
                         .saturating_add(counter.structure_bytes())
                 });
-                AppLogicalMolecule {
-                    molecule_id,
+                AppLogicalFieldKey {
+                    field_key_id,
                     logical_bytes,
                 }
             })
@@ -147,7 +147,7 @@ pub(super) fn collect_home_app_attribution(
                 .owner_app_id
                 .clone()
                 .filter(|owner| !owner.trim().is_empty()),
-            molecules,
+            field_keys,
         });
     }
     build_inclusive_app_attribution(&bindings, counters_complete, unresolved, chrono::Utc::now())

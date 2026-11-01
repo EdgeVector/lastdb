@@ -5,10 +5,10 @@
 //! references to the blob: one for each record (`rk:`) that lists the blob in
 //! its `blob_refs`, and one for each field history entry (`rh:`) that names it.
 //! The record write and the history release change the blob counters in the
-//! batch of the rows they change (`records.rs`, `atom_history/records.rs`), so
+//! batch of the rows they change (`records.rs`, `field_history/records.rs`), so
 //! a count and the references it counts change together.
 //!
-//! An upload comes before the atom that names it. So a blob whose count is zero
+//! An upload comes before the record that names it. So a blob whose count is zero
 //! is not deleted at once. It has a dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
 //! default, never below 120 s unless a dev knob says so) that starts when its
 //! count reaches zero or when it is uploaded. A new reference during the dwell
@@ -19,7 +19,7 @@
 //! again inside the write gate and deletes the blob row, the counter and the
 //! queue entry in one batch.
 //!
-//! Records, all in the `atoms` collection:
+//! Records, all in the `records` collection:
 //!
 //! | Record | Key |
 //! |---|---|
@@ -28,7 +28,7 @@
 //! | Queue directory row | `bref:v3:d\0{bucket:020}` |
 //!
 //! A key hashes on its first NUL. The counter of a blob is one hash, as the
-//! counter of an atom is. The queue is a time-bucketed queue (`queue.rs`, and
+//! counter of a record is. The queue is a time-bucketed queue (`queue.rs`, and
 //! `docs/lastdb-time-queue.md`): the entries of one slice of time are one hash,
 //! a small directory lists the buckets, and the dwell pass walks them with
 //! cursors. A delete leaves a deleted key in its bucket, and the bucket leaves
@@ -68,14 +68,14 @@ pub const BLOB_COUNTER_VERSION: u8 = 1;
 /// Environment knob: the dwell of a blob at zero, in seconds.
 pub const BLOB_DWELL_SECS_ENV: &str = "LASTDB_BLOB_DWELL_SECS";
 
-/// One hour. An upload and the atom that names it come close together.
+/// One hour. An upload and the record that names it come close together.
 pub const BLOB_DWELL_SECS_DEFAULT: u64 = 3600;
 
 /// The shortest dwell that the node accepts, in seconds.
 ///
 /// A `queued` write is acked from memory and its batch (which raises the blob
 /// counters) runs later. A blob row that the dwell pass deletes before that batch
-/// runs leaves an atom that names a blob that is gone. A request has at most 90 s
+/// runs leaves a record that names a blob that is gone. A request has at most 90 s
 /// (the handler budget) and the persist lane that runs the batch has a bulk queue
 /// budget of about 60 s, so the floor is the handler budget plus 30 s. It is a
 /// floor, not a proof: a lane that stalls for longer than the floor can still lose

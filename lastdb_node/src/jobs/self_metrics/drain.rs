@@ -11,7 +11,7 @@ pub(super) async fn record_sample(
     host.self_metrics.publish_status(snapshot.clone());
 
     // PRIMARY sink: JSONL on disk under the node home. If LastDB is down or
-    // SelfMetricSample mutations fail (atom-missing, timeout), we still keep
+    // SelfMetricSample mutations fail (record-missing, timeout), we still keep
     // a reviewable trail. Tom 2026-07-19: prefer log over LastDB for heartbeats.
     let log_path = self_metrics_log_path(&host.home);
     append_self_metrics_log_line(&log_path, &snapshot)?;

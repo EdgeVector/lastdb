@@ -259,7 +259,7 @@ pub(super) async fn materialize_nonempty(
     )
     .await
     .map_err(|e| error_json(400, &format!("materialize slice failed: {e}"), ctx))?;
-    if payload.molecules.is_empty() {
+    if payload.field_keys.is_empty() {
         return Err(error_json(
             400,
             "delivery snapshot has no matching records",

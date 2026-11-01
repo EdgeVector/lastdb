@@ -4,7 +4,7 @@ name = "lastdb_model"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-description = "LastDB data models: atoms, molecules, schemas, keys and mutations. No clock, no I/O, no ambient state."
+description = "LastDB data models: records, field keys, schemas, keys and mutations. No clock, no I/O, no ambient state."
 
 # Pure dependencies only. The model reads no clock, makes no random id, opens
 # no file or socket and keeps no process state. `scripts/ci/model-purity-lint.sh`

@@ -22,7 +22,7 @@ Treat the primary as nonempty; the reset notice does not authorize a reset or da
 
 [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge after CI confirmed its extra suffix leakage.
 The replacement source uses independent 128-bit CLWW output blocks and excludes the PRF maximum before bit addition.
-It also supplies scoped molecule grants and authenticated original-range protection.
+It also supplies scoped field key grants and authenticated original-range protection.
 Those APIs remain disconnected from the serving format.
 Tom explicitly approved the single CI-only crypto proof: "Allow this CI-only exception".
 [PR 371](https://github.com/EdgeVector/lastdb/pull/371) merged after the proof, required CI, and benchmark completion passed.
@@ -32,7 +32,7 @@ Other tests remain retired. Native activation remains gated.
 After adoption:
 
 - The same private identity seed derives a separate range encryption key.
-- Each molecule, epoch, and blinded hash has its own ordered range terms.
+- Each field key, epoch, and blinded hash has its own ordered range terms.
 - Exact reads and range reads use those terms on disk or in optional memory data.
 - Each tip retains its original range under separate authenticated encryption.
 - Hash blinding, run-file block encryption, and file blob encryption retain their current purposes.
@@ -74,9 +74,9 @@ Reserve the final logical format number against accepted main, including concurr
 ### B. Connect the native product
 
 Use the existing identity seed inside the product; do not replace or export it.
-Derive the range root with its separate purpose, then derive molecule, epoch, and blinded-hash keys.
+Derive the range root with its separate purpose, then derive field key, epoch, and blinded-hash keys.
 Keep the existing hash and content key purposes separate.
-Define access to an existing shared molecule before that molecule can enter the new format.
+Define access to an existing shared field key before that field key can enter the new format.
 Do not derive its owner key from a recipient's unrelated private seed.
 Either deliver the authorized scoped key grant or refuse that conversion explicitly.
 
@@ -100,7 +100,7 @@ Validate each recovered range against its source key.
 Refuse unknown formats, invalid source records, missing keys, and inconsistent embedded references.
 
 Rewrite all affected range identities, including tips, generation records, delete barriers, conflicts, and retained control values.
-Preserve atom identities, atom content, counts, write-order facts, and the selected generation's precedence.
+Preserve record identities, field value, counts, write-order facts, and the selected generation's precedence.
 Store protected original ranges in the new representation.
 Do not mix old and new terms in one ordered stream.
 Do not use a legacy term as an online fallback.

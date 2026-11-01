@@ -1,7 +1,7 @@
 //! Owner-facing DB inventory, storage reports and logical repair.
 
 use crate::db_operations::{
-    AtomDeleteLedgerEntry, DbInventory, SchemaRecordKey, SchemaRecordKeysReport,
+    DbInventory, RecordDeleteLedgerEntry, SchemaRecordKey, SchemaRecordKeysReport,
     SchemaStorageReport, LIVE_ATTRIBUTION_EPOCH_ID,
 };
 use crate::error::FoldDbError;

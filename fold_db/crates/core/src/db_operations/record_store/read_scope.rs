@@ -1,4 +1,4 @@
-//! One complete memory and disk boundary for a read of the atom store.
+//! One complete memory and disk boundary for a read of the record store.
 
 use super::RecordStore;
 use crate::schema::SchemaError;
@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 impl RecordStore {
     /// Run `future` inside one pack read scope of this store, when the store
     /// has a disk pack. Every read inside sees the same memory and disk state.
-    pub(in crate::db_operations::record_store) async fn atom_read_scope<T>(
+    pub(in crate::db_operations::record_store) async fn record_read_scope<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {

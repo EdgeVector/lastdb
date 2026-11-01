@@ -10,7 +10,7 @@ pub struct FieldValue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub molecule_uuid: Option<String>,
+    pub field_key_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writer_pubkey: Option<String>,
     /// Nanoseconds since the Unix epoch of the field stamp.

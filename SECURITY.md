@@ -20,7 +20,7 @@ list, and target architecture live in
 
 Current state, abbreviated (2026-06-10):
 
-- Atom content (`main`), derived metadata, and uploaded file blobs are
+- Field value (`main`), derived metadata, and uploaded file blobs are
   AES-256-GCM encrypted at rest.
 - Node identity, credentials, and API keys are encrypted under an
   OS-keychain master key in desktop (`os-keychain`) builds; headless

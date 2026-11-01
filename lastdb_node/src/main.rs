@@ -48,15 +48,15 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
         "uds worker pool enabled (LASTDB_UDS_WORKERS / LASTDB_UDS_QUEUE)"
     );
     // Peer write fence: the size of one field value in a peer record
-    // (default 256 KiB). The structured field keeps its `max_atom_content_bytes`
+    // (default 256 KiB). The structured field keeps its `max_field_value_bytes`
     // name: the private diagnostics log allowlists it by that name.
-    // Docs: fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md
+    // Docs: fold_db/docs/FIELD_VALUE_SIZE_LIMIT.md
     tracing::info!(
-        max_atom_content_bytes = fold_db::content_limit::max_atom_content_bytes(),
-        default = fold_db::content_limit::DEFAULT_MAX_ATOM_CONTENT_BYTES,
-        absolute_max = fold_db::content_limit::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
-        env = fold_db::content_limit::MAX_ATOM_CONTENT_BYTES_ENV,
-        "peer field value size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
+        max_field_value_bytes = fold_db::content_limit::max_field_value_bytes(),
+        default = fold_db::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES,
+        absolute_max = fold_db::content_limit::ABSOLUTE_MAX_FIELD_VALUE_BYTES,
+        env = fold_db::content_limit::MAX_FIELD_VALUE_BYTES_ENV,
+        "peer field value size limit (LASTDB_MAX_FIELD_VALUE_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
     );
 }
 

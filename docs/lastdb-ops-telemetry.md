@@ -15,7 +15,7 @@ This work does not access historical reports on Tom's machine.
 Historical reports and captured logs can contain raw details. Their inventory and cleanup require separate confirmation.
 
 New daemon tracing output uses a timestamp, severity, and a fixed category.
-Its only numeric event fields are `workers`, `queue_capacity`, `max_atom_content_bytes`, `default`, and `absolute_max`.
+Its only numeric event fields are `workers`, `queue_capacity`, `max_field_value_bytes`, `default`, and `absolute_max`.
 Only the daemon main target can emit these numeric fields.
 It drops free-text messages, errors, other event fields, and span context before stderr output.
 New terminal daemon errors use the fixed `daemon_failed` marker and retain exit status 1.

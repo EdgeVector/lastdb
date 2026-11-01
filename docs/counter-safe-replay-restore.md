@@ -1,8 +1,7 @@
 # Counter safety during restore
 
-> **Model note (2026-11-01).** This page was written for the molecule model. Since home
-> format 7 (the record model) a schema stores one record per primary key, and field
-> molecules, tips and atoms do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model. Since home
+> format 7 (the record model) a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 Normal writes change records and counts in one native batch.
@@ -34,16 +33,16 @@ Keep an incomplete restore under a program that supports this validation marker.
 
 Validation discovers scopes from raw keys and reads their values through the correct encryption reader.
 It refuses a restored record that does not read back through that reader.
-It checks atom references, body/counter pairs, molecule counts, bindings, retained conflicts, and file holds.
+It checks record references, body/counter pairs, field key counts, bindings, retained conflicts, and file holds.
 It counts file references across every restored scope before it compares the global file counts.
 The logical namespace reader also checks that each referenced file exists.
 It changes no count.
 The pending marker goes only after complete validation and a durable barrier.
 
 The existing verifier has bounded totals.
-If atoms, molecules, or retained-record identities exceed those totals, restore refuses incomplete validation.
+If records, field keys, or retained-record identities exceed those totals, restore refuses incomplete validation.
 A zero-fault partial result cannot authorize cleanup.
-Missing or malformed molecule count fields remain unknown.
+Missing or malformed field key count fields remain unknown.
 
 Normal writes need one memory flag check for this restore guard.
 They do not recount other keys.

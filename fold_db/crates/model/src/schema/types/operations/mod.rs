@@ -6,7 +6,7 @@ use serde_json::Value;
 /// Numeric comparison filters for field values.
 ///
 /// These filters compare current field values independently of the projection,
-/// unlike `HashRangeFilter` which selects molecule keys. Multiple filters are
+/// unlike `HashRangeFilter` which selects field keys. Multiple filters are
 /// AND'd before ordering and `predicate_limit`. Missing values remain accepted;
 /// a concrete non-numeric value fails its comparison.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -160,8 +160,8 @@ pub struct Query {
     /// only on a keyed query with no post-key filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
-    /// When `false` (default), tombstone atoms — see
-    /// [`crate::tombstone`] — are filtered out at the molecule
+    /// When `false` (default), tombstone records — see
+    /// [`crate::tombstone`] — are filtered out at the field key
     /// resolution boundary. Set to `true` only for the historical
     /// population; live `Delete` does not mint these.
     #[serde(default)]
@@ -246,7 +246,7 @@ pub enum MutationType {
     Create,
     Update,
     /// User-facing hard delete. "Delete means gone": same erasure path as
-    /// [`Self::Purge`] (no per-field tombstone atoms). Missing target is
+    /// [`Self::Purge`] (no per-field tombstone records). Missing target is
     /// an idempotent success unless the request sets `must_exist: true`
     /// (loud miss). Legacy tombstones on disk remain filtered by
     /// `include_tombstones = false` readers; see

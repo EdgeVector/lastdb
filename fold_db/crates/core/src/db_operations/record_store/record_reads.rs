@@ -212,7 +212,7 @@ impl RecordStore {
         let space = record_space_uuid(&schema.name);
         let base = match hash {
             Some(hash) => {
-                let codec = self.key_codec_for_molecule(&space)?;
+                let codec = self.key_codec_for_field_key(&space)?;
                 record_hash_prefix(
                     &space,
                     &codec.storage_hash(&space, hash).map_err(codec_error)?,
@@ -261,7 +261,7 @@ impl RecordStore {
     /// more follow, the answer is `true`: the callers guard against data
     /// loss, so an unproven absence must not read as an empty schema.
     pub async fn schema_may_hold_records(&self, schema: &Schema) -> Result<bool, SchemaError> {
-        self.atom_read_scope(async {
+        self.record_read_scope(async {
             let prefix = space_prefix(schema);
             let end = FilterUtils::create_prefix_end(&prefix)?;
             let rows = self

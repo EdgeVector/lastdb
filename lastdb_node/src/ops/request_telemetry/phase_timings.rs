@@ -119,9 +119,9 @@ phase_timings! {
         /// unattributed remainder, so an `apply`/unphased drop at that boundary
         /// is the split, not a regression cured.
         purge_commit_us => "purge_commit",
-        /// Mutation, purge side: materializing every field molecule of the schema
+        /// Mutation, purge side: materializing every field key of the schema
         /// before the trace and the guards read it. Sized by the schema
-        /// (`fields x molecule cardinality`), not by the records being removed —
+        /// (`fields x field key cardinality`), not by the records being removed —
         /// a one-record purge of a wide, high-cardinality schema pays the same as
         /// a thousand-record one. Large here is a read-width problem, and the
         /// unlocked probe already shows what narrowing it is worth.
@@ -130,12 +130,12 @@ phase_timings! {
         /// legacy `history:` events per field plus the `tv:` chain walk per target
         /// key. On a store with no legacy rows this is chain depth alone.
         purge_trace_us => "purge_trace",
-        /// Mutation, purge side: the two preserve sets (retained chain atoms and
-        /// live atom uuids) that keep a batch from deleting a live sibling. Both
+        /// Mutation, purge side: the two preserve sets (retained chain records and
+        /// live record uuids) that keep a batch from deleting a live sibling. Both
         /// `O(fields x records)`. A guard, so the fix is to make it cheaper, never
         /// to drop it.
         purge_retention_guard_us => "purge_retention_guard",
-        /// Mutation, purge side: the durable removal — per-field molecule-key
+        /// Mutation, purge side: the durable removal — per-field field-key
         /// removal, file-pointer accounting reads, and the single `batch_delete`.
         /// The only purge phase that should scale with RECORDS PURGED rather than
         /// with schema size.
@@ -143,7 +143,7 @@ phase_timings! {
         /// Mutation, purge side: schema re-store, schema-cache reload, flush and
         /// delete-ledger commit inside the guarded purge critical section.
         purge_finalize_us => "purge_finalize",
-        /// Mutation: time blocked acquiring the Phase 3 per-`(molecule, hash)`
+        /// Mutation: time blocked acquiring the Phase 3 per-`(field key, hash)`
         /// write gate, held across the rest of the write including the deferred
         /// durable persist.
         ///
@@ -153,7 +153,7 @@ phase_timings! {
         /// for rollup readers — before this split, this gate's time was included
         /// in `lock_wait_us`, so a `lock_wait` drop at the upgrade boundary is
         /// the split, not a regression cured.
-        molecule_gate_us => "molecule_gate",
+        field_key_gate_us => "field_key_gate",
         /// Mutation: persisted-head reads verifying CAS expectations while the
         /// batch holds those locks. Storage IO; split from `lock_wait_us`
         /// because contention and read cost have opposite fixes.
@@ -168,11 +168,11 @@ phase_timings! {
         /// sub-steps to decide what to fix.
         hydrate_us => "hydrate",
         /// Query: the executor call — key-index resolution, window push-down and
-        /// atom-body materialization. The only hydrate sub-step that touches
+        /// record-body materialization. The only hydrate sub-step that touches
         /// storage.
-        hydrate_atoms_us => "hydrate_atoms",
+        hydrate_records_us => "hydrate_records",
         /// Query: response-envelope build, `O(rows x fields)` and storage-free.
-        /// Large here with `hydrate_atoms` small means the read is cheap and the
+        /// Large here with `hydrate_records` small means the read is cheap and the
         /// rendering is not.
         hydrate_format_us => "hydrate_format",
         /// Query: the deterministic total-order sort that makes offset/limit
@@ -188,8 +188,8 @@ phase_timings! {
         /// time, not a sum of named steps. See
         /// `fold_db::request_phases::RequestPhase::Apply`.
         apply_us => "apply",
-        /// Mutation: the in-memory apply loop itself — walking the batch's atom
-        /// results onto the resident molecules. Sized by the molecules touched
+        /// Mutation: the in-memory apply loop itself — walking the batch's record
+        /// results onto the resident field keys. Sized by the field keys touched
         /// rather than by the rows written, so read this first when one schema's
         /// `apply` cost is orders of magnitude above another's on the same node.
         apply_memory_us => "apply_memory",
@@ -203,25 +203,25 @@ phase_timings! {
         idempotency_check_us => "idempotency_check",
         /// Mutation: grouping the batch's mutations by schema.
         grouping_us => "grouping",
-        /// Mutation: restoring molecules missing from the resident graph for the
+        /// Mutation: restoring field keys missing from the resident graph for the
         /// keys this batch touches. Storage IO.
-        restore_molecules_us => "restore_molecules",
+        restore_field_keys_us => "restore_field_keys",
         /// Mutation: spawning the background index-mutation task (the spawn call
         /// itself, not the off-task indexing work).
         spawn_indexing_us => "spawn_indexing",
-        /// Mutation: syncing in-memory molecule UUIDs onto the schema before it
+        /// Mutation: syncing in-memory field key UUIDs onto the schema before it
         /// is stored/reloaded.
         sync_uuids_us => "sync_uuids",
         /// Mutation: schema reload back into the schema manager after a write.
         schema_reload_us => "schema_reload",
         /// Durable persist of the applied write, as a residual: the durable-store
         /// time not attributed to one of the three named sub-steps below. In
-        /// practice the atom batch store.
+        /// practice the record batch store.
         persist_us => "persist",
-        /// Mutation: the molecule batch store. Sized by molecule cardinality, not
-        /// by the write, so a schema whose molecules hold tens of thousands of
+        /// Mutation: the field key batch store. Sized by field key cardinality, not
+        /// by the write, so a schema whose field keys hold tens of thousands of
         /// keys pays here on every mutation.
-        persist_molecules_us => "persist_molecules",
+        persist_field_keys_us => "persist_field_keys",
         /// Mutation: persisting the schema after a write. Near zero once the
         /// catalog's skip-if-unchanged path applies.
         persist_schema_us => "persist_schema",
@@ -241,7 +241,7 @@ phase_timings! {
         change_record_us => "change_record",
         /// Mutation: time blocked acquiring the change-feed's single global `tip`
         /// mutex — the one lock on the node not scoped to a schema, key, or
-        /// molecule. Every successful mutation passes through it, so a large
+        /// field key. Every successful mutation passes through it, so a large
         /// value here is every writer on the node queueing behind every other
         /// one, not a same-key or same-schema peer.
         change_record_lock_wait_us => "change_record_lock_wait",

@@ -13,9 +13,9 @@
 //!   of its rows by key to set `has_conflicts`, and a selected read goes from
 //!   a marker to its rows by key.
 //! - A queue entry and the directory row of its bucket in the retention queue
-//!   (`retention`), as for the conflict records of the molecule path. At the
+//!   (`retention`), as for the conflict records of the field key path. At the
 //!   end of the window the janitor deletes the row, and the marker when no
-//!   entry of it is left. A row holds no atom or file blob reference.
+//!   entry of it is left. A row holds no record or file blob reference.
 
 mod purge;
 mod read;

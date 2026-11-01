@@ -108,14 +108,14 @@ pub fn verify_replayed(
     {
         return Err(invalid("mutation replay exact final frontier"));
     }
-    let atoms = verify_readers_for_profile(
+    let records = verify_readers_for_profile(
         &native.main,
         &native.cas,
         key,
         scratch,
         native.profile.version,
     )?;
-    let guard = RunRestoreGuard { native, atoms };
+    let guard = RunRestoreGuard { native, records };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }

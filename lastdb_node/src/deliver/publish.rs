@@ -42,7 +42,7 @@ pub async fn execute_publish_snapshot(
 
     let record_count = {
         let mut seen: HashSet<(String, String)> = HashSet::new();
-        for mol in &payload.molecules {
+        for mol in &payload.field_keys {
             seen.insert((mol.schema_name.clone(), mol.record_key.clone()));
         }
         seen.len()

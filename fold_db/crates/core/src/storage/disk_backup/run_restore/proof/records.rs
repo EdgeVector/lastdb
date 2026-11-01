@@ -1,12 +1,12 @@
 //! The file dependencies of the records of a format 7 home.
 //!
-//! A record has no atom body and no `fdep` directory row. Each field value
-//! that holds a file pointer names its blobs, and the proof copies and opens
-//! each one from the authenticated CAS run, as it does for an atom. A field
-//! history entry (`rh:`) holds a copy of one old value, and the proof checks
-//! the blobs of that copy the same way.
+//! A record has no separate body row and no `fdep` directory row. Each field
+//! value that holds a file pointer names its blobs. The proof copies and opens
+//! each blob from the authenticated CAS run. A field history entry (`rh:`)
+//! holds a copy of one old value, and the proof checks the blobs of that copy
+//! the same way.
 use super::{files, invalid, rows::Rows, Proof, StorageResult};
-use crate::records::atom_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
+use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
 use crate::storage::disk_pack::native_routing;
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
@@ -15,10 +15,9 @@ use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
 /// its stamp, schema, field and keys.
 const MAX_HISTORY_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4 * 1024;
 
-/// Prove every record and record history entry of the tips namespace. A
-/// field molecule row (`mk:`, `mgr:`) or a `history` archive row comes from a
-/// format 6 home and can name a file the proof does not follow, so this
-/// release refuses it. Other rows name no file.
+/// Prove every record and record history entry of the tips namespace.
+/// A row that is not a record must still pass the current key law.
+/// A retired prefix fails that law. Other rows name no file.
 pub(super) fn verify_tips(proof: &Proof<'_>) -> StorageResult<()> {
     let mut read = super::rows::read(proof.main, proof.key_heads)?;
     let mut rows = Rows::new(proof.main, read.as_mut(), "tips")?;
@@ -36,14 +35,9 @@ fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<()> {
     let Ok(bare) = crate::storage::current_keys::source_key(raw) else {
         return Ok(());
     };
-    if bare.starts_with("mk:")
-        || bare.starts_with("mgr:")
-        || lastdb_model::kind_partition::rest_of(bare, "history").is_some()
-    {
-        return Err(invalid("run backup holds a format 6 field molecule row"));
-    }
     let history = bare.starts_with(RECORD_HISTORY_PREFIX);
     if !history && !bare.starts_with(RECORD_PREFIX) {
+        crate::storage::current_keys::validate("main", raw.as_bytes())?;
         return Ok(());
     }
     crate::storage::current_keys::validate("main", raw.as_bytes())?;

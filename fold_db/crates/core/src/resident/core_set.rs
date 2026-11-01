@@ -35,7 +35,7 @@ impl std::fmt::Display for CoreCapacity {
 
 impl std::error::Error for CoreCapacity {}
 
-/// The path, tip and molecule counts stay in the status reply. A
+/// The path, tip and field key counts stay in the status reply. A
 /// format 7 home keeps no field paths, so they are always 0.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub(crate) struct CoreWarmStats {
@@ -43,7 +43,7 @@ pub(crate) struct CoreWarmStats {
     /// Decoded records of a format 7 home.
     pub(crate) records: usize,
     pub(crate) tip_only_paths: usize,
-    pub(crate) molecules: usize,
+    pub(crate) field_keys: usize,
     pub(crate) held: usize,
     pub(crate) dirty: usize,
     pub(crate) hits: u64,
@@ -71,7 +71,7 @@ impl CoreWarmSet {
             paths: 0,
             records: self.records.len(),
             tip_only_paths: 0,
-            molecules: 0,
+            field_keys: 0,
             held: self.records.held(),
             dirty: 0,
             hits: self.hits,

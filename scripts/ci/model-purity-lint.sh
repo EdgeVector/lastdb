@@ -2,7 +2,7 @@
 # Model purity lint: `lastdb_model` holds data and pure functions only.
 #
 # The model crate (fold_db/crates/model) is the bottom of the LastDB core:
-# atoms, molecules, schemas, keys and mutations. Core (`fold_db`) owns the
+# records, field keys, schemas, keys and mutations. Core (`fold_db`) owns the
 # behavior over them. This lint fails when the model source names a behavior
 # marker, or when its manifest lists a dependency outside the pure allowlist.
 #

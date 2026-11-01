@@ -11,15 +11,15 @@ The client loads and decrypts the required range keys before it serves reads for
 It builds ordinary local B-trees and asks the cloud for data by opaque key identifiers.
 This design removes the need for OPE or ORE on that read path.
 
-## Gap: per-atom content encryption
+## Gap: per-record content encryption
 
-This design assumed per-atom content encryption.
+This design assumed per-record content encryption.
 Disk format v2 removed it.
 Tom approved compact plain values on 2026-10-24 (workspace disk size plan, section 9.6).
-A disk format v2 atom row is plain JSON inside an AES-256-GCM run-file block.
-Block encryption does not protect one atom that the cloud sends to a browser.
-The cloud and browser path must add its own atom encryption before this design can ship.
-In this document, "encrypted atom" and "atom content key" name that required addition, not current code.
+A disk format v2 record row is plain JSON inside an AES-256-GCM run-file block.
+Block encryption does not protect one record that the cloud sends to a browser.
+The cloud and browser path must add its own record encryption before this design can ship.
+In this document, "encrypted record" and "field value key" name that required addition, not current code.
 
 ## Current state
 
@@ -45,7 +45,7 @@ Hash-only schemas retain direct reads without a complete range-key load.
 Writes alone do not require a preload.
 
 A key directory contains range values, opaque key identifiers, and essential membership facts.
-It does not contain all tips, atom contents, or file bytes.
+It does not contain all tips, record contents, or file bytes.
 The directory covers the existing authoritative membership sources for the schema.
 It preserves field-source precedence and record visibility rules.
 
@@ -67,22 +67,22 @@ flowchart TD
     A[Cloud encrypted key directory] --> B[Client verifies and decrypts keys]
     B --> C[Local B-trees under each hash]
     C --> D[Client selects opaque key identifiers]
-    D --> E[Cloud resolves tips and returns encrypted atoms]
+    D --> E[Cloud resolves tips and returns encrypted records]
     E --> F[Client decrypts requested content]
 ```
 
 1. The client authenticates to the cloud and selects a schema within its permitted scope.
-2. Its private key unlocks the required molecule key bundles locally.
+2. Its private key unlocks the required field key bundles locally.
 3. It selects one published directory revision and fetches its complete encrypted chunks in bounded batches.
 4. It verifies those chunks and builds the local trees before it marks the schema ready.
 5. A query names one hash and selects ranges from the local tree under that hash.
 6. The client sends the selected opaque key identifiers in one batch.
 7. The cloud checks permissions and resolves the current tips for the selected revision.
-8. The cloud returns the required encrypted atoms, which the client verifies and decrypts. This step needs the per-atom encryption that the gap section names.
+8. The cloud returns the required encrypted records, which the client verifies and decrypts. This step needs the per-record encryption that the gap section names.
 9. An explicit file request fetches only its referenced encrypted file blob.
 
 The browser needs no local daemon or full database restore.
-Its initial download contains the schema's required keys, rather than every atom or file blob.
+Its initial download contains the schema's required keys, rather than every record or file blob.
 Exact reads after readiness use the same opaque identifiers without another complete key load.
 
 The client cannot use an incomplete key directory to claim that a key is absent.
@@ -93,22 +93,22 @@ Include original hash values inside encrypted directory entries only where the A
 
 | Part | Stored form | Purpose |
 |---|---|---|
-| Schema and molecule | Required definitions and opaque or public identities | Select the correct authorized key directory |
+| Schema and field key | Required definitions and opaque or public identities | Select the correct authorized key directory |
 | Hash | Existing blinded token | Route exact requests without the original hash value |
 | Range value | Ordinary authenticated encryption inside directory chunks | Let the client recover and order range values |
 | Range lookup | Stable opaque token | Find a tip without a range comparison |
-| Tip | Atom reference and required revision facts | Resolve the selected key to its atom |
-| Atom content | Local disk: plain JSON inside an encrypted run-file block, with no per-atom seal. Cloud read path: per-atom encryption that this design must add (see the gap section) | Protect the requested field data |
+| Tip | Record reference and required revision facts | Resolve the selected key to its record |
+| Field value | Local disk: plain JSON inside an encrypted run-file block, with no per-record seal. Cloud read path: per-record encryption that this design must add (see the gap section) | Protect the requested field data |
 | File blob | Existing file encryption | Protect referenced file bytes |
-| Molecule keys | Explicit encrypted key bundle | Grant access to the required data |
+| Field keys | Explicit encrypted key bundle | Grant access to the required data |
 
 Use the same opaque key identifier for an unchanged logical key across ordinary value updates.
-Do not use an atom identity as that identifier: a new value can change the atom without a key change.
+Do not use a record identity as that identifier: a new value can change the record without a key change.
 A key move changes the lookup identifier and directory membership together.
 
 A keyed hash can produce the range lookup token from the exact range bytes and the key's scope.
-The input must bind the format version, molecule, key epoch, and blinded hash with unambiguous lengths.
-Use a separate purpose key from the required atom content encryption and hash blinding.
+The input must bind the format version, field key, key epoch, and blinded hash with unambiguous lengths.
+Use a separate purpose key from the required field value encryption and hash blinding.
 The final token size and collision rule remain implementation decisions.
 An opaque token supplies an address; the cloud still checks access permission.
 
@@ -127,11 +127,11 @@ No order-preserving encryption or ciphertext-prefix property enters the new form
 
 The cloud sees the identities, tokens, revision facts, sizes, and file locations required for authorized reads.
 It can observe repeated identifiers, requests, upload times, and shared access relationships.
-It does not need plaintext ranges, atom contents, filenames, or private descriptive metadata.
+It does not need plaintext ranges, record contents, filenames, or private descriptive metadata.
 Put sensitive descriptive metadata inside the appropriate encrypted value.
 
 Readable navigation metadata still requires integrity protection.
-The client verifies the connection between each requested key, selected tip, atom, and revision.
+The client verifies the connection between each requested key, selected tip, record, and revision.
 Signed records or authenticated manifest proofs can supply that protection without a secret key on the server.
 The exact proof format belongs to the revision protocol.
 
@@ -151,7 +151,7 @@ An opaque whole-file backup alone does not supply this query service.
 
 ## Complete directories and current reads
 
-A schema can reference several membership molecules, including shared fields and record-envelope membership.
+A schema can reference several membership field keys, including shared fields and record-envelope membership.
 Readiness requires every source that the query can select under the existing membership contract.
 Do not combine unrelated field keys into a new record-existence rule.
 Compatible copied schemas can share a complete directory; named alternate address layouts remain distinct.
@@ -162,9 +162,9 @@ The client verifies all listed chunks, their contents, and the final counts befo
 Missing, extra, duplicate, or incompatible entries prevent readiness.
 
 Directory membership and tip reads must describe one coherent published revision.
-An insert becomes visible only with its directory entry, tip, and required encrypted atom.
+An insert becomes visible only with its directory entry, tip, and required encrypted record.
 A delete or key move changes membership and tip visibility at the same boundary.
-A value-only update keeps membership and changes the selected atom at that boundary.
+A value-only update keeps membership and changes the selected record at that boundary.
 
 Writers upload required encrypted objects before they publish a new cloud revision.
 The cloud publication rule prevents concurrent writers from replacing a newer revision without conflict resolution.
@@ -191,7 +191,7 @@ Fetch and decrypt bounded chunks without a complete second copy of the directory
 Use one shared load per compatible domain and bound its lifetime and temporary work.
 
 The complete key allowance remains separate from the 10,000-record warm set.
-Atom and tip fetches continue to use that warm set.
+Record and tip fetches continue to use that warm set.
 A used schema does not fetch every field value or file blob.
 
 | State | Read behavior |
@@ -214,13 +214,13 @@ Neither alternative forms part of this initial design.
 
 ## Shared data and keys
 
-Directory encryption follows the existing molecule access boundaries.
-A schema directory is a view of the authorized molecule directories, rather than one account-only key for all fields.
-A share grants the required molecule keys without a whole-pack key or a separate copy of each encrypted atom.
-File access continues through the encrypted atom's file reference and file key.
+Directory encryption follows the existing field key access boundaries.
+A schema directory is a view of the authorized field key directories, rather than one account-only key for all fields.
+A share grants the required field keys without a whole-pack key or a separate copy of each encrypted record.
+File access continues through the encrypted record's file reference and file key.
 
-Keep distinct key purposes for the required atom content encryption, hash tokens, directory encryption, and range lookup tokens.
-Private identity keys and unwrapped molecule keys stay with authorized clients.
+Keep distinct key purposes for the required field value encryption, hash tokens, directory encryption, and range lookup tokens.
+Private identity keys and unwrapped field keys stay with authorized clients.
 Directory manifests, cloud metadata, and ordinary logs contain no plaintext secret keys.
 Key rotation changes the relevant epoch and directory compatibility facts.
 It cannot remove plaintext or keys that a former recipient already obtained.
@@ -237,13 +237,13 @@ They cannot be removed safely through a change to the range codec alone.
 | Ordinary encryption replaces OPE and ORE | First use loads all required schema keys |
 | Plaintext ranges stay on authorized clients | Client memory grows with the complete key set |
 | Prefix and range selection use normal local byte order | The cloud cannot independently select a plaintext range |
-| Atoms and file blobs remain available on demand | The cloud needs a logical read service beyond byte backup |
+| Records and file blobs remain available on demand | The cloud needs a logical read service beyond byte backup |
 | Shared encrypted content can retain one copy | Directory publication and permissions must preserve the same access boundaries |
 
 The initial work grows with all required schema keys, including hashes absent from the first query.
 After readiness, a range seek depends on keys under its named hash, plus the candidates and results it visits.
 Exact reads use known opaque identifiers; batch reads collect their identifiers before one batch request.
-Value filters can require additional atom fetches under the existing rules.
+Value filters can require additional record fetches under the existing rules.
 This design does not add a public query without a hash.
 
 ## Compatibility and implementation sequence
@@ -271,7 +271,7 @@ Keep raw output outside Git and link the CI summary and artifacts for any implem
 ## Open decisions
 
 - Exact directory chunk format, maximum key size, token size, and browser memory allowance.
-- The common publication boundary for directory membership, tips, atoms, and shared writers.
+- The common publication boundary for directory membership, tips, records, and shared writers.
 - Integrity proofs for readable tip references and file locations.
 - A trusted current-head source for a fresh browser and a rule for old valid revisions.
 - Whether cloud reads use individual objects, pack byte ranges, or a logical service over both.
@@ -281,7 +281,7 @@ Keep raw output outside Git and link the CI summary and artifacts for any implem
 
 ## Design references
 
-- [LastDB canonical model](../lastdb-canonical-model.md) defines schemas, molecules, tips, atoms, files, and shared fields.
+- [LastDB canonical model](../lastdb-canonical-model.md) defines schemas, field keys, tips, records, files, and shared fields.
 - [Current preload design](../lastdb-schema-range-preload-design.md) defines existing readiness, membership sources, and memory limits.
 - [Access complexity requirements](../lastdb-access-complexity-requirements.md) separate first use from subsequent keyed queries.
 - [Native element encryption](native-element-encryption-v1.md) describes the current wrapper proposal and existing file encryption.

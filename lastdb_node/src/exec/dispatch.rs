@@ -110,8 +110,8 @@ where
         rows,
         body_bytes,
         phases: phase_timings(queue_wait_us, &phase_totals),
-        molecules_persisted: work_counts.molecules_persisted,
-        molecule_store_commits: work_counts.molecule_store_commits,
+        field_keys_persisted: work_counts.field_keys_persisted,
+        field_key_store_commits: work_counts.field_key_store_commits,
         resident_commits: work_counts.resident_commits,
         resident_operations: work_counts.resident_operations,
         uds_in_flight: uds_snapshot.map(|snap| snap.in_flight),
@@ -234,7 +234,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::NativeIndexSearch | DataRoute::SearchAppQuery | DataRoute::AppSearch => {
             OpKind::Search
         }
-        DataRoute::AtomHistory | DataRoute::AppChanges => OpKind::History,
+        DataRoute::FieldHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.

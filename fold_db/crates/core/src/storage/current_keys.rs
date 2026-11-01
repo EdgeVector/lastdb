@@ -30,16 +30,8 @@ const CURRENT_FAMILIES: &[&str] = &[
     "dellog", "layout", "idem",
 ];
 
-/// Key families of a format 6 or older home. [`source_key`] still names them,
-/// so that a scope parse stops at them, and [`validate`] refuses them.
-///
-/// Format 6: atom bodies and counters (`atom`), field molecule tips (`mk`),
-/// molecule headers (`mh`), generations (`mgp`, `mgr`, `mgd`), delete
-/// barriers (`rdel`), binding edges and drain candidates (`mref`), atom file
-/// dependencies (`fdep`), conflict caches (`mcc`, `hcu`), history and
-/// conflict archive rows (`history`, `conflict`), the slot directory of kept
-/// conflict records (`crs`), the field index of atom history (`ahf`) and the
-/// schema markers (`schemaidx`). The rest retired before format 6.
+/// Retired key prefixes. [`source_key`] still names them, so that a scope
+/// parse stops at them, and [`validate`] refuses them.
 const RETIRED_FAMILIES: &[&str] = &[
     "atom",
     "mk",
@@ -172,10 +164,10 @@ fn digits(text: &str, width: usize) -> bool {
 }
 
 fn validate_record(rest: &str) -> StorageResult<()> {
-    let (molecule, suffix) = rest
+    let (field_key, suffix) = rest
         .split_once(':')
-        .ok_or_else(|| unsupported("invalid molecule key"))?;
-    validate_molecule(molecule)?;
+        .ok_or_else(|| unsupported("invalid field key"))?;
+    validate_field_key(field_key)?;
     validate_suffix(suffix)
 }
 
@@ -185,7 +177,7 @@ fn validate_record(rest: &str) -> StorageResult<()> {
 fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<()> {
     let mut parts = rest.split(':');
     let space = parts.next().unwrap_or_default();
-    validate_molecule(space)?;
+    validate_field_key(space)?;
     let digests: Vec<&str> = parts.collect();
     if digests.len() != count || !digests.iter().all(|part| hex_identity(part, 64)) {
         return Err(unsupported(reason));
@@ -194,8 +186,8 @@ fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<
 }
 
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
-    lastdb_model::molecule_key_codec::decode_hash_range_suffix(suffix)
-        .ok_or_else(|| unsupported("retired molecule key layout"))?;
+    lastdb_model::field_key_codec::decode_hash_range_suffix(suffix)
+        .ok_or_else(|| unsupported("retired field key layout"))?;
     Ok(())
 }
 
@@ -207,7 +199,7 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
 }
 
 /// Scope components precede a structural family. The first family owns the
-/// complete remainder, so a hash or atom placement cannot become another scope.
+/// complete remainder, so a hash or record placement cannot become another scope.
 pub(in crate::storage) fn source_key(key: &str) -> StorageResult<&str> {
     let mut bare = fixed_scope(key).unwrap_or(key);
     loop {
@@ -304,9 +296,9 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
     CURRENT_FAMILIES.contains(&family) || RETIRED_FAMILIES.contains(&family)
 }
 
-fn validate_molecule(molecule: &str) -> StorageResult<()> {
-    if !lastdb_model::molecule_uuid::is_canonical_molecule_uuid(molecule) {
-        return Err(unsupported("retired molecule identity spelling"));
+fn validate_field_key(field_key: &str) -> StorageResult<()> {
+    if !lastdb_model::field_key_id::is_canonical_field_key_id(field_key) {
+        return Err(unsupported("retired field key identity spelling"));
     }
     Ok(())
 }

@@ -1,6 +1,6 @@
 //! Background tip regeneration for same-product multi-key schemas.
 //!
-//! Field mappers share **payload** molecules across keyed siblings. Partition
+//! Field mappers share **payload** field keys across keyed siblings. Partition
 //! tips under a new/repaired key layout must still be built by walking source
 //! records and emitting keyed membership rows — async/reindex job class
 //! (preference-schema-expand-same-product-different-keys).

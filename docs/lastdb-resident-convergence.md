@@ -1,13 +1,12 @@
 # Current core memory and historical convergence record
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 Current summary, 2026-10-26: disk format v2 is the sole native engine.
-The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
+The core model owns current schemas, field keys, keys, tips, confirmed absence, and record values.
 The recency list selects logical records for purge without a second set of values.
 The old serving graph, logical cache, mode controls, and alternate write branch are removed.
 
@@ -68,22 +67,22 @@ Disk format v2 has no hash groups, so it no longer exists.
 ## What the graph does that the logical set does not
 
 1. Per-slot `resident_revision` and `durable_revision`. These are the mutation
-   concurrency gate (`mutation_manager/molecules/apply_gate.rs`) and the persist
+   concurrency gate (`mutation_manager/field_keys/apply_gate.rs`) and the persist
    turn order (`wait_for_persist_turn`, `complete_persist_turn`).
 2. Acknowledge-on-apply in `write` mode, with a deferred persist.
 3. Range coverage (`coverage.rs`, `page_coverage.rs`) and the Skip-Delete
    tombstone overlay.
-4. A second copy of tips, atoms and schemas.
+4. A second copy of tips, records and schemas.
 
 Item 4 is the duplicate. Items 1 to 3 are real behavior that must survive.
 
 ## Target
 
-- The logical set is the only cache of tips and atoms.
+- The logical set is the only cache of tips and records.
 - Slot revisions, persist turns, dirty tracking and the deferred acknowledgment
   live in the mutation path and persist lanes, not in a cache.
 - Range coverage and the Skip-Delete tombstones move to the logical set.
-- The graph's tip, atom and schema maps, its byte ledger,
+- The graph's tip, record and schema maps, its byte ledger,
   `LASTDB_RESIDENT_BYTES` and the resident-first read branch are deleted.
 
 ## Why slot revisions cannot move first
@@ -176,7 +175,7 @@ Interpretation:
   invariant, and every step must keep it.
 - `write` mode did not mark anything dirty in this run, and the cause is
   unknown. In `off`, 100 mutations produced 282 new dirty keys, about 2.8 per
-  mutation, because every mutation creates a new atom. A deferred path must
+  mutation, because every mutation creates a new record. A deferred path must
   therefore raise the counter. A flat 0 means one of: the mutations took the
   durable-wait branch (`LASTDB_MUTATION_SYNC_FLUSH`, or `force_durable`), they
   took the write-through branch (defer window disabled, or
@@ -281,17 +280,17 @@ Board schema is a Hash schema. This broke the second fixed constraint (a read
 after an acknowledgment sees the write) for HashRange reads in the mode that
 runs on the primary.
 
-Cause, found by logging the molecule keys in `collect_matches`:
+Cause, found by logging the field keys in `collect_matches`:
 `resident_overlay_for_read` (`db_operations/field_read/refresh.rs`)
-joins the resident dirty keys to the molecule that the read built. It converted
+joins the resident dirty keys to the field key that the read built. It converted
 every dirty key to storage form (blind hash, stored range). The durable load of a
-HashRange field builds that molecule with the API hash for every filter, and
+HashRange field builds that field key with the API hash for every filter, and
 with the API range for a point or multi-get filter (the load remaps it) and the
 storage range for any other filter. So a dirty key never matched the filter
 until the persist lane made it durable and the overlay went away. `HashKey`
 worked because it takes the resident fast path in `resolve_hash_key_fast`.
 
-Fix (step 2c): the overlay now uses the same key form as the molecule it joins.
+Fix (step 2c): the overlay now uses the same key form as the field key it joins.
 It does not change any other behavior.
 
 ## Answers to the open questions, and what step 3 needs (2026-10-12)
@@ -310,11 +309,11 @@ Read from the code at 4bcd264a, with no change made.
   `resident/` name the graph. The read side is `schema/types/field/variant/`
   (`read.rs`, `read/resolve.rs`, `read/refresh.rs`, `read/collect.rs`,
   `partition_window.rs`), `fold_db_core/query/` (`hash_range_query/count.rs`,
-  `secondary.rs`, `query_executor.rs`), `record_molecule/` and `purge/`. The
+  `secondary.rs`, `query_executor.rs`), `record_field_key/` and `purge/`. The
   write side is `mutation_manager/` (the apply gate, `restore.rs`, the CAS
   state readers, the persist jobs, hard erasure and delete winners). Each read
   site has its own rule for when the graph's answer is authoritative (key-set
-  completeness, partition and page coverage tickets, `molecule_has_dirty`).
+  completeness, partition and page coverage tickets, `field_key_has_dirty`).
 - The graph holds API-form keys and the logical set holds raw store rows. The
   same record has two spellings, and step 2c was a bug at that seam.
 
@@ -369,8 +368,8 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
   `docs/lastdb-write-ahead-journal-design.md` (both since deleted) written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
-  (The atom GC reaper and its verb were removed by the counter lifecycle,
-  `docs/lastdb-atom-counter.md`.)
+  (The record GC reaper and its verb were removed by the counter lifecycle,
+  `docs/lastdb-verify-ref.md`.)
 - 2026-10-14, sidecar flush rule: the key sidecar (`keys-v1.idx`) keeps its write
   aside and rename. The forced disk write before the rename now happens only for a
   group of half the cold-load cap or more (1 GiB by default). Proof on fresh

@@ -135,18 +135,18 @@ fn collect_limits(out: &mut Vec<GaugeContractEntry>, l: &LimitsHealth) {
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes",
-        &l.max_atom_content_bytes,
+        "limits.max_field_value_bytes",
+        &l.max_field_value_bytes,
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes_default",
-        &l.max_atom_content_bytes_default,
+        "limits.max_field_value_bytes_default",
+        &l.max_field_value_bytes_default,
     );
     push_gauge(
         out,
-        "limits.max_atom_content_bytes_absolute_max",
-        &l.max_atom_content_bytes_absolute_max,
+        "limits.max_field_value_bytes_absolute_max",
+        &l.max_field_value_bytes_absolute_max,
     );
     push_gauge(out, "limits.max_record_bytes", &l.max_record_bytes);
 }

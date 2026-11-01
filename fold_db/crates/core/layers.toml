@@ -69,14 +69,14 @@ modules = [
 
 [[layer]]
 name = "storage"
-doc = "The store: storage traits and config, the disk pack (files, runs, transactions, restore proofs), current-key rules and key families, the molecule key store, the encrypting stores, and the content key proof."
+doc = "The store: storage traits and config, the disk pack (files, runs, transactions, restore proofs), current-key rules and key families, the field key store, the encrypting stores, and the content key proof."
 modules = [
   "storage",
 ]
 
 [[layer]]
 name = "operations"
-doc = "Typed record stores over the storage layer: the atom store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
+doc = "Typed record stores over the storage layer: the record store, schema store, catalog, ledgers, change feed, field reads, the share store, and the blob CAS."
 modules = [
   "db_operations",
   "sharing::blob_cas",

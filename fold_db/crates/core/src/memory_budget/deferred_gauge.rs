@@ -7,7 +7,7 @@ use super::*;
 ///
 /// The count cap (`LASTDB_RESIDENT_MAX_DEFERRED`) bounds how many tasks may be
 /// in flight; this bounds how much **memory** they hold. Those are different
-/// resources: 512 tasks each holding a 512 KiB atom batch is 256 MiB, and the
+/// resources: 512 tasks each holding a 512 KiB record batch is 256 MiB, and the
 /// same 512 tasks holding one small record each is under a megabyte. The
 /// 2026-07-29 balloon was the first shape passing a cap written for the second.
 #[derive(Debug)]

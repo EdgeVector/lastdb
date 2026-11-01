@@ -2,7 +2,7 @@
 //!
 //! Each active sender's records live in its own `from:{sender}` scope. A read
 //! merges the own scope and the received scopes by key, in that order: at each
-//! key the first scope with a live record gives the whole row, as the molecule
+//! key the first scope with a live record gives the whole row, as the field key
 //! path takes each row from one source. A delete in one scope shows the record
 //! of the next scope. A record names no writer (decision D7), so a received
 //! row does not name its sender.

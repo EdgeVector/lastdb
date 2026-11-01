@@ -24,8 +24,8 @@
 //! computed as the residual of every other named bucket, and
 //! `PhaseTimings::within_wall_us` sums the set to derive the `unattributed=`
 //! remainder every operator surface prints. These four stages overlap phases
-//! that already exist — gate wait IS `molecule_gate_us`, publish IS
-//! `apply_memory_us`, and preparation spans `restore_molecules_us`
+//! that already exist — gate wait IS `field_key_gate_us`, publish IS
+//! `apply_memory_us`, and preparation spans `restore_field_keys_us`
 //! and `schema_load_us`. Adding them as phase buckets would
 //! double-count those microseconds, drive the residual to zero and then
 //! underflow it, and corrupt `unattributed` on every request the node serves —
@@ -120,7 +120,7 @@ impl ResidentCommitOperations {
 /// gate wait and zero publish, which is the true answer rather than a gap.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitStages {
-    /// Delta preparation: restore, atom build, and prepared-revision capture
+    /// Delta preparation: restore, record build, and prepared-revision capture
     /// for every schema in the batch, all of it outside the apply gates.
     pub prepare_us: u64,
     /// Time blocked acquiring the sorted apply gates, summed across the

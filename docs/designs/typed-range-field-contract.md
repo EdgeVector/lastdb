@@ -32,7 +32,7 @@ Startup never rewrites a home.
 
 A schema selects its hash field and range field from its existing fields.
 Each selected field has a declared type in `field_types`.
-The range order is the declared scalar order and its stored molecule profile.
+The range order is the declared scalar order and its stored field key profile.
 The shared type contract includes explicit `Date` and `DateTime` types.
 
 ## Encryption boundary
@@ -47,11 +47,11 @@ Its historical design remains in Git history; it is not an alternate storage for
 | Part | Representation and protection |
 | --- | --- |
 | Memory | Selected keys and values are readable while the node uses them. |
-| Main run blocks | Keys, molecule metadata, atoms, tips, counters, and control values share the existing block encryption. |
+| Main run blocks | Keys, field key metadata, records, tips, counters, and control values share the existing block encryption. |
 | Lookup blocks | The sparse lookup, its first keys, and its filters use encrypted blocks too. |
-| Atom content | Plain logical JSON inside encrypted V2 blocks. No additional atom envelope is required. |
+| Field value | Plain logical JSON inside encrypted V2 blocks. No additional record envelope is required. |
 | Portable files | Existing file ciphertext and access bundles retain their separate portable format. |
-| Cloud backup | The adapter sends the same encrypted native files. It adds no per-atom encryption layer. |
+| Cloud backup | The adapter sends the same encrypted native files. It adds no per-record encryption layer. |
 | Local identity file | The 32-byte seed in `identity.key` is plaintext with owner-only file permissions. |
 
 The writer orders records, compresses each block when useful, then uses AES-256-GCM.
@@ -109,11 +109,11 @@ It also resolves new reference fields before that check, to preserve their exist
 
 ## Comparison context and cursors
 
-Each schema read captures its declared key types, molecule bindings, and actual storage formats.
+Each schema read captures its declared key types, field key bindings, and actual storage formats.
 Object paths, map values, and union branches supply their declared types. Unknown declarations remain `Any`.
 The read keeps this context through memory selection, disk reads, counts, and final response order.
 A nested read refuses a different context.
-Raw molecule and maintenance keys retain an explicit storage comparator.
+Raw field key and maintenance keys retain an explicit storage comparator.
 
 The shared comparison library defines canonical values for the typed profiles:
 
@@ -142,7 +142,7 @@ No context metadata is stored on each key. The cursor identifier adds bytes to a
 Existing enum names, JSON values, and field identities stay unchanged.
 Existing `String` fields retain their type, even when they contain dates.
 No existing schema or Schema.org seed changes type automatically.
-The design adds no second molecule, stored key copy, or ordered lookup.
+The design adds no second field key, stored key copy, or ordered lookup.
 The schema declaration alone carries the type name.
 Older readers cannot accept the new enum variants; they need an upgrade before a new date declaration reaches them.
 
@@ -150,25 +150,25 @@ Older readers cannot accept the new enum variants; they need an upgrade before a
 
 The shared `RangeStorageProfile` enum defines versioned, reversible range formats.
 An explicit call selects a profile from the selected field's declared type.
-The profile describes one molecule. It adds no type tag to each stored key.
-The molecule contract selects the profile for schema admission, queries, and writes.
+The profile describes one field key. It adds no type tag to each stored key.
+The field key contract selects the profile for schema admission, queries, and writes.
 
-`MoleculeRangeProfile` defines the molecule metadata contract.
-`empty_v1` permits only the empty slot of a molecule without a range field.
+`FieldRangeProfile` defines the field key metadata contract.
+`empty_v1` permits only the empty slot of a field key without a range field.
 `typed_v1` names one scalar profile.
 The declared range type must agree with the stored profile.
-Schema reads fetch uncached molecule metadata in one batch, then fetch the required key wraps in one batch.
+Schema reads fetch uncached field key metadata in one batch, then fetch the required key wraps in one batch.
 The reader validates the complete set before it puts key bundles in the memory cache.
 The runtime refuses a missing, incompatible, or incomplete contract before it serves records.
 
-The molecule metadata uses version 2 and names its key authority explicitly.
-Bundle authority is the only authority: an independent molecule bundle and its node wrap.
-Schema publication creates every molecule with bundle authority. The reader refuses any other authority.
-A share copies only that molecule bundle. It never copies account keys into a shareable bundle.
-A normal mutation refuses a missing profile. Only schema publication can create a new molecule contract.
+The field key metadata uses version 2 and names its key authority explicitly.
+Bundle authority is the only authority: an independent field key bundle and its node wrap.
+Schema publication creates every field key with bundle authority. The reader refuses any other authority.
+A share copies only that field key bundle. It never copies account keys into a shareable bundle.
+A normal mutation refuses a missing profile. Only schema publication can create a new field key contract.
 The existing three-key bundle wire form stays unchanged. Its third key has no user.
 
-Every molecule uses its stored coordinate for its conflict IDs. The reader refuses any other conflict-ID domain.
+Every field key uses its stored coordinate for its conflict IDs. The reader refuses any other conflict-ID domain.
 History responses use canonical API keys. Stored history and signed provenance retain their original bytes.
 
 Range TTL retains its 20-digit timestamp prefix in a String range.
@@ -188,7 +188,7 @@ Equal integer values produce the same payload, even when their source text diffe
 Equal datetime instants produce the same payload, even when their written offsets differ.
 The datetime profile keeps all nine fractional digits through the full UTC year domain.
 Decode returns canonical integer text, date text, or UTC datetime text with nine fractional digits.
-Atom content retains its original value.
+Field value retains its original value.
 String values retain every byte, including control bytes and Unicode.
 Only the String profile permits text prefixes.
 Unsupported types, mixed scalar unions, unknown versions, and malformed fixed-width payloads receive a refusal.
@@ -196,7 +196,7 @@ Unsupported types, mixed scalar unions, unknown versions, and malformed fixed-wi
 A format 4 home uses the plain range encoding: the stored range bytes are the profile payload.
 The block encryption of the run files protects them. Some integer keys grow under the fixed-width format.
 No second lookup key or original range copy enters storage.
-All stored range decode paths use the exact molecule codec.
+All stored range decode paths use the exact field key codec.
 Normal reads refuse a malformed range. V2 block encryption supplies authentication.
 
 ## Cloud backup
@@ -206,15 +206,15 @@ Backup profile version 2 names node format 4 and logical key format 7.
 The program refuses profile version 1, which named node format 3 and logical key format 6.
 The profile keeps the encrypted main and CAS files and the opaque cloud protocol.
 The profile version binds the exact node marker and its byte count to the backup root.
-Capture and restore check each schema against its existing molecule profile and key authority at the held roots.
+Capture and restore check each schema against its existing field key profile and key authority at the held roots.
 Those checks use bounded batch reads. They create no key and change no profile.
 
 ## Codec cleanup
 
-On 2026-10-28 `MoleculeKeyCodec` lost the plain hash encoding and its optional range profile.
-The codec always blinds a hash and always uses the range profile of the molecule.
+On 2026-10-28 `FieldKeyCodec` lost the plain hash encoding and its optional range profile.
+The codec always blinds a hash and always uses the range profile of the field key.
 
 On 2026-10-29 the key comparison context and its normalize helpers took a required range profile.
-The molecule bundle metadata requires its range profile, key authority, and conflict identity.
+The field key bundle metadata requires its range profile, key authority, and conflict identity.
 `KeyComparisonContext::current_profile()` returns no profile only when no comparison context is active.
-A field read with no molecule and no active comparison context uses its key without normalization.
+A field read with no field key and no active comparison context uses its key without normalization.

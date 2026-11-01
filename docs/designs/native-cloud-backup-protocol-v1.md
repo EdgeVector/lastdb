@@ -145,7 +145,7 @@ The logical marker `layout:v3:keys` requires direct ASCII value `7;typed-ranges=
 An explicit encrypted account-key proof authenticates the restore account key.
 Only local CAS records use the outer storage envelope.
 File bytes retain their existing encryption.
-An atom row has no content seal. It is plain JSON inside an encrypted run-file block.
+A record row has no content seal. It is plain JSON inside an encrypted run-file block.
 Tip values and other control values remain readable in the stored backup bytes.
 Restore does not rewrite an earlier logical format.
 The native record transfer that converted formats `4` and `5` is removed with disk format v1.
@@ -178,8 +178,8 @@ If backup capture lacks permission to copy required bytes, it refuses completion
 
 Preserve each stored source hash, length, encryption suite, and encrypted key reference.
 The dependency map key is the pair logical_pointer_sha256 and FileDependencyKind.
-The digest hashes canonical JSON bytes of the exact decrypted whole validated file-pointer atom value, including its outer $lastdb_file wrapper.
-It includes all optional pointer members and excludes the atom ID, atom metadata, and stored ciphertext.
+The digest hashes canonical JSON bytes of the exact decrypted whole validated file-pointer record value, including its outer $lastdb_file wrapper.
+It includes all optional pointer members and excludes the record ID, record metadata, and stored ciphertext.
 Main selects the parent blob_ref, dek, and cipher_suite.
 Thumbnail selects thumbnail with kind image. Poster selects thumbnail with kind video-poster.
 Both nested forms select their own blob_ref and access.dek / access.cipher_suite.

@@ -59,14 +59,14 @@ impl MeterDomainTrust {
     }
 }
 
-/// Versioned trust for global, schema, and molecule counter domains.
+/// Versioned trust for global, schema, and field key counter domains.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeterTrustPayload {
     pub version: u32,
     pub global: MeterDomainTrust,
     #[serde(default)]
     pub schemas: BTreeMap<String, MeterDomainTrust>,
-    pub molecules: MeterDomainTrust,
+    pub field_keys: MeterDomainTrust,
 }
 
 impl MeterTrustPayload {
@@ -76,7 +76,7 @@ impl MeterTrustPayload {
             version: KEEP_SMALL_TRUST_VERSION,
             global: MeterDomainTrust::absent(),
             schemas: BTreeMap::new(),
-            molecules: MeterDomainTrust::absent(),
+            field_keys: MeterDomainTrust::absent(),
         }
     }
 
@@ -86,7 +86,7 @@ impl MeterTrustPayload {
             version: KEEP_SMALL_TRUST_VERSION,
             global: MeterDomainTrust::trusted(),
             schemas: BTreeMap::new(),
-            molecules: MeterDomainTrust::trusted(),
+            field_keys: MeterDomainTrust::trusted(),
         }
     }
 
@@ -96,14 +96,14 @@ impl MeterTrustPayload {
             version: KEEP_SMALL_TRUST_VERSION,
             global: MeterDomainTrust::incomplete(cause),
             schemas: BTreeMap::new(),
-            molecules: MeterDomainTrust::incomplete(cause),
+            field_keys: MeterDomainTrust::incomplete(cause),
         }
     }
 
     pub fn mark_incomplete(&mut self, cause: &str) {
         self.version = KEEP_SMALL_TRUST_VERSION;
         self.global = MeterDomainTrust::incomplete(cause);
-        self.molecules = MeterDomainTrust::incomplete(cause);
+        self.field_keys = MeterDomainTrust::incomplete(cause);
         for domain in self.schemas.values_mut() {
             *domain = MeterDomainTrust::incomplete(cause);
         }
@@ -118,9 +118,9 @@ impl Default for MeterTrustPayload {
 
 /// Per-schema incremental meter.
 ///
-/// A snapshot written before the format 7 cleanup also holds `atom_count`,
-/// `tip_bytes` and `bookkeeping_bytes`. They counted format 6 atoms, tips and
-/// molecule bookkeeping; serde ignores them on hydrate.
+/// A snapshot written before the format 7 cleanup also holds `record_count`,
+/// `tip_bytes` and `bookkeeping_bytes`. They counted format 6 records, tips and
+/// field key bookkeeping; serde ignores them on hydrate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMeter {
     pub schema_name: String,
@@ -134,42 +134,45 @@ pub struct SchemaMeter {
     pub appended_day: String,
 }
 
-/// The current logical contribution of one molecule.
+/// The current logical contribution of one field key.
 ///
-/// A schema reads the bounded molecule set declared by its catalog and adds
+/// A schema reads the bounded field key set declared by its catalog and adds
 /// these counters; it never walks records to answer a storage request.
 ///
 /// No format 7 write adds to these counters. A schema install seeds an exact
-/// zero for each declared molecule (`ensure_molecule_counter`), and a
+/// zero for each declared field key (`ensure_field_key_counter`), and a
 /// snapshot hydrated from an older home keeps the values it had. The schema
 /// storage reports and the attribution ledger still read them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct MoleculeStorageCounter {
-    pub molecule_uuid: String,
+pub struct FieldKeyStorageCounter {
+    #[serde(alias = "molecule_uuid")]
+    pub field_key_id: String,
     pub active_slot_count: u64,
-    pub active_atom_value_bytes: u64,
+    #[serde(alias = "active_atom_value_bytes")]
+    pub active_value_bytes: u64,
     #[serde(default)]
     pub active_blob_reference_bytes: u64,
     #[serde(default)]
     pub tip_index_bytes: u64,
     #[serde(default)]
-    pub molecule_metadata_bytes: u64,
+    #[serde(default, alias = "molecule_metadata_bytes")]
+    pub field_key_metadata_bytes: u64,
     #[serde(default)]
     pub retained_history_bytes: u64,
     #[serde(default)]
     pub counter_epoch: u64,
 }
 
-impl MoleculeStorageCounter {
+impl FieldKeyStorageCounter {
     #[must_use]
     pub fn logical_value_bytes(&self) -> u64 {
-        self.active_atom_value_bytes
+        self.active_value_bytes
             .saturating_add(self.active_blob_reference_bytes)
     }
 
     #[must_use]
     pub fn structure_bytes(&self) -> u64 {
         self.tip_index_bytes
-            .saturating_add(self.molecule_metadata_bytes)
+            .saturating_add(self.field_key_metadata_bytes)
     }
 }

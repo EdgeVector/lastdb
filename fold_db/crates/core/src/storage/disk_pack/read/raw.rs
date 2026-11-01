@@ -120,7 +120,7 @@ fn trace_families(coordinates: &[(String, String)]) {
             "schemas" => "schema",
             "schema_states" => "schema_state",
             "schema_superseded_by" => "schema_successor",
-            "molecule_keys" => "molecule_encryption_keys",
+            "molecule_keys" => "field_key_encryption_keys",
             "share_subscriptions" => "receiver_registry",
             "db_catalog" => "database_membership",
             _ => record_family(key),

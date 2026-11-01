@@ -6,7 +6,7 @@ from process_counters import counter_delta
 from ranges import latency
 
 
-PHASES = ("hydrate_atoms_us", "hydrate_format_us", "hydrate_sort_us", "annotate_us", "response_envelope_us")
+PHASES = ("hydrate_records_us", "hydrate_format_us", "hydrate_sort_us", "annotate_us", "response_envelope_us")
 RECEIPT_TIMINGS = ("query_storage_elapsed_nanos", "socket_queue_wait_nanos", "blocking_queue_wait_nanos",
                    "lock_wait_nanos", "read_nanos", "decode_nanos", "decrypt_nanos", "open_nanos", "metadata_nanos")
 
@@ -63,7 +63,7 @@ def narrow_diagnostics(grouped, mode):
             lines.append("| " + label + " | " + " | ".join(columns) + " |")
             ranked = sorted(enumerate(samples), key=lambda row: row[1]["elapsed_ms"], reverse=True)[:5]
             slow.append((label, [slow_sample(ordinal, sample) for ordinal, sample in ranked]))
-    lines.extend(["", "Core is hydrate_atoms. Missing phases remain unreported, not zero.",
+    lines.extend(["", "Core is hydrate_records. Missing phases remain unreported, not zero.",
         "Five slowest HTTP samples per run follow with their original zero-based sample ordinal.",
         "Each row retains exact request IDs, existing server phases, receipt times, and process counter deltas.",
         "Counter snapshots occur before the HTTP timer and after its end. The interval includes observer work.",

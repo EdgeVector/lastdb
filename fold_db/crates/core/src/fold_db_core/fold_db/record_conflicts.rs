@@ -27,7 +27,7 @@ impl FoldDB {
 
     /// The kept losing values of the selected fields of each selected record:
     /// `(schema name, key, fields)`. The read takes the serving fence with a
-    /// finite deadline, as the molecule metadata read does, and writes
+    /// finite deadline, as the field key metadata read does, and writes
     /// nothing. `None` is unknown.
     pub async fn selected_record_conflicts(
         &self,
@@ -62,10 +62,10 @@ impl FoldDB {
             .ok()??;
         let scope = record_scope(&schema);
         let records = self.db_ops.records();
-        let molecule_keys = self.db_ops.molecule_keys();
+        let field_keys = self.db_ops.field_keys();
         keys.iter()
             .map(|key| {
-                let key = molecule_keys.canonical_key(&schema, key.clone()).ok()?;
+                let key = field_keys.canonical_key(&schema, key.clone()).ok()?;
                 records.record_key(&schema, &key, scope.as_deref()).ok()
             })
             .collect()

@@ -13,13 +13,13 @@ pub struct DbSchemaShareResult {
     pub source_db_locator: String,
     pub target_entry: DbCatalogEntry,
     pub access_domain: String,
-    pub molecules_wrapped: usize,
+    pub field_keys_wrapped: usize,
     /// Current personal rows appended as self-contained org mutation intents.
     pub republished_rows: usize,
 }
 
 impl FoldDB {
-    /// Share one whole schema by reference, without copying molecule or atom data.
+    /// Share one whole schema by reference, without copying field key or record data.
     ///
     /// Access-domain wraps land before catalog membership. A partial wrap failure
     /// therefore cannot expose data through the target database handle.
@@ -48,7 +48,7 @@ impl FoldDB {
     }
 
     /// Select the current source and target while the native gate is held,
-    /// before any molecule lock. Catalog deletion uses the same lock order.
+    /// before any field key lock. Catalog deletion uses the same lock order.
     async fn share_schema_in_scope(
         &self,
         source_db_locator: &str,
@@ -70,12 +70,12 @@ impl FoldDB {
             .get_schema_metadata(schema_name)?
             .ok_or_else(|| SchemaError::NotFound(schema_name.to_string()))?;
         let storage_prefix = target_entry.instance_id.clone();
-        let _molecule_guards = self
-            .lock_schema_molecules(Some(&schema), storage_prefix.as_deref())
+        let _field_key_guards = self
+            .lock_schema_field_keys(Some(&schema), storage_prefix.as_deref())
             .await;
-        let molecules_wrapped = self
+        let field_keys_wrapped = self
             .db_ops()
-            .molecule_keys()
+            .field_keys()
             .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
             .await?;
 
@@ -86,7 +86,7 @@ impl FoldDB {
             source_db_locator: source_canonical,
             target_entry,
             access_domain: target_access_domain.to_string(),
-            molecules_wrapped,
+            field_keys_wrapped,
             republished_rows,
         })
     }

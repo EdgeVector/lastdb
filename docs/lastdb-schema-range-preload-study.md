@@ -10,7 +10,7 @@ The measurements below remain component evidence, not a complete preload result.
 ## Recommendation
 
 Preload complete range keys for selected schemas as part of the core logical model.
-Keep the atom values and ordinary tips under the existing 10,000-logical-record warm cap.
+Keep the record values and ordinary tips under the existing 10,000-logical-record warm cap.
 Give the complete key part its own explicit byte cap.
 The separate allowance is part of the selected design; it does not change the installed node.
 
@@ -22,14 +22,14 @@ Compact key chunks remain a later option if the tree's memory cost matters.
 The first query to a selected HashRange schema starts or joins one shared complete preload and waits.
 This includes its first exact query; exact value resolution remains direct after the gate.
 Unselected or capacity-refused schemas use the bounded disk route.
-Select keys from the complete set, reuse known warm tips and atoms, then fetch all missing paths in batches.
+Select keys from the complete set, reuse known warm tips and records, then fetch all missing paths in batches.
 Do not preload every declared schema or every field.
 
 ## What the old size establishes
 
 Tom estimates the old home at 16–20 GB.
 A saved October 8 report records a 19.5 GiB whole home and a 12.5 GiB data directory.
-It records 6.72 GiB of tips, 2.75 GiB of atoms, and 29,273 data files.
+It records 6.72 GiB of tips, 2.75 GiB of records, and 29,273 data files.
 Its status says measured sample, not census.
 Source: saved report, lines 350–356.
 
@@ -72,10 +72,10 @@ The current OPE text uses eight hexadecimal characters for each original range b
 The same ordered words need four bytes in a lossless binary form.
 Use big-endian words to preserve the stored order.
 This changes the memory representation, not the OPE algorithm or its protection.
-Store the common hash and molecule identity once per domain where possible.
+Store the common hash and field key identity once per domain where possible.
 
 The standalone prototype measures a mutable B-tree of binary range keys.
-It does not retain AtomEntry objects or atom values.
+It does not retain RecordEntry objects or record values.
 The memory column is the median peak size of a complete fresh process, with no empty-process subtraction.
 It does not measure the extra memory inside an integrated LastDB process.
 
@@ -172,7 +172,7 @@ Native CLI source, binary identity, counters, responses, and cleanup: [disk rece
 1. Choose the authoritative membership source, schema, fields, key layout, and compatible encoding domains.
 2. Capture the disk root, covered logical change number, definitions, controls, and required accepted changes.
 3. Read bounded key pages and resolve current membership, including delete barriers and generation precedence.
-4. Discard tip payloads when only the key remains; do not silently mark its AtomEntry or values known.
+4. Discard tip payloads when only the key remains; do not silently mark its RecordEntry or values known.
 5. Preserve accepted changes throughout the load and publish completeness at one checked logical boundary.
 6. Keep queries behind the shared load; use disk fallback only for unselected or explicitly refused schemas.
 
@@ -197,7 +197,7 @@ Charge allocation capacity and tree nodes, not only the nominal key lengths.
 
 Reject or stop a preload before it exceeds the byte cap.
 Purge a whole complete key domain after readiness clears.
-Tip and atom purge preserves its complete keys.
+Tip and record purge preserves its complete keys.
 Never claim a partial key set is a complete range.
 An explicit internal schema load does not add a normal no-key query API.
 Keep no file handle, hash group, or disk page object as the retained key set.

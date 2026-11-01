@@ -1,9 +1,8 @@
 # Schema range key preload design
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 Status: selected route merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18. The policy remains opt-in.
@@ -18,12 +17,12 @@ Authorize the query scope and resolve the current schema bindings before that ga
 The first query waits for all its required membership keys across all hashes.
 Concurrent first queries share one load.
 Only keys and essential membership flags enter this complete part of the logical set.
-Full tips and atom values remain partial and enter the normal warm set when required.
+Full tips and record values remain partial and enter the normal warm set when required.
 Selected tips can remain without values after a call that does not fetch values.
-The same logical record gains its full atom after a value fetch; the key preload does not retain all tips.
+The same logical record gains its full record after a value fetch; the key preload does not retain all tips.
 
 After the load, ranges select keys from the logical set.
-The resolver uses known current tips and atoms, then fetches missing paths in batches.
+The resolver uses known current tips and records, then fetches missing paths in batches.
 No disk key discovery precedes a range over a ready domain.
 A query still needs disk when selected tips, values, or predicate fields are unknown.
 
@@ -55,7 +54,7 @@ If a call can select a different membership source, that source must also be com
 Record the source inventory before implementation.
 The study's one-set-per-layout estimate applies only where one source establishes that membership.
 
-A domain identity includes the storage scope, membership molecule, key layout, compatible encoding identity, and logical membership rules.
+A domain identity includes the storage scope, membership field key, key layout, compatible encoding identity, and logical membership rules.
 Schema names and definitions reference that domain through the logical owner.
 Copied schemas can share it only when all those facts match.
 Named alternate layouts retain separate address domains and resolve the primary records.
@@ -70,10 +69,10 @@ Unknown or unavailable cloud membership cannot establish a complete local set.
 
 ## One logical model
 
-Extend the core molecule with a complete ordered key part and a sparse tip/value part.
+Extend the core field key with a complete ordered key part and a sparse tip/value part.
 Do not create another graph, a query-answer list, or a second current-value authority.
-Known membership with an unknown AtomEntry becomes a valid core state.
-Do not create placeholder atom UUIDs for keys whose tips are unknown.
+Known membership with an unknown RecordEntry becomes a valid core state.
+Do not create placeholder record UUIDs for keys whose tips are unknown.
 
 The key part organizes hashes for direct lookup and orders ranges within each hash.
 Use the same bounds and comparator as the current core operations.
@@ -85,13 +84,13 @@ Keep OPE tokens in a lossless compact byte form where the current codec supports
 The eight hexadecimal characters of one current word become four big-endian bytes.
 Do not change the OPE algorithm as part of this work.
 Translate query bounds through the same codec and recover API keys only when required.
-Never compare tokens from incompatible molecule or key epochs.
+Never compare tokens from incompatible field key or key epochs.
 
-The original MoleculeHashRange couples ordered membership with AtomEntry storage.
+The original FieldKeyHashRange couples ordered membership with RecordEntry storage.
 The candidate adds a complete key domain beside sparse tips, without one full tip for every preloaded key.
-Keep full metadata and atom associations for the paths that actually hold them.
+Keep full metadata and record associations for the paths that actually hold them.
 Core field operations receive complete selected keys plus resolved values when required.
-They must not interpret the sparse value part as the complete molecule.
+They must not interpret the sparse value part as the complete field key.
 
 ## Schema load states
 
@@ -265,7 +264,7 @@ The recorded tradeoffs support an opt-in policy, not a default cutover claim.
 ## Required product evidence
 
 Use fresh synthetic homes and actual product writes and queries.
-Keep first-use time separate from later range selection, tip fetch, atom fetch, and response work.
+Keep first-use time separate from later range selection, tip fetch, record fetch, and response work.
 Measure the existing engine, the fallback disk route, and the chosen preload route under matched conditions.
 Include schemas with many hashes, keys above 10,000, empty membership, long OPE keys, and byte-cap refusal.
 Preserve source and binary identities, full response receipts, resource costs, and failures.

@@ -23,19 +23,19 @@
         "durable_flush.rs",
         "write_preparation.rs",
         "storage/disk_pack/run_restore/proof.rs",
-        "db_operations/atom_store/bounded_range/keys.rs",
-        "db_operations/atom_store/counter/restore_validation/reader.rs"
+        "db_operations/record_store/bounded_range/keys.rs",
+        "db_operations/record_store/counter/restore_validation/reader.rs"
       ]
     },
     {
       "name": "database",
       "pure": false,
-      "about": "Everything that gives bytes meaning: schemas, fields, molecules, atoms, tips, counters, mutations, queries, the warm set, purge, retention, conflicts, aggregates, alternate keys, key families and key validation, logical capture (cloud frontier), file-blob reachability, sharing, access, signing keys, process memory budget.",
+      "about": "Everything that gives bytes meaning: schemas, fields, field keys, records, tips, counters, mutations, queries, the warm set, purge, retention, conflicts, aggregates, alternate keys, key families and key validation, logical capture (cloud frontier), file-blob reachability, sharing, access, signing keys, process memory budget.",
       "paths": [
         "lib.rs",
         "access/",
         "alternate_keys/",
-        "atom/",
+        "record/",
         "constants.rs",
         "db_operations/",
         "error.rs",
@@ -70,7 +70,7 @@
         "storage/disk_pack/file_dependencies/metadata",
         "storage/disk_pack/file_dependencies/select.rs",
         "storage/disk_pack/native_routing/key_routing.rs",
-        "storage/disk_pack/run_restore/proof/atoms.rs",
+        "storage/disk_pack/run_restore/proof/records.rs",
         "storage/disk_pack/run_restore/proof/keys.rs",
         "storage/disk_pack/run_restore/proof/metadata.rs",
         "storage/disk_pack/run_restore/proof/ranges.rs"
@@ -101,14 +101,14 @@
     "storage/disk_pack/read/preload.rs": "store; schema-key preload reservation",
     "storage/disk_pack/kv.rs": "store; validates LastDB key families",
     "storage/disk_pack/read/probes.rs": "store; counter/body pair probes validate LastDB key families",
-    "storage/disk_pack/native_routing.rs": "store; routes keys to atoms/tips/indexes collections by LastDB family",
-    "storage/disk_pack/run_admission.rs": "store; open checks the logical key format and replay floor through AtomStore",
+    "storage/disk_pack/native_routing.rs": "store; routes keys to records/tips/indexes collections by LastDB family",
+    "storage/disk_pack/run_admission.rs": "store; open checks the logical key format and replay floor through RecordStore",
     "storage/disk_pack/run_node/creation.rs": "store; creation writes the logical key format marker",
-    "storage/disk_pack/run_restore/proof.rs": "store; reader forks and budgets, dispatches the semantic schema/atom/tip proofs",
+    "storage/disk_pack/run_restore/proof.rs": "store; reader forks and budgets, dispatches the semantic schema/record/tip proofs",
     "storage/disk_pack/run_restore/snapshot_identity.rs": "store; file locks plus logical capture identity rebase",
     "storage/disk_pack/byte_backup/run_source.rs": "store; byte capture verifies the logical inclusion map",
-    "storage/disk_pack/file_dependencies/native.rs": "store; CAS byte proof takes the atom-level FileDependency",
-    "db_operations/atom_store/bounded_range.rs": "database; generic bounded range walk over key space, a store contract item",
+    "storage/disk_pack/file_dependencies/native.rs": "store; CAS byte proof takes the record-level FileDependency",
+    "db_operations/record_store/bounded_range.rs": "database; generic bounded range walk over key space, a store contract item",
     "sharing/blob_cas/dedup.rs": "database; writes file blob bytes and the blob counter in one request",
     "memory_budget/process_budget.rs": "database; one process budget for the warm set and the store's pending bytes"
   }

@@ -87,7 +87,7 @@ impl Mismatches {
 pub struct Sample {
     pub kind: String,
     /// The blob, the blob counter id or the queue key that the fault names.
-    pub atom: String,
+    pub record: String,
     pub detail: String,
 }
 

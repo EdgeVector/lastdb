@@ -11,7 +11,7 @@
 //! while it prepares, so the thread waits before its next step while such
 //! reads keep more than 1/16 of a home in replaced runs. Without the wait a
 //! base merge rewrote much of the base during one request, and the disk v2
-//! node proof peaked at 2.03x to 2.06x of its atom bytes on macOS.
+//! node proof peaked at 2.03x to 2.06x of its record bytes on macOS.
 //!
 //! The CAS files have their own run home. A commit that holds CAS changes
 //! writes up to three runs in this order: new CAS files, then the other

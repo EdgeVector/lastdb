@@ -3,26 +3,26 @@
 
 use super::core::DbOperations;
 use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
+use field_key_ref_edges::FieldKeyRefEdge;
 use futures::{future::BoxFuture, FutureExt};
-use molecule_ref_edges::MoleculeRefEdge;
 use std::collections::HashMap;
 
 mod attribution;
 mod attribution_reports;
-mod molecule_ref_edges;
+mod field_key_ref_edges;
 
 pub use attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 
-fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<MoleculeRefEdge> {
+fn schema_field_key_ref_edges(schema_name: &str, schema: &Schema) -> Vec<FieldKeyRefEdge> {
     let mut fields: Vec<_> = schema
-        .field_molecule_uuids
+        .field_key_ids
         .as_ref()
         .into_iter()
-        .flat_map(|molecules| molecules.iter())
-        .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
+        .flat_map(|field_keys| field_keys.iter())
+        .map(|(field, field_key)| FieldKeyRefEdge::schema_field(schema_name, field, field_key))
         .collect();
-    fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
-        molecule_uuid: lastdb_model::molecule_uuid::alternate_molecule_uuid(schema, name),
+    fields.extend(schema.alternate_keys.keys().map(|name| FieldKeyRefEdge {
+        field_key_id: lastdb_model::field_key_id::alternate_field_key_id(schema, name),
         source: format!(
             "alternate:{}",
             serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")
@@ -66,14 +66,14 @@ impl DbOperations {
             .validate_definition()
             .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
-        self.molecule_keys()
+        self.field_keys()
             .establish_schema_for_publication(schema, old.as_ref())
             .await?;
         self.schemas().store_schema(schema_name, schema).await?;
-        for edge in &schema_molecule_ref_edges(schema_name, schema) {
+        for edge in &schema_field_key_ref_edges(schema_name, schema) {
             self.records()
                 .keep_small()
-                .ensure_molecule_counter(&edge.molecule_uuid, schema_name);
+                .ensure_field_key_counter(&edge.field_key_id, schema_name);
         }
         // Debounced persist only. `store_schema` runs on every schema put and
         // a per-write flush here was one of the 2026-09-21 flush-storm sites.

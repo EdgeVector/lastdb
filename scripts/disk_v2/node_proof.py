@@ -52,13 +52,13 @@ SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
 RUN_NODE = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
 # The settings of the primary's launchd job that the node reads: the
-# compression of the at-rest envelopes, the atom size limit, the memory
+# compression of the at-rest envelopes, the record size limit, the memory
 # budget, and the admin timeout.
 # The node does not read the other LASTDB_* settings of the job.
 PRIMARY_SETTINGS = {
     "LASTDB_ENGINE": "laststore",
     "LASTDB_KV_AT_REST_COMPRESS": "1",
-    "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
+    "LASTDB_MAX_FIELD_VALUE_BYTES": "524288",
     "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
     "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",
     "LASTDBD_RSS_LIMIT_MB": "16384",
@@ -70,7 +70,7 @@ CASE = "new-home"
 SEED_NUMBER = 2
 PROFILE = {
     # Keep the generated corpus above the unchanged 16 MiB minimum after deletes.
-    # This qualifies the generic engine capacity check; fewer stored atoms are
+    # This qualifies the generic engine capacity check; fewer stored records are
     # not evidence of lost data. Alternate-key savings use a fixed-input pass.
     "seed": {"base": 4500, "creates": 1000, "updates": 4000, "deletes": 250},
     "v2": {"creates": 800, "updates": 3000, "deletes": 150, "recreates": 100},
@@ -265,10 +265,10 @@ class Case:
     def logical(self):
         data, elapsed, _ = self.node.call("/api/db/schemas")
         report = data["schema_storage"]
-        # A format 7 home stores records, not atoms: the walk counts the stored
+        # A format 7 home stores records, not records: the walk counts the stored
         # record values and their bytes. The alternate-key storage comparison
-        # also runs the previous main binary, whose format 6 home stores atoms.
-        unit = "record_count" if self.node.home_format() == 7 else "atom_count"
+        # also runs the previous main binary, whose format 6 home stores records.
+        unit = "record_count" if self.node.home_format() == 7 else "record_count"
         return {"bytes": report["total_logical_bytes"],
                 "records": report.get("total_records", 0),
                 "milliseconds": round(elapsed),

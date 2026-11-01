@@ -36,7 +36,7 @@ The command suppresses raw daemon output and the recovery phrase.
 The command never reads production credentials or changes a shared daemon.
 
 This proof checks local logical erasure and restart durability.
-It does not certify atom reclamation, disk byte return, cloud publication, or cloud recovery.
+It does not certify record reclamation, disk byte return, cloud publication, or cloud recovery.
 Use the small cloud proof next. Use the full production restore for the final recovery check.
 
 ## Offline supervisor tests

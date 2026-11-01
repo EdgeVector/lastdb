@@ -25,7 +25,7 @@ The byte-sortable OPE contract is:
 
 ```text
 private-key-controlled secret
-    -> separate symmetric OPE key for one molecule, hash, format, and epoch
+    -> separate symmetric OPE key for one field_key, hash, format, and epoch
     -> deterministic term for each exact range value
 
 same secret + same scope + same range -> same lookup term
@@ -34,19 +34,19 @@ x < y within one scope              -> term(x) < term(y)
 
 The order is exact unsigned UTF-8 byte order.
 The codec accepts a new range value without a complete local key set or server interaction.
-Order across unrelated hashes or molecules is not required.
+Order across unrelated hashes or field keys is not required.
 The private key controls term creation; it does not conceal the order of existing terms from the cloud.
 
 Keep the existing content and hash purposes and use a separate private-seed range purpose.
 The [root derivation](../../fold_db/crates/core/src/crypto/e2e.rs#L35) uses HKDF-SHA256 after conversion of the identity seed.
-The current [molecule store](../../fold_db/crates/core/src/db_operations/molecule_key_store.rs) also keeps random molecule keys inside encrypted access-domain bundles.
-In that model, the browser needs the private key and a small encrypted molecule bundle before it creates terms.
+The current [field key store](../../fold_db/crates/core/src/db_operations/field_key_store.rs) also keeps random field keys inside encrypted access-domain bundles.
+In that model, the browser needs the private key and a small encrypted field key bundle before it creates terms.
 This does not require a preload of range keys.
 
-The selected new range purpose derives the molecule range secret deterministically from the private seed and its versioned scope.
+The selected new range purpose derives the field key range secret deterministically from the private seed and its versioned scope.
 That changes the current random-bundle creation rule and requires an explicit format and recovery decision.
-Sharing can grant a scoped molecule secret without disclosure of the account root.
-The first codec contract fixes that choice; it does not reinterpret an existing molecule bundle.
+Sharing can grant a scoped field key secret without disclosure of the account root.
+The first codec contract fixes that choice; it does not reinterpret an existing field key bundle.
 
 ## Candidate results
 

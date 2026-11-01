@@ -8,17 +8,17 @@ pub struct LimitsHealth {
     /// Effective maximum HTTP request body on the owner Unix socket (bytes).
     #[serde(serialize_with = "serialize_gauge_option")]
     pub max_request_body_bytes: Gauge,
-    /// Effective max serialized atom field content (bytes).
+    /// Effective max serialized record field content (bytes).
     #[serde(serialize_with = "serialize_gauge_option")]
-    pub max_atom_content_bytes: Gauge,
+    pub max_field_value_bytes: Gauge,
     /// Compiled default (256 KiB) when env is unset.
     #[serde(serialize_with = "serialize_gauge_option")]
-    pub max_atom_content_bytes_default: Gauge,
+    pub max_field_value_bytes_default: Gauge,
     /// Absolute max even if env is higher.
     #[serde(serialize_with = "serialize_gauge_option")]
-    pub max_atom_content_bytes_absolute_max: Gauge,
+    pub max_field_value_bytes_absolute_max: Gauge,
     /// Env var name that overrides the default.
-    pub max_atom_content_bytes_env: String,
+    pub max_field_value_bytes_env: String,
     /// The cap for the encoded record of a format 7 home (64 KiB). A record
     /// holds every field of one key, so it is the write limit there.
     #[serde(serialize_with = "serialize_gauge_option")]
@@ -32,19 +32,19 @@ impl Default for LimitsHealth {
                 lastdb_uds::uds_http::MAX_BODY_LEN as u64,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes: g_instant(
-                fold_db::content_limit::max_atom_content_bytes() as u64,
+            max_field_value_bytes: g_instant(
+                fold_db::content_limit::max_field_value_bytes() as u64,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_default: g_instant(
-                fold_db::content_limit::DEFAULT_MAX_ATOM_CONTENT_BYTES as u64,
+            max_field_value_bytes_default: g_instant(
+                fold_db::content_limit::DEFAULT_MAX_FIELD_VALUE_BYTES as u64,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_absolute_max: g_instant(
-                fold_db::content_limit::ABSOLUTE_MAX_ATOM_CONTENT_BYTES as u64,
+            max_field_value_bytes_absolute_max: g_instant(
+                fold_db::content_limit::ABSOLUTE_MAX_FIELD_VALUE_BYTES as u64,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_env: fold_db::content_limit::MAX_ATOM_CONTENT_BYTES_ENV
+            max_field_value_bytes_env: fold_db::content_limit::MAX_FIELD_VALUE_BYTES_ENV
                 .to_string(),
             max_record_bytes: g_instant(
                 fold_db::record_value::MAX_RECORD_BYTES as u64,
@@ -61,29 +61,29 @@ impl<'de> Deserialize<'de> for LimitsHealth {
             #[serde(default)]
             max_request_body_bytes: Option<u64>,
             #[serde(default)]
-            max_atom_content_bytes: Option<u64>,
+            max_field_value_bytes: Option<u64>,
             #[serde(default)]
-            max_atom_content_bytes_default: Option<u64>,
+            max_field_value_bytes_default: Option<u64>,
             #[serde(default)]
-            max_atom_content_bytes_absolute_max: Option<u64>,
+            max_field_value_bytes_absolute_max: Option<u64>,
             #[serde(default)]
-            max_atom_content_bytes_env: String,
+            max_field_value_bytes_env: String,
             #[serde(default)]
             max_record_bytes: Option<u64>,
         }
         let raw = Raw::deserialize(deserializer)?;
         Ok(Self {
             max_request_body_bytes: g_instant_wire(raw.max_request_body_bytes, Unit::Bytes),
-            max_atom_content_bytes: g_instant_wire(raw.max_atom_content_bytes, Unit::Bytes),
-            max_atom_content_bytes_default: g_instant_wire(
-                raw.max_atom_content_bytes_default,
+            max_field_value_bytes: g_instant_wire(raw.max_field_value_bytes, Unit::Bytes),
+            max_field_value_bytes_default: g_instant_wire(
+                raw.max_field_value_bytes_default,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_absolute_max: g_instant_wire(
-                raw.max_atom_content_bytes_absolute_max,
+            max_field_value_bytes_absolute_max: g_instant_wire(
+                raw.max_field_value_bytes_absolute_max,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_env: raw.max_atom_content_bytes_env,
+            max_field_value_bytes_env: raw.max_field_value_bytes_env,
             max_record_bytes: g_instant_wire(raw.max_record_bytes, Unit::Bytes),
         })
     }

@@ -2,8 +2,8 @@
 //!
 //! Org multi-DB cohabitation (design-org-db-handle-platform-gap): clients send
 //! an explicit DB handle on every data-path request (`X-LastDB-Db`). Mini maps
-//! that handle to an optional 64-hex `storage_prefix` that scopes molecule keys
-//! (`{prefix}:mk:…`, `{prefix}:atom:…` when applicable).
+//! that handle to an optional 64-hex `storage_prefix` that scopes field keys
+//! (`{prefix}:mk:…`, `{prefix}:record:…` when applicable).
 //!
 //! Locator forms (platform-shaped, no org product dependency):
 //! - `lastdb://personal` / `personal` / empty → no prefix (default home)

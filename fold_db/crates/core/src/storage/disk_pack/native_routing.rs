@@ -3,7 +3,7 @@
 //! ## Key encoding
 //!
 //! Trait keys are bytes; native ids are strings. UTF-8 keys that do not
-//! start with `b64:` are stored as themselves (production molecule keys are
+//! start with `b64:` are stored as themselves (production field keys are
 //! UTF-8). Other keys use `b64:` + standard base64.
 
 mod key_routing;

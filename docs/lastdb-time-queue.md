@@ -2,7 +2,7 @@
 
 A queue of entries that become due at a time. A reader releases the entries
 that are due, oldest first, and each release deletes its entry. Two queues use it:
-the retention queue of kept conflict records (`docs/lastdb-atom-counter.md`) and the
+the retention queue of kept conflict records (`docs/lastdb-verify-ref.md`) and the
 dwell queue of file blobs at zero references (`docs/lastdb-blob-counter.md`).
 Another queue with the same needs takes the same contract.
 
@@ -310,7 +310,7 @@ a bucket that cannot be read ends it. The entry count is then a lower bound
 
 A bucket whose entries are live and whose directory row is missing is never
 listed. Its entries stay for ever. For the retention queue that is a conflict
-record, its references and its loser atom. This is a leak, not a loss, and it is
+record, its references and its loser record. This is a leak, not a loss, and it is
 exactly what the queue exists to prevent. No code of the queue makes it, but
 nothing else guards the directory, so the queue carries a net that finds it.
 
@@ -387,12 +387,12 @@ again (see below). The net cannot find it: there is no entry to probe.
 The verifier cannot read the queue entry of a record by key. The key holds the
 expiry, and the record does not. The slot directory entry names the queue entry,
 but the key of the slot directory entry needs the storage form of the key of the
-record, and that needs the key codec of its molecule, which a node loads with
+record, and that needs the key codec of its field key, which a node loads with
 its schema. A verifier that derived the key from the record gave wrong answers
 on a node that had just started. So the verifier and the recount compare sets.
 
 - The records phase keeps the id of each counted conflict record (the first 128
-  bits of the id that the queue keys name; 16 bytes each, at most `--max-atoms`).
+  bits of the id that the queue keys name; 16 bytes each, at most `--max-records`).
 - A `queue` phase surveys the queue (`time_queue/survey.rs`). It reads the
   directory, walks the entries of every listed bucket, and also walks the slices
   that the arithmetic lists, have no row, and hold a live key. It keeps the id of

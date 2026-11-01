@@ -17,7 +17,7 @@ check runs on python3 without tomllib:
     name = "model"
     doc = "values and rules"
     modules = [
-      "atom",
+      "record",
       "schema::types",
     ]
 

@@ -363,13 +363,13 @@ impl SamplerRuntimeState {
                     // them is the whole reading: a cumulative pair carried into
                     // an interval row would average this interval's write shape
                     // together with every interval before it.
-                    sum_molecules_persisted: aggregate
-                        .sum_molecules_persisted
-                        .saturating_sub(prev.sum_molecules_persisted),
-                    sum_molecule_store_commits: aggregate
-                        .sum_molecule_store_commits
-                        .saturating_sub(prev.sum_molecule_store_commits),
-                    // Same reasoning as the molecule pair above: the ratio
+                    sum_field_keys_persisted: aggregate
+                        .sum_field_keys_persisted
+                        .saturating_sub(prev.sum_field_keys_persisted),
+                    sum_field_key_store_commits: aggregate
+                        .sum_field_key_store_commits
+                        .saturating_sub(prev.sum_field_key_store_commits),
+                    // Same reasoning as the field key pair above: the ratio
                     // between these two IS the reading, so a cumulative pair
                     // carried into an interval row would average this
                     // interval's commit shape with every interval before it.

@@ -13,7 +13,7 @@ pub(super) const KEEP_SMALL_DISTRUST_KEY: &str = "keep_small:hydrate_distrust";
 /// The live projection is one in-memory map. The durable form is a small
 /// header plus one shard per dirty schema, so a persist does not rewrite
 /// unchanged schemas. A schema install calls
-/// [`RecordStore::persist_keep_small`]. When every format 6 atom and molecule
+/// [`RecordStore::persist_keep_small`]. When every format 6 record and field key
 /// put called it, a whole-map blob at this cadence filled the `keep_small`
 /// plane at ~1.2 MB/s on the primary (36 MB every 30 s).
 ///

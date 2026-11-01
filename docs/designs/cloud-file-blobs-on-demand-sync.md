@@ -137,7 +137,7 @@ prints the pointer.
 - The row is sealed under the account-v2 key (the DEK comes from the account
   key and the plaintext hash), so identical bytes in one account give an
   identical `blob_ref`, DEK and pointer. Without `name` and `media_type` the pointer is identical too, so a
-  second record that holds it adds one tip and no atom.
+  second record that holds it adds one tip and no record.
 - The route syncs the group that holds the row before it answers. It does not
   flush the whole node: the sync names only that group, so other dirty groups
   do not slow the put. A durable record batch flushes only the groups it wrote,

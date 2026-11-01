@@ -253,7 +253,7 @@ pub struct BlobCounterReport {
     pub underflows: u64,
     pub dangling_removals: u64,
     /// A reference raised a counter that did not exist, for a blob whose row is
-    /// gone. The write went through and the atom names a blob that is not there.
+    /// gone. The write went through and the record names a blob that is not there.
     #[serde(default)]
     pub late_references: u64,
     /// A counter did not decode. The planner marked it `suspect`, or the dwell

@@ -17,7 +17,7 @@ impl MutationManager {
             .iter()
             .map(|mutation| mutation.uuid.clone())
             .collect();
-        self.prepare_batch_molecule_keys(&mutations).await?;
+        self.prepare_batch_field_keys(&mutations).await?;
         self.reject_blocked_mutation_targets(&mutations)?;
         for mutation in &mutations {
             mutation.reject_illegal_must_exist()?;

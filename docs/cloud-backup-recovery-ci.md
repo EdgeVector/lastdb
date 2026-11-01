@@ -120,7 +120,7 @@ Two separate absent destinations restore the exact selected mutation-log checkpo
 Both destinations must return the exact updates, preserve the deletion, and return the complete new file bytes after two boots.
 The restored homes must contain no active backup credentials or automatic backup job.
 
-The source also declares one bounded HashRange schema for the atom lifecycle check.
+The source also declares one bounded HashRange schema for the record lifecycle check.
 Two expired range keys and one live range key share the same field value and the original 8 MiB file.
 The initial snapshot retains all three keys while the TTL worker stays off.
 After the source restarts with TTL on, the ordinary TTL purge must erase the two expired keys.

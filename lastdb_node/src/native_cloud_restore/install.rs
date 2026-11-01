@@ -62,14 +62,14 @@ pub(super) fn finish_run_context(
     if files != inventory.files || bytes != inventory.bytes || inventory.dependencies != 0 {
         return Err(RestoreError::Invalid("verified run inventory"));
     }
-    publish_context(session, keys, inventory, proof.verified_atoms())
+    publish_context(session, keys, inventory, proof.verified_rows())
 }
 
 fn publish_context(
     session: &VerifiedNativeContext<'_>,
     keys: &RecoveryKeys,
     inventory: NativeInventory,
-    atoms: u64,
+    records: u64,
 ) -> Result<RestoreReport> {
     let home = session.root.join("home");
     install_identity(&home, keys)?;
@@ -80,7 +80,7 @@ fn publish_context(
         commit_sha256: session.commit_sha256.as_str().into(),
         native_files: inventory.files,
         native_bytes: inventory.bytes,
-        verified_atoms: atoms,
+        verified_rows: records,
         file_dependencies_verified: true,
         verified_external_files: inventory.dependencies,
         destination: session.destination.to_path_buf(),

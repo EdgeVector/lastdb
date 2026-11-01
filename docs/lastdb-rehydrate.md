@@ -1,63 +1,62 @@
 # LastDB memory and disk routes
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 ## One logical model
 
-The native engine uses one core model for schemas, molecule definitions, keys, tips, and atom values.
+The native engine uses one core model for schemas, field key definitions, keys, tips, and record values.
 Reads and accepted logical writes use that same model.
 The recency list holds references to logical records. It selects the clean records that the purge removes first.
 It does not contain another copy of the values.
 
-A normal logical record follows one schema, field, molecule, and key to one atom.
+A normal logical record follows one schema, field, field key, and key to one record.
 The warm set uses the byte limit defined in the [warm set design](lastdb-warm-set-byte-limit-design.md).
 A call holds its selected records. The purge skips those records and paths reserved by private write preparation.
 When the call releases its records, the purge restores the byte limit if clean records permit it.
 The call first releases its saved values, so dead allocations do not cause extra record removal.
-File contents stay outside this model. An atom can return a file reference and its access metadata.
-Reads and writes reuse an equal complete atom object when one is already available.
-An equal UUID alone cannot combine copies with different atom metadata.
-The warm set charges each molecule tip's metadata separately from its shared atom.
-Schema aliases at one molecule key share this charge.
+File contents stay outside this model. A record can return a file reference and its access metadata.
+Reads and writes reuse an equal complete record object when one is already available.
+An equal UUID alone cannot combine copies with different record metadata.
+The warm set charges each field key tip's metadata separately from its shared record.
+Schema aliases at one field key share this charge.
 A tip update replaces the charge. Absence and removal release it.
 Private write metadata retains its separate allowance.
 
 ## Read
 
-1. Resolve the schema and its field molecules through the core model.
+1. Resolve the schema and its field keys through the core model.
 2. Capture the current disk root and its publication revision.
-3. Use current core keys, tips, and atom values only while that revision still matches. Retain selected values for the call.
+3. Use current core keys, tips, and record values only while that revision still matches. Retain selected values for the call.
 4. Fetch the missing records in batches from the held disk root.
 5. Admit each successful fetch after its source checks. Purge clean, unused records when the byte charge exceeds the limit.
 
 Native writes commit to disk before publishing clean core effects. There is no dirty-model read overlay.
-The read scope retains its disk root, call-local definitions, selected atom sources, and path/value holds.
+The read scope retains its disk root, call-local definitions, selected record sources, and path/value holds.
 A call can retain an earlier value while a later write replaces the current value.
 Its memory owner stays charged until that call returns.
-This call lifetime does not provide an old-value query or stored atom history.
-Current writes create no atom history or history reverse references.
+This call lifetime does not provide an old-value query or stored field history.
+Current writes create no field history or history reverse references.
 Private replacement and conflict records remain until their current references reach disk.
 Explicit physical cleanup commands can remove existing history files.
 A failed read cannot enter the model as a confirmed missing record.
-A selected tip requires its atom in every database scope.
-The shared body reader checks the result count and refuses a missing atom.
-It returns complete atoms, so callers do not contain another skip rule.
-The call keeps a compact certificate for each decoded atom and its exact disk source.
-The certificate covers the full value, metadata, and time. It excludes no atom field.
-The call moves its decoded atom into the warm set after the certificate check.
-The certificate store keeps no second atom body. Its metadata cap stays at 4 MiB.
+A selected tip requires its record in every database scope.
+The shared body reader checks the result count and refuses a missing record.
+It returns complete records, so callers do not contain another skip rule.
+The call keeps a compact certificate for each decoded record and its exact disk source.
+The certificate covers the full value, metadata, and time. It excludes no record field.
+The call moves its decoded record into the warm set after the certificate check.
+The certificate store keeps no second record body. Its metadata cap stays at 4 MiB.
 Sources, certificates, and scope bindings each permit up to 10,000 entries within that shared cap.
-The former skipped-atom reports remain empty wire fields. They own no counters or record lists.
+The former skipped-record reports remain empty wire fields. They own no counters or record lists.
 One shared query check refuses old-value and recursive-depth controls for reads and counts.
 The request decoder retains those names for an explicit refusal. Current field readers do not accept those controls.
 
-Each field keeps its current atom in its molecule.
+Each field keeps its current record in its field key.
 A query assembles a record from those fields in the selected storage scope.
-Exact reads and range reads use the same query controls and each field's own atom metadata.
+Exact reads and range reads use the same query controls and each field's own record metadata.
 Empty field and numeric condition lists mean no conditions for pages and counts.
 Numeric order and numeric conditions retain the exact stored integer value.
 They do not round a stored integer to a float before the comparison.
@@ -72,19 +71,19 @@ Native file packing combines the disk work without a second logical value repres
 When a write omits declared key fields, preparation supplies their known values from the lookup key.
 Create and Update refuse a declared key field whose value differs from the caller's key.
 The refusal occurs before any member of that source batch changes data.
-Delete and Purge create no key-field atoms.
+Delete and Purge create no key-field records.
 This keeps the record available to field conditions without a separate membership source.
-An atom identity includes its source schema and value. A write through another schema can change that identity for the same value.
-Related molecules still share the current selected atom. A normal reopen retains that atom identity.
-Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
+A record identity includes its source schema and value. A write through another schema can change that identity for the same value.
+Related field keys still share the current selected record. A normal reopen retains that record identity.
+Internal current-field reads select each tip once, then fetch the selected record bodies in one batch.
 Writes, reads, and related deletion keys use one conversion for text, numeric, and Boolean coordinates.
 Slot helpers select coordinates without an encoding change. Only the storage codec changes their representation.
 Cold Hash counts and value reads use the same exact tip reader.
-That reader keeps the caller's hash and the selected atom location together.
+That reader keeps the caller's hash and the selected record location together.
 Keyed reads keep the caller's key form through counts and response metadata.
 They do not reinterpret a caller key as another key's disk encoding.
 Only physical page and sample reads recover keys from their stored form.
-Reads and writes use the exact molecule identity from the schema.
+Reads and writes use the exact field key identity from the schema.
 Normal reads and deletes do not try another UUID spelling or create another preloaded key set for it.
 Only explicit dropped-schema physical cleanup can enumerate historical UUID spellings.
 Narrowed reads carry the range form explicitly. Exact caller ranges receive no second decode.
@@ -95,18 +94,18 @@ Exact HashRange batches check each selected record against its own hash. Counts 
 Actual primary tip presence controls projection fallback, including an empty page after the cursor or offset.
 Cross-hash administrative pages use offsets. Logical `PageAfter` and non-keyed query cursors receive an explicit refusal; keyed query cursors use their API-coordinate window.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
-A shared key that becomes usable also receives the unchanged fields through their existing atoms.
+A shared key that becomes usable also receives the unchanged fields through their existing records.
 The absence of an old key does not skip those fields.
 A missing, null, array, or object value in an optional peer-key field names no peer key.
 If a peer key loses a required scalar value, the write removes its confirmed old association.
 The addressed schema still requires scalar values for its own declared key fields.
 Old-key removal and related deletion use one current association check.
 The peer must expose every source key field with the same canonical field identity and current scalar coordinate.
-Every present shared field must also match the source atom, metadata, and author clock.
-A moved unchanged field can retain its atom and use the key-change author clock.
+Every present shared field must also match the source record, metadata, and author clock.
+A moved unchanged field can retain its record and use the key-change author clock.
 Equal field values alone do not establish record ownership.
 Partial shared fields that omit the source identity do not authorize related record removal.
-Conflicts still choose each field's current atom by its author clock.
+Conflicts still choose each field's current record by its author clock.
 A related key uses the field values that the source write accepts.
 A rejected field value cannot change that key, even when another field in the same mutation wins.
 The source decision precedes related key preparation inside the private native write boundary.
@@ -118,11 +117,11 @@ A present declared hash field must prove both coordinates. An absent hash field 
 An ordinary Delete skips a key from another layout. A loud Delete or Purge refuses that key.
 Create and Update refuse the reserved tombstone value before preparation and validate ordinary field types.
 
-Schema key lists capture the schema, selected tips, and atom values in one read.
+Schema key lists capture the schema, selected tips, and record values in one read.
 The public key list resolves the caller's database membership inside that captured read.
 Its selected field, keys, values, and preload use the same database scope.
 Value reads, counts, and schema key lists share the resolved schema's blocked-state check.
-They load the molecule's encryption keys and fetch selected values in batches.
+They load the field key's encryption keys and fetch selected values in batches.
 HashRange membership precedes the key-list limit; rejected records cause a bounded refill.
 Empty and whitespace hashes remain exact API values.
 The list command preserves those hashes in both requests and continuation commands.
@@ -140,7 +139,7 @@ Named database record queries and key lists use their requested database scope.
 
 Selected HashRange schemas load complete membership keys before their first query continues.
 Concurrent first queries share that load. Later ranges select keys from the complete memory set under one named hash.
-Tips and atom values remain partial. Key preload does not fetch every value.
+Tips and record values remain partial. Key preload does not fetch every value.
 The complete key allowance is separate from the warm set byte limit.
 Unselected schemas and refused loads use the bounded disk selector.
 A failed optional preload releases its incomplete keys and retains its diagnostic reason.
@@ -163,14 +162,14 @@ The fetched values end with the private preparation. The write gate and durable 
 
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
 Delete, Purge, and idempotent repeats follow the same rule.
-The ID identifies the accepted input. It does not identify the atom that wins a field conflict.
+The ID identifies the accepted input. It does not identify the record that wins a field conflict.
 Change notices use that exact input-to-ID association. They do not substitute another input's ID.
 
-The private preparation step transfers its schema, atoms, and related changes into the disk stage.
+The private preparation step transfers its schema, records, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
-The logical path stage collects the bindings for all changed molecules first.
+The logical path stage collects the bindings for all changed field keys first.
 It reads each distinct schema definition once from the current private view.
-Each molecule still requires its own complete binding counter and exact field-to-molecule checks.
+Each field key still requires its own complete binding counter and exact field-to-field-key checks.
 The definitions leave memory after that stage. A later stage reads its own current view.
 Within that preparation, repeated exact disk reads reuse the already authenticated result from the held root.
 The private result store has a 1 MiB key/value/entry allowance and at most 10,000 records.
@@ -185,34 +184,34 @@ A change in the current request or its accepted prefix requires a fresh captured
 Private prepared definitions retain priority. Reuse creates no new shared cache or catalog write.
 The native preparation report counts core reuse, private prepared reuse, and decode attempts separately.
 Ordinary create/update writes keep the registered schema definition and field
-molecule identities. They publish changed tips, values and molecule headers through
+field key identities. They publish changed tips, values and field key headers through
 the native transaction without storing or reloading the schema catalog. Schema
 declaration and definition updates retain their catalog publication boundary.
 Record writes retain the existing best-effort relationship-binding retry; that
 check does not store or reload the unchanged catalog definition.
 Native after-commit work sends the Search change after the disk commit.
-Related molecule definitions share one protected metadata change.
-Schema declarations preserve each schema's own installed molecule map.
+Related field key definitions share one protected metadata change.
+Schema declarations preserve each schema's own installed field key map.
 Schema definitions use one shared namespace on the node.
 Writes and deletes read those definitions, then use the caller's database scope for the records.
 The definition lookup does not select data from another database.
-Schema publication establishes the fixed encryption keys for every final field molecule.
+Schema publication establishes the fixed encryption keys for every final field key.
 Named alternate addresses change with the primary record in one native transaction.
-Personal and named databases use the same keys for the same molecule identity.
+Personal and named databases use the same keys for the same field key identity.
 Private key creation follows the native write boundary and one lock order.
 A failed schema change cannot publish its private keys in the shared cache.
 Current reads use that one key pair. No previous-key transition or automatic conversion runs.
-Preload loads the molecule keys before it captures their encoding identity.
-The native write boundary precedes the membership and molecule-liveness guards.
+Preload loads the field keys before it captures their encoding identity.
+The native write boundary precedes the membership and field-key-liveness guards.
 
 Catalog put, declaration, share, and removal use that same write boundary.
-The native write boundary precedes molecule locks and the catalog's last-reference check.
-The catalog row, its molecule bindings, and a removed instance's data change together.
+The native write boundary precedes field key locks and the catalog's last-reference check.
+The catalog row, its field key bindings, and a removed instance's data change together.
 Cleanup planning and preparation each refuse a request above the 128 MiB byte allowance.
 The native operation limit can also refuse the complete cleanup.
 
 A refusal retains the catalog row and all instance data. Search receives changes only after commit.
-Instance removal does not revoke molecule encryption wraps that other instances or schemas can use.
+Instance removal does not revoke field key encryption wraps that other instances or schemas can use.
 Its `reclaimed_wraps` result remains zero. Cloud reactivation requires a separate domain-aware revocation design.
 
 The private disk queue owns prepared bytes and completion work until flush.
@@ -225,46 +224,46 @@ Local mutations in one batch share one logical revision and receive consecutive 
 The native create/update batch includes its author-clock high-water state in the same durable commit.
 The state never moves below a prior durable reservation. Other write paths retain their explicit clock barrier.
 Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
-A new winning tip replaces the full author clock and optional key metadata, even when its atom identity stays the same.
-The atom identity describes the schema and value. It does not describe the write time or key metadata.
-Equal atoms do not create a different-atom conflict or a replacement-history entry.
+A new winning tip replaces the full author clock and optional key metadata, even when its record identity stays the same.
+The record identity describes the schema and value. It does not describe the write time or key metadata.
+Equal records do not create a different-record conflict or a replacement-history entry.
 The same commit retires the prior tip's reference. A reference that the current tip still uses stays active.
 A present key-metadata record supplies all its optional fields. An omitted member clears that value.
-Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
-Current key metadata can reference a file blob independently of the immutable atom metadata.
-Each tip that carries file metadata is one reference to its blob, and so is each atom counter that lists the blob.
-The blob counter changes in the same batch as the tip or the atom counter that holds the reference.
+Only the absence of the entire key-metadata record permits record creation metadata as a fallback.
+Current key metadata can reference a file blob independently of the immutable record metadata.
+Each tip that carries file metadata is one reference to its blob, and so is each record counter that lists the blob.
+The blob counter changes in the same batch as the tip or the record counter that holds the reference.
 All databases on the node share the file blob store, and one blob counter counts the references of every scope.
-A scope drop lowers the blob counters that its tips and atom counters held, in the same batch as the rows.
+A scope drop lowers the blob counters that its tips and record counters held, in the same batch as the rows.
 
 File cleanup uses the blob counter and a dwell (`docs/lastdb-blob-counter.md`).
-A blob whose counter reaches zero waits one hour by default, because an upload comes before the atom that names it.
+A blob whose counter reaches zero waits one hour by default, because an upload comes before the record that names it.
 The dwell pass then reads the counter again inside a native write scope and deletes the blob row, its counter and its queue entry in one batch.
 A reference that arrives during the dwell cancels the delete.
 A personal restore keeps existing node-wide file bytes and their encryption metadata.
 It adds only files that are absent from the node.
 Single and batch requests carry the declared source file name through the same write pipeline.
-Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
+Logical query responses omit the physical field key version. A partial memory field key cannot supply a stable record version.
 All native requests wait for disk and their complete memory publication before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
-User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
-Write conditions retain the selected tip's physical atom location through the body fetch.
+User Delete resolves the current related field keys inside the same native write boundary as their removal.
+Write conditions retain the selected tip's physical record location through the body fetch.
 They use the same required-body reader as queries. They do not guess a location from the caller's key.
 The worker checks the caller's conditions before it prepares any deletion.
-The current field atoms supply the values for those checks and related keys.
+The current field records supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
-Both Delete forms remove tips. The atom counter frees an atom body only when its last reference goes, so shared atom bodies stay. The `must_exist` option checks the caller's key before removal.
+Both Delete forms remove tips. The record counter frees a record body only when its last reference goes, so shared record bodies stay. The `must_exist` option checks the caller's key before removal.
 Delete crosses Hash and HashRange layouts only for complete records with the same field names and canonical field identities.
 Partial membership records keep their separate deletion boundary.
 The explicit Purge route retains its separate destructive rules.
 Delete and Purge check the caller's conditions in the same database scope as the removal.
-Delete and Purge give every tip change to the atom counter planner. The planner lowers one reference for each removed tip and deletes each body whose count reaches exactly zero in the same batch (`docs/lastdb-atom-counter.md`).
+Delete and Purge give every tip change to the record counter planner. The planner lowers one reference for each removed tip and deletes each body whose count reaches exactly zero in the same batch (`docs/lastdb-verify-ref.md`).
 A counter that is absent, or lower than the removal, keeps the body and marks the counter `suspect`. The request does not fail for it.
 Counters use the selected database scope.
-The atom liveness report reads the counter of each named atom: its count, its `suspect` flag, and whether the body exists.
-The report cannot list the referrers of an atom, because the counter holds a number and no list.
+The record liveness report reads the counter of each named record: its count, its `suspect` flag, and whether the body exists.
+The report cannot list the referrers of a record, because the counter holds a number and no list.
 This diagnostic accepts the default owner scope. It refuses named database handles because it lacks a schema for their alias lookup.
 An optional peer key without scalar coordinates receives no related deletion.
 The caller's addressed record remains eligible for deletion.
@@ -306,9 +305,9 @@ The [engine README](../vendor/laststore/README.md) describes the run files.
 
 | Part | Responsibility | Explicit boundary |
 |---|---|---|
-| Core model | Current definitions, selected tips, atom values, and confirmed absence | A partial molecule does not prove a complete range. |
-| Complete selected keys | Membership for selected schemas | The separate allowance does not preload every atom. |
-| Read scope | One held disk root, publication revision, allowance, and call-local owners | Child reads keep the same scope and selected atom location. |
+| Core model | Current definitions, selected tips, record values, and confirmed absence | A partial field key does not prove a complete range. |
+| Complete selected keys | Membership for selected schemas | The separate allowance does not preload every record. |
+| Read scope | One held disk root, publication revision, allowance, and call-local owners | Child reads keep the same scope and selected record location. |
 | Write preparation | One complete logical change and its prepared disk bytes | A failed preparation does not publish part of that change. |
 | Native queue | Prepared disk output and completion work | Ordinary reads cannot use it as another value source. |
 | Physical maintenance | Run-file merge, backup, and explicit repair | These tools do not select another logical engine. |
@@ -348,17 +347,17 @@ Later cleanup or cutover checks must identify their own source and product evide
 
 A new home records the current key format before it serves requests.
 The current logical marker is `layout:v3:keys` with value `3`.
-It covers framed molecule identities and exact binding identities.
+It covers framed field key identities and exact binding identities.
 The physical node marker remains `laststore-pack-node-v1`.
 A new home records its setup state before it creates the physical store.
 An interrupted new setup can resume from that state. It cannot accept user writes before setup completes.
 An existing home without the current format marker or that setup state receives an error.
 Startup does not convert data.
 Flat keys use the current zero-byte separator. A read never tries an older colon spelling.
-Molecule identities use their exact current base64url form. A hex identity is not an alternate key.
-The current atom placement choices remain flat or located by molecule and hash.
+Field key identities use their exact current base64url form. A hex identity is not an alternate key.
+The current record placement choices remain flat or located by field key and hash.
 The current hash and range encryption choices remain available.
-A changed atom placement setting receives an error after home creation.
+A changed record placement setting receives an error after home creation.
 
 The old key conversion, key fork, tip conversion, and collection copy commands are removed.
 Archived tip files and their repair jobs are removed. Current history events remain.

@@ -7,7 +7,7 @@
 use super::report::{RecountOptions, RecountReport};
 use super::PAGE_ROWS;
 use crate::db_operations::record_store::{RangeWalk, RecordStore};
-use crate::records::atom_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
+use crate::records::field_history::{RecordHistoryEntry, RECORD_HISTORY_PREFIX};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::RECORD_PREFIX;

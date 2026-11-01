@@ -19,8 +19,8 @@ mod batch_inner;
 mod create_update_batch;
 mod erase_guards;
 mod erasure;
+mod field_keys;
 mod layout;
-mod molecule_keys;
 mod native;
 mod record_effects;
 mod records;
@@ -57,7 +57,7 @@ impl MutationManager {
     /// This is the preferred async version that avoids deadlocks.
     /// All storage operations use direct async/await instead of run_async.
     ///
-    /// `storage_prefix`: when `Some`, scopes molecule/idempotency keys to that
+    /// `storage_prefix`: when `Some`, scopes field key/idempotency keys to that
     /// org/db hash (see design-org-db-handle-platform-gap). `None` is personal.
     pub async fn write_mutations_batch_async(
         &self,

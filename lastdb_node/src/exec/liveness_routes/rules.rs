@@ -1,6 +1,6 @@
 //! Liveness request, target, and reply rules. Callers own scope checks and store reads.
-//! Only the file blob class is served: the format 7 record model has no atom
-//! or molecule counters to explain.
+//! Only the file blob class is served: the format 7 record model has no record
+//! or field key counters to explain.
 
 use fold_db::db_operations::BlobCounterView;
 use serde::Deserialize;
@@ -56,7 +56,7 @@ pub(super) fn blob_reply(views: &[BlobCounterView], dwell_secs: u64) -> Value {
             let state = match (view.refs, view.zero_since, view.suspect) {
                 _ if view.unreadable => "unreadable",
                 (Some(_), _, true) => "suspect",
-                // Atoms name the blob and the store has no row for it: a
+                // Records name the blob and the store has no row for it: a
                 // write named the blob after its dwell deleted it.
                 (Some(refs), _, false) if refs > 0 && !view.row_present => "referenced_row_missing",
                 (Some(refs), _, false) if refs > 0 => "referenced",

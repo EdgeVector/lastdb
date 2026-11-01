@@ -39,7 +39,7 @@ pub(super) fn admin_op_error(operation: &str, error: crate::schema::SchemaError)
         | SE::CatalogMembershipDenied { .. }
         | SE::TransportNotAttested { .. }
         | SE::CasConflict { .. }
-        | SE::AtomContentTooLarge { .. }
+        | SE::FieldValueTooLarge { .. }
         | SE::RecordTooLarge { .. }
         | SE::StorageFull { .. }) => FoldDbError::Schema(caller_fault),
         // Overloaded or internal: keep the operation label and stay a 500.

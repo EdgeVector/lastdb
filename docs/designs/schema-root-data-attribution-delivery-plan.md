@@ -1,7 +1,7 @@
 # Schema-root data attribution delivery plan
 
-> **SUPERSEDED.** The atom counter is the only authority for the life of an atom body
-> (`docs/lastdb-atom-counter.md`). This plan was retired as a path to deleting atoms,
+> **SUPERSEDED.** The record counter is the only authority for the life of a record body
+> (`docs/lastdb-verify-ref.md`). This plan was retired as a path to deleting records,
 > because no delete uses an attribution walk. It stays as history.
 
 | Field | Value |
@@ -23,12 +23,12 @@ attribution source evidence before the API returns.
 ## Chosen architecture
 
 The schema catalog starts the user-data walk. The walker follows declared
-field molecules, key slots, tips, atoms, blobs, alternate addresses, history, and valid
+field keys, key slots, tips, records, blobs, alternate addresses, history, and valid
 reference edges. System and retention roots run in the same epoch.
 
 The ledger stores fixed-size object rows, bounded path rows, cursor rows, and
-an ordered event source. It never stores an unbounded schema list in an atom.
-It shares the existing per-molecule counters for logical size. It reports
+an ordered event source. It never stores an unbounded schema list in a record.
+It shares the existing per-field-key counters for logical size. It reports
 inclusive logical size by schema and unique physical size by object.
 
 The first exact-copy operation uses a short owner maintenance write gate. The
@@ -38,7 +38,7 @@ replace the gate only when it returns the same frontier and copy identity.
 
 ## Complexity and capacity
 
-Let `F` be declared field molecules, `T` live tip slots, `E` durable edges,
+Let `F` be declared field keys, `T` live tip slots, `E` durable edges,
 `N` inspected objects, and `A` materialized root-to-object paths.
 
 | Operation | Time | Durable space | Process memory |
@@ -68,26 +68,26 @@ event. A failed or ambiguous mutation leaves a visible blocker.
 
 ### 2. Build the bounded graph projector
 
-- Add resumable pages for schema catalogs, molecules, tips, alternate addresses, atoms,
+- Add resumable pages for schema catalogs, field keys, tips, alternate addresses, records,
   blobs, history, and system roots.
 - Write object rows and bounded proof paths in the attribution ledger.
 - Apply source events after the base walk. Re-read canonical rows from each
   locator. Never replay an event into an earlier copy.
 - Classify unsupported or unreadable evidence as `unknown`.
 
-**Required product evidence:** real operational output covers shared atoms, alternate addresses, atom cycles, blobs,
+**Required product evidence:** real operational output covers shared records, alternate addresses, record cycles, blobs,
 history roots, system roots, interrupted cursors, and a write during the walk.
 
 ### 3. Finish inline size attribution
 
-- Use molecule counters as the source for logical value, structure, and
+- Use field key counters as the source for logical value, structure, and
   retained-history size.
 - Mark reports incomplete when a counter has no complete source state.
 - Show inclusive schema bytes and node-unique physical bytes separately.
 - Bootstrap a fresh home without a manual liveness action.
 
 **Verify:** a new home reports complete logical size after its first write.
-Shared atoms change inclusive size without double-counting unique bytes.
+Shared records change inclusive size without double-counting unique bytes.
 
 ### 4. Create and verify an exact isolated copy
 

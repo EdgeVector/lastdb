@@ -27,7 +27,7 @@ impl FoldDB {
             .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))?;
 
         self.db_ops()
-            .attribute_schema_root_molecules(LIVE_ATTRIBUTION_EPOCH_ID, 0)
+            .attribute_schema_root_field_keys(LIVE_ATTRIBUTION_EPOCH_ID, 0)
             .await
             .map_err(|e| FoldDbError::Database(format!("attribute schema roots: {e}")))?;
         self.db_ops()

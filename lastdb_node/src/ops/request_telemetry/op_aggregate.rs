@@ -75,16 +75,16 @@ pub struct OpAggregate {
     /// no matter what fraction reported phases.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub phased_sum_ms: u64,
-    /// Total field molecules this key's requests handed to the durable store.
+    /// Total field keys this key's requests handed to the durable store.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_molecules_persisted: u64,
-    /// Total awaited durable molecule-store operations this key's requests
-    /// issued. Divide [`Self::sum_molecules_persisted`] by this for the
-    /// molecules-per-commit ratio — the contention-free way to see whether the
+    pub sum_field_keys_persisted: u64,
+    /// Total awaited durable field-key-store operations this key's requests
+    /// issued. Divide [`Self::sum_field_keys_persisted`] by this for the
+    /// field-keys-per-commit ratio — the contention-free way to see whether the
     /// batch commit path is being taken, and how often eligibility rejects a
-    /// molecule from it.
+    /// field key from it.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub sum_molecule_store_commits: u64,
+    pub sum_field_key_store_commits: u64,
     /// Logical resident commits published across this window's requests.
     pub sum_resident_commits: u64,
     /// Operations those commits carried. Divide by

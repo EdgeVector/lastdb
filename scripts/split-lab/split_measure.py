@@ -7,7 +7,7 @@ A candidate is a JSON file:
       "name": "purity",
       "units": [
         {"name": "model", "pure": true, "about": "values and rules",
-         "paths": ["atom/", "schema/types/"]},
+         "paths": ["record/", "schema/types/"]},
         {"name": "engine", "paths": ["db_operations/", "lib.rs"]}
       ],
       "allow": {"model": [], "engine": ["model"]}

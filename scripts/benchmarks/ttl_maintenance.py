@@ -28,8 +28,8 @@ def backfill(node, schema, expected, output):
 
 def maintain(node, output, live, expected_live):
     # Stop the sweep before the backfill; no concurrent erase moves behind its cursor.
-    # The delete-marker cleanup page (`POST /api/db/molecule-drain`) left the
-    # API with the format 6 tools, so this step no longer runs it.
+    # The delete-marker cleanup page left the API with the older tools, so
+    # this step no longer runs it.
     node.stop()
     save(output / "post-measurement-shutdown.json", json.loads((output / "shutdown.json").read_text()))
     node.environment["LASTDB_TTL_SWEEP"] = "0"

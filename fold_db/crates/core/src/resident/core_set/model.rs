@@ -34,7 +34,7 @@ pub(crate) struct CoreModelUpdate {
 #[derive(Clone, Copy, Default, serde::Serialize)]
 pub(crate) struct CoreModelStats {
     pub(crate) dirty_slots: usize,
-    pub(crate) dirty_molecules: usize,
+    pub(crate) dirty_field_keys: usize,
     pub(crate) dirty_definitions: usize,
     pub(crate) metadata_limit_bytes: usize,
     pub(crate) metadata_current_bytes: usize,
@@ -77,7 +77,7 @@ impl CoreWarmSet {
         CoreModelStats {
             // Retained status fields: native writes publish only after disk commit.
             dirty_slots: 0,
-            dirty_molecules: 0,
+            dirty_field_keys: 0,
             dirty_definitions: 0,
             metadata_limit_bytes: budget.limit_bytes,
             metadata_current_bytes: 0,

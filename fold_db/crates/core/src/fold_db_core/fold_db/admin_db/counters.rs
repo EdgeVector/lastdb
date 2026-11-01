@@ -6,8 +6,8 @@ impl FoldDB {
     /// The verifier summary for `lastdb status`. A read of in-memory state; no
     /// store access.
     #[must_use]
-    pub fn atom_counter_report(&self) -> crate::db_operations::AtomCounterReport {
-        crate::db_operations::AtomCounterReport {
+    pub fn verify_refs_report(&self) -> crate::db_operations::VerifyRefsReport {
+        crate::db_operations::VerifyRefsReport {
             verify_refs: Some(self.db_ops().records().verify_refs_summary()),
         }
     }
@@ -34,7 +34,7 @@ impl FoldDB {
     /// The storage scope prefixes that the database catalog names, besides the
     /// personal scope. The catalog is small, so listing it is not a scan of the
     /// data. A scope that holds data and has no catalog entry is not listed.
-    pub async fn atom_counter_scopes(&self) -> Result<Vec<String>, FoldDbError> {
+    pub async fn verify_ref_scopes(&self) -> Result<Vec<String>, FoldDbError> {
         use crate::db_operations::db_catalog_store::{
             referenced_instance_ids, UNPREFIXED_INSTANCE_ID,
         };

@@ -4,10 +4,8 @@ use super::*;
 
 /// Current physical prefixes and their exact destination collections.
 ///
-/// A format 7 home keeps the blob counters and the blob dwell queue in
-/// `atoms` and every other `main` row in `tips`. The key law
-/// (`storage::current_keys`) refuses the format 6 families (`atom`, `fdep`,
-/// `mref`, `schemaidx`), so no current row needs a route for them.
+/// Blob counters and the blob dwell queue use the routed collection.
+/// Every other `main` row uses `tips`.
 const ROUTED_PREFIXES: &[(&str, &str)] = &[("bref:v3:", "atoms")];
 
 pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {

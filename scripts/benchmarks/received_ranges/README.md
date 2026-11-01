@@ -18,7 +18,7 @@ The four fields identify the source and contain a generated 256-byte body.
 Every returned field must match the expected source precedence.
 Local values take precedence. Source zero precedes source one.
 An independent schema uses the same `(bucket,id)` key and canonical field definitions.
-It owns separate values and molecules for all fields.
+It owns separate values and field keys for all fields.
 Local writes to that schema supply 640 prefix keys and 576 tail keys.
 They do not replace or exclude received records in the target schema.
 The recipe verifies complete values in both schemas before and after reopen.

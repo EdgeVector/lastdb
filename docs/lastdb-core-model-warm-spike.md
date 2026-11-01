@@ -1,9 +1,8 @@
 # LastDB core model warm set spike
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 Status: historical exact-read spike, 2026-10-17.
@@ -17,8 +16,8 @@ The [key selection study](lastdb-key-selection-study.md) records an intermediate
 Tom later selected complete key preload for selected schemas.
 The measurements below describe the earlier spike, not the final preload route.
 
-The spike reuses the engine's molecule and atom objects for exact Hash and
-HashRange reads. `CoreWarmSet` owns those partial molecules and full atoms.
+The spike reuses the engine's field key and record objects for exact Hash and
+HashRange reads. `CoreWarmSet` owns those partial field keys and full records.
 The separate least recently used list holds logical path references.
 
 The [logical warm set design](lastdb-logical-warm-set-design.md) describes the
@@ -30,7 +29,7 @@ The spike supplies part of that work. Accepted storage records still use
 flowchart TD
     R[Existing schema and field rules] --> M
     subgraph C[CoreWarmSet partial logical state]
-        M[Core molecule tips] --> A[Shared full atoms]
+        M[Core field_key tips] --> A[Shared full records]
     end
     L[Least recently used path references] -->|Retain or purge| C
     M -->|Missing data| B[Batch fetch boundary]
@@ -45,41 +44,41 @@ flowchart TD
 ## Core objects and ownership
 
 A stable path contains the storage scope, schema identity, canonical field,
-molecule, hash, and range. Its current atom UUID is the target, not its key.
+field key, hash, and range. Its current record UUID is the target, not its key.
 A write can replace the target without another logical path.
 
-The owner stores the existing `MoleculeHashRange` and `Atom` types. Each molecule
-holds the existing `AtomEntry` and optional `KeyMetadata` at its keys.
-The existing key filters operate on that molecule. Schema definitions retain
+The owner stores the existing `FieldKeyHashRange` and `Record` types. Each field key
+holds the existing `RecordEntry` and optional `KeyMetadata` at its keys.
+The existing key filters operate on that field key. Schema definitions retain
 their existing load route; the path records their identities.
 
 | Part | Current responsibility |
 |---|---|
-| `CoreWarmSet` | Own partial core molecules, full atoms, and logical path lifetime. |
-| `CorePath` | Name a stable logical path without its current atom UUID. |
-| `MoleculeHashRange` | Hold current tips in the existing hash map and ordered range map. |
-| `AtomEntry` and `KeyMetadata` | Retain the complete selected tip and its per-key metadata. |
-| Shared `Atom` references | Retain full content, source, metadata, and creation time. |
+| `CoreWarmSet` | Own partial core field keys, full records, and logical path lifetime. |
+| `CorePath` | Name a stable logical path without its current record UUID. |
+| `FieldKeyHashRange` | Hold current tips in the existing hash map and ordered range map. |
+| `RecordEntry` and `KeyMetadata` | Retain the complete selected tip and its per-key metadata. |
+| Shared `Record` references | Retain full content, source, metadata, and creation time. |
 | Least recently used list | Hold path references and select eligible paths for purge. |
 | Per-call receipts | Retain the full selected tip and actual file source for safe admission. |
 
-An atom UUID can match while metadata or creation time differs. The owner marks
-conflicting warm slots unknown. A later fetch supplies the correct full atom.
-It shares one atom object only when the complete atom values match.
+A record UUID can match while metadata or creation time differs. The owner marks
+conflicting warm slots unknown. A later fetch supplies the correct full record.
+It shares one record object only when the complete record values match.
 
 The cap counts logical paths, up to 10,000. An operational setting can lower
-the cap. Shared molecules and atoms do not consume extra logical path slots.
+the cap. Shared field keys and records do not consume extra logical path slots.
 A call holds only its selected paths. Purge skips held paths and paths that
 need a flush.
 
-## Partial molecule operations
+## Partial field key operations
 
-The core molecule has neutral operations for fetched slots. Admission copies
+The core field key has neutral operations for fetched slots. Admission copies
 the complete tip and metadata. Purge removes a slot and its metadata.
 Neither operation changes mutation time, version, or history.
 
-Every molecule in the new owner carries an explicit partial marker. The full
-molecule rewrite guard rejects that state before it creates storage records.
+Every field key in the new owner carries an explicit partial marker. The full
+field key rewrite guard rejects that state before it creates storage records.
 The marker does not establish range completeness.
 
 Bounded core range filters borrow the existing B-tree directly. They copy only
@@ -93,9 +92,9 @@ It also supports a batch of exact keys. Every requested path needs a known
 tip before the existing core filter can supply that batch.
 
 1. Capture the current disk state and accepted changes.
-2. Select exact tips through the shared core molecule when their sources permit direct warm reuse.
+2. Select exact tips through the shared core field key when their sources permit direct warm reuse.
 3. Otherwise, use the existing keyed disk route to select the tips.
-4. Reuse each path's full atom, or fetch the missing atoms in a batch.
+4. Reuse each path's full record, or fetch the missing records in a batch.
 5. Admit fetched objects only while the captured change number remains current.
 6. Return the values with the existing metadata and tombstone rules.
 
@@ -105,21 +104,21 @@ route. The spike does not treat unknown keys as absent.
 
 An old call can finish from its captured disk and accepted-write state.
 It cannot admit an old value after a newer publication. The change number
-guards the active call; it does not remove unchanged atom values.
+guards the active call; it does not remove unchanged record values.
 
-Tip and atom receipts belong to that call. They leave with the call.
+Tip and record receipts belong to that call. They leave with the call.
 They hold no saved query answer or list of past writes.
 
 ## Writes and flush
 
-Supported local writes prepare full core tips, metadata, and atoms privately.
-They fetch each distinct file target with its exact molecule and hash hint.
-The receipt must confirm the requested file location and full atom data.
+Supported local writes prepare full core tips, metadata, and records privately.
+They fetch each distinct file target with its exact field key and hash hint.
+The receipt must confirm the requested file location and full record data.
 Without that confirmation, the request uses the durable path and skips typed
 warm admission.
 
 The request reserves its complete logical path set before publication.
-Publication updates the shared core molecules and marks the paths dirty.
+Publication updates the shared core field keys and marks the paths dirty.
 The flush queue retains the exact storage work. A completed flush marks only
 the covered write sequence clean. It leaves known records warm.
 
@@ -127,7 +126,7 @@ Ordinary reads do not retain the complete accepted request list. Their path
 holds protect only their selected logical records. Flush completion releases
 the write request's path holds. An old flush cannot clear a newer write.
 
-Related fields can share the same full atom reference. Atom content does not
+Related fields can share the same full record reference. Field value does not
 get a separate serialized copy for every field path. The write size checks
 still account for the prepared data and its limits.
 
@@ -140,16 +139,16 @@ an otherwise valid read or accepted write.
 
 Tip writes conservatively clear direct warm tip reuse across the owner.
 Typed publication restores that reuse for its changed paths.
-Unchanged atom values remain available after the normal route selects a tip.
+Unchanged record values remain available after the normal route selects a tip.
 This guard covers alternate accepted key forms until the source conversion
 can name every affected logical path precisely.
 
 Generation changes and delete barriers also clear direct warm tip reuse.
-Generation changes mark the affected molecule unknown. These controls use
+Generation changes mark the affected field key unknown. These controls use
 the same publication boundary as the accepted storage changes.
 
 The fallback preserves correct reads while the conversion remains partial.
-It can add tip reads after an unrelated write. A shared atom at another file
+It can add tip reads after an unrelated write. A shared record at another file
 location can also require the durable write path.
 
 ## Next work
@@ -159,7 +158,7 @@ routes before the full range work:
 
 1. Retain the actual winning tip source in exact batch fetches. The current loader returns API keys after it tries encoded keys.
 2. Route document-copy reads through the same owner. Admit confirmed absence and batch the missing keys.
-3. Carry the prepared atom objects and byte sizes into write publication. Avoid another fetch of the same prepared bytes.
+3. Carry the prepared record objects and byte sizes into write publication. Avoid another fetch of the same prepared bytes.
 4. Add complete range bounds, including empty gaps and page limits.
 5. Complete all writer routes, then remove the raw write fallback and its conservative source guards.
 
@@ -170,13 +169,13 @@ The document-copy helper checks each result key separately. For each key, it
 can request an API-form tip and an encoded tip. It bypasses the core owner.
 Confirmed absence there needs a place in the same logical state.
 
-Each query also resolves its schema snapshot. Present molecule encryption
+Each query also resolves its schema snapshot. Present field key encryption
 keys use the existing process cache. Missing key bundles lack an absent entry.
 Do not attribute all remaining file work to encryption keys.
 
-Write preparation already holds full atoms. The typed admission adapter fetches
+Write preparation already holds full records. The typed admission adapter fetches
 those prepared targets again and checks their full source and size.
-Carry those existing objects forward. Retain source checks for a reused old atom
+Carry those existing objects forward. Retain source checks for a reused old record
 or a different file location.
 
 The initial source review also finds a page-bound route that skips core lookup.
@@ -189,7 +188,7 @@ offsets, cursors, and the existing tombstone gates before body fetch.
 - Admit known absent keys and accepted deletes through the same logical owner.
 - Move all writers, imports, backfill, administrative changes, and shared storage scopes onto the typed route.
 - Replace conservative tip reuse guards with exact logical publication for every writer.
-- Retain actual fallback atom sources where a shared file supplies several molecule paths.
+- Retain actual fallback record sources where a shared file supplies several field key paths.
 - Remove the accepted raw-record lookup in `NativeWriteGraph` after every required path moves.
 - Reconcile and remove the compatibility state in `LogicalResidentSet` and the older mutable graph.
 - Remove Single and standalone Range across schema declarations, query validation, callers, and clients.
@@ -275,9 +274,9 @@ The prior version performs zero. The Hash batch still performs 21, compared
 with zero before. These counters do not establish physical device reads.
 
 The repeated range request performs 49 file read operations, compared with 95
-before. Its warm atoms reduce file work. Complete range knowledge remains absent.
+before. Its warm records reduce file work. Complete range knowledge remains absent.
 
-These results expose incomplete query conversion. A warm atom hit alone does
+These results expose incomplete query conversion. A warm record hit alone does
 not prove that the complete query avoids disk. The next change must remove
 those remaining fetches through the same logical owner.
 
@@ -335,7 +334,7 @@ exit code zero. Both roots no longer exist. Product receipts remain here.
 | Area | Source |
 |---|---|
 | Core owner and path lifetime | [Core warm set](../fold_db/crates/core/src/resident/core_set.rs) and [lifetime rules](../fold_db/crates/core/src/resident/core_set/lifecycle.rs) |
-| Partial molecule lifecycle | [Neutral slot operations](../fold_db/crates/core/src/atom/molecule_hash_range/loaded.rs) |
+| Partial field key lifecycle | [Neutral slot operations](../fold_db/crates/core/src/record/field_key_hash_range/loaded.rs) |
 | Bounded range selection | [Core range filters](../fold_db/crates/core/src/schema/types/field/filter_utils/hash_range.rs) |
 | Exact field reads | [Core model resolver](../fold_db/crates/core/src/db_operations/field_read/core_model.rs) and [warm filter adapter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs) |
 | Typed write preparation | [Native logical write paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs) |

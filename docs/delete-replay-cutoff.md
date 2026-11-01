@@ -20,7 +20,7 @@ Choose the cutoff explicitly. No timer advances it.
 A cutoff must be positive, cannot decrease, and cannot advance beyond the current time.
 The command writes the one cutoff record and flushes it. It removes no record.
 
-A format 6 home kept a delete record for each removed molecule key, and this command removed the old ones.
+A format 6 home kept a delete record for each removed field key, and this command removed the old ones.
 A format 7 home has no such record.
 
 ## Replay rule

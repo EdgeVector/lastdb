@@ -26,8 +26,8 @@ pub(crate) fn apply_storage_prefix_to_schema(schema: &mut Schema, storage_prefix
 /// Derived provenance is a historical wire shape from the deleted computed
 /// write path. No live writer can legitimately produce a derived mutation
 /// anymore, so any that arrives is forged or stale and is rejected before it
-/// pollutes atoms.
-/// Previously-stored molecules with derived provenance remain readable —
+/// pollutes records.
+/// Previously-stored field keys with derived provenance remain readable —
 /// this guards the WRITE path only. Mutations without `Provenance::Derived`
 /// (user writes with `Provenance::User { .. }` or `None`) are unchecked.
 pub(crate) fn validate_derived_provenance(mutation: &Mutation) -> Result<(), SchemaError> {

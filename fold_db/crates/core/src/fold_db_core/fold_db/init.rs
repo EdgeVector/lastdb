@@ -15,8 +15,8 @@ use crate::fold_db_core::query::QueryExecutor;
 impl FoldDB {
     /// Production / factory initializer.
     ///
-    /// `signer` is the Ed25519 keypair used to sign molecule mutations.
-    /// It is shared with the sync engine so merged-molecule writes during
+    /// `signer` is the Ed25519 keypair used to sign field key mutations.
+    /// It is shared with the sync engine so merged-field-key writes during
     /// replay carry the same node identity as direct writes via
     /// `MutationManager`. Production callers (via the factory) must load
     /// this from the node's persistent identity so signatures match the
@@ -60,7 +60,7 @@ impl FoldDB {
         // Create MutationManager for handling all mutation operations.
         // The signer was loaded and validated by the caller (in
         // production, from the node's persistent identity). It is shared
-        // with the sync engine so merged-molecule writes trace to the
+        // with the sync engine so merged-field-key writes trace to the
         // same node identity as direct writes via `MutationManager`.
         let mutation_manager = Arc::new(MutationManager::new(
             Arc::clone(&db_ops),
@@ -76,7 +76,7 @@ impl FoldDB {
 
         info!("Created MutationManager for mutation operations");
 
-        let background_atom_history = super::super::atom_history::BackgroundAtomHistory::start(
+        let background_field_history = super::super::field_history::BackgroundFieldHistory::start(
             Arc::clone(&db_ops),
             offline_maintenance,
         )
@@ -97,7 +97,7 @@ impl FoldDB {
             mutation_manager,
             pending_tasks,
             background_conflict_janitor,
-            background_atom_history,
+            background_field_history,
             mutation_log_capture,
         })
     }

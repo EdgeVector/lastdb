@@ -1,10 +1,10 @@
-//! The read of a format 7 home: records, not field molecules.
+//! The read of a format 7 home: records, not field keys.
 //!
 //! One key selector reads records by key, or one range of records under one
 //! hash. The conditions, the order and the window apply to whole records,
 //! then the projection returns the selected fields of each record. A record
-//! has no atom or molecule, so each returned field carries the record
-//! metadata (decision D7) and no atom, molecule or writer ID. While the node
+//! has no record or field key, so each returned field carries the record
+//! metadata (decision D7) and no record, field key or writer ID. While the node
 //! receives data from other users, the read merges the received scopes by key
 //! (`records/received.rs`).
 
@@ -335,7 +335,7 @@ fn field_value(record: &StoredRecord, field: &str) -> Option<FieldValue> {
         metadata: meta
             .filter(|meta| !meta.metadata.is_empty())
             .map(|meta| meta.metadata.clone().into_iter().collect()),
-        molecule_uuid: None,
+        field_key_id: None,
         writer_pubkey: None,
         written_at: record.stamps.get(field).map(|stamp| stamp.written_at),
     })
@@ -372,7 +372,7 @@ fn field_metadata(record: &StoredRecord) -> FieldMetadata {
         metadata: meta
             .filter(|meta| !meta.metadata.is_empty())
             .map(|meta| meta.metadata.clone().into_iter().collect()),
-        molecule_uuid: None,
+        field_key_id: None,
         writer_pubkey: None,
     }
 }

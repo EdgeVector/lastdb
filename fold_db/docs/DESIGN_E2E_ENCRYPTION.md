@@ -8,15 +8,15 @@
 > notes only — Mini does not host native embeddings. Catalog scrub:
 > `backup_manifest`, `sync/policy`.
 >
-> **2026-10-26 note:** Atom content encryption (goal item 1 and section 3) is
-> **retired**. Disk format v2 stores each atom row as plain JSON, and the
+> **2026-10-26 note:** Field value encryption (goal item 1 and section 3) is
+> **retired**. Disk format v2 stores each record row as plain JSON, and the
 > AES-256-GCM block encryption of each run file protects it at rest (Tom,
-> 2026-10-24, compact plain values). The code has no atom content seal. See
+> 2026-10-24, compact plain values). The code has no field value seal. See
 > `docs/security/at-rest-threat-model.md` (Operation Trinity status).
 >
 > **2026-10-28 note:** The search helper `E2eKeys::blind_token` is not in
 > the code. Storage HashKeys use `E2eKeys::blind_hash_key`. The node does not
-> derive the index key (`fold:index-key`). Each molecule key bundle holds a
+> derive the index key (`fold:index-key`). Each field key bundle holds a
 > random blind key for HashKey tokens (`DESIGN_HASHKEY_BLIND_V1.md`). Sections
 > below that use the index key are historical.
 
@@ -26,12 +26,12 @@
 
 Encrypt two things:
 
-1. **Atom content** — the user's data stored in each atom
+1. **Field value** — the user's data stored in each record
 2. **Index keywords** — the search terms in the native index
 
 The encryption key is derived from the user's **passkey** so the same key is available on any device where the passkey syncs (iCloud Keychain, Google Password Manager, 1Password).
 
-Everything else (schema definitions, storage keys, atom UUIDs, field names, timestamps) stays plaintext. This keeps the system simple and avoids touching the storage layer.
+Everything else (schema definitions, storage keys, record UUIDs, field names, timestamps) stays plaintext. This keeps the system simple and avoids touching the storage layer.
 
 ---
 
@@ -58,7 +58,7 @@ User authenticates with passkey
 ```
 
 Two keys derived from one passkey secret:
-- **Encryption Key** — AES-256-GCM for atom content
+- **Encryption Key** — AES-256-GCM for field value
 - **Index Key** — HMAC-SHA256 for blind index tokens
 
 ### Where the Key Lives
@@ -77,14 +77,14 @@ PRF is supported in Chrome 116+, Safari 18+, Edge 116+. Passkeys sync across dev
 
 ---
 
-## 3. Encrypted Atom Content
+## 3. Encrypted Field value
 
-> **Retired (2026-10-26):** this section is historical. A disk format v2 atom
+> **Retired (2026-10-26):** this section is historical. A disk format v2 record
 > row is plain JSON inside an encrypted run-file block, with no content seal.
 
 ### What Changes
 
-The `Atom.content` field (`serde_json::Value`) holds the user's data. Currently stored as plaintext JSON. With E2E, it's encrypted before storage and decrypted after retrieval.
+The `Record.content` field (`serde_json::Value`) holds the user's data. Currently stored as plaintext JSON. With E2E, it's encrypted before storage and decrypted after retrieval.
 
 ### Write Path (Mutation)
 
@@ -92,14 +92,14 @@ The `Atom.content` field (`serde_json::Value`) holds the user's data. Currently 
 1. Client receives mutation with plaintext fields_and_values
 2. Serialize content to JSON bytes
 3. Encrypt: AES-256-GCM(encryption_key, nonce, json_bytes) → ciphertext
-4. Store atom with content = base64(ciphertext) instead of JSON
+4. Store record with content = base64(ciphertext) instead of JSON
 5. Everything else (uuid, schema_name, timestamps) stays plaintext
 ```
 
 ### Read Path (Query)
 
 ```
-1. Retrieve atom from storage
+1. Retrieve record from storage
 2. content field contains base64(ciphertext)
 3. Decrypt: AES-256-GCM(encryption_key, ciphertext) → json_bytes
 4. Deserialize JSON → Value
@@ -125,30 +125,30 @@ Encryption sits in the mutation/query handlers — not in the storage layer. The
 
 ### Implementation
 
-In `src/fold_db_core/mutation_manager.rs`, before creating the atom:
+In `src/fold_db_core/mutation_manager.rs`, before creating the record:
 
 ```rust
-// Encrypt content before creating atom
+// Encrypt content before creating record
 let encrypted_content = e2e.encrypt_content(&mutation.fields_and_values)?;
-let atom = Atom::new(schema_name, pub_key, encrypted_content);
+let record = Record::new(schema_name, pub_key, encrypted_content);
 ```
 
-In the query path, after retrieving atoms:
+In the query path, after retrieving records:
 
 ```rust
-// Decrypt content after retrieving atom
-let plaintext_content = e2e.decrypt_content(atom.content())?;
+// Decrypt content after retrieving record
+let plaintext_content = e2e.decrypt_content(record.content())?;
 ```
 
-### Atom UUID
+### Record UUID
 
-The atom UUID (`src/atom/atom_def.rs:47`) is currently `SHA256(schema + content)`. Since content is now encrypted, and ciphertext is non-deterministic (random nonce), the UUID must be computed from **plaintext** content before encryption:
+The record UUID (`src/record/record_def.rs:47`) is currently `SHA256(schema + content)`. Since content is now encrypted, and ciphertext is non-deterministic (random nonce), the UUID must be computed from **plaintext** content before encryption:
 
 ```rust
 // Compute UUID from plaintext, then encrypt content
-let uuid = Atom::generate_content_uuid(&schema_name, &plaintext_content);
+let uuid = Record::generate_content_uuid(&schema_name, &plaintext_content);
 let encrypted = e2e.encrypt_content(&plaintext_content)?;
-let atom = Atom::with_uuid(uuid, schema_name, pub_key, encrypted);
+let record = Record::with_uuid(uuid, schema_name, pub_key, encrypted);
 ```
 
 This preserves content-based deduplication.
@@ -242,7 +242,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64URL, Engine};
 
 /// Holds the two derived keys for E2E encryption.
 pub struct E2eContext {
-    /// AES-256-GCM key for atom content
+    /// AES-256-GCM key for record content
     encryption_key: [u8; 32],
     /// HMAC-SHA256 key for blind index tokens
     index_key: [u8; 32],
@@ -262,7 +262,7 @@ impl E2eContext {
         Self { encryption_key, index_key }
     }
 
-    /// Encrypt atom content (JSON Value → ciphertext bytes).
+    /// Encrypt record content (JSON Value → ciphertext bytes).
     pub fn encrypt_content(&self, content: &serde_json::Value) -> Result<Vec<u8>, E2eError> {
         let plaintext = serde_json::to_vec(content)?;
         let cipher = Aes256Gcm::new_from_slice(&self.encryption_key)?;
@@ -278,7 +278,7 @@ impl E2eContext {
         Ok(out)
     }
 
-    /// Decrypt atom content (ciphertext bytes → JSON Value).
+    /// Decrypt record content (ciphertext bytes → JSON Value).
     pub fn decrypt_content(&self, encrypted: &[u8]) -> Result<serde_json::Value, E2eError> {
         if encrypted.len() < 12 {
             return Err(E2eError::InvalidCiphertext);
@@ -345,8 +345,8 @@ Both Rust and JavaScript use the same HKDF parameters, so the same passkey produ
 | `src/crypto/mod.rs` | Add `pub mod e2e;` |
 | `src/crypto/e2e.rs` | **NEW** — `E2eContext` with `encrypt_content`, `decrypt_content`, `blind_token` |
 | `src/fold_node/node.rs` | Add `e2e: Arc<E2eContext>` to `FoldNode` |
-| `src/fold_db_core/mutation_manager.rs` | Encrypt `fields_and_values` before creating atom |
-| `src/fold_db_core/fold_db.rs` | Decrypt atom content after retrieval in query path |
+| `src/fold_db_core/mutation_manager.rs` | Encrypt `fields_and_values` before creating record |
+| `src/fold_db_core/fold_db.rs` | Decrypt field value after retrieval in query path |
 | `src/db_operations/native_index/indexing.rs` | Use `e2e.blind_token()` when writing index entries |
 | `src/db_operations/native_index/search.rs` | Use `e2e.blind_token()` when building search prefix |
 | `Cargo.toml` | Add `hkdf`, `hmac` dependencies |
@@ -355,8 +355,8 @@ Both Rust and JavaScript use the same HKDF parameters, so the same passkey produ
 
 ## 7. What's NOT Changed
 
-- Storage keys (`atom:{uuid}`, `ref:{mol_uuid}`) — stay plaintext
-- Atom UUID generation — still `SHA256(schema + content)`, computed from plaintext before encryption
+- Storage keys stay plaintext
+- Record UUID generation — still `SHA256(schema + content)`, computed from plaintext before encryption
 - Schema names, field names in index keys — stay plaintext (structural metadata)
 - `EncryptingKvStore` / `EncryptingNamespacedStore` — not involved, can be removed in a future cleanup
 - `KmsCryptoProvider` / `LocalCryptoProvider` — not involved
@@ -383,23 +383,23 @@ Both Rust and JavaScript use the same HKDF parameters, so the same passkey produ
 ```
 Client has plaintext content
     │
-    ├─ Compute atom UUID from plaintext: SHA256(schema + content)
+    ├─ Compute record UUID from plaintext: SHA256(schema + content)
     ├─ Encrypt content: AES-256-GCM(encryption_key, content) → ciphertext
     ├─ Extract keywords from plaintext (LLM or tokenizer)
     ├─ Blind each keyword: HMAC(index_key, keyword) → token
     │
     ▼
 Store:
-    atom:{uuid} → { uuid, schema, ciphertext, ... }
+    stored value → { uuid, schema, ciphertext, ... }
     idx:word:{token}:{schema}:{field}:{key_hash} → IndexEntry
 ```
 
 ### Query (Read)
 
 ```
-Retrieve atom from storage
+Retrieve record from storage
     │
-    ├─ atom.content = ciphertext
+    ├─ record.content = ciphertext
     ├─ Decrypt: AES-256-GCM(encryption_key, ciphertext) → plaintext
     │
     ▼
@@ -414,8 +414,8 @@ User searches for "developer"
     ├─ Blind: HMAC(index_key, "developer") → token
     ├─ Prefix scan: idx:word:{token}:
     ├─ Get matching IndexEntry structs (schema, field, key refs)
-    ├─ Retrieve atoms by key
-    ├─ Decrypt atom content
+    ├─ Retrieve records by key
+    ├─ Decrypt record content
     │
     ▼
 Return plaintext results

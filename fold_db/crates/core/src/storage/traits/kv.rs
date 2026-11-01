@@ -38,8 +38,8 @@ pub trait KvStore: Send + Sync {
     ///
     /// The batched counterpart to [`Self::exists`], and deliberately *not*
     /// spelled as `get_many(..).is_some()`: an existence probe over a page of
-    /// atom keys must not pull a page of atom bodies into memory to answer it
-    /// (bodies here run to `LASTDB_MAX_ATOM_CONTENT_BYTES`, so a 1024-key probe
+    /// record keys must not pull a page of record bodies into memory to answer it
+    /// (bodies here run to `LASTDB_MAX_FIELD_VALUE_BYTES`, so a 1024-key probe
     /// could materialize hundreds of MiB on a node whose resident budget is the
     /// binding constraint).
     ///
@@ -113,7 +113,7 @@ pub trait KvStore: Send + Sync {
     ///
     /// This is the bounded counterpart to [`scan_prefix`](Self::scan_prefix):
     /// it lets a caller fetch only the records whose keys fall in a contiguous
-    /// range — the per-key molecule range/prefix read path uses it so a range
+    /// range — the per-key field key range/prefix read path uses it so a range
     /// query costs `O(matches)`, not `O(field cardinality)`.
     ///
     /// The default implementation derives the longest common prefix of `start`

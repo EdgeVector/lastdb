@@ -262,12 +262,12 @@ fn print_samples(report: &Value) {
     };
     for sample in samples.iter().take(20) {
         let text = |key: &str| sample.get(key).and_then(Value::as_str).unwrap_or("?");
-        // The JSON key `atom` keeps its name for its readers. It holds the
+        // The JSON key `record` keeps its name for its readers. It holds the
         // blob, the blob counter id or the queue key that the fault names.
         println!(
             "  e.g. {} {} — {}",
             text("kind"),
-            text("atom"),
+            text("record"),
             text("detail")
         );
     }

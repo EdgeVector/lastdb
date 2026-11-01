@@ -46,10 +46,10 @@ pub struct PurgeStats {
     /// Unix milliseconds at which the most recent pass finished.
     /// Zero means no erase has run on this schema since process start.
     pub last_purge_finished_unix_ms: u64,
-    /// Exact molecule slots removed by erase passes.
+    /// Exact field key slots removed by erase passes.
     pub purge_target_slots: u64,
-    /// Atom bodies deleted because their count reached zero.
-    pub purge_atoms_deleted: u64,
+    /// Record bodies deleted because their count reached zero.
+    pub purge_records_deleted: u64,
 }
 
 /// Cumulative [`PurgeStats`] per schema name, since process start.
@@ -89,7 +89,7 @@ pub struct MutationManager {
     ///
     /// The count cap above and this cap bound **different resources**, which is
     /// why #966's count-only window did not stop the balloon: 512 tasks each
-    /// holding a 512 KiB atom batch is 256 MiB of acked-but-unpersisted state,
+    /// holding a 512 KiB record batch is 256 MiB of acked-but-unpersisted state,
     /// and the same 512 tasks holding one small record each is under a
     /// megabyte. The 2026-07-29 restart loop was the first shape passing a cap
     /// written for the second (brain

@@ -22,7 +22,7 @@ lower bar is re-ratified here).
 | Track | Bar | Question it answers |
 |-------|-----|---------------------|
 | **Peel** (in-tree) | **A — API parity** | Can fbrain/fkanban-shaped clients still speak Mini routes? |
-| **Nano** (clean-room repo) | **B — model parity** | Do we still have schema-named field atoms + durable mutate/query? |
+| **Nano** (clean-room repo) | **B — model parity** | Do we still have schema-named field records + durable mutate/query? |
 | **LOC contest only** | **C** | Smallest durable schema+put/get — *not* the production rewrite target |
 
 This constitution targets **Bar B for the kernel test** (in-process `FoldDB`
@@ -46,7 +46,7 @@ The smallest honest LastDB. Without these, it is a generic KV or file store.
 | K0.7 | Hard delete | `MutationType::Delete`; default reads hide leftover tombstones |
 | K0.8 | Shutdown + reopen same path | data + schema survive process boundary |
 
-**Rough module home today:** `storage`, `atom`, `schema` (declare),  
+**Rough module home today:** `storage`, `record`, `schema` (declare),
 `fold_db_core` (mutate/query), `db_operations` (write path).
 
 ### K1 — Brain (local app shape)
@@ -60,7 +60,7 @@ What fbrain/fkanban need from the **core** (not the socket).
 | K1.3 | Tombstone visibility opt-in | `include_tombstones` / history tools |
 | K1.4 | Schema identity hash | deterministic hash after declare/load |
 | K1.5 | Native text / embedding search | owner search; optional semantic feature |
-| K1.6 | Molecule / field history | heads + prior atoms for a key |
+| K1.6 | Field key / field history | heads + prior records for a key |
 | K1.7 | CAS mutation (optional for brain, required for lastgit-shaped) | `CasExpectation` |
 
 **Covered by the kernel scenario today:** K1.1–K1.4.  
@@ -78,7 +78,7 @@ What ships as `lastdbd` over the owner Unix socket. Same JSON shapes as
 | `POST /api/mutation`, `POST /api/mutations/batch` | K0.4, K1.2 |
 | `POST /api/query` | K0.5–K0.6, K1.1 |
 | `GET /api/native-index/search` | K1.5 |
-| molecule history / atom content routes | K1.6 |
+| field key history / field value routes | K1.6 |
 | `GET /api/status`, `GET /api/system/auto-identity` | host, not kernel |
 | owner peer-cred + app consent floor | host security (keep) |
 | schema load from schema service | setup; mandatory for every schema identity; cached registered identities remain usable offline |

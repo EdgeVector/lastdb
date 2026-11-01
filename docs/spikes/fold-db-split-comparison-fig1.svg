@@ -44,14 +44,14 @@
   <text x="200" y="229" font-size="9" fill="#000">MODEL ONLY</text>
 
   <rect x="324" y="158" width="128" height="92" fill="none" stroke="#000" stroke-width="2"/>
-  <text x="334" y="176" font-size="11" fill="#000">MOLECULE</text>
+  <text x="334" y="176" font-size="11" fill="#000">FIELD_KEY</text>
   <text x="414" y="176" font-size="9" fill="#666">#842</text>
   <text x="334" y="192" font-size="9" fill="#666">tips · locks · drain</text>
   <rect x="334" y="210" width="108" height="30" fill="none" stroke="#000" stroke-width="1"/>
   <text x="342" y="229" font-size="9" fill="#000">MODEL · PURE</text>
 
   <rect x="466" y="158" width="128" height="92" fill="none" stroke="#000" stroke-width="2"/>
-  <text x="476" y="176" font-size="11" fill="#000">ATOM</text>
+  <text x="476" y="176" font-size="11" fill="#000">RECORD</text>
   <text x="476" y="192" font-size="9" fill="#666">bodies · counters</text>
   <rect x="476" y="210" width="108" height="30" fill="none" stroke="#000" stroke-width="1"/>
   <text x="484" y="229" font-size="9" fill="#000">MODEL · PURE</text>
@@ -93,7 +93,7 @@
   <text x="36" y="452" font-size="11" fill="#000">LASTDB_STORE — KEYS AND BYTES</text>
   <text x="36" y="472" font-size="10" fill="#666">commit · queue · rows · files · cleanup · CAS delete</text>
   <text x="36" y="490" font-size="10" fill="#666">encryption at rest · byte backup · space policy</text>
-  <text x="36" y="508" font-size="10" fill="#666">knows no schema, molecule, atom, or warm set</text>
+  <text x="36" y="508" font-size="10" fill="#666">knows no schema, field_key, record, or warm set</text>
 
   <!-- publication hook: store calls a trait that the warm set implements -->
   <line x1="672" y1="430" x2="672" y2="250" stroke="#000" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arr)"/>

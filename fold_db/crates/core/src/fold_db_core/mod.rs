@@ -11,12 +11,12 @@
 //! - `admission` — the mutation admission fence (one shared gate per request)
 
 pub(crate) mod admission;
-mod atom_history;
 mod background_task;
 pub mod conflict_janitor;
 mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
 pub mod factory;
+mod field_history;
 pub mod fold_db;
 pub mod orchestration;
 pub mod pending_task_tracker;

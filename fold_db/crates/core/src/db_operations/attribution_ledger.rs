@@ -1,9 +1,9 @@
 //! Durable, fixed-size attribution rows for owner-only copy migration.
 //!
-//! The ledger never puts a schema list in an atom. One object row records the
+//! The ledger never puts a schema list in a record. One object row records the
 //! final class. Separate target-addressed path rows hold exact root evidence.
-//! This keeps one normal atom write independent of the number of schemas that
-//! later reach a shared atom.
+//! This keeps one normal record write independent of the number of schemas that
+//! later reach a shared record.
 
 use crate::schema::SchemaError;
 use crate::storage::traits::KvStore;
@@ -40,9 +40,9 @@ const ATTRIBUTION_ROOT_DOMAIN: &[u8] = b"lastdb:attribution-root:v1\0";
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AttributionObjectKind {
-    Atom,
+    Record,
     Blob,
-    Molecule,
+    FieldKey,
     Tip,
     DerivedIndex,
 }
@@ -50,9 +50,9 @@ pub enum AttributionObjectKind {
 impl AttributionObjectKind {
     fn key(self) -> &'static str {
         match self {
-            Self::Atom => "atom",
+            Self::Record => "record",
             Self::Blob => "blob",
-            Self::Molecule => "molecule",
+            Self::FieldKey => "field_key",
             Self::Tip => "tip",
             Self::DerivedIndex => "derived-index",
         }
@@ -133,11 +133,11 @@ impl AttributionRootKind {
     }
 }
 
-/// Fixed-size logical accounting attached to an attributed molecule.
+/// Fixed-size logical accounting attached to an attributed field key.
 ///
-/// These counters describe the schema-visible contribution of one molecule.
-/// They do not claim exclusive physical atom ownership and never authorize
-/// reclamation. Shared atoms can contribute to more than one molecule's
+/// These counters describe the schema-visible contribution of one field key.
+/// They do not claim exclusive physical record ownership and never authorize
+/// reclamation. Shared records can contribute to more than one field key's
 /// logical size while they remain one physical object.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttributionSize {
@@ -179,7 +179,7 @@ pub struct AttributionRecord {
     pub root_count: u64,
     pub path_set_digest: Option<String>,
     /// Present only when this object has a complete logical-size projection.
-    /// It is normally set for molecule roots during the catalog walk.
+    /// It is normally set for field key roots during the catalog walk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<AttributionSize>,
     pub source_sequence: u64,
@@ -257,7 +257,7 @@ fn hash(domain: &[u8], value: &str) -> String {
     hex_lower(hasher.finalize())
 }
 
-/// Owner-only persistent proof rows. This is not a product schema or atom
+/// Owner-only persistent proof rows. This is not a product schema or record
 /// plane. Copy migration can discard and rebuild the namespace as one unit.
 #[derive(Clone)]
 pub struct AttributionLedger {

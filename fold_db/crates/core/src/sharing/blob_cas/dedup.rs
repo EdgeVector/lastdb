@@ -18,7 +18,7 @@
 //! "Intact" means the sealed row opens under the DEK and matches its key.
 //!
 //! In every case the put also registers the upload with the blob counter, in the
-//! same native write request as the row. A blob that no atom names yet starts
+//! same native write request as the row. A blob that no record names yet starts
 //! its dwell, and a blob that is already in its dwell starts it again. The caller
 //! puts the blob first and writes the pointer record second, so the dwell is what
 //! keeps the blob in that gap. The age of the row decides nothing.

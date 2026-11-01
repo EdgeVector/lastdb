@@ -12,7 +12,7 @@ Design: brain `design-lastdb-status-gauge-contract` (PR-5)
      "version": 1,
      "gauges": [
        {
-         "path": "integrity.unresolved_atom_distinct",
+         "path": "integrity.unresolved_record_distinct",
          "unit": "edges",
          "unit_noun": "edge(s)",
          "window": "process_lifetime",

@@ -3,7 +3,7 @@
 //!
 //! A format 7 record names its files in its field values. The restore proof
 //! and the byte backup derive each dependency from the value and copy and open
-//! its CAS body. The `fdep` directory rows of a format 6 atom are gone; the
+//! its CAS body. The `fdep` directory rows of a format 6 record are gone; the
 //! key law refuses their family.
 
 mod budget_json;
@@ -34,7 +34,7 @@ pub const DIRECTORY_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIREC
 #[serde(deny_unknown_fields)]
 pub struct FileDependencyRecord {
     pub version: u16,
-    pub atom_id: String,
+    pub record_id: String,
     pub logical_pointer_sha256: Digest,
     pub kind: FileDependencyKind,
     pub blob_ref: String,
@@ -95,13 +95,13 @@ impl FileDependency {
     }
 }
 
-/// Check one offline atom-namespace coordinate with the normal current-key law.
+/// Check one offline record-namespace coordinate with the normal current-key law.
 /// Unknown or retired spellings cannot hide an unexamined file-pointer body.
-pub fn validate_restored_atom_key(key: &str) -> StorageResult<()> {
+pub fn validate_restored_record_key(key: &str) -> StorageResult<()> {
     let raw = crate::storage::disk_pack::native_routing::decode(key)?;
     super::super::current_keys::validate("main", &raw)?;
     if crate::storage::disk_pack::native_routing::collection_for_key(&raw) != "atoms" {
-        return Err(invalid("unsupported key in restored atom namespace"));
+        return Err(invalid("unsupported key in restored record namespace"));
     }
     Ok(())
 }

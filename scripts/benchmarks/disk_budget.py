@@ -12,11 +12,11 @@ LIMIT = 1.5
 PERCENT = 10
 FLOOR = 64 * 1024
 CASES = (*GROWTH_CASES, "delete")
-MEASURES = ("logical_atom_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
+MEASURES = ("logical_record_bytes", "retained_disk_bytes", "disk_to_logical_ratio",
             "max_disk_to_logical_ratio", "search_queue_bytes", "search_queue_payload_bytes",
             "search_queue_files", "other_home_bytes", "whole_home_disk_bytes",
             "limit_logical_bytes", "limit_database_bytes", "limit_headroom_bytes", "limit_headroom_percent",
-            "starting_logical_atom_bytes", "starting_live_records", "deleted_records")
+            "starting_logical_record_bytes", "starting_live_records", "deleted_records")
 
 
 def require_search_off(node, output, phase):
@@ -56,7 +56,7 @@ def metrics(points):
                 / p["logical_storage"]["total_logical_bytes"])
     logical = worst["logical_storage"]["total_logical_bytes"]
     retained = max(worst["disk_breakdown"]["database"].values())
-    return {"logical_atom_bytes": last["logical_storage"]["total_logical_bytes"],
+    return {"logical_record_bytes": last["logical_storage"]["total_logical_bytes"],
             "retained_disk_bytes": max(breakdown["database"].values()),
             "search_queue_bytes": max(breakdown["search_queue"].values()),
             "search_queue_payload_bytes": breakdown["search_queue"]["logical_bytes"],
@@ -66,7 +66,7 @@ def metrics(points):
             "limit_logical_bytes": logical, "limit_database_bytes": retained,
             "limit_headroom_bytes": LIMIT * logical - retained,
             "limit_headroom_percent": 100 * (1 - retained / (LIMIT * logical)),
-            "starting_logical_atom_bytes": points[0]["logical_storage"]["total_logical_bytes"],
+            "starting_logical_record_bytes": points[0]["logical_storage"]["total_logical_bytes"],
             "starting_live_records": points[0]["live_records"], "deleted_records": last["deleted_records"],
             "disk_to_logical_ratio": max(breakdown["database"].values()) / last["logical_storage"]["total_logical_bytes"],
             "max_disk_to_logical_ratio": max(
@@ -223,7 +223,7 @@ def render(comparison):
              "|---|---:|---:|---:|---:|"]
     for case, item in comparison.items():
         cells = [" → ".join(f"{item[label][name] / divisor:.3f}{unit}" for label in ("baseline", "candidate"))
-                 for name, divisor, unit in (("logical_atom_bytes", 2**20, ""),
+                 for name, divisor, unit in (("logical_record_bytes", 2**20, ""),
                                              ("retained_disk_bytes", 2**20, ""),
                                              ("disk_to_logical_ratio", 1, "×"),
                                              ("max_disk_to_logical_ratio", 1, "×"))]

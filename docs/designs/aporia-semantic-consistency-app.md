@@ -329,7 +329,7 @@ Security:
   the grant.
 
 Implementation likely uses the existing mutation-event storage in core. The
-current code has `get_mutation_events` by molecule UUID; Aporia needs either a
+current code has `get_mutation_events` by field key UUID; Aporia needs either a
 global ordered feed or a mutation-id/batch-id index that maps back to row keys.
 
 ### 2. Batch Mutation Route for App Callers

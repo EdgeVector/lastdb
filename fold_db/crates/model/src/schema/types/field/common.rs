@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldCommon {
-    pub molecule_uuid: Option<String>,
+    // Stored JSON key.
+    #[serde(default, alias = "molecule_uuid")]
+    pub field_key_id: Option<String>,
     #[serde(default = "default_writable")]
     pub writable: bool,
     /// Org hash inherited from the parent schema.
@@ -18,7 +20,7 @@ fn default_writable() -> bool {
 impl Default for FieldCommon {
     fn default() -> Self {
         Self {
-            molecule_uuid: None,
+            field_key_id: None,
             writable: true,
             storage_prefix: None,
         }
@@ -27,12 +29,12 @@ impl Default for FieldCommon {
 
 impl FieldCommon {
     // Convenience methods to avoid repetition
-    pub fn molecule_uuid(&self) -> Option<&String> {
-        self.molecule_uuid.as_ref()
+    pub fn field_key_id(&self) -> Option<&String> {
+        self.field_key_id.as_ref()
     }
 
-    pub fn set_molecule_uuid(&mut self, uuid: String) {
-        self.molecule_uuid = Some(uuid);
+    pub fn set_field_key_id(&mut self, uuid: String) {
+        self.field_key_id = Some(uuid);
     }
 
     pub fn writable(&self) -> bool {
@@ -41,7 +43,7 @@ impl FieldCommon {
 
     /// Build a storage key, prepending the storage-scope prefix when present.
     ///
-    /// - Personal: `base_key` (e.g. `atom:{uuid}`, `mk:…`)
+    /// - Personal: `base_key` (e.g. `rk:…`, `ak:…`)
     /// - Scoped: `{prefix}:{base_key}` — share receive namespaces use
     ///   `from:{sender_hash}`; historical org hashes used the same mechanism
     pub fn storage_key(&self, base_key: &str) -> String {

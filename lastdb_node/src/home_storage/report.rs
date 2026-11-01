@@ -30,7 +30,7 @@ pub struct HomeStorageReport {
     pub unresolved_scopes: Vec<String>,
     /// Logical data counted once per reaching app. This ledger is independent
     /// from the unique physical bucket ledger above and can exceed its own
-    /// unique logical total when apps share molecules.
+    /// unique logical total when apps share field keys.
     #[serde(default)]
     pub inclusive_app_attribution: HomeStorageInclusiveAppAttribution,
 }

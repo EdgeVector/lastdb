@@ -45,7 +45,7 @@ Schema (catalog: fields, primary key, named alternate keys)
 Record space: `S = base64url(SHA-256(frame("lastdb:record-space:v1", schema)))`. A scoped
 key gets its `{scope}:` prefix in front.
 
-Every home is format 7. Field molecules, tips and atoms do not exist (decision D6).
+Every home is format 7. Separate field-key rows and tips do not exist (decision D6).
 
 ### Schema
 
@@ -101,11 +101,11 @@ write replaces the metadata by stamp, but keeps this device's `file_blob_ref` an
 **The record cap.** A record holds at most **64 KiB** (`MAX_RECORD_BYTES`): the whole
 JSON-encoded record, with the stamps, the metadata and the delete floor (decision D3).
 The write checks the final record of each key. A larger record gets
-`413 {"error":"atom_content_too_large","scope":"record"}`. A merged peer record over the
+`413 {"error":"field_value_too_large","scope":"record"}`. A merged peer record over the
 cap is skipped, and the stored record stays. Put a large field in a file blob. A growing
 list or log is one record per entry in a HashRange schema.
 
-`LASTDB_MAX_ATOM_CONTENT_BYTES` (default 256 KiB, maximum 1 MiB) now limits only one
+`LASTDB_MAX_FIELD_VALUE_BYTES` (default 256 KiB, maximum 1 MiB) now limits only one
 field value of a peer record. A local write is checked against the record cap only.
 
 ### File blob
@@ -128,7 +128,7 @@ file blob waits for a dwell of one hour (`LASTDB_BLOB_DWELL_SECS`), then goes
 
 A read returns the fields, the record metadata and the **primary key**. Use the
 primary key for a later mutation. An alternate read also returns the matched key.
-A reply has no molecule id and no writer id. Each field entry of
+A reply has no field key id and no writer id. Each field entry of
 `metadata` keeps the record's `source_file_name`. `author_pub_key` is `null`.
 The node does not assemble a record from separate field values: the record is
 stored whole.
@@ -188,7 +188,7 @@ A history entry (`rh:{S}:{sha(record key)}:{field identity}:{id}`) keeps its own
 the old field value, its stamp and the reason (`replace` or `delete`). A large old value
 keeps its file blob reference, which counts as one reference of that file blob.
 An alternate entry has no history. LastDB keeps no history of a whole record.
-The route is `/api/atom-history` (a code name) and the CLI is `lastdb history`.
+The route is `/api/field-history` (a code name) and the CLI is `lastdb history`.
 
 ### Kept conflicting writes
 
@@ -368,4 +368,4 @@ another person's node) still replicates data to that node.
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
 | Record model design and decisions D1–D7 | brain `design-lastdb-record-model-20261031` |
-| Molecule model (retired in format 7) | `docs/lastdb-atom-counter.md` · `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` · `docs/design-lastdb-counter-lifecycle.md` |
+| Field key model (retired in format 7) | `docs/lastdb-verify-ref.md` · `docs/lastdb-field-key-counters.md` · `docs/lastdb-field-key-drain.md` · `docs/design-lastdb-counter-lifecycle.md` |

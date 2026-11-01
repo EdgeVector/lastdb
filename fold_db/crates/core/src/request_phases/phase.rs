@@ -28,7 +28,7 @@ pub enum RequestPhase {
     /// Does NOT include either of the other two write gates:
     ///
     /// - the Phase 0 per-schema purge barrier is [`Self::PurgeBarrier`];
-    /// - the Phase 3 molecule write gate is [`Self::MoleculeGate`].
+    /// - the Phase 3 field key write gate is [`Self::FieldKeyGate`].
     ///
     /// Both used to be folded in here. Each fold made a gate that changed
     /// indistinguishable from gates that did not — see those variants' docs.
@@ -79,17 +79,17 @@ pub enum RequestPhase {
     /// commit's own bookkeeping (schema fetch, key-shape validation, batch
     /// dedupe, storage-slot planning, the atomic erase audit row).
     PurgeCommit,
-    /// Mutation only, purge side: materializing every field molecule of the
-    /// schema (`refresh_runtime_field_molecules`) so the trace and the
+    /// Mutation only, purge side: materializing every field key of the
+    /// schema (`refresh_runtime_field_keys`) so the trace and the
     /// retention guards have live data to read.
     ///
     /// Sized by the SCHEMA, not by the batch: one `load_all_mk_records`
-    /// prefix scan per field, each covering every key that field's molecule
+    /// prefix scan per field, each covering every key that field's field key
     /// holds — live and tombstoned alike. Removing one record from a 24-field
-    /// schema whose molecules carry ~19.2k keys each reads ~460k rows before
+    /// schema whose field keys carry ~19.2k keys each reads ~460k rows before
     /// it deletes anything.
     ///
-    /// A large value here is the cost of asking a whole-molecule question to
+    /// A large value here is the cost of asking a whole-field-key question to
     /// answer a one-key one, and its fix is the one already taken on the
     /// unlocked purge probe (retired 2026-09-04 in favor of
     /// `converge_delete_tips`'s keyed trace for the live-Delete path, which
@@ -103,12 +103,12 @@ pub enum RequestPhase {
     PurgeMaterialize,
     /// Mutation only, purge side: the reachability trace
     /// (`collect_purge_trace`) — per field, the legacy `history:` event read,
-    /// and per target key the `tv:` chain walk that collects the atoms this
+    /// and per target key the `tv:` chain walk that collects the records this
     /// purge may delete.
     ///
     /// Distinct from [`Self::PurgeMaterialize`] because the two scale on
     /// different axes and have different remedies: materialization is
-    /// `O(fields x molecule cardinality)` and is fixed by narrowing the read,
+    /// `O(fields x field key cardinality)` and is fixed by narrowing the read,
     /// while the trace is `O(fields x legacy events)` plus
     /// `O(keys x chain depth)` and is fixed by the legacy-history memo and by
     /// chain length. On a store with no legacy `history:` rows the first term
@@ -118,9 +118,9 @@ pub enum RequestPhase {
     /// 2026-10-09, it was ~30% of a one-record purge request.
     PurgeTrace,
     /// Mutation only, purge side: computing the two PRESERVE sets that decide
-    /// what the batch may not delete — `collect_retained_chain_atoms_*` (atoms
-    /// still named by tip chains outside the batch) and `collect_live_atom_uuids`
-    /// (atoms still named by a live key after the targets are removed).
+    /// what the batch may not delete — `collect_retained_chain_records_*` (records
+    /// still named by tip chains outside the batch) and `collect_live_value_ids`
+    /// (records still named by a live key after the targets are removed).
     ///
     /// Both are `O(fields x records)` over the materialized schema, and both
     /// are guards: they are the reason a batch purge cannot delete a live
@@ -132,20 +132,20 @@ pub enum RequestPhase {
     /// The request-thread complement plan reports its chain walk here too.
     PurgeRetentionGuard,
     /// Mutation only, purge side: the durable removal itself —
-    /// `remove_molecule_keys` per touched field, the atom-body reads that
-    /// count destroyed file pointers, the atom-partition/locator lookups, and
-    /// the single `batch_delete` of every history, tip-version, atom, locator
+    /// `remove_field_keys` per touched field, the record-body reads that
+    /// count destroyed file pointers, the record-partition/locator lookups, and
+    /// the single `batch_delete` of every history, tip-version, record, locator
     /// and schema-index key.
     ///
     /// This is the irreducible part: the bytes a purge exists to remove.
     /// Sized by what the batch actually deletes, so unlike every phase above
     /// it should scale with the RECORDS purged rather than with the schema.
     /// A `purge_delete` that tracks schema size instead is the signal that
-    /// something reintroduced a whole-molecule rewrite (see
-    /// `RecordStore::remove_molecule_keys` for the one this replaced).
+    /// something reintroduced a whole-field-key rewrite (see
+    /// `RecordStore::remove_field_keys` for the one this replaced).
     PurgeDelete,
     /// Mutation only, purge side: closing the commit — re-storing the schema
-    /// with its shrunken molecules, reloading it into the schema cache,
+    /// with its shrunken field keys, reloading it into the schema cache,
     /// flushing the store, and committing the delete-ledger row.
     ///
     /// Still inside the guarded purge critical section. A large value here is
@@ -153,9 +153,9 @@ pub enum RequestPhase {
     /// [`Self::PersistSchema`] reports on the ordinary write path. It should
     /// be near zero once the catalog's skip-if-unchanged path holds.
     PurgeFinalize,
-    /// Mutation only: time blocked acquiring the Phase 3 per-`(molecule,
+    /// Mutation only: time blocked acquiring the Phase 3 per-`(field key,
     /// hash, range)` write gate, which serializes concurrent writers of the
-    /// same molecule slot across the remainder of the write (including the
+    /// same field key slot across the remainder of the write (including the
     /// deferred durable persist).
     ///
     /// Split out of [`Self::LockWait`] because the two gates sit at opposite
@@ -163,12 +163,12 @@ pub enum RequestPhase {
     /// different fixes: `LockWait` is a purge running against the schema (or
     /// a same-key CAS writer), while this is same-slot write concurrency.
     /// Conflating them cost a full diagnosis cycle — fold #1104 narrowed this
-    /// gate from per-molecule to per-`(molecule, hash)` and the primary could
+    /// gate from per-field-key to per-`(field key, hash)` and the primary could
     /// not show whether it helped, because the number it reported was the sum
     /// of a gate that changed and two that did not.
     ///
     /// A large value here means writers are queueing on ONE SLOT — one
-    /// `(molecule, hash, range)` triple, not one hash. `e8839a4f2` narrowed
+    /// `(field key, hash, range)` triple, not one hash. `e8839a4f2` narrowed
     /// the key a second time to include the range, so two rows differing only
     /// in their range no longer wait out each other's deferred durable put.
     ///
@@ -187,12 +187,12 @@ pub enum RequestPhase {
     /// sample they were 42.8% and 11.4%.
     ///
     /// The gate-key shape is pinned by the `write_gate_key_separates_hashes_and_ranges`
-    /// test in `fold_db_core::mutation_manager::molecules::persist`. That test
+    /// test in `fold_db_core::mutation_manager::write::field_keys`. That test
     /// and this paragraph are the two places a further narrowing must update
     /// together, and each names the other so neither can be changed alone —
     /// this doc stayed stale for 15 days after `e8839a4f2` because nothing
     /// linked them.
-    MoleculeGate,
+    FieldKeyGate,
     /// Mutation only: the persisted-head reads that verify CAS expectations
     /// while the batch holds the locks above.
     ///
@@ -224,7 +224,7 @@ pub enum RequestPhase {
     /// surface could take an operator.
     Hydrate,
     /// Query only: the query-executor call itself — key-index resolution,
-    /// window push-down, and atom-body materialization for the matched rows.
+    /// window push-down, and record-body materialization for the matched rows.
     ///
     /// The only sub-step that touches storage, so it is the one that moves
     /// with the warm set hit rate (the read receipt's `logical_warm_hits` and
@@ -232,13 +232,13 @@ pub enum RequestPhase {
     /// materialization cost (record decode and projection), which is a
     /// different fix from large here with misses climbing — that is a
     /// placement or pruning problem.
-    HydrateAtoms,
+    HydrateRecords,
     /// Query only: building the response envelopes — one `serde_json`
     /// object per returned record carrying its fields, metadata and author
     /// key.
     ///
     /// Scales with `rows x fields` and with value width, and touches no
-    /// storage at all. It is separated from [`Self::HydrateAtoms`] because the
+    /// storage at all. It is separated from [`Self::HydrateRecords`] because the
     /// two answer opposite questions about the same number: whether a slow
     /// read is the store's fault or the envelope's.
     HydrateFormat,
@@ -253,10 +253,10 @@ pub enum RequestPhase {
     HydrateSort,
     /// Query only: numeric and field conditions over the first pass's captured
     /// values, before ordering, the predicate limit and projected-value reads.
-    /// This excludes key discovery and atom fetch time.
+    /// This excludes key discovery and record fetch time.
     HydrateFilter,
     /// Query only: per-field merge-conflict annotation of the formatted rows.
-    /// Historically a per-molecule storage walk; expected to fall to ~0 once
+    /// Historically a per-field-key storage walk; expected to fall to ~0 once
     /// the home-conflict index (fold #1032) reaches a node.
     Annotate,
     /// In-memory application of the write — the RESIDUAL left after every
@@ -265,19 +265,19 @@ pub enum RequestPhase {
     /// for why this stays a residual rather than a sum of named steps.
     Apply,
     /// Mutation: the in-memory apply loop itself
-    /// (`apply_mutations_to_molecules`) — walking this batch's atom results
-    /// onto the resident molecules. Carved out of the `Apply` residual for
+    /// (`apply_mutations_to_field_keys`) — walking this batch's record results
+    /// onto the resident field keys. Carved out of the `Apply` residual for
     /// the reason [`Self::Persist`]'s sub-steps were: the timer already ran
     /// in the batch write's `timing_breakdown`, and the residual then
     /// discarded it, so the phase that shares `apply`'s NAME could not be
     /// distinguished from everything else the residual absorbs.
     ///
     /// This is the step whose cost should track rows-under-the-touched
-    /// molecules rather than rows written, so a hash-range schema with many
+    /// field keys rather than rows written, so a hash-range schema with many
     /// rows per partition pays here where a point-keyed schema does not.
     ApplyMemory,
     /// Mutation: loading the schema at the top of the per-schema loop, before
-    /// any molecule is touched. Distinct from [`Self::SchemaResolve`] (the
+    /// any field key is touched. Distinct from [`Self::SchemaResolve`] (the
     /// handler's name→hash resolution) and from [`Self::SchemaReload`] (the
     /// write-back after the mutation). Large here means the catalog read is
     /// on the write's critical path.
@@ -288,18 +288,18 @@ pub enum RequestPhase {
     /// reload. Split out of the `Apply` residual because it was previously
     /// one of the untimed regions absorbed into it wholesale.
     SchemaReload,
-    /// Mutation: restoring molecules missing from the resident/in-memory
+    /// Mutation: restoring field keys missing from the resident/in-memory
     /// graph for the keys this batch touches — storage IO, not compute, but
     /// reported here because the write path already measured it as a named
     /// step before this phase existed.
-    RestoreMolecules,
+    RestoreFieldKeys,
     /// Mutation: grouping the batch's mutations by schema before the
     /// per-schema loop runs.
     Grouping,
     /// Mutation: the idempotency-duplicate filter pass at the top of the
     /// batch pipeline.
     IdempotencyCheck,
-    /// Mutation: syncing in-memory molecule UUIDs back onto the schema
+    /// Mutation: syncing in-memory field key UUIDs back onto the schema
     /// before it is stored/reloaded.
     SyncUuids,
     /// Mutation: spawning the background index-mutation task (the spawn
@@ -308,21 +308,21 @@ pub enum RequestPhase {
     SpawnIndexing,
     /// Durable persist of the applied write, as a RESIDUAL: the durable-store
     /// time not attributed to one of the named sub-steps below. In practice
-    /// that is the atom batch store, plus any future durable step added to
+    /// that is the record batch store, plus any future durable step added to
     /// the persist bucket without its own phase — visible here, if coarse,
     /// rather than vanishing.
     ///
     /// Carved up for the same reason [`Self::Apply`] was: `persist` summed
     /// four independently-sized durable stores under one name, so an operator
     /// reading it as the largest phase in the write path could not tell an
-    /// irreducible atom write from a whole-molecule rewrite. The sub-timers
+    /// irreducible record write from a whole-field-key rewrite. The sub-timers
     /// already existed in the batch write's `timing_breakdown`; naming them
     /// does not add a timer.
     Persist,
-    /// Mutation: the molecule batch store (`write_molecules_batch`). Sized by
-    /// molecule cardinality rather than by the write, so a schema whose
-    /// molecules hold tens of thousands of keys pays here on every mutation.
-    PersistMolecules,
+    /// Mutation: the field key batch store (`write_field_keys_batch`). Sized by
+    /// field key cardinality rather than by the write, so a schema whose
+    /// field keys hold tens of thousands of keys pays here on every mutation.
+    PersistFieldKeys,
     /// Mutation: persisting the schema itself after a write (`schema_store`).
     /// Near zero once the catalog's skip-if-unchanged path applies; a large
     /// value here means the catalog body is being rewritten per mutation.
@@ -342,7 +342,7 @@ pub enum RequestPhase {
     /// Mutation only: time blocked acquiring the change feed's single global
     /// `tip` mutex, which every successful mutation on the node passes
     /// through to append its durable change-feed event — the one lock this
-    /// node has that is not scoped to a schema, key, or molecule.
+    /// node has that is not scoped to a schema, key, or field key.
     ///
     /// A large value here means writers are queueing behind EVERY OTHER
     /// writer on the node, not a same-key or same-schema peer: measured
@@ -350,7 +350,7 @@ pub enum RequestPhase {
     /// so the queueing (this phase) is distinguishable from the storage IO
     /// done while holding the lock ([`Self::ChangeRecordWrite`]) — the two
     /// have different fixes, same as [`Self::LockWait`] vs
-    /// [`Self::MoleculeGate`].
+    /// [`Self::FieldKeyGate`].
     ChangeRecordLockWait,
     /// Mutation only: the durable change-feed batch write (event + tip) done
     /// while holding the mutex above. Storage IO, not queueing.

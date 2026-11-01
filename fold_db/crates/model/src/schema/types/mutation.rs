@@ -25,13 +25,13 @@ pub struct Mutation {
     pub pub_key: String,
     pub mutation_type: MutationType,
     pub synchronous: Option<bool>,
-    /// Optional source filename for atoms created from file uploads
+    /// Optional source filename for records created from file uploads
     pub source_file_name: Option<String>,
-    /// Per-key metadata is part of the signed mutation, not the atom UUID.
+    /// Per-key metadata is part of the signed mutation, not the record UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
     /// Writer identity and verifiability info. Additive during the
-    /// `projects/molecule-provenance-dag` migration: `None` on mutations
+    /// `projects/field-key-provenance-dag` migration: `None` on mutations
     /// constructed before provenance wire-through; `Some(Provenance::User{..})`
     /// once a signature is available at construction. Kept alongside
     /// `pub_key` (not in place of) until the full wire-through lands and
@@ -39,7 +39,7 @@ pub struct Mutation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
     /// The `written_at` the original author SIGNED, carried alongside
-    /// `provenance` on the import path (inbound `data_share`). The molecule
+    /// `provenance` on the import path (inbound `data_share`). The field key
     /// canonical bytes include `written_at`, so the field layer must stamp
     /// the SIGNED value — not a local clock — for the imported signature to
     /// stay verifiable at rest. `None` (with `provenance: Some`) keeps the
@@ -74,7 +74,7 @@ pub struct Mutation {
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
     /// The `version` the original author SIGNED — consumed only by single
-    /// (non-keyed) fields, whose `Molecule` canonical bytes include
+    /// (non-keyed) fields, whose `Field key` canonical bytes include
     /// `version`. Per-key entries don't sign a version and ignore this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_version: Option<u64>,
@@ -99,7 +99,7 @@ pub struct Mutation {
     /// a narrow update MINTING a row. Without it, `update` is a silent upsert,
     /// and a narrow update at a key that turns out not to exist creates a row
     /// carrying only the fields it sent. A query returns a row only when every
-    /// projected field has an atom on it, so that row is invisible to every
+    /// projected field has a record on it, so that row is invisible to every
     /// wide reader while sitting in the partition.
     ///
     /// The flag is deliberately opt-in rather than the `Update` default:

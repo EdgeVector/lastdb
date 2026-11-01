@@ -61,8 +61,8 @@ fn alternate_bounds(
     name: &str,
     filter: &HashRangeFilter,
 ) -> Result<(String, String), SchemaError> {
-    let molecule = molecule(schema, name);
-    let codec = records.key_codec_for_molecule(&molecule)?;
+    let field_key = field_key(schema, name);
+    let codec = records.key_codec_for_field_key(&field_key)?;
     let encode = |hash: &str, range: Option<&str>| {
         storage_key(
             records,
@@ -78,7 +78,7 @@ fn alternate_bounds(
         }
         HashRangeFilter::HashKey(hash) => {
             let prefix = codec
-                .api_hash_range_scan_prefix_for_hash(&molecule, hash)
+                .api_hash_range_scan_prefix_for_hash(&field_key, hash)
                 .map_err(|_| invalid("invalid alternate hash"))?;
             let prefix = format!(
                 "{PREFIX}{}",

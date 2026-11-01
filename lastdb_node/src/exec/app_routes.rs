@@ -213,7 +213,7 @@ pub(super) async fn execute_list_record_keys_route(
         )),
         // `list_schema_record_keys` now returns `SchemaError::NotFound` for an
         // unresolvable schema, `InvalidField` for one with no listable key
-        // field, and `InvalidCursor` for a cursor outside the key molecule, so
+        // field, and `InvalidCursor` for a cursor outside the key field key, so
         // the canonical mapping produces the 404/400 this arm used to
         // reconstruct by matching on message text.
         Err(e) => mapped_error_response("list failed", e, ctx),

@@ -20,12 +20,12 @@ The [crate contract](https://github.com/EdgeVector/lastdb/blob/b2419f5a8b5103064
 The profile is `lastdb:clww-binary128-nonwrapping:hmac-sha256:v1`.
 
 Derive its root directly from the private identity seed with a separate purpose.
-Derive one molecule secret from the root, exact molecule identity, format, and epoch.
+Derive one field key secret from the root, exact field key identity, format, and epoch.
 Derive an OPE key for each stored blinded hash.
 Keep existing hash blinding, run-file block encryption, and file blob encryption.
 
 The current portable source includes deterministic full-byte terms, prefix bounds, protected originals, and scoped grant codecs.
-The native serving selector, molecule bundles, and home marker still select the accepted old format.
+The native serving selector, field key bundles, and home marker still select the accepted old format.
 No source API alone constitutes native activation or a primary upgrade.
 
 ## 2. Cryptographic review gate
@@ -54,7 +54,7 @@ The default native whole stored-key cap remains 65,535 bytes.
 Native feature 1024 adds explicit 32 MiB capacity for fresh targets; it does not select the new range codec.
 
 Preserve the complete supported logical range length of every accepted source encoding.
-Account for molecule and hash framing, scopes, generation keys, barriers, retention identities, and other embedded keys.
+Account for field key and hash framing, scopes, generation keys, barriers, retention identities, and other embedded keys.
 Choose a versioned native key limit and physical feature fence before a new writer can serve.
 Audit external key extents, transfer, restore, resource quotes, and read budgets against that limit.
 Do not silently reduce the limit, truncate a range, or replace it with a narrow integer or hash.
@@ -66,7 +66,7 @@ The normal daemon benchmark cannot measure an inactive codec.
 
 ## 4. Stored ranges and key access
 
-Persist the selected format and epoch in explicit molecule metadata and the home's compatibility boundary.
+Persist the selected format and epoch in explicit field key metadata and the home's compatibility boundary.
 Do not select an existing home's format through an environment variable or a token-length guess.
 Keep terms from different epochs or codecs out of one ordered stream.
 Allocate the final logical format number against accepted main.
@@ -74,17 +74,17 @@ Allocate the final logical format number against accepted main.
 Retain the outer tip-key frame:
 
 ```text
-mk:{molecule}:{escaped_blinded_hash}\0{lowercase_hex(ope_term)}
+mk:{field_key}:{escaped_blinded_hash}\0{lowercase_hex(ope_term)}
 ```
 
 Store the independently encrypted original range in `PerKeyRecord` and applicable retained records.
-Bind the original to its molecule, hash, term, format, and epoch.
+Bind the original to its field key, hash, term, format, and epoch.
 Validate its regenerated term before a response uses the original.
 A new-format record with a missing or invalid protected field produces refusal.
 
-Preserve the existing random molecule bundle's content and blind keys.
-Add protected access to the derived range molecule secret through the scoped grant codec.
-A shared molecule uses the owner's authorized secret; never derive it from a recipient's unrelated private seed.
+Preserve the existing random field key bundle's content and blind keys.
+Add protected access to the derived range field key secret through the scoped grant codec.
+A shared field key uses the owner's authorized secret; never derive it from a recipient's unrelated private seed.
 An unsupported or unauthorized shared source must refuse conversion explicitly.
 Freeze prepared ciphertext for each write retry.
 
@@ -100,13 +100,13 @@ Refresh each family against accepted main before its implementation package.
 
 | Route | Required result |
 |---|---|
-| Exact and batch keys | Derive one term per named key; resolve tips and atoms through existing batch routes |
+| Exact and batch keys | Derive one term per named key; resolve tips and records through existing batch routes |
 | Prefix and bounded ranges | Normalize one hash's encrypted interval; preserve inclusive and exclusive rules |
 | Cursor continuation | Bind the cursor to the same format, epoch, hash, and query |
 | Optional ready-memory selection | Use equivalent bounds and term order; recover selected originals from authenticated records |
 | Disk fallback | Return equivalent results without complete preload or a whole pack-file fetch |
-| Copied fields and received sources | Use each authorized source's compatible molecule grant and stored format |
-| Alternate-key changes and conditional writes | Preserve exact-key checks and the related molecule publication boundary |
+| Copied fields and received sources | Use each authorized source's compatible field key grant and stored format |
+| Alternate-key changes and conditional writes | Preserve exact-key checks and the related field key publication boundary |
 | Deletes, retention, and maintenance | Preserve barrier identities, expiry checks, counts, and durable selection precedence |
 | Replay, conflicts, and change events | Preserve order facts and protect retained private key copies |
 
@@ -122,11 +122,11 @@ Trials use fresh DEV data in CI; do not clone the primary or use its archive.
 The generic native record transfer does not rewrite OPE identities.
 Primary record transfer and target checks require separate candidate-specific approval.
 
-Read the source format and molecule bundles explicitly.
+Read the source format and field key bundles explicitly.
 Recover old ranges through that format's decoder and validate their source keys.
 Use the stored blinded hash as context where the original hash is unavailable.
 Rewrite tips, generation records, barriers, retention identities, conflicts, and every embedded range reference.
-Preserve atom identities, contents, counts, write-order facts, and selected-generation precedence.
+Preserve record identities, contents, counts, write-order facts, and selected-generation precedence.
 Do not retain legacy terms as an online fallback.
 
 Use bounded batches and a durable journal bound to the exact source, target, identity, epoch, and converter revision.
@@ -162,9 +162,9 @@ Do not change the primary or enable cloud sync through a library PR.
 
 ## 8. Future browser and cloud route
 
-An authorized browser receives a scoped molecule secret, blinds the hash, and creates exact terms or bounds.
+An authorized browser receives a scoped field key secret, blinds the hash, and creates exact terms or bounds.
 A future service follows ordinary ordered native keys without the private range key.
-The browser authenticates original ranges and atom content after a fetch.
+The browser authenticates original ranges and field value after a fetch.
 It needs no complete range preload or complete pack-file download.
 
 The service still needs authorization, coherent revisions, freshness, resource bounds, and response-completeness rules.

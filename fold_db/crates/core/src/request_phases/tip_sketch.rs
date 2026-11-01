@@ -2,8 +2,8 @@
 
 use std::hash::{Hash, Hasher};
 
-/// A bounded estimate of distinct molecule-tip keys in resolved field results.
-/// Only register ranks survive; no molecule or record key is retained.
+/// A bounded estimate of distinct field-key-tip keys in resolved field results.
+/// Only register ranks survive; no field key or record key is retained.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TipKeySketch {
     registers: [u8; 1024],
@@ -20,9 +20,9 @@ impl Default for TipKeySketch {
 impl TipKeySketch {
     const PRECISION: u32 = 10;
 
-    pub fn insert(&mut self, molecule_uuid: &str, hash: &str, range: &str) {
+    pub fn insert(&mut self, field_key_id: &str, hash: &str, range: &str) {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        (molecule_uuid, hash, range).hash(&mut hasher);
+        (field_key_id, hash, range).hash(&mut hasher);
         let fingerprint = hasher.finish();
         let index = (fingerprint >> (64 - Self::PRECISION)) as usize;
         let remainder = fingerprint << Self::PRECISION;

@@ -143,7 +143,7 @@ pub(super) fn execute_log_filter_set_route(req: &UdsRequest, ctx: &AccessContext
     }
 }
 
-/// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
+/// `GET /api/db/inventory` — live main-tree key-class + per-schema record/history
 /// byte breakdown (owner socket). Scans the open store; no offline exclusive open.
 ///
 /// CAUTION: despite the GET method, `Host::db_inventory` durably writes
@@ -160,7 +160,7 @@ pub(super) async fn execute_db_inventory_route(ctx: &AccessContext, host: &Host)
     }
 }
 
-/// `GET /api/db/schemas` — atom-only per-schema logical storage (owner socket).
+/// `GET /api/db/schemas` — record-only per-schema logical storage (owner socket).
 pub(super) async fn execute_db_schemas_route(ctx: &AccessContext, host: &Host) -> UdsResponse {
     match host.db.db_schema_storage().await {
         Ok(report) => json_ok(&envelope(

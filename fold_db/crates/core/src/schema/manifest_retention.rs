@@ -163,12 +163,12 @@ pub struct ManifestRetentionOutcome {
 /// Who else reads and writes the records a manifest TTL would delete.
 ///
 /// A TTL sweep runs through the catalog schema. It removes a record from every
-/// molecule that schema names, so it reaches every other schema that is bound
+/// field key that schema names, so it reaches every other schema that is bound
 /// to it, and every record it holds, whoever wrote it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct RetentionSharing {
     /// Other loaded schemas bound to the catalog schema (or to a schema it was
-    /// expanded from), by retention alias or by a molecule that it holds.
+    /// expanded from), by retention alias or by a field key that it holds.
     /// The declared manifest name is not listed.
     pub shared_with: Vec<String>,
     /// Schemas in the catalog schema's chain that another app owns.

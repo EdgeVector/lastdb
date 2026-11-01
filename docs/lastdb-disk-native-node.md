@@ -37,7 +37,7 @@ for native writes. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
 The retained dirty-record fields remain zero for compatibility.
-The warm set keeps decoded records only. The path, tip-only, molecule and atom counts remain zero for compatibility.
+The warm set keeps decoded records only. The path, tip-only, field key and record counts remain zero for compatibility.
 Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
 Its tip-only count and warm lookup counters also come from the core.
 Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
@@ -84,7 +84,7 @@ A miss uses the captured disk root and can admit the fetched record into the cor
 An incomplete dependency receipt permits body reuse but requires a normal current record read.
 Read errors do not become confirmed absence.
 
-A format 7 home has no field molecules, so no schema key preload runs.
+A format 7 home has no separate field-key rows, so no schema key preload runs.
 `LASTDB_SCHEMA_PRELOAD_SCHEMAS` sets only a status flag. A range read reads the record keys under one hash.
 The warm set can remain partial. A partial set of records cannot prove range completeness.
 The current flat and compound key forms share one physical prefix union; they are not selectable older layouts.

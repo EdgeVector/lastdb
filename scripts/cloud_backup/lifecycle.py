@@ -9,7 +9,7 @@ from support import OperationError, require
 class Lifecycle:
     def __init__(self, source, baseline):
         self.source, self.baseline = source, baseline
-        self.schema = "CloudAtomLifecycle" + source.source[:12]
+        self.schema = "CloudRecordLifecycle" + source.source[:12]
         key = baseline["records"][0]["id"]
         query = {"schema_name": baseline["schema"], "fields": ["file"], "filter": {"HashKey": key}, "limit": 2}
         reply = source.node.call("/api/queries/batch", {"queries": [query]})["results"][0]

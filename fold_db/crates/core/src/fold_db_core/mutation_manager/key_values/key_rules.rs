@@ -4,7 +4,7 @@ use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{FieldValueType, KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
-use schema_types::molecule_range_profile::MoleculeRangeProfile;
+use schema_types::field_range_profile::FieldRangeProfile;
 
 pub(super) type KeyFieldPairs<'a> = [Option<(&'a str, &'a str)>; 2];
 
@@ -70,7 +70,7 @@ pub(super) fn validated_materialized_key_field(
     mutation: &Mutation,
     field_name: &str,
     coordinate: &str,
-    profile: MoleculeRangeProfile,
+    profile: FieldRangeProfile,
 ) -> Result<Option<serde_json::Value>, SchemaError> {
     if !schema.runtime_fields.contains_key(field_name) {
         return Err(SchemaError::InvalidData(format!(

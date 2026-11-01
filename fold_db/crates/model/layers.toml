@@ -22,8 +22,8 @@ doc = "The key codecs and value limits, schema types, keys, mutations, and the l
 modules = [
   "content_limit",
   "file_pointer",
-  "molecule_key_codec",
-  "molecule_uuid",
+  "field_key_codec",
+  "field_key_id",
   "provenance",
   "record_space",
   "record_value",

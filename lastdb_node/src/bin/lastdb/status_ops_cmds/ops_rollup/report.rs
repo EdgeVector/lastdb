@@ -179,7 +179,7 @@ fn print_since_rollup(
             // An empty window and a broken writer look identical from the
             // read side. The primary spent 12 days reporting "no durable
             // rollups in that window yet" while the sampler's retention
-            // read was failing on a dangling atom every tick, so say which
+            // read was failing on a dangling record every tick, so say which
             // one this is rather than leaving the reader to assume idle.
             //
             // There are three ways to get zero rows, not two. The third —

@@ -8,19 +8,19 @@ The shared protocol remains `native-cloud-backup-protocol-v1.md`.
 
 ## Atomic directory
 
-The atom counter creates each supported file dependency record in the same native batch as the body, counter, and tips.
-The atom counter removes the three fixed dependency keys when the last file reference removes the atom body.
+The record counter creates each supported file dependency record in the same native batch as the body, counter, and tips.
+The record counter removes the three fixed dependency keys when the last file reference removes the record body.
 An ordinary write does not fetch or decrypt a file blob.
 
-The bare key is `fdep:v1:{atom_id}\0{main|thumbnail|poster}`.
+The bare key is `fdep:v1:{record_id}\0{main|thumbnail|poster}`.
 The normal body scope also prefixes the dependency key.
-The current native route places the record in `atoms`.
+The current native route places the record in `records`.
 The normal account encryption protects the record.
 The record stores no per-file encryption key.
 
 Each record binds the following facts:
 
-- The atom identity and file kind.
+- The record identity and file kind.
 - The SHA-256 of the exact whole decrypted pointer value, with its `$lastdb_file` wrapper.
 - The original blob reference, plaintext digest, owner scope, selected encryption suite, and expected stored size.
 
@@ -32,7 +32,7 @@ The directory does not guess a stored ciphertext digest at write time.
 Unsupported local writes stay valid.
 Their absent directory record cannot certify a later backup.
 The first release refuses incomplete pointers, extra metadata-only references, unsupported key modes, and files outside the existing format and wire bounds.
-It also refuses old pointer atoms without a matching directory record.
+It also refuses old pointer records without a matching directory record.
 This source change adds no automatic backfill or migration.
 
 ## Exact retained source
@@ -43,7 +43,7 @@ Hash passes, directory proof, file authentication, and cloud work follow gate re
 The full root requires equal data and journal frontiers.
 There is no later journal suffix in this release.
 
-`certify_file_dependencies` examines the retained native atom inventory in bounded pages.
+`certify_file_dependencies` examines the retained native record inventory in bounded pages.
 This is an explicit internal backup operation, not a logical query.
 It visits one explicit native group at a time and uses `[0xff]` as the upper bound.
 An empty end would describe an empty native range.
@@ -51,16 +51,16 @@ Each continuation seeks only that group; it does not reopen all 1024 groups per 
 For each body, it derives the exact scope and validates all three known dependency keys in one bounded batch.
 An unexpected or absent kind refuses certification.
 The final coverage check also examines live tip and active generation metadata.
-Those file references must match a certified pointer on the selected atom.
-The check uses the existing selection, merge, and delete rules and the exact scoped atom directory.
+Those file references must match a certified pointer on the selected record.
+The check uses the existing selection, merge, and delete rules and the exact scoped record directory.
 It does not rewrite a separate metadata map.
-An atom-only proof cannot cover independent metadata after atom deduplication.
+A record-only proof cannot cover independent metadata after record deduplication.
 Capture saves a separate metadata coverage flag before it admits cloud eligibility.
-An older atom-certified sidecar can obtain this proof without loss of frozen copy or receipt progress.
+An older record-certified sidecar can obtain this proof without loss of frozen copy or receipt progress.
 
 The capture directory uses one durable lookup for each `(whole_pointer_digest, kind)`.
-Several atoms can name one pointer.
-Every atom still needs its own valid atomic directory records.
+Several records can name one pointer.
+Every record still needs its own valid atomic directory records.
 The capture reuses one coverage entry and its frozen part transfers and receipts for that pointer and kind.
 
 For a local CAS record, capture copies only the exact `cas_blobs` key at the held root into private scratch.
@@ -137,8 +137,8 @@ The next worker must connect these source APIs to the shared transfer and accept
 |---|---:|
 | External file ciphertext | At most 512 parts of 64 MiB; manifest page bytes also apply |
 | Native stored record body | At most `u32::MAX` bytes in the existing native V1 format |
-| Atom stored envelope or decoded byte buffer | 4 MiB |
-| Each charged atom JSON tree | 32 MiB |
+| Record stored envelope or decoded byte buffer | 4 MiB |
+| Each charged record JSON tree | 32 MiB |
 | Directory plaintext | 4 KiB |
 | Returned tip record body | 4 MiB |
 | Tip entry controls | 16 KiB |
@@ -176,10 +176,10 @@ The source uses separate phases:
 - Account decode: bounded encryption and deflate buffers write private JSON scratch.
 - CAS JSON decode: a bounded parser copies the selected inner envelope into a private file.
 - Per-file proof: bounded encryption and deflate buffers check the original key, plaintext digest, size, tag, and EOF.
-- Atom decode: at most two charged 32 MiB JSON trees, small raw buffers, and bounded canonical JSON byte buffers.
+- Record decode: at most two charged 32 MiB JSON trees, small raw buffers, and bounded canonical JSON byte buffers.
 
 The caller drops the native read before CAS decode.
-The caller also drops atom JSON before CAS proof or external authentication.
+The caller also drops record JSON before CAS proof or external authentication.
 At most three other one-MiB source buffers coexist with capture work.
 File length does not select the buffer allocation.
 

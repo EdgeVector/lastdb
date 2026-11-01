@@ -11,32 +11,32 @@
 /// for concurrent callers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestCounter {
-    /// Field molecules this request handed to the durable store.
+    /// Field keys this request handed to the durable store.
     ///
-    /// The denominator `persist_molecules_us` never had. One mutation touches
-    /// one molecule PER FIELD, so this is the schema's modified-field count,
+    /// The denominator `persist_field_keys_us` never had. One mutation touches
+    /// one field key PER FIELD, so this is the schema's modified-field count,
     /// not a constant: measured on the primary 2026-08-17, 55 of 195
     /// mutations stored 24 apiece (BoardCards' 24 fields) against a mean of
-    /// 11.98 and a median of 7. Without it, `persist_molecules_us / count` is
+    /// 11.98 and a median of 7. Without it, `persist_field_keys_us / count` is
     /// a per-request figure whose unit of work is unknown, and two windows
     /// with different field mixes are not comparable.
-    MoleculesPersisted,
-    /// Awaited durable molecule-store operations this request issued.
+    FieldKeysPersisted,
+    /// Awaited durable field-key-store operations this request issued.
     ///
-    /// Counted at each call boundary in the molecule persist path — one per
-    /// shared batch commit, one per single-molecule commit, and one more for
+    /// Counted at each call boundary in the field key persist path — one per
+    /// shared batch commit, one per single-field-key commit, and one more for
     /// the delete half of a full rewrite. This is the number the batch path
-    /// exists to reduce: with every molecule eligible it is 1 regardless of
+    /// exists to reduce: with every field key eligible it is 1 regardless of
     /// field count, and with none eligible it is at least
-    /// [`Self::MoleculesPersisted`].
+    /// [`Self::FieldKeysPersisted`].
     ///
-    /// Read as a RATIO against `MoleculesPersisted`: `24/24` is the
-    /// per-molecule path, `24/1` is the batch path, and anything between
-    /// names how many molecules fell out of the batch's eligibility window
+    /// Read as a RATIO against `FieldKeysPersisted`: `24/24` is the
+    /// per-field-key path, `24/1` is the batch path, and anything between
+    /// names how many field keys fell out of the batch's eligibility window
     /// (absent header, or a full order snapshot rather than an append tail).
     /// That ratio is what makes the restructuring verifiable on a live node
     /// without a wall-clock A/B the node's own variance would swamp.
-    MoleculeStoreCommits,
+    FieldKeyStoreCommits,
     /// Logical resident commits this request published — one per caller batch
     /// that reached the apply gates, not one per mutation or per schema.
     ///
@@ -72,8 +72,8 @@ pub enum RequestCounter {
 /// telemetry ring clones whole samples repeatedly.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RequestCounts {
-    pub molecules_persisted: u64,
-    pub molecule_store_commits: u64,
+    pub field_keys_persisted: u64,
+    pub field_key_store_commits: u64,
     pub resident_commits: u64,
     pub resident_operations: u64,
 }

@@ -6,7 +6,7 @@ use super::{LASTDB_FILE_KEY, LASTDB_FILE_THUMBNAIL_KEY};
 use crate::error::FoldDbError;
 use serde_json::Value;
 
-/// Atom value that points at a first-class blob (no embedded file bytes),
+/// Record value that points at a first-class blob (no embedded file bytes),
 /// carries access metadata, and optionally references a generated
 /// thumbnail/poster object.
 pub fn lastdb_file_pointer_with_access_and_thumbnail(
@@ -53,9 +53,7 @@ pub fn lastdb_file_pointer_with_access_and_thumbnail(
 }
 
 /// Extract portable file-blob access metadata from a `$lastdb_file` pointer.
-pub fn file_blob_access_from_atom_value(
-    value: &Value,
-) -> Result<Option<FileBlobAccess>, FoldDbError> {
+pub fn file_blob_access_from_value(value: &Value) -> Result<Option<FileBlobAccess>, FoldDbError> {
     let Some(obj) = value.get(LASTDB_FILE_KEY).and_then(|v| v.as_object()) else {
         return Ok(None);
     };
@@ -89,7 +87,7 @@ pub fn file_blob_access_from_atom_value(
 }
 
 /// Extract and validate an optional thumbnail/poster reference from a `$lastdb_file` pointer.
-pub fn file_thumbnail_ref_from_atom_value(
+pub fn file_thumbnail_ref_from_value(
     value: &Value,
 ) -> Result<Option<FileThumbnailRef>, FoldDbError> {
     let Some(obj) = value.get(LASTDB_FILE_KEY).and_then(|v| v.as_object()) else {
@@ -100,7 +98,7 @@ pub fn file_thumbnail_ref_from_atom_value(
     };
     let thumbnail: FileThumbnailRef =
         serde_json::from_value(thumbnail_value.clone()).map_err(FoldDbError::from)?;
-    let parent_access = file_blob_access_from_atom_value(value)?.ok_or_else(|| {
+    let parent_access = file_blob_access_from_value(value)?.ok_or_else(|| {
         FoldDbError::SecurityError(
             "thumbnail reference requires parent file blob access metadata".to_string(),
         )

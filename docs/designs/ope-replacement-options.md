@@ -44,7 +44,7 @@ CI must measure disk cost, native key overflow storage, and cold range reads wit
 
 ## Decision boundary
 
-Keep the private identity seed as the root, with separate molecule, epoch, and blinded-hash purposes.
+Keep the private identity seed as the root, with separate field key, epoch, and blinded-hash purposes.
 Keep authenticated original-range protection, hash blinding, run-file block encryption, and file blob encryption.
 Keep cloud and primary changes separate from code review and PR completion.
 

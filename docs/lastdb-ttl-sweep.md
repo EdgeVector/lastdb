@@ -123,8 +123,8 @@ Neither verb writes a delete barrier or a delete marker. The tombstone holds the
 Only `delete` copies the old values into field history (`rh:`) and updates the history count and
 expiry queue (`ahk:`, `ahq:`). Only `purge` releases the field history of the record. A purge
 releases at most 1,024 history entries of one record in its batch. A record with more refuses the
-purge with `purge its field history (atom-history purge) before the record`
-(`docs/lastdb-atom-history.md`).
+purge with `purge its field history (field-history purge) before the record`
+(`docs/lastdb-field-history.md`).
 
 ## Why `purge` is the default
 

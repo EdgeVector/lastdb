@@ -1,10 +1,9 @@
 //! Exact current storage-key layouts and administrative family bounds.
 //!
-//! Flat kinds use `kind\0id`. Located atoms use distinct compound keys.
-//! No reader substitutes another key spelling.
+//! Flat kinds use `kind\0id`. No reader substitutes another key spelling.
 
 /// Kinds whose flat keys use `kind\0rest`.
-pub const KIND_PARTITION_KINDS: &[&str] = &["schemaidx", "conflict", "history", "dellog", "atom"];
+pub const KIND_PARTITION_KINDS: &[&str] = &["schemaidx", "conflict", "history", "dellog"];
 
 /// The separator between the kind and the rest of a flat key.
 pub const KIND_PARTITION_SEP: char = '\0';
@@ -26,11 +25,6 @@ pub fn starts_with_kind(bare: &str, kind: &str) -> bool {
         return rest.starts_with(':');
     }
     rest.starts_with(KIND_PARTITION_SEP)
-        || match kind {
-            // `atom:{uuid}\0b` and `atom:{uuid}\0c`: one NUL after the uuid.
-            "atom" => rest.starts_with(':') && rest.contains(KIND_PARTITION_SEP),
-            _ => false,
-        }
 }
 
 /// Match a family selector against exact current key layouts.
@@ -96,9 +90,6 @@ fn strip_org(key: &str) -> (Option<&str>, &str) {
 }
 
 /// Administrative bounds for all current rows of a family selector.
-///
-/// The atom family has distinct anchored and compound rows.
-/// This range covers those rows without alternate exact-key probes or rewrites.
 #[must_use]
 pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
     for kind in KIND_PARTITION_KINDS {
@@ -108,11 +99,7 @@ pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
                 continue;
             }
             let start = format!("{scope}{kind}{KIND_PARTITION_SEP}");
-            let end = if *kind == "atom" {
-                exclusive_prefix_end(colon_prefix)
-            } else {
-                exclusive_prefix_end(&start)
-            };
+            let end = exclusive_prefix_end(&start);
             return (start, end);
         }
     }
@@ -121,7 +108,7 @@ pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
 
 /// Return the half-open byte range for one physical prefix.
 ///
-/// The bytes name one prefix, molecule, generation, or other exact identity.
+/// The bytes name one prefix, field key, generation, or other exact identity.
 #[must_use]
 pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
     (prefix.to_string(), exclusive_prefix_end(prefix))

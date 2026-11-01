@@ -1,17 +1,17 @@
 //! The erase audit row joins the same native snapshot as the removed data.
 
 use super::*;
-use crate::db_operations::AtomDeleteLedgerEntry;
+use crate::db_operations::RecordDeleteLedgerEntry;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use chrono::Utc;
 
 impl RecordStore {
     /// Stage final audit facts with the native erase. Failure aborts the scope.
-    pub(crate) async fn record_atom_delete_audit(
+    pub(crate) async fn record_record_delete_audit(
         &self,
         storage_prefix: Option<&str>,
-        mut entry: AtomDeleteLedgerEntry,
+        mut entry: RecordDeleteLedgerEntry,
     ) -> Result<(), SchemaError> {
         let runtime = self
             .namespaced_store

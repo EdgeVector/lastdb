@@ -8,7 +8,7 @@ The [reader and writer inventory](encrypted-range-keys-reader-writer-inventory.m
 The first release replaces the reversible range codec with encrypted key directories and complete local key trees.
 It keeps hash blinding, run-file block encryption, and file encryption.
 A later release adds direct cloud reads and a browser client.
-That release must add per-atom encryption first: disk format v2 atom rows are plain JSON inside encrypted run-file blocks (see the gap section of the [design](encrypted-range-keys-local-preload.md)).
+That release must add per-record encryption first: disk format v2 record rows are plain JSON inside encrypted run-file blocks (see the gap section of the [design](encrypted-range-keys-local-preload.md)).
 The local release does not depend on a cloud deployment.
 
 ## Current state and scope
@@ -63,7 +63,7 @@ Fix these choices before the first format writer merges:
 - Memory accounting, refusal behavior, load deadlines, and the first-use gate for HashRange reads.
 
 Use an established keyed hash for opaque identifiers and an established authenticated encryption implementation for directory bytes.
-Keep the existing atom and file encryption suites unless a separate defect requires a change.
+Keep the existing record and file encryption suites unless a separate defect requires a change.
 Review the encryption contract before selection of the new stored form.
 
 Inventory each reader and writer with its source path, required change, and operational check.
@@ -82,10 +82,10 @@ The location is a package 0 decision; it must not require LastStore, AWS, a daem
 Use the same implementation from the native client and the later browser build.
 
 Keep the blinded hash and add a stable opaque identifier for each exact range key.
-Bind the identifier to the molecule, blinded hash, exact range bytes, format, and key epoch.
+Bind the identifier to the field key, blinded hash, exact range bytes, format, and key epoch.
 Keep an identifier stable across value-only updates.
 Use distinct key purposes for range identifiers and directory encryption.
-Extend the explicit molecule key bundles and access-domain encryption accordingly.
+Extend the explicit field key bundles and access-domain encryption accordingly.
 
 Validate directory entries against their expected scope and key context.
 Freeze encrypted bytes before retry of an upload.
@@ -118,7 +118,7 @@ Format support remains inactive for ordinary existing homes.
 
 ## Package 3 All membership writers
 
-Stage directory membership, tips, delete barriers, atom references, and required counters at one native publication boundary.
+Stage directory membership, tips, delete barriers, record references, and required counters at one native publication boundary.
 Preserve the current acknowledgement and durability contract.
 Pass verified membership changes from codec-aware writers to the complete key domain.
 Raw opaque keys cannot reconstruct a plaintext range through the former decoder.
@@ -127,13 +127,13 @@ Cover these writer families before cutover:
 
 - Ordinary insert, overwrite, delete, purge, and key move.
 - Named alternate-key changes, explicit catalog references, shared scopes, and backfill.
-- Conflict retention, expiry, and the release of atom or file references.
+- Conflict retention, expiry, and the release of record or file references.
 - Imports, replay, administrative replacements, and generation changes.
 - File-bearing writes and the controls that preserve their dependencies.
 
 An insert or delete updates a ready key domain at the same visible boundary as its tip.
 A key move removes the old membership and adds the new membership together.
-An overwrite keeps membership and changes the current atom.
+An overwrite keeps membership and changes the current record.
 A writer that cannot preserve completeness invalidates readiness before its change becomes visible.
 Schema replacement or a new key epoch invalidates incompatible domains.
 
@@ -162,7 +162,7 @@ Update all query routes that currently depend on encoded order or prefixes:
 - Predicate and sort-field fetches, explicit catalog references, and named alternate layouts.
 - Administrative key output and any supported API that returns original keys.
 
-Select plaintext ranges in memory, then batch-fetch missing tips and atoms by opaque identifiers.
+Select plaintext ranges in memory, then batch-fetch missing tips and records by opaque identifiers.
 Keep complete keys separate from sparse warm tips and values.
 Retain key-domain lifetime references throughout a query.
 
@@ -171,7 +171,7 @@ Remove the new format's capacity fallback to ordered disk ranges.
 Keep legacy reads separate until the supported conversion path replaces them.
 
 Completion: the candidate serves supported keyed reads after a verified load and never serves a partial directory as complete.
-A used schema does not fetch all atom contents or file blobs.
+A used schema does not fetch all record contents or file blobs.
 
 ## Package 5 Conversion and recovery
 
@@ -181,7 +181,7 @@ Conversion uses an explicit inactive target and leaves its source unchanged.
 
 Use the source format's supported reader to recover its logical membership and required control state.
 Rewrite every affected tip, barrier, generation, conflict, and dependency reference to the new identifiers.
-Preserve atom identities, shared references, counters, and file access.
+Preserve record identities, shared references, counters, and file access.
 Publish the new format marker only after complete target validation.
 
 Make interrupted conversion resumable or explicitly discardable without ambiguity.
@@ -230,12 +230,12 @@ Stronger protection requires a separate trusted witness or equivalent protocol b
 
 Publish encrypted data dependencies first, then commit one complete directory and tip revision.
 Define concurrent-writer conflict handling, revision expiry, bounded reads, and client refresh after a rejected old revision.
-Authenticate the link between the requested opaque identifier, tip, atom, and revision.
+Authenticate the link between the requested opaque identifier, tip, record, and revision.
 Define explicit proofs of absence or an equally strong complete-revision rule.
 
 Reuse the accepted sync change mechanism for directory updates.
 Do not create a second local write journal.
-Bound changed-chunk upload work and keep unchanged encrypted atoms reusable.
+Bound changed-chunk upload work and keep unchanged encrypted records reusable.
 
 Completion: the client can produce a complete authenticated revision and can validate a frozen exact-read response through the product interface.
 No service activation occurs in this package.
@@ -247,9 +247,9 @@ Reconcile current cloud byte work before selecting integration points.
 Keep account generations, share permissions, object grants, quotas, and resource limits authoritative.
 
 Add authorized directory discovery and chunk reads by opaque domain and revision.
-Add batched exact tip and atom reads by opaque key identifiers.
+Add batched exact tip and record reads by opaque key identifiers.
 Choose individual objects, authenticated pack byte ranges, or both through the package 7 contract.
-The service receives no private identity key, directory key, or atom content key (the per-atom encryption that the design gap section requires).
+The service receives no private identity key, directory key, or field value key (the per-record encryption that the design gap section requires).
 
 Bind every returned location and byte range to the requested revision and its authenticated content.
 Reject requests across accounts, expired revisions, and grants outside their shared scope.
@@ -262,15 +262,15 @@ A stale or inaccessible revision produces the specified refresh or permission re
 
 Add a browser-safe client entry point with fetch-based transport and the portable encryption implementation.
 Keep Node socket and filesystem code outside its dependency path.
-Unlock only the molecule keys that the browser's authorized scope requires.
+Unlock only the field keys that the browser's authorized scope requires.
 Define key recovery, session end, reload, and cache behavior without plaintext keys in URLs, logs, or persisted directories.
 
 Load and decrypt the complete selected directory, build the local trees, and batch-fetch selected opaque identifiers.
-Verify returned tips and atoms against one revision before local decryption.
+Verify returned tips and records against one revision before local decryption.
 An explicit file request fetches its selected encrypted file blob.
 Keep the initial browser scope to reads; browser mutations require a separate complete write contract.
 
-Completion: an actual browser opens a fresh synthetic account, reads a HashRange schema, and fetches selected atoms without a local daemon.
+Completion: an actual browser opens a fresh synthetic account, reads a HashRange schema, and fetches selected records without a local daemon.
 It also handles an update from another authorized client, a shared field, key refusal, missing chunks, and memory refusal.
 The initial key download remains visible as a separate cost from later exact fetches.
 
@@ -278,11 +278,11 @@ The initial key download remains visible as a separate cost from later exact fet
 
 | Area | Current source to inspect first |
 |---|---|
-| Range codec and key purposes | `fold_db/crates/core/src/crypto/e2e.rs`, `atom/molecule_key_codec/`, `db_operations/molecule_key_store.rs` |
+| Range codec and key purposes | `fold_db/crates/core/src/crypto/e2e.rs`, `record/field_key_codec/`, `db_operations/field_key_store.rs` |
 | Complete key memory | `fold_db/crates/core/src/resident/core_keys.rs` and `resident/core_keys/` |
 | Load and publication | `fold_db/crates/core/src/storage/disk_pack/schema_keys.rs` and `storage/disk_pack/schema_keys/` |
-| Query selection | `fold_db/crates/core/src/db_operations/atom_store/schema_keys/`, `filter/`, `schema/types/field/filter_utils/` |
-| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/` |
+| Query selection | `fold_db/crates/core/src/db_operations/record_store/schema_keys/`, `filter/`, `schema/types/field/filter_utils/` |
+| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/record_store/` |
 | Format and recovery | `fold_db/crates/core/src/storage/current_keys.rs`, `mini_cutover/`, `storage/disk_pack/byte_backup/` |
 | Cloud contract and client | `cloud_backup_protocol/src/`, `fold_db/crates/core/src/sync/auth/`, `sync/engine/` |
 | Cloud service | `exemem_service/lambdas/storage_service/src/` in `exemem-infra` |

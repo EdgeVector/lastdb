@@ -1,12 +1,12 @@
 //! What `lastdb status` shows of the reference checks: the summary of the
-//! verifier. The object keeps its `/api/status` name, `atom_counters`. The
-//! planner totals of the atom counters went with format 6.
+//! verifier. The object keeps its `/api/status` name, `verify_refs`. The
+//! planner totals of the record counters went with format 6.
 
 use serde::{Deserialize, Serialize};
 
 /// The reference checks in `lastdb status`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomCounterReport {
+pub struct VerifyRefsReport {
     /// The verifier: the last complete run and a run in progress. Memory only;
     /// it is empty after a restart. `None` when the daemon predates the field.
     #[serde(default)]

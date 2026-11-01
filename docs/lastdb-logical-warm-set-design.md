@@ -1,9 +1,8 @@
 # LastDB logical warm set design
 
-> **Model note (2026-11-01).** This page was written for the molecule model:
-> schema → field → molecule → atom → file. Since home format 7 (the record model)
-> a schema stores one record per primary key, and field molecules, tips and atoms
-> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> **Model note (2026-11-01).** This page was written for the field key model:
+> schema → field → field key → record → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and separate field-key rows and tips do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
 > page differs.
 
 CAUTION: This design records the October 18 implementation and its earlier write policy and record-count limit.
@@ -23,10 +22,10 @@ The [schema key study](lastdb-schema-range-preload-study.md) preserves the synth
 The core model exposes complete logical operations through a read service.
 For a selected HashRange schema, the first query loads all required membership keys into that logical model.
 Later ranges and sample select from its complete key part.
-Tips and atom values remain partial; the resolver reuses current warm paths and fetches missing paths in batches.
+Tips and record values remain partial; the resolver reuses current warm paths and fetches missing paths in batches.
 Unselected or explicitly refused schemas retain the bounded disk selector.
 
-The warm set uses the existing schema, field, molecule, tip, and atom types.
+The warm set uses the existing schema, field, field key, tip, and record types.
 The separate least recently used list holds logical path references.
 Keep one whole-domain readiness fact, not facts for each query interval or saved sample window.
 A partial key structure cannot determine a complete range answer.
@@ -44,7 +43,7 @@ After that gate, the call either supplies its exact keys or asks the engine to s
 | Range or sample on an unselected or DiskOnly schema | Select current membership from disk plus captured writes that await flush. | Read bounded tip pages, then fetch unknown required values in batches. |
 
 An exact HashRange pair supplies both parts of its key. It uses the exact route.
-A hash alone in a HashRange molecule can name many range keys. It requires key discovery.
+A hash alone in a HashRange field key can name many range keys. It requires key discovery.
 
 Pages and counts over a range inherit the range route.
 A count over supplied exact keys uses the exact route.
@@ -52,7 +51,7 @@ Filters over explicit keys use those keys and fetch only unknown required fields
 Both routes use the same logical warm set after key selection.
 
 The key part covers every required hash and membership source for the selected schema.
-It keeps keys and essential membership flags without every AtomEntry or atom value.
+It keeps keys and essential membership flags without every RecordEntry or record value.
 The full logical-record cap remains 10,000; complete keys use a separate explicit byte allowance.
 The [preload contract](lastdb-schema-range-preload-design.md) defines load states, current-write maintenance, purge, refusal, and reload.
 The earlier 5,000-tip preload option is superseded.
@@ -65,9 +64,9 @@ It cannot become a general record list.
 
 | Call | Required knowledge before a complete answer |
 |---|---|
-| Exact Hash key | Current tip or confirmed absence for that key; required atom data. |
+| Exact Hash key | Current tip or confirmed absence for that key; required record data. |
 | Exact HashRange pair | The same facts for one hash and range. |
-| Exact batch | Resolve each distinct key; fetch only unknown tips and required atom data. |
+| Exact batch | Resolve each distinct key; fetch only unknown tips and required record data. |
 | All keys under one hash | Complete membership for the requested part of that hash. |
 | Prefix or bounded range | Complete membership inside the selected interval, including empty gaps. |
 | Page or cursor | A complete examined prefix and one extra qualifying record, or confirmed exhaustion. |
@@ -99,7 +98,7 @@ flowchart TD
     X --> M[Check selected logical paths in memory]
     K --> M
     O --> M
-    M -->|Unknown tips or values| B[Collect missing tips and atoms into batches]
+    M -->|Unknown tips or values| B[Collect missing tips and records into batches]
     B --> D[Fetch from captured disk state]
     D --> F[Core values and field rules]
     M -->|Known current state| F
@@ -116,9 +115,9 @@ flowchart TD
     J --> D
 ```
 
-CoreWarmSet owns the complete key parts, sparse core tips, and shared atom objects.
-It also retains immutable definitions through the existing Schema and molecule control types.
-These objects include schema state, molecule headers, generation selectors, molecule encryption-key metadata, and receiver and conflict controls.
+CoreWarmSet owns the complete key parts, sparse core tips, and shared record objects.
+It also retains immutable definitions through the existing Schema and field key control types.
+These objects include schema state, field key headers, generation selectors, field key encryption-key metadata, and receiver and conflict controls.
 A confirmed absence can enter memory; a failed read cannot establish absence.
 This state contains no saved query answers.
 
@@ -137,7 +136,7 @@ It measures conservative charges, not the complete process memory size.
 Active conflict histories retain their existing event reads.
 
 A recognized per-key generation record or delete marker clears the affected key's source links.
-A generation-pointer change or structural molecule replacement clears the affected molecule's warm slots.
+A generation-pointer change or structural field key replacement clears the affected field key's warm slots.
 An unknown control identity clears authorization rather than permits an unchecked warm answer.
 The first read of an invalidated record fetches it again; its repeat can use memory.
 Without an active generation, its row and delete markers do not add keys to a ready key part.
@@ -150,9 +149,9 @@ The [core memory results](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c109
 
 The flush queue owns exact disk work. It does not serve current-key reads.
 Packed files, file locations, encryption, and LastDB compaction remain disk responsibilities.
-A file blob stays outside the warm set. An atom keeps its file reference.
+A file blob stays outside the warm set. A record keeps its file reference.
 
-A partial molecule never replaces the complete disk molecule.
+A partial field key never replaces the complete disk field key.
 Flush writes the prepared changes. A snapshot reads a completed disk state.
 
 Exact lookup uses direct core slot references.
@@ -164,15 +163,15 @@ The ordered pending references name the existing core slots; they contain no sec
 The logical cursor selects the ready key part or the existing disk adapter.
 It adds no persistent B-tree or pager.
 The engine's read service owns fetch and completeness decisions.
-The molecule and atom types remain logical objects; their existing field rules process the selected objects.
+The field key and record types remain logical objects; their existing field rules process the selected objects.
 A batch collects missing paths before disk work.
 After the initial schema load, fixed-hash ranges seek to their bounds and process bounded pages.
 Hidden or rejected candidates can require additional work.
 
 ## Logical identity and four states
 
-A logical path names the scope, schema identity, canonical field, molecule, hash, and optional range.
-Its current atom UUID is its target. A replacement atom does not create another path.
+A logical path names the scope, schema identity, canonical field, field key, hash, and optional range.
+Its current record UUID is its target. A replacement record does not create another path.
 A complete key can establish membership while its field paths remain unknown.
 That key alone is not a known tip or a full logical path under the 10,000-record cap.
 
@@ -180,28 +179,28 @@ That key alone is not a known tip or a full logical path under the 10,000-record
 |---|---|---|
 | Unknown tip | The current key state is unknown. | Fetch the tip by key. |
 | Known absence | An authoritative read or accepted delete establishes absence. | Return the operation's absent result. |
-| Known tip | The current AtomEntry and metadata are known; its atom data is not loaded. | Fetch atom data only when the call needs it. |
-| Known value | The current tip and its full atom object are known. | Use the existing core operation. |
+| Known tip | The current RecordEntry and metadata are known; its record data is not loaded. | Fetch record data only when the call needs it. |
+| Known value | The current tip and its full record object are known. | Use the existing core operation. |
 
 ### Retention choice
 
-A tip links one key to its current atom and includes the key metadata.
-The atom contains the value. A known tip does not establish that its value is in memory.
+A tip links one key to its current record and includes the key metadata.
+The record contains the value. A known tip does not establish that its value is in memory.
 The core keeps a selected tip without its value when a call needs only the tip.
-A later value fetch adds the full atom to that same logical record.
+A later value fetch adds the full record to that same logical record.
 A metadata-only call preserves an already retained full value when the tip is unchanged.
 Accepted writes retain complete values and their memory charges through flush and any older calls that still hold them.
 
 The earlier implementation retains only complete records and confirmed absence.
 Its selected tips live only within one call, so repeated counts can repeat disk tip reads.
 The mixed choice permits reuse of those selected tips without a second warm set or a separate tip limit.
-Complete range keys remain smaller: they contain candidate keys and visibility flags, without a tip or an atom.
-Preload retains candidate keys and flags; it does not retain every tip or atom.
+Complete range keys remain smaller: they contain candidate keys and visibility flags, without a tip or a record.
+Preload retains candidate keys and flags; it does not retain every tip or record.
 
 | Choice | Repeated value read | Repeated call that needs only tips | Retention cost |
 |---|---|---|---|
-| Complete records only | Reuses a retained full atom. | Can repeat tip reads when no value fetch follows. | Fewer retained record states. |
-| Selected tips, with values added when used | Reuses the same retained full atom. | Reuses valid selected tips that fit the warm set. | One additional state under the same record limit and purge rule. |
+| Complete records only | Reuses a retained full record. | Can repeat tip reads when no value fetch follows. | Fewer retained record states. |
+| Selected tips, with values added when used | Reuses the same retained full record. | Reuses valid selected tips that fit the warm set. | One additional state under the same record limit and purge rule. |
 
 The second choice is intentional. A tip alone never becomes an absent value or a complete range answer.
 Source changes invalidate the tip and its value together.
@@ -210,7 +209,7 @@ An unverified or capacity-refused tip stays local to its call; the read still us
 Only selected tips enter this part of memory, within the 10,000 logical-record limit.
 Large counts can exceed that limit and still require disk tip reads.
 
-Current tip-only admission adds no atom payload to memory.
+Current tip-only admission adds no record payload to memory.
 For comparison, 10,000 distinct 64 KiB values contain 625 MiB of payload before metadata and allocation costs.
 Counts already omit those values; the added benefit is reuse of their tips across calls.
 This calculation is not a measured speed gain or a whole-process memory bound.
@@ -222,8 +221,8 @@ Temporary cursor pages do not require retention of every examined key.
 The read service separates key selection from value resolution.
 Its ready selector returns keys, membership flags, continuation, exhaustion, and the captured boundary.
 The fallback selector can also supply current selected tips.
-Its resolver collects unknown exact tips and required atom values into batches.
-Callers cannot run an unrestricted filter on a partial molecule and interpret its output as complete.
+Its resolver collects unknown exact tips and required record values into batches.
+Callers cannot run an unrestricted filter on a partial field key and interpret its output as complete.
 Existing pure filter helpers operate on the authoritative candidate selection.
 
 Unknown never means absent. A missing field, a missing record, and a missing document copy have different meanings.
@@ -231,17 +230,17 @@ A missing document copy permits the field route. It does not establish an absent
 
 ## Sharing and metadata fidelity
 
-One actual molecule slot can have several schema paths.
+One actual field key slot can have several schema paths.
 A write updates that slot once. Existing aliases see the same change.
 An unused copied schema does not enter memory merely because a reverse link names it.
 
-Atom UUID identifies content in the current code. It does not identify all metadata or creation time.
-Share a full Atom reference only when its complete immutable value matches.
-Legitimate variants with one content UUID remain distinct core Atom objects.
+Record UUID identifies content in the current code. It does not identify all metadata or creation time.
+Share a full Record reference only when its complete immutable value matches.
+Legitimate variants with one content UUID remain distinct core Record objects.
 
-Each slot needs its own resolved atom association.
-An atom with the same UUID elsewhere does not establish that this slot's full value is loaded.
-No additional atom UUID or content hash is required.
+Each slot needs its own resolved record association.
+A record with the same UUID elsewhere does not establish that this slot's full value is loaded.
+No additional record UUID or content hash is required.
 Metadata conflicts must not substitute another slot's metadata.
 
 A used path does not fetch other fields or keys.
@@ -250,12 +249,12 @@ The record and its alternate addresses enter one logical publication when the re
 
 ## Key order
 
-Normal HashRange order belongs to one molecule, one hash, and one key-encoding domain.
+Normal HashRange order belongs to one field key, one hash, and one key-encoding domain.
 The core uses canonical logical keys. The disk adapter translates bounds to the stored typed range payload.
 Both use the same comparison and endpoint rules.
 
-Values from different molecules or key domains cannot share one comparison domain.
-The selector therefore names the scope, molecule, hash, key layout, and encoding identity.
+Values from different field keys or key domains cannot share one comparison domain.
+The selector therefore names the scope, field key, hash, key layout, and encoding identity.
 A key-layout or encoding change requires a new selection and cursor.
 
 Use explicit included, excluded, and unbounded endpoints.
@@ -272,10 +271,10 @@ Retain each winning source during the fetch. Do not reconstruct it from the retu
 The selected route uses complete core keys after the first-query preload.
 Select their membership under the same logical boundary as current values.
 Check known warm tips before any missing-tip batch.
-Then use matching warm atoms and batch-fetch missing values.
+Then use matching warm records and batch-fetch missing values.
 
 The initial loader and fallback route use bounded current-tip pages, called A0 in the earlier study.
-A tip carries the key and current atom reference; it is not the field's atom payload.
+A tip carries the key and current record reference; it is not the field's record payload.
 The loader keeps only the resolved key and essential membership flags unless a normal warm path also needs the tip.
 
 The disk adapter combines all relevant stored forms, generation rules, and delete controls.
@@ -286,8 +285,8 @@ Each selected tip retains:
 
 - The canonical logical key and its encoded logical slot.
 - The actual winning stored source and storage scope.
-- The full AtomEntry and KeyMetadata.
-- The order token, atom placement hint, and key-encoding identity.
+- The full RecordEntry and KeyMetadata.
+- The order token, record placement hint, and key-encoding identity.
 - The captured read boundary.
 
 The page also reports the examined continuation and explicit exhaustion.
@@ -296,7 +295,7 @@ A limit, cancellation, error, or incomplete source merge cannot establish an emp
 Zero warm keys establish nothing about keys on disk.
 An exhausted authoritative selection establishes absence for that call without a retained interval fact.
 
-Use the selected tip to find its matching warm atom association.
+Use the selected tip to find its matching warm record association.
 Do not substitute the latest warm value by key if it differs from the selected state.
 Do not infer full metadata equality from the content UUID alone.
 Fetch unresolved associations from the captured source in batches.
@@ -325,7 +324,7 @@ The public cursor names the last returned record.
 It must not skip the extra record selected for the next page.
 
 An offset also requires knowledge of the preceding keys.
-Large offsets can require substantial work even with an ordered molecule.
+Large offsets can require substantial work even with an ordered field key.
 Prefer a key cursor for repeated pages.
 
 Process large ranges and filtered pages in bounded chunks.
@@ -357,32 +356,32 @@ A random sample would require a separate selection contract.
 Under a supplied HashRange hash, sample uses the authoritative cursor as a small first page.
 It selects the first eligible tips under the existing sample visibility rules.
 It reuses selected warm values and fetches missing values through the normal batch route.
-It does not infer the first keys from the partial warm molecule.
+It does not infer the first keys from the partial warm field key.
 
 The existing whole-schema SampleN remains an explicit capped inspection operation.
 Keep its primary-field selection and known-empty fallback rules.
-An unloaded primary molecule does not justify that fallback.
+An unloaded primary field key does not justify that fallback.
 
 Repeat source selection at the captured read boundary on each call.
-Use fallback molecule B only after authoritative exhaustion establishes that primary molecule A is empty.
+Use fallback field key B only after authoritative exhaustion establishes that primary field key A is empty.
 Merge accepted inserts into A before that decision.
 A budget stop cannot justify fallback.
 
 The current native selection order uses stored key coordinates before API-key recovery.
 Hash preview follows its stored token order.
 HashRange preview is range-major, with stored hash tokens as ties.
-Retain the relevant order token as metadata. Do not compare tokens across molecules or encoding epochs.
+Retain the relevant order token as metadata. Do not compare tokens across field keys or encoding epochs.
 
 For selected HashRange schemas, the first query completes the full key load before preview selection.
 Later previews use ready membership without another disk key discovery.
 Unselected and DiskOnly schemas use bounded small-tip pages.
-Prevent full atom materialization before a small output limit.
+Prevent full record materialization before a small output limit.
 Physical key candidates do not prove current membership.
 Resolve candidate tips, active generations, delete barriers, and pending changes in bounded batches.
 Skip metadata tombstones under the existing sample rules, then refill until N eligible tips or exhaustion.
 
 For global HashRange order, keep at most 10 selected eligible tips while the cursor examines membership.
-Fetch full atom data only for that final selection and its required secondary fields.
+Fetch full record data only for that final selection and its required secondary fields.
 Existing content-level exclusions can reduce the returned count after that selection.
 Additional body-level refill would change that sample behavior.
 
@@ -393,7 +392,7 @@ Do not return a biased or falsely complete sample.
 A budget stop or unresolved candidate cannot establish an empty primary source or justify the fallback.
 
 Keep no leading-window fact or saved sample answer.
-Each preview selects keys from its current authoritative source and resolves the required unknown tips and atoms.
+Each preview selects keys from its current authoritative source and resolves the required unknown tips and records.
 A random sample requires a separate selection contract.
 
 The current source disables the derived secondary directory.
@@ -419,9 +418,9 @@ Document-copy values cannot replace field values after those decisions.
 Complete and partial document copies must use one explicit precedence rule.
 
 - A complete current document copy supplies its fields; an omitted field is known absent.
-- A partial copy supplies its included fields; other fields use their current field molecules.
+- A partial copy supplies its included fields; other fields use their current field keys.
 - An absent copy uses the field route. An unknown copy requires a fetch.
-- Returned value metadata follows the selected atom, without metadata from an overridden source.
+- Returned value metadata follows the selected record, without metadata from an overridden source.
 
 Use one stable tie order throughout predicate selection and response output.
 Retain sort metadata through response construction when the sort field is not projected.
@@ -429,7 +428,7 @@ A key cursor serves key order. Other value orders need a compatible cursor or a 
 
 An arbitrary value sort may need every candidate under the named hash.
 A small output limit does not remove that requirement.
-Frequent queries of that form need an appropriate keyed molecule.
+Frequent queries of that form need an appropriate keyed field key.
 The warm set does not add a query over all schemas.
 
 Examine a large candidate domain in complete bounded chunks under one read lease.
@@ -439,13 +438,13 @@ Discarded value chunks need no retained interval fact; the complete key domain h
 
 ## One complete read boundary
 
-A read includes schema bindings, key membership, tips, atom values, document-copy rules, counts, and page flags.
+A read includes schema bindings, key membership, tips, record values, document-copy rules, counts, and page flags.
 A shared query batch uses the same boundary for its complete answer.
 
 1. Capture schema definitions, the disk root, its covered logical change number, and the current logical change number.
 2. Retain immutable relevant changes after the disk root's covered number.
 3. Select ready logical keys, merge the changes with fallback disk selection, or resolve the exact supplied keys.
-4. Hold selected warm entries and their full atom associations.
+4. Hold selected warm entries and their full record associations.
 5. Collect unknown required paths, then fetch the batches outside the publication lock.
 6. Recheck the logical change number under the lock.
 7. Restart the complete call if it changes; do not retry fields independently.
@@ -456,8 +455,8 @@ A capture sees either the old root with its required changes or the new root tha
 Physical file frontiers, queue delivery completion, and logical publication numbers are different facts.
 Do not compare their numeric values as if they share a sequence.
 
-A held stable path alone does not preserve its previous atom after an overwrite.
-The call retains its selected immutable entry, metadata, absence state, atom reference, and write sequence.
+A held stable path alone does not preserve its previous record after an overwrite.
+The call retains its selected immutable entry, metadata, absence state, record reference, and write sequence.
 These are temporary call references. They do not provide a history query.
 
 Relevant unflushed changes must survive a concurrent flush while the call uses an older disk root.
@@ -475,12 +474,12 @@ File handles and segment maps leave after the fetch. They do not enter the warm 
 
 ## Writes and flush
 
-Prepare each distinct atom and its size once.
+Prepare each distinct record and its size once.
 Carry its actual core object into publication instead of another fetch of the prepared bytes.
-Retain exact source checks when a tip reuses an older atom or a different file location.
+Retain exact source checks when a tip reuses an older record or a different file location.
 
 Reserve logical capacity and queue space before the ack.
-Publish changed core tips, atom associations, absence, ordered membership, dirty state, and flush jobs together.
+Publish changed core tips, record associations, absence, ordered membership, dirty state, and flush jobs together.
 Publication cannot fail after it exposes only part of the batch.
 
 Every writer participates, including durable writes, alternate-key changes, imports, retention, backfill, schema changes, and administrative changes.
@@ -518,7 +517,7 @@ Proposal (2026-10-19, not implemented): [the warm set byte limit design](lastdb-
 
 The logical cap is 10,000 paths.
 The least recently used list names those paths and stores no values.
-Purge skips held paths and unflushed write paths, including required atom data.
+Purge skips held paths and unflushed write paths, including required record data.
 
 Count distinct required paths across projection, predicate fields, lookahead, and relevant dirty changes.
 N returned records can require more than N paths.
@@ -526,7 +525,7 @@ A filtered page can examine more than N+1 candidates.
 
 Purge removes one schema path.
 Remove an actual core slot only after its last required owner leaves.
-Then remove its atom object after its last required reference leaves.
+Then remove its record object after its last required reference leaves.
 
 Logical-record purge removes its tip and value together and preserves complete key membership.
 A separate whole-domain key purge clears readiness before removal and can require another preload on the next query.
@@ -535,7 +534,7 @@ A ready call retains its complete-domain lifetime reference across all chunks.
 Clean key purge does not change the logical change number, so that number alone cannot protect the key domain.
 This design adds no independent body purge policy. Other retained records remain useful.
 
-Bound temporary cursor pages and selected atom batches.
+Bound temporary cursor pages and selected record batches.
 Count active path holds and dirty paths against the path budget.
 Enforce the existing memory guard and coordinate-size limits as well.
 The complete key allowance counts allocation capacity, domain metadata, build work, and active read references separately.
@@ -567,7 +566,7 @@ The table below records the current boundaries; historical source gaps remain in
 
 | Area | Current behavior | Limit |
 |---|---|---|
-| Logical records | Unknown, confirmed absence, selected tip, or selected tip with its full atom. | Tips require complete current-source authority; values retain their selected physical copy. |
+| Logical records | Unknown, confirmed absence, selected tip, or selected tip with its full record. | Tips require complete current-source authority; values retain their selected physical copy. |
 | Complete keys | Selected schemas preload complete candidates separately from partial records. | Readiness does not prove an exact visible count or that all values are in memory. |
 | Purge | One logical-record limit and recency order cover tips and full records. | A purge removes both together; this design adds no independent body purge. |
 | Writes | Covered changes enter the core together; uncovered operations finish on disk before success. | Accepted writes cannot become tip-only before flush. |

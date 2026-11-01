@@ -21,7 +21,7 @@ pub enum SchemaState {
     Available,
     /// Schema blocked by the system (typically superseded during schema
     /// expansion): cannot be queried, but field-mapping and transforms still
-    /// run so the successor schema can adopt its molecules.
+    /// run so the successor schema can adopt its field keys.
     Blocked,
 }
 
@@ -266,7 +266,7 @@ pub struct SchemaListEntry {
 
 impl SchemaListEntry {
     /// Build a list projection from a full schema without cloning heavy field
-    /// metadata such as field hashes, molecule UUIDs, or classifiers.
+    /// metadata such as field hashes, field key UUIDs, or classifiers.
     pub fn from_schema(schema: &DeclarativeSchemaDefinition, state: SchemaState) -> Self {
         Self {
             name: schema.name.clone(),

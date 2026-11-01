@@ -11,7 +11,7 @@ PASS
 
 | collection | keys |
 | --- | ---: |
-| `atoms` | 1076 |
+| `records` | 1076 |
 | `field_tip_headers` | 106 |
 | `field_tips` | 1351 |
 | `legacy_schema_secondary_index` | 1076 |

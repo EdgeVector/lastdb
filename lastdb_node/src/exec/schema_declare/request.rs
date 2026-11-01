@@ -14,7 +14,7 @@ use super::*;
 ///
 /// Every declaration owns its values. A definition that maps a field to
 /// another schema is refused. Schema Service supplies the exact canonical
-/// definition. It never supplies a second schema's molecule addresses.
+/// definition. It never supplies a second schema's field key addresses.
 /// Existing data requires an explicit conversion before any incompatible
 /// declaration.
 ///

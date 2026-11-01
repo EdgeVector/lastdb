@@ -26,7 +26,7 @@ Three code trials then tested the seams that the measurements found.
    The cause is not the file layout. Four objects hold the state, and their methods are in 255 files.
 3. **The second step gives each concept one owner.**
    An owner is a struct with its own state and a narrow interface.
-   After that step, the canonical levels (schema, field, molecule, atom) can organize the database.
+   After that step, the canonical levels (schema, field, field key, record) can organize the database.
 4. **Purity is a rule inside each owner, not a crate line.**
    Two leaf crates are correct on every axis: `lastdb_primitives` and the backup transport.
 
@@ -109,13 +109,13 @@ Units: `primitives`, a pure `model`, `engine`, and `transport`.
   - `StorageError` covers both decode failures and I/O failures.
 - **Verdict:** use purity as a rule in each owner, not as the crate axis.
 
-### 20 canonical levels: schema, field, molecule, atom, file
+### 20 canonical levels: schema, field, field key, record, file
 
 - **Worked:** the model types follow the levels.
   The model files (10.1k lines) give only 22 of the violations.
 - **Did not work:** the store files (99.4k lines) give the rest.
-  `AtomStore` has 130 inherent impl blocks. Most of them are molecule code.
-  One function, `commit_tip_changes`, writes tips, atom counters, blob counters, and the maintenance rows in one batch.
+  `RecordStore` has 130 inherent impl blocks. Most of them are field key code.
+  One function, `commit_tip_changes`, writes tips, record counters, blob counters, and the maintenance rows in one batch.
   The warm set crosses every level. No position for it works.
 - **Field:** in the code, field is a type level only. It has no codec and no store of its own.
 - **Verdict:** use the levels as the module order for owners and model types, not as crates now.
@@ -153,7 +153,7 @@ Units: `primitives`, a pure `model`, `engine`, and `transport`.
   - The write path needs reads, so the read code sinks into the shared store.
   - The commit writes the maintenance queues in its own batch.
   - Delete and purge are both a user command and a cleanup task.
-  - 14 of 16 concepts get two or more homes. Molecule code is in four units.
+  - 14 of 16 concepts get two or more homes. Field key code is in four units.
 - **Verdict:** do not use. Write, read, and maintain can be module groups inside one owner.
 
 ## What all five found
@@ -164,7 +164,7 @@ Each agent found the same structure without the others.
 
    | Object | Inherent impl blocks | Files |
    |---|---|---|
-   | `AtomStore` | 130 | 125 |
+   | `RecordStore` | 130 | 125 |
    | `MutationManager` | 68 | 67 |
    | `PackRuntime` | 40 | 40 |
    | `FoldDB` | 25 | 23 |
@@ -172,8 +172,8 @@ Each agent found the same structure without the others.
    Any file can change any field through `self`.
    So the module tree shows a structure that the state does not have.
    A split by files cannot cross these objects.
-2. **The commit knot.** `AtomStore::commit_tip_changes` writes one batch for many concepts.
-   The batch must stay one batch, because the atom counter is the only authority that lets an atom body go.
+2. **The commit knot.** `RecordStore::commit_tip_changes` writes one batch for many concepts.
+   The batch must stay one batch, because the record counter is the only authority that lets a record body go.
 3. **The runtime knot.** `PackRuntime::install_committed` publishes the disk root, the schema keys, and the warm set under one view lock.
 4. **Values that fetch their own data.** `FieldVariant` has async read methods that call `DbOperations` and `disk_pack::logical_paths`.
 5. **Errors with two meanings.** `SchemaError` is the error type of most of the store (148 references from `db_operations`).
@@ -187,7 +187,7 @@ Each trial is a draft PR. Auto-merge is off. Each trial took one PR, and CI pass
 | Trial | Question | PR | Diff | Result |
 |---|---|---|---|---|
 | Store line | Can the warm set leave the store? | [#843](https://github.com/EdgeVector/lastdb/pull/843) | 27 files, +621 −322 | Yes |
-| Owner per concept | Can a concept leave `AtomStore` and the commit stay one batch? | [#842](https://github.com/EdgeVector/lastdb/pull/842) | 16 files, +423 −364 | Yes, for the molecule drain |
+| Owner per concept | Can a concept leave `RecordStore` and the commit stay one batch? | [#842](https://github.com/EdgeVector/lastdb/pull/842) | 16 files, +423 −364 | Yes, for the field key drain |
 | Plain values | Can the fetch code leave the field types? | [#844](https://github.com/EdgeVector/lastdb/pull/844) | 51 files, +1,739 −1,688 | Yes |
 
 ### Trial 1: the warm set leaves the store (#843)
@@ -204,25 +204,25 @@ Each trial is a draft PR. Auto-merge is off. Each trial took one PR, and CI pass
   A wrong implementation causes a panic at run time, not a compile error.
   Only one type implements the traits today.
 
-### Trial 2: the molecule drain gets its own owner (#842)
+### Trial 2: the field key drain gets its own owner (#842)
 
-- **Change:** the new `MoleculeDrain` owns the drain state. `AtomStore` holds the owner and never reads its state.
+- **Change:** the new `FieldKeyDrain` owns the drain state. `RecordStore` holds the owner and never reads its state.
   The drain rows reach the one-batch commit as `TipChangeSet` values.
-  The wake signal goes through a new hook, `AtomStore::notify_after_commit`.
-- **Measure:** `impl AtomStore` blocks 130 → 124. Foreign impls (candidate 60) 133 → 127.
-- **Result:** most drain methods used no drain state. They were on `AtomStore` only to reach the store.
-  Free functions over `&AtomStore` work for them.
-- **Result:** the reference counts did not fall, because `AtomStore` still holds the owner.
-  They fall only when the owners leave `AtomStore`.
+  The wake signal goes through a new hook, `RecordStore::notify_after_commit`.
+- **Measure:** `impl RecordStore` blocks 130 → 124. Foreign impls (candidate 60) 133 → 127.
+- **Result:** most drain methods used no drain state. They were on `RecordStore` only to reach the store.
+  Free functions over `&RecordStore` work for them.
+- **Result:** the reference counts did not fall, because `RecordStore` still holds the owner.
+  They fall only when the owners leave `RecordStore`.
 - **Remains:** the commit planner (`commit_tip_changes`, `build_mutations`) reaches into retention, history, the verify watch, blob counters, and keep-small through `self`.
   Each of them must give the planner a value.
-  The estimate is 12 to 15 PRs for molecule, atom-body, and maintenance owners.
+  The estimate is 12 to 15 PRs for field key, record-body, and maintenance owners.
 
 ### Trial 3: the field types become plain values (#844)
 
 - **Change:** the fetch code moved from `schema/types/field/` to `db_operations/field_read/`.
   The new free functions take the field as the first argument.
-  Four slot values moved to `atom/molecule_slot.rs`.
+  Four slot values moved to `record/field_key_slot.rs`.
 - **Measure:** engine `impl FieldVariant` blocks 9 → 0.
   `schema → storage` refs 39 → 21, and `schema → db_operations` refs 26 → 7.
   None of the other edges come from `schema/types/field/`.
@@ -235,7 +235,7 @@ Each trial is a draft PR. Auto-merge is off. Each trial took one PR, and CI pass
 - The reference count is not sufficient to see progress. Trial 2 removed six foreign impls and no reference.
   Track three numbers: violation refs, foreign impls, and `impl` blocks on the four large objects.
 - The largest cost is the commit planner, not the file layout.
-- `#842` and `#844` both change `atom_store/mod.rs`. `#843` and `#844` both change `search_rebuild.rs`.
+- `#842` and `#844` both change `record_store/mod.rs`. `#843` and `#844` both change `search_rebuild.rs`.
   Merge them one at a time.
 
 ## Recommendation
@@ -265,7 +265,7 @@ Each row is one PR or a small group of PRs. No PR changes a stored format.
 | B. Store crate | Extract `lastdb_store`; a CI job builds it alone | 2 |
 | C. Owners | The commit planner takes plan values | 2–3 |
 | C. Owners | Retention, blob counter, counter verify, keep-small, history | about 5 |
-| C. Owners | Molecule owner; atom-body owner; the owners leave `AtomStore` | 6–8 |
+| C. Owners | Field key owner; record-body owner; the owners leave `RecordStore` | 6–8 |
 | C. Owners | `MutationManager` and `FoldDB` | not measured |
 | D. Rules | `EngineConfig`, `Clock`, and `IdGen` (steps 2 and 3 of the [first spike](fold-db-separation-of-concerns.md)) | 8 |
 | D. Rules | Key comparison as an argument; split `SchemaError` and `StorageError` | 3 |

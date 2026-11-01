@@ -25,15 +25,15 @@ pub struct RunRestoreFile {
 /// Complete semantic proof retains the physical account guard until publication.
 pub struct RunRestoreGuard {
     native: RunNodeGuard,
-    atoms: u64,
+    records: u64,
 }
 
 impl RunRestoreGuard {
     pub fn native_root(&self) -> StorageResult<NativeRoot> {
         self.native.profile.native_root()
     }
-    pub fn verified_atoms(&self) -> u64 {
-        self.atoms
+    pub fn verified_rows(&self) -> u64 {
+        self.records
     }
 
     pub fn files(&self) -> impl Iterator<Item = &RunRestoreFile> {
@@ -95,14 +95,14 @@ pub fn verify(
     if native.profile != *profile {
         return Err(invalid("run restore captured profile differs"));
     }
-    let atoms = verify_readers_for_profile(
+    let records = verify_readers_for_profile(
         &native.main,
         &native.cas,
         account_key,
         scratch_root,
         native.profile.version,
     )?;
-    let guard = RunRestoreGuard { native, atoms };
+    let guard = RunRestoreGuard { native, records };
     phase(Stage::FinalBinding, guard.check_binding())?;
     Ok(guard)
 }
@@ -183,9 +183,9 @@ fn reserve_paired_metadata(
 
 fn read_budget() -> ReadBudget {
     ReadBudget {
-        pages: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_PAGES,
+        pages: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_PAGES,
         blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-        bytes: lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES,
+        bytes: lastdb_storage_policy::backup_decode::RECORD_INVENTORY_READ_BYTES,
         keys: 10000,
     }
 }

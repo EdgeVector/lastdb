@@ -134,7 +134,7 @@ pub fn status_reason(status: u16) -> &'static str {
 /// mapper built. That drift is invisible in production: the collapse happens
 /// after [`render`](crate::handlers::render)'s 5xx logging, so the owner sees a
 /// bare `500` and the node log stays empty. `413` was missing here for exactly
-/// that reason and silently broke oversized-atom diagnostics.
+/// that reason and silently broke oversized-record diagnostics.
 ///
 /// `500` is deliberately absent: an unexpected internal error is content-free
 /// even for the owner (**I4**).

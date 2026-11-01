@@ -19,7 +19,7 @@
 //! component) to a lower-risk follow-on. The Phase-0 feasibility spike
 //! (fbrain `compositional-schema-canonicalization`, 2026-06-18) confirmed the
 //! storage layer can already hold the result — a canonical carrying
-//! [`FieldValueType::SchemaRef`] fields needs zero fold_db / molecule-codec
+//! [`FieldValueType::SchemaRef`] fields needs zero fold_db / field-key-codec
 //! change — so the only new work is the Stage-2 *decision*: per component,
 //! does an existing same-purpose canonical exist to reuse?
 //!
