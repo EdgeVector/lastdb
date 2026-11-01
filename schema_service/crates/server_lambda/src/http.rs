@@ -2,7 +2,6 @@
 
 use crate::cors;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::state::SchemaByNameReply;
 use schema_service_core::{
     missing_dev_cert_body, reason_detail_body, SchemaMutationGateHeaders, HEADER_DEV_PUBKEY,
     HEADER_NODE_PUBLIC_KEY, HEADER_NODE_SIGNATURE, HEADER_POW_CHALLENGE, HEADER_POW_CHALLENGE_MAC,
@@ -284,12 +283,11 @@ pub(crate) async fn get_schema_by_name(
     state: &SchemaServiceState,
     schema_name: &str,
 ) -> Result<Response<Body>, Error> {
-    match state.schema_by_name_reply(schema_name).await {
-        SchemaByNameReply::Ready(envelope) => {
+    match state.schema_by_name_reply(schema_name).await.into_http() {
+        Ok(envelope) => {
             let body = serde_json::to_value(envelope).map_err(serialization_error)?;
             json_response(200, &body)
         }
-        SchemaByNameReply::Missing { body } => json_response(404, &body),
-        SchemaByNameReply::Failed { body, .. } => json_response(500, &body),
+        Err((status, body, _)) => json_response(status, &body),
     }
 }

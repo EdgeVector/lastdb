@@ -25,6 +25,21 @@ pub enum SchemaByNameReply {
     Failed { message: String, body: Value },
 }
 
+impl SchemaByNameReply {
+    /// The named schema, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. Missing is 404 and
+    /// has no log line. Failed is 500. The log line is the actix error text.
+    /// The Lambda router ignores that line.
+    pub fn into_http(self) -> Result<Box<SchemaEnvelope>, (u16, Value, Option<String>)> {
+        match self {
+            Self::Ready(envelope) => Ok(envelope),
+            Self::Missing { body } => Err((404, body, None)),
+            Self::Failed { message, body } => Err((500, body, Some(message))),
+        }
+    }
+}
+
 /// The idempotent-repost lookup both HTTP routers answer.
 #[derive(Debug)]
 pub enum IdempotentRepostReply {
