@@ -155,49 +155,58 @@ impl AppRegisterError {
         }
     }
 
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidAppId
+            | Self::InvalidAppIdCharset(_)
+            | Self::ReservedAppId
+            | Self::InvalidMetadata(_)
+            | Self::InvalidVersion(_)
+            | Self::InvalidCodeSignature(_)
+            | Self::InvalidUses(_) => 400,
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid => 401,
+            Self::NotAuthorizedPublisher => 403,
+            Self::NonMonotonicVersion { .. } | Self::Conflict { .. } => 409,
+            Self::QuotaExceeded => 429,
+            Self::Internal(_) => 500,
+        }
+    }
+
     pub fn to_http(&self) -> (u16, Value) {
         let reason = self.http_reason();
-        match self {
-            Self::InvalidAppId => (400, invalid_app_id_body()),
+        let body = match self {
             Self::InvalidAppIdCharset(detail)
             | Self::InvalidMetadata(detail)
             | Self::InvalidVersion(detail)
             | Self::InvalidCodeSignature(detail)
-            | Self::InvalidUses(detail) => (400, reason_detail_body(reason, detail)),
-            Self::ReservedAppId => (400, reason_only_body(reason)),
-            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid => {
-                (401, reason_only_body(reason))
-            }
-            Self::NotAuthorizedPublisher => (403, reason_only_body(reason)),
-            Self::QuotaExceeded => (
-                429,
-                json!({
-                    "reason": reason,
-                    "max_apps_per_developer": MAX_APPS_PER_DEVELOPER,
-                }),
-            ),
+            | Self::InvalidUses(detail)
+            | Self::Internal(detail) => reason_detail_body(reason, detail),
+            Self::QuotaExceeded => json!({
+                "reason": reason,
+                "max_apps_per_developer": MAX_APPS_PER_DEVELOPER,
+            }),
             Self::NonMonotonicVersion {
                 current_version,
                 requested_version,
-            } => (
-                409,
-                json!({
-                    "reason": reason,
-                    "current_version": current_version,
-                    "requested_version": requested_version,
-                }),
-            ),
+            } => json!({
+                "reason": reason,
+                "current_version": current_version,
+                "requested_version": requested_version,
+            }),
             Self::Conflict {
                 current_owner_dev_pubkey,
-            } => (
-                409,
-                json!({
-                    "reason": reason,
-                    "current_owner_dev_pubkey": current_owner_dev_pubkey,
-                }),
-            ),
-            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
-        }
+            } => json!({
+                "reason": reason,
+                "current_owner_dev_pubkey": current_owner_dev_pubkey,
+            }),
+            Self::InvalidAppId
+            | Self::ReservedAppId
+            | Self::CertInvalid
+            | Self::CertExpired
+            | Self::EnvelopeInvalid
+            | Self::NotAuthorizedPublisher => reason_only_body(reason),
+        };
+        (self.http_status(), body)
     }
 }
 
