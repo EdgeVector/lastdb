@@ -18,7 +18,7 @@ mod report;
 pub(crate) mod restore_validation;
 mod verify;
 
-pub(crate) use commit::{GuardedDelete, ReleaseRequest, RowChanges, RowCommit};
+pub(crate) use commit::{GuardedDelete, ReleaseRequest, RowChanges};
 pub use recount::{RecountOptions, RecountReport};
 pub use report::AtomCounterReport;
 pub(crate) use verify::VerifyState;

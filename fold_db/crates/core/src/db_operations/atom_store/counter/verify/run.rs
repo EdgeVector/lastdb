@@ -81,11 +81,11 @@ impl AtomStore {
 
     /// Read and judge one page, or move to the next phase.
     async fn verify_page(&self, guard: &mut StepGuard<'_>) -> Result<(), SchemaError> {
-        match guard.run().phase {
+        let phase = guard.run().phase;
+        let walk_done = guard.run().walk.done();
+        match phase {
             Phase::Queue => self.verify_queue_page(guard).await,
-            Phase::Blobs | Phase::BlobQueue if !guard.run().walk.done() => {
-                self.verify_blob_page(guard).await
-            }
+            Phase::Blobs | Phase::BlobQueue if !walk_done => self.verify_blob_page(guard).await,
             Phase::Blobs | Phase::BlobQueue => {
                 next_phase(guard.run());
                 Ok(())

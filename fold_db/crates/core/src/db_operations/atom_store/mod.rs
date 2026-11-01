@@ -69,7 +69,7 @@ pub(crate) use record_walk::WalkWindow;
 pub use record_walk::RECORD_WALK_ROWS;
 pub(crate) use records::{record_scope, RecordChange};
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{Lane, RetentionCursor, StepOutcome};
+pub(crate) use retention::{RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.
 pub use crate::records::molecule_record::MoleculeData;
 pub(crate) use crate::records::molecule_record::PerKeyRecord;

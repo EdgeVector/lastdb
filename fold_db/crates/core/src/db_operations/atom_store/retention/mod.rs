@@ -32,4 +32,4 @@ pub(crate) use keys::queue_for_window;
 pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
-pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};
+pub(crate) use steps::{RetentionCursor, StepOutcome};
