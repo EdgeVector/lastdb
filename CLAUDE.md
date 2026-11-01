@@ -36,7 +36,7 @@ This rule supersedes the local build commands and coordination rules below.
 - Product PRs require `benchmark-complete`: valid measurements and verified artifact uploads.
 - Documentation-only PRs skip measurements. Main pushes and nightly runs keep their benchmark recipes.
 - Slowdowns are advisory. Build failures, incomplete measurements, and failed uploads block the completion check.
-- Any settled database checkpoint above 1.5× total logical atom bytes blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining logical data.
+- Any settled database checkpoint above 1.5× total logical record bytes (report field `logical_atom_bytes`) blocks `benchmark-complete` and merge after one size pass. Search stays off. Deletes use the remaining logical data.
 - While CI waits, do not substitute a local build or benchmark.
 
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
@@ -50,11 +50,11 @@ This rule supersedes the local build commands and coordination rules below.
 > | Multi-get | K exact keys | **O(K)** |
 > | Full scan | — | **not supported** |
 >
-> Storage ladder: **schema → field → molecule → atom → file**. A schema is a
-> catalog, not a table; each *field* has its own molecule (an index from key
-> coordinates to the current atom); a "row" is assembled at read time from the
-> field molecules at the same key. A named alternate key finds the same records
-> through declared fields. A relationship with different data uses its own schema.
+> Storage ladder: **schema → record → file blob**. A schema is a catalog, not
+> a table. Each primary key holds one record: all fields of the schema in one
+> stored value, with a stamp for each field. A large field goes in a file blob
+> that the record names. A named alternate key finds the same record through
+> declared fields. A relationship with different data uses its own schema.
 >
 > **Read before you design:**
 > - `docs/lastdb-canonical-model.md` — CANONICAL. If any other doc or code
@@ -199,6 +199,6 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
-- `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` — atom content size hard limit (256 KiB default, `LASTDB_MAX_ATOM_CONTENT_BYTES` env override, absolute max 1 MiB) and which shape to use for packed fields, growing lists, and large bytes.
+- `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` — size limits. A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_ATOM_CONTENT_BYTES` (256 KiB default, absolute max 1 MiB) now limits only one field value of a peer record. The page also says which shape to use for growing lists and large bytes.
 
 Per-crate command files: `fold_db/CLAUDE.md`, `schema_service/CLAUDE.md`.

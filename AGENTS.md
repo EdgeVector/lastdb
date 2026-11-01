@@ -25,13 +25,13 @@ whole design before a line is written:
 > **LastDB is Dynamo-style NoSQL, NOT a table/SQL database.** No scan, no
 > WHERE-style field filter, no JOIN. Point get by exact key is O(1); a range
 > under one hash is O(log M); a full scan is not an operation. A schema is a
-> catalog, not a table — each *field* has its own molecule, and a "row" is
-> assembled at read time from the field molecules sharing a key.
+> catalog, not a table. Each primary key holds one record: all fields of the
+> schema in one stored value. A named alternate key finds that same record.
 
 Before designing or planning anything against LastDB, read:
 
-- `docs/lastdb-canonical-model.md` — CANONICAL (schema → field → molecule →
-  atom → file, named keys, and the no-scan contract). If another doc or a code
+- `docs/lastdb-canonical-model.md` — CANONICAL (schema → record → file blob,
+  named keys, and the no-scan contract). If another doc or a code
   comment disagrees with it, it wins; fix the other.
 - `docs/lastdb-agent-access-model.md` — day-to-day do / don't rules.
 - `docs/lastdb-access-complexity-requirements.md` — the complexity law.

@@ -30,7 +30,7 @@ Let:
 ### What these bounds mean
 
 - **HashKey / exact HashRangeKey = O(1)**  
-  One known key → constant-time tip resolve (relative to database size). Table growth does not make a point get slower in the access model.
+  One known key → one constant-time record read (relative to database size). Table growth does not make a point get slower in the access model.
 
 - **Range under a hash = O(log M)**  
   Range work is over the **ordered range-key set of that partition only**, size **M**. Complexity is logarithmic in **partition** size, not in global table size **N**.  
@@ -125,8 +125,7 @@ LastDB does **not** require or promise:
 | Doc | Role |
 |-----|------|
 | `docs/lastdb-agent-access-model.md` | Agent day-to-day access model (aligned to this requirement) |
-| `docs/lastdb-canonical-model.md` | The ladder: schema, field, molecule, atom, file |
-| `docs/lastdb-atom-counter.md` | The records, the write path, delete and purge |
+| `docs/lastdb-canonical-model.md` | The ladder: schema, record, file blob; the write path, delete and purge |
 
 ---
 

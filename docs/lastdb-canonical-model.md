@@ -1,9 +1,8 @@
-# LastDB canonical model — schema → field → molecule → atom → file and named keys
+# LastDB canonical model — schema → record → file blob and named keys
 
-> **CANONICAL.** Ratified 2026-07-27, written after the storage redesign to
-> re-fix the terms that drifted in translation. If another doc or a code
-> comment disagrees with this one, this one wins; fix the other. The atom
-> lifecycle (counters, delete, purge, TTL) was updated on 2026-10-21.
+> **CANONICAL.** Ratified 2026-07-27. Rewritten 2026-11-01 for the record model
+> (home format 7, decisions D1–D7, Tom, 2026-10-31). If another doc or a code
+> comment disagrees with this one, this one wins; fix the other.
 
 **Audience:** anyone designing an app against LastDB (Mini `lastdbd` or
 embedded). Agents: also read
@@ -20,7 +19,7 @@ LastDB is **Dynamo-style NoSQL**. It is not SQL and is not "almost SQL."
 - **There is no scan feature.** Not a slow scan, not a discouraged scan — the
   operation does not exist. If you cannot name the key, you cannot make the
   query; design a key that serves it.
-- If you know DynamoDB access-pattern design (table + partition key + sort key
+- If you know DynamoDB key design (table + partition key + sort key
   + projections per query), you already know how to use this database.
 
 Complexity law (`docs/lastdb-access-complexity-requirements.md`):
@@ -34,132 +33,172 @@ Complexity law (`docs/lastdb-access-complexity-requirements.md`):
 
 ---
 
-## 1. The ladder: schema → field → molecule → atom → file
+## 1. The ladder: schema → record → file blob
+
+```text
+Schema (catalog: fields, primary key, named alternate keys)
+  ├─ record (rk:)  one stored value per primary key: every field, a stamp per field
+  │    └─ file blob (CAS)  large bytes that a field or the record metadata names
+  └─ alternate entry (ak:)  alternate key → primary key, no copy of the record
+```
+
+Record space: `S = base64url(SHA-256(frame("lastdb:record-space:v1", schema)))`. A scoped
+key gets its `{scope}:` prefix in front.
+
+Every home is format 7. Field molecules, tips and atoms do not exist (decision D6).
 
 ### Schema
 
 An app declares a schema with its field names and key type: `Hash` or `HashRange`.
-The schema describes how its field molecules use keys. It does not store the record values.
+The schema owns its records and their values.
 Older declarations and remote templates can still encode `Single` or `Range`.
-The native logical query and write routes reject those layouts before they fetch molecules or change records.
+The native logical query and write routes reject those layouts.
 
 An app can declare its installed schema again:
 
-- **More fields.** The node accepts the new fields in place. The schema keeps its name, key, alternate keys and existing molecules. Each new field gets its own molecule. Old records read a new field as absent.
+- **More fields.** The node accepts the new fields in place. The schema keeps its name, key, alternate keys and records. An old record reads a new field as absent.
 - **Fewer fields, with equal definitions.** An older app version can declare a subset. The node reuses the installed schema and loads nothing.
 - **Any other change.** The node refuses a changed field type or description, a changed key, or changed alternate keys. The app declares a new schema name and copies its records explicitly.
 
-### Field → molecule
+Canonical field identity describes a reusable definition. It does not connect records in different schemas.
 
-**Every field of a schema has its own molecule.** A molecule is an **index**:
-under one key configuration — a hash, or a hash plus range — it maps key
-coordinates to the current **atom** for that field (the *tip*).
-Molecule identity uses SHA-256 over the fixed domain `lastdb:molecule-uuid:v1`, the schema name, and the field name.
-Each part has a four-byte length prefix. The digest uses unpadded base64url text.
-A writer can name the molecule from the schema and field without a fetch.
-Canonical field identity describes a reusable definition. Each schema owns its record values.
+### Record
 
-### Named alternate keys and field definition reuse
-
-A schema owns its values. Canonical field reuse supplies definitions and types.
-Equal field identities do not connect records in different schemas.
-
-The primary key addresses the record. Each named alternate key uses fields declared in that schema.
-An alternate molecule maps its key to the primary record key. It stores no payload copy or separate field tip.
-The write updates the record and its alternate addresses in one native request.
-Queries return the primary key for subsequent mutations.
-
-Each local schema owns its field values. Startup refuses a stored schema that does not own its values.
-Copy older data into a fresh home; no in-place conversion exists.
-See [the multi-key schema guide](multi-key-schemas.md) and [compound key rules](compound-alternate-keys.md).
-
-### Atom
-
-An **immutable, content-addressed value** (`atom:{uuid}\0b`) holding one field's
-data at one key. A write never mutates an atom — it writes a new atom and
-repoints the molecule's tip (last-write-wins).
-
-Every atom has one **counter** record (`atom:{uuid}\0c`) in the same hash group
-as its body. The counter holds the number of tip records and counted conflict
-records that name the atom. **The batch that lowers the counter to exactly zero
-deletes the body and the counter, in the same batch.** Nothing else deletes an
-atom body. There is no grace window, no audit and no garbage-collection pass. The
-counter is the only authority for the life of a body
-(`docs/lastdb-atom-counter.md`).
-
-**The ceiling.** A new atom holds at most 256 KiB of content (the JSON value, before
-encryption). `LASTDB_MAX_ATOM_CONTENT_BYTES` can change it between 1 KiB and 1 MiB.
-V2 compresses and encrypts run blocks that contain the atom. Native backup retains those encrypted bytes.
-The content cap is separate from the stored block and backup limits. An atom may pack
-many small fields up to the ceiling, but it is not a blob store. Shape rules for
-data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
-Shape rules.
-
-**Field history.** History stays off until a field policy retains earlier values.
-The `keep` policy retains a replaced value. The `ttl` policy sets its expiry.
-Each retained value holds an atom reference until its history entry leaves.
-A named alternate address has no separate payload history.
-See [field history](lastdb-atom-history.md). Conflicting writes have their separate retention rule below.
-
-### File
-
-The atom's data is what points at durable bytes on disk:
-
-- **Physically**, the native disk engine finds the file bytes from the atom identity.
-  Native storage uses disk format v2: sorted run files in two run homes.
-  File positions remain storage details; molecule tips retain atom identities.
-- **File-scale payloads** (packs, attachments, anything past the atom fence)
-  are **content-addressed file blobs** (CAS: `blobs/sha256/…`); the atom holds
-  the reference, not the bytes.
-
-### Row assembly
-
-A logical record ("row") is **not one stored blob**. It is the set of fields
-whose molecules share the same key coordinates. A read walks each field
-molecule's tip at the key, batch-fetches the atoms, and zips the fields into
-the JSON the API returns. Multi-field records are **co-keyed at read time**.
+A **record** is all fields of one schema at one primary key, stored as **one value**
+at one record key:
 
 ```text
-Schema (catalog: fields + keying mode)
-  └─ Field ── molecule (index: hash[, range] → tip)
-                 └─ atom (immutable value, content-addressed)
-                       └─ file (run file on disk; big bytes → CAS blob)
+rk:{record space}:{escaped blinded hash}\0{typed range}
 ```
+
+The record space is a fixed identity of one schema. The key has the same shape as an
+alternate key, so the typed range order applies to it.
+
+The record value (`fold_db/crates/model/src/record_value.rs`) is JSON:
+
+```text
+{"v":1, "fields":{…}, "stamps":{…}, "meta":{"source_file_name", "metadata":{…}, "stamp"}, "deleted": stamp}
+```
+
+- `fields`: the value of each field.
+- `stamps`: one stamp for each field, `[written_at_ns, logical_counter, device_id, mutation_id]`,
+  compared in that order (decision D1).
+- `meta`: the record metadata — the source file name and the metadata map, with its own
+  stamp (decision D7). A record has one metadata block. A field has no metadata.
+- `deleted`: the delete floor of a tombstone. A tombstone has no fields.
+
+Empty parts are left out.
+
+A write changes only the fields that it names. **Field merge:** when two writes
+change one record, each field keeps the value with the newer stamp. So two devices
+that change two different fields of one record keep both changes.
+
+A local write replaces only the metadata keys that it sends, and the source file name
+only when it sends one. A write without metadata keeps the stored metadata. A peer
+write replaces the metadata by stamp, but keeps this device's `file_blob_ref` and
+`file_hash`.
+
+**The record cap.** A record holds at most **64 KiB** (`MAX_RECORD_BYTES`): the whole
+JSON-encoded record, with the stamps, the metadata and the delete floor (decision D3).
+The write checks the final record of each key. A larger record gets
+`413 {"error":"atom_content_too_large","scope":"record"}`. A merged peer record over the
+cap is skipped, and the stored record stays. Put a large field in a file blob. A growing
+list or log is one record per entry in a HashRange schema.
+
+`LASTDB_MAX_ATOM_CONTENT_BYTES` (default 256 KiB, maximum 1 MiB) now limits only one
+field value of a peer record. A local write is checked against the record cap only.
+
+### File blob
+
+Large opaque bytes (files, packs, images) go in a **content-addressed file blob**
+(CAS). A `$lastdb_file.blob_ref` field value, or the `file_blob_ref` / `file_hash`
+record metadata, holds the reference, not the bytes. Each file blob has a counter
+(`bref:v3:c:{sha256}`) of the records and field history entries that name it. A write
+changes the counter by the net change between the old and the new record. At zero the
+file blob waits for a dwell of one hour (`LASTDB_BLOB_DWELL_SECS`), then goes
+(`docs/lastdb-blob-counter.md`).
+
+### Reads
+
+| Read | Stored reads |
+|---|---|
+| By primary key | 1 record read |
+| Range under one hash | 1 range read over the record keys |
+| By a named alternate key | the alternate entry, then 1 batch of record reads |
+
+A read returns the fields, the record metadata and the **primary key**. Use the
+primary key for a later mutation. An alternate read also returns the matched key.
+A reply has no molecule or writer IDs. For compatibility, each field entry of
+`metadata` keeps an empty `atom_uuid` and the record's `source_file_name`, and
+`author_pub_key` is `null`.
+The node does not assemble a record from separate field values: the record is
+stored whole.
+
+### Writes
+
+One native write request:
+
+1. reads the records that its preconditions need (`expected`, `must_exist`, purge) in one batch;
+2. reads the current record of each key (memory first, then disk);
+3. merges each changed field and its stamp. A write merges only the fields it sends;
+   there is no full-replace option;
+4. computes the alternate entries from the old and the new fields: it puts the new
+   entries and deletes only old entries that still name this record;
+5. changes the file blob counters by the net change of the file blob references;
+6. puts the records, the alternate entries, field history rows, counter changes, share
+   copies, delete audit rows, TTL ages, idempotency entries and HashRange partitions in
+   **one batch**.
+
+The ack follows the durable disk commit (section 5).
 
 ### Delete, purge and TTL
 
-Three ways end a key. All three remove the tip records of the key, and the atom
-counter frees each body whose last reference goes, in the same batch.
+A delete changes the record into a **tombstone** at the same key. The tombstone
+keeps the delete floor, so an older replayed write cannot bring the record back.
+No separate delete barrier exists. The owner can raise the home-wide
+[replay cutoff](delete-replay-cutoff.md) on a stopped home.
+In the same batch the delete removes the alternate entries, lowers the file blob
+counters, removes the TTL age rows, copies the floor to share copies and writes a
+delete audit row (`dellog`). A delete of an absent record writes nothing.
 
-| Way | Removes the tips | Frees the bodies | Writes a delete barrier | Use |
-|---|---|---|---|---|
-| Delete | yes | yes, at zero references | yes (`rdel:v2:`), so an older replayed write cannot bring the key back | an ordinary client delete |
-| Purge | yes | yes, at zero references | no | hard erasure; a TTL sweep uses it by default |
-| TTL sweep | yes | yes, at zero references | only with `LASTDB_TTL_SWEEP_VERB=delete` | expiry of old keys |
+| Way | Leaves a tombstone | Releases history and conflict records | Use |
+|---|---|---|---|
+| Delete | yes | at the end of their own windows; a field with a history policy keeps a copy of the deleted value | an ordinary client delete |
+| Purge | yes | yes, in the same batch (at most 1,024 history entries for one record) | hard erasure; a TTL sweep uses it by default |
+| TTL sweep | yes | as its verb (`purge` by default) | expiry of old keys |
 
-- A request reads the tips of its keys by key and stages one batch. The cost follows the
-  keys of the request, never the size of the schema.
-- A body that another tip or a kept conflict record still names stays. Two keys that
-  share one atom keep it until the last one goes.
+- A request reads its records by key and stages one batch. The cost follows the keys
+  of the request, never the size of the schema.
 - A delete frees the record, not the disk bytes. Compaction returns the bytes.
-- A TTL is a schema retention policy. The sweep erases the expired keys of every schema
-  that has a policy. A HashRange schema needs a range key that starts with 20
-  digits of unix seconds. Set the policy before the first write, or
+- A TTL is a schema retention policy. A Hash record ages by its write time: the newest
+  field stamp. A HashRange schema needs a range key that starts with 20 digits of unix
+  seconds. Set the policy before the first write, or
   [explicitly backfill existing personal Hash/HashRange records](lastdb-ttl-sweep.md#schema-shape-that-a-ttl-needs)
   with the owner's `--confirm-expire-existing` confirmation. See
   `docs/lastdb-ttl-sweep.md` and `docs/app-manifest-retention.md`.
-- A file blob goes after its counter reaches zero and a dwell of one hour passes
-  (`docs/lastdb-blob-counter.md`). A format 7 home has no molecule counters
-  (`docs/lastdb-molecule-counters.md`, retired).
+- A schema drop blocks the schema first, then releases its records (`rk:`), field history
+  (`rh:`), alternate entries (`ak:`), conflict records and file blob references in batches,
+  then removes the schema. A write during the drop gets a refusal.
 
-**Kept conflicting writes.** When two devices write one key, the database keeps the
-losing write as a conflict record for 30 days (`LASTDB_CONFLICT_RETENTION_SECS`). A
-conflict record holds one counted reference to each atom it names, so a kept loser keeps
-its body. The retention janitor releases a record at the end of its window. A delete,
-a purge or a TTL erase of the key releases its records in the same batch (up to 100 for
-one request) and hands the rest to the janitor to drain. Conflict is per atom, so
-packing independent facts into one atom couples their fate.
+### Field history
 
+History stays off until a field policy retains earlier values (decision D5).
+The policy is `{"mode":"off"|"keep"|"ttl","seconds"}`. The `keep` policy retains a
+replaced or deleted value. The `ttl` policy sets its expiry.
+A history entry (`rh:{S}:{sha(record key)}:{field identity}:{id}`) keeps its own copy of
+the old field value, its stamp and the reason (`replace` or `delete`). A large old value
+keeps its file blob reference, which counts as one reference of that file blob.
+An alternate entry has no history. LastDB keeps no history of a whole record.
+The route is `/api/atom-history` (a code name) and the CLI is `lastdb history`.
+
+### Kept conflicting writes
+
+When a peer import finds that two devices wrote one field of one record, the losing
+value is kept as a **conflict record** (`rcf:` row, with an `rcm:` marker on the record)
+for 30 days (`LASTDB_CONFLICT_RETENTION_SECS`). A conflict record names the schema, the
+primary key, the field, the losing and the winning mutation. It holds no file blob
+reference. The retention janitor releases a conflict record at the end of its window.
+A purge releases the conflict records of the record in the same batch.
 
 ---
 
@@ -170,14 +209,18 @@ For example, Card uses its slug as the primary key and a board key for the board
 The board key uses the board field and an ordered range from the column, position, and slug fields.
 Every required field is present in Card. The key needs no record correspondence with another schema.
 
-- An exact primary read resolves field tips for the supplied primary key.
-- An alternate read resolves primary addresses, then reads the requested fields from those records.
-- A create adds the primary record and its alternate addresses in one transaction.
-- An update removes old alternate addresses and adds the new addresses in that transaction.
-- A delete removes the primary tips and their alternate addresses in that transaction.
+An **alternate entry** (`ak:` key) maps one alternate key to the primary key of the
+record. It holds the primary key and the matched key coordinates, and no copy of the
+record (decision D4). So there is one copy of each record, and no copy can drift.
+
+- An exact primary read reads the record at the supplied primary key.
+- An alternate read reads the alternate entries, then one batch of the records they name.
+- A create adds the record and its alternate entries in one transaction.
+- An update removes the old alternate entries and adds the new entries in that transaction.
+- A delete removes the record's alternate entries in that transaction.
 - Adding or removing a key on existing data uses the explicit owner change command and complete coverage checks.
 - An alternate read works in the personal database and in an org database.
-- An alternate read refuses while the node receives data from another user. Received records have no alternate addresses. Read them by the primary key.
+- An alternate read refuses while the node receives data from another user. Received records have no alternate entries. Read them by the primary key.
 
 Canonical field identity controls reusable descriptions and types. It does not select other records for a write.
 Unrelated records use separate schemas and retain separate values.
@@ -187,9 +230,9 @@ Relationships with their own values also use separate keyed schemas.
 
 ## 3. Layer boundary
 
-The core stores schemas, field molecules, atoms, and keys.
+The core stores schemas, records, alternate entries and file blobs.
 An app defines what its records and keys mean.
-The core updates declared alternate addresses with the source record.
+The core updates declared alternate entries with the source record.
 The app owns relationships or summaries that contain different data.
 
 ---
@@ -197,13 +240,17 @@ The app owns relationships or summaries that contain different data.
 ## 4. The contract for apps
 
 Design **for the query, before the data**. For every read your app will make,
-name the access pattern:
+name the key:
 
-1. **Single entity by identity** → exact hash key on the primary schema, O(1).
-2. **A list** → a schema/molecule whose hash partitions the list and whose
+1. **Single entity by identity** → exact hash key on the schema, O(1).
+2. **A list** → a schema whose hash partitions the list and whose
    range key orders it; read as a range under that one hash, O(log M).
 3. **Another list of the same records** → a named alternate key on the source schema.
    A relationship with different data uses its own keyed schema.
+
+Keep each record under the 64 KiB record cap. Put large bytes in a file blob.
+Two fields that different devices change independently can share one record: the
+field merge keeps both changes.
 
 Dynamo vocabulary map:
 
@@ -212,7 +259,8 @@ Dynamo vocabulary map:
 | Table | Schema |
 | Partition key | hash key |
 | Sort key | range key |
-| Item attributes | fields (assembled from tips + atoms at read time) |
+| Item | record (one stored value per primary key) |
+| Item attributes | fields of the record |
 | `GetItem` | exact key → O(1) |
 | `Query` (PK + SK condition) | range under one hash → O(log M) |
 | Alternate lookup | A named key on the same schema |
@@ -233,32 +281,36 @@ Never:
 The logical model stays the same across memory, disk, and cloud:
 
 ```text
-schema → field → molecule → atom → file
+schema → record → file blob
 ```
 
 ### Native disk engine
 
-The core model holds current schemas, molecule definitions, keys, tips, and atom values.
+The core model holds current schemas, records and alternate entries.
 Reads and accepted logical writes use that model.
 A call captures the core state and its matching disk root.
-A miss fetches the required records in batches. The fetched logical records can stay warm.
+A miss fetches the required records in batches. The fetched records can stay warm.
+
+**The warm set unit is one record at one key** (decision D2). A fetch brings the full
+record. It does not bring other keys. Alternate entries are read from disk and do not
+enter the warm set (D2 permits them; the current code keeps records only). A file blob
+stays outside the warm set. A write request stages its written records up to a quarter
+of the byte limit; they enter the warm set after the flush, and the rest enter on a later
+read.
 
 The recency list controls warm retention under a byte budget, which defaults to 256 MiB.
 The byte budget (`LASTDB_CORE_WARM_BYTES`) is the only warm set limit. There is no record count limit (Tom, 2026-10-30).
-The October 19 byte-limit decision replaces the old 10,000-logical-record cap.
 Each read enters the warm set. The purge removes least recently used clean records.
-The purge skips a record that a call still holds or a path reserved by private write preparation.
+The purge skips a record that a call still holds or a key reserved by private write preparation.
 If those records prevent enough purge, the charge can temporarily exceed the budget.
 Status counts that excess; the purge runs again after the owners release their records.
 An older call can retain its earlier values. Their memory owners stay charged until that call returns.
-These call lifetimes do not provide an old-value query or stored atom history.
+These call lifetimes do not provide an old-value query.
 
 The private disk queue retains prepared bytes until flush. Ordinary reads cannot query that queue.
 The published `CURRENT` of each run home owns local recovery. It does not replace the current logical memory state.
 A commit writes one new immutable run file, makes it durable, then publishes a new `CURRENT`.
 Reopen reads that `CURRENT`. Nothing replays.
-PR 387 and later PRs removed legacy Cloud Sync. The V2 byte backup uses a separate gate, `LASTDB_BYTE_BACKUP_V2_ENABLED`, that defaults off.
-Capture saves an exact cut and a named file hold; its source code does not establish production cloud readiness.
 A successful native write completes its disk commit and core memory change before the ack.
 The disk queue starts immediately. No collection timer delays the ack.
 This order is the design (Tom, 2026-10-30): fast durable writes, then the ack.
@@ -266,72 +318,42 @@ An ack always means that the write is on disk. There is no memory ack and no flu
 An internal file change clears affected core records before a later call can use them.
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
-The obsolete `LASTDB_RESIDENT_PERSIST_MS` setting has no effect, including at startup.
 There is no periodic mutation flusher or delayed durability mode.
-`LASTDB_MUTATION_SYNC_FLUSH` and `LASTDB_BACKGROUND_FLUSH_MS` also have no effect.
 Explicit flush and the final shutdown barrier remain.
-The warm byte budget, definition allowance, and write allowance cover separate owners.
-They do not define one whole-process memory cap.
 Native writes publish clean records after disk commit. They create no dirty warm-record state.
-The retained dirty counters and threshold do not grant an early memory ack or reserve a separate dirty share.
 See the [byte-limit design](lastdb-warm-set-byte-limit-design.md) and [current native summary](lastdb-disk-native-node.md).
 
-A format 7 home keeps no field molecules, so no schema key membership preloads.
-`LASTDB_SCHEMA_PRELOAD_SCHEMAS` sets only the `schema_keys.enabled` status flag; the preload counts stay zero.
-See the retired [preload design](lastdb-schema-range-preload-design.md) and [native write result](https://github.com/EdgeVector/lastdb/blob/0b0a79d4c10949e2f0570e82d9bc4fdb9513a285/docs/proofs/core-owned-writes-20261018/RESULTS.md).
+### Engine and format
 
-### Engine cutover
-
-Normal FoldDB startup opens the disk format v2 engine. No selection flag is required.
-The logical constructor rejects any other physical store before it opens logical namespaces.
-An empty home initializes directly. A disk format v2 home can reopen.
-A disk format v1 home or an older home receives an explicit refusal (decision D1, 2026-10-26).
-No automatic conversion or boot migration runs.
-Cloud sync stays disabled for this optimization round.
+Normal startup opens the disk format v2 engine with a format 7 home.
+A new home is format 7. This release opens no older home: copy the records of an older
+home into a fresh home. No automatic conversion or boot migration runs.
 
 See [the engine README](../vendor/laststore/README.md) for the run files, commit, merge, and reopen rules.
 
-LastDB uses only disk format v2 from the vendor crate. That crate does not provide an alternate logical query or write engine.
-The source review and product receipts must identify the exact native source that they cover.
+### Backup and peer sync
+
+The V2 byte backup copies the encrypted run files of a format 7 home. A restore needs no
+source home.
+A peer event carries, for each record, only the fields and metadata whose stamp names
+the request, and a delete floor. The peer import merges the delete floor, then each field
+by stamp, then the metadata, so the import order does not change the result. A peer
+import refuses file blob references, shared schemas and non-plain schemas.
 
 ---
 
-## 6. Molecules and atoms are node-universal (cross-DB) — 2026-08-18
+## 6. Databases on one node
 
-Owner-stated semantics (2026-08-18, near-verbatim): "For all DBs in the
-user's node, molecules and atoms are universal. If I copy an entire schema
-(with my selection of keys) into an org database, it does not copy the
-molecules — it references the same molecules. Same with atoms. They are
-cross-DB."
+In one node, a schema copy into another database (for example an org or shared
+database) copies only the **catalog** entry. The target entry reuses the source schema
+instance and adds key wraps for the field, alternate and record space keys. The copied
+schema reads the same stored records; the node stores the data once.
 
-- In one node, molecules and atoms are **universal across all databases**. A
-  database boundary does not partition the molecule/atom store.
-- A schema copy into another database (for example an org/shared DB) copies
-  only the **catalog**: the field list and the chosen keying. It does not copy
-  molecules or atoms.
-- The copied schema **references the same molecules and the same atoms** as
-  the source database. The node stores the data once; databases share it by
-  reference.
-- Molecule identity uses the framed tuple from §1.
-  An explicit schema copy keeps the same molecule identities and atoms.
+A share rule for another person copies the whole record, with its delete floor, to a
+share key in the same batch as the write.
 
-The local catalog read and write decisions share one native write scope.
-The native gate precedes molecule locks for a share or delete.
-Instance cleanup uses one complete batch and refuses work above the native operation or 128 MiB limit.
-A refusal retains the catalog reference and data. Search receives removals after the complete batch reaches disk.
-
-Instance cleanup retains molecule access-domain wraps because another instance or shared schema can use them.
-The `reclaimed_wraps` result therefore remains zero. Cloud sync stays disabled.
-Cloud sync needs domain-aware access revocation before it can resume.
-
-Scope note: this universality is **per node**. Cross-user sharing (a shared
-DB synced to another person's node) still replicates data to that node.
-
-**2026-08-18 follow-up:** the node-universal rule above is now implemented as a
-database catalog with per-molecule key bundles (it replaces the earlier
-`{db_hash}:` copy geometry). In a format 6 home, a catalog entry that named a
-molecule added one `bindings` count to the molecule. A format 7 home has no
-molecule counters (`docs/lastdb-molecule-counters.md`).
+Scope note: this is **per node**. Cross-user sharing (a shared database synced to
+another person's node) still replicates data to that node.
 
 ---
 
@@ -340,12 +362,11 @@ molecule counters (`docs/lastdb-molecule-counters.md`).
 | What | Where |
 |---|---|
 | **This doc (canonical)** | `docs/lastdb-canonical-model.md` |
-| Core logical memory and native disk | `docs/lastdb-rehydrate.md` |
+| Storage layout summary | `docs/lastdb-storage-layout.md` |
 | Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://github.com/EdgeVector/lastdb/blob/main/docs/lastdb-agent-access-model.md |
+| Multi-key schemas | `docs/multi-key-schemas.md` |
 | Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
-| Atom counter (retired in format 7) | `docs/lastdb-atom-counter.md` |
-| Molecule counters and the drain (retired in format 7) | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |
 | Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
 | TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
-| Atom size ceiling | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
-| Counter lifecycle design and what was built | `docs/lastdb-atom-counter.md` |
+| Record model design and decisions D1–D7 | brain `design-lastdb-record-model-20261031` |
+| Molecule model (retired in format 7) | `docs/lastdb-atom-counter.md` · `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` · `docs/design-lastdb-counter-lifecycle.md` |

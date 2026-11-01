@@ -1,8 +1,8 @@
 # Canonical field identity
 
 Schema Service supplies reusable field definitions. A definition describes one field and its type.
-Field identity does not determine a molecule address or connect mutable values in different schemas.
-Each local schema owns its field molecules and records.
+Field identity does not determine a record address or connect mutable values in different schemas.
+Each local schema owns its records.
 
 ## Stable identity algorithms
 
@@ -16,7 +16,7 @@ Preserve stored identity versions. An older binary must not overwrite a newer id
 
 ## Value addresses
 
-A fresh field molecule derives its address from the schema and field names.
+A record key derives its record space from the schema name. A field value lives inside the record, under the field name.
 Reads and writes use the installed schema metadata, not a field-identity search across schemas.
 Equal field identities can hold different values at the same key in separate schemas.
 

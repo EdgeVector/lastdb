@@ -1,5 +1,10 @@
 # Personal molecule key authority
 
+> **Model note (2026-11-01).** Since home format 7 (the record model) a schema has no field
+> molecules. Key bundles (`mkb:{id}` in the `molecule_keys` namespace, a code name) exist for
+> the record space, the field IDs and the alternate IDs of a schema. The
+> [canonical model](lastdb-canonical-model.md) wins where this page differs.
+
 Personal queries, counts, and mutation batches load existing molecule key bundles for each touched schema before they use molecule keys.
 The exact schema metadata supplies the molecule UUIDs.
 This step reads bundle metadata and the node wrap. It does not fetch molecule records or atoms.

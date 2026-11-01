@@ -1,5 +1,11 @@
 # Warm set byte limit design
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Status (2026-10-20): stages 1–3 are implemented. Tom approved D1–D5.
 The current implementation uses a byte limit and admits each read.
 See [the current memory and disk contract](lastdb-rehydrate.md) for the implemented rules.

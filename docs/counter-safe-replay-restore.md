@@ -1,5 +1,10 @@
 # Counter safety during restore
 
+> **Model note (2026-11-01).** This page was written for the molecule model. Since home
+> format 7 (the record model) a schema stores one record per primary key, and field
+> molecules, tips and atoms do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Normal writes change records and counts in one native batch.
 Restore must preserve that rule before cleanup can delete data.
 The local mutation replay and its raw lifecycle entries are removed.

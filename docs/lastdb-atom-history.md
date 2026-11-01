@@ -1,5 +1,11 @@
 # Atom history sidecar
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 LastDB keeps the current tip in each molecule. Optional history records retain
 the atoms that earlier tips used. Each history record owns one atom reference
 and the file references held only by its old tip metadata.

@@ -19,11 +19,9 @@ The primary and its archive do not participate in these checks.
 
 ## Memory and write acknowledgements
 
-The core model owns current schemas, molecules, keys, selected tips, confirmed absence, and fetched atom values.
-A selected tip can remain without its value after a call that needs no value.
-A value fetch adds the full atom to that same logical record.
-The warm set preserves an existing full value when an unchanged tip arrives.
-Both positive states use the same warm byte budget, source controls, and whole-record purge.
+The core model owns current schemas, keys, confirmed absence, and fetched records (home format 7).
+A fetch adds the full record at one key. Alternate entries stay on disk.
+Records and confirmed absence use the same warm byte budget, source controls, and whole-record purge.
 Private write preparation retains complete changes until disk commit.
 The commit then publishes clean logical records. Older calls retain their earlier values and memory charges until release.
 The recency list selects clean logical records for purge. It does not hold a second set of values.
@@ -81,14 +79,14 @@ Each query item retains its own result or explicit failure.
 A failed native read cannot become an empty success through a fallback.
 The call releases its file handles, pages, and buffers after completion.
 
-A complete logical record can come directly from the captured core view.
-A miss uses the captured disk root and can admit the fetched logical record into the core model.
-An incomplete dependency receipt permits body reuse but requires normal current-tip resolution.
+A complete record can come directly from the captured core view.
+A miss uses the captured disk root and can admit the fetched record into the core model.
+An incomplete dependency receipt permits body reuse but requires a normal current record read.
 Read errors do not become confirmed absence.
 
-Selected HashRange schemas can preload complete molecule keys for fast range selection.
-The preload occurs on first use and remains useful while that complete key set stays ready.
-The body warm set can remain partial. A partial set of bodies cannot prove range completeness.
+A format 7 home has no field molecules, so no schema key preload runs.
+`LASTDB_SCHEMA_PRELOAD_SCHEMAS` sets only a status flag. A range read reads the record keys under one hash.
+The warm set can remain partial. A partial set of records cannot prove range completeness.
 The current flat and compound key forms share one physical prefix union; they are not selectable older layouts.
 
 ## One complete mutation

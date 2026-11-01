@@ -1,45 +1,43 @@
 # LastDB storage layout
 
-The logical path is schema → field → molecule → atom → file.
-A schema owns its field molecules and record values.
+The logical path is schema → record → file blob, plus alternate entries.
+Every home is format 7 (the record model). A schema owns its records and their values.
 Canonical field identity supplies reusable definitions and types.
+Field molecules, tips and atoms do not exist.
 
-## Primary records and alternate keys
+## Records and alternate keys
 
-A field molecule maps a primary key to the current atom for that field.
-A named alternate molecule maps its declared key to the primary record key.
-It stores no payload atom or separate field tip.
-One native transaction changes the record and all affected alternate addresses.
+A record key (`rk:`) holds one record: every field of the schema at one primary key,
+a stamp for each field, and one record metadata block. A tombstone is a record with no
+fields and a delete floor. No separate delete barrier exists.
+A named alternate entry (`ak:`) maps its declared key to the primary key.
+It stores no copy of the record.
+One native transaction changes the record and all affected alternate entries.
 
-New field molecules derive their default address from the schema and field names.
-Converted schemas retain their private addresses in schema metadata.
-The installed metadata supplies the authority for reads and writes.
+Each schema has one record space identity. Schema publication mints one key bundle
+for that record space.
+The installed schema metadata supplies the authority for reads and writes.
 
 ## Bytes and counters
 
 The native engine stores encrypted sorted run files.
-The main store holds logical records and metadata. The CAS store holds large file bytes.
-An atom points to its file. A logical tip stores an atom identity.
+The main store holds records, alternate entries and metadata. The CAS store holds file blobs.
+A field value or the record metadata names a file blob by its reference.
 
-The counter planner updates tip references, atom counters, and molecule counters in the same batch.
-A zero atom counter releases the body in that batch.
-A kept conflict record or field history entry can retain a reference to the body.
-The history policy controls those retained field values.
-
-Schema fields and database catalog references bind molecules.
-A molecule with no bindings, slots, or kept records can leave through the molecule drain.
+The write path changes the file blob counters from the old and the new record in the same batch.
+A field history entry that names a file blob holds one reference. A conflict record holds none.
+File blob counters and their one-hour dwell control CAS cleanup.
 Compaction returns the disk bytes after logical deletion.
-File blob counters and their dwell control CAS cleanup.
 
 ## Memory, backup, and upgrades
 
-The warm set contains logical records selected by requests.
-Storage objects and file handles stay outside that logical set.
-A database catalog can explicitly reference an existing schema's molecules on the same node.
+The warm set holds one record at one key, selected by requests. Alternate entries stay on disk.
+Storage objects and file handles stay outside that set.
+A database catalog can explicitly reference an existing schema on the same node.
 Equal field definitions in different schemas do not create that reference.
 
 Native backups retain encrypted bytes and their format metadata.
-At startup, the daemon refuses a stored schema that does not own its values.
+This release opens only a format 7 home.
 Copy the records of an older home into a fresh home instead of an in-place conversion.
 
 Keep the primary unchanged during source and CI work.

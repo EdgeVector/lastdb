@@ -1,5 +1,11 @@
 # Current core memory and historical convergence record
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Current summary, 2026-10-26: disk format v2 is the sole native engine.
 The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
 The recency list selects logical records for purge without a second set of values.

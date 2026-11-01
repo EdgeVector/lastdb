@@ -53,11 +53,11 @@ A range key that does not begin with 20 digits is never expired.
 CAUTION: Existing records can expire at the next sweep.
 After a policy starts, run `lastdb schema-retention backfill --schema <name> --confirm-expire-existing`.
 The command covers current Hash and HashRange schemas in the personal scope.
-It registers old hashes and adds old Hash keys with their original tip write times.
+It registers old hashes and adds old Hash keys with their original record write times.
 It does not restart their ages at the time of the command.
 
 Each call handles at most 64 keys, with a smaller bound for a wide schema.
-The native write scope covers the current tip-clock reads and the age writes.
+The native write scope covers the current record reads and the age writes.
 A repeated page cannot replace a newer age with an older one.
 Each returned cursor follows a durable page; a restart can safely repeat the command.
 New writes retain their normal tracking path.
@@ -66,8 +66,8 @@ The command does not declare completion for other database scopes or retired key
 
 **A rewrite resets the age of a Hash or Single record.** The sweep re-reads the
 age of its keys before each batch and drops a key that a client rewrote since
-the pass listed it. The erase then compares the write time of the tip with the
-cutoff under the tip lock, so a rewrite that was acked and not yet indexed is
+the pass listed it. The erase then spares a record written at or after the
+cutoff, so a rewrite that was acked and not yet indexed is
 spared too. The limits are in
 [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (What a pass does, The write-time
 guard). For a schema with a manifest `retention`, a write through either installed
@@ -80,10 +80,10 @@ range key.
 The declare refuses a TTL, before it binds the schema, when:
 
 1. **The records are shared.** The TTL sweep runs through the catalog schema the
-   declare resolved to. It erases a record from every molecule that schema
-   names, so it reaches every schema bound to it, whoever wrote the record. The
+   declare resolved to. It erases the records of that schema instance, so it
+   reaches every schema bound to it, whoever wrote the record. The
    declare refuses with `shared_with=[...]` when another loaded schema is bound
-   to the catalog schema (by retention alias or shared molecule),
+   to the catalog schema (by retention alias or a catalog share),
    or when another app owns the catalog schema or a schema it was expanded
    from. The same check runs again when the policy is written. Two manifest
    schemas of the same shape can resolve to one catalog schema: `lastdb app

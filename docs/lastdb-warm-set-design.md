@@ -1,5 +1,11 @@
 # Warm set design: one clean warm set and one small write queue
 
+> **Model note (2026-11-01).** This page was written for the molecule model:
+> schema → field → molecule → atom → file. Since home format 7 (the record model)
+> a schema stores one record per primary key, and field molecules, tips and atoms
+> do not exist. The [canonical model](lastdb-canonical-model.md) wins where this
+> page differs.
+
 Status (2026-10-27): this proposal describes the LastStore segment engine (hash group files, store write memory, `LASTSTORE_*` settings), which decision D1 (2026-10-26) removed.
 
 CAUTION: The write route below (memory ack, then a flush every 500 ms) is retired.
