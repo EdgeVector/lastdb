@@ -82,7 +82,6 @@ impl SchemaMutationGateError {
             Self::InvalidChallengeRequest(detail) => {
                 Self::error_reason_detail_body(error, reason, detail)
             }
-            Self::Internal(detail) => Self::error_reason_detail_body(error, reason, detail),
             Self::QuotaExceeded {
                 bucket,
                 window,
@@ -96,6 +95,7 @@ impl SchemaMutationGateError {
                 "limit": limit,
                 "retry_after_secs": retry_after_secs
             }),
+            Self::Internal(detail) => Self::error_reason_detail_body(error, reason, detail),
             Self::NodeKeyRequired
             | Self::NodeKeyInvalid
             | Self::NodeSignatureRequired
