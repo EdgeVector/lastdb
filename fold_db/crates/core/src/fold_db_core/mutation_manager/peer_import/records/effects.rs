@@ -37,13 +37,11 @@ impl MutationManager {
             .iter()
             .map(|record| record.after.fields.clone())
             .collect();
-        entries.extend(atoms.alternate_entry_changes(
-            schema,
-            &keys,
-            &before,
-            &after,
-            scope.as_deref(),
-        )?);
+        entries.extend(
+            atoms
+                .alternate_entry_changes(schema, &keys, &before, &after, scope.as_deref())
+                .await?,
+        );
         let changes: Vec<_> = records.iter().copied().map(PeerRecord::change).collect();
         let purges = vec![false; changes.len()];
         let history = atoms
