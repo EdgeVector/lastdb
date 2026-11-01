@@ -59,6 +59,17 @@ use app_identity_crypto::{
     PURPOSE_DEV_CERT,
 };
 
+/// HTTP 401 body when an app write lacks `X-Exemem-Dev-Cert` or `X-Signature`.
+///
+/// Both HTTP routers write this body. Each router still reads its own headers.
+#[must_use]
+pub fn missing_dev_cert_body() -> Value {
+    json!({
+        "reason": "cert_invalid",
+        "detail": "missing X-Exemem-Dev-Cert or X-Signature header"
+    })
+}
+
 // ─── Validation bounds (design § "Metadata bounds: strict") ───────────────
 
 mod validation;
