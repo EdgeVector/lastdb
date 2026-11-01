@@ -39,6 +39,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
       BENCH_PROFILE: ${{ inputs.profile }}
     steps:
       - name: Prepare external result directory
@@ -114,9 +115,26 @@ jobs:
           key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
           restore-keys: benchmark-downloads-${{ runner.os }}-
 
+      - name: Locate the isolated dependency target
+        id: dependency-target
+        run: |
+          target="$(realpath --relative-to="$GITHUB_WORKSPACE/candidate" "$RUNNER_TEMP/bench-target-candidate")"
+          echo "relative=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled dependencies without workspace outputs
+        id: dependencies
+        continue-on-error: true
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: candidate -> ${{ steps.dependency-target.outputs.relative }}
+          shared-key: benchmark-dependencies-v1-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+
       # Build the candidate first. Main publishes it before any baseline work;
       # PR candidate compilation overlaps that trusted cache producer.
-      - name: Build the exact candidate from fresh source
+      - name: Build the exact candidate with fresh local-package outputs
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
         run: |

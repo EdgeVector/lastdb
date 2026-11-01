@@ -66,7 +66,8 @@ The workflow also measures each main push. The larger nightly run starts at 09:2
 PR edits to titles or descriptions do not repeat a benchmark.
 
 One build job prepares the exact candidate and baseline programs.
-Three independent hosted jobs then measure speed, resource growth, and the absolute disk/delete cap.
+Independent hosted jobs measure speed, resource growth, the Search queue, and the absolute disk/delete cap.
+The optional Search queue case runs beside resource growth and uses its own verified artifact.
 They use the same verified programs. Each suite compares both versions on its own machine.
 A speed timeout or failure cannot cancel or skip the disk/delete job.
 All required jobs and their verified uploads must complete before `benchmark-complete` passes.
@@ -179,7 +180,7 @@ The driver accepts only those node markers. A revision that creates an older hom
 The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
-The workflow caches dependency downloads and exact compiled baseline programs.
+The workflow caches dependency downloads, compiled external dependencies, and exact compiled baseline programs.
 Main pushes build and save the accepted candidate before baseline work or measurements.
 Only trusted main pushes publish reusable programs.
 The cache key includes the full source SHA, Rust compiler, architecture, build flags, and build recipe.
@@ -187,11 +188,15 @@ It also includes the Ubuntu release, native compiler/linker versions, and native
 The hosted runner image label stays in the build record, outside the compatibility key.
 Unrelated image software updates therefore do not discard a compatible program.
 An exact cache hit must also pass metadata, executable SHA-256, and executable revision checks.
-The candidate always builds from source. Each actual build uses a fresh target directory.
+The candidate always compiles from source. The dependency cache excludes workspace outputs.
+Before a restored target enters a build, Cargo removes every local path package's outputs, including vendored packages.
+The build refuses a target outside the runner temporary directory or a retained LastDB executable after that cleanup.
+The build receipt records the cleaned packages and cleanup time. This preparation runs only in CI.
 PR candidate compilation overlaps the main cache producer before the baseline restore.
 On a miss, a PR waits up to ten minutes only while the exact baseline's main run can publish its cache.
 A missing producer, incompatible environment, failed lookup, expired wait, or rejected cache uses a fresh baseline build.
-No compiled target directory enters the cache.
+The compiler, native toolchain, recipe, Cargo manifests, and lock file identify the dependency cache.
+PR dependency caches stay within GitHub's PR scope. Only main publishes reusable complete programs.
 The runner checks free disk space before builds and again before measurements.
 It reserves 32 GiB for two fresh build trees, plus the selected corpus budget.
 Standard and batch-insert runs reserve 16 GiB for one generated home and output.
@@ -302,7 +307,8 @@ Every change appears in the summary, even below the notice threshold.
 CI repeats the resource suite once when a measure crosses both limits.
 Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
-Each resource pass has a 40-minute limit. Its independent job has a 130-minute limit, including the optional Search queue pass.
+Each resource pass has a 40-minute limit. Its independent job has a 130-minute limit.
+The optional Search queue pass has a separate job and keeps its 30-minute operation limit.
 Raw results stay under `resource-growth/` in the growth job artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
@@ -394,7 +400,7 @@ Historical manual comparisons opt into `search_queue` only for a candidate that 
 PRs use 512 records, three full update rounds, two alternating pairs, and a 1 MiB queue cap.
 Nightly uses 2,048 records, eight rounds, three pairs, and a 4 MiB cap.
 No Search consumer runs. A further full update after reopen verifies writes after saturation.
-The artifact retains the policy status, keyed-value checks, size categories, shutdown and cleanup receipts.
+The Search job artifact retains the policy status, keyed-value checks, size categories, shutdown and cleanup receipts.
 Only the same limit finding in the first two independent mode runs produces an advisory warning.
 Incomplete measurements fail completion; size findings stay advisory.
 
@@ -474,7 +480,7 @@ The physical request count can include background work. It is not an exclusive c
 ## Results and limits
 
 Open the workflow summary from the PR checks.
-Download `lastdb-benchmarks-speed-*`, `lastdb-benchmarks-growth-*`, or `lastdb-benchmarks-disk-*` for each suite.
+Download `lastdb-benchmarks-speed-*`, `lastdb-benchmarks-growth-*`, `lastdb-benchmarks-disk-*`, or `lastdb-benchmarks-search-*` for each suite.
 The separate `lastdb-benchmark-build-*` artifact retains the shared programs, build context, receipts, and build logs.
 The artifact retains raw samples, read receipts, p50/p95/p99 response times, and requests per second.
 It also retains records per second, sampled daemon memory size, disk growth, and build logs.

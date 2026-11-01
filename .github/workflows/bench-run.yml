@@ -65,7 +65,11 @@ jobs:
       # A speed failure must not cancel the independent disk/delete cap.
       fail-fast: false
       matrix:
-        lane: ${{ fromJSON(inputs.resource_only && '["disk", "growth"]' || inputs.writer16 && '["speed", "disk", "growth", "writers"]' || '["speed", "disk", "growth"]') }}
+        lane: >-
+          ${{ fromJSON(format('["disk", "growth"{0}{1}{2}]',
+              !inputs.resource_only && ', "speed"' || '',
+              !inputs.resource_only && inputs.writer16 && ', "writers"' || '',
+              inputs.search_queue && ', "search"' || '')) }}
     env:
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
@@ -255,7 +259,7 @@ jobs:
               --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/disk-excess"
 
       - name: Measure default-off Search and a full queue without a consumer
-        if: matrix.lane == 'growth' && inputs.search_queue
+        if: matrix.lane == 'search' && inputs.search_queue
         run: |
           timeout --signal=TERM --kill-after=120s 30m python3 driver/scripts/benchmarks/search_queue.py \
             --candidate "$BENCH_BINARY_ROOT/${{ inputs.candidate }}/lastdbd" --candidate-revision "${{ inputs.candidate }}" \
