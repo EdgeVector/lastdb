@@ -102,10 +102,10 @@ mod vocabulary_matching;
 pub use vocabulary_commit::CanonicalVocabularyWrite;
 
 pub use app_identity::{
-    env_label, invalid_app_id_body, missing_dev_cert_body, AppIdentityConfig, AppPromoteError,
-    AppPromoteOutcome, AppRegisterError, AppRegisterOutcome, AppRegisterRequest, AppUpdateError,
-    AppUpdateOutcome, AppUpdateRequest, ListLiveAppsReply, PromoteAppReply, PublicAppReply,
-    RegisterAppReply, SchemaClaimError, UpdateAppReply,
+    env_label, invalid_app_id_body, missing_dev_cert_body, reason_only_body, AppIdentityConfig,
+    AppPromoteError, AppPromoteOutcome, AppRegisterError, AppRegisterOutcome, AppRegisterRequest,
+    AppUpdateError, AppUpdateOutcome, AppUpdateRequest, ListLiveAppsReply, PromoteAppReply,
+    PublicAppReply, RegisterAppReply, SchemaClaimError, UpdateAppReply,
 };
 pub use blocking_runtime::{BlockingOutput, BlockingRuntime, BlockingRuntimeError, BlockingTask};
 pub use clock::{Clock, FrozenInstant};
