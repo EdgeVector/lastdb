@@ -148,6 +148,17 @@ Both native CURRENT files must remain unchanged throughout this step.
 The upgrade requires this exact accepted stopped cut before it selects the new pair.
 An error retains the exact backup request and its obligations, and the upgrade restores the old program pair.
 
+Automatic backup can stay on through this step.
+Its worker runs only in the daemon. The step holds the exclusive owner lock of each native home until it returns, so a daemon cannot start and no automatic request races the cut.
+A saved automatic request must finish first: a pending policy request refuses the step as busy.
+An enabled policy must name the same account, source home, and endpoint as the stopped connection.
+With the journal on, the stopped snapshot starts a new log epoch at its cut, the same as an automatic snapshot.
+After publication, the step records the stopped cut as the enabled policy's last backed frontiers.
+A disabled policy stays unchanged.
+The revision, intervals, and schedule stay unchanged.
+The restarted daemon then continues automatic logs from the stopped snapshot, and its status reports the stopped cut as backed.
+The report states whether automatic backup is on.
+
 ## Work and acceptance
 
 1. Add the optional native journal and bounded commit-file retention. Keep it off by default.

@@ -40,7 +40,8 @@ class Operation:
             "schema": "lastdb.cloud-dev-automatic.v1", "source": args.source,
             "version": args.version, "account": ACCOUNT, "result": "failed",
             "primary_access": False, "provider_deletions": 0,
-            "coverage": "pinned recovery, automatic snapshot/log, restart, changed snapshot interval, and fresh recovery",
+            "coverage": "pinned recovery, automatic snapshot/log, restart, changed snapshot interval, "
+                        "a stopped snapshot with automatic backup on, and fresh recovery",
         }
 
     def prepare(self, startup=True):

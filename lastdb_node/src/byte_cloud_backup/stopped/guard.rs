@@ -155,10 +155,14 @@ impl Ownership {
         )? {
             if policy["version"].as_u64() != Some(2)
                 || policy["account"].as_str() != Some(request.account_id.as_str())
-                || policy["state"]["enabled"].as_bool() != Some(false)
-                || !policy["pending"].is_null()
+                || policy["state"]["enabled"].as_bool().is_none()
             {
-                return Err(BackupError::Disabled);
+                return Err(BackupError::Identity);
+            }
+            // Automatic backup may stay on: its worker lives in the stopped daemon,
+            // so nothing races this cut. A saved automatic job must finish first.
+            if !policy["pending"].is_null() || !policy["state"]["pending_request_id"].is_null() {
+                return Err(BackupError::Busy);
             }
         }
         Ok(())

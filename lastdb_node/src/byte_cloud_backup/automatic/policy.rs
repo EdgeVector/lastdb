@@ -110,6 +110,65 @@ pub(in crate::byte_cloud_backup) fn status(
 ) -> Result<Option<AutomaticBackupStatus>> {
     Ok(load(host)?.map(|policy| policy.state))
 }
+/// The enabled policy of a stopped home. No daemon owns it, so no tick races the
+/// caller. A disabled policy keeps the earlier stopped-backup path unchanged.
+fn stopped(
+    home: &std::path::Path,
+    account: &AccountId,
+    source_home: &Id,
+    endpoint: &str,
+) -> Result<Option<Policy>> {
+    let Some(policy) = store::read::<Policy>(&Store::base(home).join(FILE))? else {
+        return Ok(None);
+    };
+    if !policy.state.enabled {
+        return Ok(None);
+    }
+    if policy.version != 2
+        || policy.account != *account
+        || policy.source_home != *source_home
+        || policy.endpoint != endpoint
+    {
+        return Err(BackupError::Identity);
+    }
+    if policy.pending.is_some() || policy.state.pending_request_id.is_some() {
+        return Err(BackupError::Busy);
+    }
+    Ok(Some(policy))
+}
+/// A final stopped snapshot uses the same connection as the automatic policy.
+pub(in crate::byte_cloud_backup) fn check_stopped(
+    home: &std::path::Path,
+    account: &AccountId,
+    source_home: &Id,
+    endpoint: &str,
+) -> Result<()> {
+    stopped(home, account, source_home, endpoint).map(|_| ())
+}
+/// Save a published stopped snapshot as the newest backed cut. The snapshot
+/// owns the active log anchor, so the next automatic log continues from it.
+/// Returns whether automatic backup stays enabled.
+pub(in crate::byte_cloud_backup) fn record_stopped(
+    home: &std::path::Path,
+    account: &AccountId,
+    source_home: &Id,
+    endpoint: &str,
+    frontiers: fold_db::storage::disk_pack::mutation_log::Frontiers,
+) -> Result<bool> {
+    let Some(mut policy) = stopped(home, account, source_home, endpoint)? else {
+        return Ok(false);
+    };
+    if policy
+        .state
+        .last_backed_up_frontiers
+        .is_some_and(|backed| frontiers.main < backed.main || frontiers.cas < backed.cas)
+    {
+        return Err(BackupError::Identity);
+    }
+    policy.state.last_backed_up_frontiers = Some(frontiers);
+    Store::write_configuration(home, FILE, &policy)?;
+    Ok(true)
+}
 pub(in crate::byte_cloud_backup) fn configure(
     host: &crate::host::Host,
     enabled: bool,
