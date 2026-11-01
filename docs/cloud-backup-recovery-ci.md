@@ -5,12 +5,22 @@ It records the source, program hashes, package checksum, download link, and arti
 The CI summary records the result. Database files, credentials, raw command replies, and daemon logs stay private on the runner.
 
 PRs check the recipe syntax without cloud credentials.
-Cloud-related pushes to main run the live operation.
-A manual dispatch also requires main.
+The required PR/main gate also checks this recipe's Python syntax.
+The live DEV operation runs through the existing daily driver or a manual dispatch on main.
+Main pushes do not start account-wide backup cleanup or recovery.
 The protected `cloud-backup-dev` environment permits only main, and one workflow lane serializes all accepted-main operations.
 The job receives no AWS or provider administration credential.
 PRs also read actual ownership archives with a read-only GitHub token and no cloud credentials.
 This operation uses the same archive reader as the protected main operation.
+
+## Commit feedback budget
+
+The normal PR/main path targets under ten minutes for the required checks and standard benchmarks.
+Clippy, format, syntax, secret, SDK, product-operation, benchmark, and disk-size gates stay active.
+Account-wide cleanup, provider safety waits, and full DEV backup recovery use the separate daily/manual operation.
+The larger nightly benchmark recipe stays separate from the standard commit recipe.
+The daily recovery keeps its existing freshness check, ownership rules, safety delay, and complete restore checks.
+This schedule change does not establish that the separate recovery failure is fixed.
 
 ## Daily check
 
