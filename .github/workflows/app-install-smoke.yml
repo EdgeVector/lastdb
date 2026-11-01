@@ -155,10 +155,20 @@ jobs:
 
           if ! lastdb app info "$APP" --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
             echo "app $APP is not in the $CHANNEL registry"
-            echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
-            echo "INSTALLED=false" >> "$GITHUB_ENV"
             cat "$PROOF_DIR/${APP}-registry-info.err" || true
-            exit 0
+            # lastseek may stay on the stable shelf. A missing lastseek row
+            # stays a skip. brain, lastsecrets, and search must be present.
+            case "$APP" in
+              brain|lastsecrets|search)
+                echo "brain, lastsecrets, and search must be on the next or stable shelf"
+                exit 1
+                ;;
+              *)
+                echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
+                echo "INSTALLED=false" >> "$GITHUB_ENV"
+                exit 0
+                ;;
+            esac
           fi
           cat "$PROOF_DIR/${APP}-registry-info.json"
 
@@ -772,17 +782,10 @@ jobs:
       - name: Report smoke test results
         run: |
           echo "app-install-smoke=${{ needs.app-install-smoke.result }}"
-          
-          # Report status
           if [ "${{ needs.app-install-smoke.result }}" = "success" ]; then
-            echo "✓ All app smoke tests passed"
-          else
-            echo "⚠️  Some app smoke tests failed or were skipped - review artifacts and job summaries"
-            echo ""
-            echo "Expected issues:"
-            echo "- lastseek: Repository not accessible (private, requires EdgeVector org access)"
-            echo "- Apps may not be in registry yet (will use source fallback)"
+            echo "All app smoke tests passed"
+            exit 0
           fi
-          
-          # This is a canary job - report status but never block
-          exit 0
+          echo "App smoke tests did not pass: ${{ needs.app-install-smoke.result }}"
+          echo "A failed install fails this report job and the workflow."
+          exit 1
