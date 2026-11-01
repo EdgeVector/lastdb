@@ -75,6 +75,10 @@ jobs:
           echo "MINI_GATE_STATE_DIR=$state_dir" >>"$GITHUB_ENV"
       - name: App registry shelf lint
         run: bash scripts/ci/mini-gate-step.sh "App registry shelf lint" -- bash scripts/lints/lint-app-registry-shelf.sh
+      - name: Cloud recovery recipe syntax
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/cloud-recipe-pycache
+        run: bash scripts/ci/mini-gate-step.sh "Cloud recovery recipe syntax" -- python3 -m py_compile scripts/cloud_backup/*.py
       - name: No build-artifact blobs in tree
         run: bash scripts/ci/mini-gate-step.sh "No build-artifact blobs in tree" -- bash scripts/lints/lint-no-build-artifacts.sh --tree HEAD
       - name: cargo fmt --check

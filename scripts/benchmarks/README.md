@@ -63,6 +63,8 @@ The single-pass 1.5× total settled database-size limit also blocks merge.
 Build failures, rejected requests, incomplete measurements, and upload failures block completion.
 Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
+The standard PR/main feedback target is under ten minutes, with complete measurements and all required gates.
+The daily/manual cloud backup operation owns account-wide cleanup and source-free recovery outside that commit path.
 PR edits to titles or descriptions do not repeat a benchmark.
 
 One build job prepares the exact candidate and baseline programs.

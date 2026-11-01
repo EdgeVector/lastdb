@@ -7,7 +7,7 @@ name: Cloud backup recovery
 # the baseline restorable (docs/cloud-backup-recovery-ci.md, "Baseline move").
 on:
   pull_request:
-    paths: &cloud_paths
+    paths:
       - '.github/workflows/cloud-backup-recovery.yml'
       - 'scripts/cloud_backup/**'
       - 'docs/cloud-backup-recovery-ci.md'
@@ -28,9 +28,6 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
-  push:
-    branches: [main]
-    paths: *cloud_paths
   workflow_dispatch:
     inputs:
       mode:
@@ -85,7 +82,7 @@ jobs:
   recover-dev:
     name: Automatic DEV backup and recovery
     needs: recipe-syntax
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     environment: cloud-backup-dev
     runs-on: ubuntu-24.04
     timeout-minutes: 210
@@ -96,7 +93,7 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_TERM_COLOR: never
       SOURCE_COMMIT: ${{ github.sha }}
-      # A push has no inputs and always runs the normal recovery.
+      # The daily driver dispatches recovery; a manual main run can move the baseline.
       RUN_MODE: ${{ inputs.mode == 'baseline' && 'baseline' || 'recovery' }}
     steps:
       - uses: actions/checkout@v7
