@@ -18,14 +18,14 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Read the durable atom hard-delete audit trail (purge and delete), oldest first.
+    /// Read the durable record hard-delete audit trail (purge and delete), oldest first.
     ///
-    /// Answers "was this atom body deleted on purpose, or lost?" from the store's
+    /// Answers "was this record deleted on purpose, or lost?" from the store's
     /// own evidence rather than a ~15h log window. The negative answer is the
     /// strong one: no row covering the window means no delete path removed it.
     ///
-    /// Rows carry counts, never atom content, atom uuids (which are content
-    /// hashes), or the purged record key (a `key_fingerprint` stands in).
+    /// Rows carry counts, the caller, the schema and the time. They never carry
+    /// field values or the purged record key (a `key_fingerprint` stands in).
     DeleteLedger {
         /// Return at most N rows, oldest first. 0 (default) returns everything.
         #[arg(long, default_value_t = 0)]

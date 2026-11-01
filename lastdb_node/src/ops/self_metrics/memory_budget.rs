@@ -121,13 +121,16 @@ pub struct CoreWarmBytesHealth {
 
 impl CoreWarmBytesHealth {
     /// One `lastdb status` line. `None` from a daemon that predates the gauge.
+    ///
+    /// `tracked_atoms` stays in the JSON for its readers. The record model
+    /// keeps it at zero, so the text line leaves it out.
     pub(super) fn status_line(&self) -> Option<String> {
         if self.limit_bytes == 0 {
             return None;
         }
         Some(format!(
             "Warm set bytes: used={} / limit={} peak={} held={} dirty={} / {} \
-             purged={} over_limit_admissions={} atoms={}",
+             purged={} over_limit_admissions={}",
             format_bytes(self.used_bytes),
             format_bytes(self.limit_bytes),
             format_bytes(self.peak_bytes),
@@ -136,7 +139,6 @@ impl CoreWarmBytesHealth {
             format_bytes(self.dirty_limit_bytes),
             format_bytes(self.purged_bytes),
             self.over_limit_admissions,
-            self.tracked_atoms,
         ))
     }
 }

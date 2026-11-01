@@ -20,7 +20,8 @@
 //! | Measure | serialized JSON of field content (`Value::to_string`), **before** encryption |
 //!
 //! Effective limit is also on `GET /api/status` → `limits.max_atom_content_bytes`
-//! and `lastdb status` (`Limits: max_atom_content=…`).
+//! and `lastdb status` (`Limits: max_peer_field_value=…`). The record model
+//! checks it only on one field value of a peer record.
 //!
 //! See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
 
@@ -58,7 +59,7 @@ fn resolve_effective_limit() -> usize {
             default = DEFAULT_MAX_ATOM_CONTENT_BYTES,
             absolute_max = ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
             env = MAX_ATOM_CONTENT_BYTES_ENV,
-            "atom content size limit overridden from env"
+            "peer field value size limit overridden from env"
         );
     }
     limit

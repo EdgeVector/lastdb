@@ -55,9 +55,9 @@ pub(super) fn aggregate_from_row(row: &serde_json::Value) -> Option<(String, OpA
         // the wall clock for their phased population was never recorded, and
         // a residual derived from `sum_ms` would be wrong, not approximate.
         phased_sum_ms: field_u64(fields, "phased_sum_ms").unwrap_or(0),
-        // Absent on rows written before the molecule work counters shipped.
-        // Both read 0 there, which `molecule_work_detail` renders as nothing —
-        // the honest answer, since the ratio's denominator was never recorded.
+        // Absent on rows written before the molecule work counters shipped;
+        // both read 0 there. The record model also keeps both at 0, and the
+        // text output no longer renders them.
         sum_molecules_persisted: field_u64(fields, "sum_molecules_persisted").unwrap_or(0),
         sum_molecule_store_commits: field_u64(fields, "sum_molecule_store_commits").unwrap_or(0),
         // Same additive migration: rows written before the resident commit

@@ -23,7 +23,7 @@ pub(crate) fn ops(data_dir: Option<PathBuf>, args: &OpsArgs) -> Result<(), Strin
     }
     println!();
     println!(
-        "Tip: clients should send header `X-LastDB-Client: <name>` (e.g. kanban, brain). \
+        "Note: clients should send header `X-LastDB-Client: <name>` (e.g. kanban, brain). \
          Unlabeled traffic is attributed to its peer process as `peer:<comm>`, with the \
          exact pid on Slowest recent."
     );

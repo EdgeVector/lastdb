@@ -47,14 +47,16 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
         queue_capacity = worker_pool.queue_capacity(),
         "uds worker pool enabled (LASTDB_UDS_WORKERS / LASTDB_UDS_QUEUE)"
     );
-    // Product write fence: atom field content size (default 256 KiB).
+    // Peer write fence: the size of one field value in a peer record
+    // (default 256 KiB). The structured field keeps its `max_atom_content_bytes`
+    // name: the private diagnostics log allowlists it by that name.
     // Docs: fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md
     tracing::info!(
         max_atom_content_bytes = fold_db::atom::max_atom_content_bytes(),
         default = fold_db::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,
         absolute_max = fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
         env = fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
-        "atom content size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
+        "peer field value size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
     );
 }
 
