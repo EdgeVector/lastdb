@@ -37,60 +37,74 @@ impl SchemaMutationGateError {
         }
     }
 
-    /// Body with `error` and `reason` and no other fields.
-    fn error_reason_body(error: &'static str, reason: &str) -> Value {
+    fn http_status(&self) -> u16 {
+        match self {
+            Self::InvalidChallengeRequest(_) => 400,
+            Self::NodeKeyRequired
+            | Self::NodeKeyInvalid
+            | Self::NodeSignatureRequired
+            | Self::NodeSignatureInvalid
+            | Self::ProofOfWorkRequired
+            | Self::ProofOfWorkInvalid
+            | Self::ProofOfWorkExpired => 401,
+            Self::QuotaExceeded { .. } => 429,
+            Self::Internal(_) => 500,
+        }
+    }
+
+    fn http_error(&self) -> &'static str {
+        match self {
+            Self::InvalidChallengeRequest(_) => "Invalid schema mutation challenge request",
+            Self::NodeKeyRequired => "Node publish key required",
+            Self::NodeKeyInvalid => "Node publish key is invalid",
+            Self::NodeSignatureRequired => "Node publish signature required",
+            Self::NodeSignatureInvalid => "Node publish signature is invalid",
+            Self::ProofOfWorkRequired => "Proof-of-work challenge required",
+            Self::ProofOfWorkInvalid => "Proof-of-work is invalid",
+            Self::ProofOfWorkExpired => "Proof-of-work challenge expired",
+            Self::QuotaExceeded { .. } => "Schema mutation quota exceeded",
+            Self::Internal(_) => "Schema mutation gate failed",
+        }
+    }
+
+    fn error_reason_body(error: &str, reason: &str) -> Value {
         json!({"error": error, "reason": reason})
+    }
+
+    fn error_reason_detail_body(error: &str, reason: &str, detail: &str) -> Value {
+        json!({"error": error, "reason": reason, "detail": detail})
     }
 
     pub fn to_http(&self) -> (u16, Value) {
         let reason = self.reason_code();
-        match self {
-            Self::InvalidChallengeRequest(detail) => (
-                400,
-                json!({"error": "Invalid schema mutation challenge request", "reason": reason, "detail": detail}),
-            ),
-            Self::NodeKeyRequired => (
-                401,
-                Self::error_reason_body("Node publish key required", reason),
-            ),
-            Self::NodeKeyInvalid => (
-                401,
-                Self::error_reason_body("Node publish key is invalid", reason),
-            ),
-            Self::NodeSignatureRequired => (
-                401,
-                Self::error_reason_body("Node publish signature required", reason),
-            ),
-            Self::NodeSignatureInvalid => (
-                401,
-                Self::error_reason_body("Node publish signature is invalid", reason),
-            ),
-            Self::ProofOfWorkRequired => (
-                401,
-                Self::error_reason_body("Proof-of-work challenge required", reason),
-            ),
-            Self::ProofOfWorkInvalid => (
-                401,
-                Self::error_reason_body("Proof-of-work is invalid", reason),
-            ),
-            Self::ProofOfWorkExpired => (
-                401,
-                Self::error_reason_body("Proof-of-work challenge expired", reason),
-            ),
+        let error = self.http_error();
+        let body = match self {
+            Self::InvalidChallengeRequest(detail) => {
+                Self::error_reason_detail_body(error, reason, detail)
+            }
+            Self::Internal(detail) => Self::error_reason_detail_body(error, reason, detail),
             Self::QuotaExceeded {
                 bucket,
                 window,
                 limit,
                 retry_after_secs,
-            } => (
-                429,
-                json!({"error": "Schema mutation quota exceeded", "reason": reason, "bucket": bucket, "window": window, "limit": limit, "retry_after_secs": retry_after_secs}),
-            ),
-            Self::Internal(detail) => (
-                500,
-                json!({"error": "Schema mutation gate failed", "reason": reason, "detail": detail}),
-            ),
-        }
+            } => json!({
+                "error": error,
+                "reason": reason,
+                "bucket": bucket,
+                "window": window,
+                "limit": limit,
+                "retry_after_secs": retry_after_secs
+            }),
+            Self::NodeKeyRequired
+            | Self::NodeKeyInvalid
+            | Self::NodeSignatureRequired
+            | Self::NodeSignatureInvalid
+            | Self::ProofOfWorkRequired
+            | Self::ProofOfWorkInvalid
+            | Self::ProofOfWorkExpired => Self::error_reason_body(error, reason),
+        };
+        (self.http_status(), body)
     }
 
     pub(super) fn metric_status(&self) -> &'static str {
