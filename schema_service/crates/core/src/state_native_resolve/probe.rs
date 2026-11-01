@@ -1,6 +1,6 @@
 //! Field-match probe (eval/debug).
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -97,7 +97,7 @@ impl SchemaServiceState {
         match self.field_match_probe(request) {
             Ok(response) => FieldMatchProbeReply::Ready(response),
             Err(detail) => FieldMatchProbeReply::Refused {
-                body: json!({"error": format!("Field match probe failed: {detail}")}),
+                body: crate::error_only_body(&format!("Field match probe failed: {detail}")),
             },
         }
     }

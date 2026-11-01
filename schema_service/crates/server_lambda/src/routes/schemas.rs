@@ -66,7 +66,7 @@ pub(crate) fn get_schemas_available(
         }
         Err(e) => json_response(
             500,
-            &json!({"error": format!("Failed to get schemas: {e}")}),
+            &schema_service_core::error_only_body(&format!("Failed to get schemas: {e}")),
         ),
     }
 }
@@ -117,7 +117,7 @@ pub(crate) fn post_schemas_mutation_challenge(
         Err(e) => {
             return json_response(
                 400,
-                &json!({"error": format!("Invalid challenge request: {e}")}),
+                &schema_service_core::error_only_body(&format!("Invalid challenge request: {e}")),
             );
         }
     };
@@ -156,19 +156,28 @@ pub(crate) async fn post_schemas(
     let request: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
         Err(e) => {
-            return json_response(400, &json!({"error": format!("Invalid JSON: {e}")}));
+            return json_response(
+                400,
+                &schema_service_core::error_only_body(&format!("Invalid JSON: {e}")),
+            );
         }
     };
 
     // Keep the raw `schema` sub-object: it is the payload the
     // `schema_claim` envelope signs (app_identity v3.1, Lane B2b).
     let Some(schema_value) = request.get("schema").cloned() else {
-        return json_response(400, &json!({"error": "Missing 'schema' field"}));
+        return json_response(
+            400,
+            &schema_service_core::error_only_body("Missing 'schema' field"),
+        );
     };
     let schema: schema_types::Schema = match serde_json::from_value(schema_value.clone()) {
         Ok(schema) => schema,
         Err(e) => {
-            return json_response(400, &json!({"error": format!("Invalid schema: {e}")}));
+            return json_response(
+                400,
+                &schema_service_core::error_only_body(&format!("Invalid schema: {e}")),
+            );
         }
     };
 
@@ -310,7 +319,9 @@ pub(crate) fn post_schemas_batch_check_reuse(
         Err(e) => {
             return json_response(
                 400,
-                &json!({"error": format!("Invalid batch-check-reuse request: {e}")}),
+                &schema_service_core::error_only_body(&format!(
+                    "Invalid batch-check-reuse request: {e}"
+                )),
             );
         }
     };
@@ -337,7 +348,9 @@ pub(crate) fn post_schemas_resolve(
         Err(e) => {
             return json_response(
                 400,
-                &json!({"error": format!("Invalid schema resolve request: {e}")}),
+                &schema_service_core::error_only_body(&format!(
+                    "Invalid schema resolve request: {e}"
+                )),
             );
         }
     };

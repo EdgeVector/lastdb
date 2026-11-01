@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -83,7 +83,7 @@ impl SchemaServiceState {
             Ok(outcome) => SchemaAddReply::Ready(Box::new(outcome)),
             Err(error) => {
                 let detail = error.to_string();
-                let body = json!({"error": format!("Failed to add schema: {detail}")});
+                let body = crate::error_only_body(&format!("Failed to add schema: {detail}"));
                 SchemaAddReply::Failed { detail, body }
             }
         }

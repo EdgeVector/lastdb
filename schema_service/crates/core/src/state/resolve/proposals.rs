@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::*;
 
@@ -61,7 +61,7 @@ impl SchemaServiceState {
         match self.resolve_schema_proposals(request) {
             Ok(response) => SchemaResolveReply::Ready(response),
             Err(error) => SchemaResolveReply::Refused {
-                body: json!({"error": format!("Schema resolve failed: {error}")}),
+                body: crate::error_only_body(&format!("Schema resolve failed: {error}")),
             },
         }
     }

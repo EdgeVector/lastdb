@@ -79,6 +79,15 @@ pub fn reason_only_body(reason: &str) -> Value {
     json!({ "reason": reason })
 }
 
+/// HTTP body with one `error` field and no other fields.
+///
+/// Each caller keeps its own status code and its own message. A body with a
+/// field other than `error` stays at that caller.
+#[must_use]
+pub fn error_only_body(error: &str) -> Value {
+    json!({ "error": error })
+}
+
 /// HTTP body with `reason` and `detail` and no other fields.
 ///
 /// Each caller keeps its own status code and its own detail text.

@@ -77,7 +77,7 @@ impl SchemaServiceState {
             Ok(groups) => DedupeNamesReply::Ready(json!({ "groups": groups })),
             Err(error) => {
                 let message = format!("dedupe-descriptive-names failed: {error}");
-                let body = json!({ "error": message });
+                let body = crate::error_only_body(&message);
                 DedupeNamesReply::Failed { message, body }
             }
         }
@@ -316,7 +316,7 @@ impl SchemaServiceState {
             Ok(report) => DeprecateSchemasReply::Ready(json!(report)),
             Err(error) => {
                 let message = format!("deprecate-schemas failed: {error}");
-                let body = json!({ "error": message });
+                let body = crate::error_only_body(&message);
                 DeprecateSchemasReply::Failed { message, body }
             }
         }
