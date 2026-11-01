@@ -1,9 +1,9 @@
-//! Owner-facing DB inventory, history and logical repair.
+//! Owner-facing DB inventory, storage reports and logical repair.
 
 use crate::db_operations::{
-    AtomDeleteLedgerEntry, DbInventory, HistoryClearReport, SchemaCurrentStorageReport,
-    SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport,
-    SchemaStorageReport, LIVE_ATTRIBUTION_EPOCH_ID,
+    AtomDeleteLedgerEntry, DbInventory, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
+    SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
+    LIVE_ATTRIBUTION_EPOCH_ID,
 };
 use crate::error::FoldDbError;
 
@@ -17,7 +17,6 @@ use super::FoldDB;
 
 mod counters;
 mod error;
-mod maintenance;
 mod repair;
 mod retention_backfill;
 mod schema_keys;

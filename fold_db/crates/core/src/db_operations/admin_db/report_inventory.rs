@@ -155,11 +155,10 @@ pub struct DbInventory {
     pub main_classes: Vec<MainKeyClass>,
     pub main_total_keys: u64,
     pub main_total_bytes: u64,
-    /// Per-schema atom logical sizes (plaintext JSON of atoms).
+    /// The live records of each schema (`record_count`, `record_bytes`). The
+    /// name stays from the atom inventory, because benchmark readers use it.
     pub per_schema_atoms: Vec<SchemaStorage>,
     pub per_schema_atoms_total_bytes: u64,
-    /// Rough history row counts per schema (via field molecules).
-    pub per_schema_history: Vec<SchemaHistoryStat>,
     /// The range reads this inventory made. A read that used its key budget in a
     /// run of deleted keys went on above the last key it examined (`skips`). A
     /// read that hit another budget of one call was retried with fewer rows or a
@@ -172,35 +171,6 @@ pub struct DbInventory {
     #[serde(default)]
     pub attribution: crate::db_operations::AttributionSummary,
     pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SchemaHistoryStat {
-    pub schema_name: String,
-    pub history_events: u64,
-    pub history_bytes_approx: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HistoryClearReport {
-    pub dry_run: bool,
-    pub keep_last_per_key: usize,
-    pub schemas_touched: usize,
-    pub history_rows_deleted: u64,
-    pub history_bytes_freed_approx: u64,
-    /// Conflict history rows left in place. Multi-device conflict writes stay:
-    /// `clear-history` never selects a row marked as a conflict or a kept
-    /// (suppressed) Put, whatever `keep_last_per_key` says.
-    #[serde(default)]
-    pub conflict_rows_kept: u64,
-    pub per_schema: Vec<SchemaHistoryClearStat>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SchemaHistoryClearStat {
-    pub schema_name: String,
-    pub history_rows_deleted: u64,
-    pub history_bytes_freed_approx: u64,
 }
 
 /// Peak resident bytes one inventory page is allowed to hold.

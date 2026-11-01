@@ -98,24 +98,6 @@ pub(super) fn allocator_slack_purge_due(
     footprint_malloc_slack_bytes >= fold_db::memory_budget::ALLOCATOR_SLACK_PURGE_BYTES
 }
 
-/// The home-conflict fold runs only while the governor is `under` and a live
-/// footprint sample is at or below the soft line. A missing sample is not
-/// clear. The default snapshot is already `under`, so the footprint check is
-/// required. This does not read `now_epoch_secs`.
-#[must_use]
-pub fn conflict_fold_pressure_clear() -> bool {
-    let under = footprint_governor()
-        .lock()
-        .is_ok_and(|state| state.snapshot.governor_state == "under");
-    if !under {
-        return false;
-    }
-    match fold_db::memory_budget::current_phys_footprint_bytes() {
-        Some(bytes) => bytes <= fold_db::memory_budget::FOOTPRINT_EVICT_SOFT_BYTES,
-        None => false,
-    }
-}
-
 /// Whether this tick's footprint-visible slack is at the request-end collect
 /// line. Independent of the soft-line short-circuit in
 /// [`allocator_slack_purge_due`]: a tick over the soft line can still be

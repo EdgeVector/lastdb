@@ -1,11 +1,11 @@
 //! Per-schema logical storage breakdown.
 //!
 //! Answers "how many bytes is each schema responsible for?" by walking the
-//! local atom store and summing each atom's serialized size, grouped by the
-//! atom's `source_schema_name`.
+//! record plane of the local store and summing the stored value bytes of each
+//! live record, grouped by schema (`record_rows.rs`).
 //!
-//! This is a **logical, plaintext** size — the serialized JSON bytes of the
-//! locally-stored atoms — NOT the exact encrypted-cloud footprint. Cloud
+//! This is a **logical, plaintext** size — the stored JSON bytes of the
+//! locally-stored records — NOT the exact encrypted-cloud footprint. Cloud
 //! objects are E2E-encrypted opaque blobs the server cannot attribute to a
 //! schema (see `exemem_common::storage::is_r2_path` and the storage_service
 //! billing path), so per-schema attribution can only be computed client-side
@@ -14,18 +14,11 @@
 //! overhead, disk file framing, and the sync log/snapshot framing are not
 //! modeled. Tom confirmed approximate/high-level is fine for the storage
 //! breakdown view.
-//!
-//! A format 7 home stores records, not atoms. Its rows come from one walk of
-//! the record plane (`record_rows.rs`): the stored value bytes of each live record.
 
 mod record_rows;
 
 use crate::{
-    db_operations::{
-        atom_store::{decode_plain_atom, RangeWalk},
-        keep_small::{atom_histogram, AtomHistogram},
-        AtomStore,
-    },
+    db_operations::{keep_small::AtomHistogram, AtomStore},
     schema::SchemaError,
 };
 use serde::{Deserialize, Serialize};
@@ -34,21 +27,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaStorage {
     /// Canonical runtime schema name (identity hash, possibly
-    /// `{storage_prefix}:{hash}`) — the same name `list_atoms_by_schema` keys on.
+    /// `{storage_prefix}:{hash}`) — the name the record space derives from.
     pub schema_name: String,
     /// Catalog `descriptive_name` (or a more human catalog key) when one
     /// exists and differs from `schema_name`. Display join only — never an
     /// accounting key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// Sum of the serialized byte sizes of every atom whose
-    /// `source_schema_name` is this schema, plus `record_bytes`.
+    /// The stored value bytes of the live records of this schema
+    /// (`record_bytes`).
     pub bytes: u64,
-    /// How many atoms contributed to `bytes`. Surfaced so the UI can show
-    /// "N items" alongside the size and so a schema with many tiny atoms reads
-    /// differently from one with a few large ones.
+    /// Always zero: a format 7 home stores no atoms. The field stays for its
+    /// readers (`lastdb db schemas`, the app storage report, benchmarks).
     pub atom_count: u64,
-    /// Live records of this schema in a format 7 home. Zero in an atom home.
+    /// Live records of this schema.
     #[serde(default)]
     pub record_count: u64,
     /// Sum of the stored value bytes of those records (`StoredRecord::encode`).
@@ -59,102 +51,30 @@ pub struct SchemaStorage {
 /// The local logical storage breakdown: per-schema sizes plus the total.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct StorageBreakdown {
-    /// One entry per schema that has at least one atom, sorted by `bytes`
+    /// One entry per schema that has at least one record, sorted by `bytes`
     /// descending (largest first) so the UI can render a sorted bar/list and
     /// take a top-N without re-sorting.
     pub per_schema: Vec<SchemaStorage>,
     /// `sum(per_schema[].bytes)` — the total logical bytes across all schemas.
     pub total_logical_bytes: u64,
-    /// Atom-size histogram over the same walk (p50/p95/p99/max + fence counts).
+    /// Always empty: it measured atom sizes. The field stays for its readers.
     #[serde(default)]
     pub histogram: AtomHistogram,
 }
 
 impl AtomStore {
-    /// Compute the per-schema logical storage breakdown over `schema_names`.
-    ///
-    /// This makes a single pass over the canonical `atom:` rows — not the
-    /// schema-keyed index — so a schema's atoms are counted once rather than
-    /// once per secondary-index copy. Cost is therefore O(all atoms), not
-    /// O(result): filtering by `schema_names` narrows what is *reported*, not
-    /// what is read. The pass is paged, so it is bounded in memory but not in
-    /// time; treat this as an admin/reporting verb, not a hot path.
-    ///
-    /// Schemas with no atoms are omitted. The returned `per_schema` is sorted by
+    /// The per-schema logical storage breakdown: the live records of each
+    /// schema in `schema_names`, under `storage_prefix`. Rows are sorted by
     /// `bytes` descending.
-    ///
-    /// `storage_prefix` bounds the scanned key range, so passing `Some(prefix)`
-    /// reads only keys under that storage prefix (exact; no bare dual-read) and
-    /// `None` the personal-only view — matching the rest of the read path.
-    ///
-    /// Size metric: `serde_json::to_vec(atom).len()`, i.e. the serialized bytes
-    /// of the full `Atom` record (content + provenance) as it round-trips
-    /// through the store. This is a logical plaintext approximation, not the
-    /// encrypted on-disk or cloud size (see the module docs).
-    pub async fn storage_breakdown(
+    pub async fn record_storage_breakdown(
         &self,
         schema_names: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<StorageBreakdown, SchemaError> {
-        use super::admin_db::{inventory_next_page_rows, INVENTORY_PAGE_ROWS_MIN};
-        use crate::schema::types::field::build_storage_key;
-
-        // Single pass over canonical atom rows so logical byte totals are
-        // not double-counted by the schema secondary index copies.
-        // Every body is one record at `atom:{uuid}\0b`.
-        let mut walk = BreakdownWalk::new(schema_names);
-        let colon = build_storage_key(storage_prefix, "atom:");
-        let (scan_prefix, scan_end) = lastdb_model::kind_partition::colon_plane_bounds(&colon);
-
-        // `atom:` is every field value in the database, and each row is decoded
-        // into an `Atom` that is larger resident than the bytes it came from.
-        // Reading the whole prefix therefore cost roughly the atom keyspace
-        // twice over — on a live node, for a per-schema total. Page instead, so
-        // only one bounded page and one decoded atom are held at a time. See
-        // `INVENTORY_PAGE_BYTE_BUDGET` for the budget these pages aim at. Each
-        // read is also bounded by the read budget of one call, whatever the
-        // range holds (see `RangeWalk`).
-        let mut range = RangeWalk::new(
-            scan_prefix.as_bytes(),
-            scan_end.as_bytes(),
-            INVENTORY_PAGE_ROWS_MIN,
-        );
-        while !range.done() {
-            let rows = self
-                .walk_step(&mut range)
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("storage_breakdown scan: {e}")))?
-                .rows;
-            let mut page_bytes = 0u64;
-            for (k, v) in &rows {
-                page_bytes += (k.len() + v.len()) as u64;
-                fold_breakdown_row(&mut walk, k, v)?;
-            }
-            if !rows.is_empty() {
-                range.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
-            }
-        }
-
-        let BreakdownWalk { agg, sizes, .. } = walk;
-        let mut per_schema: Vec<SchemaStorage> = agg
-            .into_iter()
-            .map(|(schema_name, (bytes, atom_count))| SchemaStorage {
-                schema_name,
-                display_name: None,
-                bytes,
-                atom_count,
-                record_count: 0,
-                record_bytes: 0,
-            })
-            .collect();
-        let total_logical_bytes: u64 = per_schema.iter().map(|s| s.bytes).sum();
-        sort_rows(&mut per_schema);
-
-        Ok(StorageBreakdown {
-            per_schema,
-            total_logical_bytes,
-            histogram: atom_histogram(&sizes),
-        })
+        let mut breakdown = StorageBreakdown::default();
+        self.add_record_storage(&mut breakdown, schema_names, storage_prefix)
+            .await?;
+        Ok(breakdown)
     }
 }
 
@@ -165,48 +85,6 @@ fn sort_rows(rows: &mut [SchemaStorage]) {
             .cmp(&a.bytes)
             .then_with(|| a.schema_name.cmp(&b.schema_name))
     });
-}
-
-/// State of one inventory walk over the `atom:` records.
-struct BreakdownWalk<'a> {
-    wanted: std::collections::HashSet<&'a str>,
-    agg: std::collections::HashMap<String, (u64, u64)>,
-    sizes: Vec<u64>,
-}
-
-impl<'a> BreakdownWalk<'a> {
-    fn new(schema_names: &'a [String]) -> Self {
-        Self {
-            wanted: schema_names.iter().map(String::as_str).collect(),
-            agg: std::collections::HashMap::new(),
-            sizes: Vec::new(),
-        }
-    }
-}
-
-/// Fold one `atom:` body record into the per-schema sizes. A counter record
-/// is skipped.
-fn fold_breakdown_row(walk: &mut BreakdownWalk<'_>, k: &[u8], v: &[u8]) -> Result<(), SchemaError> {
-    let key = String::from_utf8_lossy(k);
-    if crate::atom::atom_key_codec::is_counter_key(&key) {
-        return Ok(());
-    }
-    let atom = decode_plain_atom(v).map_err(|e| {
-        SchemaError::InvalidData(format!(
-            "storage_breakdown scan: failed to decode {}: {e}",
-            String::from_utf8_lossy(k)
-        ))
-    })?;
-    let name = atom.source_schema_name();
-    if !walk.wanted.is_empty() && !walk.wanted.contains(name) {
-        return Ok(());
-    }
-    let b = serde_json::to_vec(&atom).map_or(0, |v| v.len() as u64);
-    walk.sizes.push(b);
-    let entry = walk.agg.entry(name.to_string()).or_default();
-    entry.0 += b;
-    entry.1 += 1;
-    Ok(())
 }
 
 impl StorageBreakdown {

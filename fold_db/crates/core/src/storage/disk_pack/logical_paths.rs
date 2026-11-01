@@ -1,11 +1,8 @@
-//! Core publication helpers: the receipt lock, typed definition protection,
-//! control coordinate expansion, and call source receipts.
+//! Core publication helpers: the receipt lock and typed definition protection.
 
 use super::*;
 
-pub(super) mod controls;
 mod protection;
-pub(crate) mod source;
 
 pub(crate) use protection::{PathProtection, PathPublication};
 

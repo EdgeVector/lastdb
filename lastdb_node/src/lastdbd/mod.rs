@@ -2,7 +2,6 @@
 
 pub(crate) mod background;
 pub(crate) mod cli;
-pub(crate) mod conflict_fold;
 pub(crate) mod footprint_proof;
 pub(crate) mod node_run;
 pub(crate) mod private_diagnostics;

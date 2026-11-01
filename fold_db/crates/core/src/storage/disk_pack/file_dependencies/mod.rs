@@ -1,18 +1,19 @@
-//! Atomic file-pointer directory and bounded, exact-root coverage proof.
+//! The file dependencies of record values and their bounded, exact-root
+//! coverage proof.
 //!
-//! The directory contains no file keys. It is encrypted by the normal account
-//! store and changes in the same native batch as the immutable atom body.
+//! A format 7 record names its files in its field values. The restore proof
+//! and the byte backup derive each dependency from the value and copy and open
+//! its CAS body. The `fdep` directory rows of a format 6 atom are gone; the
+//! key law still names their family.
 
 mod budget_json;
-mod metadata;
 mod native;
 mod select;
 
 pub use cloud_backup_protocol::FileDependencyKind;
-pub(crate) use metadata::{MetadataProof, MetadataRead};
 pub(crate) use native::scratch::Scratch as NativeCasOutput;
 pub use native::{verify_native_cas, NativeCasProof};
-pub use select::{expected, expected_record, expected_values};
+pub use select::{expected_record, expected_values};
 
 /// Reuse the bounded JSON decoder for another physical snapshot reader.
 pub(crate) fn decode_bounded_json(bytes: &[u8]) -> StorageResult<serde_json::Value> {
@@ -94,11 +95,6 @@ impl FileDependency {
     }
 }
 
-/// Bare main-namespace key. Add the exact body scope with `build_storage_key`.
-pub fn directory_key(atom_id: &str, kind: FileDependencyKind) -> String {
-    format!("fdep:v1:{atom_id}\0{}", kind_name(kind))
-}
-
 pub fn is_directory_key(key: &str) -> bool {
     key.strip_prefix("fdep:v1:")
         .and_then(|tail| tail.split_once('\0'))
@@ -120,44 +116,6 @@ pub fn validate_restored_atom_key(key: &str) -> StorageResult<()> {
         return Err(invalid("unsupported key in restored atom namespace"));
     }
     Ok(())
-}
-
-/// Decode the native storage coordinate before its atom identity or scope is used.
-pub fn atom_coordinate(encoded: &str) -> StorageResult<Option<(Option<String>, String)>> {
-    validate_restored_atom_key(encoded)?;
-    let raw = super::native_routing::decode(encoded)?;
-    let raw = std::str::from_utf8(&raw).map_err(|_| invalid("native atom key encoding"))?;
-    let Some(id) = crate::atom::atom_key_codec::body_uuid_of(raw) else {
-        return Ok(None);
-    };
-    let scope = super::super::current_keys::exact_scope(raw)?.map(str::to_owned);
-    Ok(Some((scope, id.to_owned())))
-}
-
-/// Decode already account-decrypted directory bytes and compare every selector.
-pub fn decode_directory(
-    bytes: &[u8],
-    expected: &FileDependency,
-) -> StorageResult<FileDependencyRecord> {
-    if bytes.len() as u64 > DIRECTORY_MAX_BYTES {
-        return Err(invalid("file dependency directory exceeds its bound"));
-    }
-    let record: FileDependencyRecord =
-        serde_json::from_slice(bytes).map_err(|_| invalid("file dependency directory format"))?;
-    if record != expected.record {
-        return Err(invalid(
-            "file dependency directory differs from exact atom pointer",
-        ));
-    }
-    Ok(record)
-}
-
-pub(crate) fn kind_name(kind: FileDependencyKind) -> &'static str {
-    match kind {
-        FileDependencyKind::Main => "main",
-        FileDependencyKind::Thumbnail => "thumbnail",
-        FileDependencyKind::Poster => "poster",
-    }
 }
 
 pub(super) fn invalid(detail: &str) -> StorageError {

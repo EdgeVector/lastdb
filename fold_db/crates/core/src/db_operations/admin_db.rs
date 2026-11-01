@@ -1,24 +1,19 @@
-//! Live DB admin: inventory (byte breakdown) + mutation-history clear.
+//! Live DB admin: the inventory (byte breakdown) and the storage reports.
 //!
 //! These run against the **running** store (no exclusive offline open). They are
-//! the product surface for "what's inside my DB?" and "trim long history".
+//! the product surface for "what's inside my DB?".
 
 use super::storage_breakdown::{SchemaStorage, StorageBreakdown};
 use super::AtomStore;
-use crate::atom::{molecule_key_codec, MutationEvent};
 
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod report_inventory;
 pub use report_inventory::*;
 mod report_molecule_keys;
 pub use report_molecule_keys::*;
-mod history_prune;
 mod inventory;
 mod inventory_key_classes;
-mod inventory_molecule_keys;

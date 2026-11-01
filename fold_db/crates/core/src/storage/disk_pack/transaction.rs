@@ -45,7 +45,6 @@ pub(super) struct PendingBatch {
     flush_blocked_us: std::sync::atomic::AtomicU64,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
-    source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
     preparation_limit: Mutex<Option<String>>,
     operation_limit: usize,
     // Record values for the record warm set, published after the flush.
@@ -71,7 +70,6 @@ impl PendingBatch {
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
             definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
-            source_receipts: Mutex::new(None),
             preparation_limit: Mutex::new(None),
             operation_limit: runtime.batch_operation_limit(),
             warm_records: Mutex::new(warm_records::WarmRecords::default()),
@@ -93,17 +91,6 @@ impl PendingBatch {
 
     pub(super) fn operation_limit(&self) -> usize {
         self.operation_limit
-    }
-
-    pub(super) fn source_receipts(&self) -> Arc<Mutex<super::logical_paths::source::Sources>> {
-        Arc::clone(
-            self.source_receipts
-                .lock()
-                .expect("native write source receipts")
-                .get_or_insert_with(|| {
-                    Arc::new(Mutex::new(super::logical_paths::source::Sources::default()))
-                }),
-        )
     }
 
     pub(super) fn matching(
@@ -182,13 +169,6 @@ impl PendingBatch {
 
     pub(super) fn freeze_operations(&self) -> Vec<HomeMutation> {
         self.frozen.store(true, Ordering::Release);
-        // Source proofs are bounded preparation scratch, never accepted bodies.
-        drop(
-            self.source_receipts
-                .lock()
-                .expect("native write source receipts")
-                .take(),
-        );
         self.data
             .lock()
             .expect("native pending batch")

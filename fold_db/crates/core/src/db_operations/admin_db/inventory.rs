@@ -1,6 +1,6 @@
 //! Live byte inventory and key-class accounting.
 
-use super::inventory_key_classes::{ATOM_COUNTER_CLASS_LABEL, MAIN_KEY_CLASSES};
+use super::inventory_key_classes::MAIN_KEY_CLASSES;
 use super::*;
 use crate::db_operations::atom_store::RangeWalk;
 
@@ -41,43 +41,6 @@ impl AtomStore {
         Ok((keys, bytes))
     }
 
-    /// Like [`Self::inventory_accumulate_prefix`] for the `atom:` prefix, which
-    /// holds two kinds of record: bodies and counters. Returns the totals of
-    /// the bodies first and the totals of the counters second, from one walk.
-    async fn inventory_accumulate_atoms(
-        &self,
-        prefix: &str,
-    ) -> Result<((u64, u64), (u64, u64)), SchemaError> {
-        let end = FilterUtils::create_prefix_end(prefix)?;
-        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), INVENTORY_PAGE_ROWS_MIN);
-        let (mut bodies, mut counters) = ((0u64, 0u64), (0u64, 0u64));
-        while !walk.done() {
-            let rows = self
-                .walk_step(&mut walk)
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan atom_content: {e}")))?
-                .rows;
-            let mut page_bytes = 0u64;
-            for (k, v) in &rows {
-                let row_bytes = k.len() as u64 + v.len() as u64;
-                page_bytes += row_bytes;
-                let is_counter =
-                    std::str::from_utf8(k).is_ok_and(crate::atom::atom_key_codec::is_counter_key);
-                let total = if is_counter {
-                    &mut counters
-                } else {
-                    &mut bodies
-                };
-                total.0 += 1;
-                total.1 += row_bytes;
-            }
-            if !rows.is_empty() {
-                walk.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
-            }
-        }
-        Ok((bodies, counters))
-    }
-
     /// Scan `main` by known key prefixes and sum live key+value sizes.
     pub async fn inventory_main_key_classes(
         &self,
@@ -90,50 +53,35 @@ impl AtomStore {
         let mut out = Vec::with_capacity(classes.len() + 1);
         for (class, bare_prefix, label) in classes {
             let prefix = build_storage_key(storage_prefix, bare_prefix);
-            // The `atom:` prefix holds the bodies and the counters of atoms.
-            // The counters are not atom content, so they get their own class.
-            let rows = if *class == "atom_content" {
-                let (bodies, counters) = self.inventory_accumulate_atoms(&prefix).await?;
-                vec![
-                    (*class, *label, bodies),
-                    ("atom_counter", ATOM_COUNTER_CLASS_LABEL, counters),
-                ]
-            } else {
-                let totals = self.inventory_accumulate_prefix(&prefix, class).await?;
-                vec![(*class, *label, totals)]
-            };
-            for (class, label, (keys, bytes)) in rows {
-                if keys > 0 {
-                    out.push(MainKeyClass {
-                        class: class.to_string(),
-                        prefix: label.to_string(),
-                        keys,
-                        bytes,
-                    });
-                }
+            let (keys, bytes) = self.inventory_accumulate_prefix(&prefix, class).await?;
+            if keys > 0 {
+                out.push(MainKeyClass {
+                    class: (*class).to_string(),
+                    prefix: (*label).to_string(),
+                    keys,
+                    bytes,
+                });
             }
         }
         out.sort_by_key(|b| std::cmp::Reverse(b.bytes));
         Ok(out)
     }
 
-    /// Build a full inventory: main key classes + per-schema atom sizes + history stats.
+    /// Build a full inventory: the main key classes and the live records of
+    /// each schema. `schema_names` names the record rows (see
+    /// [`AtomStore::add_record_storage`]).
     pub async fn db_inventory(
         &self,
         schema_names: &[String],
         storage_prefix: Option<&str>,
-        // field molecule uuids per schema: (schema, Vec<field_mol_uuid>)
-        schema_field_molecules: &[(String, Vec<String>)],
     ) -> Result<DbInventory, SchemaError> {
         let walks_before = self.range_walks().snapshot();
         let main_classes = self.inventory_main_key_classes(storage_prefix).await?;
         let main_total_keys = main_classes.iter().map(|c| c.keys).sum();
         let main_total_bytes = main_classes.iter().map(|c| c.bytes).sum();
 
-        let atoms: StorageBreakdown = self.storage_breakdown(schema_names, storage_prefix).await?;
-
-        let per_schema_history = self
-            .inventory_schema_history(schema_field_molecules, storage_prefix)
+        let records = self
+            .record_storage_breakdown(schema_names, storage_prefix)
             .await?;
 
         let scan = self.range_walks().snapshot().since(walks_before);
@@ -143,43 +91,12 @@ impl AtomStore {
             main_classes,
             main_total_keys,
             main_total_bytes,
-            per_schema_atoms: atoms.per_schema,
-            per_schema_atoms_total_bytes: atoms.total_logical_bytes,
-            per_schema_history,
+            per_schema_atoms: records.per_schema,
+            per_schema_atoms_total_bytes: records.total_logical_bytes,
             scan,
             attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })
-    }
-    /// Per-schema history sizes, summed over each schema's field molecules.
-    async fn inventory_schema_history(
-        &self,
-        schema_field_molecules: &[(String, Vec<String>)],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<SchemaHistoryStat>, SchemaError> {
-        let mut per_schema_history = Vec::new();
-        for (schema_name, mols) in schema_field_molecules {
-            let mut events = 0u64;
-            let mut bytes = 0u64;
-            for mol in mols {
-                let base = crate::atom::molecule_key_codec::history_molecule_prefix(mol);
-                let prefix = build_storage_key(storage_prefix, &base);
-                let (mol_events, mol_bytes) = self
-                    .inventory_accumulate_prefix(&prefix, &format!("history {schema_name}"))
-                    .await?;
-                events += mol_events;
-                bytes += mol_bytes;
-            }
-            if events > 0 {
-                per_schema_history.push(SchemaHistoryStat {
-                    schema_name: schema_name.clone(),
-                    history_events: events,
-                    history_bytes_approx: bytes,
-                });
-            }
-        }
-        per_schema_history.sort_by_key(|b| std::cmp::Reverse(b.history_bytes_approx));
-        Ok(per_schema_history)
     }
 }
 
@@ -187,7 +104,8 @@ impl AtomStore {
 fn inventory_notes() -> Vec<String> {
     let notes = vec![
         "Sizes count live keys and values; physical file sizes can differ.".into(),
-        "History contains current mutation events and conflict records.".into(),
+        "per_schema_atoms holds the live records of each schema; the name stays for its readers."
+            .into(),
     ];
 
     notes

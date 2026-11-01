@@ -6,5 +6,3 @@
 
 pub(crate) mod atom_history;
 pub(crate) mod key_format;
-pub(crate) mod molecule_record;
-pub(crate) mod plain_atom;

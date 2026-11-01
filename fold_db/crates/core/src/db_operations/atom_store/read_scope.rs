@@ -1,18 +1,11 @@
-//! Every public body read keeps one complete memory and disk boundary.
+//! One complete memory and disk boundary for a read of the atom store.
 
-use super::*;
-use futures::FutureExt;
+use super::AtomStore;
+use crate::schema::SchemaError;
 
 impl AtomStore {
-    /// Read exact physical keys, with normal content opening and source receipts.
-    pub async fn get_atoms_by_storage_keys(
-        &self,
-        keys: &[String],
-    ) -> Result<Vec<Option<Atom>>, SchemaError> {
-        self.atom_read_scope(self.get_atoms_by_storage_keys_captured(keys).boxed())
-            .await
-    }
-
+    /// Run `future` inside one pack read scope of this store, when the store
+    /// has a disk pack. Every read inside sees the same memory and disk state.
     pub(in crate::db_operations::atom_store) async fn atom_read_scope<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,

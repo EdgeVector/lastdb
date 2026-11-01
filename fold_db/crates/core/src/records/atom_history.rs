@@ -1,7 +1,5 @@
-//! Field history archive rows and their policy shapes.
+//! Field history entries of format 7 records and their policy shapes.
 
-use crate::atom::MutationEvent;
-use crate::records::molecule_record::PerKeyRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,32 +11,6 @@ pub enum FieldHistoryPolicy {
     Ttl {
         seconds: u64,
     },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct HistoryBinding {
-    pub schema: String,
-    pub field: String,
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ArchiveMetadata {
-    pub version: u8,
-    pub binding: HistoryBinding,
-    pub source: PerKeyRecord,
-    pub archived_at: u64,
-    pub expires_at: Option<u64>,
-    pub reason: String,
-    pub queue_key: Option<String>,
-}
-
-/// The event shape lets the existing reference verifier count this row.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ArchiveRecord {
-    #[serde(flatten)]
-    pub event: MutationEvent,
-    pub archive: ArchiveMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,12 +45,6 @@ pub struct AtomHistoryPage {
     pub current: Option<serde_json::Value>,
     pub entries: Vec<AtomHistoryEntry>,
     pub cursor: Option<String>,
-}
-
-/// True for the key of an archive row in the field history family.
-pub(crate) fn is_archive(key: &str) -> bool {
-    lastdb_model::kind_partition::rest_of(key, "history")
-        .is_some_and(|rest| rest.rsplit(':').nth(1) == Some("archive"))
 }
 
 /// The family of a field history entry of a format 7 home.

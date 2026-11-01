@@ -44,15 +44,6 @@ pub(crate) fn read_snapshot_get<T: Any + Send + Sync>(
         .transpose()
 }
 
-pub(crate) fn read_snapshot_insert<T: Any + Send + Sync>(
-    runtime: Option<Arc<PackRuntime>>,
-    cache: usize,
-    name: String,
-    value: T,
-) -> StorageResult<Arc<T>> {
-    read_snapshot_insert_arc(runtime, cache, name, Arc::new(value))
-}
-
 pub(super) fn read_snapshot_insert_arc<T: Any + Send + Sync>(
     runtime: Option<Arc<PackRuntime>>,
     cache: usize,
