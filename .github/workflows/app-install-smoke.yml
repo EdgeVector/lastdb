@@ -37,7 +37,7 @@ env:
 jobs:
   app-install-smoke:
     name: install-${{ matrix.app }}
-    runs-on: macos-14  # Apple Silicon like production
+    runs-on: macos-15  # Apple Silicon. macos-14 retires 2026-11-02.
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -666,7 +666,7 @@ jobs:
           ==============================
           Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           App: ${{ matrix.app }}
-          Runner: macos-14 (Apple Silicon)
+          Runner: macos-15 (Apple Silicon)
           CI Run: ${{ github.run_number }}
           
           LastDB Build:
