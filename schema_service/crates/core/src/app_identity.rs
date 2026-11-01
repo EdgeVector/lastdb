@@ -70,6 +70,15 @@ pub fn missing_dev_cert_body() -> Value {
     })
 }
 
+/// HTTP 400 body when an app id is refused.
+///
+/// The body is `{ "reason": "invalid_app_id" }`. The Lambda path checks and
+/// the register, update, and promote errors share it.
+#[must_use]
+pub fn invalid_app_id_body() -> Value {
+    json!({ "reason": "invalid_app_id" })
+}
+
 // ─── Validation bounds (design § "Metadata bounds: strict") ───────────────
 
 mod validation;

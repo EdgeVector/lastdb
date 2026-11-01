@@ -6,7 +6,9 @@ use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::app_release::{
     ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
 };
-use schema_service_core::{PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply};
+use schema_service_core::{
+    invalid_app_id_body, PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply,
+};
 use schema_service_server_shared::state::SchemaServiceState;
 use serde_json::json;
 
@@ -45,7 +47,7 @@ pub(crate) async fn post_app_v1(
 // `POST /v1/apps/mirror` receiver was decommissioned in #517.
 pub(crate) fn get_app_v1(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
     let Some(app_id) = known_app_id(p, "/v1/apps/") else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     public_app_response(state, app_id)
 }
@@ -62,7 +64,7 @@ pub(crate) async fn put_app_v1(
 ) -> Result<Response<Body>, Error> {
     let app_id = p.trim_start_matches("/v1/apps/").trim_end_matches('/');
     if app_id.is_empty() || app_id.contains('/') {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     }
     let body_value = match app_metadata_body(event) {
         Ok(v) => v,
@@ -93,7 +95,7 @@ pub(crate) async fn promote_app_v1(
         .trim_start_matches("/v1/apps/")
         .trim_end_matches("/promote");
     if app_id.is_empty() || app_id.contains('/') {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     }
     let (cert, sig) = match v2_cert_headers(event) {
         Ok(pair) => pair,
@@ -126,7 +128,7 @@ pub(crate) async fn post_apps_releases(
         .trim_start_matches("/v2/apps/")
         .trim_end_matches("/releases");
     let Some(app_id) = v2_app_id(app_id) else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     let body_value = match v2_body(event) {
         Ok(v) => v,
@@ -164,7 +166,7 @@ pub(crate) async fn post_apps_revocations(
         .trim_start_matches("/v2/apps/")
         .trim_end_matches("/revocations");
     let Some(app_id) = v2_app_id(app_id) else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     let body_value = match v2_body(event) {
         Ok(v) => v,
@@ -198,7 +200,7 @@ pub(crate) async fn put_apps_channels(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let Some((app_id, channel)) = v2_channel_path(p) else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     let body_value = match v2_body(event) {
         Ok(v) => v,
@@ -224,7 +226,7 @@ pub(crate) async fn get_apps_channels(
     p: &str,
 ) -> Result<Response<Body>, Error> {
     let Some((app_id, channel)) = v2_channel_path(p) else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     match state.channel_read_reply(app_id, channel).await {
         ChannelReadReply::Ready(body) => json_response(200, &body),
@@ -252,7 +254,7 @@ pub(crate) async fn get_releases(
 // Anonymous read: the app record. Same body as `GET /v1/apps/{id}`.
 pub(crate) fn get_app_v2(state: &SchemaServiceState, p: &str) -> Result<Response<Body>, Error> {
     let Some(app_id) = known_app_id(p, "/v2/apps/") else {
-        return json_response(400, &json!({"reason": "invalid_app_id"}));
+        return json_response(400, &invalid_app_id_body());
     };
     public_app_response(state, app_id)
 }

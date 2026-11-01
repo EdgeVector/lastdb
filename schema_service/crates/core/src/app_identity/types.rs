@@ -147,7 +147,7 @@ impl AppRegisterError {
 
     pub fn to_http(&self) -> (u16, Value) {
         match self {
-            Self::InvalidAppId => (400, json!({ "reason": "invalid_app_id" })),
+            Self::InvalidAppId => (400, invalid_app_id_body()),
             Self::InvalidAppIdCharset(detail) => (
                 400,
                 json!({ "reason": "invalid_app_id_charset", "detail": detail }),
