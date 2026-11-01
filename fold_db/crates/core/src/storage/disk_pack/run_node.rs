@@ -33,8 +33,8 @@ use std::io::Write;
 
 mod creation;
 
-pub(super) const RUN_DIR: &str = "disk-run";
-pub(super) const CAS_DIR: &str = "disk-cas";
+pub(in crate::storage) const RUN_DIR: &str = "disk-run";
+pub(in crate::storage) const CAS_DIR: &str = "disk-cas";
 const INTENT: &str = "laststore-run-initializing";
 const STAGED_MARKER: &str = ".laststore-pack-node-v1.tmp";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
@@ -116,12 +116,12 @@ fn clear_stopped_creation(path: &Path) -> StorageResult<()> {
 
 /// The main run home key: HKDF-SHA256 of the node encryption key. The copy
 /// is cleared when it drops.
-pub(super) fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
+pub(in crate::storage) fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     derive_key(node_key, HOME_KEY_LABEL)
 }
 
 /// The CAS run home key, with its own label.
-pub(super) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
+pub(in crate::storage) fn cas_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     derive_key(node_key, CAS_KEY_LABEL)
 }
 
@@ -220,11 +220,10 @@ impl PackNamespacedStore {
             super::cas_delete::require_clear(&v2)?;
         }
         let policy = space::policy_from_env()?;
-        let logical_capture = logical_capture::open(&v2, &policy, resume_merges)?;
         let root = v2.current_root();
         let initializing = path.join(INTENT).try_exists()?;
         let records = version == super::run_admission::RECORD_PROFILE;
-        let store = Self::assemble(v2, root, initializing, records, policy, logical_capture);
+        let store = Self::assemble(v2, root, initializing, records, policy);
         if resume_merges {
             store.runtime.resume_merges();
         }

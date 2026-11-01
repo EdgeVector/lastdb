@@ -185,9 +185,6 @@ impl PackRuntime {
             batch_bytes: _,
             space,
         } = prepared;
-        if requests.is_empty() {
-            transaction::require_captured_changes(self, None, &operations)?;
-        }
         self.commit_run(&self.physical, operations, space, hidden_changes, requests)
     }
 
@@ -204,7 +201,7 @@ impl PackRuntime {
         Ok(target)
     }
 
-    pub(super) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
+    pub(in crate::storage) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
         loop {
             let gate = self.enter_prepare().await;
             let target = self.seal_queue();
@@ -221,7 +218,7 @@ impl PackRuntime {
     }
 }
 
-pub(super) struct WriteGuard {
+pub(in crate::storage) struct WriteGuard {
     _preparation: tokio::sync::OwnedMutexGuard<()>,
     _publication: tokio::sync::OwnedMutexGuard<()>,
 }

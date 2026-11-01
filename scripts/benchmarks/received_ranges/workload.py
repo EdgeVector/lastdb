@@ -71,12 +71,12 @@ class Workload:
         self.node.stop()
         self.node.settings["LASTDB_SCHEMA_PRELOAD_SCHEMAS"] = SCHEMA
         self.node.start()
-        before = self.node.status("preload-before")["native"]["native_disk"]["schema_keys"]
+        before = self.node.status("preload-before")["native"]["native_disk"].get("schema_keys") or {}
         broad = self.broad("preload-reopened")
-        after = self.node.status("preload-after")["native"]["native_disk"]["schema_keys"]
-        ready = (after["enabled"] and after["ready"] > 0 and after["disk_only"] == 0
+        after = self.node.status("preload-after")["native"]["native_disk"].get("schema_keys") or {}
+        ready = bool(after) and (after["enabled"] and after["ready"] > 0 and after["disk_only"] == 0
                  and after["keys"] >= len(self.seed.expected())
-                 and after["memory_selections"] > before["memory_selections"])
+                 and after["memory_selections"] > before.get("memory_selections", 0))
         return {"actual_ready_selection_verified": ready, "before": before, "after": after,
                 "broad": broad, "scope": "Ready preload selected actual keys" if ready else
                 "Policy requested but ready received selection remains unproved"}

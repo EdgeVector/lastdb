@@ -55,9 +55,6 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
-        let logical_admission = self
-            .admit_logical_capture(&mutations, storage_prefix)
-            .await?;
         // This marker is the conservative bridge between the product write and
         // the attribution event. If a crash lands between them, a later walk
         // sees the marker and blocks reclaim for this exact source scope.
@@ -117,13 +114,10 @@ impl MutationManager {
         }
         let mut receipt = crate::fold_db_core::admission::with_mutation_admission(
             self.capture_router(),
-            super::super::logical_capture::with_admission(
-                logical_admission,
-                self.write_mutations_batch_inner_with_clock(
-                    mutations,
-                    storage_prefix,
-                    author_clock_barrier,
-                ),
+            self.write_mutations_batch_inner_with_clock(
+                mutations,
+                storage_prefix,
+                author_clock_barrier,
             ),
         )
         .await?;

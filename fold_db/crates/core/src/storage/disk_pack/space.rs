@@ -4,7 +4,7 @@ use super::*;
 use laststore::space::SpacePolicy;
 
 /// An unset cap keeps compatibility; an explicit cap must be a positive byte count.
-pub(super) fn policy_from_env() -> StorageResult<SpacePolicy> {
+pub(in crate::storage) fn policy_from_env() -> StorageResult<SpacePolicy> {
     let mut policy = SpacePolicy::default();
     match std::env::var("LASTDB_DISK_CAP_BYTES") {
         Ok(raw) => {

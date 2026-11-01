@@ -147,11 +147,10 @@ impl PackRuntime {
         main: &mut RunRead,
         profile: &RunBackupProfile,
     ) -> StorageResult<SnapshotInclusion> {
-        let capture = self
-            .logical_capture
-            .as_ref()
-            .map(|capture| &capture.identity);
-        signed_inclusion(capture, main, profile)
+        // A backup of an old home still signs with the device file on disk.
+        // The live capture stream no longer stays on the runtime.
+        let loaded = identity::Identity::load(&self.physical)?;
+        signed_inclusion(loaded.as_ref(), main, profile)
     }
 }
 

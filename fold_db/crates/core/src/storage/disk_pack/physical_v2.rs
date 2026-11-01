@@ -7,29 +7,29 @@ use super::*;
 use laststore::disk_run::home::{RunHome, RunRead, RunRoot};
 
 /// Logical format features that every v2 home has from its creation.
-pub(super) const V2_FEATURES: u64 = laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS
+pub(in crate::storage) const V2_FEATURES: u64 = laststore::disk_run::FEATURE_SCHEMA_RECORD_REFS
     | laststore::disk_run::FEATURE_LARGE_BATCHES
     | laststore::disk_run::FEATURE_ATOM_RECORDS;
 /// The collection that holds the CAS files. In format v2 it has its own run home.
-pub(super) const CAS_COLLECTION: &str = "cas_blobs";
+pub(in crate::storage) const CAS_COLLECTION: &str = "cas_blobs";
 
 /// The v2 run homes (main and CAS) and their background merge thread.
-pub(super) struct V2Home {
-    pub(super) home: Arc<RunHome>,
+pub(in crate::storage) struct V2Home {
+    pub(in crate::storage) home: Arc<RunHome>,
     /// The CAS files only.
-    pub(super) cas: Arc<RunHome>,
+    pub(in crate::storage) cas: Arc<RunHome>,
     /// Set while a merge thread runs; at most one runs at a time.
-    pub(super) merging: Arc<AtomicBool>,
+    pub(in crate::storage) merging: Arc<AtomicBool>,
     /// Set when the node store closes; the thread stops after its step.
-    pub(super) stop: Arc<AtomicBool>,
-    pub(super) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
+    pub(in crate::storage) stop: Arc<AtomicBool>,
+    pub(in crate::storage) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// After a failed merge, no new merge thread starts before this time.
-    pub(super) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
-    pub(super) cas_delete_recovery: Option<super::cas_delete::CasDeleteRecovery>,
+    pub(in crate::storage) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
+    pub(in crate::storage) cas_delete_recovery: Option<super::cas_delete::CasDeleteRecovery>,
 }
 
 impl V2Home {
-    pub(super) fn new(home: Arc<RunHome>, cas: Arc<RunHome>) -> Self {
+    pub(in crate::storage) fn new(home: Arc<RunHome>, cas: Arc<RunHome>) -> Self {
         Self {
             home,
             cas,
@@ -44,7 +44,7 @@ impl V2Home {
 
 impl V2Home {
     /// The roots that reads use now.
-    pub(super) fn current_root(&self) -> V2Root {
+    pub(in crate::storage) fn current_root(&self) -> V2Root {
         V2Root {
             main: self.home.current_root(),
             cas: self.cas.current_root(),
@@ -56,29 +56,29 @@ impl V2Home {
 /// the sums of the two homes: each commit or merge raises at least one, and
 /// neither home goes back.
 #[derive(Clone)]
-pub(super) struct V2Root {
-    pub(super) main: RunRoot,
-    pub(super) cas: RunRoot,
+pub(in crate::storage) struct V2Root {
+    pub(in crate::storage) main: RunRoot,
+    pub(in crate::storage) cas: RunRoot,
 }
 
 impl V2Root {
-    pub(super) fn generation(&self) -> u64 {
+    pub(in crate::storage) fn generation(&self) -> u64 {
         self.main.generation() + self.cas.generation()
     }
 
-    pub(super) fn frontier(&self) -> u64 {
+    pub(in crate::storage) fn frontier(&self) -> u64 {
         self.main.frontier() + self.cas.frontier()
     }
 }
 
 /// One v2 read call: the main home and the CAS home at one held root.
-pub(super) struct V2Read {
-    pub(super) main: RunRead,
-    pub(super) cas: RunRead,
+pub(in crate::storage) struct V2Read {
+    pub(in crate::storage) main: RunRead,
+    pub(in crate::storage) cas: RunRead,
 }
 
 impl V2Read {
-    pub(super) fn home(&mut self, collection: &str) -> &mut RunRead {
+    pub(in crate::storage) fn home(&mut self, collection: &str) -> &mut RunRead {
         if collection == CAS_COLLECTION {
             &mut self.cas
         } else {
@@ -87,7 +87,7 @@ impl V2Read {
     }
 
     /// Batch read across both homes; results keep the input order.
-    pub(super) fn get_many(
+    pub(in crate::storage) fn get_many(
         &mut self,
         coordinates: &[(String, String)],
     ) -> laststore::Result<Vec<laststore::Result<Option<Vec<u8>>>>> {

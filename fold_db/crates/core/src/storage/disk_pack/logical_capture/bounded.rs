@@ -55,8 +55,3 @@ pub(super) fn serialized_size_with_limit<T: Serialize + ?Sized>(
     }
     Ok(count.bytes)
 }
-
-/// A collector must admit each outcome before it retains another owned copy.
-pub(crate) fn preflight_outcome_size<T: Serialize + ?Sized>(outcome: &T) -> StorageResult<usize> {
-    serialized_size(outcome)
-}

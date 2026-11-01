@@ -31,7 +31,7 @@ impl PackRuntime {
         let mut core = self.core.lock().map_err(|_| unavailable())?;
         let measured = measure_core(&mut core);
         drop(core);
-        Ok(measured.finish(self.schema_keys.status().bytes))
+        Ok(measured.finish(0))
     }
 
     /// Keep held paths, unflushed paths, definitions, and complete key domains.
@@ -49,7 +49,7 @@ impl PackRuntime {
             bytes_after: after as u64,
             target_bytes,
             target_met: after as u64 <= target_bytes,
-            remaining: measured.finish(self.schema_keys.status().bytes),
+            remaining: measured.finish(0),
         })
     }
 }

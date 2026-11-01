@@ -1,5 +1,5 @@
-//! Opt-in authored record outcomes share the data's encrypted native commit.
-//! This stream has no recovery authority, reader dependency, pruning, or cloud worker.
+//! Snapshot inclusion and adoption types. They decode an old backup.
+//! The live capture stream is not part of the disk home.
 
 use super::*;
 use serde::de::DeserializeOwned;
@@ -7,15 +7,11 @@ use serde::Serialize;
 
 mod adoption;
 mod bounded;
-mod export;
 mod identity;
 mod model;
 mod peer;
-mod reader;
-mod record_outcome;
 mod snapshot;
 pub(crate) mod snapshot_identity;
-mod store;
 mod verify;
 
 pub(crate) use adoption::plan as snapshot_adoption_plan;
@@ -24,26 +20,19 @@ pub use adoption::{
     SnapshotAdoptionPosition, SnapshotAdoptionPrefix, SnapshotAdoptionReplay,
     SnapshotAdoptionReplaySource, SnapshotAdoptionRequirement,
 };
-pub(crate) use bounded::preflight_outcome_size;
-pub use model::{CaptureEvent, CaptureStatus, EventMetadata, Position, RetiredFieldOutcome};
-pub use peer::{CaptureExportPage, ImportReceipt, PeerPosition, SkippedPeerRecord};
-pub use record_outcome::{AcceptedRecordOutcome, RecordFieldOutcome};
+pub(super) use model::{EventMetadata, Position};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};
 pub use snapshot_identity::{
     SnapshotIdentityPeer, SnapshotIdentityPosition, SnapshotIdentityReport,
 };
-pub(super) use store::{open, Capture};
 
 pub(super) const COLLECTION: &str = "logical_sync_v1";
 const HEAD: &[u8] = b"head";
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
 const MAX_MUTATIONS: usize = 128;
 const MAX_OUTCOMES: usize = 1024;
-const PAGE_EVENTS: usize = 4;
-const PAGE_ENVELOPE_BYTES: usize = 8192;
 const BACKLOG_CAP_BYTES: u64 = 64 * 1024 * 1024;
-const RECENT_ENTRIES: u64 = 16;
 
 fn key(prefix: &str, sequence: u64) -> String {
     native_routing::encode(format!("{prefix}\0{sequence:020}").as_bytes())

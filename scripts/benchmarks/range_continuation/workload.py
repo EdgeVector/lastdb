@@ -144,13 +144,13 @@ class Workload:
             self.node.stop()
             self.node.settings["LASTDB_SCHEMA_PRELOAD_SCHEMAS"] = SCHEMA
             self.node.start()
-            before = self.node.status("preload-before")["native"]["native_disk"]["schema_keys"]
+            before = self.node.status("preload-before")["native"]["native_disk"].get("schema_keys") or {}
             value = walk(self.node, self.expected, query(HASH, key(0), key(COUNT)),
                          "candidate-preload-reopened-range")
-            after = self.node.status("preload-after")["native"]["native_disk"]["schema_keys"]
-            ready = (after["enabled"] and after["ready"] > 0 and after["disk_only"] == 0
+            after = self.node.status("preload-after")["native"]["native_disk"].get("schema_keys") or {}
+            ready = bool(after) and (after["enabled"] and after["ready"] > 0 and after["disk_only"] == 0
                      and after["keys"] >= len(self.expected)
-                     and after["memory_selections"] > before["memory_selections"])
+                     and after["memory_selections"] > before.get("memory_selections", 0))
             preload = {"actual_ready_selection_verified": ready, "before": before, "after": after,
                        "walk": value, "scope": "Ready preload selected actual keys" if ready else
                        "Policy requested but ready selection unproved; no preload coverage claim"}

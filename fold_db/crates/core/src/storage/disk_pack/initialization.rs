@@ -11,7 +11,7 @@ impl PackRuntime {
         self.initializing.load(Ordering::Acquire)
     }
 
-    pub(super) fn require_initialized(&self) -> StorageResult<()> {
+    pub(in crate::storage) fn require_initialized(&self) -> StorageResult<()> {
         if self.fresh_initialization_pending() {
             return Err(refusal(
                 "current creation requires its durable key proofs first",
