@@ -14,7 +14,9 @@ permissions:
   security-events: write
 
 concurrency:
-  group: codeql-${{ github.ref }}
+  # PR updates replace stale scans. Main, scheduled, and manual scans keep
+  # separate slots so each full scan can start without a previous run's queue.
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
