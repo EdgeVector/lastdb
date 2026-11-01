@@ -1,4 +1,4 @@
-"""Measure retained v2 disk space against the node's logical atom or record report."""
+"""Measure retained v2 disk space against the node's logical record report."""
 
 import math
 import statistics
@@ -35,19 +35,10 @@ def logical_storage(node):
 
 
 def validate_logical(report, home_format):
+    """A format 7 home stores one record per key. Its logical bytes are the stored record values."""
+    if home_format != 7:
+        raise ValueError(f"The disk budget requires a format 7 home, not format {home_format}")
     rows = report["per_schema"]
-    if home_format == 7:
-        validate_records(report, rows)
-        return
-    if (not rows or report["total_logical_bytes"] != sum(row["bytes"] for row in rows)
-            or report["total_atoms"] != sum(row["atom_count"] for row in rows)
-            or any(type(row[key]) is not int or row[key] <= 0
-                   for row in rows for key in ("bytes", "atom_count"))):
-        raise ValueError("The logical atom report is incomplete")
-
-
-def validate_records(report, rows):
-    """A format 7 home stores records and no atoms. Its logical bytes are the stored record values."""
     if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]
             or report["total_logical_bytes"] != sum(row["bytes"] for row in rows)
@@ -56,11 +47,6 @@ def validate_records(report, rows):
             or any(type(row[key]) is not int or row[key] <= 0
                    for row in rows for key in ("bytes", "record_bytes", "record_count"))):
         raise ValueError("The logical record report is incomplete")
-
-
-def counted_units(home_format):
-    """The report total that counts what a delete removes: records in format 7, atoms before it."""
-    return "total_records" if home_format == 7 else "total_atoms"
 
 
 def metrics(points):
@@ -192,8 +178,8 @@ def validate(case, result, recipe):
                     or point["deleted_records"] != removed):
                 raise ValueError("The delete checkpoint has an invalid deletion count")
             if number and any(point["logical_storage"][name] >= points[number - 1]["logical_storage"][name]
-                              for name in ("total_logical_bytes", counted_units(point["home_format"]))):
-                raise ValueError("Deleted records did not reduce the logical data and the atom or record count")
+                              for name in ("total_logical_bytes", "total_records")):
+                raise ValueError("Deleted records did not reduce the logical data and the record count")
         validate_breakdown(point["disk_breakdown"])
         if point["disk_breakdown"]["search_queue_files"] != 0:
             raise ValueError(f"{case}: the disk budget requires an empty Search queue")
@@ -250,8 +236,8 @@ def render(comparison):
                                        ("other_home_bytes", 2**20), ("whole_home_disk_bytes", 2**20))]
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines.extend(["", "The ceiling is 1.5× logical bytes. Equality is within the budget.",
-                  "Logical bytes use GET /api/db/schemas, the same measure as lastdb db schemas: plaintext atoms "
-                  "in a format 4 to 6 home, stored record values in a format 7 home.",
+                  "Logical bytes use GET /api/db/schemas, the same measure as lastdb db schemas: "
+                  "the stored record values of the format 7 home.",
                   "Database disk is the greater of file lengths and allocated blocks under data/ and blobs/.",
                   "The Search queue includes apps/search/inbox/; other home files and the whole home remain explicit.",
                   "Each category retains both file lengths and allocated blocks; its raw totals add exactly to the whole home.",

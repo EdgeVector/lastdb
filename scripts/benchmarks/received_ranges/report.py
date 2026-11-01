@@ -71,7 +71,7 @@ def main():
         if not accepted:
             lines.append("The measurement manifest or job is incomplete. Combined latency conclusions remain unavailable.")
         lines.extend(["Exact builds: " + "; ".join(role + " `" + row["revision"] + "`" for role, row in manifest["binaries"].items()),
-            "", "Each exact source supplies its own storage-format-compatible seed helper. Generated mutation inputs and final values must match. Seed time is excluded."])
+            "", "Each exact source supplies its own seed helper. Generated mutation inputs and final values must match. Seed time is excluded."])
         helpers = manifest.get("seed_helpers", {"candidate": manifest.get("seed_helper", {})})
         lines.extend(role + " seed helper SHA256: `" + helper.get("sha256", "unavailable") + "`."
                      for role, helper in helpers.items())
@@ -79,7 +79,7 @@ def main():
         for entry in manifest["runs"]:
             formats.setdefault(entry["role"], set()).add(str(entry.get("home_format") or "unreported"))
         lines.append("Home format: " + "; ".join(role + " " + ", ".join(sorted(values))
-                     for role, values in sorted(formats.items())) + " (7 stores records; 4 to 6 store atoms).")
+                     for role, values in sorted(formats.items())) + ".")
         for mode in ("typed",):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:
@@ -113,8 +113,7 @@ def main():
                 "Reopen, source-specific Delete/Purge, current local values, API boundaries, and exclusive cursors return the complete expected values.",
                 "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, source values, and continuation.",
                 "An independent schema supplies 640 prefix keys and 576 tail keys. The target schema keeps its own values and membership.",
-                *(["The format 7 candidate seed helper shares that schema and checks that each personal write copies its records into the share scope."]
-                  if all(value.get("home_format") == 7 for value in candidate) else []),
+                "The seed helper shares that schema and checks that each personal write copies its records into the share scope.",
                 "Actual preload selection verified per run: " + str([value["preload"]["actual_ready_selection_verified"] for value in candidate]) + "."])
         lines.extend(["", "Latency cells are medians of two per-run statistics; independent requests are not pooled.",
             "Raw requests, complete responses, storage read receipts, errors, and individual samples accompany this artifact.",

@@ -33,54 +33,6 @@ impl Bucket {
     }
 }
 
-/// How the bytes outside the per-schema atom meters (tips, order log,
-/// headers, secondary-index rows, atom-total drift) split between owners and
-/// the structural remainder.
-struct PlaneAttribution {
-    plane_bytes: u64,
-    claimed_plane_bytes: u64,
-    attribute_plane: bool,
-}
-
-impl PlaneAttribution {
-    fn of(snapshot: &KeepSmallSnapshot, live_total_bytes: u64) -> Self {
-        let atom_schema_bytes = snapshot
-            .schemas
-            .values()
-            .fold(0u64, |acc, meter| acc.saturating_add(meter.live_bytes));
-        // Everything the per-schema atom meters do not cover: tips, order log,
-        // headers, secondary-index rows, and any atom-total drift.
-        let plane_bytes = live_total_bytes.saturating_sub(atom_schema_bytes);
-        // The part of that remainder the write path could trace to an owning
-        // schema's molecules.
-        let claimed_plane_bytes = snapshot
-            .schemas
-            .values()
-            .fold(0u64, |acc, meter| acc.saturating_add(meter.plane_bytes()));
-        // A claim larger than the remainder means the per-schema counters and the
-        // global totals disagree — a home that hydrated per-schema plane bytes and
-        // then lost global ones, for instance. Attribute nothing rather than hand
-        // an app bytes the node cannot show it holds; the report stays exact and
-        // reads as less complete, which is the honest direction to fail.
-        Self {
-            plane_bytes,
-            claimed_plane_bytes,
-            attribute_plane: claimed_plane_bytes <= plane_bytes,
-        }
-    }
-
-    /// Tips and bookkeeping the write path could not trace to a schema stay
-    /// structural. Report the remainder instead of letting the row sum quietly
-    /// fall short of the live total.
-    fn unattributable_bytes(&self) -> u64 {
-        if self.attribute_plane {
-            self.plane_bytes.saturating_sub(self.claimed_plane_bytes)
-        } else {
-            self.plane_bytes
-        }
-    }
-}
-
 /// Metered schemas grouped by the owner the resolver reports.
 #[derive(Default)]
 struct OwnerBuckets {
@@ -92,15 +44,10 @@ struct OwnerBuckets {
 fn bucket_schemas(
     snapshot: &KeepSmallSnapshot,
     resolve_owner: &dyn Fn(&str) -> OwnerResolution,
-    attribute_plane: bool,
 ) -> OwnerBuckets {
     let mut buckets = OwnerBuckets::default();
     for (schema_name, meter) in &snapshot.schemas {
-        let bytes = if attribute_plane {
-            meter.live_bytes.saturating_add(meter.plane_bytes())
-        } else {
-            meter.live_bytes
-        };
+        let bytes = meter.live_bytes;
         match resolve_owner(schema_name) {
             OwnerResolution::App(owner) => {
                 buckets
@@ -122,7 +69,7 @@ fn bucket_schemas(
 
 /// App rows by `live_bytes` descending, then the reserved rows. Returns the
 /// rows and the bytes on app rows.
-fn rank_owner_rows(buckets: OwnerBuckets, unattributed_bytes: u64) -> (Vec<OwnerRow>, u64) {
+fn rank_owner_rows(buckets: OwnerBuckets) -> (Vec<OwnerRow>, u64) {
     let OwnerBuckets {
         apps,
         system,
@@ -142,12 +89,8 @@ fn rank_owner_rows(buckets: OwnerBuckets, unattributed_bytes: u64) -> (Vec<Owner
     if system.live_bytes > 0 || !system.schemas.is_empty() {
         owners.push(system.into_row(SYSTEM_OWNER.to_string(), OwnerKind::System));
     }
-    if unattributed_bytes > 0 || !unresolved.schemas.is_empty() {
-        let mut row = unresolved.into_row(UNATTRIBUTED_OWNER.to_string(), OwnerKind::Unattributed);
-        // Plane bytes have no schema and no atom of their own; they only move
-        // the row's byte total.
-        row.live_bytes = unattributed_bytes;
-        owners.push(row);
+    if unresolved.live_bytes > 0 || !unresolved.schemas.is_empty() {
+        owners.push(unresolved.into_row(UNATTRIBUTED_OWNER.to_string(), OwnerKind::Unattributed));
     }
     (owners, attributed_bytes)
 }
@@ -161,16 +104,17 @@ pub fn build_report_full(
     checkpoint: &ReconciliationCheckpoint,
     meters_origin: MetersOrigin,
 ) -> AppStorageReport {
-    let live_total_bytes = snapshot.totals.live_total_bytes();
-    let plane = PlaneAttribution::of(snapshot, live_total_bytes);
-    let buckets = bucket_schemas(snapshot, resolve_owner, plane.attribute_plane);
+    let live_total_bytes = snapshot
+        .schemas
+        .values()
+        .fold(0u64, |acc, meter| acc.saturating_add(meter.live_bytes));
+    let buckets = bucket_schemas(snapshot, resolve_owner);
 
-    let unattributable_plane_bytes = plane.unattributable_bytes();
     let unresolved_schema_bytes = buckets.unresolved.live_bytes;
     let unresolved_schema_count = buckets.unresolved.schemas.len() as u64;
-    let unattributed_bytes = unresolved_schema_bytes.saturating_add(unattributable_plane_bytes);
+    let unattributed_bytes = unresolved_schema_bytes;
     let system_bytes = buckets.system.live_bytes;
-    let (owners, attributed_bytes) = rank_owner_rows(buckets, unattributed_bytes);
+    let (owners, attributed_bytes) = rank_owner_rows(buckets);
 
     AppStorageReport {
         measured_at: Utc::now(),
@@ -183,7 +127,6 @@ pub fn build_report_full(
         attributed_bytes,
         system_bytes,
         unattributed_bytes,
-        unattributable_plane_bytes,
         unresolved_schema_bytes,
         reconciliation_lag: ReconciliationLag {
             unresolved_schema_count,

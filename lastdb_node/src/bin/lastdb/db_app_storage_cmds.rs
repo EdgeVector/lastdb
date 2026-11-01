@@ -71,10 +71,8 @@ pub(crate) fn print_app_storage_human(report: &serde_json::Value) {
     );
     println!("  system:        {}", format_bytes(u64_at("system_bytes")));
     println!(
-        "  unattributed:  {}  (planes {}, unresolved schemas {})",
-        format_bytes(u64_at("unattributed_bytes")),
-        format_bytes(u64_at("unattributable_plane_bytes")),
-        format_bytes(u64_at("unresolved_schema_bytes"))
+        "  unattributed:  {}  (unresolved schemas)",
+        format_bytes(u64_at("unattributed_bytes"))
     );
     if let Some(lag) = report.get("reconciliation_lag") {
         let lag_u64 = |key: &str| {

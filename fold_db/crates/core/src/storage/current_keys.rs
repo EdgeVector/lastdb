@@ -77,15 +77,12 @@ const RETIRED_FAMILIES: &[&str] = &[
     "peer-apply",
 ];
 
-/// Raw replay must never write one part of the counter lifecycle by itself.
-pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> {
-    if namespace != "main" {
-        return Ok(counter_namespace_alias(namespace)
-            || namespace == "cas_blobs"
-            || namespace == "db_catalog"
-            || namespace == "alternate_changes"
-            || families::is_replay_authority_key(namespace, key));
-    }
+/// True for a `main` key of the record lifecycle: a record, an alternate key
+/// entry, a history or conflict row, a blob counter or queue row, and the
+/// pending restore marker. Raw replay must never write one part of that
+/// lifecycle by itself, so restore validation reads each one back from the
+/// logical store.
+pub(crate) fn counter_owned(key: &[u8]) -> StorageResult<bool> {
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let bare = source_key(key)?;
     if bare == super::disk_pack::restore_safety::PENDING_KEY {
@@ -107,15 +104,6 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
             | "crb"
             | "cas_blob"
     ))
-}
-
-/// Logical backups retain complete schema/catalog authority. Only physical
-/// aliases of the main lifecycle records are unsupported snapshot namespaces.
-pub(crate) fn counter_namespace_alias(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "atoms" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges"
-    )
 }
 
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {

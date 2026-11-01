@@ -116,59 +116,33 @@ impl Default for MeterTrustPayload {
     }
 }
 
-/// Incremental live totals for the daily speedometer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct LiveBudgetTotals {
-    pub atom_bytes: u64,
-    pub tip_bytes: u64,
-    pub bookkeeping_bytes: u64,
-    pub atom_count: u64,
-    pub tip_count: u64,
-}
-
-impl LiveBudgetTotals {
-    #[must_use]
-    pub fn live_total_bytes(&self) -> u64 {
-        self.atom_bytes
-            .saturating_add(self.tip_bytes)
-            .saturating_add(self.bookkeeping_bytes)
-    }
-}
-
 /// Per-schema incremental meter.
+///
+/// A snapshot written before the format 7 cleanup also holds `atom_count`,
+/// `tip_bytes` and `bookkeeping_bytes`. They counted format 6 atoms, tips and
+/// molecule bookkeeping; serde ignores them on hydrate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaMeter {
     pub schema_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// Stored value bytes of the schema.
     pub live_bytes: u64,
-    pub atom_count: u64,
     /// Bytes appended on [`Self::appended_day`] (UTC).
     pub appended_bytes: u64,
     /// UTC calendar day `YYYY-MM-DD` the append counter is for.
     pub appended_day: String,
-    /// Tip bytes traceable to this schema's molecules.
-    ///
-    /// Physical bookkeeping, not atom payload. It is kept out of
-    /// [`Self::live_bytes`] on purpose: churn is a payload ratio, and folding
-    /// index overhead into it would move the ratio for a reason the operator
-    /// did not write. `serde(default)` so a home written before this field
-    /// hydrates at 0 instead of failing to load.
-    #[serde(default)]
-    pub tip_bytes: u64,
-    /// Order-log / header / secondary-index bytes traceable to this schema's
-    /// molecules. Same accounting rule as [`Self::tip_bytes`].
-    #[serde(default)]
-    pub bookkeeping_bytes: u64,
 }
 
 /// The current logical contribution of one molecule.
 ///
-/// This is a write-path projection.  A schema reads the bounded molecule set
-/// declared by its catalog and adds these counters; it never walks atoms to
-/// answer a storage request.  The counters deliberately count each current
-/// tip: an atom shared by two molecule slots contributes to both logical
-/// values, while physical atom de-duplication remains a node-level concern.
+/// A schema reads the bounded molecule set declared by its catalog and adds
+/// these counters; it never walks records to answer a storage request.
+///
+/// No format 7 write adds to these counters. A schema install seeds an exact
+/// zero for each declared molecule (`ensure_molecule_counter`), and a
+/// snapshot hydrated from an older home keeps the values it had. The schema
+/// storage reports and the attribution ledger still read them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct MoleculeStorageCounter {
     pub molecule_uuid: String,
@@ -186,19 +160,6 @@ pub struct MoleculeStorageCounter {
     pub counter_epoch: u64,
 }
 
-/// Durable contribution of one current molecule tip.
-///
-/// The write path needs this state after a restart to subtract the exact old
-/// value before it adds a replacement.  It is source state for the counter,
-/// not a liveness count and never authorizes reclaim.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct MoleculeTipCounterSource {
-    pub atom_uuid: String,
-    pub atom_value_bytes: u64,
-    #[serde(default)]
-    pub blob_reference_bytes: u64,
-}
-
 impl MoleculeStorageCounter {
     #[must_use]
     pub fn logical_value_bytes(&self) -> u64 {
@@ -210,16 +171,5 @@ impl MoleculeStorageCounter {
     pub fn structure_bytes(&self) -> u64 {
         self.tip_index_bytes
             .saturating_add(self.molecule_metadata_bytes)
-    }
-}
-
-impl SchemaMeter {
-    /// Physical tip + bookkeeping bytes this schema owns.
-    ///
-    /// These are the bytes that used to fall out of per-schema accounting and
-    /// land in the report's structural remainder.
-    #[must_use]
-    pub fn plane_bytes(&self) -> u64 {
-        self.tip_bytes.saturating_add(self.bookkeeping_bytes)
     }
 }

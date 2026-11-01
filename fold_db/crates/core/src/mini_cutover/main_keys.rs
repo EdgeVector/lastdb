@@ -3,32 +3,20 @@
 use lastdb_model::kind_partition::{colon_prefix_matches, split_org_storage_prefix};
 
 /// Classify one `main` key (raw bytes) into its destination collection.
-/// Returns `None` for an unknown prefix — callers must fail loudly.
+///
+/// A format 7 home keeps the blob counters and the blob dwell queue
+/// (`bref:v3:`) in `atoms` and every other `main` row in `tips`. The key law
+/// (`storage::current_keys`) refuses the format 6 families, so no current row
+/// needs a route for them. Returns `None` for a key that this list does not
+/// name; the caller places it in `tips`.
 pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
     let s = std::str::from_utf8(key).ok()?;
     let bare = split_org_storage_prefix(s).map_or(s, |(_, rest)| rest);
-    if colon_prefix_matches(bare, "atom:") {
+    if bare.starts_with("bref:v3:") {
         Some("atoms")
-    } else if bare.starts_with("mref:v1:") {
-        Some("molecule_ref_edges")
-    } else if bare.starts_with("bref:v3:") {
-        Some("atoms")
-    } else if colon_prefix_matches(bare, "schemaidx:") {
-        Some("indexes")
-    } else if bare.starts_with("fdep:v1:")
-        || bare.starts_with("mk:")
-        || bare.starts_with("rdel:v2:")
-        || bare.starts_with("mgp:v1:")
-        || bare.starts_with("mgr:v1:")
-        || bare.starts_with("mgd:v1:")
-        || bare.starts_with("mh:")
-        || colon_prefix_matches(bare, "history:")
-        || colon_prefix_matches(bare, "conflict:")
-        || colon_prefix_matches(bare, "dellog:")
+    } else if colon_prefix_matches(bare, "dellog:")
         || bare.starts_with("crq:")
         || bare.starts_with("crb:")
-        || bare.starts_with("crs:")
-        || bare.starts_with("ahf:")
         || bare.starts_with("ahk:")
         || bare.starts_with("ahp:")
         || bare.starts_with("ahq:")

@@ -85,7 +85,7 @@ def measure(binary, recipe, folder):
         result["after_inventory"] = snapshot(workload, ROUNDS + 3)
         if (result["inventory"]["per_schema_atoms_total_bytes"]
                 != result["after_reopen"]["logical_storage"]["total_logical_bytes"]):
-            raise ValueError("The inventory and pre-inventory logical atom totals differ")
+            raise ValueError("The inventory and pre-inventory logical record totals differ")
         native, _, _ = node.call("/api/db/native-status")
         result["native_status"] = native
         if native["native_disk"].get("writer_failed") is not False:
@@ -109,7 +109,7 @@ def render(manifest):
     lines = ["# V2 disk excess investigation", "",
              f"Driver: `{manifest['driver_revision']}`. Two alternating pairs; 512 and 16,384 seeded records.",
              "Three update rounds replace every title and body. The generated keys and values are verified after each write and reopen.", "",
-             "| Pair | Version | Records | State | Logical atoms MiB | Disk MiB | Disk / logical |",
+             "| Pair | Version | Records | State | Logical MiB | Disk MiB | Disk / logical |",
              "|---:|---|---:|---|---:|---:|---:|"]
     for row in manifest["runs"]:
         for state in ("after_updates", "after_idle", "after_reopen", "after_inventory"):
@@ -120,7 +120,7 @@ def render(manifest):
                          f"{logical / 2**20:.3f} | {disk / 2**20:.3f} | {disk / logical:.3f}× |")
     lines.extend(["", "The idle interval is 30 seconds. Reopen uses the same owned generated home and verifies every live key.",
                   "The inventory occurs after the benchmark observations. It writes attribution-ledger records; after_inventory shows that extra cost.",
-                  "The artifact retains the named live-key classes, atom counter health, logical reports, file lengths and allocated blocks.",
+                  "The artifact retains the named live-key classes, logical reports, file lengths and allocated blocks.",
                   "Inventory byte counts describe decrypted live records, not physical file bytes. Classes can omit other namespaces.",
                   "This investigation does not change the 1.5× advisory ceiling, maintenance settings, or the primary.", ""])
     return "\n".join(lines)

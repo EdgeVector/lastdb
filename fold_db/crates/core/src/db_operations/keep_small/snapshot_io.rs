@@ -3,27 +3,14 @@
 use super::*;
 
 impl KeepSmallMeters {
-    #[must_use]
-    pub fn snapshot(&self) -> LiveBudgetTotals {
-        LiveBudgetTotals {
-            atom_bytes: self.atom_bytes.load(Ordering::Relaxed),
-            tip_bytes: self.tip_bytes.load(Ordering::Relaxed),
-            bookkeeping_bytes: self.bookkeeping_bytes.load(Ordering::Relaxed),
-            atom_count: self.atom_count.load(Ordering::Relaxed),
-            tip_count: self.tip_count.load(Ordering::Relaxed),
-        }
-    }
-
     /// Snapshot for durable persist.
     #[must_use]
     pub fn export(&self) -> KeepSmallSnapshot {
         let molecules = self.molecules.lock().map(|m| m.clone()).unwrap_or_default();
-        // The source state of a tip is its durable row and its atom counter,
-        // which the write path reads; the snapshot holds no per-key copy.
+        // The snapshot holds no per-key copy of the counter sources.
         let source_state_complete = self.molecule_counters_complete();
         KeepSmallSnapshot {
             version: KEEP_SMALL_SNAPSHOT_VERSION,
-            totals: self.snapshot(),
             schemas: self.schemas.lock().map(|m| m.clone()).unwrap_or_default(),
             molecules,
             molecule_counters_complete: source_state_complete,
@@ -53,17 +40,6 @@ impl KeepSmallMeters {
         })?;
         *trust = snap.trust.clone();
         drop(trust);
-
-        self.atom_bytes
-            .store(snap.totals.atom_bytes, Ordering::Relaxed);
-        self.tip_bytes
-            .store(snap.totals.tip_bytes, Ordering::Relaxed);
-        self.bookkeeping_bytes
-            .store(snap.totals.bookkeeping_bytes, Ordering::Relaxed);
-        self.atom_count
-            .store(snap.totals.atom_count, Ordering::Relaxed);
-        self.tip_count
-            .store(snap.totals.tip_count, Ordering::Relaxed);
 
         let mut schemas = self.schemas.lock().map_err(|e| {
             let err = format!("schemas lock: {e}");

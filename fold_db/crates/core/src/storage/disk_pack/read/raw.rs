@@ -123,42 +123,30 @@ fn trace_families(coordinates: &[(String, String)]) {
             "molecule_keys" => "molecule_encryption_keys",
             "share_subscriptions" => "receiver_registry",
             "db_catalog" => "database_membership",
-            _ => {
-                let raw =
-                    crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
-                [
-                    b"hcu".as_slice(),
-                    b"mgp",
-                    b"mgr",
-                    b"mgd",
-                    b"mh",
-                    b"rdel",
-                    b"mk",
-                    b"atom",
-                ]
-                .into_iter()
-                .zip([
-                    "conflict_control",
-                    "generation_pointer",
-                    "generation_record",
-                    "generation_delete",
-                    "molecule_header",
-                    "record_delete",
-                    "tip",
-                    "atom",
-                ])
-                .find_map(|(prefix, family)| {
-                    raw.windows(prefix.len())
-                        .any(|window| window == prefix)
-                        .then_some(family)
-                })
-                .unwrap_or("other")
-            }
+            _ => record_family(key),
         };
         *counts.entry(family).or_insert(0usize) += 1;
     }
     for (family, keys) in counts {
         tracing::debug!(target: "lastdb::native_read_family", family, keys,
             "native exact read families");
+    }
+}
+
+/// The fixed name of the record family of one `main` key. A scope that
+/// precedes the family is not part of the name.
+fn record_family(key: &str) -> &'static str {
+    let raw = crate::storage::disk_pack::native_routing::decode(key).unwrap_or_default();
+    let family = std::str::from_utf8(&raw)
+        .ok()
+        .and_then(|key| crate::storage::current_keys::source_key(key).ok())
+        .and_then(|bare| bare.split([':', '\0']).next());
+    match family {
+        Some("rk") => "record",
+        Some("ak") => "alternate_key",
+        Some("rh") => "record_history",
+        Some("rcf" | "rcm") => "record_conflict",
+        Some("bref") => "blob_reference",
+        _ => "other",
     }
 }

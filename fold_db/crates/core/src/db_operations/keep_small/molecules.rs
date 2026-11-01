@@ -1,4 +1,4 @@
-//! Per-molecule storage counters and tip/bookkeeping accounting.
+//! Per-molecule storage counters and their owning schemas.
 
 use super::*;
 
@@ -14,7 +14,7 @@ impl KeepSmallMeters {
         self.mark_schema_dirty(Some(schema));
     }
 
-    /// Schema that owns `molecule_uuid`, if a tip put has bound it.
+    /// Schema that owns `molecule_uuid`, if a schema install has bound it.
     #[must_use]
     pub fn molecule_schema(&self, molecule_uuid: &str) -> Option<String> {
         self.molecule_schema
@@ -52,7 +52,6 @@ impl KeepSmallMeters {
         let trust_complete = self.trust.lock().is_ok_and(|trust| {
             trust.molecules.state.is_complete()
                 || (trust.molecules.state == MeterTrustState::Absent
-                    && self.snapshot() == LiveBudgetTotals::default()
                     && self.schemas.lock().is_ok_and(|schemas| schemas.is_empty()))
         });
         self.molecule_counters_complete.load(Ordering::Relaxed) && trust_complete

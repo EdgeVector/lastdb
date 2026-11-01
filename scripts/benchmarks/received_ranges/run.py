@@ -28,14 +28,9 @@ def interrupted(_signum, _frame):
 
 
 def home_format(node):
-    """The format that the home marker names, or None for an unknown marker."""
+    """7 for a format 7 home marker, or None for any other marker."""
     marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
-    if marker == RECORD_MARKER:
-        return 7
-    first = marker.split("\n", 1)[0]
-    if first.startswith("format=") and first[7:].isdigit() and int(first[7:]) != 7:
-        return int(first[7:])
-    return None
+    return 7 if marker == RECORD_MARKER else None
 
 
 def measure(binary, revision, mode, role, output, helper):
@@ -45,9 +40,9 @@ def measure(binary, revision, mode, role, output, helper):
         node = Node(binary, revision, mode, output)
         node.start()
         found = home_format(node)
-        # The candidate release creates only format 7 homes; the baseline keeps its own default.
-        if role == "candidate" and found != 7:
-            raise RuntimeError("The candidate did not create a format 7 home")
+        # Every release creates only format 7 homes.
+        if found != 7:
+            raise RuntimeError(f"The {role} did not create a format 7 home")
         value = Workload(node, role == "baseline", helper).run()
     except BaseException as failure:
         error = type(failure).__name__ + ": " + str(failure)

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Mutex,
     },
 };
@@ -113,29 +113,18 @@ pub const KEEP_SMALL_SNAPSHOT_COLLECTION: &str = "keep_small";
 /// In-process incremental projection. Point-read cheap; updated on the write path.
 #[derive(Debug)]
 pub struct KeepSmallMeters {
-    atom_bytes: AtomicU64,
-    tip_bytes: AtomicU64,
-    bookkeeping_bytes: AtomicU64,
-    atom_count: AtomicU64,
-    tip_count: AtomicU64,
     schemas: Mutex<HashMap<String, SchemaMeter>>,
     molecules: Mutex<HashMap<String, MoleculeStorageCounter>>,
     molecule_counters_complete: AtomicBool,
-    // No per-key state. A per-key map here held one entry for each tip key of
+    // No per-key state. A per-key map here held one entry for each key of
     // the home, outside the warm set limit (measured 2026-10-20: about 2.6 KB
     // for each new record).
-    /// molecule uuid → owning schema, learned from tip puts.
+    /// molecule uuid → owning schema, learned when a schema install seeds the
+    /// molecule counter ([`Self::ensure_molecule_counter`]).
     ///
-    /// A molecule belongs to exactly one field of one schema, so its tip and
-    /// bookkeeping rows belong to that schema too. This map is the only thing
-    /// that carries that fact to the meters, because the tip/bookkeeping keys
-    /// themselves hold no schema name.
-    ///
-    /// It is deliberately **not** part of [`KeepSmallSnapshot`]: it holds one
-    /// entry per written molecule, and persisting it would turn a small
-    /// point-read projection into a per-molecule table. After a restart the
-    /// first tip put re-learns the binding, so attribution resumes on the next
-    /// write instead of being carried across process lifetimes.
+    /// A molecule belongs to exactly one field of one schema. This map is the
+    /// only thing that carries that fact to the meters: a persist puts each
+    /// molecule counter in the shard of its owning schema.
     molecule_schema: Mutex<HashMap<String, String>>,
     /// Set when boot looked for the durable snapshot and did not find it.
     ///
@@ -166,11 +155,6 @@ pub struct KeepSmallMeters {
 impl Default for KeepSmallMeters {
     fn default() -> Self {
         Self {
-            atom_bytes: AtomicU64::new(0),
-            tip_bytes: AtomicU64::new(0),
-            bookkeeping_bytes: AtomicU64::new(0),
-            atom_count: AtomicU64::new(0),
-            tip_count: AtomicU64::new(0),
             schemas: Mutex::new(HashMap::new()),
             molecules: Mutex::new(HashMap::new()),
             molecule_counters_complete: AtomicBool::new(true),
