@@ -7,10 +7,10 @@ use schema_service_core::app_release::{
     ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
 };
 use schema_service_core::{
-    invalid_app_id_body, PromoteAppReply, PublicAppReply, RegisterAppReply, UpdateAppReply,
+    invalid_app_id_body, reason_only_body, PromoteAppReply, PublicAppReply, RegisterAppReply,
+    UpdateAppReply,
 };
 use schema_service_server_shared::state::SchemaServiceState;
-use serde_json::json;
 
 // App registry (app_identity v3.1, Lane B2b). Auth is the cert +
 // signature envelope pair, not X-API-Key.
@@ -242,7 +242,7 @@ pub(crate) async fn get_releases(
 ) -> Result<Response<Body>, Error> {
     let release_id = p.trim_start_matches("/v2/releases/").trim_end_matches('/');
     if release_id.is_empty() || release_id.contains('/') {
-        return json_response(400, &json!({"reason": "invalid_release_id"}));
+        return json_response(400, &reason_only_body("invalid_release_id"));
     }
     match state.release_read_reply(release_id).await {
         ReleaseReadReply::Ready(body) => json_response(200, &body),

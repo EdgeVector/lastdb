@@ -132,12 +132,20 @@ pub fn release_verification_location(
     release_id: &str,
 ) -> Result<String, (u16, Value)> {
     if !is_sha256_hex(release_id) {
-        return Err((400, json!({ "reason": "invalid_release_id" })));
+        return Err((
+            400,
+            crate::app_identity::reason_only_body("invalid_release_id"),
+        ));
     }
     let base = release_log_url
         .map(|url| url.trim().trim_end_matches('/'))
         .filter(|url| !url.is_empty())
-        .ok_or_else(|| (503, json!({ "reason": "verifier_not_configured" })))?;
+        .ok_or_else(|| {
+            (
+                503,
+                crate::app_identity::reason_only_body("verifier_not_configured"),
+            )
+        })?;
     Ok(format!("{base}/results/{release_id}.json"))
 }
 
