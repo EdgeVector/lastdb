@@ -4,7 +4,7 @@ use super::*;
 
 mod cover;
 use cover::full_component_cover_response;
-use schema_service_core::state::IdempotentRepostReply;
+use schema_service_core::state::{IdempotentRepostReply, SchemaAddReply};
 use schema_service_core::types::SchemaRegistrationComposition;
 
 fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
@@ -232,12 +232,12 @@ pub async fn add_schema(
     let (schema_to_add, mutation_mappers_to_add, response_composition) =
         split_residual_registration(&state, request, registration_cover);
 
-    let result = state
-        .add_schema(schema_to_add, mutation_mappers_to_add)
+    let reply = state
+        .schema_add_reply(schema_to_add, mutation_mappers_to_add)
         .await;
     add_schema_outcome_response(
         &state,
-        result,
+        reply,
         &schema_name,
         &telemetry_source,
         telemetry_reason.as_deref(),
@@ -273,7 +273,7 @@ fn add_schema_success_response(
 /// Record the match telemetry and build the HTTP response for one add-schema result.
 fn add_schema_outcome_response(
     state: &SchemaServiceState,
-    result: schema_types::FoldDbResult<SchemaAddOutcome>,
+    reply: SchemaAddReply,
     schema_name: &str,
     telemetry_source: &str,
     telemetry_reason: Option<&str>,
@@ -282,85 +282,85 @@ fn add_schema_outcome_response(
     let record = |outcome: &'static str| {
         state.record_schema_match_outcome(outcome, telemetry_source, telemetry_reason);
     };
-    match result {
-        Ok(SchemaAddOutcome::Added(schema, mutation_mappers)) => {
-            record(if response_composition.is_some() {
-                "residual_created"
-            } else {
-                "created_new"
-            });
-            add_schema_success_response(
-                state,
-                true,
-                (schema, mutation_mappers),
-                None,
-                response_composition.is_some(),
-                response_composition,
-            )
-        }
-        Ok(SchemaAddOutcome::AlreadyExists(schema, mutation_mappers)) => {
-            record("matched_existing");
-            add_schema_success_response(
-                state,
-                false,
-                (schema, mutation_mappers),
-                None,
-                false,
-                response_composition,
-            )
-        }
-        Ok(SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers)) => {
-            record("expanded_existing");
-            add_schema_success_response(
-                state,
-                true,
-                (schema, mutation_mappers),
-                Some(old_name),
-                false,
-                response_composition,
-            )
-        }
-        // A composed canonical is newly registered: the compositional apply
-        // step rewrote one or more nested `ref_fields` to reuse an existing
-        // canonical via SchemaRef instead of re-inlining its fields. Serialized
-        // like `Added` (HTTP 201, no replaced schema) PLUS `composed: true` —
-        // the authoritative wire marker so a client can tell genuine
-        // composition apart from a plain registration that merely carried
-        // ref_fields (the per-component advice rides on the outcome
-        // internally). Only produced when the apply step is enabled
-        // (`SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`, off by default).
-        Ok(SchemaAddOutcome::Composed(schema, mutation_mappers, _advice)) => {
-            record("composed_existing");
-            add_schema_success_response(
-                state,
-                true,
-                (schema, mutation_mappers),
-                None,
-                true,
-                response_composition,
-            )
-        }
-        Ok(SchemaAddOutcome::DescriptiveNameConflict(conflict)) => {
-            record("rejected");
-            tracing::warn!(
-                target: "schema_service::schema",
-                descriptive_name = %conflict.descriptive_name,
-                existing_canonical = %conflict.existing_canonical,
-                "Refused duplicate descriptive_name registration (409)",
-            );
-            HttpResponse::Conflict().json(conflict)
-        }
-        Err(error) => {
+    match reply {
+        SchemaAddReply::Failed { detail, body } => {
             record("rejected");
             tracing::error!(
-            target: "schema_service::schema",
+                target: "schema_service::schema",
                 "Failed to add schema '{}': {}",
                 schema_name,
-                error
+                detail
             );
-            HttpResponse::BadRequest().json(ErrorResponse {
-                error: format!("Failed to add schema: {error}"),
-            })
+            HttpResponse::BadRequest().json(body)
         }
+        SchemaAddReply::Ready(outcome) => match *outcome {
+            SchemaAddOutcome::Added(schema, mutation_mappers) => {
+                record(if response_composition.is_some() {
+                    "residual_created"
+                } else {
+                    "created_new"
+                });
+                add_schema_success_response(
+                    state,
+                    true,
+                    (schema, mutation_mappers),
+                    None,
+                    response_composition.is_some(),
+                    response_composition,
+                )
+            }
+            SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
+                record("matched_existing");
+                add_schema_success_response(
+                    state,
+                    false,
+                    (schema, mutation_mappers),
+                    None,
+                    false,
+                    response_composition,
+                )
+            }
+            SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
+                record("expanded_existing");
+                add_schema_success_response(
+                    state,
+                    true,
+                    (schema, mutation_mappers),
+                    Some(old_name),
+                    false,
+                    response_composition,
+                )
+            }
+            // A composed canonical is newly registered: the compositional apply
+            // step rewrote one or more nested `ref_fields` to reuse an existing
+            // canonical via SchemaRef instead of re-inlining its fields. Serialized
+            // like `Added` (HTTP 201, no replaced schema) PLUS `composed: true` —
+            // the authoritative wire marker so a client can tell genuine
+            // composition apart from a plain registration that merely carried
+            // ref_fields (the per-component advice rides on the outcome
+            // internally). Only produced when the apply step is enabled
+            // (`SCHEMA_COMPOSITIONAL_DECOMPOSITION=apply`, off by default).
+            SchemaAddOutcome::Composed(schema, mutation_mappers, _advice) => {
+                record("composed_existing");
+                add_schema_success_response(
+                    state,
+                    true,
+                    (schema, mutation_mappers),
+                    None,
+                    true,
+                    response_composition,
+                )
+            }
+            SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
+                record("rejected");
+                tracing::warn!(
+                    target: "schema_service::schema",
+                    descriptive_name = %conflict.descriptive_name,
+                    existing_canonical = %conflict.existing_canonical,
+                    "Refused duplicate descriptive_name registration (409)",
+                );
+                HttpResponse::Conflict().json(conflict)
+            }
+        },
     }
 }

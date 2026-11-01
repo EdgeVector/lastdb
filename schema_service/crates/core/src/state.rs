@@ -49,6 +49,7 @@ mod resolve;
 mod telemetry_reply;
 mod vocabulary_validation;
 
+pub use add_schema::SchemaAddReply;
 pub use backfill::BackfillPurposeReport;
 pub use lifecycle::{DedupeNamesReply, DeprecateSchemasReply};
 pub use lookup::{IdempotentRepostReply, SchemaByNameReply};

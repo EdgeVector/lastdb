@@ -4,7 +4,8 @@ use crate::http::*;
 use lambda_http::{Body, Error, Request, Response};
 use schema_service_core::builtin_schemas::AvailableSource;
 use schema_service_core::state::{
-    accepted_similarity_threshold, BatchReuseReply, SchemaResolveReply, SimilarSchemasReply,
+    accepted_similarity_threshold, BatchReuseReply, SchemaAddReply, SchemaResolveReply,
+    SimilarSchemasReply,
 };
 use schema_service_core::{
     log_schema_mutation_gate_result, RegistryIndexReply, SchemaMutationChallengeReply,
@@ -233,67 +234,67 @@ async fn add_schema_response(
     schema: schema_types::Schema,
     mutation_mappers: HashMap<String, String>,
 ) -> Result<Response<Body>, Error> {
-    match state.add_schema(schema, mutation_mappers).await {
-        // `Composed` (newly-registered canonical referencing existing
-        // sub-schemas via SchemaRef) serializes like `Added`: 201, no
-        // replaced schema. Only produced once the compositional
-        // `apply` step is enabled (follow-on to the advisory shadow
-        // pass; off by default), so the wire shape is unchanged today.
-        Ok(
+    match state.schema_add_reply(schema, mutation_mappers).await {
+        SchemaAddReply::Failed { body, .. } => json_response(400, &body),
+        SchemaAddReply::Ready(outcome) => match *outcome {
+            // `Composed` (newly-registered canonical referencing existing
+            // sub-schemas via SchemaRef) serializes like `Added`: 201, no
+            // replaced schema. Only produced once the compositional
+            // `apply` step is enabled (follow-on to the advisory shadow
+            // pass; off by default), so the wire shape is unchanged today.
             SchemaAddOutcome::Added(schema, mutation_mappers)
-            | SchemaAddOutcome::Composed(schema, mutation_mappers, _),
-        ) => {
-            let system = state.is_system_schema(&schema.name);
-            json_response(
-                201,
-                &json!({
-                    "schema": schema,
-                    "mutation_mappers": mutation_mappers,
-                    "system": system,
-                }),
-            )
-        }
-        Ok(SchemaAddOutcome::AlreadyExists(schema, mutation_mappers)) => {
-            let system = state.is_system_schema(&schema.name);
-            json_response(
-                200,
-                &json!({
-                    "schema": schema,
-                    "mutation_mappers": mutation_mappers,
-                    "system": system,
-                }),
-            )
-        }
-        Ok(SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers)) => {
-            let system = state.is_system_schema(&schema.name);
-            json_response(
-                201,
-                &json!({
-                    "schema": schema,
-                    "mutation_mappers": mutation_mappers,
-                    "replaced_schema": old_name,
-                    "system": system,
-                }),
-            )
-        }
-        Ok(SchemaAddOutcome::DescriptiveNameConflict(conflict)) => {
-            tracing::warn!(
-                descriptive_name = %conflict.descriptive_name,
-                existing_canonical = %conflict.existing_canonical,
-                "Refused duplicate descriptive_name registration (409)",
-            );
-            json_response(
-                409,
-                &serde_json::to_value(&conflict).unwrap_or_else(|_| {
-                    json!({
-                        "existing_canonical": conflict.existing_canonical,
-                        "descriptive_name": conflict.descriptive_name,
-                        "reason": conflict.reason,
-                    })
-                }),
-            )
-        }
-        Err(e) => json_response(400, &json!({"error": format!("Failed to add schema: {e}")})),
+            | SchemaAddOutcome::Composed(schema, mutation_mappers, _) => {
+                let system = state.is_system_schema(&schema.name);
+                json_response(
+                    201,
+                    &json!({
+                        "schema": schema,
+                        "mutation_mappers": mutation_mappers,
+                        "system": system,
+                    }),
+                )
+            }
+            SchemaAddOutcome::AlreadyExists(schema, mutation_mappers) => {
+                let system = state.is_system_schema(&schema.name);
+                json_response(
+                    200,
+                    &json!({
+                        "schema": schema,
+                        "mutation_mappers": mutation_mappers,
+                        "system": system,
+                    }),
+                )
+            }
+            SchemaAddOutcome::Expanded(old_name, schema, mutation_mappers) => {
+                let system = state.is_system_schema(&schema.name);
+                json_response(
+                    201,
+                    &json!({
+                        "schema": schema,
+                        "mutation_mappers": mutation_mappers,
+                        "replaced_schema": old_name,
+                        "system": system,
+                    }),
+                )
+            }
+            SchemaAddOutcome::DescriptiveNameConflict(conflict) => {
+                tracing::warn!(
+                    descriptive_name = %conflict.descriptive_name,
+                    existing_canonical = %conflict.existing_canonical,
+                    "Refused duplicate descriptive_name registration (409)",
+                );
+                json_response(
+                    409,
+                    &serde_json::to_value(&conflict).unwrap_or_else(|_| {
+                        json!({
+                            "existing_canonical": conflict.existing_canonical,
+                            "descriptive_name": conflict.descriptive_name,
+                            "reason": conflict.reason,
+                        })
+                    }),
+                )
+            }
+        },
     }
 }
 
