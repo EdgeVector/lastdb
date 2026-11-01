@@ -25,8 +25,7 @@ pub mod search_index;
 mod storage_breakdown;
 // Re-exports
 pub use admin_db::{
-    DbInventory, MainKeyClass, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
-    SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
+    DbInventory, MainKeyClass, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
     SchemaStorageReport,
 };
 pub use atom_store::{
