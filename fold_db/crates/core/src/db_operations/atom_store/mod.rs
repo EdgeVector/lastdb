@@ -56,7 +56,6 @@ pub use counter::{
     AtomCounterReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub use molecule_ref_edges::MoleculeRefEdge;
-pub(crate) use record_conflicts::LostWrite;
 pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
 pub(crate) use record_reads::KeyedRecord;
 pub(crate) use record_spans::{RecordBound, RecordSpan, SpanKey};

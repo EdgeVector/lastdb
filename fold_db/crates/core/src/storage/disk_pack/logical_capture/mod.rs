@@ -20,7 +20,7 @@ pub use adoption::{
     SnapshotAdoptionPosition, SnapshotAdoptionPrefix, SnapshotAdoptionReplay,
     SnapshotAdoptionReplaySource, SnapshotAdoptionRequirement,
 };
-pub(super) use model::{EventMetadata, Head, Position};
+pub(super) use model::{EventMetadata, Position};
 pub(crate) use snapshot::{verify_snapshot_inclusion, SNAPSHOT_INCLUSION_WORK_BYTES};
 pub use snapshot::{SnapshotDevicePosition, SnapshotInclusion, SnapshotInclusionMap};
 pub use snapshot_identity::{

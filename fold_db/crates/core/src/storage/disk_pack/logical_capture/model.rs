@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Position {
+pub struct Position {
     pub origin: String,
     pub sequence: u64,
     pub sha256: String,
@@ -12,7 +12,7 @@ pub(super) struct Position {
 /// Authored prefix metadata stored beside an old capture event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct EventMetadata {
+pub struct EventMetadata {
     pub origin: String,
     pub sequence: u64,
     pub sha256: String,
