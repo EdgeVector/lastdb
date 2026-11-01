@@ -134,7 +134,7 @@ impl MutationManager {
             Arc::clone(&db_ops),
             author_clock_state_key,
             author_clock_state,
-            Arc::clone(&pending_tasks),
+            pending_tasks,
         );
         Self {
             db_ops,
