@@ -42,67 +42,14 @@ pub enum ReleaseError {
 }
 
 impl ReleaseError {
-    /// The HTTP status and body for this failure.
-    #[must_use]
-    pub fn to_http(&self) -> (u16, Value) {
-        match self {
-            Self::InvalidManifest(detail) => (
-                400,
-                crate::app_identity::reason_detail_body("invalid_manifest", detail),
-            ),
-            Self::CertInvalid => (401, crate::app_identity::reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, crate::app_identity::reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (
-                401,
-                crate::app_identity::reason_only_body("envelope_invalid"),
-            ),
-            Self::DevRevoked => (403, crate::app_identity::reason_only_body("dev_revoked")),
-            Self::NotConfigured => (
-                503,
-                crate::app_identity::reason_only_body("app_identity_not_configured"),
-            ),
-            Self::NotAppOwner => (403, crate::app_identity::reason_only_body("not_app_owner")),
-            Self::UnknownApp(app_id) => (404, unknown_app_json(app_id)),
-            Self::AppIdMismatch => (
-                400,
-                crate::app_identity::reason_only_body("app_id_mismatch"),
-            ),
-            Self::UnresolvedSchema(name) => (
-                422,
-                json!({ "reason": "unresolved_schema", "schema": name }),
-            ),
-            Self::UnknownRelease(release_id) => (404, unknown_release_json(release_id)),
-            Self::GenerationConflict { expected, supplied } => (
-                409,
-                json!({
-                    "reason": "generation_conflict",
-                    "expected_generation": expected,
-                    "supplied_generation": supplied,
-                }),
-            ),
-            Self::PublishRateLimited => (
-                429,
-                json!({
-                    "reason": "publish_rate_limited",
-                    "limit": PUBLISH_RATE_LIMIT,
-                    "window_secs": PUBLISH_RATE_WINDOW_SECS,
-                }),
-            ),
-            Self::Internal(detail) => (
-                500,
-                crate::app_identity::reason_detail_body("internal", detail),
-            ),
-        }
-    }
-
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidManifest(_) => "invalid_manifest",
             Self::CertInvalid => "cert_invalid",
             Self::CertExpired => "cert_expired",
             Self::EnvelopeInvalid => "envelope_invalid",
             Self::DevRevoked => "dev_revoked",
-            Self::NotConfigured => "not_configured",
+            Self::NotConfigured => "app_identity_not_configured",
             Self::NotAppOwner => "not_app_owner",
             Self::UnknownApp(_) => "unknown_app",
             Self::AppIdMismatch => "app_id_mismatch",
@@ -111,6 +58,56 @@ impl ReleaseError {
             Self::GenerationConflict { .. } => "generation_conflict",
             Self::PublishRateLimited => "publish_rate_limited",
             Self::Internal(_) => "internal",
+        }
+    }
+
+    /// The HTTP status and body for this failure.
+    #[must_use]
+    pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.http_reason();
+        match self {
+            Self::InvalidManifest(detail) => {
+                (400, crate::app_identity::reason_detail_body(reason, detail))
+            }
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid => {
+                (401, crate::app_identity::reason_only_body(reason))
+            }
+            Self::DevRevoked | Self::NotAppOwner => {
+                (403, crate::app_identity::reason_only_body(reason))
+            }
+            Self::NotConfigured => (503, crate::app_identity::reason_only_body(reason)),
+            Self::UnknownApp(app_id) => (404, unknown_app_json(app_id)),
+            Self::AppIdMismatch => (400, crate::app_identity::reason_only_body(reason)),
+            Self::UnresolvedSchema(name) => (422, json!({ "reason": reason, "schema": name })),
+            Self::UnknownRelease(release_id) => (404, unknown_release_json(release_id)),
+            Self::GenerationConflict { expected, supplied } => (
+                409,
+                json!({
+                    "reason": reason,
+                    "expected_generation": expected,
+                    "supplied_generation": supplied,
+                }),
+            ),
+            Self::PublishRateLimited => (
+                429,
+                json!({
+                    "reason": reason,
+                    "limit": PUBLISH_RATE_LIMIT,
+                    "window_secs": PUBLISH_RATE_WINDOW_SECS,
+                }),
+            ),
+            Self::Internal(detail) => {
+                (500, crate::app_identity::reason_detail_body(reason, detail))
+            }
+        }
+    }
+
+    /// Metric name. `NotConfigured` stays `not_configured`.
+    /// Its HTTP reason stays `app_identity_not_configured`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
+            Self::NotConfigured => "not_configured",
+            _ => self.http_reason(),
         }
     }
 }
