@@ -64,31 +64,23 @@ impl AtomStore {
                 self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)], scope)
                     .await?
             }
+            // A sample is the first live records in record key order. The
+            // walk reads past deleted records in bounded pages, so deleted
+            // records do not use up the sample.
             Some(F::SampleN(count)) => {
-                self.walk_records(
-                    schema,
-                    comparison,
-                    Some((*count).min(SAMPLE_PEEK_CAP)),
-                    scope,
-                )
-                .await?
+                let take = (*count).min(SAMPLE_PEEK_CAP);
+                self.walk_first(schema, comparison, take, scope).await?
             }
             // A `Page` is a window over every live record in page order: the
             // count and the condition reads need the complete set. The read
             // allowance of the request bounds it.
             Some(F::Page { offset, limit }) => {
                 page = Some((*offset, *limit));
-                self.walk_records(schema, comparison, None, scope).await?
+                self.walk_records(schema, comparison, scope).await?
             }
             // The first page of the default size, in record key order.
             None => {
-                let window = WalkWindow {
-                    after: None,
-                    skip: 0,
-                    take: DEFAULT_UNFILTERED_PAGE_LIMIT,
-                };
-                let scopes = [scope.map(str::to_owned)];
-                self.walk_record_window(schema, comparison, window, &scopes, |_| true)
+                self.walk_first(schema, comparison, DEFAULT_UNFILTERED_PAGE_LIMIT, scope)
                     .await?
             }
             Some(_) => {
@@ -130,22 +122,40 @@ impl AtomStore {
             .collect())
     }
 
-    /// One walk of the record space of a schema: every record, or the first
-    /// `limit` in storage order. The store's read allowance bounds the walk.
+    /// The first `take` live records of one scope in record key order
+    /// (`record_walk.rs`).
+    async fn walk_first(
+        &self,
+        schema: &Schema,
+        comparison: &KeyComparisonContext,
+        take: usize,
+        scope: Option<&str>,
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let window = WalkWindow {
+            after: None,
+            skip: 0,
+            take,
+        };
+        let scopes = [scope.map(str::to_owned)];
+        self.walk_record_window(schema, comparison, window, &scopes, |_| true)
+            .await
+    }
+
+    /// One walk of every record in the record space of a schema. The store's
+    /// read allowance bounds the walk.
     async fn walk_records(
         &self,
         schema: &Schema,
         comparison: &KeyComparisonContext,
-        limit: Option<usize>,
         scope: Option<&str>,
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         let prefix = build_storage_key(scope, &space_prefix(schema));
-        let store = self.main_store.inner();
-        let rows = match limit {
-            Some(limit) => store.scan_prefix_paged(prefix.as_bytes(), limit).await,
-            None => store.scan_prefix(prefix.as_bytes()).await,
-        }
-        .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
+        let rows = self
+            .main_store
+            .inner()
+            .scan_prefix(prefix.as_bytes())
+            .await
+            .map_err(|error| SchemaError::InvalidData(format!("walk records: {error}")))?;
         let mut out = Vec::with_capacity(rows.len());
         for (_, value) in rows {
             let record = decode(&value)?;
