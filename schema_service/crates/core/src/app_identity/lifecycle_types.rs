@@ -192,7 +192,7 @@ pub enum AppPromoteError {
 }
 
 impl AppPromoteError {
-    pub(super) fn metric_status(&self) -> &'static str {
+    fn http_reason(&self) -> &'static str {
         match self {
             Self::InvalidAppId => "invalid_app_id",
             Self::CertInvalid => "cert_invalid",
@@ -202,27 +202,35 @@ impl AppPromoteError {
             Self::NotOwner => "not_owner",
             Self::NotAuthorizedPublisher => "not_authorized_publisher",
             Self::MissingInstallPointer => "missing_install_pointer",
+            Self::Internal(_) => "internal",
+        }
+    }
+
+    /// Metric name. `Internal` stays `error`. Its HTTP reason stays `internal`.
+    pub(super) fn metric_status(&self) -> &'static str {
+        match self {
             Self::Internal(_) => "error",
+            _ => self.http_reason(),
         }
     }
 
     pub fn to_http(&self) -> (u16, Value) {
+        let reason = self.http_reason();
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
-            Self::CertExpired => (401, reason_only_body("cert_expired")),
-            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
-            Self::NotOwner => (401, reason_only_body("not_owner")),
-            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
-            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
+            Self::CertInvalid | Self::CertExpired | Self::EnvelopeInvalid | Self::NotOwner => {
+                (401, reason_only_body(reason))
+            }
+            Self::AppNotRegistered => (404, reason_only_body(reason)),
+            Self::NotAuthorizedPublisher => (403, reason_only_body(reason)),
             Self::MissingInstallPointer => (
                 400,
                 reason_detail_body(
-                    "missing_install_pointer",
+                    reason,
                     "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
                 ),
             ),
-            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
+            Self::Internal(detail) => (500, reason_detail_body(reason, detail)),
         }
     }
 }
