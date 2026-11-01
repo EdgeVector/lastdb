@@ -114,5 +114,6 @@ pub struct FoldDbInit {
     pub db_ops: Arc<DbOperations>,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
-    pub(crate) mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
+    pub(crate) mutation_log_capture:
+        Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>,
 }

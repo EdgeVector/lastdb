@@ -48,7 +48,7 @@ pub struct FoldDB {
     pub(crate) background_atom_history: super::atom_history::BackgroundAtomHistory,
     /// Mutation admission gate. Maintenance and local file-blob writes take
     /// an admission; conflict metadata fences new mutations with it.
-    mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
+    mutation_log_capture: Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>,
 }
 
 impl Drop for FoldDB {

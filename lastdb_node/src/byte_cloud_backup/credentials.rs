@@ -1,4 +1,4 @@
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use std::path::Path;
 
 /// Use the existing paused credential. Never enroll or claim a database.

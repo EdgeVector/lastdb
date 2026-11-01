@@ -9,7 +9,7 @@ pub enum UploadObservation {
 }
 
 impl BackupTransport {
-    pub(in crate::sync::auth) async fn upload(
+    pub(crate) async fn upload(
         &self,
         object: StoredObject<'_>,
         grant: TemporaryGrant<'_>,
@@ -18,7 +18,7 @@ impl BackupTransport {
         self.upload_mode(object, grant, source, false).await
     }
 
-    pub(in crate::sync::auth) async fn upload_part(
+    pub(crate) async fn upload_part(
         &self,
         object: StoredObject<'_>,
         grant: TemporaryGrant<'_>,

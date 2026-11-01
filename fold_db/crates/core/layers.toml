@@ -58,13 +58,12 @@ modules = [
 
 [[layer]]
 name = "runtime"
-doc = "Process-local runtime state with no store: the warm set (resident), the memory budget, request phase accounting, disk read receipts, write preparation counters, and the mutation admission fence."
+doc = "Process-local runtime state with no store: the warm set (resident), the memory budget, request phase accounting, disk read receipts, and write preparation counters."
 modules = [
   "memory_budget",
   "read_receipts",
   "request_phases",
   "resident",
-  "sync::capture",
   "write_preparation",
 ]
 
@@ -100,7 +99,7 @@ modules = [
 
 [[layer]]
 name = "engine"
-doc = "The database engine: FoldDB, the mutation manager, query, purge, drains, janitors, and the factory that builds a node."
+doc = "The database engine: FoldDB, the mutation manager and its admission fence, query, purge, drains, janitors, and the factory that builds a node."
 modules = [
   "fold_db_core",
 ]
@@ -114,8 +113,7 @@ modules = [
 
 [[layer]]
 name = "surface"
-doc = "The crate root re-exports and the account byte transport (sync)."
+doc = "The crate root re-exports. The cloud backup HTTPS client is the cloud_backup_client crate; the core does no network I/O."
 modules = [
   "crate",
-  "sync",
 ]

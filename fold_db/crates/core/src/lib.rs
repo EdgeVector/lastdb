@@ -55,7 +55,6 @@ pub mod schema;
 pub mod security;
 pub mod sharing;
 pub mod storage;
-pub mod sync;
 pub mod user_context;
 mod write_preparation;
 

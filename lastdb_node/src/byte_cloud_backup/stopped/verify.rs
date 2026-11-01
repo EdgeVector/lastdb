@@ -1,11 +1,11 @@
 //! Independent accepted-member GETs; hash every complete native file in memory.
 use super::*;
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use cloud_backup_protocol::v2::access::{
     ReadGrant, ReadGrantItemResult, ReadGrantRequest, ReadSelector,
 };
 use cloud_backup_protocol::v2::transfer::ObjectReceipt;
 use cloud_backup_protocol::v2::Version;
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use sha2::{Digest as _, Sha256};
 
 mod inventory;

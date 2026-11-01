@@ -184,7 +184,7 @@ DEV deployment and real DEV recovery remain separate operational work.
 
 ## Client adoption
 
-The typed HTTP client is `sync::auth::byte_backup::ByteBackupClient`.
+The typed HTTP client is `cloud_backup_client::byte_backup::ByteBackupClient`.
 It uses V2 requests, response checks, and control limits.
 The private byte transport facade shares the existing credentials, URL checks, deadlines, and bounded streams.
 An upload keeps its exact resume response. Commit requires the concrete complete inventory proof.

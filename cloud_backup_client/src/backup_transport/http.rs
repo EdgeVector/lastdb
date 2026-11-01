@@ -9,7 +9,7 @@ struct ErrorTag<'a> {
 }
 
 impl BackupTransport {
-    pub(in crate::sync::auth) async fn post_bounded<Q: Serialize, R: DeserializeOwned>(
+    pub(crate) async fn post_bounded<Q: Serialize, R: DeserializeOwned>(
         &self,
         url: Url,
         request: &Q,

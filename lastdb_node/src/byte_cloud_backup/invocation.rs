@@ -1,6 +1,6 @@
 use super::{model::Saved, source::Source, store::Store, BackupError};
 use crate::backup_runtime::InvocationOutcome;
-use fold_db::sync::auth::byte_backup::ByteBackupClient;
+use cloud_backup_client::byte_backup::ByteBackupClient;
 use std::fs::File;
 use std::sync::{atomic::AtomicBool, Arc};
 

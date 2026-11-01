@@ -120,6 +120,7 @@ jobs:
               - 'lastdb_host/**'
               - 'lastdb_uds/**'
               - 'lastdb_identity/**'
+              - 'cloud_backup_client/**'
               - 'fold_db/**'
               - 'schema_service/**'
               - 'app_identity_crypto/**'
@@ -267,7 +268,7 @@ jobs:
             sudo apt-get install -y --no-install-recommends ripgrep
           fi
       - name: Redaction lint (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-redaction.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
+        run: bash scripts/lints/lint-redaction.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client
 
   spawn-instrument-lint:
     name: Spawn Instrument Lint
@@ -303,7 +304,7 @@ jobs:
             sudo apt-get install -y --no-install-recommends ripgrep
           fi
       - name: Tracing-egress lint --strict (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-tracing-egress.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --strict
+        run: bash scripts/lints/lint-tracing-egress.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client --strict
 
   no-hardcoded-urls-lint:
     name: No Hardcoded URLs Lint
@@ -343,7 +344,7 @@ jobs:
             sudo apt-get install -y --no-install-recommends ripgrep
           fi
       - name: UTF-8-safe byte-slice lint (fold_db + schema_service + lastdb_*)
-        run: bash scripts/lints/lint-byte-slice.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
+        run: bash scripts/lints/lint-byte-slice.sh --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity --scope=cloud_backup_client
 
   unused-deps-lint:
     name: Unused Dependencies (cargo-machete)

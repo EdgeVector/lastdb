@@ -1249,6 +1249,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "cloud_backup_client"
+version = "0.1.0"
+dependencies = [
+ "cloud_backup_protocol",
+ "futures",
+ "lastdb_model",
+ "lastdb_storage_policy",
+ "observability",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "cloud_backup_protocol"
 version = "0.1.0"
 dependencies = [
@@ -1953,7 +1971,6 @@ dependencies = [
  "observability",
  "openssl",
  "rand 0.8.5",
- "reqwest 0.12.28",
  "schema_types",
  "serde",
  "serde_json",
@@ -2932,6 +2949,7 @@ dependencies = [
  "bip39",
  "chrono",
  "clap",
+ "cloud_backup_client",
  "cloud_backup_protocol",
  "env_flag",
  "fold_db",

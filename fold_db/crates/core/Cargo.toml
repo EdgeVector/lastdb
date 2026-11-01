@@ -50,13 +50,12 @@ async-trait = { workspace = true }
 # Error handling
 thiserror = { workspace = true }
 
+# No HTTP client: the cloud backup transport is the `cloud_backup_client`
+# crate, and the core does no network I/O.
 
-# HTTP client for the cloud-sync engine (every use lives under `sync/`).
-reqwest = { version = "0.12", features = ["json", "multipart", "blocking", "stream"] }
-
-# Shared telemetry crate with its default `otel` feature: sync egress calls
-# `propagation::inject_w3c` (`sync/auth/http.rs`).
-observability = { path = "../observability" }
+# Shared telemetry crate without `otel`: query filters only redact ids with
+# `observability::redact_id!`. W3C propagation is a cloud_backup_client need.
+observability = { workspace = true }
 # Pure wire schema types (shared with schema_service; no storage).
 schema_types = { workspace = true }
 # Pure LastDB models: atoms, molecules, schemas, keys, mutations (no behavior).

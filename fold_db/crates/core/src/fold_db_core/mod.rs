@@ -8,7 +8,9 @@
 //! - [`purge`] — schema/data purge
 //! - [`orchestration`] — coordination helpers
 //! - [`pending_task_tracker`] — background task bookkeeping
+//! - `admission` — the mutation admission fence (one shared gate per request)
 
+pub(crate) mod admission;
 mod atom_history;
 mod background_task;
 pub mod conflict_janitor;

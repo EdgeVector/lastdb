@@ -116,7 +116,8 @@ pub struct MutationManager {
     /// Sync engine used by administrative capture status and direct callers.
     /// Bounded post-ack capture queue shared with the serving store wrapper.
     ///
-    capture_router: std::sync::RwLock<Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
+    capture_router:
+        std::sync::RwLock<Option<Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>>>,
 }
 
 impl MutationManager {
@@ -166,7 +167,7 @@ impl MutationManager {
 
     pub(crate) fn set_capture_router(
         &self,
-        router: std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>,
+        router: std::sync::Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>,
     ) {
         *self
             .capture_router
@@ -176,7 +177,7 @@ impl MutationManager {
 
     pub(crate) fn capture_router(
         &self,
-    ) -> Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>> {
+    ) -> Option<std::sync::Arc<crate::fold_db_core::admission::MutationLogCaptureRouter>> {
         self.capture_router
             .read()
             .expect("capture router lock poisoned")

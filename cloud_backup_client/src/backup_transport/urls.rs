@@ -64,7 +64,7 @@ pub(super) fn signed_headers(value: &str, expected: &str) -> Result<Url> {
 }
 
 impl BackupTransport {
-    pub(in crate::sync::auth) fn api_endpoint(&self, operation: &str) -> Url {
+    pub(crate) fn api_endpoint(&self, operation: &str) -> Url {
         let mut url = self.base.clone();
         let base = self.base.path().trim_end_matches('/');
         let api = if base.ends_with("/api") {
