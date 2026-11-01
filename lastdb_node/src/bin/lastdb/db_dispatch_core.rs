@@ -41,21 +41,10 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
                 max_atoms,
             },
         ),
-        DbInspectCommand::MoleculeDrain {
-            molecule,
-            scope,
-            json,
-        } => db_molecule_drain(socket, molecule.as_deref(), scope.as_deref(), json),
-        DbInspectCommand::UnresolvedAtoms { json } => db_unresolved_atoms(socket, json),
-        DbInspectCommand::MoleculeKeys {
-            molecule,
-            max_keys,
-            json,
-        } => db_molecule_keys(socket, &molecule, max_keys, json),
     }
 }
 
-/// Dispatch the space reclaim and GC verbs.
+/// Dispatch the cleanup and delete ledger verbs.
 pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Result<(), String> {
     match action {
         DbReclaimCommand::Cleanup {
@@ -64,27 +53,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             timeout,
             json,
         } => db_cleanup(socket, status, wait, timeout, json),
-        DbReclaimCommand::CleanupDeleteMarkers {
-            molecule,
-            scope,
-            after_key,
-            max_keys,
-            execute,
-            json,
-        } => db_cleanup_delete_markers(
-            socket,
-            &serde_json::json!({
-                "molecule": molecule, "scope": scope, "after_key": after_key,
-                "limit": max_keys, "execute": execute, "cleanup_delete_markers": true,
-            }),
-            json,
-        ),
-        DbReclaimCommand::ClearHistory {
-            schema,
-            keep_last,
-            execute,
-            json,
-        } => db_clear_history(socket, schema.as_deref(), keep_last, execute, json),
         DbReclaimCommand::DeleteLedger { limit, json } => db_delete_ledger(socket, limit, json),
     }
 }

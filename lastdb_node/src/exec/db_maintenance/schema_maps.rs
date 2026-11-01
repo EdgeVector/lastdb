@@ -1,89 +1,8 @@
-//! Owner-socket routes that read molecule keys and change schema retention or HashRange key fields.
+//! Owner-socket route that reads and changes schema retention.
 
 use super::*;
 
 mod retention_backfill;
-
-/// `POST /api/db/molecule-keys` — list one molecule's live `mk:` keys.
-/// Read-only. Body: `{ molecule: string, max_keys?: usize }`.
-///
-/// An isolated development node can also pass `api_hash` to request a raw,
-/// partition-scoped dump with opened atom values. This mode requires
-/// `LASTDB_ISOLATED_COPY=1` and `LASTDB_DEV_FIELD_INDEX_DEBUG=1`. The node also
-/// verifies that this debug build opened a marked `lastdb-dev` home whose
-/// canonical path does not overlap the live primary.
-pub(in crate::exec) async fn execute_db_molecule_keys_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        molecule: String,
-        #[serde(default)]
-        max_keys: Option<usize>,
-        #[serde(default)]
-        api_hash: Option<String>,
-    }
-    let body: Body = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(
-                400,
-                &format!("invalid /api/db/molecule-keys body: {e}"),
-                ctx,
-            )
-        }
-    };
-    if body.molecule.is_empty() {
-        return error_response(400, "molecule is required", ctx);
-    }
-    if let Some(api_hash) = body.api_hash.as_deref() {
-        let isolated = std::env::var("LASTDB_ISOLATED_COPY").as_deref() == Ok("1");
-        let enabled = std::env::var("LASTDB_DEV_FIELD_INDEX_DEBUG").as_deref() == Ok("1");
-        if !isolated || !enabled {
-            return error_response(
-                403,
-                "api_hash debug mode requires LASTDB_ISOLATED_COPY=1 and LASTDB_DEV_FIELD_INDEX_DEBUG=1",
-                ctx,
-            );
-        }
-        if let Err(error) =
-            crate::ephemeral::verify_dev_field_index_debug_home(&host.home, &host.data_dir)
-        {
-            return error_response(403, &error, ctx);
-        }
-        if api_hash.is_empty() {
-            return error_response(400, "api_hash must not be empty", ctx);
-        }
-        let max_keys = body.max_keys.unwrap_or(10_000).min(10_000);
-        if max_keys == 0 {
-            return error_response(400, "max_keys must be greater than zero", ctx);
-        }
-        return match host
-            .db
-            .debug_molecule_hash_bucket(&body.molecule, api_hash, max_keys)
-            .await
-        {
-            Ok(report) => json_ok(&envelope(
-                &serde_json::json!({ "molecule_hash_bucket": report }),
-                ctx.user_id.as_str(),
-            )),
-            Err(e) => mapped_error_response("molecule hash bucket debug failed", e, ctx),
-        };
-    }
-    match host
-        .db
-        .list_molecule_keys(&body.molecule, body.max_keys)
-        .await
-    {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "molecule_keys": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => mapped_error_response("molecule-keys failed", e, ctx),
-    }
-}
 
 #[derive(Deserialize)]
 struct RetentionBody {
@@ -285,51 +204,5 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
             ))
         }
         Err(error) => error_response(400, &format!("schema retention failed: {error}"), ctx),
-    }
-}
-
-/// `POST /api/db/repair-hashrange-key-fields` — owner-only repair of one
-/// named HashRange schema and one API hash partition. Default is dry-run.
-pub(in crate::exec) async fn execute_db_repair_hashrange_key_fields_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        schema: String,
-        api_hash: String,
-        #[serde(default)]
-        execute: bool,
-    }
-    if !ctx.is_owner {
-        return error_response(403, "HashRange key-field repair is owner-only", ctx);
-    }
-    let body: Body = match serde_json::from_slice(&req.body) {
-        Ok(body) => body,
-        Err(error) => {
-            return error_response(
-                400,
-                &format!("invalid /api/db/repair-hashrange-key-fields body: {error}"),
-                ctx,
-            )
-        }
-    };
-    let canonical = match handlers::resolve_schema_name(host, &body.schema) {
-        Ok(Some(canonical)) => canonical,
-        Ok(None) => return error_response(404, "schema not found", ctx),
-        Err(error) => return render(Err(error), ctx),
-    };
-    match host
-        .db
-        .repair_hashrange_key_fields(&canonical, &body.api_hash, body.execute)
-        .await
-    {
-        Ok(report) => json_ok(&envelope(&report, ctx.user_id.as_str())),
-        Err(error) => error_response(
-            400,
-            &format!("HashRange key-field repair failed: {error}"),
-            ctx,
-        ),
     }
 }

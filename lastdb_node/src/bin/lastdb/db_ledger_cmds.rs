@@ -82,35 +82,3 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
     }
     Ok(())
 }
-
-pub(crate) fn db_clear_history(
-    socket: &Path,
-    schema: Option<&str>,
-    keep_last: usize,
-    execute: bool,
-    json_only: bool,
-) -> Result<(), String> {
-    let dry_run = !execute;
-    let body = serde_json::json!({
-        "schema": schema,
-        "keep_last": keep_last,
-        "dry_run": dry_run,
-    });
-    let response = post_json_admin(socket, "/api/db/clear-history", &body)?;
-    let value = parse_json_response(&response, "clear-history")?;
-    let report = value
-        .get("clear_history")
-        .cloned()
-        .ok_or_else(|| "response missing clear_history field".to_string())?;
-
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?
-        );
-        return Ok(());
-    }
-
-    print_clear_history_human(&report, dry_run);
-    Ok(())
-}

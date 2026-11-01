@@ -1,39 +1,13 @@
 use super::*;
 
-/// `lastdb status` line for the atom counter planner.
-///
-/// The totals count the events since this process started, and a restart
-/// resets them: a home with `suspect` counters shows zeros after a restart. The
-/// line says so. The durable count of `suspect` counters comes from
-/// `lastdb db verify-refs` (one run) or `lastdb db inventory`; the status does
-/// not scan for it. A counter fault (underflow, counter absent, dangling
-/// removal) keeps the body and raises `suspect`; the recent faults name the
-/// atoms. Always emits one line, so a node that has written nothing and a
-/// daemon that predates the field read differently.
-pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
+/// `lastdb status` line for `lastdb db verify-refs`. The atom counter totals
+/// and the molecule drain line left the text status with the format 6 tools;
+/// the `atom_counters` object stays in `/api/status`.
+pub fn verify_refs_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let Some(report) = snapshot.atom_counters.as_ref() else {
-        return vec!["Atom counters: unsupported by daemon (no planner report)".to_string()];
+        return vec!["Verify refs: unsupported by daemon (no planner report)".to_string()];
     };
-    let mut head = format!(
-        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={} molecule_faults={}",
-        report.bodies_created,
-        report.bodies_deleted,
-        report.underflows,
-        report.counters_absent,
-        report.dangling_removals,
-        report.suspect_marked,
-        report.molecule_faults,
-    );
-    if !report.recent_faults.is_empty() {
-        head.push_str(&format!(
-            " recent_faults=[{}]",
-            report.recent_faults.join(", ")
-        ));
-    }
-    head.push_str(
-        " (the counters that are suspect now: lastdb db verify-refs or lastdb db inventory)",
-    );
-    vec![head, verify_refs_line(report), molecule_drain_line(report)]
+    vec![verify_refs_line(report)]
 }
 
 /// The `Verify refs` line: the last complete run of `lastdb db verify-refs`, and
@@ -80,56 +54,6 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
         line.push_str(&format!(
             "; run in progress phase={:?} pages={}",
             running.phase, running.pages
-        ));
-    }
-    line
-}
-
-/// The `Molecule drain` line: the candidates the drain holds, the molecules it
-/// removed since the daemon started, and the molecules it refused. A refused
-/// molecule is a fault of a counter or a record; the drain never removes it.
-fn molecule_drain_line(report: &fold_db::db_operations::AtomCounterReport) -> String {
-    let Some(drain) = report.molecule_drain.as_ref() else {
-        return "Molecule drain: unsupported by daemon (no drain report)".to_string();
-    };
-    let task = if drain.interval_ms == 0 {
-        "task off".to_string()
-    } else {
-        format!("task every {} ms", drain.interval_ms)
-    };
-    let mut line = format!(
-        "Molecule drain: {task}; pending {} (waiting for kept records {}, refused {}); drained {} molecules since the daemon started ({} tips erased, {} atom bodies deleted, {} kept conflict records released, {} other rows, {} batches); candidates dropped because the molecule was bound again {}",
-        drain.pending + drain.parked,
-        drain.waiting_records,
-        drain.refused,
-        drain.drained,
-        drain.tips_erased,
-        drain.atoms_deleted,
-        drain.records_released,
-        drain.rows_removed,
-        drain.batches,
-        drain.rebound,
-    );
-    if !drain.refused_sample.is_empty() {
-        let sample: Vec<String> = drain
-            .refused_sample
-            .iter()
-            .map(|item| {
-                let scope = if item.scope.is_empty() {
-                    "personal"
-                } else {
-                    item.scope.as_str()
-                };
-                format!("{}@{scope}:{}", item.molecule, item.reason)
-            })
-            .collect();
-        line.push_str(&format!("; refused=[{}]", sample.join(", ")));
-    }
-    if drain.consecutive_failures > 0 {
-        line.push_str(&format!(
-            "; failed {} wakes in a row: {}",
-            drain.consecutive_failures,
-            drain.last_error.as_deref().unwrap_or("unknown")
         ));
     }
     line

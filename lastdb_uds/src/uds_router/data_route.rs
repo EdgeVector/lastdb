@@ -34,14 +34,6 @@ pub enum DataRoute {
     Query,
     /// `POST /api/mutation` — write mutation against the node's data.
     Mutation,
-    /// `POST /api/aggregate/repair` — rebuild one invalid summary from its
-    /// bounded member partition and return a core-minted repair token. OWNER
-    /// socket only because repair scans and can rewrite the bounded partition.
-    AggregateRepair,
-    /// `POST /api/aggregate/finalize` — mark a verified aggregate summary
-    /// valid if its source-partition guard token did not change. OWNER socket
-    /// only because finalize certifies owner-controlled repair state.
-    AggregateFinalize,
     /// `POST /api/mutations/batch` — write multiple mutations in one request.
     MutationBatch,
     /// `POST /api/queries/batch` — several independent `/api/query` bodies in one request (both sockets).
@@ -173,23 +165,8 @@ pub enum DataRoute {
     /// entries are structurally unreachable), which is precisely what
     /// distinguishes it from retired owner-wide cross-namespace search.
     NativeIndexKnn,
-    /// `GET /api/history/{molecule_uuid}` — a molecule's mutation-event log
-    /// (the multi-device "resolve in history" read surface: every branch of a
-    /// concurrent write, conflict winners AND losers, is listed here).
-    ///
-    /// **OWNER socket only** ([`SocketKind::Owner`]), like
-    /// [`AutoIdentity`](Self::AutoIdentity): history spans every record of the
-    /// owning (schema, field) and discloses atom UUIDs, so a jailed app must
-    /// never reach it; on the app socket the path is unrecognized → `NotFound`.
-    MoleculeHistory,
     /// `POST /api/atom-history` — owner-only field policies, lookup, purge and restore.
     AtomHistory,
-    /// `GET /api/atom/{atom_uuid}` — a single atom's content by UUID (the
-    /// terminal read in the history chain: hydrate a conflict loser's value).
-    ///
-    /// **OWNER socket only**, same rationale as
-    /// [`MoleculeHistory`](Self::MoleculeHistory).
-    AtomContent,
     /// `PUT /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob write.
     AppBlobPut,
     /// `GET /api/app/blob/cas/sha256/{hash}` — app-namespaced raw blob read.
@@ -258,30 +235,13 @@ pub enum DataRoute {
     /// database catalog names, besides the personal scope. OWNER socket only.
     /// Reads the catalog, not the data.
     DbVerifyRefsScopes,
-    /// `POST /api/db/molecule-drain` — name one molecule to the drain and read
-    /// the drain report. OWNER socket only. Body: `{molecule?, scope?}`. With a
-    /// molecule it reads the counters inside the write gate and queues the
-    /// molecule when it is dead or refused; it deletes nothing. The drain task
-    /// does the removal in bounded batches.
-    DbMoleculeDrain,
     /// `GET /api/db/schemas` — atom-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
     /// order-log / tip-format walks) but still a heavy admin scan.
     DbSchemas,
-    /// `POST /api/storage/schema` — bounded logical-current storage from the
-    /// schema catalog and its declared molecule counters. OWNER socket only.
-    SchemaStorage,
-    /// `GET /api/storage/schemas` — labelled logical-current storage for all
-    /// installed schemas from catalog metadata and molecule counters.
-    /// OWNER socket only; this route never scans atoms.
-    SchemaStorageReport,
     /// `POST /api/storage/liveness/explain` — point-read the counter of one
-    /// atom, molecule or blob, and its queue state.
+    /// file blob, and its dwell queue state.
     LivenessExplain,
-    /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
-    /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
-    /// `keep_last: 0` = full purge (latest tip only).
-    DbClearHistory,
     /// `POST /api/db/flush` — wait for accepted local writes to reach disk.
     /// OWNER only. Body: `{}` or empty. No cloud work.
     DbFlush,
@@ -290,26 +250,14 @@ pub enum DataRoute {
     /// `GET /api/db/native-status` — read native completion and writer state.
     /// OWNER only. This does not request a flush.
     DbNativeStatus,
-    /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
-    /// skipped reads. Owner socket only; keys can name user data.
-    DbUnresolvedAtoms,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
     /// trail (purge, delete and delete-converge), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,
-    /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` storage
-    /// keys (decoded hash/range + collision flag). Read-only.
-    DbMoleculeKeys,
     /// `POST /api/db/schema-retention` — owner read/set/clear of the
     /// node-local time-based retention policy for one installed schema.
     DbSchemaRetention,
-    /// `POST /api/db/alternate-keys` — owner-only declaration backfill and publication.
-    DbAlternateKeys,
-    /// `POST /api/db/repair-hashrange-key-fields` — plan or repair sparse
-    /// declared key-field molecules for one named HashRange partition.
-    /// Owner only. Body: `{ schema, api_hash, execute?: bool }`.
-    DbRepairHashRangeKeyFields,
     /// `POST /api/db/fetch-file-blob` — explicitly fetch exactly one
     /// `$lastdb_file` pointer from the local store, with byte verification.
     /// Body: `{ "pointer": <field value> }`.

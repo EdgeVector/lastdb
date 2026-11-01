@@ -1,4 +1,4 @@
-//! Clap subcommands for `lastdb db`: storage inspection, repair and maintenance verbs.
+//! Clap subcommands for `lastdb db`: storage inspection and maintenance verbs.
 //!
 //! The verbs are grouped into per-theme enums under `cli_defs/db_*.rs` and
 //! flattened here, so every command keeps its existing top-level name.
@@ -13,14 +13,11 @@ mod inspect;
 mod offline;
 #[path = "db_reclaim.rs"]
 mod reclaim;
-#[path = "db_repair.rs"]
-mod repair;
 
 pub(crate) use blob::*;
 pub(crate) use inspect::*;
 pub(crate) use offline::*;
 pub(crate) use reclaim::*;
-pub(crate) use repair::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbCommand {
@@ -28,8 +25,6 @@ pub(crate) enum DbCommand {
     Inspect(DbInspectCommand),
     #[command(flatten)]
     Reclaim(DbReclaimCommand),
-    #[command(flatten)]
-    Repair(DbRepairCommand),
     #[command(flatten)]
     Blob(DbBlobCommand),
     #[command(flatten)]

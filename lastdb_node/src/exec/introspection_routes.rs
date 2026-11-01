@@ -55,35 +55,6 @@ pub(super) fn execute_boot_ledger_route(host: &Host) -> UdsResponse {
     json_ok(&serde_json::json!({ "boots": boots }))
 }
 
-pub(super) async fn execute_molecule_history_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let Some(molecule_uuid) = path_tail(&req.target, "/api/history/") else {
-        return content_free(400, "Bad Request");
-    };
-    let scope = HistoryScope {
-        hash: query_value(&req.target, "hash"),
-        range: query_value(&req.target, "range"),
-    };
-    render(
-        handlers::molecule_history(host, &molecule_uuid, &scope).await,
-        ctx,
-    )
-}
-
-pub(super) async fn execute_atom_content_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    let Some(atom_uuid) = path_tail(&req.target, "/api/atom/") else {
-        return content_free(400, "Bad Request");
-    };
-    render(handlers::atom_content(host, &atom_uuid).await, ctx)
-}
-
 /// `GET /api/native-index/search` — owner-wide index search over live schemas.
 pub(super) fn execute_native_index_search_route(
     req: &UdsRequest,

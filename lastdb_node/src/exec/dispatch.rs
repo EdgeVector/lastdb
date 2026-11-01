@@ -151,9 +151,9 @@ fn attribute_client(
 /// Bounded identity label for the route the router already matched.
 ///
 /// `OpSample::path` is the raw target, so it cannot be an aggregation key:
-/// `/api/atom/<id>`, `/api/history/<key>`, `/api/schema/<name>` and
-/// `/api/app/blob/cas/sha256/<digest>` put caller data in the path and would
-/// mint one telemetry key per atom, per key, per schema and per digest.
+/// `/api/schema/<name>` and `/api/app/blob/cas/sha256/<digest>` put caller
+/// data in the path and would mint one telemetry key per schema and per
+/// digest.
 /// [`DataRoute`] is the opposite by construction — its own doc says the
 /// variant "carries only route identity, with no caller data" — so the set of
 /// labels is bounded by the route table and a label is safe in a key.
@@ -218,9 +218,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
     use crate::request_telemetry::OpKind;
     match route {
         DataRoute::Query | DataRoute::ListRecordKeys => OpKind::Query,
-        DataRoute::Mutation | DataRoute::AggregateRepair | DataRoute::AggregateFinalize => {
-            OpKind::Mutation
-        }
+        DataRoute::Mutation => OpKind::Mutation,
         DataRoute::MutationBatch => OpKind::MutationBatch,
         DataRoute::QueryBatch | DataRoute::ConflictMetadata => OpKind::QueryBatch,
         DataRoute::Status
@@ -236,10 +234,7 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         DataRoute::NativeIndexSearch | DataRoute::SearchAppQuery | DataRoute::AppSearch => {
             OpKind::Search
         }
-        DataRoute::MoleculeHistory | DataRoute::AtomHistory | DataRoute::AppChanges => {
-            OpKind::History
-        }
-        DataRoute::AtomContent => OpKind::Atom,
+        DataRoute::AtomHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::DeliverSnapshot => OpKind::Deliver,
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.
@@ -255,15 +250,6 @@ pub(super) fn schema_hint_for_route(route: DataRoute, req: &UdsRequest) -> Optio
     match route {
         DataRoute::Query | DataRoute::Mutation => {
             schema_from_body(&req.body, SchemaBodyShape::Single)
-        }
-        DataRoute::AggregateRepair | DataRoute::AggregateFinalize => {
-            serde_json::from_slice::<Value>(&req.body)
-                .ok()
-                .and_then(|body| {
-                    body.get("target_schema_name")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
         }
         DataRoute::MutationBatch => schema_from_body(&req.body, SchemaBodyShape::MutationBatch),
         DataRoute::QueryBatch => schema_from_body(&req.body, SchemaBodyShape::QueryBatch),

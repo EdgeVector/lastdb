@@ -1,15 +1,15 @@
 //! The **shared owner-socket handler bodies** — the single implementation of
-//! query / mutation / native-index-search / molecule-history / atom-content /
-//! schema-resolution that BOTH binaries' socket route executors
-//! (`lastdb_node::exec`, `fold_db_node::server::uds_exec`) drive.
+//! query / mutation / native-index-search / schema-resolution that BOTH
+//! binaries' socket route executors (`lastdb_node::exec`,
+//! `fold_db_node::server::uds_exec`) drive.
 //!
 //! Historically each executor re-implemented these handler bodies against
 //! `fold_db` core, kept identical only by discipline (the extraction card's
 //! predecessor moved the *wire* layer here; this module moves the *handler*
 //! layer). Now the schema-resolution, pagination push-down, row formatting,
-//! conflict annotation, native-search enrichment/filtering, history scoping, and
-//! atom hydration live in exactly one place, generic over [`HostNode`], so the
-//! two socket surfaces cannot drift below the app-identity axis.
+//! conflict annotation and native-search enrichment/filtering live in exactly
+//! one place, generic over [`HostNode`], so the two socket surfaces cannot
+//! drift below the app-identity axis.
 //!
 //! Each handler returns a serialized JSON payload (the inner object that the
 //! caller wraps in the [`crate::envelope::envelope`] `{ ok, ...data, user_hash }`
@@ -40,7 +40,6 @@ use crate::qos::Lane;
 
 mod conflict_metadata;
 mod errors;
-mod history;
 mod mutation;
 mod query;
 mod schema_resolve;
@@ -48,7 +47,6 @@ mod search;
 
 pub use self::conflict_metadata::*;
 pub use self::errors::*;
-pub use self::history::*;
 pub use self::mutation::*;
 pub use self::query::*;
 pub use self::schema_resolve::*;

@@ -32,7 +32,6 @@ pub struct RecountArgs<'a> {
     pub all_scopes: bool,
     /// Set the blob counters to the exact count. Needs `all_scopes`.
     pub blobs_exact: bool,
-    pub molecules: bool,
     pub delete_cutoff_unix_secs: Option<u64>,
     pub shards: u32,
     pub i_know_this_is_primary: bool,
@@ -87,7 +86,8 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         scopes,
         shards: args.shards.max(1),
         blobs_exact: args.blobs_exact && args.all_scopes,
-        molecules: args.molecules,
+        // The molecule repair left the CLI with the format 6 tools.
+        molecules: false,
         delete_cutoff_nanos: args
             .delete_cutoff_unix_secs
             .map(|secs| {
@@ -257,11 +257,6 @@ fn print_report(
 /// The blob step of the report.
 fn print_blob_step(report: &RecountReport) {
     print_delete_prune(report);
-    if report.molecules.ran {
-        let m = &report.molecules;
-        println!("  molecules: {} counted; {} headers rewritten, {} binding counters rewritten, {} binding counters deleted, {} drains queued",
-            m.molecules, m.headers_rewritten, m.bindings_rewritten, m.bindings_deleted, m.drains_queued);
-    }
     let blobs = &report.blobs;
     if !blobs.ran {
         return;

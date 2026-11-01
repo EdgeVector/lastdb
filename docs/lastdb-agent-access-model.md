@@ -116,7 +116,7 @@ There is no history, no scan and no sequence of older versions to fall back on. 
 |--------------|-----|
 | Full scan as list | **Not supported**; not Dynamo Query; historical node meltdowns |
 | Rewrite one growing document on every append | Each write re-encrypts the whole document and fails at 256 KiB. One record per entry |
-| Read an atom body by id and expect it to follow your last write | `GET /api/atom/{id}` is 404 once the last reference is gone. An atom id does not follow later writes. Read by key |
+| Read an atom body by id | API version 15 removed `GET /api/atom/{id}`. Read by key |
 | Rely on an older version or a history read | A rewrite keeps no older version. There is no `as_of` read |
 | Field-equality filter like `{ column: "todo" }` as if SQL WHERE | Filters are key-shaped only; fake filters 400 or force client fallbacks |
 | Cross-partition range without hash | Same class as scan — design a hash that partitions the list |
