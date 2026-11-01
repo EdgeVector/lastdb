@@ -70,13 +70,22 @@ pub fn missing_dev_cert_body() -> Value {
     })
 }
 
+/// HTTP body with one `reason` field and no other fields.
+///
+/// Each caller keeps its own status code. A body with `detail` or another
+/// field stays at that caller.
+#[must_use]
+pub fn reason_only_body(reason: &str) -> Value {
+    json!({ "reason": reason })
+}
+
 /// HTTP 400 body when an app id is refused.
 ///
 /// The body is `{ "reason": "invalid_app_id" }`. The Lambda path checks and
 /// the register, update, and promote errors share it.
 #[must_use]
 pub fn invalid_app_id_body() -> Value {
-    json!({ "reason": "invalid_app_id" })
+    reason_only_body("invalid_app_id")
 }
 
 // ─── Validation bounds (design § "Metadata bounds: strict") ───────────────
