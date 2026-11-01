@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::atom::molecule_key_codec;
-use crate::schema::types::field::{build_storage_key, FilterUtils, HashRangeFilter, KeyWindow};
+use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 
 use super::super::AtomStore;
@@ -13,59 +13,9 @@ use crate::records::molecule_record::{
 
 mod live;
 
-use super::HashTipSelection;
-
 type TipRow = (String, PerKeyRecord);
 type TipSlots = (Option<PerKeyRecord>, Option<MoleculeGenerationSlot>);
 type TipRows = BTreeMap<String, TipSlots>;
-
-/// One independently ordered stream of tips under a hash.
-struct TipLane {
-    prefix: String,
-    start: String,
-    end: String,
-}
-
-/// Paging state shared by the rounds of `scan_hash_tip_window`.
-struct TipPageCursor {
-    skip: usize,
-    after: Option<String>,
-    output: Vec<TipRow>,
-    limit: usize,
-    include_tombstones: bool,
-}
-
-impl TipPageCursor {
-    /// Consume merged rows up to the common frontier. Returns whether any
-    /// row advanced the cursor.
-    fn consume(
-        &mut self,
-        codec: &molecule_key_codec::MoleculeKeyCodec,
-        union: BTreeMap<String, TipRow>,
-        frontier: Option<&String>,
-    ) -> Result<bool, SchemaError> {
-        let mut advanced = false;
-        for (range, row) in union {
-            if frontier.is_some_and(|end| range > *end) {
-                break;
-            }
-            self.after = Some(codec.api_range(&range).map_err(codec_err)?);
-            advanced = true;
-            if !self.include_tombstones && row.1.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
-                continue;
-            }
-            if self.skip > 0 {
-                self.skip -= 1;
-            } else {
-                self.output.push(row);
-            }
-            if self.output.len() == self.limit {
-                break;
-            }
-        }
-        Ok(advanced)
-    }
-}
 
 /// Scan bounds for one round of `scan_logical_tip_page`.
 struct TipScan<'a> {
@@ -76,150 +26,7 @@ struct TipScan<'a> {
     cursor: Option<&'a str>,
 }
 
-fn codec_err(e: impl std::fmt::Display) -> SchemaError {
-    SchemaError::InvalidData(format!("partition page codec: {e}"))
-}
-
-/// Each hash prefix holds one ordered range stream, including the empty range.
-fn hash_tip_lanes(
-    prefixes: &[String],
-    selection: &HashTipSelection<'_>,
-) -> Result<Vec<TipLane>, SchemaError> {
-    prefixes
-        .iter()
-        .map(|prefix| {
-            let lane_end = FilterUtils::create_prefix_end(prefix)?;
-            let start = format!("{prefix}{}", selection.range_start);
-            let end = match &selection.range_end {
-                Some(end) => format!("{prefix}{end}"),
-                None => FilterUtils::create_prefix_end(&format!(
-                    "{prefix}{}",
-                    selection.range_prefix.as_deref().unwrap_or("")
-                ))?,
-            };
-            Ok(TipLane {
-                prefix: prefix.clone(),
-                start,
-                end: end.min(lane_end),
-            })
-        })
-        .collect()
-}
-
 impl AtomStore {
-    /// Select a bounded hash/range page from ordered encrypted-key streams.
-    pub(crate) async fn scan_hash_tip_window(
-        &self,
-        molecule: &str,
-        filter: &HashRangeFilter,
-        storage_prefix: Option<&str>,
-        window: &KeyWindow,
-        include_tombstones: bool,
-    ) -> Result<Option<Vec<TipRow>>, SchemaError> {
-        let codec = self.key_codec_for_molecule(molecule)?;
-        let Some(selection) = HashTipSelection::new(&codec, molecule, filter, window)? else {
-            return Ok(None);
-        };
-        if selection.empty {
-            return Ok(Some(Vec::new()));
-        }
-        if let Some(rows) = self
-            .preloaded_window(molecule, &selection, storage_prefix, include_tombstones)
-            .await?
-        {
-            return Ok(Some(rows));
-        }
-        let prefix = codec
-            .api_hash_range_scan_prefix_for_hash(molecule, selection.api_hash)
-            .map_err(codec_err)?;
-        let prefixes = [prefix];
-        let limit = selection.limit;
-        // A range call may decode legacy sidecars. Match larger requested
-        // pages without repeatedly decoding them, while bounding offset walks
-        // and large internal callers to at most 1,024 tips per stream.
-        let batch_limit = limit.clamp(128, 1024);
-        let lanes = hash_tip_lanes(&prefixes, &selection)?;
-        let mut page = TipPageCursor {
-            skip: selection.skip,
-            after: selection.after.clone(),
-            output: Vec::new(),
-            limit,
-            include_tombstones,
-        };
-        while page.output.len() < limit {
-            let want = page
-                .skip
-                .saturating_add(limit - page.output.len())
-                .clamp(1, batch_limit);
-            let mut union = BTreeMap::new();
-            let mut frontier: Option<String> = None;
-            for lane in &lanes {
-                let last = self
-                    .merge_lane_page(
-                        &codec,
-                        lane,
-                        page.after.as_deref(),
-                        storage_prefix,
-                        want,
-                        &mut union,
-                    )
-                    .await?;
-                if let Some(last) = last {
-                    frontier = Some(frontier.map_or(last.clone(), |current| current.min(last)));
-                }
-            }
-            let advanced = page.consume(&codec, union, frontier.as_ref())?;
-            if !advanced || frontier.is_none() {
-                break;
-            }
-        }
-        Ok(Some(page.output))
-    }
-
-    /// Read one page of one lane into `union`. Returns the last range of the
-    /// page when the page was full, so the caller can bound the safe frontier.
-    async fn merge_lane_page(
-        &self,
-        codec: &molecule_key_codec::MoleculeKeyCodec,
-        lane: &TipLane,
-        after: Option<&str>,
-        storage_prefix: Option<&str>,
-        want: usize,
-        union: &mut BTreeMap<String, TipRow>,
-    ) -> Result<Option<String>, SchemaError> {
-        let uid = molecule_key_codec::molecule_uuid_from_storage_key(&lane.prefix)
-            .expect("codec molecule prefix");
-        let cursor = after
-            .map(|range| {
-                codec
-                    .storage_range(uid, range)
-                    .map(|range| format!("{}{range}", lane.prefix))
-            })
-            .transpose()
-            .map_err(codec_err)?;
-        let rows = self
-            .scan_logical_tip_range(
-                &lane.start,
-                &lane.end,
-                cursor.as_deref(),
-                storage_prefix,
-                want,
-            )
-            .await?;
-        let full = rows.len() == want;
-        let mut last = None;
-        for (key, record) in rows {
-            let (_, range) = molecule_key_codec::decode_hash_range_any(&key)
-                .ok_or_else(|| SchemaError::InvalidData("invalid partition page key".into()))?;
-            // The stream frontier uses the ordered stored payload. API text
-            // order differs for typed integers and other scalar profiles.
-            codec.api_range(&range).map_err(codec_err)?;
-            last = Some(range.clone());
-            union.entry(range).or_insert((key, record));
-        }
-        Ok(if full { last } else { None })
-    }
-
     /// Merge bounded live and generation streams. Deleted slots advance the
     /// cursor, but never consume a result slot. No atom bodies are read here.
     pub(crate) async fn scan_logical_tip_page(

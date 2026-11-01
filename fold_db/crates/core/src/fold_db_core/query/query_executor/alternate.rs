@@ -1,4 +1,4 @@
-//! Alternate reads select primary keys, then use the ordinary field reader.
+//! Alternate reads select primary keys, then use the ordinary record reader.
 
 use super::*;
 use crate::alternate_keys::{self, AlternateEntry};
@@ -6,7 +6,8 @@ use crate::schema::types::QueryCursor;
 use sha2::{Digest, Sha256};
 
 pub struct AlternatePage {
-    pub values: HashMap<String, HashMap<KeyValue, FieldValue>>,
+    /// The records at the primary keys of `entries`.
+    pub values: QueryRecords,
     pub entries: Vec<AlternateEntry>,
     pub has_more: bool,
     pub comparison: String,
@@ -22,11 +23,7 @@ impl QueryExecutor {
     ) -> Result<usize, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
         scope
-            .run_result(Box::pin(
-                crate::storage::disk_pack::logical_paths::field::query_scope(
-                    self.count_alternate_scoped(query, context),
-                ),
-            ))
+            .run_result(Box::pin(self.count_alternate_scoped(query, context)))
             .await
     }
 
@@ -99,9 +96,7 @@ impl QueryExecutor {
         let scope = self.db_ops.read_scope().await?;
         scope
             .run_result(Box::pin(
-                crate::storage::disk_pack::logical_paths::field::query_scope(
-                    self.read_alternate_page(query, limit, cursor, context),
-                ),
+                self.read_alternate_page(query, limit, cursor, context),
             ))
             .await
     }
@@ -165,13 +160,19 @@ impl QueryExecutor {
                 .collect(),
         ));
         let mut values = if keys.is_empty() {
-            HashMap::new()
+            QueryRecords::new()
         } else {
             self.query_current(query, None, Some(context)).await?
         };
         validate_entries(&schema, &name, &entries, &values)?;
         if !projection.is_empty() {
-            values.retain(|field, _| projection.contains(field));
+            for record in values.values_mut() {
+                record.fields.retain(|field, _| projection.contains(field));
+                record
+                    .metadata
+                    .retain(|field, _| projection.contains(field));
+            }
+            values.retain(|_, record| !record.fields.is_empty());
         }
         Ok(AlternatePage {
             values,
@@ -248,17 +249,18 @@ fn validate_entries(
     schema: &crate::schema::Schema,
     name: &str,
     entries: &[AlternateEntry],
-    values: &HashMap<String, HashMap<KeyValue, FieldValue>>,
+    values: &QueryRecords,
 ) -> Result<(), SchemaError> {
     let definition = &schema.alternate_keys[name];
     for entry in entries {
+        let record = values.get(&entry.primary);
         let fields = definition
             .fields()
             .filter_map(|field| {
-                values
-                    .get(field)?
-                    .get(&entry.primary)
-                    .map(|value| (field.to_owned(), value.value.clone()))
+                record?
+                    .fields
+                    .get(field)
+                    .map(|value| (field.to_owned(), value.clone()))
             })
             .collect();
         if alternate_keys::derive_key(schema, definition, &fields)?.as_ref() != Some(&entry.matched)

@@ -4,15 +4,13 @@
 //! writes, and schema readiness. These types own key data and its byte leases.
 
 use crate::atom::MoleculeKeys;
-pub(crate) use crate::atom::{CompactRangeKey, CoreStoredKey, KeyVisibility};
+pub(crate) use crate::atom::{CompactRangeKey, KeyVisibility};
 use std::sync::{Arc, Mutex};
 
 mod budget;
 mod domain;
-mod selection;
 
 pub(crate) use budget::{CoreKeyBudget, CoreKeyReservation};
-pub(crate) use selection::CoreKeyRange;
 
 pub(crate) const DEFAULT_SCHEMA_KEY_BYTES: usize = 128 * 1024 * 1024;
 pub(crate) const SCHEMA_KEY_BYTES_ENV: &str = "LASTDB_SCHEMA_KEY_BYTES";
@@ -55,8 +53,6 @@ pub(crate) enum CoreKeyError {
     Poisoned,
     #[error("complete key domain does not accept changes in this state")]
     State,
-    #[error("complete key page limits are invalid")]
-    PageLimit,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
@@ -87,9 +83,4 @@ pub(crate) struct CoreKeyDomain {
     range_profile: schema_types::molecule_range_profile::MoleculeRangeProfile,
     budget: Arc<CoreKeyBudget>,
     state: Mutex<DomainState>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct CoreKeyLease {
-    domain: Arc<CoreKeyDomain>,
 }

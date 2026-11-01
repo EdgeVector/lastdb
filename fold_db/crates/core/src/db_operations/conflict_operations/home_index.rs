@@ -1,58 +1,6 @@
 use super::*;
 
 impl DbOperations {
-    /// Point-get `hcu:mols`. Absent, unreadable, or an old stamp that fails to
-    /// deserialize is `None`. This does not derive a stamp and does not walk
-    /// `conflict\0`.
-    async fn load_home_conflict_index(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Option<HomeConflictIndex> {
-        self.conflict_index_from_memory(storage_prefix).await
-    }
-
-    /// Stamp plus events newer than `folded_seq`.
-    ///
-    /// The only reads are the point get and, when the stamp exists, the event
-    /// range. A miss returns [`HomeConflictAnnotation::Unknown`]. It does not
-    /// call [`Self::get_unresolved_conflicts`] or
-    /// [`Self::home_has_unresolved_conflicts`].
-    pub async fn read_home_conflict_annotation(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> HomeConflictAnnotation {
-        // A format 7 home keeps a conflict with its record: a marker beside
-        // each record key names the conflicted fields.
-        if self.atoms().record_home() {
-            return HomeConflictAnnotation::Records;
-        }
-        if home_conflict_index_disabled() {
-            return HomeConflictAnnotation::Disabled;
-        }
-        let Some(index) = self.load_home_conflict_index(storage_prefix).await else {
-            return HomeConflictAnnotation::Unknown;
-        };
-        let events = match self
-            .home_conflict_events_after(storage_prefix, &index.folded_seq)
-            .await
-        {
-            Ok(rows) => rows.into_iter().map(|(_, event)| event).collect::<Vec<_>>(),
-            // The range failed, so the stamp may be behind an append. Do not
-            // call the page clean.
-            Err(_) => {
-                return HomeConflictAnnotation::Incomplete {
-                    molecules: index.molecules.into_iter().collect(),
-                };
-            }
-        };
-        let molecules = union_molecules(&index.molecules, &events);
-        if index.complete && molecules.len() <= HOME_CONFLICT_INDEX_MAX_MOLECULES {
-            HomeConflictAnnotation::Known { molecules }
-        } else {
-            HomeConflictAnnotation::Incomplete { molecules }
-        }
-    }
-
     /// List all unresolved sync conflicts, optionally filtered by molecule UUID.
     /// When `storage_prefix` is `Some`, scans org-prefixed keys.
     pub async fn get_unresolved_conflicts(

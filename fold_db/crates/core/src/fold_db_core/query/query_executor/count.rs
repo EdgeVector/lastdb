@@ -8,11 +8,8 @@ use crate::schema::{types::Query, SchemaError};
 use super::{rules, QueryExecutor};
 
 impl QueryExecutor {
-    /// Count live keys for the same supported keyed query and projection.
-    /// Uses molecule keys and tombstone flags; mapped HashRange layouts can
-    /// also require the declared hash-field values to distinguish their keys.
-    /// See
-    /// [`super::HashRangeQueryProcessor::count_rows`].
+    /// Count live records for the same supported keyed query and projection.
+    /// See [`super::HashRangeQueryProcessor::count_rows`].
     ///
     /// Returns `Ok(None)` for a missing schema or field-dependent controls, so
     /// the caller uses the regular captured query and counts its selected keys.
@@ -76,7 +73,7 @@ impl QueryExecutor {
         let count_filter = query.filter.as_ref().filter(|f| f.is_key_restricted());
         let count = self
             .hash_range_processor
-            .count_rows(&mut schema, &query.fields, count_filter)
+            .count_rows(&schema, &query.fields, count_filter)
             .await?;
         Ok(Some(count))
     }

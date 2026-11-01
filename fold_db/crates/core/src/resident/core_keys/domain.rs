@@ -2,7 +2,7 @@
 
 use super::{
     CompactRangeKey, CoreKeyBudget, CoreKeyDomain, CoreKeyDomainStats, CoreKeyError,
-    CoreKeyIdentity, CoreKeyLease, CoreKeyPhase, DomainState, KeyVisibility, MoleculeKeys,
+    CoreKeyIdentity, CoreKeyPhase, DomainState, KeyVisibility, MoleculeKeys,
 };
 use std::sync::{Arc, Mutex};
 
@@ -146,14 +146,6 @@ impl CoreKeyDomain {
         }
         state.phase = CoreKeyPhase::Ready;
         Ok(())
-    }
-
-    /// The caller captures this lease under the same common read boundary.
-    pub(crate) fn lease(self: &Arc<Self>) -> Result<Option<CoreKeyLease>, CoreKeyError> {
-        let state = self.state.lock().map_err(|_| CoreKeyError::Poisoned)?;
-        Ok((state.phase == CoreKeyPhase::Ready).then(|| CoreKeyLease {
-            domain: Arc::clone(self),
-        }))
     }
 
     pub(crate) fn retire(&self, reason: &'static str) -> Result<(), CoreKeyError> {

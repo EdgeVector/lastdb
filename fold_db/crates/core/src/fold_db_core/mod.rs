@@ -36,6 +36,4 @@ pub use conflict_janitor_policy::{
 pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
 pub use mutation_manager::{MutationManager, PurgeStats};
 
-pub use fold_db::{
-    CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB, HashRangeKeyFieldRepairReport,
-};
+pub use fold_db::{CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB};

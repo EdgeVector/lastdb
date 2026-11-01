@@ -1,9 +1,6 @@
-//! Owner-only metadata for a batch of exact HashKey field selections.
-
-use std::collections::{BTreeSet, HashMap};
+//! Owner-only conflict metadata for a batch of exact record field selections.
 
 use fold_db::access::AccessContext;
-use fold_db::db_operations::SELECTED_CONFLICT_MAX_MOLECULES;
 use fold_db::schema::SchemaState;
 use serde_json::Value;
 
@@ -14,13 +11,10 @@ use crate::HostError;
 use super::resolve_schema_name;
 
 mod rules;
-use rules::SelectedConflictKey;
 pub use rules::SelectedConflictRequest;
 
-/// No atom body is read, and no field value or conflict payload is returned.
-/// The result is conservative: any
-/// unresolved conflict anywhere in a selected field molecule prevents clean.
-/// This avoids parsing the lossy legacy HashRange conflict display key.
+/// A format 7 home keeps its conflicts with each record: the reply names the
+/// kept losing values of each selected field, read by key.
 pub async fn selected_key_conflict_metadata<H: HostNode>(
     host: &H,
     request: SelectedConflictRequest,
@@ -28,44 +22,6 @@ pub async fn selected_key_conflict_metadata<H: HostNode>(
 ) -> Result<Value, HostError> {
     request.validate_access_and_count(ctx)?;
     let _permit = host.acquire_op_permit(Lane::Bulk).await?;
-    if host.fold_db().record_home() {
-        return selected_record_conflicts(host, &request).await;
-    }
-    let mut selected = Vec::with_capacity(request.keys.len());
-    let mut molecules = BTreeSet::new();
-    for key in &request.keys {
-        key.validate()?;
-        let fields = selected_field_molecules(host, key)?;
-        molecules.extend(fields.iter().flatten().cloned());
-        if molecules.len() > SELECTED_CONFLICT_MAX_MOLECULES {
-            return Err(HostError::new(400, "conflict_molecule_limit_exceeded"));
-        }
-        selected.push(fields);
-    }
-    let molecules: Vec<_> = molecules.into_iter().collect();
-    let states = host
-        .fold_db()
-        .selected_molecule_conflict_metadata(&molecules)
-        .await;
-    let states: HashMap<_, _> = molecules.into_iter().zip(states).collect();
-    let results: Vec<_> = selected
-        .into_iter()
-        .map(|fields| rules::field_result(fields, &states))
-        .collect();
-    Ok(serde_json::json!({
-        "version": 1,
-        "scope": "selected_field_molecules",
-        "count": results.len(),
-        "results": results,
-    }))
-}
-
-/// A format 7 home keeps its conflicts with each record: the reply names the
-/// kept losing values of each selected field, read by key.
-async fn selected_record_conflicts<H: HostNode>(
-    host: &H,
-    request: &SelectedConflictRequest,
-) -> Result<Value, HostError> {
     let mut selections = Vec::with_capacity(request.keys.len());
     for key in &request.keys {
         key.validate()?;
@@ -88,17 +44,6 @@ async fn selected_record_conflicts<H: HostNode>(
         "count": results.len(),
         "results": results,
     }))
-}
-
-fn selected_field_molecules<H: HostNode>(
-    host: &H,
-    key: &SelectedConflictKey,
-) -> Result<Vec<Option<String>>, HostError> {
-    if key.range.is_some() {
-        return Err(HostError::new(400, "hash_key_conflict_selection_required"));
-    }
-    let schema = selected_schema(host, &key.schema_name)?;
-    rules::field_molecules(&schema, &key.fields)
 }
 
 fn selected_schema<H: HostNode>(

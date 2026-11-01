@@ -186,15 +186,7 @@ async fn activate_generated_send_rule(host: &Host) -> Result<String, Box<dyn std
 /// changed record in the rule's scope. Write two records and update one, then
 /// read the hash in both scopes; the values must match. Returns the number of
 /// mutations.
-///
-/// Only a format 7 home runs the check. A molecule home (format 4 to 6)
-/// copies the complete key set of each touched field molecule to the share
-/// scope; with the 1,216 generated keys of the send schema, that copy exceeds
-/// the 16,384-operation cap of one native mutation, and the write fails.
 async fn check_generated_send(host: &Host) -> Result<usize, Box<dyn std::error::Error>> {
-    if !host.db.db_ops().atoms().record_home() {
-        return Ok(0);
-    }
     let share_prefix = activate_generated_send_rule(host).await?;
     let batches = [
         vec![
@@ -277,16 +269,17 @@ async fn read_send_hash(
         .query_executor()
         .query_with_access(query, &access)
         .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(field, values)| {
-            let values = values
-                .into_iter()
-                .map(|(key, value)| (key.range.unwrap_or_default(), value.value))
-                .collect();
-            (field, values)
-        })
-        .collect())
+    let mut fields: BTreeMap<String, BTreeMap<String, Value>> = BTreeMap::new();
+    for (key, record) in rows {
+        let range = key.range.unwrap_or_default();
+        for (field, value) in record.fields {
+            fields
+                .entry(field)
+                .or_default()
+                .insert(range.clone(), value);
+        }
+    }
+    Ok(fields)
 }
 
 #[tokio::main]
@@ -299,12 +292,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
     let result = populate(&host, &input).await;
-    let send_check = host.db.db_ops().atoms().record_home();
     host.db.shutdown().await?;
+    // Every home is format 7, so the share send check always runs.
     println!(
         "{}",
         serde_json::json!({"mutations": result?, "durable": true,
-        "received_sources": SENDERS, "generated_data_only": true, "send_check": send_check})
+        "received_sources": SENDERS, "generated_data_only": true, "send_check": true})
     );
     Ok(())
 }

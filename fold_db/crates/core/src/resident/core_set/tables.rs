@@ -1,9 +1,9 @@
 //! Interned slot table.
 //!
-//! Each slot key is stored once. Paths, owner lists, and source links refer
-//! to a slot by a small integer id instead of a cloned key. The index holds
-//! only ids, so a lookup by borrowed strings needs no temporary key. Source
-//! keys live in `source_keys`, path names in `path_table`.
+//! Each slot key is stored once. Paths and owner lists refer to a slot by a
+//! small integer id instead of a cloned key. The index holds only ids, so a
+//! lookup by borrowed strings needs no temporary key. Path names live in
+//! `path_table`.
 
 use super::path_table::PathId;
 use super::slab::Slab;
@@ -13,15 +13,12 @@ use smallvec::SmallVec;
 use std::hash::{BuildHasher, RandomState};
 
 pub(super) type SlotId = u32;
-pub(super) use super::source_keys::SourceId;
 
 /// Everything the core keeps for one slot. The slot leaves with its last owner.
 pub(super) struct SlotEntry {
     pub(super) key: SlotKey,
     /// Alias paths that share this slot.
     pub(super) owners: SmallVec<[PathId; 2]>,
-    /// Distinct invalidation sources, at most `MAX_SLOT_SOURCES`.
-    pub(super) sources: SmallVec<[SourceId; 8]>,
     pub(super) atom: Option<Arc<SharedAtom>>,
     /// The current tip of this key and its key metadata. The warm set keeps
     /// no second molecule copy; the slot is the only owner of the tip.
@@ -90,30 +87,6 @@ impl SlotTable {
         self.entries.iter()
     }
 
-    /// Add a slot without owners. The caller adds the first owner at once.
-    pub(super) fn insert(&mut self, mut key: SlotKey) -> SlotId {
-        if let Some((canonical, _)) = self.names.get_key_value(&key.molecule) {
-            key.molecule = canonical.clone();
-        }
-        *self.names.entry(key.molecule.clone()).or_insert(0) += 1;
-        let digest = key_hash(&self.hasher, &key);
-        let entry = SlotEntry {
-            key,
-            owners: SmallVec::new(),
-            sources: SmallVec::new(),
-            atom: None,
-            tip: None,
-            metadata: None,
-            owned: None,
-            tip_charge: 0,
-        };
-        let id = self.entries.insert(entry);
-        let (entries, hasher) = (&self.entries, &self.hasher);
-        self.index
-            .insert_unique(digest, id, |id| entry_hash(hasher, entries, *id));
-        id
-    }
-
     pub(super) fn remove(&mut self, id: SlotId) {
         let Some(entry) = self.entries.take(id) else {
             return;
@@ -142,19 +115,4 @@ fn key_hash(hasher: &RandomState, key: &SlotKey) -> u64 {
         key.hash.as_ref(),
         key.range.as_ref(),
     ))
-}
-
-fn entry_hash(hasher: &RandomState, entries: &Slab<SlotEntry>, id: SlotId) -> u64 {
-    key_hash(hasher, &entries.get(id).expect("indexed core slot").key)
-}
-
-/// Reuse a freed id before growing the table.
-pub(super) fn slab_insert<T>(entries: &mut Vec<Option<T>>, free: &mut Vec<u32>, entry: T) -> u32 {
-    if let Some(id) = free.pop() {
-        entries[id as usize] = Some(entry);
-        return id;
-    }
-    let id = u32::try_from(entries.len()).expect("core table id space");
-    entries.push(Some(entry));
-    id
 }

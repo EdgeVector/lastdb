@@ -8,14 +8,6 @@ use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde_json::Value;
 
-/// The slot of a record, in storage form: the same coordinates that the `mk:`
-/// key of the slot uses.
-pub(crate) struct RecordSlot<'a> {
-    pub(crate) molecule: &'a str,
-    pub(crate) hash: &'a str,
-    pub(crate) range: &'a str,
-}
-
 impl AtomStore {
     /// The queue entry and the directory row of its bucket for one conflict
     /// row of a format 7 home. The entry names the row as its history row and

@@ -76,7 +76,7 @@ impl AtomStore {
         scope: Option<&str>,
         id: &str,
     ) -> Result<Option<Value>, SchemaError> {
-        super::read::validate_id(id)?;
+        validate_id(id)?;
         let (_, prefix) = self.record_history_location(schema, key, field_identity, scope)?;
         self.atom_read_scope(async {
             let key = format!("{prefix}{id}");

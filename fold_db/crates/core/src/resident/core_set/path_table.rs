@@ -7,7 +7,7 @@
 //! needs a `CorePath` back.
 
 use super::slab::Slab;
-use super::tables::{slab_insert, SlotTable};
+use super::tables::SlotTable;
 use super::*;
 use hashbrown::HashTable;
 use std::hash::{BuildHasher, RandomState};
@@ -70,24 +70,6 @@ impl PathTable {
             .map(|(id, entry)| (id, &mut entry.state))
     }
 
-    /// Add a path that is not warm. `state.slot` must be the slot of `path`.
-    pub(super) fn insert(&mut self, path: &CorePath, state: PathState) -> PathId {
-        let entry = PathEntry {
-            schema: self.names.acquire(&path.schema),
-            field: self.names.acquire(&path.field),
-            state,
-        };
-        let hash = self
-            .hasher
-            .hash_one((entry.state.slot, entry.schema, entry.field));
-        let id = self.entries.insert(entry);
-        let (entries, hasher) = (&self.entries, &self.hasher);
-        self.index
-            .insert_unique(hash, id, |id| entry_hash(hasher, entries, *id));
-        self.len += 1;
-        id
-    }
-
     pub(super) fn remove(&mut self, id: PathId) -> Option<PathState> {
         self.entries.get(id)?;
         let hash = entry_hash(&self.hasher, &self.entries, id);
@@ -118,20 +100,6 @@ struct NameTable {
 impl NameTable {
     fn find(&self, name: &str) -> Option<NameId> {
         self.index.get(name).copied()
-    }
-
-    fn acquire(&mut self, name: &str) -> NameId {
-        if let Some(id) = self.find(name) {
-            self.names[id as usize]
-                .as_mut()
-                .expect("interned core name")
-                .1 += 1;
-            return id;
-        }
-        let name: Arc<str> = Arc::from(name);
-        let id = slab_insert(&mut self.names, &mut self.free, (Arc::clone(&name), 1));
-        self.index.insert(name, id);
-        id
     }
 
     fn release(&mut self, id: NameId) {

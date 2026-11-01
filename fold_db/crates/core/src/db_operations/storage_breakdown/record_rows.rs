@@ -28,7 +28,7 @@ type RecordTotals = HashMap<String, (u64, u64)>;
 
 impl AtomStore {
     /// Add the live records of a format 7 home to `breakdown`, one row per
-    /// schema. An atom home has no record plane and keeps its rows as they are.
+    /// schema.
     ///
     /// One paged walk reads the whole record plane under `storage_prefix`, so
     /// the cost is O(all records), as for the atom walk. `schema_names` maps
@@ -41,9 +41,6 @@ impl AtomStore {
         schema_names: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
-        if !self.record_home() {
-            return Ok(());
-        }
         let spaces: HashMap<String, &str> = schema_names
             .iter()
             .map(|name| (record_space_uuid(name), name.as_str()))

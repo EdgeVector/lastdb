@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::memory_budget::DeferReservation;
-use crate::resident::core_keys::{CoreKeyBudget, CoreKeyReservation};
+use crate::resident::core_keys::CoreKeyBudget;
 
 mod prepare;
 
@@ -10,22 +10,8 @@ const METADATA_BYTES: usize = 16 * 1024 * 1024;
 
 pub(super) struct CoreModelSlot {
     pub(super) value: Option<CoreWarmSlot>,
-    pub(super) sources: Vec<(String, String)>,
     pub(super) owner: Option<Arc<DeferReservation>>,
-    pub(super) metadata_charge: Option<Arc<CoreKeyReservation>>,
     pub(super) charged_bytes: usize,
-}
-
-impl CoreModelSlot {
-    pub(super) fn clean(value: Option<CoreWarmSlot>) -> Arc<Self> {
-        Arc::new(Self {
-            value,
-            sources: Vec::new(),
-            owner: None,
-            metadata_charge: None,
-            charged_bytes: 0,
-        })
-    }
 }
 
 pub(super) struct CoreModel {
@@ -71,29 +57,6 @@ pub(crate) struct CoreModelStats {
 }
 
 impl CoreWarmSet {
-    /// A path hold protects membership; these owners protect overwritten bytes.
-    /// A clean value has no owned copy, so its holder keeps the atom itself.
-    pub(crate) fn retained_values(
-        &self,
-        paths: &[CorePath],
-    ) -> Vec<Arc<dyn std::any::Any + Send + Sync>> {
-        paths
-            .iter()
-            .filter_map(|path| {
-                let slot = self.slots.get(self.slot_of(path)?)?;
-                match (&slot.owned, &slot.atom) {
-                    (Some(owned), _) => {
-                        Some(Arc::clone(owned) as Arc<dyn std::any::Any + Send + Sync>)
-                    }
-                    (None, Some(atom)) => {
-                        Some(Arc::clone(&atom.value) as Arc<dyn std::any::Any + Send + Sync>)
-                    }
-                    (None, None) => None,
-                }
-            })
-            .collect()
-    }
-
     /// Publish prepared memory definitions only after their complete disk root
     /// is committed.
     pub(crate) fn install_clean(&mut self, update: &CoreModelUpdate) {

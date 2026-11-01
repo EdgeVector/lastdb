@@ -76,18 +76,6 @@ pub struct AtomHistoryPage {
 }
 
 impl ArchiveRecord {
-    pub(crate) fn entry(&self, key: &str) -> AtomHistoryEntry {
-        AtomHistoryEntry {
-            id: key.rsplit(':').next().unwrap_or_default().to_string(),
-            atom: Some(self.event.new_atom_uuid.clone()),
-            written_at: self.archive.source.entry.written_at,
-            mutation: self.archive.source.entry.mutation_uuid.clone(),
-            archived_at: self.archive.archived_at,
-            expires_at: self.archive.expires_at,
-            reason: self.archive.reason.clone(),
-        }
-    }
-
     pub(crate) fn expired(&self, now: u64) -> bool {
         self.archive.expires_at.is_some_and(|at| at <= now)
     }

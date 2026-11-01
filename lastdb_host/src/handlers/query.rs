@@ -119,7 +119,7 @@ async fn execute_query_scoped<H: HostNode>(
     if query.key_name.is_some() {
         return alternate::execute(host, query, limit, offset, cursor, ctx).await;
     }
-    let walk = walk::walks_records(&query, host.fold_db().record_home());
+    let walk = walk::walks_records(&query);
     let (limit, offset) = walk::page_request(&mut query, walk, limit, offset);
     rules::validate_query_options(&query, cursor.is_some(), walk)?;
     let comparison = capture_key_comparison(host, &query.schema_name).await?;

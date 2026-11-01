@@ -14,7 +14,6 @@ tokio::task_local! {
     static COMPARISON: Arc<KeyComparisonContext>;
 }
 
-mod field;
 pub(crate) mod normalize;
 
 #[derive(Debug, Clone)]

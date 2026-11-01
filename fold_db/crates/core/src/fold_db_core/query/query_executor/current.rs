@@ -1,14 +1,13 @@
 //! Resolve the caller's namespace, prepare its schema, then read selected fields.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::access::AccessContext;
-use crate::schema::types::field::{FieldValue, KeyWindow};
-use crate::schema::types::{KeyValue, Query};
+use crate::schema::types::field::KeyWindow;
+use crate::schema::types::Query;
 use crate::schema::SchemaError;
 
-use super::{rules, FieldQueryOptions, QueryExecutor};
+use super::{rules, FieldQueryOptions, QueryExecutor, QueryRecords};
 
 impl QueryExecutor {
     pub(super) async fn query_current(
@@ -16,7 +15,7 @@ impl QueryExecutor {
         mut query: Query,
         window: Option<KeyWindow>,
         access_context: Option<&AccessContext>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+    ) -> Result<QueryRecords, SchemaError> {
         if query.key_name.is_some() {
             return Err(SchemaError::InvalidData(
                 "use the named alternate page reader".into(),
@@ -44,7 +43,7 @@ impl QueryExecutor {
                 query.schema_name
             )));
         };
-        // Scope molecule reads to the request DB handle (personal /
+        // Scope record reads to the request DB handle (personal /
         // org). Clone-only schema — never written back to the registry.
         rules::scope_fields(&mut schema, storage_prefix.as_deref());
 
@@ -62,7 +61,7 @@ impl QueryExecutor {
 
         self.hash_range_processor
             .query_with_field_predicates(
-                &mut schema,
+                &schema,
                 &query.fields,
                 query.filter.take(),
                 window,
@@ -71,8 +70,6 @@ impl QueryExecutor {
                     value_filters: query.value_filters.as_deref(),
                     order_by: query.order_by.as_ref(),
                     predicate_limit: query.predicate_limit,
-                    include_tombstones: query.include_tombstones,
-                    secondary_concurrency: query.secondary_concurrency,
                 },
             )
             .await

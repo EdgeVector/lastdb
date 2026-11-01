@@ -23,13 +23,11 @@
 use std::collections::HashSet;
 
 use fold_db::access::AccessContext;
-use fold_db::db_operations::HomeConflictAnnotation;
 use fold_db::error::FoldDbError;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::operations::{Query, SortOrder};
 use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
-use futures::StreamExt;
 use lastdb_uds::uds_http::UdsResponse;
 use serde_json::Value;
 

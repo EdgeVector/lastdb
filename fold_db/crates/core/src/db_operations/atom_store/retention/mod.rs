@@ -39,13 +39,6 @@
 mod drain;
 mod entry;
 pub(crate) use entry::RetentionEntry;
-pub(crate) fn archive_dir_key(
-    scope: Option<&str>,
-    slot: &super::RecordSlot<'_>,
-    id: &str,
-) -> String {
-    keys::dir_key(scope, slot.molecule, slot.hash, slot.range, id)
-}
 mod keys;
 mod page;
 mod repair;
@@ -60,6 +53,5 @@ pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest};
 pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
-pub(crate) use rows::RecordSlot;
 pub(crate) use slots::RELEASE_RECORD_CAP;
 pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};

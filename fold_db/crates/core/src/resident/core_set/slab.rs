@@ -15,8 +15,6 @@ const CHUNK: usize = 1024;
 pub(super) struct Slab<T> {
     chunks: Vec<Box<[Option<T>]>>,
     free: Vec<u32>,
-    /// One past the highest id ever handed out.
-    next: u32,
 }
 
 impl<T> Default for Slab<T> {
@@ -24,7 +22,6 @@ impl<T> Default for Slab<T> {
         Self {
             chunks: Vec::new(),
             free: Vec::new(),
-            next: 0,
         }
     }
 }
@@ -34,34 +31,7 @@ fn split(id: u32) -> (usize, usize) {
     (id / CHUNK, id % CHUNK)
 }
 
-fn new_chunk<T>() -> Result<Box<[Option<T>]>, std::collections::TryReserveError> {
-    let mut chunk = Vec::new();
-    chunk.try_reserve_exact(CHUNK)?;
-    chunk.resize_with(CHUNK, || None);
-    Ok(chunk.into_boxed_slice())
-}
-
 impl<T> Slab<T> {
-    /// Store `value`, reusing a freed id before the table grows.
-    pub(super) fn insert(&mut self, value: T) -> u32 {
-        let id = self.free.pop().unwrap_or_else(|| {
-            let id = self.next;
-            self.next = id.checked_add(1).expect("core table id space");
-            id
-        });
-        let (chunk, at) = split(id);
-        while self.chunks.len() <= chunk {
-            // Out of memory aborts, as `Vec::push` did. A panic here would
-            // poison the warm set lock for every later caller.
-            let fresh = new_chunk().unwrap_or_else(|_| {
-                std::alloc::handle_alloc_error(std::alloc::Layout::new::<[Option<T>; CHUNK]>())
-            });
-            self.chunks.push(fresh);
-        }
-        self.chunks[chunk][at] = Some(value);
-        id
-    }
-
     pub(super) fn get(&self, id: u32) -> Option<&T> {
         let (chunk, at) = split(id);
         self.chunks.get(chunk)?[at].as_ref()

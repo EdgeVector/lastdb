@@ -157,14 +157,6 @@ impl ReadContext {
         result
     }
 
-    pub(super) fn hold_core(
-        &self,
-        core: &mut crate::resident::CoreWarmSet,
-        paths: &[crate::resident::CorePath],
-    ) -> StorageResult<()> {
-        self.core_holds.hold(core, paths)
-    }
-
     fn owns_write(&self, pending: Option<&Arc<transaction::PendingBatch>>) -> bool {
         self.write_owner
             .as_ref()

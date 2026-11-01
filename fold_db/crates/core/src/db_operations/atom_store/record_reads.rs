@@ -31,15 +31,6 @@ pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
 pub(crate) type RecordKeyPage = (Vec<(String, String)>, Option<String>, bool);
 
 impl AtomStore {
-    /// True when this store serves a format 7 home. The node routes the
-    /// field history route by it.
-    pub fn record_home(&self) -> bool {
-        self.namespaced_store
-            .as_ref()
-            .and_then(|store| store.disk_pack_runtime())
-            .is_some_and(|runtime| runtime.record_home())
-    }
-
     /// The live records that one canonical key selector names, in page
     /// order. `None` reads the first page of the default size in record key
     /// order (`record_walk.rs`). A range under one hash of a HashRange schema

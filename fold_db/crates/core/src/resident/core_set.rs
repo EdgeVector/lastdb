@@ -10,7 +10,6 @@ use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
-mod admission;
 mod bytes;
 mod charge;
 mod keys;
@@ -20,7 +19,6 @@ mod model;
 mod path_table;
 mod records;
 mod slab;
-mod source_keys;
 mod sources;
 mod tables;
 
@@ -42,77 +40,10 @@ pub(crate) struct CorePath {
     pub(crate) range: String,
 }
 
-/// Typed data prepared privately before one path enters the shared model.
+/// The atom of a prepared path value.
 #[derive(Clone)]
 pub(crate) struct CoreWarmSlot {
-    pub(crate) entry: AtomEntry,
-    pub(crate) metadata: Option<KeyMetadata>,
     pub(crate) atom: Arc<Atom>,
-    pub(crate) bytes: usize,
-}
-
-/// An immutable selected answer. Only the selected atom remains shared.
-#[derive(Clone)]
-pub(crate) struct CoreWarmSelection {
-    pub(crate) entry: AtomEntry,
-    pub(crate) metadata: Option<KeyMetadata>,
-    pub(crate) atom: Arc<Atom>,
-    pub(crate) bytes: usize,
-}
-
-/// An authoritative current tip does not require its atom body to be loaded.
-#[derive(Clone)]
-pub(crate) struct CoreWarmTip {
-    pub(crate) entry: AtomEntry,
-    pub(crate) metadata: Option<KeyMetadata>,
-}
-
-/// A known tip permits key operations, while only a value can answer a body read.
-pub(crate) enum CoreWarmLookup {
-    Unknown,
-    Absent,
-    Tip(CoreWarmTip),
-    Value(CoreWarmSelection),
-}
-
-impl CoreWarmLookup {
-    fn unknown() -> Self {
-        Self::Unknown
-    }
-
-    fn absent() -> Self {
-        Self::Absent
-    }
-
-    fn value(selection: CoreWarmSelection) -> Self {
-        Self::Value(selection)
-    }
-
-    pub(crate) fn is_unknown(&self) -> bool {
-        matches!(self, Self::Unknown)
-    }
-
-    pub(crate) fn is_absent(&self) -> bool {
-        matches!(self, Self::Absent)
-    }
-
-    pub(crate) fn into_tip(self) -> Option<CoreWarmTip> {
-        match self {
-            Self::Tip(tip) => Some(tip),
-            Self::Value(value) => Some(CoreWarmTip {
-                entry: value.entry,
-                metadata: value.metadata,
-            }),
-            Self::Unknown | Self::Absent => None,
-        }
-    }
-
-    pub(crate) fn into_value(self) -> Option<CoreWarmSelection> {
-        match self {
-            Self::Value(value) => Some(value),
-            Self::Unknown | Self::Absent | Self::Tip(_) => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -204,7 +135,6 @@ struct PathState {
 
 struct SharedAtom {
     value: Arc<Atom>,
-    bytes: usize,
 }
 
 /// One current model. The separate path list controls retention, not values.
@@ -221,9 +151,8 @@ pub(crate) struct CoreWarmSet {
     paths: path_table::PathTable,
     order: BTreeMap<u64, path_table::PathId>,
     clock: u64,
-    // Slot owners, atoms, owned values, and source links, by interned id.
+    // Slot owners, atoms, and owned values, by interned id.
     slots: tables::SlotTable,
-    sources: source_keys::SourceTable,
     // Decoded records of a format 7 home, on the same clock as `order`.
     records: records::RecordTable,
     hits: u64,
@@ -270,23 +199,6 @@ impl CoreWarmSet {
         }
     }
 
-    /// Absence requires the same publication boundary and source links as a tip.
-    pub(crate) fn authorize_path(&mut self, path: &CorePath) {
-        let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get(id)) else {
-            return;
-        };
-        for owner in &slot.owners {
-            if let Some(state) = self.paths.state_mut(*owner) {
-                state.tip_authorized = state.known;
-            }
-        }
-    }
-
-    pub(crate) fn path_authorized(&self, path: &CorePath) -> bool {
-        self.path_state(path)
-            .is_some_and(|state| state.known && state.tip_authorized)
-    }
-
     /// Control records can change visible tips without changing their bodies.
     pub(crate) fn clear_authorizations(&mut self) {
         for (_, state) in self.paths.iter_mut() {
@@ -294,29 +206,7 @@ impl CoreWarmSet {
         }
     }
 
-    /// The slot of a path, or of its alias when this path is not warm. A
-    /// warm path always has the slot of its own slot key.
-    fn slot_of(&self, path: &CorePath) -> Option<tables::SlotId> {
-        self.slots.find_path(path)
-    }
-
     fn path_id(&self, path: &CorePath) -> Option<path_table::PathId> {
         self.paths.find(&self.slots, path)
-    }
-
-    fn path_state(&self, path: &CorePath) -> Option<&PathState> {
-        self.paths.state(self.path_id(path)?)
-    }
-}
-
-impl CorePath {
-    /// A new key with fresh strings. Used to intern a slot and to group
-    /// transient write effects; warm lookups use the interned id.
-    fn slot_key(&self) -> SlotKey {
-        SlotKey {
-            molecule: MoleculeKey::new(self.scope.as_deref(), &self.molecule),
-            hash: Arc::from(self.hash.as_str()),
-            range: Arc::from(self.range.as_str()),
-        }
     }
 }

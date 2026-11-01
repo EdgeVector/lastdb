@@ -130,7 +130,7 @@ async fn range_page(
     let query = Query::new_with_filter(schema.to_string(), vec![field.to_string()], Some(filter));
     let access = owner_context(host);
     let executor = host.db.query_executor();
-    let mut rows = match after {
+    let rows = match after {
         Some(cursor) => {
             executor
                 .query_with_access_keyset_windowed(query, cursor, limit, &access)
@@ -144,8 +144,8 @@ async fn range_page(
     }
     .map_err(|error| error.to_string())?;
     Ok(rows
-        .remove(field)
         .into_iter()
-        .flat_map(std::collections::HashMap::into_keys)
+        .filter(|(_, record)| record.fields.contains_key(field))
+        .map(|(key, _)| key)
         .collect())
 }

@@ -11,9 +11,8 @@
 //! slot shape (Hash / Range / HashRange) is expressed via [`FieldKind`] /
 //! filter layout.
 //!
-//! A field is a value. It never reads the store: the engine read path
-//! (`db_operations::field_read`) takes a field as an argument and installs
-//! the loaded molecule into it.
+//! A field is a value. It never reads the store. A format 7 home reads
+//! records, not field molecules.
 
 mod access;
 mod filter;

@@ -1,14 +1,10 @@
-//! Schema-facing key pages use one captured schema, key, and body boundary.
+//! Schema-facing key pages read the record keys of one schema in one captured view.
 
 use super::*;
 use crate::db_operations::SchemaRecordKeysRequest;
-use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::logical_paths::field;
-use futures::FutureExt;
 use lastdb_model::record_space::record_space_uuid;
-use std::sync::Arc;
 
 type KeyPage = (Vec<(String, String)>, Option<String>, bool);
 
@@ -112,7 +108,7 @@ impl FoldDB {
             SchemaError::InvalidField(format!("schema '{requested}' has no hash_field to list"))
         })?;
         let (molecule, (pairs, next_cursor, has_more)) = self
-            .schema_key_page(&mut schema, &key_field, &request, storage_prefix.as_deref())
+            .schema_key_page(&schema, &request, storage_prefix.as_deref())
             .await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
@@ -132,91 +128,26 @@ impl FoldDB {
         })
     }
 
-    /// The listed molecule (or record space) and one page of its keys. A
-    /// format 7 home lists its records; the cursor is a record key.
-    async fn schema_key_page(
+    /// The listed record space and one page of its record keys. The cursor
+    /// is a record key.
+    pub(in crate::fold_db_core::fold_db) async fn schema_key_page(
         &self,
-        schema: &mut Schema,
-        key_field: &str,
+        schema: &Schema,
         request: &SchemaRecordKeysRequest<'_>,
         storage_prefix: Option<&str>,
     ) -> Result<(String, KeyPage), SchemaError> {
         let atoms = self.db_ops().atoms();
-        if atoms.record_home() {
-            let comparison = atoms.key_comparison_context(schema).await?;
-            let page = atoms
-                .list_record_keys(
-                    schema,
-                    &comparison,
-                    request.limit,
-                    request.cursor,
-                    request.hash_filter,
-                    storage_prefix,
-                )
-                .await?;
-            return Ok((record_space_uuid(&schema.name), page));
-        }
-        let molecule = schema
-            .field_molecule_uuids
-            .as_ref()
-            .and_then(|molecules| molecules.get(key_field).cloned())
-            .or_else(|| {
-                schema
-                    .runtime_fields
-                    .get_mut(key_field)
-                    .and_then(|field| field.inner.molecule_uuid().cloned())
-            })
-            .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(&schema.name, key_field));
-        let page = self
-            .list_schema_key_page(schema, key_field, &molecule, request, storage_prefix)
-            .await?;
-        Ok((molecule, page))
-    }
-
-    /// Keep the field binding, membership proof, and physical refill in one read.
-    pub(in crate::fold_db_core::fold_db) async fn list_schema_key_page(
-        &self,
-        schema: &Schema,
-        key_field: &str,
-        molecule: &str,
-        request: &SchemaRecordKeysRequest<'_>,
-        storage_prefix: Option<&str>,
-    ) -> Result<KeyPage, SchemaError> {
-        let named_layout = matches!(
-            schema.schema_type,
-            crate::schema::types::schema::DeclarativeSchemaType::HashRange
-        );
-        if let Some(runtime) = self.db_ops().namespaced_store().disk_pack_runtime() {
-            runtime
-                .preload_bound_field(Arc::clone(self.db_ops()), schema, key_field)
-                .await?;
-        }
-        let binding = field::FieldScope::new(schema, key_field)?;
-        let check = |keys: Vec<KeyValue>| {
-            async move {
-                crate::db_operations::logical_membership::logical_key_membership(
-                    self.db_ops(),
-                    schema,
-                    &keys,
-                    storage_prefix,
-                )
-                .await
-            }
-            .boxed()
-        };
-        field::query_scope(
-            binding.run(self.db_ops().atoms().list_schema_record_keys_filtered(
-                molecule,
+        let comparison = atoms.key_comparison_context(schema).await?;
+        let page = atoms
+            .list_record_keys(
+                schema,
+                &comparison,
                 request.limit,
                 request.cursor,
                 request.hash_filter,
-                crate::db_operations::atom_store::SchemaKeyMembership {
-                    named_layout,
-                    check: &check,
-                },
                 storage_prefix,
-            )),
-        )
-        .await
+            )
+            .await?;
+        Ok((record_space_uuid(&schema.name), page))
     }
 }

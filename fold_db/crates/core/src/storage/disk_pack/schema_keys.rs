@@ -3,16 +3,13 @@ use super::*;
 use crate::atom::MoleculeKeyCodec;
 use crate::records::molecule_record::{MoleculeGenerationPointer, PerKeyRecord};
 use crate::resident::core_keys::{
-    CoreKeyBudget, CoreKeyDomain, CoreKeyIdentity, CoreKeyLease, CoreKeyReservation,
+    CoreKeyBudget, CoreKeyDomain, CoreKeyIdentity, CoreKeyReservation,
 };
 use crate::schema::{Schema, SchemaError};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::AtomicUsize;
-
-mod binding;
 mod load;
 mod publication;
-mod selection;
 
 /// The record source of one schema key preload. The operations layer
 /// implements it over the atom store; the disk pack keeps the membership.
@@ -77,7 +74,6 @@ pub(super) struct SchemaKeys {
     entries: Mutex<HashMap<DomainId, Arc<Entry>>>,
     loads: AtomicU64,
     hits: AtomicU64,
-    clock: AtomicU64,
     active: AtomicUsize,
     load_slots: Arc<tokio::sync::Semaphore>,
 }
@@ -114,7 +110,6 @@ impl SchemaKeys {
             entries: Mutex::new(HashMap::new()),
             loads: AtomicU64::new(0),
             hits: AtomicU64::new(0),
-            clock: AtomicU64::new(0),
             active: AtomicUsize::new(0),
             load_slots: Arc::new(tokio::sync::Semaphore::new(1)),
         }

@@ -1,6 +1,5 @@
 //! The separate recency list retains only logical path references.
 
-use super::charge::path_charge;
 use super::*;
 
 /// Victims selected per scan of the recency list.
@@ -34,37 +33,6 @@ impl CoreWarmSet {
         let before = self.byte_stats().used_bytes;
         let purged = self.purge_clean_until(target, &HashSet::new());
         (purged, before, self.byte_stats().used_bytes)
-    }
-
-    /// Make room for the requested paths under the byte limit. Never refuses:
-    /// if only held paths remain, the new paths enter over the limit.
-    /// Call release or a later admission purges again (design D5).
-    pub(super) fn make_room(&mut self, requested: &[CorePath]) -> Result<(), CoreCapacity> {
-        let new_paths = requested
-            .iter()
-            .filter(|path| self.path_id(path).is_none())
-            .count();
-        let incoming = new_paths * path_charge();
-        // The common case fits: decide before any allocation.
-        if self.fits(incoming) {
-            return Ok(());
-        }
-        let keep: HashSet<_> = requested
-            .iter()
-            .filter_map(|path| self.path_id(path))
-            .collect();
-        self.trim_to_limit(incoming, &keep);
-        Ok(())
-    }
-
-    /// Bring the charge back under the limit after an atom charge, which is
-    /// known only at admission. The admitted path itself stays.
-    pub(super) fn trim_after_admit(&mut self, path: &CorePath) {
-        if self.fits(0) {
-            return;
-        }
-        let keep: HashSet<_> = self.path_id(path).into_iter().collect();
-        self.trim_to_limit(0, &keep);
     }
 
     fn fits(&self, incoming: usize) -> bool {
@@ -160,24 +128,6 @@ impl CoreWarmSet {
         }
     }
 
-    pub(super) fn touch(&mut self, path: &CorePath) {
-        if let Some(id) = self.path_id(path) {
-            self.touch_id(id);
-        }
-    }
-
-    pub(super) fn touch_id(&mut self, id: path_table::PathId) {
-        if self.paths.state(id).is_none() {
-            return;
-        }
-        // A wrap renumbers every tick, so the path's tick is read after it.
-        let tick = self.next_tick();
-        let state = self.paths.state_mut(id).expect("warm core path");
-        self.order.remove(&state.tick);
-        state.tick = tick;
-        self.order.insert(tick, id);
-    }
-
     pub(super) fn drop_id(&mut self, path: path_table::PathId) {
         let Some(state) = self.paths.remove(path) else {
             return;
@@ -191,7 +141,6 @@ impl CoreWarmSet {
         });
         if last_owner {
             self.release_slot(id);
-            self.forget_slot_sources(id);
             self.forget_slot_value(id);
             self.slots.remove(id);
         }

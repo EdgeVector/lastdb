@@ -1,8 +1,6 @@
-//! Bounded physical-key pages, with schema membership checked before the limit.
+//! Bounded physical-key pages of one molecule.
 
 use super::*;
-use crate::schema::types::key_value::KeyValue;
-use futures::future::BoxFuture;
 use futures::FutureExt;
 
 mod logical;
@@ -10,27 +8,12 @@ mod values;
 
 type KeyPage = (Vec<(String, String)>, Option<String>, bool);
 
-/// Schema pages prove their logical coordinates before a key consumes the limit.
-#[derive(Clone, Copy)]
-pub(crate) struct SchemaKeyMembership<'a> {
-    pub(crate) named_layout: bool,
-    pub(crate) check:
-        &'a (dyn Fn(Vec<KeyValue>) -> BoxFuture<'a, Result<Vec<bool>, SchemaError>> + Send + Sync),
-}
-
-#[derive(Clone, Copy)]
-enum Membership<'a> {
-    Physical,
-    Schema(SchemaKeyMembership<'a>),
-}
-
 struct KeyList<'a> {
     molecule: &'a str,
     limit: usize,
     after: Option<&'a str>,
     scope: Option<&'a str>,
     hash: Option<&'a str>,
-    membership: Membership<'a>,
 }
 
 impl AtomStore {
@@ -62,28 +45,6 @@ impl AtomStore {
             after,
             scope: storage_prefix,
             hash: hash_filter,
-            membership: Membership::Physical,
-        })
-        .await
-    }
-
-    /// Schema-facing pages require selected bodies and exclude foreign layouts.
-    pub(crate) async fn list_schema_record_keys_filtered<'a>(
-        &self,
-        molecule: &'a str,
-        limit: usize,
-        after: Option<&'a str>,
-        hash_filter: Option<&'a str>,
-        membership: SchemaKeyMembership<'a>,
-        storage_prefix: Option<&'a str>,
-    ) -> Result<KeyPage, SchemaError> {
-        self.list_record_keys_read(KeyList {
-            molecule,
-            limit,
-            after,
-            scope: storage_prefix,
-            hash: hash_filter,
-            membership: Membership::Schema(membership),
         })
         .await
     }

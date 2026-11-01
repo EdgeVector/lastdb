@@ -111,33 +111,4 @@ impl AtomStore {
         }
         Ok(hit)
     }
-
-    /// Batch-fetch per-key molecule records for a known set of `(hash, range)`
-    /// slots — the co-key multi-field list path's secondary-field fan-out.
-    ///
-    /// One `get_many` over the storage layer (single `spawn_blocking` hop)
-    /// instead of N sequential `get_per_key` calls. Missing keys yield no
-    /// entry (sparse fields). Each output position matches its input slot and
-    /// retains the exact storage key.
-    pub(crate) async fn load_per_key_records_for_slots(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-        keys: &[(String, String)],
-    ) -> Result<Vec<Option<(String, PerKeyRecord)>>, SchemaError> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        let api_keys: Vec<_> = keys
-            .iter()
-            .map(|(hash, range)| {
-                crate::schema::types::key_value::KeyValue::new(
-                    Some(hash.clone()),
-                    Some(range.clone()),
-                )
-            })
-            .collect();
-        self.load_query_tip_records(storage_prefix, molecule_uuid, &api_keys)
-            .await
-    }
 }

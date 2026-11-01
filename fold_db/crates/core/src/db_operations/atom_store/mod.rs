@@ -40,7 +40,6 @@ pub use delete_replay::DeletePruneReport;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
-mod helpers;
 mod keep_small;
 mod key_comparison;
 pub(crate) mod key_format;
@@ -56,7 +55,6 @@ mod record_spans;
 mod record_walk;
 mod records;
 mod retention;
-mod schema_keys;
 pub(crate) mod time_queue;
 mod writer_watch;
 
@@ -73,7 +71,6 @@ pub use counter::{
     MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,
     VerifySummary,
 };
-pub(crate) use filter::SchemaKeyMembership;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOutcomeKind};
@@ -87,12 +84,11 @@ pub(crate) use record_walk::WalkWindow;
 pub use record_walk::RECORD_WALK_ROWS;
 pub(crate) use records::{record_scope, RecordChange};
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
+pub(crate) use retention::{record_digest, Lane, RetentionCursor, StepOutcome};
 // The molecule records are model values that the storage layer also reads.
 pub use crate::records::molecule_record::MoleculeData;
 pub(crate) use crate::records::molecule_record::{
-    MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, MoleculeRangeForm,
-    PerKeyRecord,
+    MoleculeGenerationDelete, MoleculeGenerationPointer, MoleculeGenerationSlot, PerKeyRecord,
 };
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
@@ -268,17 +264,6 @@ impl AtomStore {
     #[must_use]
     pub(crate) fn store_id(&self) -> crate::atom::history_event_memo::StoreId {
         self.store_id
-    }
-
-    /// Map API HashKey to its blinded storage form.
-    pub(crate) fn storage_hash(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-    ) -> Result<String, crate::schema::SchemaError> {
-        self.key_codec_for_molecule(molecule_uuid)?
-            .storage_hash(molecule_uuid, api_hash)
-            .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))
     }
 
     pub(crate) fn key_codec_for_molecule(

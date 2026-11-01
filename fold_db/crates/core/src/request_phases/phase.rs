@@ -229,13 +229,13 @@ pub enum RequestPhase {
     /// The only sub-step that touches storage, so it is the one that moves
     /// with the warm set hit rate (the read receipt's `logical_warm_hits` and
     /// `logical_warm_misses`). Large here with mostly hits is in-memory
-    /// materialization cost (molecule walk, decrypt, value decode), which is a
+    /// materialization cost (record decode and projection), which is a
     /// different fix from large here with misses climbing — that is a
     /// placement or pruning problem.
     HydrateAtoms,
-    /// Query only: building the response envelopes — `records_from_field_map`
-    /// plus one `serde_json` object per row carrying its fields, metadata and
-    /// author key.
+    /// Query only: building the response envelopes — one `serde_json`
+    /// object per returned record carrying its fields, metadata and author
+    /// key.
     ///
     /// Scales with `rows x fields` and with value width, and touches no
     /// storage at all. It is separated from [`Self::HydrateAtoms`] because the

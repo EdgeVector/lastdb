@@ -1,59 +1,35 @@
 //! HashRange Query Processor
 //!
-//! **Single co-key plan for every multi-field (and single-field) query:**
-//! 1. The primary field establishes the live key set under the request filter
-//!    and selected personal or share namespace.
-//! 2. Secondary fields resolve only those keys through batched current tips.
-//! 3. Secondary atom bodies are fetched in one `get_many` (zipped by index
-//!    so fields that share keys do not clobber each other).
+//! A format 7 home keeps one record at each primary key. A query reads the
+//! records that its key selector names (`records.rs`), applies the
+//! conditions, the order and the window to whole records, then returns the
+//! selected fields of each record.
 //!
-//! One captured read keeps candidate keys, values, filters and projection
-//! consistent. Historical reads are refused at the logical boundary.
-//!
-//! Share namespaces: the processor also scans `from:{sender_hash}:` for each
-//! active `ShareSubscription` so data received from other users surfaces
-//! alongside the caller's own data. Personal keys win on collision; shared
-//! rows get `writer_pubkey` stamped with the sender when unset.
+//! Share namespaces: while the node receives data from other users, the read
+//! merges each active `from:{sender_hash}` scope with the own scope by key.
+//! The own record wins on a collision (`records/received.rs`).
 
 use crate::db_operations::ChangeFeedEvent;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::{FieldValue, HashRangeFilter, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{Schema, SchemaError};
-use futures::{stream, FutureExt, StreamExt};
+use futures::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-mod cokey;
-mod cokey_primary;
-mod cokey_secondary;
 mod condition_rules;
 mod count;
 mod field_rules;
-mod fields;
 mod filter;
-mod inspection;
-mod layout;
-mod paging;
-mod pending_values;
 mod predicates;
-mod primary_selection;
-mod received_window;
 mod records;
 mod redacted_filter;
-mod resolve;
-mod secondary;
-mod secondary_rules;
 mod shares;
 mod watch;
 
-use cokey::CokeySelection;
 pub use condition_rules::FieldQueryOptions;
-use condition_rules::{
-    condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
-    order_condition_keys,
-};
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;
 
@@ -82,12 +58,11 @@ impl std::fmt::Display for OptRedactedFilter<'_> {
     }
 }
 
-/// A [`HashRangeFilter::Page`] spanning the entire field — `offset 0`,
-/// `limit usize::MAX`. Used by [`HashRangeQueryProcessor::count_rows`] to
-/// materialize every key so the live (non-tombstone) row count is exact. An
-/// unfiltered (`None`) resolve would instead apply the field's default page
-/// cap (`DEFAULT_UNFILTERED_PAGE_LIMIT`, historically 100) and silently
-/// under-count any schema with more than that many rows.
+/// A [`HashRangeFilter::Page`] spanning every record — `offset 0`,
+/// `limit usize::MAX`. Used by [`HashRangeQueryProcessor::count_rows`] and
+/// the condition pass to read every candidate record. An unfiltered (`None`)
+/// read would instead return one page of the default size
+/// (`DEFAULT_UNFILTERED_PAGE_LIMIT`) and under-count any larger schema.
 fn full_span_page() -> HashRangeFilter {
     HashRangeFilter::Page {
         offset: 0,
@@ -95,30 +70,14 @@ fn full_span_page() -> HashRangeFilter {
     }
 }
 
-/// Where a primary key's data lives: personal (`None`) or an org/share storage
-/// prefix (`Some`).
-type KeySource = Option<String>;
-
-/// One secondary value retains its field, API key, atom and storage source.
-struct SecondaryPending {
-    field_name: String,
-    key: KeyValue,
-    atom_uuid: String,
-    metadata: Option<crate::atom::KeyMetadata>,
-    writer_pubkey: Option<String>,
-    storage_prefix: KeySource,
-}
-
-/// A resolved page carries verified API coordinates into secondary reads.
+/// The candidate rows of the condition pass: the condition fields of each
+/// record, and the record keys in page order.
 struct CokeyRows {
     fields: HashMap<String, HashMap<KeyValue, FieldValue>>,
     page_keys: Vec<KeyValue>,
-    key_sources: HashMap<KeyValue, KeySource>,
-    /// Primary resolution can add writer metadata that secondary reads do not.
-    primary_field: String,
 }
 
-/// Processor for HashRange schema queries using field resolution
+/// Processor for record queries of a format 7 home.
 pub struct HashRangeQueryProcessor {
     db_ops: Arc<DbOperations>,
 }
@@ -143,7 +102,6 @@ impl HashRangeQueryProcessor {
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
-        let future = crate::storage::disk_pack::logical_paths::field::query_scope(future);
         comparison.run(scope.run_result(future)).await
     }
 

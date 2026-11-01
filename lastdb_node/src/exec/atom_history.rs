@@ -65,54 +65,10 @@ async fn execute(
         None => ctx.clone(),
     };
     let ctx = &scoped;
-    let scope = ctx.storage_prefix.as_deref();
     request.location.schema = handlers::resolve_schema_name(host, &request.location.schema)?
         .ok_or_else(|| HostError::new(404, "history schema does not exist"))?;
-    let db = host.db.db_ops();
     // A format 7 home keeps copies of old values at record history keys.
-    if db.atoms().record_home() {
-        return records::execute(host, ctx, request).await;
-    }
-    let target = db.atom_history_target(&request.location).await?;
-    let atoms = db.atoms();
-    // Policies belong to a field. Only a data action needs key coordinates.
-    let slot = atoms.atom_history_slot(&target.molecule, &request.location.key, scope);
-    match request.action {
-        Action::Policy { policy } => {
-            if let Some(policy) = policy {
-                db.configure_atom_history(&target, policy, scope).await?;
-            }
-            let policy = atoms
-                .field_history_policy(&target.field_identity, scope)
-                .await?;
-            Ok(serde_json::json!({"field_identity": target.field_identity, "policy": policy}))
-        }
-        Action::List { cursor, limit } => {
-            let page = atoms
-                .atom_history_page(&slot.await?, cursor.as_deref(), limit.unwrap_or(32))
-                .await?;
-            serde_json::to_value(page).map_err(|e| HostError::new(500, e.to_string()))
-        }
-        Action::Get { id } => atoms
-            .atom_history_value(&slot.await?, &id)
-            .await?
-            .ok_or_else(|| HostError::new(404, "history entry is absent or expired")),
-        Action::Purge { cursor } => Ok(atoms
-            .purge_atom_history(&slot.await?, cursor.as_deref())
-            .await?),
-        Action::Restore {
-            id,
-            expected_mutation,
-            absent,
-        } => {
-            require_restore_guard(expected_mutation.as_deref(), absent)?;
-            let value = atoms
-                .atom_history_value(&slot.await?, &id)
-                .await?
-                .ok_or_else(|| HostError::new(404, "history entry is absent or expired"))?;
-            restore(host, ctx, request.location, &value, expected_mutation).await
-        }
-    }
+    records::execute(host, ctx, request).await
 }
 
 fn require_restore_guard(expected_mutation: Option<&str>, absent: bool) -> Result<(), HostError> {

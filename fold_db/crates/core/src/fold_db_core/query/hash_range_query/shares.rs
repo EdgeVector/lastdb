@@ -1,9 +1,5 @@
 use super::HashRangeQueryProcessor;
-use crate::db_operations::field_read;
-use crate::schema::types::field::{FieldValue, FieldVariant, HashRangeFilter};
-use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
-use std::collections::HashMap;
 mod receivers;
 
 /// Resolve the existing receiver controls before native query service starts.
@@ -57,50 +53,5 @@ impl HashRangeQueryProcessor {
              read this schema by its primary key"
                 .into(),
         ))
-    }
-
-    /// Resolve a field's values from a specific storage namespace by
-    /// temporarily rewriting the field's `storage_prefix`. The field's
-    /// structure is cloned with molecule data stripped so the caller's schema
-    /// state is not mutated.
-    pub(super) async fn resolve_field_from_namespace(
-        &self,
-        field: &FieldVariant,
-        namespace: &str,
-        filter: Option<HashRangeFilter>,
-        include_tombstones: bool,
-    ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
-            runtime
-                .preload_current_field(std::sync::Arc::clone(&self.db_ops), field, Some(namespace))
-                .await?;
-        }
-        let mut cloned = field.cloned_without_molecule();
-        cloned
-            .common_mut()
-            .set_storage_prefix(Some(namespace.to_string()));
-        field_read::resolve_value(&mut cloned, &self.db_ops, filter, include_tombstones).await
-    }
-
-    pub(super) fn stamp_shared_writer(namespace: &str, shared: &mut HashMap<KeyValue, FieldValue>) {
-        // Respect any existing molecule-level writer_pubkey and fall back to
-        // the namespace sender hash only when unset.
-        let sender_hash = Self::sender_hash_from_namespace(namespace);
-        for fv in shared.values_mut() {
-            if fv.writer_pubkey.is_none() {
-                fv.writer_pubkey = Some(sender_hash.clone());
-            }
-        }
-    }
-
-    /// Extract the sender hash from a `from:{sender_hash}` namespace prefix.
-    fn sender_hash_from_namespace(namespace: &str) -> String {
-        namespace
-            .strip_prefix("from:")
-            .unwrap_or(namespace)
-            .split(':')
-            .next()
-            .unwrap_or(namespace)
-            .to_string()
     }
 }

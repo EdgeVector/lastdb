@@ -1,7 +1,6 @@
 //! Single-mutation steps using the existing host interface.
 
 use fold_db::schema::types::KeyValuePageOrder;
-use std::collections::HashSet;
 
 use fold_db::access::AccessContext;
 use fold_db::request_phases::{self, RequestPhase};
@@ -106,11 +105,7 @@ async fn resolve_delete_prefix_keys<H: HostNode>(
         .query_with_access(query, ctx)
         .await
         .map_err(HostError::from)?;
-    let mut keys = HashSet::new();
-    for fields in rows.values() {
-        keys.extend(fields.keys().cloned());
-    }
-    let mut keys: Vec<_> = keys.into_iter().collect();
+    let mut keys: Vec<_> = rows.into_keys().collect();
     keys.sort_by(KeyValue::cmp_page_order);
     Ok(keys)
 }

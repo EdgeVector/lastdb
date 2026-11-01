@@ -17,8 +17,6 @@ pub struct FieldQueryOptions<'a> {
     pub value_filters: Option<&'a [crate::schema::types::ValueFilter]>,
     pub order_by: Option<&'a QueryOrderBy>,
     pub predicate_limit: Option<usize>,
-    pub include_tombstones: bool,
-    pub secondary_concurrency: Option<usize>,
 }
 
 impl FieldQueryOptions<'_> {
@@ -51,8 +49,8 @@ pub(super) fn condition_fields(
     if let Some(order_by) = order_by {
         fields.push(order_by.field.clone());
     }
-    // Candidate discovery already prefers the declared key molecule. Every
-    // hash is blinded, so pass A needs its value to recover the API hash.
+    // Every hash is blinded, so the condition pass needs the declared key
+    // field value to recover the API hash.
     if let Some(key_field) = schema
         .key
         .as_ref()
@@ -167,9 +165,9 @@ pub(super) fn exact_key_selected_fields(
     order_by: Option<&QueryOrderBy>,
 ) -> Vec<String> {
     let mut selected = super::field_rules::selected_fields(schema, fields);
-    // Pass B formats records from the field maps it hydrates. Carry the key
-    // field so a kept row with none of the projected values still has an
-    // identity map entry and cannot disappear after satisfying `Absent`.
+    // Carry the key field so a kept row with none of the projected values
+    // still has a returned field and cannot disappear after satisfying
+    // `Absent`.
     if let Some(key_field) = schema
         .key
         .as_ref()
@@ -181,8 +179,8 @@ pub(super) fn exact_key_selected_fields(
             selected.push(key_field.clone());
         }
     }
-    // The host orders its formatted rows after the core returns its field
-    // maps. Keep this captured value internally, then let its formatter
+    // The host orders its formatted rows after the core returns its
+    // records. Keep this captured value internally, then let its formatter
     // remove the helper from the public projection and metadata.
     if let Some(order_by) = order_by {
         if !selected.contains(&order_by.field) {

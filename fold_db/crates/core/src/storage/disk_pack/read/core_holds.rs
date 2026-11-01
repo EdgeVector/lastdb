@@ -17,26 +17,6 @@ impl CoreCallHolds {
             values: Mutex::new(BTreeMap::new()),
         }
     }
-
-    pub(super) fn hold(&self, core: &mut CoreWarmSet, paths: &[CorePath]) -> StorageResult<()> {
-        let mut held = self.paths.lock().expect("core call path holds");
-        let missing: Vec<_> = paths
-            .iter()
-            .filter(|path| !held.contains(*path))
-            .cloned()
-            .collect();
-        let reserved =
-            core.reserve_paths(&missing)
-                .map_err(|error| StorageError::ReadResourceLimit {
-                    detail: error.to_string(),
-                })?;
-        held.extend(reserved);
-        let mut values = self.values.lock().expect("core call value owners");
-        for owner in core.retained_values(paths) {
-            values.insert(Arc::as_ptr(&owner) as *const () as usize, owner);
-        }
-        Ok(())
-    }
 }
 
 impl Drop for CoreCallHolds {

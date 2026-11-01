@@ -116,15 +116,6 @@ where
         .await
 }
 
-/// Count one logical molecule tip returned by a field read in a socket request.
-pub fn record_tip_key(molecule_uuid: &str, hash: &str, range: &str) {
-    let _ = REQUEST_METRICS.try_with(|cell| {
-        cell.borrow_mut()
-            .tip_keys
-            .insert(molecule_uuid, hash, range);
-    });
-}
-
 /// Accumulate `n` into `counter` for the request in scope. Outside a
 /// [`run_with_phases`] scope this is a silent no-op, for the same reason
 /// [`add_phase_us`] is: recording sites sit deep in the storage path and must

@@ -1,7 +1,6 @@
 //! Existing typed headers share the core publication and query lifetime.
 
 use super::super::AtomStore;
-use crate::records::molecule_record::MoleculeHeader;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory_sources};
 use serde::{de::DeserializeOwned, Serialize};
@@ -9,13 +8,6 @@ use serde::{de::DeserializeOwned, Serialize};
 static HEADER_MEMORY: u8 = 0;
 
 impl AtomStore {
-    pub(super) async fn header_from_memory(
-        &self,
-        key: &str,
-    ) -> Result<Option<MoleculeHeader>, SchemaError> {
-        self.molecule_control_from_memory(key).await
-    }
-
     /// Headers and generation selectors remain typed core control objects.
     pub(super) async fn molecule_control_from_memory<T>(
         &self,

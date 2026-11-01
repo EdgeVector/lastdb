@@ -7,8 +7,6 @@ use crate::schema::SchemaError;
 use crate::storage::StorageError;
 use crate::SyncConflict;
 
-mod memory;
-
 /// `mcc:{M}` — cached list of unresolved conflict ids for molecule `M`.
 ///
 /// The hot query path annotates every result field by asking "does this
@@ -69,20 +67,6 @@ pub(crate) const HOME_CONFLICT_EVENT_PREFIX: &str = "hcu:evt\0";
 /// not clean. The cap bounds the record. It does not start a conflict walk.
 const HOME_CONFLICT_INDEX_MAX_MOLECULES: usize = 10_000;
 
-/// Escape hatch: force every reader back onto the per-molecule path.
-///
-/// This changes the behaviour of the hottest read in the node, so it ships with
-/// a way to turn it off that does not need a rebuild — and it is what makes the
-/// A/B measurable on one binary. The disabled path is exactly the pre-change
-/// path, because `None` is what the index already returns when it cannot answer.
-///
-/// Read once: the query path consults this per request, and an env read per
-/// annotate call would be its own (smaller) version of the problem being fixed.
-fn home_conflict_index_disabled() -> bool {
-    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *DISABLED.get_or_init(|| env_flag::var_truthy("LASTDB_HOME_CONFLICT_INDEX_DISABLE"))
-}
-
 /// The stored form of [`HOME_CONFLICT_INDEX_KEY`].
 ///
 /// `complete: false` means the list is a lower bound, not a proof the home is
@@ -93,27 +77,6 @@ pub(crate) struct HomeConflictIndex {
     complete: bool,
     molecules: Vec<String>,
     folded_seq: String,
-}
-
-/// What annotate may say about one home after one stamp get and, when the
-/// stamp exists, one event range. `Disabled` is the env escape hatch back to
-/// the per-molecule path. `Unknown` is not clean.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HomeConflictAnnotation {
-    /// `LASTDB_HOME_CONFLICT_INDEX_DISABLE` is set. The caller walks
-    /// `conflict\0{mol}:` once per field molecule.
-    Disabled,
-    /// No usable stamp. Do not treat a missing `has_conflicts` as clean.
-    Unknown,
-    /// Stamp `complete: true`. A molecule absent from `molecules` is clean.
-    Known { molecules: HashSet<String> },
-    /// Stamp `complete: false`. `molecules` is a lower bound. Every other
-    /// field is unknown, not clean.
-    Incomplete { molecules: HashSet<String> },
-    /// A format 7 home: conflicts belong to records, not to molecules. The
-    /// caller reads the conflict markers of its rows by key
-    /// (`FoldDB::record_conflict_flags`).
-    Records,
 }
 
 /// One append. The value is the molecule uuid, not the conflict payload.
