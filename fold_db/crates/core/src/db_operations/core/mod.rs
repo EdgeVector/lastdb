@@ -1,10 +1,10 @@
-use super::atom_store::AtomStore;
 use super::attribution_ledger::AttributionLedger;
 use super::change_feed::ChangeFeedStore;
 use super::db_catalog_store::DbCatalogStore;
 use super::lineage_index::LineageIndex;
 use super::metadata_store::MetadataStore;
 use super::public_key_store::PublicKeyStore;
+use super::record_store::RecordStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
 use crate::storage::molecule_key_store::MoleculeKeyStore;
@@ -28,7 +28,7 @@ pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, Unres
 ///
 /// All persistence is encapsulated in domain store structs whose
 /// namespace fields are private. External callers reach them through
-/// `schemas()`, `atoms()`, `public_keys()`, and `metadata()`.
+/// `schemas()`, `records()`, `public_keys()`, and `metadata()`.
 #[derive(Clone)]
 pub struct DbOperations {
     /// Primary namespace backend used to open side stores that are not one of
@@ -40,8 +40,8 @@ pub struct DbOperations {
     db_catalog: DbCatalogStore,
     /// Per-molecule key bundles and access-domain wraps.
     molecule_keys: MoleculeKeyStore,
-    /// Main namespace — atoms, molecules, mutation events, sync conflicts
-    atom_store: AtomStore,
+    /// Main namespace: records, alternate keys, field history, conflict rows.
+    record_store: RecordStore,
     /// System-wide public key
     public_key_store: PublicKeyStore,
     /// Metadata + idempotency + process results
@@ -82,9 +82,9 @@ impl DbOperations {
         &self.change_feed
     }
 
-    /// Access the atom domain store.
-    pub fn atoms(&self) -> &AtomStore {
-        &self.atom_store
+    /// Access the record store.
+    pub fn records(&self) -> &RecordStore {
+        &self.record_store
     }
 
     /// Access background purge counters, separate from logical record counts.
@@ -147,7 +147,7 @@ impl DbOperations {
         self.schema_store.flush().await?;
         self.db_catalog.flush().await?;
         self.molecule_keys.flush().await?;
-        self.atom_store.flush().await?;
+        self.record_store.flush().await?;
         self.public_key_store.flush().await?;
         self.metadata_store.flush().await?;
         self.attribution_ledger.flush().await?;

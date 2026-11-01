@@ -4,7 +4,6 @@ pub mod core;
 pub mod db_catalog_store;
 // Domain stores (private namespace fields, public operation methods)
 pub mod admin_db;
-pub mod atom_store;
 pub mod attribution_ledger;
 mod conflict_metadata;
 pub mod delete_ledger;
@@ -14,6 +13,7 @@ pub mod delete_ledger;
 pub mod keep_small;
 pub mod lineage_index;
 pub mod metadata_store;
+pub mod record_store;
 /// Molecule key bundles are storage key material; the store lives in
 /// `storage`. This path stays for existing callers.
 pub use crate::storage::molecule_key_store;
@@ -28,12 +28,6 @@ pub use admin_db::{
     DbInventory, MainKeyClass, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
     SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
     SchemaStorageReport,
-};
-pub use atom_store::{
-    AtomCounterReport, AtomStore, BlobCounterReport, BlobCounterView, BlobRecountReport,
-    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, NetStep, RecountOptions,
-    RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
-    RECORD_WALK_ROWS,
 };
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,
@@ -56,6 +50,12 @@ pub use keep_small::{
     KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
     KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA,
     KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
+};
+pub use record_store::{
+    AtomCounterReport, BlobCounterReport, BlobCounterView, BlobRecountReport,
+    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, NetStep, RecordStore,
+    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.

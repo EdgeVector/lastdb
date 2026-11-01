@@ -165,7 +165,7 @@ pub(super) async fn capture_key_comparison<H: HostNode>(
     };
     host.fold_db()
         .db_ops()
-        .atoms()
+        .records()
         .key_comparison_context(&schema)
         .await
         .map(Some)

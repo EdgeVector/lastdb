@@ -16,13 +16,13 @@ impl MutationManager {
         keys: &[crate::schema::types::KeyValue],
     ) -> Result<Vec<crate::schema::types::KeyValue>, SchemaError> {
         let schema = self.schema_manager.require_schema_metadata(schema_name)?;
-        let scope = crate::db_operations::atom_store::record_scope(&schema);
-        let atoms = self.db_ops.atoms();
+        let scope = crate::db_operations::record_store::record_scope(&schema);
+        let record_store = self.db_ops.records();
         let record_keys = keys
             .iter()
-            .map(|key| atoms.record_key(&schema, key, scope.as_deref()))
+            .map(|key| record_store.record_key(&schema, key, scope.as_deref()))
             .collect::<Result<Vec<_>, _>>()?;
-        let records = atoms.read_records(&record_keys).await?;
+        let records = record_store.read_records(&record_keys).await?;
         Ok(keys
             .iter()
             .zip(records)

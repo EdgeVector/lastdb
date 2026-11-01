@@ -8,8 +8,8 @@ mod merge;
 mod publication;
 
 use super::*;
-use crate::db_operations::atom_store::blob_counter::BlobDeltas;
-use crate::db_operations::atom_store::record_scope;
+use crate::db_operations::record_store::blob_counter::BlobDeltas;
+use crate::db_operations::record_store::record_scope;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::logical_capture::SkippedPeerRecord;
 use merge::{PageMerge, PeerRecord};
@@ -27,13 +27,13 @@ impl MutationManager {
         schemas: &BTreeMap<String, Schema>,
         runtime: &Arc<PackRuntime>,
     ) -> Result<Vec<SkippedPeerRecord>, SchemaError> {
-        let atoms = self.db_ops.atoms();
-        let (keys, placed) = page_keys(atoms, events, schemas)?;
+        let records = self.db_ops.records();
+        let (keys, placed) = page_keys(records, events, schemas)?;
         if keys.is_empty() {
             return Ok(Vec::new());
         }
         let storage_keys: Vec<String> = keys.iter().map(|(record, ..)| record.clone()).collect();
-        let stored = atoms.read_records(&storage_keys).await?;
+        let stored = records.read_records(&storage_keys).await?;
         let mut page = PageMerge::new(keys, stored);
         let outcomes = events.iter().flat_map(|event| &event.records);
         for (record, outcome) in placed.iter().zip(outcomes) {
@@ -41,7 +41,7 @@ impl MutationManager {
         }
         let (changed, lost) = page.finish();
         let (changed, lost, skipped) = cap::split_over_cap(changed, lost);
-        let mut conflicts = atoms.record_conflict_mutations(lost).await?;
+        let mut conflicts = records.record_conflict_mutations(lost).await?;
         for schema in schemas.values() {
             let mine: Vec<&PeerRecord> = changed
                 .iter()
@@ -54,7 +54,7 @@ impl MutationManager {
         }
         if !conflicts.is_empty() {
             // Each losing value kept the stored record: only the rows change.
-            atoms
+            records
                 .stage_records(Vec::new(), conflicts, BlobDeltas::default())
                 .await?;
         }
@@ -69,7 +69,7 @@ impl MutationManager {
 type PageKeys = (Vec<(String, String, KeyValue)>, Vec<String>);
 
 fn page_keys(
-    atoms: &crate::db_operations::atom_store::AtomStore,
+    records: &crate::db_operations::record_store::RecordStore,
     events: &[CaptureEvent],
     schemas: &BTreeMap<String, Schema>,
 ) -> Result<PageKeys, SchemaError> {
@@ -80,7 +80,7 @@ fn page_keys(
         let schema = schemas
             .get(&outcome.schema_name)
             .ok_or_else(|| unsupported("a record outcome of an unadmitted schema"))?;
-        let record = atoms.record_key(schema, &outcome.key, record_scope(schema).as_deref())?;
+        let record = records.record_key(schema, &outcome.key, record_scope(schema).as_deref())?;
         if seen.insert(record.clone()) {
             keys.push((record.clone(), schema.name.clone(), outcome.key.clone()));
         }

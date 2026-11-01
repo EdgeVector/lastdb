@@ -155,7 +155,7 @@ impl MutationManager {
         // record, not with the record between the groups.
         deferred.sort_unstable();
         deferred.dedup();
-        self.db_ops.atoms().require_records_fit(&deferred).await?;
+        self.db_ops.records().require_records_fit(&deferred).await?;
         stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
         Ok(group_count)
     }

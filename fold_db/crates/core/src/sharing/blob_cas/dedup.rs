@@ -83,7 +83,7 @@ pub async fn put_blob_sealed_with_access_dedup_in_ops(
         let blob_ref = &access.blob_ref;
         let stored_hash = file_blob_storage_hash(blob_ref)?;
         let _target_gate = ops
-            .atoms()
+            .records()
             .lock_liveness_blobs(std::slice::from_ref(blob_ref))
             .await;
         let store = namespace(ops).await?;
@@ -119,7 +119,7 @@ pub async fn put_blob_sealed_with_access_dedup_in_ops(
             }
         };
         // The same native request holds the row and its counter.
-        ops.atoms()
+        ops.records()
             .register_blob_upload(blob_ref)
             .await
             .map_err(FoldDbError::Schema)?;

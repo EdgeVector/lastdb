@@ -4,7 +4,7 @@
 //! the product surface for "what's inside my DB?".
 
 use super::storage_breakdown::{SchemaStorage, StorageBreakdown};
-use super::AtomStore;
+use super::RecordStore;
 
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;

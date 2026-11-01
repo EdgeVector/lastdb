@@ -3,7 +3,7 @@
 
 use super::collector::with_record_candidates;
 use super::*;
-use crate::db_operations::atom_store::RecordChange;
+use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::logical_capture::{
     preflight_outcome_size, AcceptedRecordOutcome, RecordFieldOutcome,

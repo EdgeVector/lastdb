@@ -8,7 +8,7 @@
 use super::inbox_fields::{inbox_value, searchable_fields};
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::atom::is_tombstone_value;
-use crate::db_operations::atom_store::WalkWindow;
+use crate::db_operations::record_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
 use crate::schema::types::key_value::KeyValue;
@@ -69,7 +69,7 @@ async fn collect_schema_records(
     if searchable.as_ref().is_some_and(HashSet::is_empty) {
         return Ok(vec![]);
     }
-    let comparison = ops.atoms().key_comparison_context(schema).await?;
+    let comparison = ops.records().key_comparison_context(schema).await?;
     let scopes: [Option<String>; 1] = [None];
     let mut records: HashMap<KeyValue, HashMap<String, Value>> = HashMap::new();
     let mut after: Option<String> = None;
@@ -80,7 +80,7 @@ async fn collect_schema_records(
             take: REBUILD_WALK_PAGE,
         };
         let walk = ops
-            .atoms()
+            .records()
             .walk_record_window(schema, &comparison, window, &scopes, |_| true);
         let scope = ops.read_scope().await?;
         let page = Arc::clone(&comparison).run(scope.run_result(walk)).await?;

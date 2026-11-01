@@ -1,6 +1,6 @@
 //! The pacing of the retention janitor: how long it rests after a step.
 
-use crate::db_operations::atom_store::{StepOutcome, WriterWatch};
+use crate::db_operations::record_store::{StepOutcome, WriterWatch};
 use std::time::Duration;
 
 /// The shortest rest between two pages.

@@ -142,7 +142,7 @@ pub enum RequestPhase {
     /// it should scale with the RECORDS purged rather than with the schema.
     /// A `purge_delete` that tracks schema size instead is the signal that
     /// something reintroduced a whole-molecule rewrite (see
-    /// `AtomStore::remove_molecule_keys` for the one this replaced).
+    /// `RecordStore::remove_molecule_keys` for the one this replaced).
     PurgeDelete,
     /// Mutation only, purge side: closing the commit — re-storing the schema
     /// with its shrunken molecules, reloading it into the schema cache,

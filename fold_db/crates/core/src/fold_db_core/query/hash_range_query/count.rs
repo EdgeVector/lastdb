@@ -25,7 +25,7 @@ impl HashRangeQueryProcessor {
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
-        let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
+        let comparison = self.db_ops.records().key_comparison_context(schema).await?;
         let filter = comparison.canonical_filter(filter.cloned())?;
         let context = std::sync::Arc::clone(&comparison);
         self.current_query_scope(

@@ -6,7 +6,7 @@ the retention queue of kept conflict records (`docs/lastdb-atom-counter.md`) and
 dwell queue of file blobs at zero references (`docs/lastdb-blob-counter.md`).
 Another queue with the same needs takes the same contract.
 
-Code: `fold_db/crates/core/src/db_operations/atom_store/time_queue/`.
+Code: `fold_db/crates/core/src/db_operations/record_store/time_queue/`.
 
 ## The problem
 
@@ -105,10 +105,10 @@ A reader keeps its state in memory (`QueueReader`) and follows these rules.
    the directory is not read. A bucket that the reader knows and the directory
    no longer lists leaves the state.
 2. **Walk a bucket with a cursor.** Each bucket has one `RangeWalk`
-   (`atom_store/bounded_range.rs`). The walk is the cursor: it holds the least
+   (`record_store/bounded_range.rs`). The walk is the cursor: it holds the least
    key not read yet. It moves over deleted keys, and it is never reset to the head
    of the hash by a successful page.
-3. **Bound each read by key space.** `AtomStore::walk_step` asks for a page. If
+3. **Bound each read by key space.** `RecordStore::walk_step` asks for a page. If
    the call exceeds the read budget, the walk asks for fewer keys. If that is
    still too much, it cuts the key range in two and reads the lower half first.
    Each cut makes the span smaller, so the walk always moves. A walk that finds
@@ -150,7 +150,7 @@ reader must not delete the row in that case, or the entry is lost.
   bucket. A token that changes at a refresh starts the walk again.
 - The retirement is a guarded delete in the row commit. The signature is
   `GuardedDelete { key: Vec<u8>, expected: Vec<u8> }`, and a caller puts a list of
-  them in `RowChanges.guarded_deletes`. `AtomStore::retire_bucket(key, token)`
+  them in `RowChanges.guarded_deletes`. `RecordStore::retire_bucket(key, token)`
   is the call of the queue. The row commit reads each key by key in the write gate
   (`get_many`) and deletes it only if the stored bytes equal `expected`.
   `RowCommit.guarded_deleted` counts the keys it deleted. The gate is held for
@@ -300,7 +300,7 @@ other lane goes on.
 
 ## Size
 
-`AtomStore::time_queue_stats` gives the number of buckets (from the directory)
+`RecordStore::time_queue_stats` gives the number of buckets (from the directory)
 and the number of entries up to a cap. Every read is a bounded range walk, so
 deleted keys cannot make it fail. The count stops after 1,024 bucket reads, and
 a bucket that cannot be read ends it. The entry count is then a lower bound

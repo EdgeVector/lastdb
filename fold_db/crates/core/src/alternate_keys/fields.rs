@@ -1,10 +1,10 @@
 //! Read the alternate source fields of primary records in one batch read.
 
 use super::*;
-use crate::db_operations::atom_store::AtomStore;
+use crate::db_operations::record_store::RecordStore;
 use std::collections::BTreeSet;
 
-impl AtomStore {
+impl RecordStore {
     pub(crate) async fn schema_fields_at_keys(
         &self,
         schema: &Schema,

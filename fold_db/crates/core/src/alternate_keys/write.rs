@@ -10,7 +10,7 @@
 //! staged.
 
 use super::*;
-use crate::db_operations::atom_store::AtomStore;
+use crate::db_operations::record_store::RecordStore;
 use crate::storage::KvMutation;
 
 /// One entry that a record leaves: the storage key and the record's primary key.
@@ -19,7 +19,7 @@ type Leave<'a> = (String, &'a KeyValue);
 /// The entries that the records put (storage key to encoded entry) and leave.
 type EntryMoves<'a> = (BTreeMap<String, Vec<u8>>, Vec<Leave<'a>>);
 
-impl AtomStore {
+impl RecordStore {
     /// The entry changes between the old and the new field values at each
     /// primary key. A format 7 record write already holds both values, so it
     /// puts these changes in its own batch instead of reading the tips again.

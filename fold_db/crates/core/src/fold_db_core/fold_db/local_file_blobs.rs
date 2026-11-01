@@ -83,7 +83,7 @@ impl FoldDB {
                 },
             ));
         }
-        let (blob_ref, envelope) = self.db_ops().atoms().seal_local_file_blob(plaintext)?;
+        let (blob_ref, envelope) = self.db_ops().records().seal_local_file_blob(plaintext)?;
         let access = blob_ref.to_access();
         let outcome = blob_cas::put_blob_sealed_with_access_dedup_in_ops(
             self.db_ops(),
