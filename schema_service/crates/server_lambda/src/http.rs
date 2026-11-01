@@ -205,11 +205,30 @@ pub(crate) fn v2_cert_headers(
     }
 }
 
-/// A path segment that must be exactly one app id — non-empty and with no
+/// A path segment that must be exactly one id — non-empty and with no
 /// embedded slash, so a crafted path cannot smuggle a second segment in.
+/// A trailing slash is ignored.
 pub(crate) fn v2_app_id(segment: &str) -> Option<&str> {
-    let app_id = segment.trim_end_matches('/');
-    (!app_id.is_empty() && !app_id.contains('/')).then_some(app_id)
+    one_segment(segment.trim_end_matches('/'))
+}
+
+/// The one segment between `prefix` and `suffix`.
+///
+/// A slash left after `suffix` is removed is ignored, same as [`v2_app_id`].
+pub(crate) fn app_id_before<'a>(path: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    v2_app_id(path.trim_start_matches(prefix).trim_end_matches(suffix))
+}
+
+/// The one segment between `prefix` and `suffix`, with no extra slash trim.
+///
+/// A promote path that ends in `/promote` must keep a slash that the suffix
+/// did not remove. [`app_id_before`] would accept that path.
+pub(crate) fn segment_before<'a>(path: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    one_segment(path.trim_start_matches(prefix).trim_end_matches(suffix))
+}
+
+fn one_segment(segment: &str) -> Option<&str> {
+    (!segment.is_empty() && !segment.contains('/')).then_some(segment)
 }
 
 /// Split `/v2/apps/{app_id}/channels/{channel}` into its two ids.
