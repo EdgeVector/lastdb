@@ -79,9 +79,7 @@ def main():
         for entry in manifest["runs"]:
             formats.setdefault(entry["role"], set()).add(str(entry.get("home_format") or "unreported"))
         lines.append("Home format: " + "; ".join(role + " " + ", ".join(sorted(values))
-                     for role, values in sorted(formats.items())) + " (7 stores records; 4 to 6 store atoms)."
-                     + (" The candidate ran with `LASTDB_RECORD_HOME=1`."
-                        if manifest["recipe"].get("candidate_record_home") else ""))
+                     for role, values in sorted(formats.items())) + " (7 stores records; 4 to 6 store atoms).")
         for mode in ("typed",):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:
