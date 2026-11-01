@@ -49,8 +49,9 @@ impl SliceBuilder {
             });
         }
 
-        let query = leg.to_query();
-        let result = db.query_executor().query_with_access(query, access).await?;
+        // A keyed leg reads in pages, so a run of deleted records does not
+        // end the delivery at the read limit (`pages.rs`).
+        let result = super::pages::read_leg(db, &schema, leg.to_query(), access).await?;
 
         for (key, record) in &result {
             let record_key = key.to_storage_key();

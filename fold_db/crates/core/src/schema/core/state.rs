@@ -150,6 +150,18 @@ impl SchemaCore {
     /// catalog had the identity. A miss still evicts RAM so a retry is
     /// idempotent.
     pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
+        // The durable block refuses writes in the write gate before the
+        // release starts. The cache refuses queries and the early mutation
+        // check from the same point; a drop that stops leaves both blocked.
+        if self
+            .db_ops
+            .block_schema_for_drop(schema_name)
+            .await?
+            .is_some()
+        {
+            lock_map(&self.schema_states, "schema_states")?
+                .insert(schema_name.to_string(), SchemaState::Blocked);
+        }
         let existed = self.db_ops.drop_schema(schema_name).await?;
         {
             let mut schemas = write_map(&self.schemas, "schemas")?;

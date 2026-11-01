@@ -121,6 +121,7 @@ pub async fn materialize_query_slice_with_blob_resolver(
 }
 
 mod builder;
+mod pages;
 use builder::SliceBuilder;
 
 async fn normalize_file_field_value(

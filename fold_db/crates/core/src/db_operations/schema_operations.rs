@@ -155,22 +155,30 @@ impl DbOperations {
         self.schemas().get_all_schema_states().await
     }
 
-    /// Remove one installed schema: release the rows it stored, then remove
-    /// its schema record. Returns whether the schema was installed.
+    /// Remove one installed schema: block it, release the rows it stored, then
+    /// remove its schema record. Returns whether the schema was installed.
     ///
-    /// The release goes first, in bounded batches with one write scope each
+    /// The drop first stores the state `Blocked` ([`Self::block_schema_for_drop`]).
+    /// Every write reads that state inside the native write gate
+    /// (`MutationManager::load_schema_for_delta`, for local and peer writes), so
+    /// a write that enters the gate after the block is refused, and a write that
+    /// entered before it is staged before the release reads. No row can land
+    /// behind the release walk.
+    ///
+    /// The release goes next, in bounded batches with one write scope each
     /// (`AtomStore::release_schema_rows`): the records, their conflict rows,
     /// the field history and the alternate entries of the schema, with their
     /// blob counts. A schema installed again under the same name gets the same
     /// record space, so a record that the drop left would come back in it. A
-    /// release that stops leaves the schema record, and the next drop goes on.
-    /// Then one write scope removes the schema record.
+    /// release that stops leaves the schema record and the state `Blocked`: no
+    /// write lands while the drop is unfinished, and the next drop goes on.
+    /// Then one write scope removes the schema record and its state.
     pub fn drop_schema<'a>(
         &'a self,
         schema_name: &'a str,
     ) -> BoxFuture<'a, Result<bool, SchemaError>> {
         async move {
-            if let Some(schema) = self.schemas().get_schema(schema_name).await? {
+            if let Some(schema) = self.block_schema_for_drop(schema_name).await? {
                 let released = self.atoms().release_schema_rows(&schema).await?;
                 tracing::info!(
                     target: "fold_node::database",
@@ -188,6 +196,24 @@ impl DbOperations {
             .await
         }
         .boxed()
+    }
+
+    /// Store the state `Blocked` for a schema that a drop removes, before the
+    /// drop releases any row. Returns the installed schema, or `None` when the
+    /// catalog does not have it. A schema that is already blocked (a drop that
+    /// stopped) is not written again.
+    pub async fn block_schema_for_drop(
+        &self,
+        schema_name: &str,
+    ) -> Result<Option<Schema>, SchemaError> {
+        let Some(schema) = self.schemas().get_schema(schema_name).await? else {
+            return Ok(None);
+        };
+        if self.schemas().get_schema_state(schema_name).await? != Some(SchemaState::Blocked) {
+            self.store_schema_state(schema_name, &SchemaState::Blocked)
+                .await?;
+        }
+        Ok(Some(schema))
     }
 
     pub async fn get_schema_drop_receipt(

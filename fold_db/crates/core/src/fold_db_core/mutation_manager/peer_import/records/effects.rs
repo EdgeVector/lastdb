@@ -53,6 +53,11 @@ impl MutationManager {
             .map(|change| change.after.written_at().filter(|_| change.after.is_live()))
             .collect();
         atoms.stage_records(changes, entries, history.blobs).await?;
+        // A live record below a floor of the TTL sweep removes the floor.
+        let live = records.iter().filter(|record| record.after.is_live());
+        self.db_ops
+            .schemas()
+            .note_live_writes(schema, live.map(|record| &record.key))?;
         self.stage_peer_retention_rows(schema, &keys, &ages).await
     }
 

@@ -28,7 +28,18 @@
 //! that scope (`drop_prefixed_rows_for_instance`). The records that another
 //! user sent live in a `from:` scope that belongs to the share.
 //!
-//! A write that lands behind the walk while the drop runs is not released.
+//! No write lands behind the walk. The drop stores the state `Blocked` before
+//! the first batch (`DbOperations::drop_schema`), and every write reads the
+//! state inside the native write gate, so a write during the drop is refused.
+//!
+//! The alternate entries are the entries of the current alternate revision
+//! (`alternate_molecule_uuid`). The schema keeps no history of revisions, and
+//! needs none: an installed schema cannot change its alternate keys. A refresh
+//! that changes them is refused (`schema/core/load/rules.rs`), and so is an
+//! owned declaration (`exec/schema_declare/owned.rs`). So the current revision
+//! is the only revision under which this install wrote entries. A new
+//! alternate-key change command must add a durable list of the revisions that
+//! the schema had, and this release must then read the `ak:{M}:` prefix of each.
 
 use super::blob_counter::BlobDeltas;
 use super::{record_scope, AtomStore, RangeWalk};

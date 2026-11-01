@@ -29,6 +29,7 @@ mod native_memory;
 mod read;
 mod read_snapshot;
 mod retention_backfill;
+mod retention_floors;
 mod retention_format;
 mod retention_layers;
 mod retention_move;
@@ -39,6 +40,7 @@ mod write;
 
 pub(crate) use native_memory::{schema_bytes, snapshot_bytes, snapshot_sources};
 pub(crate) use read_snapshot::SchemaReadSnapshot;
+pub use retention_floors::RetentionFloors;
 
 use catalog_keys::*;
 
@@ -49,6 +51,8 @@ pub struct SchemaStore {
     schema_states_store: Arc<TypedKvStore<dyn KvStore>>,
     superseded_by_store: Arc<TypedKvStore<dyn KvStore>>,
     runtime: Option<Arc<crate::storage::disk_pack::PackRuntime>>,
+    /// The floors of the TTL sweep, in process memory (`retention_floors.rs`).
+    retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
@@ -63,6 +67,7 @@ impl SchemaStore {
             schema_states_store,
             superseded_by_store,
             runtime,
+            retention_floors: Arc::default(),
         }
     }
 
