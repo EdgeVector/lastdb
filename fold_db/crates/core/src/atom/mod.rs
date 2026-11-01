@@ -1,11 +1,9 @@
-//! Atom and molecule types live in `lastdb_model::atom`. This module keeps
-//! the old `crate::atom` path and adds the behavior the model must not hold:
-//! the process memo of empty history prefixes, the env-resolved atom content
-//! limit, and the clock stamps for atom and molecule changes.
+//! The key codec and value limits live in `lastdb_model::atom`. This module
+//! keeps the old `crate::atom` path and adds the behavior the model must not
+//! hold: the env-resolved content limit and the write clock stamps.
 
 pub use lastdb_model::atom::*;
 
-pub mod history_event_memo;
 pub mod size_limit;
 mod stamp;
 

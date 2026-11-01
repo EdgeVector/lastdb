@@ -6,9 +6,7 @@ pub mod db_catalog_store;
 pub mod admin_db;
 pub mod atom_store;
 pub mod attribution_ledger;
-mod conflict_index_heal;
 mod conflict_metadata;
-mod conflict_operations;
 pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
@@ -27,16 +25,15 @@ pub mod search_index;
 mod storage_breakdown;
 // Re-exports
 pub use admin_db::{
-    DbInventory, HistoryClearReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
-    MoleculeKeyRow, MoleculeKeysReport, SchemaCurrentStorageReport, SchemaHistoryClearStat,
-    SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaRecordKey,
-    SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
+    DbInventory, MainKeyClass, SchemaCurrentStorageReport, SchemaLogicalStorageReport,
+    SchemaLogicalStorageRow, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
+    SchemaStorageReport,
 };
 pub use atom_store::{
     AtomCounterReport, AtomStore, BlobCounterReport, BlobCounterView, BlobRecountReport,
-    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData, NetStep,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
-    WriterWatch, DWELL_CHUNK, RECORD_WALK_ROWS,
+    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, NetStep, RecountOptions,
+    RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
+    RECORD_WALK_ROWS,
 };
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,

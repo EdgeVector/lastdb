@@ -30,13 +30,11 @@ impl AtomStore {
             counter_verify: Arc::default(),
             range_walks: Arc::default(),
             local_origin_device: Arc::default(),
-            conflict_record_epoch: Arc::default(),
             blob_liveness_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))
                     .collect(),
             ),
-            store_id: crate::atom::history_event_memo::StoreId::next(),
         }
     }
 

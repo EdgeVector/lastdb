@@ -56,7 +56,6 @@ pub mod security;
 pub mod sharing;
 pub mod storage;
 pub mod sync;
-pub mod sync_conflict;
 pub mod user_context;
 mod write_preparation;
 
@@ -72,6 +71,5 @@ pub use schema::SchemaState;
 
 // Re-export storage types
 pub use storage::DatabaseConfig;
-pub use sync_conflict::SyncConflict;
 
 pub mod alternate_keys;

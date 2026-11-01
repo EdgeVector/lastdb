@@ -73,24 +73,18 @@ fn current(runtime: &PackRuntime) -> StorageResult<Arc<PendingBatch>> {
 /// A later physical mutation supersedes earlier private typed facts. The writer
 /// may stage its final typed winner afterward; an unmapped change stays unknown.
 pub(super) fn forget_superseded(pending: &PendingBatch, operations: &[HomeMutation]) {
-    let coordinates = super::super::logical_paths::controls::expanded_coordinates(
-        &operations
-            .iter()
-            .map(|operation| (operation.collection.clone(), operation.key.clone()))
-            .collect::<Vec<_>>(),
-    );
     pending
         .definitions
         .lock()
         .expect("native private definitions")
         .retain(|_, definition| {
             !definition.sources().iter().any(|source| {
-                coordinates.iter().any(|(collection, key)| {
-                    *collection == source.collection
+                operations.iter().any(|operation| {
+                    operation.collection == source.collection
                         && source
                             .key
                             .as_ref()
-                            .is_none_or(|source_key| source_key == key)
+                            .is_none_or(|source_key| *source_key == operation.key)
                 })
             })
         });

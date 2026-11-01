@@ -4,14 +4,10 @@
 //! `rk:{S}:{esc(hash)}\0{range}`, where `S` is the record space of one schema
 //! (`record_space_uuid`). The logical size of a record is the length of that
 //! stored value: the encoded `StoredRecord` that the write path puts
-//! (`AtomStore::stage_records`), plaintext JSON like the atom measure.
+//! (`AtomStore::stage_records`).
 //!
-//! A tombstone is not counted. The atom walk counts only the bodies that
-//! remain, and the batch that drops the last reference of an atom deletes its
-//! body (`counter::plan`), so a deleted atom leaves the atom rows. A delete in
-//! a format 7 home leaves a tombstone at the record key instead. Leaving it out
-//! keeps the same rule: the record count and bytes drop after a delete, as the
-//! atom count and bytes do in an atom home.
+//! A tombstone is not counted. A delete leaves a tombstone at the record key,
+//! so the record count and bytes drop after a delete.
 
 use super::{sort_rows, SchemaStorage, StorageBreakdown};
 use crate::db_operations::admin_db::{inventory_next_page_rows, INVENTORY_PAGE_ROWS_MIN};

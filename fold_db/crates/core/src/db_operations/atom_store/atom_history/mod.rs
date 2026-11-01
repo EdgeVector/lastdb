@@ -7,12 +7,10 @@ mod policy;
 mod record_reads;
 mod records;
 mod release;
-pub(crate) use records::RecordHistoryRows;
-// The archive row shapes are records that the storage layer also reads.
-pub(crate) use crate::records::atom_history::is_archive;
 pub use crate::records::atom_history::{
     AtomHistoryEntry, AtomHistoryPage, FieldHistoryPolicy, HistoryLocation,
 };
+pub(crate) use records::RecordHistoryRows;
 
 impl super::AtomStore {
     pub(crate) fn history_activation(&self) -> &tokio::sync::Notify {

@@ -43,7 +43,6 @@ modules = [
   "schema::schema_types",
   "schema::types",
   "storage::error",
-  "sync_conflict",
   "user_context",
 ]
 

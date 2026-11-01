@@ -27,9 +27,7 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
     println!();
     print_main_classes(inventory);
     println!();
-    print_per_schema_atoms(inventory);
-    println!();
-    print_per_schema_history(inventory);
+    print_per_schema_records(inventory);
     if let Some(scan) = inventory.get("scan") {
         println!();
         println!(
@@ -66,8 +64,10 @@ fn print_main_classes(inventory: &Value) {
     }
 }
 
-fn print_per_schema_atoms(inventory: &Value) {
-    println!("Per-schema atoms (logical JSON size):");
+/// `per_schema_atoms` holds the live records of each schema. The JSON name
+/// stays for the benchmark readers.
+fn print_per_schema_records(inventory: &Value) {
+    println!("Per-schema records (stored value size):");
     if let Some(rows) = array_of(inventory, "per_schema_atoms") {
         for (i, row) in rows.iter().enumerate() {
             if i >= SCHEMA_ROW_LIMIT {
@@ -78,41 +78,15 @@ fn print_per_schema_atoms(inventory: &Value) {
                 break;
             }
             println!(
-                "  {:>10}  {:>8} atoms  {}",
+                "  {:>10}  {:>8} records  {}",
                 format_bytes(u64_of(row, "bytes")),
-                u64_of(row, "atom_count"),
+                u64_of(row, "record_count"),
                 str_of(row, "schema_name", "?")
             );
         }
         println!(
-            "  total logical atom bytes: {}",
+            "  total record bytes: {}",
             format_bytes(u64_of(inventory, "per_schema_atoms_total_bytes"))
-        );
-    }
-}
-
-fn print_per_schema_history(inventory: &Value) {
-    println!("Per-schema mutation history:");
-    let Some(rows) = array_of(inventory, "per_schema_history") else {
-        return;
-    };
-    if rows.is_empty() {
-        println!("  (none)");
-        return;
-    }
-    for (i, row) in rows.iter().enumerate() {
-        if i >= SCHEMA_ROW_LIMIT {
-            println!(
-                "  … {} more schemas",
-                rows.len().saturating_sub(SCHEMA_ROW_LIMIT)
-            );
-            break;
-        }
-        println!(
-            "  {:>10}  {:>8} events  {}",
-            format_bytes(u64_of(row, "history_bytes_approx")),
-            u64_of(row, "history_events"),
-            str_of(row, "schema_name", "?")
         );
     }
 }

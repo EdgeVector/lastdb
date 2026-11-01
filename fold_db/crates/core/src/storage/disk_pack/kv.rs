@@ -19,21 +19,11 @@ impl PackKvStore {
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
         let namespace = self.namespace.clone();
-        let observed = Arc::clone(&runtime);
-        let (values, keys, addresses) = run_blocking(move || {
+        run_blocking(move || {
             let addresses: Vec<_> = keys.iter().map(|key| coordinate(&namespace, key)).collect();
-            let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
-            Ok((bodies, keys, addresses))
+            runtime.raw_many(&context, &addresses, pending.as_ref())
         })
-        .await?;
-        for ((requested, (collection, key)), body) in keys.into_iter().zip(addresses).zip(&values) {
-            logical_paths::source::note_read_source(
-                Arc::clone(&observed),
-                &requested,
-                body.as_ref().map(|_| (collection.as_str(), key.as_str())),
-            )?;
-        }
-        Ok(values)
+        .await
     }
 
     async fn change(&self, mutations: Vec<KvMutation>) -> StorageResult<()> {

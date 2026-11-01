@@ -1,31 +1,25 @@
-//! Atom domain store.
+//! Record domain store.
 //!
-//! Owns the main storage namespace where atoms, molecules, and
-//! mutation-event history keys live, plus a derived schema index namespace
-//! for list-by-schema markers. External callers use
+//! Owns the main storage namespace where the records of a format 7 home, their
+//! alternate keys, field history and conflict rows live. External callers use
 //! `DbOperations::atoms()` to reach these operations.
 //!
 //! Layout:
-//! - `crate::records::molecule_record` — molecule/atom storage types
-//! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the row commit, the offline recount and the reference verifier
 //! - [`retention`] — queue and release of kept conflict records
 //! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
-//! - [`codec`] — atom body encode/decode and storage-key reads
-//! - [`filter`] — filtered loads + page index
-//! - [`atoms`] — atom CRUD, history, schema listing
-//! - [`locks`] — molecule, tip and delete-barrier locks
+//! - [`records`], [`record_reads`], [`record_walk`] — record writes and reads
+//! - [`read_scope`] — one memory and disk boundary for a read
+//! - [`locks`] — write scopes, molecule commit and blob liveness locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
 //! - [`molecule_ref_edges`] — the schema field and alternate key molecule edges
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
 pub mod atom_history;
-mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
-mod codec;
 mod conflict_record;
 mod construct;
 pub(crate) mod counter;
@@ -33,12 +27,12 @@ mod delete_replay;
 pub use delete_replay::ReplayCutoffReport;
 mod erase_meters;
 mod file_blob_seal;
-mod filter;
 mod keep_small;
 mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
 mod molecule_ref_edges;
+mod read_scope;
 mod record_cap;
 mod record_conflicts;
 mod record_reads;
@@ -49,7 +43,6 @@ mod retention;
 pub(crate) mod time_queue;
 mod writer_watch;
 
-pub(crate) use crate::records::plain_atom::decode_plain_atom;
 pub(crate) use atom_history::RecordHistoryRows;
 pub use blob_counter::{
     BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
@@ -70,9 +63,6 @@ pub use record_walk::RECORD_WALK_ROWS;
 pub(crate) use records::{record_scope, RecordChange};
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{RetentionCursor, StepOutcome};
-// The molecule records are model values that the storage layer also reads.
-pub use crate::records::molecule_record::MoleculeData;
-pub(crate) use crate::records::molecule_record::PerKeyRecord;
 pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
@@ -83,7 +73,7 @@ use std::{
     collections::HashSet,
     hash::{DefaultHasher, Hash, Hasher},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -187,21 +177,8 @@ pub struct AtomStore {
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
     local_origin_device: Arc<std::sync::RwLock<String>>,
-    /// Counts the record calls that wrote a conflict row. A reader that scans
-    /// the conflict rows outside the write gate stamps its `mcc:` list only if
-    /// this number did not change since before the scan. The stamp runs in a
-    /// write scope, which orders it against every recorder.
-    conflict_record_epoch: Arc<AtomicU64>,
     /// Fixed target gates for blob source transitions and reclaim.
     blob_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
-    /// Scopes this store's entries in the process-wide legacy-history memo.
-    ///
-    /// The memo caches "this `history:{mol}:` prefix is empty", and molecule
-    /// uuids are `sha256("{schema}:{field}")` — deterministic, so two stores
-    /// sharing a schema and field name derive the same prefix. Without this id
-    /// one store's observation would answer another's question. See
-    /// [`crate::atom::history_event_memo`].
-    store_id: crate::atom::history_event_memo::StoreId,
 }
 
 impl AtomStore {
@@ -226,12 +203,6 @@ impl AtomStore {
         &self.range_walks
     }
 
-    /// This store's identity in the legacy-history memo.
-    #[must_use]
-    pub(crate) fn store_id(&self) -> crate::atom::history_event_memo::StoreId {
-        self.store_id
-    }
-
     pub(crate) fn key_codec_for_molecule(
         &self,
         molecule_uuid: &str,
@@ -251,7 +222,7 @@ impl AtomStore {
 
     /// Access the underlying typed KV store. Crate-internal helper for
     /// code paths that need generic typed access (field loading, conflicts,
-    /// org purge). Prefer [`Self::get_atoms_by_storage_keys`] for atom bodies.
+    /// org purge).
     pub(crate) fn raw(&self) -> &Arc<TypedKvStore<dyn KvStore>> {
         &self.main_store
     }

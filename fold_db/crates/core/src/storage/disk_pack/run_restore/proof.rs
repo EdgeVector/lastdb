@@ -1,7 +1,6 @@
 //! Semantic proof against two fixed, authenticated disk V2 roots.
 mod atoms;
 mod keys;
-mod metadata;
 mod native;
 mod ranges;
 mod records;
@@ -81,7 +80,7 @@ fn verify_once(
         ranges::verify(main, account_key, version, key_heads),
     )?;
     let atoms = phase(Stage::Atoms, atoms::verify(&proof))?;
-    phase(Stage::Tips, metadata::verify(&proof))?;
+    phase(Stage::Tips, records::verify_tips(&proof))?;
     Ok(atoms)
 }
 

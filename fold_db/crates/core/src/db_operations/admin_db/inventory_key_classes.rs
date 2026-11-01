@@ -1,60 +1,22 @@
 //! The `main` key-prefix classes the live byte inventory reports.
 
-/// Label of the counter class, which the walk of `atom:` reports beside the bodies.
-pub(super) const ATOM_COUNTER_CLASS_LABEL: &str =
-    "atom:{uuid}\\0c — atom counter (references to the body)";
-
 pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
-    ("atom_content", "atom:", "atom:{uuid}\\0b — field values"),
+    ("record", "rk:", "rk:{S}:{hash}\\0{range} — the record of one key"),
+    ("alternate_key", "ak:", "ak:… — the alternate key entries of the records"),
     (
-        "mutation_history",
-        "history\0",
-        "history:{molecule}:{ts} — per-field mutation log",
+        "record_conflict",
+        "rcf:",
+        "rcf:{S}:{sha256} — the kept conflict rows of a record",
+    ),
+    (
+        "record_conflict_marker",
+        "rcm:",
+        "rcm:… — the conflict marker of a record key",
     ),
     (
         "record_history",
         "rh:",
         "rh:{S}:{sha(record)}:{field}:{id} — field history copies of old record values",
-    ),
-    (
-        "molecule_per_key_index",
-        "mk:",
-        "mk:{M}:… — current tip pointer per record key",
-    ),
-    (
-        "molecule_header",
-        "mh:",
-        "mh:{M} — molecule header with the slots and records counters",
-    ),
-    (
-        "molecule_generation_delete",
-        "mgd:v1:",
-        "mgd:v1:{M}:… — one generation delete marker for each slot an erase removed",
-    ),
-    (
-        "molecule_generation_record",
-        "mgr:v1:",
-        "mgr:v1:{M}:{generation}:… — immutable generation slot records",
-    ),
-    (
-        "molecule_generation_pointer",
-        "mgp:v1:",
-        "mgp:v1:{M} — the active generation of a molecule",
-    ),
-    (
-        "delete_barrier",
-        "rdel:v2:",
-        "rdel:v2:{hex of mk key} — the order of a Delete for one tip key",
-    ),
-    (
-        "conflict_index",
-        "mcc:",
-        "mcc:{M} — ids of the kept conflict records of a molecule",
-    ),
-    (
-        "conflict",
-        "conflict\0",
-        "conflict:… — merge conflict records",
     ),
     (
         "blob_counter",
@@ -80,11 +42,6 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "retention_bucket_directory",
         "crb:v1\0",
         "crb:v1\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
-    ),
-    (
-        "retention_directory",
-        "crs:v1:",
-        "crs:v1:{M}\0{slot}\0{record} — slot directory of kept conflict records (a purge reads it)",
     ),
     (
         "atom_delete_ledger",

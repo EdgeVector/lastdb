@@ -3,27 +3,8 @@
 use super::*;
 
 impl FoldDB {
-    /// Collect field-molecule UUIDs for each schema name (for history scans).
-    pub(super) fn schema_field_molecules(
-        &self,
-        schema_names: &[String],
-    ) -> Vec<(String, Vec<String>)> {
-        let sm = self.schema_manager();
-        let mut out = Vec::with_capacity(schema_names.len());
-        for name in schema_names {
-            let Ok(Some(schema)) = sm.get_schema_metadata(name) else {
-                continue;
-            };
-            let mols = field_molecule_uuids(&schema);
-            if !mols.is_empty() {
-                out.push((name.clone(), mols));
-            }
-        }
-        out
-    }
-
-    /// Live inventory of the `main` tree key classes + per-schema atom/history
-    /// sizes, plus a fresh attribution summary.
+    /// Live inventory of the `main` tree key classes and the live records of
+    /// each schema, plus a fresh attribution summary.
     ///
     /// The attribution numbers are not a passive read: this route runs the
     /// bounded schema/system-root and retention-root walks (catalog- and
@@ -37,12 +18,11 @@ impl FoldDB {
             .get_all_schemas()
             .await
             .map_err(|e| FoldDbError::Database(format!("list schemas: {e}")))?;
-        let names: Vec<String> = schemas.into_keys().collect();
-        let field_mols = self.schema_field_molecules(&names);
+        let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
         let mut inventory = self
             .db_ops()
             .atoms()
-            .db_inventory(&names, None, &field_mols)
+            .db_inventory(&names, None)
             .await
             .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))?;
 
@@ -63,9 +43,9 @@ impl FoldDB {
         Ok(inventory)
     }
 
-    /// Atom-only per-schema logical storage (no history / order-log / tip-format).
-    /// A format 7 home reports its live records instead (`record_count`,
-    /// `record_bytes`); their bytes count in `bytes` and the logical total.
+    /// Per-schema logical storage: the live records of each schema
+    /// (`record_count`, `record_bytes`). Their bytes count in `bytes` and the
+    /// logical total. `atom_count` and `total_atoms` stay zero for their readers.
     ///
     /// Catalog `descriptive_name` is joined as `display_name` when it differs
     /// from the runtime identity. This is the `lastdb db schemas` product path.
@@ -75,18 +55,12 @@ impl FoldDB {
             .get_all_schemas()
             .await
             .map_err(|e| FoldDbError::Database(format!("list schemas: {e}")))?;
+        // The record space of each runtime schema name names its row.
+        let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
         let mut breakdown = self
             .db_ops()
             .atoms()
-            .storage_breakdown(&[], None)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("schema storage: {e}")))?;
-        // A format 7 home has records, not atoms. The record space of each
-        // runtime schema name names its row.
-        let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
-        self.db_ops()
-            .atoms()
-            .add_record_storage(&mut breakdown, &names, None)
+            .record_storage_breakdown(&names, None)
             .await
             .map_err(|e| FoldDbError::Database(format!("schema record storage: {e}")))?;
         let mut display = HashMap::new();
