@@ -142,20 +142,29 @@ impl From<ByteBackupStatus> for crate::self_metrics::DurabilityHealth {
                 .automatic_backup
                 .as_ref()
                 .is_some_and(|s| s.paused.is_some());
+        let automatic = status.automatic_backup.as_ref();
+        let journal = status.mutation_log.as_ref();
         Self {
             observed: true,
             automatic_enabled: status.automatic_backup_enabled,
             running: status.running,
             phase: status.phase,
             accepted_backup_recorded: status.last_accepted_backup.is_some(),
-            // No capture time or current-source equivalence is available here.
-            // Never turn an accepted historical receipt into a fresh-coverage claim.
             degraded: blocked.then_some(true),
-            reasons: vec![if blocked {
-                "v2_job_blocked".into()
-            } else {
-                "v2_freshness_unmeasured".into()
-            }],
+            reasons: Vec::new(),
+            // The local head and the backed-up position come from this one status read,
+            // so coverage is measured against them and stamped with this read's time.
+            // An accepted receipt alone never becomes a coverage claim.
+            checked_at: Some(fold_db::clock::unix_secs()),
+            local_frontiers: journal.and_then(|j| j.head.as_ref()).map(|h| h.frontiers),
+            backed_up_frontiers: automatic.and_then(|a| a.last_backed_up_frontiers),
+            covered: None,
+            snapshot_required: journal.is_some_and(|j| j.snapshot_required),
+            last_upload_at: automatic.and_then(|a| a.last_log_at),
+            next_upload_at: automatic.map(|a| a.next_log_at),
+            last_snapshot_at: automatic.and_then(|a| a.last_snapshot_at),
+            next_snapshot_at: automatic.map(|a| a.next_snapshot_at),
         }
+        .with_coverage()
     }
 }
