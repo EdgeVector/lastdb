@@ -31,12 +31,15 @@ It does not edit snapshot bytes or contact a sender.
 The generated subscriptions contain no cloud grant or encryption secret.
 The homes have no cloud configuration or sync engine.
 
-The candidate helper also checks the send side of sharing.
+In a format 7 home, the candidate helper also checks the send side of sharing.
 It writes one generated share rule for the independent schema.
 It writes two personal records under the hash `send-check` and updates one record.
 It then reads that hash in the personal scope and in the rule's share scope.
 The values must match, or the helper fails the run.
 No workload selector reads the hash `send-check`.
+A format 4 to 6 home skips this check.
+That home copies the complete key set of each touched field molecule to the share scope.
+With the 1,216 local keys of the independent schema, one copy exceeds the 16,384-operation cap of one native mutation.
 
 Each exact source supplies its own helper for its storage format.
 Both helpers receive identical generated mutations. The recipe checks the input hashes and final values before a comparison.
