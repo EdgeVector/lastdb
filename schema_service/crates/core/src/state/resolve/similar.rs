@@ -23,7 +23,6 @@ impl SimilarSchemasReply {
     ///
     /// Ready stays typed so each router serializes it. Missing is 404.
     /// Failed is 500.
-    #[must_use]
     pub fn into_http(self) -> Result<SimilarSchemasResponse, (u16, Value)> {
         match self {
             Self::Ready(response) => Ok(response),
@@ -69,7 +68,6 @@ impl SimilarityThresholdReply {
     /// The accepted threshold, or the HTTP error.
     ///
     /// Ready is the threshold. Refused is status 400.
-    #[must_use]
     pub fn into_http(self) -> Result<f64, (u16, Value)> {
         match self {
             Self::Ready(threshold) => Ok(threshold),
