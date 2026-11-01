@@ -62,7 +62,7 @@ fn seed(dir: &Path, key: &[u8; 32], operation: Operation) -> Result<(RunHome, Mo
                 }
                 body.truncate(bytes);
                 HomeMutation {
-                    collection: "tips".into(),
+                    collection: "records".into(),
                     key: format!("{PREFIX}{number:08}"),
                     body: Some(body),
                 }
@@ -160,7 +160,7 @@ fn equal(home: &RunHome, model: &Model) -> Result<usize> {
         .collect();
     let mut read = home.read(budget());
     let mut range = read.hash_range(
-        "tips",
+        "records",
         PREFIX,
         RangeBounds {
             start: String::new(),
@@ -239,7 +239,7 @@ fn near_cap_reclaim(scratch: &Path, key: &[u8; 32]) -> Result<String> {
     let (home, mut model) = seed(&dir, key, Operation::Base)?;
     let deletes: Vec<_> = (0..2048)
         .map(|number| HomeMutation {
-            collection: "tips".into(),
+            collection: "records".into(),
             key: format!("{PREFIX}{number:08}"),
             body: None,
         })

@@ -74,9 +74,8 @@ fn batch(
 ) -> StorageResult<()> {
     let mut coordinates = Vec::with_capacity(field_keys.len() * 2);
     for field_key in field_keys {
-        coordinates.extend(
-            node_bundle_storage_keys(field_key)?.map(|key| ("molecule_keys".to_owned(), key)),
-        );
+        coordinates
+            .extend(node_bundle_storage_keys(field_key)?.map(|key| ("field_keys".to_owned(), key)));
     }
     let mut read = super::fork_mapped(
         main,

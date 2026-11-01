@@ -1,6 +1,6 @@
 # Personal field key authority
 
-> **Model note (2026-11-01).** Since home format 7 (the record model) a schema has no separate field-key rows. Key bundles (`mkb:{id}` in the stored namespace) exist for
+> **Model note (2026-11-01).** Since home format 7 (the record model) a schema has no separate field-key rows. Key bundles (`fkb:{id}` in the `field_keys` namespace) exist for
 > the record space, the field IDs and the alternate IDs of a schema. The
 > [canonical model](lastdb-canonical-model.md) wins where this page differs.
 

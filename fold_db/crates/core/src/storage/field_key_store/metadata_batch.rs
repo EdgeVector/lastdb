@@ -40,7 +40,7 @@ impl FieldKeyStore {
             self.validate_metadata(field_key, value.as_ref())?;
         }
         for (((at, _), key), value) in missing.into_iter().zip(keys).zip(metadata) {
-            let sources = core_memory_sources("molecule_keys", key.as_bytes());
+            let sources = core_memory_sources("field_keys", key.as_bytes());
             let bytes = metadata_memory_bytes(value.as_ref());
             let held = core_memory_insert(self.runtime.clone(), owner, key, value, sources, bytes)?;
             output[at] = held.as_ref().as_ref().cloned();

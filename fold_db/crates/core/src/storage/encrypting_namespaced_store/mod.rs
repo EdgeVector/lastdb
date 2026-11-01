@@ -11,16 +11,11 @@ pub const CATALOG_NAMESPACES: &[&str] = &[
     // Database/schema -> universal instance references. Catalog metadata only;
     // never field key/field value.
     "db_catalog",
-    // Stored namespace name.
-    "molecule_keys",
+    "field_keys",
     "schema_states",
     "schema_superseded_by",
-    "schema_index",
     "public_keys",
-    "node_id_schema_permissions",
     "idempotency",
-    "lineage_forward",
-    "lineage_reverse",
 ];
 
 /// Only local CAS blob records receive a storage-level encryption envelope.

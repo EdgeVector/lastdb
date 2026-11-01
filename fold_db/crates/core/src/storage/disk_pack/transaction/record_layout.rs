@@ -23,10 +23,10 @@ pub(in crate::storage::disk_pack) fn require_record_layout(
     Ok(())
 }
 
-/// The key family of one row in the `tips` collection. A row of another
+/// The key family of one row in the `records` collection. A row of another
 /// collection, and other metadata in the fallback collection, has none.
 fn tips_family(operation: &HomeMutation) -> StorageResult<Option<String>> {
-    if operation.collection != "tips" {
+    if operation.collection != "records" {
         return Ok(None);
     }
     let key = super::super::native_routing::decode(&operation.key)?;

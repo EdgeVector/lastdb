@@ -52,8 +52,7 @@ impl CoreNamespaces {
         let schema_states_kv = store.open_namespace("schema_states").await?;
         let schemas_kv = store.open_namespace("schemas").await?;
         let db_catalog_kv = store.open_namespace("db_catalog").await?;
-        // Stored namespace name.
-        let field_keys_kv = store.open_namespace("molecule_keys").await?;
+        let field_keys_kv = store.open_namespace("field_keys").await?;
         let public_keys_kv = store.open_namespace("public_keys").await?;
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;

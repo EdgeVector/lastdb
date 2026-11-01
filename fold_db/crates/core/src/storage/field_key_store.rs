@@ -2,8 +2,8 @@
 //!
 //! A field key's three-key bundle is minted once; its blind-index key blinds
 //! the field key hashes. The plaintext bundle stays only in the process cache.
-//! Durable rows contain a small metadata record (`mkb:`) and one encrypted
-//! wrap per access domain (`mkw:`). Catalog sharing adds a wrap; it never
+//! Durable rows contain a small metadata record (`fkb:`) and one encrypted
+//! wrap per access domain (`fkw:`). Catalog sharing adds a wrap; it never
 //! reseals field key data.
 
 use crate::crypto::{seal_at_rest_utf8, AT_REST_ENC_PREFIX};
@@ -223,7 +223,7 @@ fn validate_identity(field_key_id: &str, domain: &str) -> StorageResult<()> {
 }
 
 pub(crate) fn metadata_key(field_key_id: &str) -> String {
-    format!("mkb:{field_key_id}")
+    format!("fkb:{field_key_id}")
 }
 
 fn metadata_memory_owner(cache: &FieldKeyCache) -> usize {
@@ -239,7 +239,7 @@ fn metadata_memory_bytes(metadata: Option<&BundleMetadata>) -> usize {
 
 pub(crate) fn wrap_key_for(field_key_id: &str, domain: &str) -> String {
     let domain_hash = Sha256::digest(domain.as_bytes());
-    format!("mkw:{field_key_id}:{domain_hash:x}")
+    format!("fkw:{field_key_id}:{domain_hash:x}")
 }
 
 /// Every field and alternate field key of a schema. With `records` (a format 7

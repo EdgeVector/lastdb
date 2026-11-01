@@ -77,16 +77,16 @@ pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
         let pick = rng.below(100);
         let (collection, key, body) = if pick < 60 {
             let key = format!("{n:08x}{op:06x}{:08x}", rng.next_u64() as u32);
-            ("atoms", key, Some(value(&mut rng, n)))
+            ("blob_counts", key, Some(value(&mut rng, n)))
         } else if pick < 85 {
             let key = tip_key(rng.below(TIP_SCHEMAS), rng.below(TIP_RANGES));
-            ("tips", key, Some(value(&mut rng, n)))
+            ("records", key, Some(value(&mut rng, n)))
         } else if pick < 95 {
             let key = molecule_key(rng.below(MOLECULES), rng.next_u64() % 10_000_000_000);
-            ("molecules", key, Some(format!("{n}:{op}").into_bytes()))
+            ("field_keys", key, Some(format!("{n}:{op}").into_bytes()))
         } else {
             let key = tip_key(rng.below(TIP_SCHEMAS), rng.below(TIP_RANGES));
-            ("tips", key, None)
+            ("records", key, None)
         };
         out.push(HomeMutation {
             collection: collection.to_string(),
@@ -109,7 +109,7 @@ pub fn overwrite_batch(n: u64, ops: usize) -> Vec<HomeMutation> {
                 _ => Some(value(&mut rng, n)),
             };
             HomeMutation {
-                collection: "tips".to_string(),
+                collection: "records".to_string(),
                 key,
                 body,
             }

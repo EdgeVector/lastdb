@@ -23,11 +23,13 @@ pub(super) fn record(records: &[(Vec<u8>, Option<Vec<u8>>)]) {
             names[3],
             value.as_ref().map_or(0, |bytes| bytes.len()) as u64,
         );
-        if collection == "atoms" {
-            let tag = match key[at..].rsplit(|byte| *byte == 0).next() {
-                Some(b"b") => ["v2_atom_body_puts", "v2_atom_body_deletes"],
-                Some(b"c") => ["v2_atom_counter_puts", "v2_atom_counter_deletes"],
-                _ => ["v2_atom_other_puts", "v2_atom_other_deletes"],
+        if collection == "blob_counts" {
+            // A blob counter key starts with `bref:v3:c:`; the dwell queue
+            // entries and its bucket directory hold the rest.
+            let tag = if key[at..].starts_with(b"bref:v3:c:") {
+                ["v2_blob_counter_puts", "v2_blob_counter_deletes"]
+            } else {
+                ["v2_blob_queue_puts", "v2_blob_queue_deletes"]
             };
             timing::count(tag[usize::from(value.is_none())], 1);
         }
@@ -36,29 +38,17 @@ pub(super) fn record(records: &[(Vec<u8>, Option<Vec<u8>>)]) {
 
 fn names(collection: &str) -> Names {
     match collection {
-        "atoms" => [
-            "v2_atoms_puts",
-            "v2_atoms_deletes",
-            "v2_atoms_key_bytes",
-            "v2_atoms_value_bytes",
+        "blob_counts" => [
+            "v2_blob_counts_puts",
+            "v2_blob_counts_deletes",
+            "v2_blob_counts_key_bytes",
+            "v2_blob_counts_value_bytes",
         ],
-        "tips" => [
-            "v2_tips_puts",
-            "v2_tips_deletes",
-            "v2_tips_key_bytes",
-            "v2_tips_value_bytes",
-        ],
-        "molecule_ref_edges" => [
-            "v2_mref_puts",
-            "v2_mref_deletes",
-            "v2_mref_key_bytes",
-            "v2_mref_value_bytes",
-        ],
-        "indexes" => [
-            "v2_indexes_puts",
-            "v2_indexes_deletes",
-            "v2_indexes_key_bytes",
-            "v2_indexes_value_bytes",
+        "records" => [
+            "v2_records_puts",
+            "v2_records_deletes",
+            "v2_records_key_bytes",
+            "v2_records_value_bytes",
         ],
         "cas_blobs" => [
             "v2_cas_puts",
@@ -66,11 +56,11 @@ fn names(collection: &str) -> Names {
             "v2_cas_key_bytes",
             "v2_cas_value_bytes",
         ],
-        "molecule_keys" => [
-            "v2_mkeys_puts",
-            "v2_mkeys_deletes",
-            "v2_mkeys_key_bytes",
-            "v2_mkeys_value_bytes",
+        "field_keys" => [
+            "v2_field_keys_puts",
+            "v2_field_keys_deletes",
+            "v2_field_keys_key_bytes",
+            "v2_field_keys_value_bytes",
         ],
         "schemas" => [
             "v2_schemas_puts",

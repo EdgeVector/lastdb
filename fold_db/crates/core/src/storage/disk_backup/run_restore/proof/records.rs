@@ -15,12 +15,12 @@ use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
 /// its stamp, schema, field and keys.
 const MAX_HISTORY_ENTRY_BYTES: usize = MAX_RECORD_BYTES + 4 * 1024;
 
-/// Prove every record and record history entry of the tips namespace.
+/// Prove every record and record history entry of the `records` collection.
 /// A row that is not a record must still pass the current key law.
 /// A retired prefix fails that law. Other rows name no file.
 pub(super) fn verify_tips(proof: &Proof<'_>) -> StorageResult<()> {
     let mut read = super::rows::read(proof.main, proof.key_heads)?;
-    let mut rows = Rows::new(proof.main, read.as_mut(), "tips")?;
+    let mut rows = Rows::new(proof.main, read.as_mut(), "records")?;
     while let Some((key, body)) = rows.next()? {
         verify(proof, &key, &body)?;
     }
@@ -28,7 +28,7 @@ pub(super) fn verify_tips(proof: &Proof<'_>) -> StorageResult<()> {
 }
 
 /// Prove the file dependencies of the record or the record history entry at
-/// one tips row.
+/// one row of the `records` collection.
 fn verify(proof: &Proof<'_>, key: &str, body: &[u8]) -> StorageResult<()> {
     let raw = native_routing::decode(key)?;
     let raw = std::str::from_utf8(&raw).map_err(|_| invalid("run backup record key"))?;

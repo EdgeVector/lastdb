@@ -100,7 +100,7 @@ impl FileDependency {
 pub fn validate_restored_record_key(key: &str) -> StorageResult<()> {
     let raw = crate::storage::disk_pack::native_routing::decode(key)?;
     super::super::current_keys::validate("main", &raw)?;
-    if crate::storage::disk_pack::native_routing::collection_for_key(&raw) != "atoms" {
+    if crate::storage::disk_pack::native_routing::collection_for_key(&raw) != "blob_counts" {
         return Err(invalid("unsupported key in restored record namespace"));
     }
     Ok(())
