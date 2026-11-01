@@ -1,6 +1,10 @@
 //! Duplicate short-circuit, precondition gate and per-schema record groups.
 
 use super::*;
+use crate::schema::types::KeyValue;
+
+/// The keys of each schema that more than one group of the request writes.
+type RepeatedKeys = HashMap<String, HashSet<KeyValue>>;
 
 impl MutationManager {
     /// Receipt for a batch whose every mutation the idempotency filter
@@ -107,12 +111,13 @@ impl MutationManager {
         // Group mutations by schema to minimize schema reloads. First-seen
         // order is the stage order.
         let group_start = std::time::Instant::now();
-        let grouped_mutations =
+        let (grouped_mutations, repeated) =
             self.independent_key_groups(self.group_mutations_by_schema(new_mutations))?;
         Self::add_timing(timing_breakdown, "grouping", group_start.elapsed());
 
         let group_count = grouped_mutations.len();
         let mut prepare_elapsed = std::time::Duration::ZERO;
+        let mut deferred = Vec::new();
         for (schema_name, schema_mutations) in grouped_mutations {
             let prepare_started = std::time::Instant::now();
             let idempotency_entries = schema_mutations
@@ -130,16 +135,24 @@ impl MutationManager {
                     )
                 })
                 .collect();
-            self.stage_record_group(
-                &schema_name,
-                schema_mutations,
-                idempotency_entries,
-                storage_prefix,
-                runtime,
-            )
-            .await?;
+            deferred.extend(
+                self.stage_record_group(
+                    &schema_name,
+                    schema_mutations,
+                    idempotency_entries,
+                    storage_prefix,
+                    repeated.get(&schema_name),
+                    runtime,
+                )
+                .await?,
+            );
             prepare_elapsed += prepare_started.elapsed();
         }
+        // A key that two groups wrote meets the record cap with its final
+        // record, not with the record between the groups.
+        deferred.sort_unstable();
+        deferred.dedup();
+        self.db_ops.atoms().require_records_fit(&deferred).await?;
         stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
         Ok(group_count)
     }
@@ -147,30 +160,41 @@ impl MutationManager {
 
 /// Independent keys prepare together. A repeated key starts the next group
 /// so its unchanged fields come from the earlier private write, not the
-/// request's original state. The complete request still publishes once.
+/// request's original state. The complete request still publishes once. The
+/// repeated keys of each schema come back too: their record cap waits for the
+/// final record.
 impl MutationManager {
     fn independent_key_groups(
         &self,
         groups: Vec<(String, Vec<Mutation>)>,
-    ) -> Result<Vec<(String, Vec<Mutation>)>, SchemaError> {
+    ) -> Result<(Vec<(String, Vec<Mutation>)>, RepeatedKeys), SchemaError> {
         let mut result = Vec::new();
+        let mut repeated = RepeatedKeys::new();
         for (name, mutations) in groups {
             let schema = self.schema_manager.require_schema_metadata(&name)?;
-            let mut keys = std::collections::HashSet::new();
+            // The group of the last write of each key.
+            let mut last_group: HashMap<KeyValue, usize> = HashMap::new();
+            let mut group = 0;
             let mut current = Vec::new();
             for mutation in mutations {
                 let key = self.resolve_mutation_key_value(&name, &schema, &mutation)?;
-                if !keys.insert(key.clone()) {
-                    result.push((name.clone(), std::mem::take(&mut current)));
-                    keys.clear();
-                    keys.insert(key);
+                if let Some(&at) = last_group.get(&key) {
+                    if at == group {
+                        result.push((name.clone(), std::mem::take(&mut current)));
+                        group += 1;
+                    }
+                    repeated
+                        .entry(name.clone())
+                        .or_default()
+                        .insert(key.clone());
                 }
+                last_group.insert(key, group);
                 current.push(mutation);
             }
             if !current.is_empty() {
                 result.push((name, current));
             }
         }
-        Ok(result)
+        Ok((result, repeated))
     }
 }

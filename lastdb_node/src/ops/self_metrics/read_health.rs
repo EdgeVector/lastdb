@@ -19,6 +19,10 @@ pub struct LimitsHealth {
     pub max_atom_content_bytes_absolute_max: Gauge,
     /// Env var name that overrides the default.
     pub max_atom_content_bytes_env: String,
+    /// The cap for the encoded record of a format 7 home (64 KiB). A record
+    /// holds every field of one key, so it is the write limit there.
+    #[serde(serialize_with = "serialize_gauge_option")]
+    pub max_record_bytes: Gauge,
 }
 
 impl Default for LimitsHealth {
@@ -41,6 +45,10 @@ impl Default for LimitsHealth {
                 Unit::Bytes,
             ),
             max_atom_content_bytes_env: fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV.to_string(),
+            max_record_bytes: g_instant(
+                fold_db::record_value::MAX_RECORD_BYTES as u64,
+                Unit::Bytes,
+            ),
         }
     }
 }
@@ -59,6 +67,8 @@ impl<'de> Deserialize<'de> for LimitsHealth {
             max_atom_content_bytes_absolute_max: Option<u64>,
             #[serde(default)]
             max_atom_content_bytes_env: String,
+            #[serde(default)]
+            max_record_bytes: Option<u64>,
         }
         let raw = Raw::deserialize(deserializer)?;
         Ok(Self {
@@ -73,6 +83,7 @@ impl<'de> Deserialize<'de> for LimitsHealth {
                 Unit::Bytes,
             ),
             max_atom_content_bytes_env: raw.max_atom_content_bytes_env,
+            max_record_bytes: g_instant_wire(raw.max_record_bytes, Unit::Bytes),
         })
     }
 }

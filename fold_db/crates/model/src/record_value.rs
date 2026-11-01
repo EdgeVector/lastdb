@@ -268,12 +268,18 @@ impl StoredRecord {
 
     /// The stored bytes. A record above [`MAX_RECORD_BYTES`] is refused.
     pub fn encode(&self) -> Result<Vec<u8>, RecordValueError> {
-        let bytes = serde_json::to_vec(self)
-            .map_err(|error| RecordValueError::Format(error.to_string()))?;
+        let bytes = self.encode_uncapped()?;
         if bytes.len() > MAX_RECORD_BYTES {
             return Err(RecordValueError::TooLarge { bytes: bytes.len() });
         }
         Ok(bytes)
+    }
+
+    /// The stored bytes without the cap. A request that writes one key twice
+    /// stages the earlier record before the later write; the cap applies to
+    /// the final record of the request.
+    pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
+        serde_json::to_vec(self).map_err(|error| RecordValueError::Format(error.to_string()))
     }
 
     /// Read stored bytes. The value must have this format version, a stamp for

@@ -18,7 +18,7 @@ pub use atom_entry::AtomEntry;
 pub use content_limit::{
     atom_content_byte_len, ABSOLUTE_MAX_ATOM_CONTENT_BYTES, ATOM_CONTENT_TOO_LARGE_HINT,
     DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES_ENV,
-    MIN_MAX_ATOM_CONTENT_BYTES,
+    MIN_MAX_ATOM_CONTENT_BYTES, RECORD_TOO_LARGE_HINT,
 };
 pub use molecule_hash_range::MoleculeHashRange;
 pub use molecule_key_codec::{MoleculeKeyCodec, MoleculeKeyCodecError};

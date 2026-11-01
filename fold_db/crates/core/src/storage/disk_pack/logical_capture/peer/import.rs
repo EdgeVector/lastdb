@@ -59,6 +59,7 @@ impl PackRuntime {
             duplicate_events: duplicates,
             imported_outcomes: events.iter().map(CaptureEvent::outcome_count).sum(),
             receipt_count: after_roster.receipt_count,
+            skipped_records: Vec::new(),
         };
         Ok(PreparedLogicalImport {
             runtime: Arc::clone(self),

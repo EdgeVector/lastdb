@@ -38,6 +38,23 @@ pub struct ImportReceipt {
     pub duplicate_events: usize,
     pub imported_outcomes: usize,
     pub receipt_count: u64,
+    /// The merged records that the import kept out, with the reason. Each
+    /// keeps its stored value; the rest of the page lands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped_records: Vec<SkippedPeerRecord>,
+}
+
+/// One merged record of a peer page that the import kept out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkippedPeerRecord {
+    pub schema: String,
+    pub key: crate::schema::types::KeyValue,
+    /// The mutation of the last peer part that changed the merged record.
+    pub mutation_id: String,
+    /// The encoded size of the merged record.
+    pub bytes: usize,
+    pub reason: String,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

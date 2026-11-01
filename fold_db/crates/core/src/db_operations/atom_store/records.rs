@@ -32,6 +32,9 @@ pub(crate) struct RecordChange {
     pub before: Option<Arc<StoredRecord>>,
     /// The merged value that the write puts.
     pub after: StoredRecord,
+    /// True when another group of the request writes this key too: the cap
+    /// applies to the final record (`record_cap.rs`).
+    pub cap_deferred: bool,
 }
 
 /// The storage scope of the records of a schema: the prefix that its fields
@@ -145,9 +148,7 @@ impl AtomStore {
                 blobs.add(&before.blob_refs(), -1);
             }
             blobs.add(&change.after.blob_refs(), 1);
-            let value = change.after.encode().map_err(|error| {
-                SchemaError::InvalidData(format!("the record write is refused: {error}"))
-            })?;
+            let value = super::record_cap::record_bytes(&change)?;
             written.push(WrittenRecord::new(
                 &change.key,
                 Arc::new(change.after),

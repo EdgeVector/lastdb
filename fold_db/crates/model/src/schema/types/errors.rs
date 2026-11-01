@@ -107,6 +107,14 @@ pub enum SchemaError {
         size: usize,
         limit: usize,
     },
+    /// The encoded record of a format 7 home exceeded the record cap
+    /// (`MAX_RECORD_BYTES`, 64 KiB, in `record_value.rs`). The HTTP layer
+    /// renders the same discriminated `413 atom_content_too_large` body with
+    /// `scope: "record"`, so a client that keys on the error keeps working.
+    RecordTooLarge {
+        size: usize,
+        limit: usize,
+    },
     /// A caller-supplied resume cursor (`after_key`, `cursor`) does not name a
     /// key inside the keyspace the operation pages over, so the walk cannot
     /// start.
@@ -212,6 +220,11 @@ impl fmt::Display for SchemaError {
                  {} See fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md.",
                 crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES / 1024,
                 crate::atom::ATOM_CONTENT_TOO_LARGE_HINT
+            ),
+            Self::RecordTooLarge { size, limit } => write!(
+                f,
+                "record too large: {size} bytes exceeds the record cap of {limit} bytes. {}",
+                crate::atom::RECORD_TOO_LARGE_HINT
             ),
             Self::StorageFull { detail } => write!(
                 f,

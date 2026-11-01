@@ -2,6 +2,7 @@
 //! records, in the native request of the import.
 
 mod admission;
+mod cap;
 mod effects;
 mod merge;
 mod publication;
@@ -10,6 +11,7 @@ use super::*;
 use crate::db_operations::atom_store::blob_counter::BlobDeltas;
 use crate::db_operations::atom_store::record_scope;
 use crate::schema::types::{KeyValue, Schema};
+use crate::storage::disk_pack::logical_capture::SkippedPeerRecord;
 use merge::{PageMerge, PeerRecord};
 use std::collections::HashSet;
 
@@ -17,17 +19,18 @@ impl MutationManager {
     /// Merge the record outcomes of the admitted page. One read by key of the
     /// records and one of the conflict rows and markers, then the records of
     /// each schema with their alternate entries, field history and retention
-    /// rows, all in the native request of the import.
+    /// rows, all in the native request of the import. A merged record above
+    /// the record cap keeps its stored value and comes back as skipped.
     pub(super) async fn stage_peer_records(
         &self,
         events: &[CaptureEvent],
         schemas: &BTreeMap<String, Schema>,
         runtime: &Arc<PackRuntime>,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<Vec<SkippedPeerRecord>, SchemaError> {
         let atoms = self.db_ops.atoms();
         let (keys, placed) = page_keys(atoms, events, schemas)?;
         if keys.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let storage_keys: Vec<String> = keys.iter().map(|(record, ..)| record.clone()).collect();
         let stored = atoms.read_records(&storage_keys).await?;
@@ -37,6 +40,7 @@ impl MutationManager {
             page.apply(record, outcome);
         }
         let (changed, lost) = page.finish();
+        let (changed, lost, skipped) = cap::split_over_cap(changed, lost);
         let mut conflicts = atoms.record_conflict_mutations(lost).await?;
         for schema in schemas.values() {
             let mine: Vec<&PeerRecord> = changed
@@ -55,7 +59,8 @@ impl MutationManager {
                 .await?;
         }
         self.stage_peer_record_notifications(&changed, schemas, runtime)
-            .await
+            .await?;
+        Ok(skipped)
     }
 }
 

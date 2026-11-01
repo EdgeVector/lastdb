@@ -109,6 +109,7 @@ impl PeerRecord {
             key: self.record.clone(),
             before: self.before.clone(),
             after: self.after.clone(),
+            cap_deferred: false,
         }
     }
 }

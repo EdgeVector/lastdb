@@ -13,6 +13,19 @@
 | **Error** | `SchemaError::AtomContentTooLarge` → HTTP **413** `{ "error": "atom_content_too_large", size, limit, hint, … }` |
 | **Status** | `GET /api/status` → `limits.max_atom_content_bytes` (the effective value); `lastdb status` prints a `Limits:` line |
 
+## Record cap of a format 7 home (64 KiB)
+
+A format 7 home stores one record for each key. The encoded record holds every field of the key, its stamps and its metadata. Its cap is **64 KiB** (`MAX_RECORD_BYTES` in `fold_db/crates/model/src/record_value.rs`, decision D3). No env changes it.
+
+| | |
+|--|--|
+| **What is limited** | The encoded record value at one key |
+| **Error** | `SchemaError::RecordTooLarge` → HTTP **413** `{ "error": "atom_content_too_large", "scope": "record", size, limit, hint, … }` |
+| **Status** | `GET /api/status` → `limits.max_record_bytes`; the `Limits:` line of `lastdb status` prints `max_record` |
+
+- A request that writes one key twice checks the cap on the final record of the request only.
+- A peer import keeps a merged record above the cap out of the page. The stored record stays, and the import receipt names the record in `skipped_records` with the reason. The rest of the page lands.
+
 ## Why 256 KiB
 
 - **Memory.** At the 10,000-record key budget of the warm set, the worst case is 10,000 × 256 KiB = 2.5 GiB of resident content.

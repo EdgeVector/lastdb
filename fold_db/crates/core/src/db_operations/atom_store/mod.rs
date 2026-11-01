@@ -45,6 +45,7 @@ mod molecule_bindings;
 mod molecule_counters;
 mod molecule_drain;
 mod molecule_ref_edges;
+mod record_cap;
 mod record_conflicts;
 mod record_reads;
 mod record_spans;

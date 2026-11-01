@@ -293,8 +293,10 @@ fn watchers_line(snapshot: &StatusSnapshot) -> String {
 
 fn limits_line(snapshot: &StatusSnapshot) -> String {
     format!(
-        "Limits: max_request_body={} B; max_atom_content={} B (default {} B; abs max {} B; env {})",
+        "Limits: max_request_body={} B; max_record={} B; max_atom_content={} B (default {} B; abs \
+         max {} B; env {})",
         gauge_or_zero(&snapshot.limits.max_request_body_bytes),
+        gauge_or_zero(&snapshot.limits.max_record_bytes),
         gauge_or_zero(&snapshot.limits.max_atom_content_bytes),
         gauge_or_zero(&snapshot.limits.max_atom_content_bytes_default),
         gauge_or_zero(&snapshot.limits.max_atom_content_bytes_absolute_max),
