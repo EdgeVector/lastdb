@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Save an actual uploaded CI receipt before its workflow ends or archive expires."""
+"""Save an actual uploaded CI receipt before its workflow ends or archive expires.
+
+The `baseline` phase saves the manual baseline mode's `ci-baseline.json`
+archive. The service then moves the protected CI baseline to that new stream
+and keeps the replaced baseline protected.
+"""
 
 import argparse
 import json
@@ -38,7 +43,7 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--artifact-id", required=True)
     parser.add_argument("--artifact-sha256", required=True)
-    parser.add_argument("--phase", choices=("startup", "complete"), default="complete")
+    parser.add_argument("--phase", choices=("startup", "complete", "baseline"), default="complete")
     parser.add_argument("--startup-proof", type=Path)
     args = parser.parse_args()
     os.umask(0o077)
@@ -67,13 +72,23 @@ def main():
                 (root / name).mkdir(mode=0o700)
             history = History(baseline, child_environment(root), token)
             del token
-            record = history.current(args.artifact_id, digest, args.source, startup=args.phase == "startup")
+            kind = {"startup": "startup", "complete": "stream", "baseline": "baseline"}[args.phase]
+            record = history.current(args.artifact_id, digest, args.source, kind=kind)
             control = Control(baseline, key)
             del key
-            control.context(startup=args.phase == "startup")
-            registered = control.start(record) if args.phase == "startup" else control.register(record)
-            if args.phase == "startup":
+            capabilities = control.context(startup=args.phase != "complete")
+            if args.phase == "baseline":
+                require(capabilities.get("baseline_move") is True, "ci_baseline_move_capability")
+                registered = control.move_baseline(record)
+                new = registered["baseline"]
+                # Public identifiers for the operator's secret and variable update.
+                result["new_baseline_scope"] = {"account": baseline["account"],
+                    "account_generation": baseline["account_generation"], "stream_id": new["stream_id"]}
+            elif args.phase == "startup":
+                registered = control.start(record)
                 save_startup(args.startup_proof, record, registered, baseline, args.source)
+            else:
+                registered = control.register(record)
             result.update(result="passed", source=args.source, artifact_id=args.artifact_id,
                           phase=args.phase, registration=registered, backup_service_requests=control.calls,
                           artifact_url=record["artifact_url"], artifact_sha256=record["artifact_sha256"],

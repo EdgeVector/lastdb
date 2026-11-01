@@ -2,6 +2,8 @@ name: Cloud backup recovery
 
 # Real DEV operations: pinned recovery, automatic snapshot/log uploads, a saved
 # policy across restart, a changed snapshot interval, and source-free recovery.
+# The manual `baseline` mode makes a new fixed baseline after a native format
+# change (docs/cloud-backup-recovery-ci.md, "Baseline move").
 on:
   pull_request:
     paths: &cloud_paths
@@ -29,6 +31,12 @@ on:
     branches: [main]
     paths: *cloud_paths
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "recovery = the normal operation. baseline = make and save a new fixed CI baseline."
+        type: choice
+        options: [recovery, baseline]
+        default: recovery
 
 permissions:
   contents: read
@@ -87,6 +95,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_TERM_COLOR: never
       SOURCE_COMMIT: ${{ github.sha }}
+      # A push has no inputs and always runs the normal recovery.
+      RUN_MODE: ${{ inputs.mode == 'baseline' && 'baseline' || 'recovery' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -178,6 +188,7 @@ jobs:
             --artifact-sha256 "$ARTIFACT_DIGEST" --phase startup \
             --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json"
       - name: Run automatic snapshots, mutation logs, restart and both recoveries
+        if: env.RUN_MODE == 'recovery'
         env:
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
           LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
@@ -194,6 +205,7 @@ jobs:
             --output "$RUNNER_TEMP/cloud-backup-recovery"
       - name: Retain successful CI stream ownership
         id: ci-stream-artifact
+        if: env.RUN_MODE == 'recovery'
         uses: actions/upload-artifact@v7
         with:
           name: cloud-ci-stream-${{ github.run_id }}-${{ github.run_attempt }}
@@ -201,6 +213,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Record CI ownership provenance
+        if: env.RUN_MODE == 'recovery'
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.ci-stream-artifact.outputs.artifact-id }}
@@ -216,6 +229,7 @@ jobs:
             printf '\nThis record identifies observed CI recovery points. It grants no provider deletion authority.\n'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Save durable CI ownership before this run ends
+        if: env.RUN_MODE == 'recovery'
         env:
           GH_TOKEN: ${{ github.token }}
           LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
@@ -227,6 +241,44 @@ jobs:
           python3 scripts/cloud_backup/register_ownership.py \
             --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
             --artifact-sha256 "$ARTIFACT_DIGEST"
+      - name: Make, upload and restore a new fixed CI baseline
+        if: env.RUN_MODE == 'baseline'
+        env:
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_RECOVERY_PHRASE: ${{ secrets.LASTDB_CLOUD_DEV_RECOVERY_PHRASE }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cloud_backup/baseline.py \
+            --bin-dir "$CARGO_TARGET_DIR/dev-release" \
+            --source "$SOURCE_COMMIT" --version "$CLIENT_VERSION" \
+            --preflight "$RUNNER_TEMP/cloud-ci-preflight" \
+            --startup-proof "$RUNNER_TEMP/cloud-ci-start-admission.json" \
+            --startup-artifact "$RUNNER_TEMP/cloud-ci-start/ci-start.json" \
+            --output "$RUNNER_TEMP/cloud-ci-baseline"
+      - name: Retain the new CI baseline receipt
+        id: ci-baseline-artifact
+        if: env.RUN_MODE == 'baseline'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-ci-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cloud-ci-baseline/ci-baseline.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Move the saved CI baseline and keep the replaced one
+        if: env.RUN_MODE == 'baseline'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LASTDB_CLOUD_DEV_API_KEY: ${{ secrets.LASTDB_CLOUD_DEV_API_KEY }}
+          LASTDB_CLOUD_DEV_BASELINE: ${{ secrets.LASTDB_CLOUD_DEV_BASELINE }}
+          LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
+          ARTIFACT_ID: ${{ steps.ci-baseline-artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.ci-baseline-artifact.outputs.artifact-digest }}
+        run: |
+          python3 scripts/cloud_backup/register_ownership.py \
+            --source "$SOURCE_COMMIT" --artifact-id "$ARTIFACT_ID" \
+            --artifact-sha256 "$ARTIFACT_DIGEST" --phase baseline
       - name: Record client provenance
         if: always() && steps.client-artifact.outcome == 'success'
         env:
