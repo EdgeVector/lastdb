@@ -18,9 +18,6 @@ pub const RSS_MULTIPLIER_ENV: &str = "LASTDB_RSS_BUDGET_MULTIPLIER";
 /// Env: explicit deferred-persist byte cap (overrides the derived value).
 pub const DEFERRED_BYTES_ENV: &str = "LASTDB_RESIDENT_MAX_DEFERRED_BYTES";
 
-/// Env: percent of the deferred window one persist lane may occupy (1–100).
-pub const LANE_FAIR_SHARE_PERCENT_ENV: &str = "LASTDB_DEFER_LANE_FAIR_SHARE_PERCENT";
-
 /// Default process memory ceiling in MiB.
 ///
 /// Tom ratified (2026-08-08) that the primary kill guard measures
@@ -178,8 +175,3 @@ pub const FLOOR_DEFERRED_BYTES: u64 = 64 * 1024 * 1024;
 /// 2026-07-29 256 MiB balloon (`the_incident_burst_stops_at_the_byte_window_not_the_count_window`).
 /// The complete-request cap still bounds acknowledged state before its disk flush.
 pub const MAX_DEFERRED_BYTES: u64 = 128 * 1024 * 1024;
-
-/// Default share of [`ProcessMemoryBudget::deferred_cap_bytes`] one persist
-/// lane may occupy. A lastgit pack lane at 100% of 64 MiB was the 2026-09-02
-/// starvation shape.
-pub const DEFAULT_LANE_FAIR_SHARE_PERCENT: u8 = 50;

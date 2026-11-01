@@ -5,13 +5,12 @@
 
 use super::super::*;
 use crate::atom::file_pointer::blob_refs_of_atom;
-use crate::schema::types::aggregate_state::aggregate_guard_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::logical_capture::AcceptedRecordOutcome;
 use lastdb_model::record_value::FieldStamp;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 impl MutationManager {
     /// Validate every record outcome of the page, and return its schemas.
@@ -20,7 +19,6 @@ impl MutationManager {
         events: &[CaptureEvent],
     ) -> Result<BTreeMap<String, Schema>, SchemaError> {
         let mut schemas = BTreeMap::new();
-        let mut guards = BTreeSet::new();
         let mut declared_fields = 0usize;
         for event in events {
             let mut keys = HashSet::new();
@@ -44,15 +42,9 @@ impl MutationManager {
                 if !keys.insert((&outcome.schema_name, &outcome.key)) {
                     return Err(unsupported("repeated records in one event"));
                 }
-                guards.insert(aggregate_guard_key(
-                    None,
-                    &outcome.schema_name,
-                    outcome.key.hash.as_deref().expect("validated hash"),
-                ));
             }
         }
-        self.require_unshared_schemas(&schemas, &guards.into_iter().collect::<Vec<_>>())
-            .await?;
+        self.require_unshared_schemas(&schemas).await?;
         Ok(schemas)
     }
 

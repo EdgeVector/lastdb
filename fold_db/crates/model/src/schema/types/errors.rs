@@ -83,8 +83,8 @@ pub enum SchemaError {
     /// This is the failure shape lastgit ref updates key on to reject a losing
     /// push. `schema`/`field`/`key` locate the record; `expected`/`actual`
     /// describe the mismatch (`actual` is `None` when the key had no live
-    /// value — e.g. a `Value`/`ContentHash` expectation against an
-    /// absent/tombstoned head).
+    /// value — e.g. a `Value` expectation against an absent or deleted
+    /// record).
     CasConflict {
         schema: String,
         field: String,

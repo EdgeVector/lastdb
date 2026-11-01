@@ -3,7 +3,6 @@ use crate::atom::file_pointer::blob_refs_of_atom;
 use crate::schema::types::aggregate::{
     AGGREGATE_GUARD_TOKEN_FIELD, AGGREGATE_MEMBER_RESERVED_FIELDS, AGGREGATE_VALID_FIELD,
 };
-use crate::schema::types::aggregate_state::aggregate_guard_key;
 use crate::schema::types::field::FieldKind;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{MutationType, Schema};
@@ -30,10 +29,8 @@ impl MutationManager {
             return Err(unsupported("requests above 256 KiB"));
         }
         let mut schemas = BTreeMap::new();
-        let mut guards = BTreeSet::new();
-        let record_home = self.db_ops.atoms().record_home();
         for mutation in mutations {
-            require_local_put(mutation, record_home)?;
+            require_local_put(mutation)?;
             if !schemas.contains_key(&mutation.schema_name) {
                 let schema = self
                     .schema_manager
@@ -44,14 +41,11 @@ impl MutationManager {
             }
             let schema = &schemas[&mutation.schema_name];
             let key = self.resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
-            let hash = key
-                .hash
-                .as_deref()
-                .ok_or_else(|| unsupported("a missing hash"))?;
-            guards.insert(aggregate_guard_key(None, &mutation.schema_name, hash));
+            if key.hash.is_none() {
+                return Err(unsupported("a missing hash"));
+            }
         }
-        self.require_unshared_schemas(&schemas, &guards.into_iter().collect::<Vec<_>>())
-            .await?;
+        self.require_unshared_schemas(&schemas).await?;
         Ok(Some(
             mutations
                 .iter()
@@ -63,7 +57,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn require_unshared_schemas(
         &self,
         schemas: &BTreeMap<String, Schema>,
-        guards: &[String],
     ) -> Result<(), SchemaError> {
         if schemas
             .values()
@@ -72,32 +65,6 @@ impl MutationManager {
             > MAX_OUTCOMES
         {
             return Err(unsupported("more than 1024 declared fields in one request"));
-        }
-        let molecules: Vec<String> = schemas
-            .values()
-            .flat_map(|schema| schema.runtime_fields.values())
-            .filter_map(|field| field.common().molecule_uuid().cloned())
-            .collect();
-        let pointers = molecules
-            .iter()
-            .map(|molecule| {
-                crate::atom::molecule_key_codec::molecule_generation_pointer_key(molecule)
-                    .into_bytes()
-            })
-            .collect();
-        if self
-            .db_ops
-            .open_namespace("main")
-            .await?
-            .exists_many(pointers)
-            .await?
-            .into_iter()
-            .any(|exists| exists)
-        {
-            return Err(unsupported("existing molecule generations"));
-        }
-        if self.db_ops.metadata().contains_any(guards).await? {
-            return Err(unsupported("aggregate-enrolled source keys"));
         }
         // This conservative check is bounded. Even an inactive rule needs the
         // complete sharing protocol before this capture slice can admit writes.
@@ -111,14 +78,14 @@ impl MutationManager {
     }
 }
 
-/// A format 7 home also captures a local delete and a local purge, and the TTL
-/// sweep's erase of an expired record: the record outcome carries the delete
-/// floor, so a peer applies each of them as a delete. The floor of a TTL erase
-/// is a local write of this device at the cutoff (`write/records.rs`).
-fn require_local_put(mutation: &Mutation, record_home: bool) -> Result<(), SchemaError> {
+/// Capture also takes a local delete and a local purge, and the TTL sweep's
+/// erase of an expired record: the record outcome carries the delete floor, so
+/// a peer applies each of them as a delete. The floor of a TTL erase is a local
+/// write of this device at the cutoff (`write/records.rs`).
+fn require_local_put(mutation: &Mutation) -> Result<(), SchemaError> {
     let local_kind = match mutation.mutation_type {
         MutationType::Create | MutationType::Update => mutation.erase_tips_before_nanos.is_none(),
-        MutationType::Delete | MutationType::Purge => record_home,
+        MutationType::Delete | MutationType::Purge => true,
     };
     if !local_kind
         || mutation.imported_written_at.is_some()

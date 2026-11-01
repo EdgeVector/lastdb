@@ -6,26 +6,6 @@ use crate::storage::disk_pack::{core_memory_get, core_memory_insert, core_memory
 static CONFLICT_MEMORY: u8 = 0;
 
 impl DbOperations {
-    pub(crate) async fn stage_current_conflict_control(
-        &self,
-        runtime: &crate::storage::disk_pack::PackRuntime,
-        scope: Option<&str>,
-    ) -> crate::storage::error::StorageResult<()> {
-        let key = build_storage_key(scope, HOME_CONFLICT_INDEX_KEY);
-        let Ok(index) = self.atoms().raw().get_item::<HomeConflictIndex>(&key).await else {
-            return crate::storage::disk_pack::transaction::require_durable(runtime);
-        };
-        let bytes = conflict_control_bytes(&index)?;
-        crate::storage::disk_pack::transaction::stage_core_memory(
-            runtime,
-            conflict_memory_owner(),
-            key.clone(),
-            index,
-            core_memory_sources("main", key.as_bytes()),
-            bytes,
-        )
-    }
-
     pub(super) async fn conflict_index_from_memory(
         &self,
         storage_prefix: Option<&str>,

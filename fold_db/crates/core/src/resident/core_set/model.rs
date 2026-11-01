@@ -8,13 +8,6 @@ mod prepare;
 
 const METADATA_BYTES: usize = 16 * 1024 * 1024;
 
-/// The final effect for one logical key. None means a confirmed absence.
-pub(crate) struct CoreModelChange {
-    pub(crate) path: CorePath,
-    pub(crate) slot: Option<CoreWarmSlot>,
-    pub(crate) sources: Vec<(String, String)>,
-}
-
 pub(super) struct CoreModelSlot {
     pub(super) value: Option<CoreWarmSlot>,
     pub(super) sources: Vec<(String, String)>,
@@ -53,9 +46,8 @@ impl Default for CoreModel {
     }
 }
 
-/// Fully prepared metadata and typed values. Installation cannot refuse quota.
+/// Fully prepared memory definitions. Installation cannot refuse quota.
 pub(crate) struct CoreModelUpdate {
-    changes: Vec<(CorePath, Arc<CoreModelSlot>)>,
     definitions: Vec<PreparedCoreMemory>,
 }
 
@@ -102,43 +94,15 @@ impl CoreWarmSet {
             .collect()
     }
 
-    /// All paths must already hold the ordinary core path reservation.
-    /// Publish prepared effects only after their complete disk root is committed.
+    /// Publish prepared memory definitions only after their complete disk root
+    /// is committed.
     pub(crate) fn install_clean(&mut self, update: &CoreModelUpdate) {
         self.install_model_changes(update);
     }
 
     fn install_model_changes(&mut self, update: &CoreModelUpdate) {
-        for (path, value) in &update.changes {
-            self.install_clean_slot(path, value);
-            self.clear_sources(path);
-            for (collection, key) in &value.sources {
-                let retained = self.link_source(path, collection, key);
-                debug_assert!(retained, "prepared core source count");
-            }
-            self.authorize_path(path);
-        }
         for definition in &update.definitions {
             self.memory.install_prepared(definition.clone());
-        }
-    }
-
-    fn install_clean_slot(&mut self, path: &CorePath, value: &CoreModelSlot) {
-        // Preparation still owns this allocation until publication returns,
-        // including when admission shares an equal current atom.
-        if let Some(slot) = &value.value {
-            self.track_atom(&slot.atom);
-        }
-        let result = match &value.value {
-            Some(slot) => self.admit(path, slot.clone()),
-            None => self.admit_absent(path),
-        };
-        debug_assert!(result.is_ok(), "prepared and held core path");
-        if let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get_mut(id)) {
-            // The complete disk root is already committed. Ordinary warm-set
-            // charges and read-held atom owners now cover the clean value;
-            // do not retain the temporary write metadata/quota for its life.
-            slot.owned = None;
         }
     }
 
@@ -203,11 +167,5 @@ impl CoreWarmSet {
             .map(|owner| owner.bytes())
             .sum();
         self.model.body_peak_bytes = self.model.body_peak_bytes.max(used);
-    }
-}
-
-pub(super) fn capacity() -> CoreCapacity {
-    CoreCapacity {
-        detail: "immutable core model metadata allowance refused the publication",
     }
 }

@@ -1,24 +1,21 @@
 //! Mutation Manager — handles all mutation operations.
 //!
 //! Layout:
-//! - [`helpers`] — free helpers (tombstone, key normalize, native-index allowlist, derived guard)
-//! - [`write`] — public write entry points, purge peel, batch pipeline, finalize
-//! - [`cas`] — write preconditions and idempotency; aggregate guards retain their own locks
-//! - [`molecules`] — atom prep, molecule apply/persist
+//! - [`helpers`] — free helpers (storage prefix, derived guard)
+//! - [`write`] — public write entry points and the record batch pipeline
+//! - [`key_values`] — primary keys and declared field values of a mutation
+//! - [`cas_rules`] — write preconditions; [`cas_idempotency`] — retry filter
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
 
-mod aggregate;
 mod author_clock;
-mod cas;
-mod cas_current_state;
 mod cas_idempotency;
 mod cas_preconditions;
 mod cas_rules;
 pub(super) mod helpers;
 mod index;
+mod key_values;
 mod logical_capture;
-mod molecules;
 mod peer_import;
 mod purge_locks;
 pub mod receipt;
@@ -29,7 +26,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use crate::storage::disk_pack::logical_capture::ImportReceipt;
-pub use aggregate::AggregateRepairReceipt;
 pub use receipt::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
@@ -42,8 +38,8 @@ use crate::schema::SchemaCore;
 
 /// Process-lifetime work totals for one schema's purges and deletes.
 ///
-/// An erase takes the native write gate and no schema barrier, so the stats
-/// carry counts and no lock time.
+/// The status object keeps this shape. A delete or a purge merges into its
+/// record in the native request and records no pass here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PurgeStats {
     /// Completed erase passes over this schema.
@@ -71,29 +67,6 @@ pub struct PurgeLedger {
 }
 
 impl PurgeLedger {
-    /// Fold one completed purge pass into `schema_name`'s totals.
-    ///
-    /// `finished_unix_ms` is passed in rather than read from the clock here so
-    /// the ledger stays a pure fold — the caller owns the one `SystemTime`
-    /// read, and tests own the timeline.
-    pub fn record(&self, schema_name: &str, records_purged: u64, finished_unix_ms: u64) {
-        let mut map = self.by_schema.lock().expect("purge_stats poisoned");
-        let entry = map.entry(schema_name.to_string()).or_default();
-        entry.purges = entry.purges.saturating_add(1);
-        entry.records_purged = entry.records_purged.saturating_add(records_purged);
-        // Last-writer-wins rather than max: a clock that steps backwards should
-        // report the most recent purge this process actually ran, and a purge
-        // is rare enough that two passes never race for a meaningful ordering.
-        entry.last_purge_finished_unix_ms = finished_unix_ms;
-    }
-
-    pub fn record_path(&self, schema_name: &str, target_slots: u64, atoms_deleted: u64) {
-        let mut map = self.by_schema.lock().expect("purge_stats poisoned");
-        let entry = map.entry(schema_name.to_string()).or_default();
-        entry.purge_target_slots = entry.purge_target_slots.saturating_add(target_slots);
-        entry.purge_atoms_deleted = entry.purge_atoms_deleted.saturating_add(atoms_deleted);
-    }
-
     /// Every schema that has been purged since process start. Cumulative, so
     /// consumers delta it themselves — matching the request-ops aggregates.
     #[must_use]
@@ -102,29 +75,15 @@ impl PurgeLedger {
     }
 }
 
-/// Services the persist-lane surface shares with the serving manager.
-pub(crate) struct PersistSurfaceParts {
-    db_ops: Arc<DbOperations>,
-    schema_manager: Arc<SchemaCore>,
-    signer: Arc<crate::security::Ed25519KeyPair>,
-    pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
-    search_outbox_inbox: Option<PathBuf>,
-    defer_gauge: Arc<DeferredPersistGauge>,
-    purge_stats: Arc<PurgeLedger>,
-    capture_router: std::sync::Arc<
-        std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
-    >,
-}
-
 /// Manages mutation operations for the FoldDB system
 pub struct MutationManager {
     /// Database operations for persistence
     db_ops: Arc<DbOperations>,
     /// Schema manager for schema operations
     schema_manager: Arc<SchemaCore>,
-    /// Signing keypair for molecule signatures
+    /// Signing keypair for the author clock
     signer: Arc<crate::security::Ed25519KeyPair>,
-    /// Tracks search side effects and queued purge work until completion.
+    /// Tracks search side effects and author-clock rows until completion.
     /// Shutdown waits through `FoldDb::wait_for_background_tasks` even when
     /// the mutation returns before those tasks finish.
     pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
@@ -143,10 +102,6 @@ pub struct MutationManager {
     /// written for the second (brain
     /// `incident-primary-lastdbd-restart-loop-10-11gb-rss-after-0231-183-cutover`).
     defer_gauge: Arc<DeferredPersistGauge>,
-    /// Aggregate guard and target ownership spans several native transactions.
-    /// Ordinary write conditions use the native write boundary. Idle aggregate
-    /// lock entries leave this map on the next lock acquisition.
-    aggregate_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     /// Resident high-water author clock for this device. Boot point-loads the
     /// durable state once; requests only serialize the small in-memory
     /// advance/sign step. Ordered persistence runs behind the T0 ACK.
@@ -155,21 +110,13 @@ pub struct MutationManager {
     /// before resident apply, so overload rejects without changing product
     /// state. The worker owns a pending-task guard until the row lands.
     author_clock_persist: Option<author_clock::AuthorClockPersistQueue>,
-    /// Per-schema purge accounting; see [`PurgeStats`]. Written once per
-    /// completed purge pass (a rare verb), read by the status/ops surfaces, so
-    /// a plain mutex is cheaper than the atomics a hot-path counter would need.
+    /// Per-schema purge accounting for the status and ops surfaces; see
+    /// [`PurgeStats`].
     purge_stats: Arc<PurgeLedger>,
     /// Sync engine used by administrative capture status and direct callers.
     /// Bounded post-ack capture queue shared with the serving store wrapper.
     ///
-    /// Arc so the persist-lane surface sees `set_capture_router` after
-    /// construction. Deferred persist runs after the commit's task-local
-    /// suppress ends; router depth is the suppress those puts can see.
-    capture_router: std::sync::Arc<
-        std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
-    >,
-    /// Per-schema FIFO lanes for durable purge work.
-    persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>,
+    capture_router: std::sync::RwLock<Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
 }
 
 impl MutationManager {
@@ -185,30 +132,6 @@ impl MutationManager {
         let policy = crate::resident::ResidentPolicy::from_env();
         let defer_gauge = Arc::new(DeferredPersistGauge::from_process_budget_with_count(
             policy.max_deferred_persists,
-        ));
-        let purge_stats = Arc::new(PurgeLedger::default());
-        let capture_router = Arc::new(std::sync::RwLock::new(None));
-        let writer = Arc::new(molecules::DeferredLaneWriter {
-            mm: Self::persist_surface(PersistSurfaceParts {
-                db_ops: Arc::clone(&db_ops),
-                schema_manager: Arc::clone(&schema_manager),
-                signer: Arc::clone(&signer),
-                pending_tasks: Arc::clone(&pending_tasks),
-                search_outbox_inbox: search_outbox_inbox.clone(),
-                defer_gauge: Arc::clone(&defer_gauge),
-                purge_stats: Arc::clone(&purge_stats),
-                capture_router: Arc::clone(&capture_router),
-            }),
-        });
-        let lane_fair_share = crate::memory_budget::lane_fair_share_bytes(
-            defer_gauge.cap_bytes(),
-            crate::memory_budget::lane_fair_share_percent(),
-        );
-        let persist_lanes = Arc::new(crate::resident::PersistLaneSet::new(
-            policy.max_deferred_persists.max(1),
-            lane_fair_share.max(1),
-            writer,
-            Some(Arc::clone(db_ops.persist_metrics())),
         ));
         let author_clock_state_key = crate::schema::types::author_clock::mutation_author_clock_key(
             &signer.public_key_base64(),
@@ -226,50 +149,19 @@ impl MutationManager {
             pending_tasks,
             search_outbox_inbox,
             defer_gauge,
-            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
-            purge_stats,
-            capture_router,
-            persist_lanes,
+            purge_stats: Arc::new(PurgeLedger::default()),
+            capture_router: std::sync::RwLock::new(None),
         }
-    }
-
-    /// Persist-only manager surface: empty lock maps, disabled lanes.
-    /// Lane workers use this so they do not re-enter the live lane set.
-    ///
-    /// `capture_router` is the serving manager's slot. Deferred persist
-    /// must raise that router's suppress depth: task-local suppress from
-    /// the request does not follow the persist-lane task or `spawn_blocking`.
-    pub(crate) fn persist_surface(parts: PersistSurfaceParts) -> Self {
-        Self {
-            db_ops: parts.db_ops,
-            schema_manager: parts.schema_manager,
-            signer: parts.signer,
-            pending_tasks: parts.pending_tasks,
-            search_outbox_inbox: parts.search_outbox_inbox,
-            defer_gauge: parts.defer_gauge,
-            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
-            author_clock_state: std::sync::Mutex::new(
-                crate::schema::types::MutationAuthorClockState::default(),
-            ),
-            author_clock_persist: None,
-            purge_stats: parts.purge_stats,
-            capture_router: parts.capture_router,
-            persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
-        }
-    }
-
-    pub(crate) fn persist_lanes(
-        &self,
-    ) -> &Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>> {
-        &self.persist_lanes
     }
 
     /// Persist-lane occupancy and refusal counters for `lastdb status` / ops.
+    /// No write uses a persist lane: every verb commits in its native
+    /// request. The status object keeps the zero counters.
     #[must_use]
     pub fn persist_lane_pressure(&self) -> crate::resident::PersistLanePressure {
-        self.persist_lanes.pressure()
+        crate::resident::PersistLanePressure::default()
     }
 
     pub(crate) fn set_capture_router(

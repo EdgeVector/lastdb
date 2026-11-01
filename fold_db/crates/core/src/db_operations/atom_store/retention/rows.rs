@@ -17,45 +17,6 @@ pub(crate) struct RecordSlot<'a> {
 }
 
 impl AtomStore {
-    /// The queue entry, the directory row of its bucket, and the slot directory
-    /// entry of a record. The caller hands them to the planner as the
-    /// `new_rows` of the record, so they are written in the batch of the history
-    /// row, and only when the record is new.
-    ///
-    /// The queue entry expires at the retention clock plus the retention
-    /// window (`RetentionState::clock_nanos`, which ignores a forward
-    /// excursion of the wall clock of more than a day). It goes to the bucket of
-    /// its expiry (`time_queue`).
-    pub(crate) fn retention_rows(
-        &self,
-        scope: Option<&str>,
-        history_key: &str,
-        slot: &RecordSlot<'_>,
-        conflict: Option<String>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let id = keys::record_id(history_key);
-        let queue = self.retention_state().queue();
-        let created = self.retention_state().clock_nanos();
-        let expires = created.saturating_add(self.retention_state().window_nanos());
-        let entry = RetentionEntry {
-            version: ENTRY_VERSION,
-            history: history_key.to_string(),
-            conflict,
-            dir: keys::dir_key(scope, slot.molecule, slot.hash, slot.range, &id),
-            queue: queue.entry_key(expires, &id),
-            slot: keys::slot_key(scope, slot.molecule, slot.hash, slot.range),
-            created,
-        };
-        let value = serde_json::to_value(&entry).map_err(|error| {
-            SchemaError::InvalidData(format!("serialize retention entry: {error}"))
-        })?;
-        let mut rows = queue.rows(expires, &id, &value);
-        rows.push((entry.dir, value));
-        Ok(rows)
-    }
-}
-
-impl AtomStore {
     /// The queue entry and the directory row of its bucket for one conflict
     /// row of a format 7 home. The entry names the row as its history row and
     /// the record as its slot. It has no slot directory entry: no erase lane

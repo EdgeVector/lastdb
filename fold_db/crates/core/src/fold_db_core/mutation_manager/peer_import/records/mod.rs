@@ -1,5 +1,5 @@
-//! Peer import of a format 7 home: version 2 record outcomes merge field by
-//! field into the stored records, in the native request of the import.
+//! The merge of version 2 record outcomes, field by field, into the stored
+//! records, in the native request of the import.
 
 mod admission;
 mod effects;

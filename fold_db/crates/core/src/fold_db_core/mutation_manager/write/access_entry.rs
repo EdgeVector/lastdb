@@ -11,7 +11,7 @@ impl MutationManager {
     /// no longer gate this path (consent-only local control).
     ///
     /// When `access_context.storage_prefix` is set (org multi-DB handle from
-    /// `X-LastDB-Db`), molecule keys land under `{prefix}:…` so cohabiting DBs
+    /// `X-LastDB-Db`), record keys land under `{prefix}:…` so cohabiting DBs
     /// on one Mini node stay isolated.
     pub async fn write_mutations_with_access_receipt(
         &self,
@@ -90,7 +90,7 @@ impl MutationManager {
                 matches!(
                     mutation.mutation_type,
                     MutationType::Create | MutationType::Update
-                ) && mutation.aggregate_set.is_none()
+                )
             });
         let author_clock_barrier = author_clock_persist.and_then(|(reservation, state)| {
             if inline_clock {
@@ -119,10 +119,9 @@ impl MutationManager {
             self.capture_router(),
             super::super::logical_capture::with_admission(
                 logical_admission,
-                self.write_with_aggregate_invalidations(
+                self.write_mutations_batch_inner_with_clock(
                     mutations,
                     storage_prefix,
-                    WriteOrigin::Request,
                     author_clock_barrier,
                 ),
             ),

@@ -9,10 +9,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::{AtomEntry, KeyMetadata};
 
-pub use import::{
-    ChangeTime, ImportedTip, LocalTip, PendingTipConflict, TipAuthor, TipConflictKind,
-};
-
 /// A hash-range-based collection of atom references stored in a nested HashMap<BTreeMap> structure.
 ///
 /// This molecule type supports complex indexing where atoms are organized by:
@@ -43,10 +39,6 @@ pub struct MoleculeHashRange {
     /// order log.
     #[serde(skip)]
     order_is_tail: bool,
-    /// A partially fetched logical molecule cannot replace the full disk state.
-    /// This flag describes memory ownership, not a logical write or disk field.
-    #[serde(skip)]
-    loaded_is_partial: bool,
     /// Monotonic version counter, bumped on each actual change
     #[serde(default)]
     version: u64,
@@ -54,18 +46,11 @@ pub struct MoleculeHashRange {
     /// Structure: HashMap<hash_value, BTreeMap<range_value, KeyMetadata>>
     #[serde(default)]
     key_metadata: HashMap<String, BTreeMap<String, KeyMetadata>>,
-    /// Tip decisions in this in-memory session between writes of different
-    /// atoms from different sync devices. The persist step records them
-    /// before it writes the tips. Not serialized.
-    #[serde(skip)]
-    pending_tip_conflicts: Vec<PendingTipConflict>,
 }
 
 mod compact_key;
 mod construct;
-mod import;
 pub mod keys;
 mod loaded;
 mod ops;
-mod overlay;
 mod verify;

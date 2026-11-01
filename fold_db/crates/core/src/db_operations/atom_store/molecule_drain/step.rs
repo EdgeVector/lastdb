@@ -212,8 +212,8 @@ impl AtomStore {
                 active.found_tips += keys.len() as u64;
                 match self.tips_batch(&candidate, &keys).await? {
                     Batch::Ran(commit) => {
-                        let tips = commit.previous.len() as u64;
-                        let atoms_deleted = commit.deleted.len() as u64;
+                        let tips = commit.old_tips;
+                        let atoms_deleted = commit.deleted;
                         self.drain_state().note_batch(tips, 0, atoms_deleted);
                         Ok(Move::Batch(OutcomeKind::Erased {
                             tips,

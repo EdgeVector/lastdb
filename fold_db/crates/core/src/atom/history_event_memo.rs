@@ -69,30 +69,3 @@ pub fn mark_empty(store: StoreId, prefix: &str) {
         .or_default()
         .insert(store);
 }
-
-/// Drop the memo entry for the prefix that `event_key` was written under, for
-/// **every** store.
-///
-/// Takes the full row key (`…history:{mol}:{ts}`) rather than the prefix so a
-/// writer cannot get the truncation wrong: the entry cleared is the one whose
-/// scan would otherwise have missed this write. A key with no `history:`
-/// segment clears nothing.
-///
-/// Clearing every store rather than one is deliberate — see the module docs.
-/// The live writer (`store_merge_conflicts`) holds a raw kv handle and has no
-/// store id to pass, and an extra scan is cheaper than a missed row.
-pub fn invalidate_for_event_key(event_key: &str) {
-    let Some(start) = event_key.find("history\0") else {
-        return;
-    };
-    // Current `history\0{mol}:`, through the separator after the molecule UUID.
-    let after_tag = start + 8;
-    let Some(colon) = event_key[after_tag..].find(':') else {
-        return;
-    };
-    let prefix = &event_key[..after_tag + colon + 1];
-    memo()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(prefix);
-}

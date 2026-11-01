@@ -38,10 +38,4 @@ impl PublicKeyInfo {
             metadata: HashMap::new(),
         }
     }
-
-    /// Add metadata to this key
-    pub fn with_metadata(mut self, key: String, value: String) -> Self {
-        self.metadata.insert(key, value);
-        self
-    }
 }

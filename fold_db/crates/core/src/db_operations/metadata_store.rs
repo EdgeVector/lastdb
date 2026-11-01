@@ -84,27 +84,6 @@ impl MetadataStore {
             .map_err(|e| SchemaError::InvalidData(format!("metadata get {key}: {e}")))
     }
 
-    /// Check exact keys in bounded batches, without decoding or changing guards.
-    pub(crate) async fn contains_any(&self, keys: &[String]) -> Result<bool, SchemaError> {
-        // Match the native get-many key ceiling without adding a total-key cap.
-        for batch in keys.chunks(10_000) {
-            let values = self
-                .metadata_store
-                .inner()
-                .get_many(batch.iter().map(|key| key.as_bytes().to_vec()).collect())
-                .await?;
-            if values.len() != batch.len() {
-                return Err(SchemaError::InvalidData(
-                    "metadata presence read returned an incomplete key batch".into(),
-                ));
-            }
-            if values.iter().any(Option::is_some) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     /// Point-put one JSON value into the metadata namespace.
     ///
     /// Does not flush: LastStore's own persist cadence makes the row durable,
@@ -134,16 +113,6 @@ impl MetadataStore {
         value: &T,
     ) -> Result<(), SchemaError> {
         self.put_typed(key, value).await?;
-        self.metadata_store.inner().flush().await?;
-        Ok(())
-    }
-
-    /// Delete one metadata value and flush the namespace before return.
-    pub async fn delete_typed_durable(&self, key: &str) -> Result<(), SchemaError> {
-        self.metadata_store
-            .delete_item(key)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("metadata delete {key}: {e}")))?;
         self.metadata_store.inner().flush().await?;
         Ok(())
     }

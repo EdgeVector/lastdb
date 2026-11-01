@@ -25,36 +25,10 @@ pub fn molecule_generation_record_prefix(molecule_uuid: &str, generation: &str) 
     format!("{MOLECULE_GENERATION_RECORD_PREFIX}{molecule_uuid}:{generation}:")
 }
 
-/// One generation slot. The suffix matches `mk:{M}:` byte-for-byte, so range
-/// order stays identical between the selected base and the live change rows.
-#[must_use]
-pub fn molecule_generation_record_key(
-    molecule_uuid: &str,
-    generation: &str,
-    hash: &str,
-    range: &str,
-) -> String {
-    format!(
-        "{}{}{SEP}{range}",
-        molecule_generation_record_prefix(molecule_uuid, generation),
-        escape_segment(hash)
-    )
-}
-
 /// `mgd:v1:{M}:` — sparse deletions after any generation cut.
 #[must_use]
 pub fn molecule_generation_delete_prefix(molecule_uuid: &str) -> String {
     format!("{MOLECULE_GENERATION_DELETE_PREFIX}{molecule_uuid}:")
-}
-
-/// One sparse delete marker. Its suffix matches the corresponding `mk:` key.
-#[must_use]
-pub fn molecule_generation_delete_key(molecule_uuid: &str, hash: &str, range: &str) -> String {
-    format!(
-        "{}{}{SEP}{range}",
-        molecule_generation_delete_prefix(molecule_uuid),
-        escape_segment(hash)
-    )
 }
 
 /// Convert an `mk:` key or bound into the sparse-delete plane.

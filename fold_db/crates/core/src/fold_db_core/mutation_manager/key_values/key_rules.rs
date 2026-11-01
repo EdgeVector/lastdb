@@ -14,7 +14,7 @@ pub(super) fn key_field_pairs<'a>(
     mutation: &Mutation,
     key_value: &'a KeyValue,
 ) -> Result<KeyFieldPairs<'a>, SchemaError> {
-    // Erasures remove tips or bodies and never materialize key-field atoms.
+    // An erasure merges as a delete floor and writes no key field.
     if !matches!(
         mutation.mutation_type,
         MutationType::Create | MutationType::Update

@@ -5,22 +5,6 @@ use crate::db_operations::atom_store::AtomStore;
 use crate::storage::KvMutation;
 
 impl AtomStore {
-    pub(crate) async fn stage_alternate_changes(
-        &self,
-        schema: &Schema,
-        keys: &[KeyValue],
-        before: &[RecordFields],
-        scope: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        if schema.alternate_keys.is_empty() || keys.is_empty() {
-            return Ok(());
-        }
-        let after = self.alternate_fields(schema, keys, scope).await?;
-        let changes = self.alternate_entry_changes(schema, keys, before, &after, scope)?;
-        self.raw().inner().batch_mutate(changes).await?;
-        Ok(())
-    }
-
     /// The entry changes between the old and the new field values at each
     /// primary key. A format 7 record write already holds both values, so it
     /// puts these changes in its own batch instead of reading the tips again.

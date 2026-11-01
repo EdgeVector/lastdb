@@ -1,5 +1,5 @@
-//! Record capture of a format 7 home: the staged records of one request and
-//! their certified outcomes (event version 2).
+//! Record capture: the staged records of one request and their certified
+//! outcomes (event version 2).
 
 use super::collector::with_record_candidates;
 use super::*;

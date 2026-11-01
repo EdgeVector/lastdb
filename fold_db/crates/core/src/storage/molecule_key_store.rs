@@ -26,7 +26,6 @@ mod cache;
 mod contracts;
 mod establish;
 mod frozen;
-mod metadata;
 mod metadata_batch;
 mod share;
 

@@ -20,10 +20,7 @@ pub use content_limit::{
     DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES_ENV,
     MIN_MAX_ATOM_CONTENT_BYTES,
 };
-pub use molecule_hash_range::{
-    ChangeTime, ImportedTip, LocalTip, MoleculeHashRange, PendingTipConflict, TipAuthor,
-    TipConflictKind,
-};
+pub use molecule_hash_range::MoleculeHashRange;
 pub use molecule_key_codec::{MoleculeKeyCodec, MoleculeKeyCodecError};
 pub use molecule_uuid::encode_molecule_uuid_bytes;
 pub use mutation_event::{
@@ -89,61 +86,6 @@ pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> Strin
         schema_name,
         field_name,
     ))
-}
-
-/// Records a same-key LWW conflict that **changed the local state** during
-/// a molecule merge. By construction `winner_atom = peer's atom` and
-/// `loser_atom = local's prior atom`: the merge replaced local's value
-/// with the peer's because the peer's `written_at` was at least as new.
-///
-/// Self-won "conflicts" (peer's atom strictly older, local keeps its value)
-/// are **not** recorded. A downstream `MutationEvent` built from a conflict
-/// is shaped `{ old: loser_atom, new: winner_atom, is_conflict: true }`, and that
-/// shape only matches reality when local actually transitioned from
-/// `loser_atom` to `winner_atom`. For self-wins, `loser_atom` would be the
-/// peer's never-local atom, so the event would describe a local transition
-/// that never occurred. The peer's own local audit records its
-/// loss symmetrically when it merges with us, so dropping self-won
-/// conflicts here loses no information.
-///
-/// The `field_key` field carries the conflict's per-field key in typed form
-/// (hash-only / range-only / full hash+range / empty Single slots on
-/// `MoleculeHashRange`). This is the authoritative shape that downstream
-/// consumers — the conflict records used by history inspection and purge —
-/// read to build their `FieldKey`. Before this field existed, the typed
-/// key was reconstructed by `split_once(':')` from a `:`-joined string
-/// representation, which mangled both hash and range whenever either
-/// contained a `:` (URLs, ISO timestamps); the typed channel makes the
-/// round-trip exact regardless of the values.
-#[derive(Debug, Clone)]
-pub struct MergeConflict {
-    /// Typed per-field key for this conflict. Authoritative.
-    pub field_key: FieldKey,
-    /// Display string form for human-readable identifiers (e.g. the
-    /// `SyncConflict.conflict_key` UI column, log/trace fields). LOSSY for
-    /// `HashRange` when either component contains `:`; do not parse this
-    /// back into hash + range — use `field_key` instead.
-    pub key: String,
-    pub winner_atom: String,
-    pub loser_atom: String,
-    pub winner_written_at: u64,
-    pub loser_written_at: u64,
-}
-
-impl MergeConflict {
-    /// Render `field_key` to the lossy display string used historically for
-    /// `MergeConflict.key` and `SyncConflict.conflict_key`. Kept in one
-    /// place so every producer agrees on the format and so we never bring
-    /// back a divergent inline `format!` site.
-    #[must_use]
-    pub fn display_key(field_key: &FieldKey) -> String {
-        match (&field_key.hash, &field_key.range) {
-            (None, None) => "single".to_string(),
-            (Some(hash), None) => hash.clone(),
-            (None, Some(range)) => range.clone(),
-            (Some(hash), Some(range)) => format!("{hash}:{range}"),
-        }
-    }
 }
 
 /// Write-time metadata stored per-key on the molecule.

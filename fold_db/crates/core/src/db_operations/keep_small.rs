@@ -3,7 +3,6 @@
 //! These are write-path totals (point read of a small in-process projection),
 //! not another store walk. `lastdb db inventory` is the wrong daily tool.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -111,8 +110,6 @@ impl KeepSmallSnapshot {
 /// capture-skip exact-key contract for the legacy row still applies.
 pub const KEEP_SMALL_SNAPSHOT_COLLECTION: &str = "keep_small";
 
-type PendingAtomContribution = (String, u64, u64, bool, bool);
-
 /// In-process incremental projection. Point-read cheap; updated on the write path.
 #[derive(Debug)]
 pub struct KeepSmallMeters {
@@ -124,13 +121,9 @@ pub struct KeepSmallMeters {
     schemas: Mutex<HashMap<String, SchemaMeter>>,
     molecules: Mutex<HashMap<String, MoleculeStorageCounter>>,
     molecule_counters_complete: AtomicBool,
-    /// Atom uuid → (schema, atom bytes, blob bytes, complete, body put credited).
-    pending_atoms: Mutex<HashMap<String, PendingAtomContribution>>,
-    // No per-key state. The tip planner reads the old tip of every changed key
-    // and the size of its atom (from the atom counter) inside the write gate,
-    // and passes them in (`TipCommit::previous`). A per-key map here held one
-    // entry for each tip key of the home, outside the warm set limit
-    // (measured 2026-10-20: about 2.6 KB for each new record).
+    // No per-key state. A per-key map here held one entry for each tip key of
+    // the home, outside the warm set limit (measured 2026-10-20: about 2.6 KB
+    // for each new record).
     /// molecule uuid → owning schema, learned from tip puts.
     ///
     /// A molecule belongs to exactly one field of one schema, so its tip and
@@ -181,7 +174,6 @@ impl Default for KeepSmallMeters {
             schemas: Mutex::new(HashMap::new()),
             molecules: Mutex::new(HashMap::new()),
             molecule_counters_complete: AtomicBool::new(true),
-            pending_atoms: Mutex::new(HashMap::new()),
             molecule_schema: Mutex::new(HashMap::new()),
             hydrate_missed: AtomicBool::new(false),
             stale_after_unclean_stop: AtomicBool::new(false),
@@ -191,9 +183,7 @@ impl Default for KeepSmallMeters {
     }
 }
 
-mod atoms;
 mod molecules;
 mod schemas;
 mod snapshot_io;
-mod tips;
 mod trust;
