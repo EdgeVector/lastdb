@@ -127,11 +127,11 @@ impl AppUpdateError {
             Self::InvalidUses(detail) => {
                 (400, json!({ "reason": "invalid_uses", "detail": detail }))
             }
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::NotOwner => (401, json!({ "reason": "not_owner" })),
-            Self::AppNotRegistered => (404, json!({ "reason": "app_not_registered" })),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::NotOwner => (401, reason_only_body("not_owner")),
+            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
             Self::DisplayNameImmutable {
                 current_display_name,
             } => (
@@ -215,12 +215,12 @@ impl AppPromoteError {
     pub fn to_http(&self) -> (u16, Value) {
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::NotOwner => (401, json!({ "reason": "not_owner" })),
-            Self::AppNotRegistered => (404, json!({ "reason": "app_not_registered" })),
-            Self::NotAuthorizedPublisher => (403, json!({ "reason": "not_authorized_publisher" })),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::NotOwner => (401, reason_only_body("not_owner")),
+            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
+            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
             Self::MissingInstallPointer => (
                 400,
                 json!({
