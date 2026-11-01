@@ -1,0 +1,83 @@
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: CodeQL security (${{ matrix.language }})
+    # Keep all Rust queries and source files; native ARM evaluates them faster
+    # on the standard public runner tier. The other languages retain x64.
+    runs-on: ${{ matrix.language == 'rust' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, c-cpp, javascript-typescript, python, ruby, rust]
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Locate the Rust dependency target
+        if: matrix.language == 'rust'
+        id: rust-target
+        run: |
+          rustup show active-toolchain
+          target="$RUNNER_TEMP/codeql-rust-target"
+          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
+          echo "CODEQL_EXTRACTOR_RUST_OPTION_CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
+          relative="$(realpath --relative-to="$GITHUB_WORKSPACE" "$target")"
+          echo "relative=$relative" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse Rust dependencies for build scripts and macros
+        if: matrix.language == 'rust'
+        id: rust-dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> ${{ steps.rust-target.outputs.relative }}
+          shared-key: codeql-rust-dependencies-v1-${{ runner.arch }}-ubuntu24
+          cache-workspace-crates: false
+          cache-bin: false
+          cache-on-failure: true
+
+      - name: Record the Rust dependency cache result
+        if: matrix.language == 'rust'
+        env:
+          CACHE_HIT: ${{ steps.rust-dependencies.outputs.cache-hit }}
+        run: |
+          echo "Rust CodeQL dependency cache hit: ${CACHE_HIT:-false}. Local packages rebuild before extraction." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove all local-package outputs before Rust extraction
+        if: matrix.language == 'rust'
+        run: python3 scripts/ci/codeql_dependencies.py
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          dependency-caching: true
+
+      - name: Analyze all source with the default security queries
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: ${{ runner.temp }}/codeql-results
+
