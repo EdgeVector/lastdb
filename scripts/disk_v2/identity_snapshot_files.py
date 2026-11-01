@@ -9,7 +9,7 @@ import uuid
 
 from logical_capture import file_hash, require
 from logical_snapshot import SOURCE, canonical, private_file
-from node import RUN_NODE_MARKER
+from node import RECORD_NODE_MARKER
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_FILES = 512
@@ -165,8 +165,8 @@ def materialize(donor, target, capture):
             copy_file(held / folder / entry["held"], target.home / "data" / prefix / entry["path"],
                       held, entry["bytes"])
     regular(held / "node", held, 4096)
-    require((held / "node").read_bytes() == RUN_NODE_MARKER.encode(), "capture node marker differs")
-    copy_file(held / "node", target.home / "data/laststore-pack-node-v1", held, len(RUN_NODE_MARKER))
+    require((held / "node").read_bytes() == RECORD_NODE_MARKER.encode(), "capture node marker differs")
+    copy_file(held / "node", target.home / "data/laststore-pack-node-v1", held, len(RECORD_NODE_MARKER))
     for prefix in ("disk-run", "disk-cas"):
         sync_directory(target.home / "data" / prefix / "runs")
         sync_directory(target.home / "data" / prefix)

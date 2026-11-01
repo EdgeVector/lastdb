@@ -13,15 +13,16 @@ records have the envelope forms of the primary (compressed and raw). Then:
 After each step the key list of each seed schema (GET /api/list, the
 `lastdb list` pages) must hold each live key of the model and no key that
 the model does not know. The open must keep the reads, the key lists, and
-the logical atom bytes and atom count of each seed schema equal to the step
-before it. Only the proof writes the seed schemas, so a change there comes
-from the open.
+the logical record bytes and record count of each seed schema equal to the
+step before it. Only the proof writes the seed schemas, so a change there
+comes from the open.
 
-A sampler reads the size of the node folder during the writes, the merges,
-and the open. The proof fails when the v2 data is above 2.0x of the logical
-atom bytes that the node reports (GET /api/db/schemas, the
+Every new home is format 7 (the record model): one stored record value per
+key. A sampler reads the size of the node folder during the writes, the
+merges, and the open. The proof fails when the v2 data is above 2.0x of the
+logical record bytes that the node reports (GET /api/db/schemas, the
 `lastdb db schemas` walk), when the node reports under 16 MiB of logical
-atoms, because a smaller home does not test the limit, or when the sampler
+records, because a smaller home does not test the limit, or when the sampler
 cannot read the node folder.
 """
 
@@ -51,7 +52,7 @@ LIST_PAGES = 1000
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-RUN_NODE = b"format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
+RUN_NODE = b"format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
 # The settings of the primary's launchd job that the node reads: the
 # compression of the at-rest envelopes, the atom size limit, the memory
 # budget, and the admin timeout.
@@ -172,7 +173,7 @@ class Case:
     def check_new_home(self):
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
-            raise ProofError(f"a new home has the node marker {marker!r}, not the v2 marker")
+            raise ProofError(f"a new home has the node marker {marker!r}, not the format 7 marker")
         for name in ("disk-pack", "laststore-layout-v1"):
             if (self.data / name).exists():
                 raise ProofError(f"a new v2 home has the v1 entry {name}")
@@ -209,7 +210,7 @@ class Case:
         listed = self.listed(name)
         self.node.stop()
         if (self.data / NODE_MARKER).read_bytes() != RUN_NODE:
-            self.failures.append(f"{name}: the node marker is not the v2 marker")
+            self.failures.append(f"{name}: the node marker is not the format 7 marker")
         self.compare(name, logical, reads, listed)
         self.phases.append({
             "name": name, "settled": settled, "logical": logical,
@@ -219,7 +220,7 @@ class Case:
 
     def compare(self, name, logical, reads, listed):
         """A phase without writes must keep the reads, the key lists, and the
-        logical atoms of each seed schema of the phase before it."""
+        logical records of each seed schema of the phase before it."""
         before = self.phases[-1]
         if reads["digest"] != before["reads"]["digest"]:
             self.failures.append(f"{name}: the reads differ from the reads before it")
@@ -232,7 +233,7 @@ class Case:
         changed = [f"{schema} from {old.get(schema)} to {new.get(schema)}"
                    for schema in sorted(SCHEMAS) if old.get(schema) != new.get(schema)]
         if changed:
-            self.failures.append(f"{name}: the logical [bytes, atoms] of a seed schema "
+            self.failures.append(f"{name}: the logical [bytes, records] of a seed schema "
                                  f"changed: {'; '.join(changed)}")
 
     def close_phase(self, window):
@@ -267,9 +268,11 @@ class Case:
         data, elapsed, _ = self.node.call("/api/db/schemas")
         report = data["schema_storage"]
         histogram = report.get("histogram") or {}
-        return {"bytes": report["total_logical_bytes"], "atoms": report["total_atoms"],
+        # A format 7 home stores records, not atoms: the walk counts the stored
+        # record values and their bytes.
+        return {"bytes": report["total_logical_bytes"], "records": report["total_records"],
                 "p50": histogram.get("p50"), "milliseconds": round(elapsed),
-                "schemas": {row["schema_name"]: [row["bytes"], row["atom_count"]]
+                "schemas": {row["schema_name"]: [row["bytes"], row["record_count"]]
                             for row in report["per_schema"]}}
 
     def reads(self):
@@ -368,12 +371,12 @@ class Case:
         raise ProofError(f"{schema}: the key list did not end after {LIST_PAGES} pages")
 
     def gate(self, name, window, start, end):
-        """The highest v2 size over the logical atom bytes, sample by sample.
+        """The highest v2 size over the logical record bytes, sample by sample.
         In a write window the logical bytes go from `start` to `end` with the
         share of acknowledged mutations."""
         if min(start, end) < MINIMUM_LOGICAL:
             self.failures.append(f"{name}: the node reports {mib(min(start, end))} of logical "
-                                 "atoms, under the 16 MiB that the capacity check needs; "
+                                 "records, under the 16 MiB that the capacity check needs; "
                                  "this is insufficient measurement volume, not a data-loss finding")
         worst = None
         for sample in window["samples"]:
@@ -386,7 +389,7 @@ class Case:
             self.failures.append(f"{name}: the sampler took no sample")
         elif worst["ratio"] > LIMIT:
             self.failures.append(f"{name}: the v2 data reached {worst['ratio']:.2f}x of the "
-                                 f"logical atom bytes; the limit is {LIMIT}x")
+                                 f"logical record bytes; the limit is {LIMIT}x")
         return worst
 
 
@@ -399,16 +402,16 @@ def series(window):
 
 def summary(report, candidate):
     lines = ["## Disk v2 node proof (V3)", "",
-             f"Candidate `{candidate}` on a new home.", "",
-             f"Limit: the v2 node folder at or under {LIMIT}x of the logical atom bytes "
-             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of logical atoms.", ""]
+             f"Candidate `{candidate}` on a new format 7 home.", "",
+             f"Limit: the v2 node folder at or under {LIMIT}x of the logical record bytes "
+             "(`GET /api/db/schemas`) at each sample, with at least 16 MiB of logical records.", ""]
     verdict = "FAIL" if report["failures"] else "PASS"
     counts = report["seed"]
     lines += [f"### {report['case']}: {verdict}", "",
               f"Engine settings of {report['settings_name']}. Mutations: "
               f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
               f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
-              "| Phase | Logical atoms | Node folder at end | Peak v2 / logical | Samples "
+              "| Phase | Logical records | Node folder at end | Peak v2 / logical | Samples "
               "(torn) | Keys read | Keys listed |",
               "|---|---|---|---|---|---|---|"]
     for phase in report["phases"]:
@@ -420,7 +423,7 @@ def summary(report, candidate):
         keys = sum(value.get("keys", 0) for value in listed.values())
         removed = sum(value.get("deleted", 0) for value in listed.values())
         lines.append(
-            f"| {phase['name']} | {mib(logical['bytes'])}, {logical['atoms']:,} atoms, "
+            f"| {phase['name']} | {mib(logical['bytes'])}, {logical['records']:,} records, "
             f"p50 {logical['p50']} B | {mib(stored)} "
             f"({stored / max(1, logical['bytes']):.2f}x) | "
             f"{peak} | {samples} | {reads['live']:,} equal, "

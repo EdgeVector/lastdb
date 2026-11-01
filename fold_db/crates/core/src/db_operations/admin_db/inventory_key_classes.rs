@@ -12,6 +12,11 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "history:{molecule}:{ts} — per-field mutation log",
     ),
     (
+        "record_history",
+        "rh:",
+        "rh:{S}:{sha(record)}:{field}:{id} — field history copies of old record values",
+    ),
+    (
         "molecule_per_key_index",
         "mk:",
         "mk:{M}:… — current tip pointer per record key",

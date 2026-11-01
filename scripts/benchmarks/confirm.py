@@ -41,8 +41,6 @@ def main():
         command.extend(["--seed-with-baseline", "--minimum-retired", str(manifest["recipe"]["minimum_retired"])])
     if manifest["recipe"]["native_timing"]:
         command.append("--native-timing")
-    if manifest["recipe"].get("candidate_record_home"):
-        command.append("--candidate-record-home")
     subprocess.run(command, check=True)
     return 0
 

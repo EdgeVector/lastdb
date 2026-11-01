@@ -18,7 +18,8 @@ from disk_usage import usage
 RUN_NODE_MARKER = "format=6\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\n"
 FORMAT_FIVE_MARKER = "format=5\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v1\n"
 BASELINE_NODE_MARKER = "format=4\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\n"
-# A format 7 (record model) home, created when the node runs with LASTDB_RECORD_HOME=1.
+# A format 7 (record model) home. From the record model release every new home is format 7,
+# and that program opens no older home. A program built before it creates format 6.
 RECORD_NODE_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
 # The daemon writes the marker when it creates the home; the marker, not the program, decides the
 # format after that. Format 7 stores one record per key; formats 4 to 6 store atoms and molecules.

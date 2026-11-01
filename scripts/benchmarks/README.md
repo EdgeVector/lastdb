@@ -174,8 +174,8 @@ This prevents a baseline cache restore from replacing the fresh candidate at the
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
-Every measured home is a format 4 home: disk format v2 with blinded hashes and typed ranges.
-The driver accepts only the format 4 node marker. A revision that creates an older home fails completion.
+Every measured home is a disk format v2 home with blinded hashes and typed ranges: format 7 from the record model release, format 4 to 6 before it.
+The driver accepts only those node markers. A revision that creates an older home fails completion.
 The benchmark build retains and verifies the matching `lastdbd` and `lastdb` programs. It never reuses an unverified CLI.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
@@ -315,18 +315,19 @@ The report separates allocated space before and after compaction. These checkpoi
 ### Format 7 (record model) homes
 
 Each driver reads the home format from the node marker that the daemon writes when it creates the home.
-The marker decides the format after that, not the program. One run can measure a format 6 base and a format 7 candidate.
+From the record model release, every new home is format 7, and the program opens no older home.
+A program built before that release creates a format 6 home. One run can therefore measure a format 6 base and a format 7 candidate.
 A format 7 home stores one record per key. The speed lane then requires one warm hit per key, not per field.
 The size passes use the stored record values as the logical measure. The record count must drop after each delete round.
 Every summary states the home format of each version.
-Manual comparisons accept `candidate_record_home`. It starts only the candidate with `LASTDB_RECORD_HOME=1`.
-The candidate must then create a format 7 home, or the run fails. Automatic PR, main, and nightly runs leave it off.
+Each version creates its own home. `--seed-with-baseline` lets the candidate open a home that the baseline created.
+Use it only when both programs open the same format.
 
 ### V2 disk size budget
 
 Every measured PR update, merge group, main push, and nightly run also checks the compact v2 disk format.
 This separate pass reuses the verified programs. It adds no build and keeps the ordinary growth recipe.
-It verifies the format 4 node marker of both generated homes (disk format v2 with typed ranges).
+It verifies the v2 node marker of both generated homes (format 7, or format 4 to 6 before the record model release).
 Since phase V3, every new home is v2, and disk format v1 is gone.
 An unsupported format or missing logical-size report fails completion. The pass does not fall back to a different format.
 

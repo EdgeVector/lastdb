@@ -13,7 +13,8 @@ pub(super) fn verify(
     version: u16,
     key_heads: bool,
 ) -> StorageResult<()> {
-    if !matches!(version, 2..=5) {
+    // This release restores only format 7 homes.
+    if version != crate::storage::disk_pack::run_admission::RECORD_PROFILE {
         return Err(invalid("run backup range profile version"));
     }
     let mut read = super::rows::read(main, key_heads)?;
@@ -30,18 +31,6 @@ pub(super) fn verify(
         schema
             .validate_alternate_keys()
             .map_err(|_| invalid("run backup alternate declarations are invalid"))?;
-        if version == 2 && schema.has_owned_layout() {
-            return Err(invalid("format 4 cannot contain alternate declarations"));
-        }
-        if version < 4
-            && ((schema.has_owned_layout()
-                && schema.schema_type == crate::schema::types::SchemaType::HashRange)
-                || schema.alternate_keys.values().any(|key| {
-                    key.hash_literal.is_some() || !key.range_parts.is_empty() || key.omit_empty_hash
-                }))
-        {
-            return Err(invalid("compound alternate declarations require format 6"));
-        }
         let range = schema
             .key
             .as_ref()
@@ -66,9 +55,8 @@ pub(super) fn verify(
             batch(main, account_key, profile, chunk)?;
         }
         // A format 7 home adds the record space of each schema.
-        let records = version == crate::storage::disk_pack::run_admission::RECORD_PROFILE;
         for (molecule, alternate_profile) in
-            crate::storage::molecule_key_store::schema_molecule_profiles(&schema, records)?
+            crate::storage::molecule_key_store::schema_molecule_profiles(&schema, true)?
         {
             if !molecules.contains(&molecule.as_str()) {
                 batch(main, account_key, alternate_profile, &[molecule.as_str()])?;
