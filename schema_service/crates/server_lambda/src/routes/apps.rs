@@ -3,12 +3,9 @@
 use crate::http::*;
 use crate::verifier_queue;
 use lambda_http::{Body, Error, Request, Response};
-use schema_service_core::app_release::{
-    ChannelReadReply, PublishReleaseReply, ReleaseReadReply, RevokeReleaseReply, SetChannelReply,
-};
+use schema_service_core::app_release::{PublishReleaseReply, RevokeReleaseReply, SetChannelReply};
 use schema_service_core::{
-    invalid_app_id_body, reason_only_body, PromoteAppReply, PublicAppReply, RegisterAppReply,
-    UpdateAppReply,
+    invalid_app_id_body, reason_only_body, PromoteAppReply, RegisterAppReply, UpdateAppReply,
 };
 use schema_service_server_shared::state::SchemaServiceState;
 
@@ -198,11 +195,8 @@ pub(crate) async fn get_apps_channels(
     let Some((app_id, channel)) = v2_channel_path(p) else {
         return json_response(400, &invalid_app_id_body());
     };
-    match state.channel_read_reply(app_id, channel).await {
-        ChannelReadReply::Ready(body) => json_response(200, &body),
-        ChannelReadReply::Missing(body) => json_response(404, &body),
-        ChannelReadReply::Unavailable(body) => json_response(503, &body),
-    }
+    let (status, body) = state.channel_read_reply(app_id, channel).await.into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: one release manifest by its exact key, from storage.
@@ -213,11 +207,8 @@ pub(crate) async fn get_releases(
     let Some(release_id) = segment_before(p, "/v2/releases/", "/") else {
         return json_response(400, &reason_only_body("invalid_release_id"));
     };
-    match state.release_read_reply(release_id).await {
-        ReleaseReadReply::Ready(body) => json_response(200, &body),
-        ReleaseReadReply::Missing(body) => json_response(404, &body),
-        ReleaseReadReply::Unavailable(body) => json_response(503, &body),
-    }
+    let (status, body) = state.release_read_reply(release_id).await.into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: the app record. Same body as `GET /v1/apps/{id}`.
@@ -233,10 +224,8 @@ fn known_app_id<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
 }
 
 fn public_app_response(state: &SchemaServiceState, app_id: &str) -> Result<Response<Body>, Error> {
-    match state.public_app_reply(app_id) {
-        PublicAppReply::Ready(body) => json_response(200, &body),
-        PublicAppReply::Missing(body) => json_response(404, &body),
-    }
+    let (status, body) = state.public_app_reply(app_id).into_http();
+    json_response(status, &body)
 }
 
 // Anonymous read: list all apps (ordered by app_id).
