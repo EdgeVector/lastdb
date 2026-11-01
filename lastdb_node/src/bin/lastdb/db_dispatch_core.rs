@@ -45,8 +45,8 @@ pub(super) fn db_inspect_command(socket: &Path, action: DbInspectCommand) -> Res
 }
 
 /// Dispatch the cleanup and delete ledger verbs.
-pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Result<(), String> {
-    match action {
+pub(super) fn db_reclaim_command(socket: &Path, action: &DbReclaimCommand) -> Result<(), String> {
+    match *action {
         DbReclaimCommand::Cleanup {
             status,
             wait,

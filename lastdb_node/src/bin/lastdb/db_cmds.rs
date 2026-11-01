@@ -43,7 +43,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     }
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&socket, action),
-        DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
+        DbCommand::Reclaim(action) => db_reclaim_command(&socket, &action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),
         DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
