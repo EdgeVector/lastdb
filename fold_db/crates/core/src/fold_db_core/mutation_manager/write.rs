@@ -39,68 +39,10 @@ mod schema_delta;
 mod schema_delta_helpers;
 mod timing;
 
-/// Whether a batch is a caller's request or the replay of one already applied.
-///
-/// The only thing this changes is the missing-target policy on the two loud
-/// hard-erasure peels, and the reason is that `Refuse` answers a question only
-/// a requester can ask.
-///
-/// `PurgeMissingPolicy::Refuse` exists so a compliance purge cannot silently
-/// no-op: the operator said "erase this record" and is owed the answer "it was
-/// not there". **Replay has no requester and asks no question.** It restates an
-/// act that already happened, and the end state it wants is absence — which an
-/// absent target already satisfies. That is true of every replayer: the node
-/// that authored the entry (its own local apply is what removed the targets), a
-/// peer that never held the record, and a peer that already purged it on its
-/// own cycle. In all three "already gone" is convergence, not a fault.
-///
-/// Steady-state personal download now skips self-authored entries, so this
-/// self-echo path is restore/bootstrap (which still replays them) and any
-/// peer that never held the record. A refuse-on-absent replay still pins
-/// the cursor; restore must treat already-gone as convergence.
-///
-/// Getting this wrong was not a stray warning. In the retired sync engine a
-/// replay error pinned the download cursor at that seq; the target's uploads
-/// queued behind the pin, so **cloud backup stopped and RPO grew without
-/// bound** until an operator cleared the pin. Observed on the primary
-/// 2026-08-17: the telemetry reaper purged 64
-/// `lastdb_telemetry/RequestOpsRollup` rows, the same intent came back down the
-/// log, replay found 64 of 64 keys absent, and the pipeline stopped — RPO
-/// climbing 270 s → 449 s across four cycles, not recovering, until the pin was
-/// cleared by hand.
-///
-/// Half of this was fixed one layer up and only for one verb: the retired
-/// envelope encoder stripped `must_exist`, so a replayed must-exist delete
-/// decodes as a plain `Delete` and routes to `Skip`. `MutationType::Purge`
-/// has no such downgrade — the verb *is* the mutation type, and rewriting it to
-/// `Delete` on the wire would change the ledger verb and CDC record — so the
-/// policy is chosen here, at the apply site, where the origin is known.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum WriteOrigin {
-    /// A live caller's batch. Loud erasure verbs keep their loud contract.
-    Request,
-    /// A captured intent or internal aggregate recovery write.
-    Replay,
-}
-
 pub(in crate::fold_db_core::mutation_manager) struct HardErasureOptions<'a> {
     pub(in crate::fold_db_core::mutation_manager) storage_prefix: Option<&'a str>,
     pub(in crate::fold_db_core::mutation_manager) missing: super::super::purge::PurgeMissingPolicy,
     pub(in crate::fold_db_core::mutation_manager) verb: super::super::purge::HardEraseVerb,
-}
-
-impl WriteOrigin {
-    /// Missing-target policy for the peels that are `Refuse` on request:
-    /// compliance `Purge` and `Delete` + `must_exist`.
-    ///
-    /// The idempotent `Delete` peel is `Skip` under both origins and does not
-    /// consult this.
-    fn missing_policy_for_loud_erasure(self) -> super::super::purge::PurgeMissingPolicy {
-        match self {
-            Self::Request => super::super::purge::PurgeMissingPolicy::Refuse,
-            Self::Replay => super::super::purge::PurgeMissingPolicy::Skip,
-        }
-    }
 }
 
 impl MutationManager {
@@ -142,16 +84,6 @@ impl MutationManager {
             .write_mutations_batch_with_receipt(mutations, storage_prefix)
             .await?
             .mutation_ids)
-    }
-
-    pub(super) async fn write_mutations_batch_inner(
-        &self,
-        mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-        origin: WriteOrigin,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.write_mutations_batch_inner_with_clock(mutations, storage_prefix, origin, None)
-            .await
     }
 
     // --- Helpers for write_mutations_batch_async ---

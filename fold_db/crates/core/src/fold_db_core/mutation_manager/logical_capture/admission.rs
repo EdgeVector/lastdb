@@ -3,7 +3,6 @@ use crate::atom::file_pointer::blob_refs_of_atom;
 use crate::schema::types::aggregate::{
     AGGREGATE_GUARD_TOKEN_FIELD, AGGREGATE_MEMBER_RESERVED_FIELDS, AGGREGATE_VALID_FIELD,
 };
-use crate::schema::types::aggregate_state::aggregate_guard_key;
 use crate::schema::types::field::FieldKind;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{MutationType, Schema};
@@ -30,7 +29,6 @@ impl MutationManager {
             return Err(unsupported("requests above 256 KiB"));
         }
         let mut schemas = BTreeMap::new();
-        let mut guards = BTreeSet::new();
         let record_home = self.db_ops.atoms().record_home();
         for mutation in mutations {
             require_local_put(mutation, record_home)?;
@@ -44,14 +42,11 @@ impl MutationManager {
             }
             let schema = &schemas[&mutation.schema_name];
             let key = self.resolve_mutation_key_value(&mutation.schema_name, schema, mutation)?;
-            let hash = key
-                .hash
-                .as_deref()
-                .ok_or_else(|| unsupported("a missing hash"))?;
-            guards.insert(aggregate_guard_key(None, &mutation.schema_name, hash));
+            if key.hash.is_none() {
+                return Err(unsupported("a missing hash"));
+            }
         }
-        self.require_unshared_schemas(&schemas, &guards.into_iter().collect::<Vec<_>>())
-            .await?;
+        self.require_unshared_schemas(&schemas).await?;
         Ok(Some(
             mutations
                 .iter()
@@ -63,7 +58,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn require_unshared_schemas(
         &self,
         schemas: &BTreeMap<String, Schema>,
-        guards: &[String],
     ) -> Result<(), SchemaError> {
         if schemas
             .values()
@@ -95,9 +89,6 @@ impl MutationManager {
             .any(|exists| exists)
         {
             return Err(unsupported("existing molecule generations"));
-        }
-        if self.db_ops.metadata().contains_any(guards).await? {
-            return Err(unsupported("aggregate-enrolled source keys"));
         }
         // This conservative check is bounded. Even an inactive rule needs the
         // complete sharing protocol before this capture slice can admit writes.

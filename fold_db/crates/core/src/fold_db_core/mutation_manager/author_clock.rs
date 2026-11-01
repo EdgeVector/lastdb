@@ -127,13 +127,6 @@ impl AuthorClockPersistBarrier {
 }
 
 impl AuthorClockPersistReservation {
-    pub(super) async fn submit_and_wait(
-        self,
-        state: MutationAuthorClockState,
-    ) -> Result<(), SchemaError> {
-        self.submit_with_barrier(state).wait().await
-    }
-
     pub(super) fn submit_with_barrier(
         self,
         state: MutationAuthorClockState,

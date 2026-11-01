@@ -44,13 +44,6 @@ impl MutationManager {
             .filter(|runtime| runtime.logical_capture_enabled())
     }
 
-    pub(super) fn refuse_logical_capture(&self, reason: &str) -> Result<(), SchemaError> {
-        if self.logical_capture_runtime().is_some() {
-            return Err(unsupported(reason));
-        }
-        Ok(())
-    }
-
     pub(super) fn require_native_logical_admission(
         &self,
         mutations: &[Mutation],

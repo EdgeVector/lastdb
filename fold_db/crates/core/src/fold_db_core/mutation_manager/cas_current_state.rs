@@ -1,7 +1,7 @@
 //! Reads of the current head and fixed-field row state for CAS and aggregates.
 
 use crate::atom::AtomEntry;
-use crate::schema::types::{AggregateWinner, Mutation};
+use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
@@ -110,7 +110,7 @@ impl MutationManager {
 
     /// Point-read a fixed field set from one exact row.
     ///
-    /// Aggregate apply uses this to load one member row and one summary row.
+    /// Select each tip once, then batch-load their bodies at the same scope.
     /// The cost depends only on the declared field count, not partition size.
     pub(super) async fn read_current_row_fields(
         &self,
@@ -118,23 +118,6 @@ impl MutationManager {
         fields: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<CurrentRowFields, SchemaError> {
-        self.read_current_row_fields_with_winner(mutation, fields, storage_prefix)
-            .await
-            .map(|(row, _winner)| row)
-    }
-
-    /// Point-read a fixed field set and its latest source-order winner.
-    ///
-    /// Select each tip once, then batch-load their bodies at the same scope.
-    /// The winner comes from the same selected tips as the returned values.
-    /// AggregateSet uses it to check whether the stored source order matches
-    /// an exact replay before it advances the member's winner.
-    pub(super) async fn read_current_row_fields_with_winner(
-        &self,
-        mutation: &Mutation,
-        fields: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
         let key_value =
             self.resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
@@ -151,7 +134,7 @@ impl MutationManager {
             .current_key_belongs(&schema, &key_value, storage_prefix)
             .await?
         {
-            return Ok((CurrentRowFields::Absent, None));
+            return Ok(CurrentRowFields::Absent);
         }
         let selected = futures::future::try_join_all(fields.iter().map(|field| {
             let schema_field = schema
@@ -178,7 +161,7 @@ impl MutationManager {
             .filter_map(|(field, entry)| entry.map(|entry| (field, entry)))
             .collect();
         if selected.is_empty() {
-            return Ok((CurrentRowFields::Absent, None));
+            return Ok(CurrentRowFields::Absent);
         }
         let uuids: Vec<&str> = selected
             .iter()
@@ -190,7 +173,7 @@ impl MutationManager {
             storage_prefix,
         )
         .await?;
-        cas_rules::assemble_current_row(selected, atoms)
+        cas_rules::assemble_current_row(selected.len(), &atoms)
     }
 
     /// Load the current selected tip of one field through the core storage

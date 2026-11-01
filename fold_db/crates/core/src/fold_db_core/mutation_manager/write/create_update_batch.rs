@@ -27,18 +27,16 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        require_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
-        // Replay and synchronous requests wait for complete durability.
+        // Synchronous requests wait for complete durability.
         // Each backend owns its publication and failure boundary.
-        let force_durable = require_durable
-            || mutations
-                .iter()
-                .any(|mutation| mutation.synchronous == Some(true));
+        let force_durable = mutations
+            .iter()
+            .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
 
         self.reject_derived_and_blocked(&mutations)?;

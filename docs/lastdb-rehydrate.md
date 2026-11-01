@@ -267,7 +267,7 @@ Delete and Purge select related keys under the same native write boundary as the
 A fixed operation or byte limit refuses the whole prepared request before publication.
 A missing required key also receives a refusal before write preparation.
 The declared key fields can supply that key. The engine does not invent one from the record contents.
-Stored record keys require valid decoding. Aggregate guards and portable imports propagate a decode failure.
+Stored record keys require valid decoding. Portable imports propagate a decode failure.
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.
 Temporary memory or queue pressure retains its retry behavior.
 
