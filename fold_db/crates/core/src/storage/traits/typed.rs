@@ -183,22 +183,6 @@ impl<S: KvStore + ?Sized + 'static> TypedKvStore<S> {
         Self::decode_rows(rows)
     }
 
-    /// Get all items whose key falls in the half-open range `start..end`
-    /// (inclusive `start`, exclusive `end`), in ascending key order. The
-    /// bounded counterpart to [`Self::scan_items_with_prefix`]; see
-    /// [`KvStore::scan_range`] for the range semantics.
-    pub async fn scan_items_in_range<T: DeserializeOwned + Send + Sync>(
-        &self,
-        start: &str,
-        end: &str,
-    ) -> StorageResult<Vec<(String, T)>> {
-        Self::decode_rows(
-            self.inner
-                .scan_range(start.as_bytes(), end.as_bytes())
-                .await?,
-        )
-    }
-
     /// Get at most `limit` items whose key falls in `start..end`, in ascending
     /// key order. See [`KvStore::scan_range_paged`] for the boundedness
     /// contract.
