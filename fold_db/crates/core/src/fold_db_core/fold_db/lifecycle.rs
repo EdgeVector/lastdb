@@ -49,7 +49,6 @@ impl FoldDB {
         if let Err(error) = self.background_atom_history.stop().await {
             pre_flush_errors.push(error);
         }
-        self.background_molecule_drain.stop();
         let pending_task_timeout = self
             .drain_pending_tasks_at_shutdown(task_drain_timeout)
             .await;

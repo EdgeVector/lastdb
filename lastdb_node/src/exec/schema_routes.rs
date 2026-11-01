@@ -283,10 +283,9 @@ pub(super) async fn execute_retire_schema_name_claim_route(
 }
 
 /// `POST /api/schemas/drop` — remove one catalog identity, or every identity
-/// owned by one app. ACK is catalog absence: the schema record, its bindings and
-/// its database catalog rows are gone in the answer. The product rows go later,
-/// in the background, when the molecule drain finds the molecules dead
-/// (`docs/lastdb-molecule-drain.md`).
+/// owned by one app. ACK is catalog absence: the schema record and its database
+/// catalog rows are gone in the answer. The drop does not remove the records of
+/// the schema.
 pub(super) async fn execute_drop_schema_route(
     req: &UdsRequest,
     ctx: &AccessContext,

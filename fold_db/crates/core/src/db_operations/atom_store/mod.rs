@@ -17,8 +17,7 @@
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
-//! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
-//!   binding records and the molecule counters
+//! - [`molecule_ref_edges`] — the schema field and alternate key molecule edges
 //! - [`key_format`] — the key format marker of a new empty home
 //! - [`erase_meters`], [`keep_small`] — maintenance passes
 
@@ -26,7 +25,6 @@ pub mod atom_history;
 mod atoms;
 pub(crate) mod blob_counter;
 mod bounded_range;
-mod catalog_bindings;
 mod chunk_read;
 mod codec;
 mod conflict_record;
@@ -41,9 +39,6 @@ mod keep_small;
 mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
-mod molecule_bindings;
-mod molecule_counters;
-mod molecule_drain;
 mod molecule_ref_edges;
 mod record_cap;
 mod record_conflicts;
@@ -64,14 +59,9 @@ pub use blob_counter::{
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub use counter::{
-    counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
-    MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,
-    VerifySummary,
+    AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,
+    VerifyRequest, VerifySummary,
 };
-pub use molecule_bindings::MoleculeBindings;
-pub use molecule_counters::{molecule_view, MoleculeCountersView};
-pub(crate) use molecule_drain::{DrainCursor, DrainLimits, OutcomeKind as DrainOutcomeKind};
-pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::MoleculeRefEdge;
 pub(crate) use record_conflicts::LostWrite;
 pub use record_conflicts::{RecordConflictEntry, RecordFieldConflicts};
@@ -196,8 +186,6 @@ pub struct AtomStore {
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
-    /// The report and the wake signal of the molecule drain. Memory only.
-    molecule_drain: Arc<molecule_drain::DrainState>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The

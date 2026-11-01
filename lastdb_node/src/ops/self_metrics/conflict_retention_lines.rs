@@ -64,12 +64,6 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
             line.push_str(&format!(", next try {at}"));
         }
     }
-    if report.purge_capped_slots > 0 {
-        line.push_str(&format!(
-            "; slots that an erase passed to the janitor {}",
-            report.purge_capped_slots
-        ));
-    }
     if report.net_sweeps > 0 {
         line.push_str(&format!(
             "; queue net swept {} times, buckets repaired {}",

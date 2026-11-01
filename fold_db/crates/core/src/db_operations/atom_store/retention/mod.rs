@@ -49,9 +49,8 @@ mod split;
 mod steps;
 mod window;
 
-pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest};
+pub(crate) use keys::{queue_for_window, record_digest};
 pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
-pub(crate) use slots::RELEASE_RECORD_CAP;
 pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};

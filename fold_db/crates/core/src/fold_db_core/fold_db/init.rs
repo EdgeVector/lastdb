@@ -90,8 +90,6 @@ impl FoldDB {
         let background_conflict_janitor =
             Self::start_conflict_janitor(&db_ops, offline_maintenance);
 
-        let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
-
         Ok(Self {
             schema_manager,
             db_ops: Arc::clone(&db_ops),
@@ -100,7 +98,6 @@ impl FoldDB {
             pending_tasks,
             background_conflict_janitor,
             background_atom_history,
-            background_molecule_drain,
             mutation_log_capture,
         })
     }

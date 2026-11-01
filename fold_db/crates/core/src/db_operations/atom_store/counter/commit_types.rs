@@ -21,16 +21,11 @@ pub(crate) struct RecordRefs {
     /// Rows that only a new record writes: its retention queue entry and its
     /// slot directory entry. A repeat of a decision writes none of them.
     pub new_rows: Vec<(String, Value)>,
-    /// The molecule the record belongs to. When the record is new, the planner
-    /// raises `records` in the header of this molecule, in the same batch. A
-    /// release of the record lowers it in the batch of the release.
-    pub molecule: String,
 }
 
 /// One kept record to release. The planner reads the history row at `history`
 /// in the write gate, lowers one reference for each distinct atom the row
-/// names, lowers `records` of the molecule that the row names, and deletes the
-/// row and `deletes` in the same batch.
+/// names, and deletes the row and `deletes` in the same batch.
 pub(crate) struct ReleaseRequest {
     /// The full storage key of the history row that holds the references.
     pub history: String,
@@ -64,7 +59,7 @@ pub(crate) struct TipChangeSet<'a> {
     /// Conflict records this run releases (a purge of their key, or the end of
     /// their retention window). See `records.rs`.
     pub releases: Vec<ReleaseRequest>,
-    /// Other rows of the same batch: molecule headers, order log, record rows.
+    /// Other rows of the same batch: queue and record rows.
     pub rows: Vec<(String, Value)>,
     /// Other keys that the same batch deletes.
     pub deletes: Vec<Vec<u8>>,

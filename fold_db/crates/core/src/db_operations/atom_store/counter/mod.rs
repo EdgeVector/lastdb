@@ -16,30 +16,21 @@
 //! - I4: the stored count is never lower than the true number of references.
 //!
 //! Only this module writes `mk:` tip records, conflict record keys, atom body
-//! records, atom counter records, and the counters in molecule headers. The
+//! records, and atom counter records. The
 //! planner here reads the old state from the store inside the native write
 //! request scope and writes one batch. A crash keeps whole batches only, so each
 //! batch moves the store from one equal state to another.
 //! `scripts/lints/lint-atom-counter-writers.py` guards this boundary at the
 //! source level.
 //!
-//! The same planner changes the molecule counters `slots` and `records` in the
-//! molecule header, in the same batch (`molecule.rs`, `molecule_plan.rs`). The
-//! third counter, `bindings`, has its own writer (`../molecule_bindings.rs`).
-//! A step that writes conflict records tells the planner the molecule of each
-//! record (`RecordRefs::molecule`), and a step that releases records adds its
-//! removals to `molecule::molecule_changes`.
-//!
 //! Design: `docs/design-lastdb-counter-lifecycle.md`. The contract in short:
-//! `docs/lastdb-atom-counter.md` and `docs/lastdb-molecule-counters.md`.
+//! `docs/lastdb-atom-counter.md`.
 
 mod build;
 mod commit;
 mod commit_types;
 mod file_dependencies;
 mod guarded;
-mod molecule;
-mod molecule_plan;
 mod plan;
 mod read;
 mod records;
@@ -53,10 +44,8 @@ mod verify;
 pub(crate) use commit::{
     GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
 };
-pub use molecule::counts_of_header;
-pub use molecule_plan::{MoleculeCounts, MoleculeFault};
 pub use read::AtomCounterView;
-pub use recount::{Change, MoleculeRecountReport, RecountOptions, RecountReport};
+pub use recount::{Change, RecountOptions, RecountReport};
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;
 pub(crate) use report::CounterEvents;

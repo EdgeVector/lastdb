@@ -64,31 +64,4 @@ impl FoldDB {
             None => super::super::conflict_janitor::BackgroundConflictJanitorTask::disabled(),
         }
     }
-
-    /// The task that drains dead molecules. See `super::super::molecule_drain`.
-    pub(super) fn start_molecule_drain(
-        db_ops: &Arc<DbOperations>,
-        offline_maintenance: bool,
-    ) -> super::super::molecule_drain::BackgroundMoleculeDrainTask {
-        if offline_maintenance {
-            return super::super::molecule_drain::BackgroundMoleculeDrainTask::disabled();
-        }
-        let policy = super::super::molecule_drain::MoleculeDrainPolicy::from_env();
-        info!(
-            target: "fold_node::database",
-            drain_ms = ?policy.interval.map(|d| d.as_millis() as u64),
-            duty_pct = policy.duty_pct,
-            tips = policy.tips,
-            batches = policy.batches,
-            "molecule drain policy"
-        );
-        match policy.interval {
-            Some(interval) => super::super::molecule_drain::BackgroundMoleculeDrainTask::spawn(
-                Arc::clone(db_ops),
-                policy,
-                interval,
-            ),
-            None => super::super::molecule_drain::BackgroundMoleculeDrainTask::disabled(),
-        }
-    }
 }

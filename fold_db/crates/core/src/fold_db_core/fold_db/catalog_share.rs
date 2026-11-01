@@ -60,7 +60,6 @@ impl FoldDB {
         let ShareTarget {
             source_parsed: _source_parsed,
             source_canonical,
-            target_canonical,
             target_entry,
         } = self
             .resolve_share_target(source_db_locator, target_db_locator, schema_name)
@@ -80,17 +79,8 @@ impl FoldDB {
             .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
             .await?;
 
-        // Cloud target republish is retired; local key grants and catalog binding remain.
+        // Cloud target republish is retired; local key grants remain.
         let republished_rows = 0;
-        self.db_ops()
-            .atoms()
-            .bind_catalog_molecules(
-                &target_canonical,
-                schema_name,
-                &schema,
-                storage_prefix.as_deref(),
-            )
-            .await?;
         self.db_ops().db_catalog().put(&target_entry).await?;
         Ok(DbSchemaShareResult {
             source_db_locator: source_canonical,
@@ -106,7 +96,6 @@ impl FoldDB {
 struct ShareTarget {
     source_parsed: DbLocator,
     source_canonical: String,
-    target_canonical: String,
     target_entry: DbCatalogEntry,
 }
 
@@ -164,7 +153,6 @@ impl FoldDB {
         Ok(ShareTarget {
             source_parsed,
             source_canonical,
-            target_canonical,
             target_entry,
         })
     }

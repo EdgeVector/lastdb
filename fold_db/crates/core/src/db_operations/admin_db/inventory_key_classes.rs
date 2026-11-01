@@ -27,21 +27,6 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "mh:{M} — molecule header with the slots and records counters",
     ),
     (
-        "molecule_binding_record",
-        "mref:v1:e:",
-        "mref:v1:e:{M}\\0{source} — one record for each schema field or catalog that binds a molecule",
-    ),
-    (
-        "molecule_binding_counter",
-        "mref:v1:n:",
-        "mref:v1:n:{M} — bindings counter of a molecule",
-    ),
-    (
-        "molecule_drain_candidate",
-        "mref:v1:d\0",
-        "mref:v1:d\0{scope}\0{M} — a molecule that lost its last binding; the drain removes it and deletes the row",
-    ),
-    (
         "molecule_generation_delete",
         "mgd:v1:",
         "mgd:v1:{M}:… — one generation delete marker for each slot an erase removed",

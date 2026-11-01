@@ -138,7 +138,6 @@ impl AtomStore {
 
         let scan = self.range_walks().snapshot().since(walks_before);
         let notes = inventory_notes();
-        let molecule_counters = self.inventory_molecule_counters(storage_prefix).await?;
 
         Ok(DbInventory {
             main_classes,
@@ -147,7 +146,6 @@ impl AtomStore {
             per_schema_atoms: atoms.per_schema,
             per_schema_atoms_total_bytes: atoms.total_logical_bytes,
             atom_counters: atoms.atom_counters,
-            molecule_counters,
             per_schema_history,
             scan,
             attribution: crate::db_operations::AttributionSummary::default(),

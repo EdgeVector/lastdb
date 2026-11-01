@@ -5,12 +5,10 @@
 //! `batch_mutate` at the end joins the pending batch of the request.
 
 use super::build::build_mutations;
-use super::molecule::molecule_changes;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
-use crate::atom::molecule_key_codec;
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::SchemaError;
 use crate::write_preparation::measure;
@@ -55,8 +53,6 @@ impl AtomStore {
         self.note_released_atoms(&released);
         let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
         released.lower(&mut deltas);
-        let mut changes = molecule_changes(&tips, &old, &records, &new_records);
-        released.lower_molecules(&mut changes);
         let rows = with_new_record_rows(rows, &records, &new_records);
         let records_released = released.count();
         let mut deletes = deletes;
@@ -76,11 +72,6 @@ impl AtomStore {
         )
         .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
-        let (rows, molecule_run) = measure(
-            "molecule_counters_us",
-            self.apply_molecule_counters(scope, &changes, rows),
-        )
-        .await?;
         let (mutations, mut commit) = measure(
             "build_rows_us",
             build_mutations(
@@ -97,10 +88,6 @@ impl AtomStore {
         commit.old_tips = old.len() as u64;
         commit.records_released = records_released;
         commit.guarded_deleted = guarded_deleted;
-        for (molecule, fault) in molecule_run.faults {
-            self.counter_report().note_molecule(&molecule, fault);
-            commit.counter_events += 1;
-        }
         if !mutations.is_empty() {
             self.main_store
                 .inner()
@@ -140,19 +127,6 @@ impl AtomStore {
                     .flat_map(|(record, _)| record.atoms.iter().map(String::as_str)),
             );
         watch.note(atoms);
-        // A molecule changes with its tips and its records. The header checks
-        // treat a difference for such a molecule as a candidate.
-        let molecules = tips
-            .keys()
-            .filter_map(|key| molecule_key_codec::molecule_uuid_from_storage_key(key))
-            .chain(
-                records
-                    .iter()
-                    .zip(new_records)
-                    .filter(|(_, is_new)| **is_new)
-                    .map(|(record, _)| record.molecule.as_str()),
-            );
-        watch.note(molecules);
     }
 
     /// A native writer needs a request scope.

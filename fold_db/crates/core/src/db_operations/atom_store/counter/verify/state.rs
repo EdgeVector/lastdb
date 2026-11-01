@@ -25,12 +25,6 @@ pub(super) struct Run {
     pub phase: Phase,
     pub walk: RangeWalk,
     pub tally: Tally,
-    /// Tips per molecule, over the first phase.
-    pub molecule_tips: Tally,
-    /// Conflict records per molecule, over the second phase.
-    pub molecule_records: Tally,
-    /// Molecules whose header the run has read.
-    pub headers_seen: HashSet<u128>,
     pub reported_below: HashSet<u128>,
     /// The ids of the counted records (first 128 bits), over the second phase.
     pub record_ids: HashSet<u128>,
@@ -61,9 +55,6 @@ impl Run {
             phase: Phase::Tips,
             walk,
             tally: Tally::new(max_atoms),
-            molecule_tips: Tally::new(max_atoms),
-            molecule_records: Tally::new(max_atoms),
-            headers_seen: HashSet::new(),
             reported_below: HashSet::new(),
             record_ids: HashSet::new(),
             ids_complete: true,
@@ -85,9 +76,6 @@ impl Run {
                 records_read: 0,
                 counters_read: 0,
                 bodies_read: 0,
-                headers_read: 0,
-                binding_counters_read: 0,
-                binding_records_read: 0,
                 queue_entries_read: 0,
                 blob_counters_read: 0,
                 blob_queue_read: 0,
@@ -168,10 +156,7 @@ impl Run {
         let report = &mut self.report;
         report.phase = self.phase;
         report.tally_atoms = self.tally.len() as u64;
-        report.tally_complete = self.tally.complete
-            && self.molecule_tips.complete
-            && self.molecule_records.complete
-            && self.ids_complete;
+        report.tally_complete = self.tally.complete && self.ids_complete;
         report.touched_atoms = touched_atoms;
         report.mismatches_total = report.mismatches.total();
         report.suspect_atoms = report.mismatches.suspect_counter;
