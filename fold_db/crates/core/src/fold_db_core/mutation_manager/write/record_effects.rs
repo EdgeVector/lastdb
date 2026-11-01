@@ -7,6 +7,9 @@
 //! - Delete audit: one `dellog:` row for each verb and caller of the group, as
 //!   the erase lane writes for a molecule home. A TTL sweep delete keeps its
 //!   caller tag.
+//! - Conflict rows: a purge deletes the conflict rows of its record, their
+//!   queue entries and the marker (`record_conflicts/purge.rs`). A delete
+//!   keeps them until the end of their window.
 //! - Retention: a Hash or Single schema with a policy ages each live record by
 //!   its write time (the newest stamp) and drops the age rows of a deleted
 //!   record. The age rows of the molecule path come from the tip clocks after
@@ -75,6 +78,7 @@ impl MutationManager {
             .await?;
         let outcomes = record_outcomes(&changes);
         entries.extend(history.rows);
+        entries.extend(self.purged_conflict_rows(changed, &changes).await?);
         self.db_ops
             .atoms()
             .stage_records(changes, entries, history.blobs)
@@ -99,6 +103,21 @@ impl MutationManager {
             .atoms()
             .record_history_rows(schema, scope, changes, &purges)
             .await
+    }
+
+    /// The deletes of the conflict rows of each purged record of one group.
+    async fn purged_conflict_rows(
+        &self,
+        changed: &[ChangedRecord<'_>],
+        changes: &[RecordChange],
+    ) -> Result<Vec<KvMutation>, SchemaError> {
+        let purged: Vec<&str> = changed
+            .iter()
+            .zip(changes)
+            .filter(|(record, _)| record.mutation.mutation_type == MutationType::Purge)
+            .map(|(_, change)| change.key.as_str())
+            .collect();
+        self.db_ops.atoms().purged_record_conflicts(&purged).await
     }
 
     /// Stage the delete audit rows and the retention age rows of one group in

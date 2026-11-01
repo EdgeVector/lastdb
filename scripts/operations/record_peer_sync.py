@@ -5,8 +5,9 @@ Both daemons create a home with LASTDB_RECORD_HOME=1 and LASTDB_LOGICAL_CAPTURE=
 Each enrolls the other, and the script moves the signed version 2 events through
 /api/sync/logical-v1. It proves a two-field merge of one record, the convergence
 of a concurrent write of one field with one kept conflict record, a replay that
-changes nothing, the propagation of a delete, and the release of the conflict
-record at the end of its retention window. It runs no test runner or benchmark.
+changes nothing, the propagation of a delete, the release of the conflict rows of
+a purged record on its device, and the release of the conflict record at the end of
+its retention window. It runs no test runner or benchmark.
 The homes hold generated data only and never read or copy a primary.
 """
 import argparse
@@ -27,7 +28,7 @@ ENVIRONMENT = {
     "LASTDB_CONFLICT_RETENTION_SECS": str(RETENTION_SECS), "LASTDB_CONFLICT_JANITOR_MS": "1000",
     "LASTDB_SELF_METRICS_TO_DB": "false", "LASTDB_TTL_SWEEP": "0",
     "LASTDB_BYTE_BACKUP_V2_ENABLED": "false", "EXEMEM_API_URL": "http://127.0.0.1:9",
-    "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
+    "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9", "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
 }
 
 
@@ -231,6 +232,42 @@ def deletes(a, b, links):
           "entry, and a later write makes a new record on both", flush=True)
 
 
+def queue_depths(nodes):
+    return [node.call("/api/status")[0]["status"]["conflict_retention"]["queue_depth"] for node in nodes]
+
+
+def await_depths(nodes, expected, moment):
+    deadline = time.monotonic() + 20
+    while (depths := queue_depths(nodes)) != expected:
+        require(time.monotonic() < deadline, f"{moment}: conflict queue depths {depths}, not {expected}")
+        time.sleep(0.5)
+
+
+def purge(a, b, links):
+    mutate(a, "PeerRecord", {"hash": "r4"}, {"id": "r4", "note": "m0"}, "create")
+    links[0].run()
+    mutate(a, "PeerRecord", {"hash": "r4"}, {"note": "ma"})
+    time.sleep(0.05)
+    mutate(b, "PeerRecord", {"hash": "r4"}, {"note": "mb"})
+    both(links)
+    for node in (a, b):
+        require(conflicts(node, "r4", ["note"])["note"]["state"] == "conflict", "r4 has no conflict to purge")
+    await_depths([a, b], [2, 2], "before the purge")
+    mutate(a, "PeerRecord", {"hash": "r4"}, {}, "purge")
+    await_depths([a, b], [1, 2], "after the purge")
+    require(record(a, "r4")[0] is None, "the purged record still reads")
+    require(conflicts(a, "r4", ["note"])["note"]["state"] == "clean", "the purge left the conflict record")
+    require(conflicts(a, "r1", ["note"])["note"]["state"] == "conflict", "the purge released another record's conflict")
+    require(conflicts(b, "r4", ["note"])["note"]["state"] == "conflict", "B lost its conflict record without a purge")
+    mutate(a, "PeerRecord", {"hash": "r4"}, {"id": "r4", "note": "m1"}, "create")
+    values, metadata = record(a, "r4")
+    require(values == {"id": "r4", "note": "m1"} and "has_conflicts" not in (metadata.get("note") or {}),
+            "a new record after the purge carries the old conflict flag: " + repr(metadata)[:400])
+    print("Purge: A purged a conflicted record; on A its conflict record and queue entry left (queue depth 2 to 1) "
+          "and a new record at the key has no conflict flag, while A keeps the other conflict and B keeps its own",
+          flush=True)
+
+
 def expiry(a, b):
     deadline = time.monotonic() + RETENTION_SECS * 3
     while time.monotonic() < deadline:
@@ -298,6 +335,7 @@ def main():
         concurrent_write(a, b, links)
         replay(a, b, links)
         deletes(a, b, links)
+        purge(a, b, links)
         expiry(a, b)
     except BaseException:
         for node in nodes:

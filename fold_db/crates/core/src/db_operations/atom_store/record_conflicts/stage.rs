@@ -146,6 +146,6 @@ fn encode<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, SchemaError> {
     serde_json::to_vec(value).map_err(|error| invalid(&format!("encode a conflict row: {error}")))
 }
 
-fn invalid(reason: &str) -> SchemaError {
+pub(super) fn invalid(reason: &str) -> SchemaError {
     SchemaError::InvalidData(format!("record conflict: {reason}"))
 }
