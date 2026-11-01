@@ -8,7 +8,7 @@ use crate::schema::types::{KeyValue, Schema};
 use crate::storage::disk_pack::logical_capture::{
     preflight_outcome_size, AcceptedRecordOutcome, RecordFieldOutcome,
 };
-use lastdb_model::record_value::{FieldStamp, StoredRecord};
+use lastdb_model::record_value::{FieldStamp, RecordMeta, StoredRecord};
 use std::collections::BTreeMap;
 
 /// The record that the request staged last at each record storage key.
@@ -115,7 +115,10 @@ pub(super) fn record_outcomes(
             alternate_key_revision: Some(alternate_key_revision),
             key,
             fields,
-            meta: meta.filter(|meta| own(&meta.stamp)),
+            // A file blob key names a blob of this device; a peer refuses it.
+            meta: meta
+                .filter(|meta| own(&meta.stamp))
+                .map(RecordMeta::without_file_refs),
             deleted: deleted.filter(|stamp| own(stamp)),
         };
         if outcome.fields.is_empty() && outcome.meta.is_none() && outcome.deleted.is_none() {

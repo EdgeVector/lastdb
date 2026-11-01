@@ -15,7 +15,7 @@
 //! ```
 //!
 //! The metadata belongs to the record, not to a field (decision D7): one
-//! source file name and one metadata map, with their own stamp.
+//! source file name and one metadata map, with their own stamp (`meta.rs`).
 //!
 //! A stamp without a value is a removed field: it still refuses an older
 //! write of that field. `deleted` is the stamp of the last delete. It is a
@@ -26,6 +26,10 @@ use crate::atom::file_pointer::{blob_refs_of_atom, is_private_pointer_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
+
+mod meta;
+
+pub use meta::META_FILE_REF_KEYS;
 
 /// The format version of a stored record value.
 pub const RECORD_VALUE_VERSION: u8 = 1;
@@ -117,7 +121,7 @@ impl std::fmt::Display for RecordValueError {
 impl std::error::Error for RecordValueError {}
 
 /// The metadata of one record (decision D7): the source file name and the
-/// metadata map of the newest write that carried them.
+/// metadata map, with the stamp of the newest write that changed them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecordMeta {
@@ -141,7 +145,8 @@ pub struct StoredRecord {
     /// writes that removed a field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub stamps: BTreeMap<String, FieldStamp>,
-    /// The record metadata. A write without metadata keeps it.
+    /// The record metadata. A write without metadata keeps it; a local write
+    /// with metadata replaces only the keys that it sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RecordMeta>,
     /// The stamp of the last delete.
@@ -205,28 +210,6 @@ impl StoredRecord {
             None => self.fields.remove(field),
         };
         FieldMerge::Written { old, old_stamp }
-    }
-
-    /// Merge the metadata of one write that carries a source file name or a
-    /// metadata map. The newer stamp wins, as for a field. Returns true when
-    /// the metadata changed.
-    pub fn merge_meta(
-        &mut self,
-        source_file_name: Option<String>,
-        metadata: BTreeMap<String, String>,
-        stamp: FieldStamp,
-    ) -> bool {
-        if self.deleted.as_ref().is_some_and(|floor| stamp <= *floor)
-            || self.meta.as_ref().is_some_and(|meta| stamp <= meta.stamp)
-        {
-            return false;
-        }
-        self.meta = Some(RecordMeta {
-            source_file_name,
-            metadata,
-            stamp,
-        });
-        true
     }
 
     /// Apply a delete. Each field at or below `stamp` goes, and `stamp`
