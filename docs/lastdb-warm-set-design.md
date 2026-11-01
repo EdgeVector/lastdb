@@ -364,7 +364,7 @@ COST. One uncontended mutex and one channel send (guess: 1 to 2 microseconds).
 
 ORDER IN OFF MODE. In off mode the ack waits for the lane. Publish order is not the order of the ack times, but the rule above still holds, because a client that has an ack began the next request after the first publish.
 
-PROOF (what the bars cannot do). The synthetic home has no sync engine. reserve_capture returns None, so there is no capture. The bars show only that write p50 does not regress. The proof for order is the gauge `capture_log_order_violations`. It compares the ack_seq of the entries that the worker appended to the log, in log order, and counts each drop. It is not a count at the channel, because the channel is in order by construction. It must stay 0 in a soak on a node with sync on. A synthetic node with sync on needs a new mode in synthetic-node.sh (Tom's yes). If Tom says no, the proof is the primary soak and a code review. We say plainly that the review is a source check.
+PROOF (what the bars cannot do). The synthetic home has no sync engine. reserve_capture returns None, so there is no capture. The bars show only that write p50 does not regress. The proof for order is the gauge `capture_log_order_violations`. It compares the ack_seq of the entries that the worker appended to the log, in log order, and counts each drop. It is not a count at the channel, because the channel is in order by construction. It must stay 0 in a soak on a node with sync on. A synthetic node with sync on needs a new mode (Tom's yes). If Tom says no, the proof is the primary soak and a code review. We say plainly that the review is a source check.
 
 CONVERGENCE. Replay still decides by the clock key (written_at, logical_counter, device, mutation_uuid). Convergence does not need log order. Tom's rule needs it.
 
@@ -493,7 +493,7 @@ CELLS TO ADD INSIDE THE TWO BARS (Tom must say yes; this stretches his rule agai
 - L4: seed one hash group of about 14000 keys (7-8 MB). Read 50 distinct cold keys. Report p50, p95, cold loads.
 - L5: 6 concurrent list clients and 2 writers. Report p95 and the p99 mutex hold time.
 - A1: atom scatter. Seed 300 cards with 8 fields so that atoms spread over hash groups. Cold list. Report time and groups opened.
-- P2: a Hash-field point read, and a co-key secondary read (needs a second schema in synthetic-node.sh).
+- P2: a Hash-field point read, and a co-key secondary read (needs a second schema).
 - W1: write ack on a hash group of primary size (the L4 shape) with an 8-field schema.
 - R1: after an ack, poll the list and the count every 2 ms for 100 ms. Every poll must show the write.
 - R2: delete a key, wait 700 ms, list. The key stays absent.
