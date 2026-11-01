@@ -54,6 +54,7 @@ pub(in crate::handlers) fn cursor_payload(
     limit: usize,
     offset: usize,
     drops: RowDrops,
+    resume: Option<KeyValue>,
     comparison: Option<String>,
 ) -> Value {
     // This shape over-fetches `limit + 1` and infers `has_more` from the extra
@@ -61,15 +62,19 @@ pub(in crate::handlers) fn cursor_payload(
     // so count those unfilled slots back in. Internal candidate refills retain
     // their integrity counters but replace their missing rows before this
     // boundary; those drops must not make an exhausted range claim more data.
+    // A page that a run of deleted records ended early (`resume`) has more
+    // keys after the last key it examined, and its cursor names that key.
     let fetched = page.len().saturating_add(drops.total());
-    let has_more = fetched > limit;
+    let has_more = fetched > limit || resume.is_some();
     if page.len() > limit {
         page.truncate(limit);
     }
     // Derive the cursor from the truncated page: it has to name the last row the
     // caller actually received, not the `limit + 1`th probe row, or the next
     // continuation skips a row.
-    let next_cursor = next_cursor_for(&page, has_more).map(|key| QueryCursor::new(key, comparison));
+    let next_cursor = resume
+        .or_else(|| next_cursor_for(&page, has_more))
+        .map(|key| QueryCursor::new(key, comparison));
     let mut payload = page_payload(page, total_count, limit, offset, has_more, drops);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload

@@ -69,6 +69,11 @@ pub enum KeyWindow {
     Offset { offset: usize, limit: usize },
     /// Keyset page after the last key a caller already received.
     After { after: KeyValue, limit: usize },
+    /// A page of an unfiltered record walk after one record key position:
+    /// the record key suffix (`{esc(blind(hash))}\0{range}`) that a walk
+    /// page ended at. A run of deleted records can end a page before it
+    /// reaches a live record, and a deleted record has no API key.
+    AfterRecord { record: String, limit: usize },
 }
 
 impl KeyWindow {
@@ -80,6 +85,11 @@ impl KeyWindow {
     #[must_use]
     pub fn after(after: KeyValue, limit: usize) -> Self {
         Self::After { after, limit }
+    }
+
+    #[must_use]
+    pub fn after_record(record: String, limit: usize) -> Self {
+        Self::AfterRecord { record, limit }
     }
 }
 

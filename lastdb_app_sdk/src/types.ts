@@ -41,6 +41,12 @@ export interface KeyValue {
 export interface QueryCursor extends KeyValue {
   /** Opaque schema, field-type, key-format, and query compatibility identifier. */
   comparison?: string | null;
+  /**
+   * Opaque record key position of an unfiltered record walk page. A walk
+   * cursor has this in place of a hash and a range: a page that a run of
+   * deleted records ends early has no row key to name.
+   */
+  record?: string | null;
 }
 
 /** Options for the keys-only {@link LastDbClient.list} membership page. */

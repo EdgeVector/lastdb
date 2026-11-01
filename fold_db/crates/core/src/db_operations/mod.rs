@@ -64,8 +64,9 @@ pub use keep_small::{
 pub use crate::storage::molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use conflict_metadata::MoleculeConflictState;
 pub use core::{
-    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
-    with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,
+    note_page_key_forms, note_page_resume, note_tombstoned_row, note_walk_positions,
+    page_can_resume, with_query_page_tally, with_query_row_drop_tally,
+    with_refilled_query_row_drops, DbOperations, KeyForm, PageEnd, PageResume, QueryRowDrops,
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;

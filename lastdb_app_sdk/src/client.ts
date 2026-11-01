@@ -740,7 +740,12 @@ export class LastDbClient {
         truncatedByMaxRows = true;
         break;
       }
-      if (newRows === 0) {
+      // A page that a run of deleted records ended early can hold no new
+      // row; its cursor still moves past the keys it examined.
+      const nextCursor = page.page?.nextCursor ?? null;
+      const moved = nextCursor !== null
+        && JSON.stringify(nextCursor) !== JSON.stringify(cursor);
+      if (newRows === 0 && !moved) {
         throw new QueryPaginationError('stalled_page', {
           totalCount: page.page?.totalCount,
           collectedCount: rows.length,
@@ -749,7 +754,7 @@ export class LastDbClient {
           offset,
         });
       }
-      cursor = page.page?.nextCursor ?? null;
+      cursor = nextCursor;
       if (cursor === null) {
         offset += page.rows.length;
       }

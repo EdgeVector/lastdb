@@ -16,7 +16,8 @@ use super::condition_rules::{
     order_condition_keys,
 };
 use super::*;
-use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow};
+use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
+use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
 use crate::fold_db_core::query::{FieldMetadata, QueryRecords, Record};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::key_comparison::KeyComparisonContext;
@@ -112,6 +113,11 @@ impl HashRangeQueryProcessor {
         window: Option<KeyWindow>,
         selected: &[String],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        if filter.is_some() && matches!(window, Some(KeyWindow::AfterRecord { .. })) {
+            return Err(SchemaError::InvalidCursor(
+                "a record walk cursor continues only an unfiltered read".into(),
+            ));
+        }
         let mut scopes = vec![record_scope(schema)];
         for namespace in self
             .collect_received_from_namespaces()
@@ -155,7 +161,10 @@ impl HashRangeQueryProcessor {
 
 impl HashRangeQueryProcessor {
     /// One window of the unfiltered walk over `scopes`, in record key order.
-    /// No window reads the first page of the default size.
+    /// No window reads the first page of the default size. A cursor names a
+    /// row by its API key or a record key position (`AfterRecord`). The page
+    /// notes the record key position of each row for the reply, and where it
+    /// stopped when a run of deleted records ended it early.
     async fn walk_rows(
         &self,
         schema: &Schema,
@@ -164,21 +173,45 @@ impl HashRangeQueryProcessor {
         selected: &[String],
         scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let atoms = self.db_ops.atoms();
         let (after, skip, take) = match window {
             None => (None, 0, DEFAULT_UNFILTERED_PAGE_LIMIT),
             Some(KeyWindow::Offset { offset, limit }) => (None, *offset, *limit),
-            Some(KeyWindow::After { after, limit }) => (Some(after), 0, *limit),
+            Some(KeyWindow::After { after, limit }) => {
+                (Some(atoms.walk_position(schema, after)?), 0, *limit)
+            }
+            Some(KeyWindow::AfterRecord { record, limit }) => (Some(record.clone()), 0, *limit),
         };
-        self.db_ops
-            .atoms()
-            .walk_record_window(
-                schema,
-                comparison,
-                WalkWindow { after, skip, take },
-                scopes,
-                |record| has_any(record, selected),
-            )
-            .await
+        // Only a page that its caller continues may end early.
+        let resumable = window.is_some() && page_can_resume();
+        let walk = WalkWindow {
+            after: after.as_deref(),
+            skip,
+            take,
+        };
+        let mut page = atoms
+            .walk_record_window(schema, comparison, walk, scopes, |record| {
+                has_any(record, selected)
+            })
+            .await?;
+        if let Some(stopped) = page.stopped.take() {
+            if !resumable {
+                return Err(SchemaError::ReadResourceLimit {
+                    detail: format!(
+                        "an unfiltered read passed {PAGE_READ_KEYS} deleted records before its \
+                         page was full; read it in pages with next_cursor"
+                    ),
+                });
+            }
+            note_page_resume(PageResume::Record(stopped));
+        }
+        note_walk_positions(
+            page.rows
+                .iter()
+                .map(|row| (row.key.clone(), row.at.clone()))
+                .collect(),
+        );
+        Ok(page.into_keyed())
     }
 }
 
@@ -211,6 +244,8 @@ fn bound(rows: Vec<KeyedRecord>, window: KeyWindow) -> Vec<KeyedRecord> {
             .filter(|(key, _)| key.cmp_page_order(&after).is_gt())
             .take(limit)
             .collect(),
+        // `select_rows` refuses a record walk cursor on a filtered read.
+        KeyWindow::AfterRecord { limit, .. } => rows.into_iter().take(limit).collect(),
     }
 }
 

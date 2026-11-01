@@ -126,6 +126,7 @@ async fn execute_query_scoped<H: HostNode>(
     let rules::PreparedQuery {
         query,
         cursor,
+        record,
         binding,
     } = rules::prepare_comparison(query, cursor, ctx, comparison.as_deref(), walk)?;
     let run = execute::QueryRun {
@@ -134,6 +135,7 @@ async fn execute_query_scoped<H: HostNode>(
         limit: clamp_request_limit(limit),
         offset: offset.unwrap_or(0),
         cursor,
+        record,
         comparison: binding,
         walk,
     };
