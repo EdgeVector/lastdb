@@ -18,6 +18,11 @@ on:
         description: Exact baseline commit; blank selects the candidate parent
         type: string
         required: false
+      candidate_record_home:
+        description: Start only the candidate with LASTDB_RECORD_HOME=1, so it serves a format 7 home
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -132,10 +137,13 @@ jobs:
         env:
           CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
           BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+          CANDIDATE_RECORD_HOME: ${{ inputs.candidate_record_home && '1' || '' }}
         run: |
           set -euo pipefail
+          record_home=()
+          if [ -n "$CANDIDATE_RECORD_HOME" ]; then record_home=(--candidate-record-home); fi
           timeout --signal=TERM --kill-after=120s 55m \
-            python3 candidate/scripts/benchmarks/received_ranges/run.py \
+            python3 candidate/scripts/benchmarks/received_ranges/run.py "${record_home[@]}" \
               --baseline "$RUNNER_TEMP/range-target-baseline/dev-release/lastdbd" \
               --candidate "$RUNNER_TEMP/range-target-candidate/dev-release/lastdbd" \
               --baseline-revision "$BASELINE_SHA" --candidate-revision "$CANDIDATE_SHA" \

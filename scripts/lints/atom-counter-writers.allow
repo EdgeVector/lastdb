@@ -92,6 +92,7 @@ fold_db/crates/core/src/storage/traits/kv.rs|restore_batch_put|T C B N|store tra
 
 
 lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-only generated share_subscriptions controls in an isolated owned home; mutation manager owns all tip, atom, and counter writes
+lastdb_node/src/bin/received_range_seed.rs|activate_generated_send_rule|-|CI-only generated share_rules control for the send check in an isolated owned home; mutation manager owns all tip, atom, record, and counter writes
 
 
 

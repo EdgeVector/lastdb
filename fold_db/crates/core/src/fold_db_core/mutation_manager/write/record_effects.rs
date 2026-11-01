@@ -14,11 +14,19 @@
 //!   its write time (the newest stamp) and drops the age rows of a deleted
 //!   record. The age rows of the molecule path come from the tip clocks after
 //!   the commit; a record holds its own stamps, so the rows go in this batch.
+//! - Share copies: a personal write to a schema with an active share rule
+//!   puts each changed record in the scope of each rule too
+//!   (`share:{recipient}:{opaque}`). The copy is the whole record after the
+//!   merge, delete floor included, so a delete or a purge reaches the copy in
+//!   the same batch. A copy has no alternate entries, field history or audit
+//!   rows: this node reads no share scope by an alternate key, and the
+//!   personal record keeps the history.
 
 use super::*;
 use crate::db_operations::atom_store::{RecordChange, RecordHistoryRows};
 use crate::db_operations::{AtomDeleteLedgerEntry, LEDGER_VERB_DELETE, LEDGER_VERB_PURGE};
 use crate::fold_db_core::purge::describe_key;
+use crate::schema::types::field::build_storage_key;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Schema};
@@ -77,14 +85,55 @@ impl MutationManager {
             .record_history_rows(schema, scope, changed, &changes)
             .await?;
         let outcomes = record_outcomes(&changes);
+        let copies = self
+            .record_share_copies(&schema.name, storage_prefix, &changes)
+            .await?;
         entries.extend(history.rows);
         entries.extend(self.purged_conflict_rows(changed, &changes).await?);
+        let mut changes = changes;
+        changes.extend(copies);
         self.db_ops
             .atoms()
             .stage_records(changes, entries, history.blobs)
             .await?;
         self.stage_record_side_rows(schema, storage_prefix, changed, &outcomes, history.released)
             .await
+    }
+
+    /// The copy of each changed personal record in the scope of each active
+    /// share rule of the schema. One batch read gives the stored copies, so
+    /// the file blob counters change by the net delta.
+    async fn record_share_copies(
+        &self,
+        schema_name: &str,
+        storage_prefix: Option<&str>,
+        changes: &[RecordChange],
+    ) -> Result<Vec<RecordChange>, SchemaError> {
+        if changes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let prefixes = self
+            .active_share_prefixes(schema_name, storage_prefix)
+            .await?;
+        let keys: Vec<String> = prefixes
+            .iter()
+            .flat_map(|prefix| {
+                changes
+                    .iter()
+                    .map(move |change| build_storage_key(Some(prefix.as_str()), &change.key))
+            })
+            .collect();
+        let stored = self.db_ops.atoms().read_records(&keys).await?;
+        Ok(keys
+            .into_iter()
+            .zip(stored)
+            .zip(changes.iter().cycle())
+            .map(|((key, before), change)| RecordChange {
+                key,
+                before,
+                after: change.after.clone(),
+            })
+            .collect())
     }
 
     /// The field history rows of the changed records of one group.

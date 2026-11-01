@@ -19,16 +19,37 @@ from conditions import paired_conditions_match
 from narrow_report import narrow_samples_complete
 
 
+# The exact marker of a format 7 (record) home, as scripts/benchmarks/node.py names it.
+RECORD_MARKER = "format=7\nhome=disk-run\ncas=disk-cas\nranges=typed-v1\nalternate-keys=v2\nrecords=v1\n"
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt("The generated range operation received an interruption")
 
 
-def measure(binary, revision, mode, role, output, helper):
+def home_format(node):
+    """The format that the home marker names, or None for an unknown marker."""
+    marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
+    if marker == RECORD_MARKER:
+        return 7
+    first = marker.split("\n", 1)[0]
+    if first.startswith("format=") and first[7:].isdigit() and int(first[7:]) != 7:
+        return int(first[7:])
+    return None
+
+
+def measure(binary, revision, mode, role, output, helper, record_home=False):
     output.mkdir()
-    node, error, value = None, None, {}
+    node, error, value, found = None, None, {}, None
     try:
         node = Node(binary, revision, mode, output)
+        if record_home:
+            # The seed helper reads the same settings; the marker keeps the format after creation.
+            node.settings["LASTDB_RECORD_HOME"] = "1"
         node.start()
+        found = home_format(node)
+        if record_home and found != 7:
+            raise RuntimeError("LASTDB_RECORD_HOME=1 did not create a format 7 home")
         value = Workload(node, role == "baseline", helper).run()
     except BaseException as failure:
         error = type(failure).__name__ + ": " + str(failure)
@@ -40,6 +61,7 @@ def measure(binary, revision, mode, role, output, helper):
                 error = (error or "") + "; shutdown/cleanup: " + type(failure).__name__ + ": " + str(failure)
     raw = output / "requests.jsonl.gz"
     value.update(complete=error is None, error=error, revision=revision, role=role, mode=mode,
+                 home_format=found, record_home_requested=record_home,
                  raw_sha256=file_hash(raw) if raw.exists() else None,
                  raw_bytes=raw.stat().st_size if raw.exists() else None)
     save(output / "result.json", value)
@@ -54,6 +76,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed-helper", type=Path, required=True)
     parser.add_argument("--baseline-seed-helper", type=Path, required=True)
+    parser.add_argument("--candidate-record-home", action="store_true",
+                        help="Start only the candidate with LASTDB_RECORD_HOME=1, so it serves a format 7 home")
     args = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true":
         parser.error("Product operations run only on GitHub Actions; no local daemon or build")
@@ -100,6 +124,7 @@ def main():
                 "warm_requests_per_case": 32, "fresh_process_requests_per_case": 1,
                 "fresh_restarts_per_run": 8, "memory": "Per-cell process before/after; byte-buffer receipts exclude captured field maps"},
             "modes": ["typed"], "automatic_maintenance": False,
+            "candidate_record_home": args.candidate_record_home,
             "warm_budget": "Product default; identical complete keyed prefill before timing",
             "limits": "Each owned run1200s,10000request rows,1GiB raw/512MiB gzip,4MiB response,50000home entries/4GiB",
             "timing": "HTTP round trip through complete response bytes; decode/validation/gzip excluded",
@@ -113,9 +138,11 @@ def main():
                 name = mode + "-" + str(pair) + "-" + role
                 print(json.dumps({"mode": mode, "pair": pair, "role": role}), flush=True)
                 result = measure(Path(binaries[role]["path"]), binaries[role]["revision"], mode, role,
-                                 args.output / name, helpers[role])
+                                 args.output / name, helpers[role],
+                                 record_home=role == "candidate" and args.candidate_record_home)
                 manifest["runs"].append({"directory": name, "mode": mode, "pair": pair,
-                    "role": role, "complete": result["complete"], "error": result["error"]})
+                    "role": role, "complete": result["complete"], "error": result["error"],
+                    "home_format": result["home_format"]})
                 save(manifest_path, manifest)
                 print(json.dumps(manifest["runs"][-1]), flush=True)
                 if not result["complete"]:

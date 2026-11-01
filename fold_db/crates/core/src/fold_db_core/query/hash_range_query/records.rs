@@ -4,7 +4,12 @@
 //! hash. The conditions, the order and the window apply to whole records,
 //! then the projection returns the selected fields of each record. A record
 //! has no atom or molecule, so a field value carries the record metadata
-//! (decision D7) and no atom, molecule or writer ID.
+//! (decision D7) and no atom, molecule or writer ID. While the node receives
+//! data from other users, the read merges the received scopes by key
+//! (`records/received.rs`).
+
+mod received;
+mod received_range;
 
 use super::condition_rules::{
     condition_fields, exact_key_selected_fields, matching_field_predicate_keys,
@@ -24,9 +29,10 @@ impl HashRangeQueryProcessor {
         self.db_ops.atoms().record_home()
     }
 
-    /// One captured read of records. A record is a row when it has one of
-    /// the selected fields. The conditions see every candidate, as in the
-    /// molecule path, so a window applies only to a read without them.
+    /// One captured read of records. A record is a row when it has the key
+    /// field or one of the selected fields. The conditions see every
+    /// candidate, as in the molecule path, so a window applies only to a read
+    /// without them.
     pub(super) async fn query_records(
         &self,
         schema: &Schema,
@@ -36,31 +42,18 @@ impl HashRangeQueryProcessor {
         options: FieldQueryOptions<'_>,
         comparison: &KeyComparisonContext,
     ) -> Result<FieldMap, SchemaError> {
-        self.refuse_received_records().await?;
-        let selected = field_rules::selected_fields(schema, fields);
+        let selected = record_fields(schema, fields);
         let needs_conditions = options.requires_condition_pass();
-        let filter = if needs_conditions {
-            filter.or_else(|| Some(full_span_page()))
-        } else {
-            filter
-        };
-        let mut rows = self
-            .db_ops
-            .atoms()
-            .select_records(
-                schema,
-                comparison,
-                filter.as_ref(),
-                record_scope(schema).as_deref(),
-            )
-            .await?;
-        rows.retain(|(_, record)| has_any(record, &selected));
         if !needs_conditions {
-            if let Some(window) = window {
-                rows = bound(rows, window);
-            }
+            let rows = self
+                .select_rows(schema, comparison, filter.as_ref(), window, &selected)
+                .await?;
             return Ok(project(&selected, &rows));
         }
+        let filter = filter.or_else(|| Some(full_span_page()));
+        let rows = self
+            .select_rows(schema, comparison, filter.as_ref(), None, &selected)
+            .await?;
 
         let predicates = options.predicates.unwrap_or(&[]);
         let value_filters = options.value_filters.unwrap_or(&[]);
@@ -101,35 +94,64 @@ impl HashRangeQueryProcessor {
         filter: Option<&HashRangeFilter>,
         comparison: &KeyComparisonContext,
     ) -> Result<usize, SchemaError> {
-        self.refuse_received_records().await?;
-        let selected = field_rules::selected_fields(schema, fields);
+        let selected = record_fields(schema, fields);
         let filter = filter.cloned().unwrap_or_else(full_span_page);
-        let rows = self
-            .db_ops
-            .atoms()
-            .select_records(
-                schema,
-                comparison,
-                Some(&filter),
-                record_scope(schema).as_deref(),
-            )
-            .await?;
-        Ok(rows
-            .iter()
-            .filter(|(_, record)| has_any(record, &selected))
-            .count())
+        Ok(self
+            .select_rows(schema, comparison, Some(&filter), None, &selected)
+            .await?
+            .len())
     }
 
-    /// Records written by other users arrive as field molecules. A format 7
-    /// home does not merge them yet.
-    async fn refuse_received_records(&self) -> Result<(), SchemaError> {
-        if self.collect_received_from_namespaces().await?.is_empty() {
-            return Ok(());
+    /// The rows of one selector in page order: the live records of the own
+    /// scope with one of the selected fields, bounded by the window. While a
+    /// sender is active, the received scopes join the read; a node with no
+    /// sender reads only its own scope.
+    async fn select_rows(
+        &self,
+        schema: &Schema,
+        comparison: &KeyComparisonContext,
+        filter: Option<&HashRangeFilter>,
+        window: Option<KeyWindow>,
+        selected: &[String],
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let own = record_scope(schema);
+        let received = self.collect_received_from_namespaces().await?;
+        if !received.is_empty() {
+            let mut scopes = vec![own];
+            for namespace in received.into_iter().map(Some) {
+                if !scopes.contains(&namespace) {
+                    scopes.push(namespace);
+                }
+            }
+            return self
+                .select_received(schema, comparison, filter, window, selected, &scopes)
+                .await;
         }
-        Err(SchemaError::InvalidData(
-            "a format 7 home does not read data received from other users yet".into(),
-        ))
+        let mut rows = self
+            .db_ops
+            .atoms()
+            .select_records(schema, comparison, filter, own.as_deref())
+            .await?;
+        rows.retain(|(_, record)| has_any(record, selected));
+        Ok(match window {
+            Some(window) => bound(rows, window),
+            None => rows,
+        })
     }
+}
+
+/// The selected fields and the declared key field. The key field sets the
+/// record set and is in each row even when unprojected, as in the molecule
+/// path (`field_rules::primary_field`).
+fn record_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
+    let mut selected = field_rules::selected_fields(schema, fields);
+    if !selected.is_empty() {
+        let primary = field_rules::primary_field(schema, &selected);
+        if !selected.contains(&primary) {
+            selected.insert(0, primary);
+        }
+    }
+    selected
 }
 
 fn has_any(record: &StoredRecord, selected: &[String]) -> bool {
