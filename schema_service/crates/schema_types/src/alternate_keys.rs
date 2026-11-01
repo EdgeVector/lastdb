@@ -62,20 +62,8 @@ impl AlternateKey {
 }
 
 impl DeclarativeSchemaDefinition {
-    /// True when this schema carries the per-schema owned-values flag or names
-    /// alternate keys.
-    ///
-    /// Only the node startup check of a home without the home-level
-    /// owned-layout marker reads this, plus the restore check of format 4 and
-    /// format 5 backups. Every other check is independent of the flag, so a
-    /// later release can stop writing it.
-    pub fn has_owned_layout(&self) -> bool {
-        self.owned_values || !self.alternate_keys.is_empty()
-    }
-
     /// The definition check: named alternate keys require the owned-schema
-    /// rules. The `independent_fields` flag does not change the result, so the
-    /// Schema Service admits a definition the same way with or without it.
+    /// rules.
     pub fn validate_alternate_keys(&self) -> Result<(), String> {
         if self.alternate_keys.is_empty() {
             return Ok(());

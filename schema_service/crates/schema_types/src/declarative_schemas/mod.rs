@@ -77,22 +77,6 @@ pub struct DeclarativeSchemaDefinition {
     /// Named lookups of these same records; independent of canonical field reuse.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub alternate_keys: std::collections::BTreeMap<String, crate::AlternateKey>,
-    /// Per-schema storage flag: this schema owns its record values.
-    ///
-    /// A node still sets it on every schema that it stores, so an older node
-    /// release can open the home. Only the startup check of a home without the
-    /// home-level owned-layout marker reads it: that check refuses a stored
-    /// schema with neither this flag nor alternate keys (the retired layout
-    /// that read values through another schema). No validation reads it, so
-    /// the Schema Service treats a definition the same with or without it. The
-    /// wire name stays the same so that apps and older node releases read the
-    /// same bytes.
-    #[serde(
-        default,
-        rename = "independent_fields",
-        skip_serializing_if = "crate::alternate_keys::is_false"
-    )]
-    pub owned_values: bool,
     /// Field names - plain data fields without transformations
     pub fields: Option<Vec<String>>,
     /// Transform fields - computed fields with expressions (optional, only for transform schemas)

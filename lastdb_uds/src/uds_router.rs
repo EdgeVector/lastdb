@@ -82,7 +82,11 @@ const API_VERSION_PATH: &str = "/api/version";
 /// 12 adds owner-directed alternate changes, named key lists/counts, and signed declaration revisions.
 /// `14` (2026-10-31) removes the owner-only `POST /api/db/repair-schema-molecule-map`
 /// route. Other requests are unchanged; `MIN_SUPPORTED_API_VERSION` stays `1`.
-pub const API_VERSION: u32 = 14;
+/// `15` (2026-11-01) removes the `independent_fields` key from the schema
+/// list, the schema detail and the declare reply. Installed apps accept a
+/// missing key from API 13 and later. No request changed;
+/// `MIN_SUPPORTED_API_VERSION` stays `1`.
+pub const API_VERSION: u32 = 15;
 
 /// The build string `GET /api/version` reports, installed once by the binary.
 ///

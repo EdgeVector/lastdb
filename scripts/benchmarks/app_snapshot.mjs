@@ -148,10 +148,6 @@ export async function captureKeyedSnapshot(node, cfg, scopes, ownerAppId) {
     "The actual snapshot definition differs from its app binding");
     require((definition.schema_type === "HashRange") === Boolean(definition.key.range_field),
       "The actual snapshot range layout is incomplete");
-    // A benchmark node owns every schema and refuses a shared-value home at
-    // startup. It may send `independent_fields: true` or omit the key.
-    require(cfg.storageModel !== "multi-key-v1" || definition.independent_fields !== false,
-      "A converted or fresh snapshot schema does not own its values");
     return { scope, runtime, definition };
   }));
   require(new Set(definitions.map(({ runtime }) => runtime)).size === scopes.length, "Two snapshot scopes use one runtime schema");

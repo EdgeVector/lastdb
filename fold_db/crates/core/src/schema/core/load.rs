@@ -162,7 +162,7 @@ impl SchemaCore {
 
         // One raw read supplies both continuity and the new/refresh decision.
         let existing = self.db_ops.get_schema(&schema.name).await?;
-        owned::normalize_owned_declaration(&mut schema)?;
+        owned::check_owned_declaration(&schema)?;
         if existing.is_some() && self.get_schema_state_cached(&schema.name)? == SchemaState::Blocked
         {
             crate::db_operations::alternate_changes::require_finished(&self.db_ops, &schema.name)

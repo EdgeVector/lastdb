@@ -39,22 +39,6 @@ impl FoldDB {
         );
         if !offline_maintenance {
             db_ops.atoms().freeze_replay_cutoff().await?;
-            // `SchemaCore::new` admitted every stored schema above. Record that
-            // once as a home-level fact, so a later release can drop the
-            // per-schema flag. A failed write leaves the home as it was, and
-            // the next start tries again.
-            match db_ops.atoms().record_owned_layout().await {
-                Ok(true) => info!(
-                    target: "fold_node::database",
-                    "recorded the owned-layout marker: every stored schema owns its values"
-                ),
-                Ok(false) => {}
-                Err(error) => tracing::warn!(
-                    target: "fold_node::database",
-                    %error,
-                    "could not record the owned-layout marker; the next start tries again"
-                ),
-            }
         }
 
         // Create QueryExecutor for handling all query operations
