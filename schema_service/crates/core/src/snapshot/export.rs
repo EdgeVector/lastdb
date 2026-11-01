@@ -88,6 +88,20 @@ pub enum SnapshotExportReply {
     Failed { message: String, body: Value },
 }
 
+impl SnapshotExportReply {
+    /// The snapshot envelope, or the HTTP error.
+    ///
+    /// Ready stays typed so each router serializes it. Failed is 500.
+    /// The log line is the actix error text. The Lambda router ignores
+    /// that line. The Lambda router still checks `X-API-Key`.
+    pub fn into_http(self) -> Result<Box<SnapshotEnvelope>, (u16, Value, String)> {
+        match self {
+            Self::Ready(envelope) => Ok(envelope),
+            Self::Failed { message, body } => Err((500, body, message)),
+        }
+    }
+}
+
 fn classify_snapshot_export(
     exported: FoldDbResult<SnapshotEnvelope>,
     failure_prefix: &str,
