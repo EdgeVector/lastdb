@@ -52,61 +52,6 @@ pub enum Provenance {
     },
 }
 
-impl Provenance {
-    /// Heap bytes of the strings this provenance owns.
-    #[must_use]
-    pub fn heap_bytes(&self) -> usize {
-        match self {
-            Self::User {
-                pubkey, signature, ..
-            } => pubkey.capacity() + signature.capacity(),
-            Self::Derived {
-                wasm_hash,
-                input_snapshot_hash,
-                sources_merkle_root,
-                ..
-            } => {
-                wasm_hash.capacity()
-                    + input_snapshot_hash.capacity()
-                    + sources_merkle_root.capacity()
-            }
-        }
-    }
-
-    /// Constructor for `User` variant with `signature_version = 1` (the only
-    /// version currently defined).
-    #[must_use]
-    pub fn user(pubkey: String, signature: String) -> Self {
-        Self::User {
-            pubkey,
-            signature,
-            signature_version: 1,
-        }
-    }
-
-    /// Constructor for `Derived` variant with `encoding_version = 2`.
-    ///
-    /// Version 2 fixes the `FieldKeyRef::canonical_bytes` Merkle-leaf
-    /// encoding to length-prefix `field_key_id` / `value_id` / `key`
-    /// instead of joining them with a single-byte `0x00` separator (the
-    /// pre-fix v1 layout was vulnerable to a `0x00`-shift collision across
-    /// the value_id/key boundary — same bug class as PR #408 / #409 /
-    /// #438 / #422). `input_snapshot_hash` is unchanged.
-    #[must_use]
-    pub fn derived(
-        wasm_hash: String,
-        input_snapshot_hash: String,
-        sources_merkle_root: String,
-    ) -> Self {
-        Self::Derived {
-            wasm_hash,
-            input_snapshot_hash,
-            sources_merkle_root,
-            encoding_version: 2,
-        }
-    }
-}
-
 /// Canonical reference to a single record version on a single field key.
 ///
 /// Used as a Merkle leaf for `Provenance::Derived::sources_merkle_root` and

@@ -93,7 +93,7 @@ jobs:
           python3 scripts/operations/field_history.py --daemon "$PWD/target/debug/lastdbd" \
             --cli "$PWD/target/debug/lastdb" --revision "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/field-history" 2>&1 | tee "$RUNNER_TEMP/field-history.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:

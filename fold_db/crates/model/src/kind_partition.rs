@@ -89,23 +89,6 @@ fn strip_org(key: &str) -> (Option<&str>, &str) {
     (None, key)
 }
 
-/// Administrative bounds for all current rows of a family selector.
-#[must_use]
-pub fn colon_plane_bounds(colon_prefix: &str) -> (String, String) {
-    for kind in KIND_PARTITION_KINDS {
-        let suffix = format!("{kind}:");
-        if let Some(scope) = colon_prefix.strip_suffix(&suffix) {
-            if !scope.is_empty() && !scope.ends_with(':') {
-                continue;
-            }
-            let start = format!("{scope}{kind}{KIND_PARTITION_SEP}");
-            let end = exclusive_prefix_end(&start);
-            return (start, end);
-        }
-    }
-    exact_prefix_bounds(colon_prefix)
-}
-
 /// Return the half-open byte range for one physical prefix.
 ///
 /// The bytes name one prefix, field key, generation, or other exact identity.

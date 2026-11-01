@@ -50,7 +50,7 @@ jobs:
           ref: 18bc31a40ea5253563aececc1a30fd030da0949b
           path: historical-driver
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           github-token: ${{ github.token }}
           run-id: 40827041301
@@ -70,7 +70,7 @@ jobs:
           if [ "$DISABLE_THP" = "true" ]; then options+=(--disable-thp); fi
           python3 driver/scripts/operations/field_history_memory.py --programs "$RUNNER_TEMP/programs" \
             --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/memory-attribution" "${options[@]}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:
@@ -150,7 +150,7 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/paired-memory"
           echo "BENCH_OUTPUT=$RUNNER_TEMP/paired-memory" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/paired-programs
@@ -168,7 +168,7 @@ jobs:
             --output "$BENCH_OUTPUT/measurements" --disable-thp --pairs "$PAIRS"
       - name: Validate and summarize the direct comparison
         run: python3 driver/scripts/operations/field_history_paired_report.py --output "$BENCH_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:
@@ -187,7 +187,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/paired-artifact.json"
           python3 driver/scripts/benchmarks/artifact.py --metadata "$RUNNER_TEMP/paired-artifact.json" \
             --output "$RUNNER_TEMP/paired-receipt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: field-history-paired-receipt-${{ github.run_id }}-${{ github.run_attempt }}

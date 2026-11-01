@@ -66,7 +66,7 @@ jobs:
         run: |
           python3 driver/scripts/operations/field_history_layout.py --log "$RUNNER_TEMP/layout/compiler.log" \
             --output "$RUNNER_TEMP/layout/layouts.json" --revision "$SOURCE_REVISION" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:

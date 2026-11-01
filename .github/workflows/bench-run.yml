@@ -92,7 +92,7 @@ jobs:
           persist-credentials: false
 
       - name: Download programs from this run's successful build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/benchmark-build
@@ -347,7 +347,7 @@ jobs:
       - name: Upload measurements and build receipts
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-benchmarks-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.BENCH_OUTPUT }}/
@@ -372,7 +372,7 @@ jobs:
 
       - name: Retain the compact download receipt
         if: ${{ always() && steps.receipt.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-benchmark-receipt-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json

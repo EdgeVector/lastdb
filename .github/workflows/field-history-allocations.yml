@@ -98,7 +98,7 @@ jobs:
           python3 driver/scripts/operations/allocation_profile.py --programs "$RUNNER_TEMP/programs" \
             --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" --output "$RUNNER_TEMP/allocation-traffic" \
             >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: evidence
         if: always()
         with:
