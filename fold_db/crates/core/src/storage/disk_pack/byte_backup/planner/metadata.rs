@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::disk_pack::byte_backup::{codec, ClientPage, ClientPageReference, ClientRoot};
+use cloud_backup_protocol::{bytes_sha256, DecimalU64};
 
 pub(super) fn finish(
     inner: &Inner,

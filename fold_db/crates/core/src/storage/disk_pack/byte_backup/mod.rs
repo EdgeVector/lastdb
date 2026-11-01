@@ -17,6 +17,7 @@ mod terminal;
 
 use super::{PackRuntime, StorageError, StorageResult};
 pub use adoption::{SnapshotAdoptionCandidate, SnapshotAdoptionPlan};
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Begin,

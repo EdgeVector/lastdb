@@ -133,16 +133,18 @@ That function returns a `OnceLock` value from `LASTDB_MAX_ATOM_CONTENT_BYTES`.
 The backup planner is in
 [planner.rs](../../fold_db/crates/core/src/storage/disk_pack/byte_backup/planner.rs).
 
-- `build` (line 23) decides how the native files pack into objects.
-  The same function lists the files on disk (`inner.files()`) and writes `job.json` two times.
-- `input` (line 150) reads a frozen plan from disk.
-  It then mints `request_id` with `Uuid::new_v4` (line 169).
+- `build` (line 19) lists the files on disk (`inner.files()`) and writes `job.json` two times.
+- `input` (line 100) reads a frozen plan from disk.
+  It then mints `request_id` with `Uuid::new_v4` (line 119).
 - The file header says "No network authority."
   The network is out, but the disk and the random source are in.
 
 The pack rule is a decision.
 Its inputs are a file list and the policy constants. Its output is a list of planned objects.
-Today that rule cannot run without a store.
+Since 2026-11-01 the rule is in the `cloud_backup_plan` crate.
+That crate reads only through the readers that the caller gives, and it keeps no store.
+The snapshot capture and the mutation log capture both call it.
+The job state of the snapshot capture is still in the core.
 
 The schema types also fetch their own data.
 `schema::types::field::variant::read` and `schema::types::field::filter_utils::fetch` call `DbOperations` directly.

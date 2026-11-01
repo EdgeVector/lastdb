@@ -1267,6 +1267,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloud_backup_plan"
+version = "0.1.0"
+dependencies = [
+ "cloud_backup_protocol",
+ "lastdb_storage_policy",
+ "serde",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cloud_backup_protocol"
 version = "0.1.0"
 dependencies = [
@@ -1954,6 +1964,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "cloud_backup_plan",
  "cloud_backup_protocol",
  "ed25519-compact",
  "ed25519-dalek",
@@ -2950,6 +2961,7 @@ dependencies = [
  "chrono",
  "clap",
  "cloud_backup_client",
+ "cloud_backup_plan",
  "cloud_backup_protocol",
  "env_flag",
  "fold_db",

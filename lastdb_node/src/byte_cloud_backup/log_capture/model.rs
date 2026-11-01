@@ -32,16 +32,7 @@ pub(super) struct Plan {
     pub ready: bool,
 }
 pub(super) fn expected(input: &TransferInput) -> Result<ObjectReceipt> {
-    input.validate()?;
-    let mut receipt = ObjectReceipt {
-        version: cloud_backup_protocol::v2::Version::V2,
-        receipt_id: input.object.sha256.clone(),
-        scope: input.job.stream.scope.clone(),
-        object: input.object.clone(),
-    };
-    receipt.receipt_id = receipt.identity_sha256()?;
-    receipt.validate()?;
-    Ok(receipt)
+    Ok(cloud_backup_plan::expected_receipt(input)?)
 }
 pub(super) fn object_name(index: u64) -> String {
     format!("log-object-{index:08}.json")

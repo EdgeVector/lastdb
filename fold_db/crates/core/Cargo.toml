@@ -31,6 +31,8 @@ hashbrown = { version = "0.17", default-features = false }
 # Storage
 laststore = { path = "../../../vendor/laststore" }
 cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
+# The one upload planner. The snapshot capture keeps its objects in its store.
+cloud_backup_plan = { path = "../../../cloud_backup_plan" }
 lastdb_storage_policy = { path = "../../../lastdb_storage_policy" }
 
 # Core utilities
