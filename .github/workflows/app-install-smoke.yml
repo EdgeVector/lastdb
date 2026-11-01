@@ -1,14 +1,16 @@
 name: app-install-smoke
 
-# End-to-end install smoke: build LastDB, install the newest proved stable
+# End-to-end install smoke: build LastDB, install the newest proved
 # row for each app, then run that app on this build. Tests all four priority
 # apps (Brain, LastSecrets, lastseek, Search) across both contract surfaces
 # (HTTP API + outbox).
 #
-# A main build has no exact compat row. The public stable index still names
-# the last proved build. Install uses that row. Health checks still fail the
-# job. The daemon keeps a 64 MiB worker stack so a debug build can finish
-# a brain write.
+# The stable shelf is the last brew release. Its brain row is from
+# 2026-10-01 and still sends the field name body. Schema service rejects
+# that name. The next shelf has the row proved with the current nightly.
+# That brain sends canonical field names. Install uses next when the app
+# has a next row, and stable when it does not. The daemon keeps a 64 MiB
+# worker stack so a debug build can finish a brain write.
 #
 # No unit tests (deleted 2026-10-09). This is an e2e smoke with real installs.
 
@@ -35,7 +37,7 @@ env:
 jobs:
   app-install-smoke:
     name: install-${{ matrix.app }}
-    runs-on: macos-14  # Apple Silicon like production
+    runs-on: macos-15  # Apple Silicon. macos-14 retires 2026-11-02.
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -136,37 +138,46 @@ jobs:
         run: |
           cd "$TEST_HOME"
           
-          # List available apps in registry
-          lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
-          
-          # Check if app exists in registry
-          if ! lastdb app info ${{ matrix.app }} > "$PROOF_DIR/${{ matrix.app }}-registry-info.json" 2>&1; then
-            echo "⚠️  ${{ matrix.app }} is not yet published in registry"
-            echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
-            echo "INSTALLED=false" >> "$GITHUB_ENV"
-            cat "$PROOF_DIR/${{ matrix.app }}-registry-info.json" || true
-            exit 0
-          fi
-          cat "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
-
-          # The stable row key is the proved build string, not this commit.
+          # Prefer the next shelf. Stable is the last brew release and
+          # still names the 2026-10-01 brain, which sends field name body.
+          curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/next.json" \
+            -o "$PROOF_DIR/next-index.json"
           curl -fsSL "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json" \
             -o "$PROOF_DIR/stable-index.json"
-          PROVED_BUILD="$(jq -r --arg app "${{ matrix.app }}" '
+          APP="${{ matrix.app }}"
+          CHANNEL=stable
+          if jq -e --arg app "$APP" '.apps[] | select(.app_id == $app) | .compat[0]' "$PROOF_DIR/next-index.json" >/dev/null; then
+            CHANNEL=next
+          fi
+          echo "REGISTRY_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+          echo "Registry channel: $CHANNEL"
+          lastdb app list --channel "$CHANNEL" | tee "$PROOF_DIR/registry-apps.txt"
+
+          if ! lastdb app info "$APP" --channel "$CHANNEL" > "$PROOF_DIR/${APP}-registry-info.json" 2>"$PROOF_DIR/${APP}-registry-info.err"; then
+            echo "app $APP is not in the $CHANNEL registry"
+            echo "SKIP_REGISTRY=true" >> "$GITHUB_ENV"
+            echo "INSTALLED=false" >> "$GITHUB_ENV"
+            cat "$PROOF_DIR/${APP}-registry-info.err" || true
+            exit 0
+          fi
+          cat "$PROOF_DIR/${APP}-registry-info.json"
+
+          # The row key is the proved build string, not this commit.
+          PROVED_BUILD="$(jq -r --arg app "$APP" '
             [.apps[] | select(.app_id == $app) | .compat[]]
             | max_by(.proved_at)
             | .lastdb_version // empty
-          ' "$PROOF_DIR/stable-index.json")"
+          ' "$PROOF_DIR/${CHANNEL}-index.json")"
           if [ -z "$PROVED_BUILD" ]; then
-            echo "No stable compat row for ${{ matrix.app }}"
+            echo "No $CHANNEL compat row for $APP"
             exit 1
           fi
           echo "Newest proved lastdb build: $PROVED_BUILD"
           echo "PROVED_BUILD=$PROVED_BUILD" >> "$GITHUB_ENV"
           printf '%s\n' "$PROVED_BUILD" > "$PROOF_DIR/proved-lastdb-version.txt"
 
-          lastdb app resolve ${{ matrix.app }} --json --lastdb-version "$PROVED_BUILD" \
-            | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
+          lastdb app resolve "$APP" --json --channel "$CHANNEL" --lastdb-version "$PROVED_BUILD" \
+            | tee "$PROOF_DIR/${APP}-resolve.json"
 
       - name: Install ${{ matrix.app }} from registry
         if: always() && env.SKIP_REGISTRY != 'true'
@@ -180,7 +191,7 @@ jobs:
           fi
           
           # Install the newest proved row. The daemon under test is still this build.
-          if lastdb app install ${{ matrix.app }} --channel stable --lastdb-version "$PROVED_BUILD" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
+          if lastdb app install ${{ matrix.app }} --channel "$REGISTRY_CHANNEL" --lastdb-version "$PROVED_BUILD" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"; then
             echo "INSTALLED=true" >> "$GITHUB_ENV"
             
             # Verify install receipt
@@ -655,7 +666,7 @@ jobs:
           ==============================
           Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           App: ${{ matrix.app }}
-          Runner: macos-14 (Apple Silicon)
+          Runner: macos-15 (Apple Silicon)
           CI Run: ${{ github.run_number }}
           
           LastDB Build:
@@ -725,7 +736,7 @@ jobs:
           if [ "${SKIP_REGISTRY:-false}" = "true" ]; then
             echo "⚠️  **SKIPPED** - ${{ matrix.app }} is not yet published in registry" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "This app will be tested automatically once it is published to the stable registry." >> $GITHUB_STEP_SUMMARY
+            echo "This app will be tested automatically once it is published to the next or stable registry." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           elif [ "$HEALTH_CHECKS_STATUS" = "skipped-intentional" ]; then
             echo "⚠️  **INTENTIONALLY SKIPPED** - Repository not accessible (requires APP_REPOS_TOKEN)" >> $GITHUB_STEP_SUMMARY
