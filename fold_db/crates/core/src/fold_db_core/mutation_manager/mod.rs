@@ -3,12 +3,11 @@
 //! Layout:
 //! - [`helpers`] — free helpers (tombstone, key normalize, native-index allowlist, derived guard)
 //! - [`write`] — public write entry points, purge peel, batch pipeline, finalize
-//! - [`cas`] — write preconditions and idempotency; aggregate guards retain their own locks
+//! - [`cas`] — write preconditions and idempotency
 //! - [`molecules`] — atom prep, molecule apply/persist
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
 
-mod aggregate;
 mod author_clock;
 mod cas;
 mod cas_current_state;
@@ -29,7 +28,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use crate::storage::disk_pack::logical_capture::ImportReceipt;
-pub use aggregate::AggregateRepairReceipt;
 pub use receipt::{
     ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
 };
@@ -143,10 +141,6 @@ pub struct MutationManager {
     /// written for the second (brain
     /// `incident-primary-lastdbd-restart-loop-10-11gb-rss-after-0231-183-cutover`).
     defer_gauge: Arc<DeferredPersistGauge>,
-    /// Aggregate guard and target ownership spans several native transactions.
-    /// Ordinary write conditions use the native write boundary. Idle aggregate
-    /// lock entries leave this map on the next lock acquisition.
-    aggregate_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     /// Resident high-water author clock for this device. Boot point-loads the
     /// durable state once; requests only serialize the small in-memory
     /// advance/sign step. Ordered persistence runs behind the T0 ACK.
@@ -226,7 +220,6 @@ impl MutationManager {
             pending_tasks,
             search_outbox_inbox,
             defer_gauge,
-            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
             purge_stats,
@@ -249,7 +242,6 @@ impl MutationManager {
             pending_tasks: parts.pending_tasks,
             search_outbox_inbox: parts.search_outbox_inbox,
             defer_gauge: parts.defer_gauge,
-            aggregate_locks: std::sync::Mutex::new(HashMap::new()),
             author_clock_state: std::sync::Mutex::new(
                 crate::schema::types::MutationAuthorClockState::default(),
             ),

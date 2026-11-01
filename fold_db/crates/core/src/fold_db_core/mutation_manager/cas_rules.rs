@@ -1,9 +1,7 @@
 //! Storage-free decisions for conditional writes and selected record state.
 
-use std::collections::BTreeMap;
-
-use crate::atom::{Atom, AtomEntry};
-use crate::schema::types::{cas::CasExpectation, AggregateWinner, Mutation, Schema};
+use crate::atom::Atom;
+use crate::schema::types::{cas::CasExpectation, Mutation, Schema};
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
@@ -77,45 +75,25 @@ pub(super) fn remaining_fields(schema: &Schema, written: &[String]) -> Vec<Strin
 }
 
 /// Assemble only the selected fields. All tombstones mean absence; a mix of
-/// live and tombstone values is corrupt. A winner comes only from live values.
+/// live and tombstone values is corrupt.
 pub(super) fn assemble_current_row(
-    selected: Vec<(&String, AtomEntry)>,
-    atoms: Vec<Atom>,
-) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
-    if atoms.len() != selected.len() {
+    selected: usize,
+    atoms: &[Atom],
+) -> Result<CurrentRowFields, SchemaError> {
+    if atoms.len() != selected {
         return Err(SchemaError::StorageRead {
             detail: "point-read atom count differs from selected field count".into(),
         });
     }
-    let mut values = BTreeMap::new();
-    let mut latest_winner: Option<AggregateWinner> = None;
-    let mut tombstone = None;
-    for ((field, entry), atom) in selected.into_iter().zip(atoms) {
-        if crate::atom::is_tombstone_value(atom.content()) {
-            tombstone.get_or_insert_with(|| CurrentRowFields::Corrupt {
-                field: field.clone(),
-                atom_uuid: entry.atom_uuid,
-            });
-            continue;
-        }
-        let winner = AggregateWinner {
-            logical_counter: entry.logical_counter,
-            written_at: entry.written_at,
-            writer_id: entry.lww_device().to_string(),
-            mutation_uuid: entry.mutation_uuid.clone(),
-        };
-        match &mut latest_winner {
-            Some(current) if winner.cmp_source(current).is_gt() => *current = winner,
-            None => latest_winner = Some(winner),
-            _ => {}
-        }
-        values.insert(field.clone(), atom.content().clone());
-    }
-    if values.is_empty() {
-        return Ok((CurrentRowFields::Absent, None));
-    }
-    if let Some(tombstone) = tombstone {
-        return Ok((tombstone, None));
-    }
-    Ok((CurrentRowFields::Present(values), latest_winner))
+    let tombstones = atoms
+        .iter()
+        .filter(|atom| crate::atom::is_tombstone_value(atom.content()))
+        .count();
+    Ok(if tombstones == atoms.len() {
+        CurrentRowFields::Absent
+    } else if tombstones > 0 {
+        CurrentRowFields::Corrupt
+    } else {
+        CurrentRowFields::Present
+    })
 }

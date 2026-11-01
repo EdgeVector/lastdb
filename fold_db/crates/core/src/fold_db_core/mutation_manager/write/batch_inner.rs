@@ -7,7 +7,6 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
@@ -19,7 +18,7 @@ impl MutationManager {
             .map(|mutation| mutation.uuid.clone())
             .collect();
         let mut receipt = self
-            .write_validated_batch(mutations, storage_prefix, origin, author_clock_barrier)
+            .write_validated_batch(mutations, storage_prefix, author_clock_barrier)
             .await?;
         // Identities describe the accepted caller inputs, including idempotent
         // repeats. Internal grouping, filtering, and erasure order cannot change
@@ -32,7 +31,6 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         // Delete peers are resolved by the durable worker under its complete
@@ -48,20 +46,14 @@ impl MutationManager {
         // merges records in its own request (peer_import/records).
         if self.db_ops.atoms().record_home() {
             return self
-                .write_create_update_batch_async(
-                    mutations,
-                    storage_prefix,
-                    matches!(origin, WriteOrigin::Replay),
-                    author_clock_barrier,
-                )
+                .write_create_update_batch_async(mutations, storage_prefix, author_clock_barrier)
                 .await;
         }
 
         // Separate tip removal and physical Purge from Create/Update atom
         // creation. Both user Delete forms converge tips without reclaiming
         // shared bodies; must_exist adds only a caller precondition. Purge
-        // retains its physical atom erasure. Replay uses Skip for every peel
-        // because it repeats an earlier accepted request (see WriteOrigin).
+        // retains its physical atom erasure.
         let (purges, deletes, mutations) =
             super::super::super::purge::split_off_hard_erasures(mutations);
         let (must_exist_deletes, deletes): (Vec<_>, Vec<_>) = deletes
@@ -70,7 +62,7 @@ impl MutationManager {
         // Mixed batch: any Purge/Delete riding with create/update becomes a
         // later envelope on the same schema lane. All erasures wait for disk
         // completion before success. Purge and must-exist Delete preserve
-        // loud missing-target errors for requests; replay uses Skip.
+        // loud missing-target errors.
         let has_erasures =
             !purges.is_empty() || !deletes.is_empty() || !must_exist_deletes.is_empty();
         let peels = HardErasurePeels {
@@ -80,7 +72,7 @@ impl MutationManager {
         };
         if mutations.is_empty() {
             let erased = self
-                .enqueue_peeled_erasures(peels, storage_prefix, origin, author_clock_barrier)
+                .enqueue_peeled_erasures(peels, storage_prefix, author_clock_barrier)
                 .await?;
             // Pure erasure never reaches the create/update pipeline, so this
             // is its only resident-commit and operation accounting site.
@@ -103,18 +95,12 @@ impl MutationManager {
                     mutations,
                     peels,
                     storage_prefix,
-                    origin,
                     author_clock_barrier,
                 )
                 .await;
         }
-        self.write_create_update_batch_async(
-            mutations,
-            storage_prefix,
-            matches!(origin, WriteOrigin::Replay),
-            author_clock_barrier,
-        )
-        .await
+        self.write_create_update_batch_async(mutations, storage_prefix, author_clock_barrier)
+            .await
     }
 
     /// Reject mutations that target aggregate-owned schemas or ask for
@@ -167,7 +153,6 @@ impl MutationManager {
         mutations: Vec<Mutation>,
         peels: HardErasurePeels,
         storage_prefix: Option<&str>,
-        origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         tracing::warn!(
@@ -180,12 +165,11 @@ impl MutationManager {
             .write_create_update_batch_async(
                 mutations,
                 storage_prefix,
-                matches!(origin, WriteOrigin::Replay),
                 author_clock_barrier.clone(),
             )
             .await?;
         let erased = self
-            .enqueue_peeled_erasures(peels, storage_prefix, origin, author_clock_barrier)
+            .enqueue_peeled_erasures(peels, storage_prefix, author_clock_barrier)
             .await?;
         receipt.operations.merge(ResidentCommitOperations {
             deleted: erased,
@@ -215,7 +199,6 @@ impl MutationManager {
         &self,
         peels: HardErasurePeels,
         storage_prefix: Option<&str>,
-        origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<u64, SchemaError> {
         let HardErasurePeels {
@@ -241,7 +224,7 @@ impl MutationManager {
                 }
                 super::super::super::purge::HardEraseVerb::Purge
                 | super::super::super::purge::HardEraseVerb::DeleteMustExist => {
-                    origin.missing_policy_for_loud_erasure()
+                    super::super::super::purge::PurgeMissingPolicy::Refuse
                 }
             };
             let ids = self

@@ -90,7 +90,7 @@ impl MutationManager {
                 matches!(
                     mutation.mutation_type,
                     MutationType::Create | MutationType::Update
-                ) && mutation.aggregate_set.is_none()
+                )
             });
         let author_clock_barrier = author_clock_persist.and_then(|(reservation, state)| {
             if inline_clock {
@@ -119,10 +119,9 @@ impl MutationManager {
             self.capture_router(),
             super::super::logical_capture::with_admission(
                 logical_admission,
-                self.write_with_aggregate_invalidations(
+                self.write_mutations_batch_inner_with_clock(
                     mutations,
                     storage_prefix,
-                    WriteOrigin::Request,
                     author_clock_barrier,
                 ),
             ),

@@ -4,11 +4,10 @@ use super::*;
 use crate::atom::file_pointer::blob_refs_of_atom;
 use crate::atom::Atom;
 use crate::atom::AtomClock;
-use crate::schema::types::aggregate_state::aggregate_guard_key;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::Schema;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 impl MutationManager {
     pub(super) async fn require_peer_replay_floor(
@@ -32,7 +31,6 @@ impl MutationManager {
         events: &[CaptureEvent],
     ) -> Result<(), SchemaError> {
         let mut schemas = BTreeMap::new();
-        let mut guards = BTreeSet::new();
         let mut declared_fields = 0usize;
         for event in events {
             let mut slots = HashSet::new();
@@ -53,15 +51,9 @@ impl MutationManager {
                 if !slots.insert((&outcome.molecule_uuid, &outcome.key)) {
                     return Err(unsupported("repeated field slots in one event"));
                 }
-                guards.insert(aggregate_guard_key(
-                    None,
-                    &outcome.schema_name,
-                    outcome.key.hash.as_deref().expect("validated hash"),
-                ));
             }
         }
-        self.require_unshared_schemas(&schemas, &guards.into_iter().collect::<Vec<_>>())
-            .await
+        self.require_unshared_schemas(&schemas).await
     }
 
     fn validate_peer_outcome(

@@ -18,7 +18,6 @@ mod warm_records;
 pub(crate) use effects::{prepared_core_memory, stage_core_memory, stage_paths};
 pub(crate) use leases::lease;
 pub(crate) use request::{background_scope, request_scope};
-pub(crate) use resources::with_resource;
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
 /// One serialized operation in the existing private preparation and flush log.
@@ -70,7 +69,7 @@ impl PendingBatch {
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
-            resources: Mutex::new(resources::capture(runtime)),
+            resources: Mutex::new(Vec::new()),
             leases: Mutex::new(BTreeMap::new()),
             raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),

@@ -13,14 +13,6 @@
 //! caller normally uses [`PurgeMissingPolicy::Skip`]: missing targets are
 //! filtered out and a fully-missing batch is a successful no-op. A user
 //! Delete with `must_exist` refuses a missing caller key before tip removal.
-//!
-//! That contract is about the **request**, and the policy is chosen by the
-//! caller's origin, not by the verb alone. A purge arriving from mutation-log
-//! **replay** is `Skip`: it is a restatement of an act that already happened,
-//! there is no requester to inform, and on the authoring node the local apply
-//! is precisely what made the targets absent. See `WriteOrigin` in
-//! `mutation_manager::write` for what a `Refuse` there costs — a pinned sync
-//! cursor and a stopped backup queue, not a warning.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

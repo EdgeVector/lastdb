@@ -7,7 +7,7 @@
 //! the field as an argument, so the schema model never calls the store.
 
 use futures::{future::BoxFuture, FutureExt};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::db_operations::DbOperations;
@@ -29,7 +29,6 @@ mod resolve;
 mod resolve_scan;
 
 pub(crate) use candidate_page::{hash_range_candidate_page, materialize_hash_range_candidates};
-pub(crate) use collect::collect_authoritative_hash_partition;
 pub use collect::collect_matches;
 pub use fetch::fetch_atoms_with_key_metadata_async_with_prefix;
 pub(crate) use fetch::{fetch_field_atom_batches, FieldAtomBatch};
@@ -75,18 +74,6 @@ async fn captured_field_read<T>(
     let scope = db_ops.read_scope().await?;
     let future = crate::storage::disk_pack::logical_paths::field::query_scope(future);
     scope.run_result(future).await
-}
-
-/// One live field slot from an authoritative, hydrated hash-partition walk.
-///
-/// Unlike the public query resolver, this internal form never drops a key
-/// whose tip or atom body cannot resolve. Aggregate repair uses that stronger
-/// contract before it certifies a summary generation.
-#[derive(Debug, Clone)]
-pub(crate) struct AuthoritativeFieldMatch {
-    pub key: KeyValue,
-    pub entry: crate::atom::AtomEntry,
-    pub value: serde_json::Value,
 }
 
 /// Content tombstones can lack the key metadata flag. Keep all paths identical.
