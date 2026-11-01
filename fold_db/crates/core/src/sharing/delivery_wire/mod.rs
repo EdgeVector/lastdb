@@ -33,9 +33,9 @@ pub const LASTDB_SLICE_MEDIA_TYPE: &str = "application/vnd.lastdb.slice+json;v=1
 pub const JWE_ZIP_GZIP: &str = "gzip";
 
 /// JSON object key for a portable file pointer stored as an atom value.
-/// Canonical home is `crate::atom::file_pointer`; re-exported here for the
+/// Canonical home is `lastdb_model::file_pointer`; re-exported here for the
 /// wire-format callers that have always imported it from delivery_wire.
-pub use crate::atom::file_pointer::{
+pub use lastdb_model::file_pointer::{
     blob_ref_from_atom_value, FILE_BLOB_CIPHER_SUITE, LASTDB_FILE_KEY,
 };
 /// Optional key for a reference-only generated thumbnail/poster inside a file pointer.

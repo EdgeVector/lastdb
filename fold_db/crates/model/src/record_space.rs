@@ -10,8 +10,8 @@
 //! An alternate entry keeps its `ak:` key and its value in format 7. Its
 //! identity already names one schema and one key name.
 
-use crate::atom::molecule_key_codec::escape_segment;
-use crate::atom::{MoleculeKeyCodec, MoleculeKeyCodecError};
+use crate::molecule_key_codec::escape_segment;
+use crate::molecule_key_codec::{MoleculeKeyCodec, MoleculeKeyCodecError};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 

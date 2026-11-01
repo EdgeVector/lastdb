@@ -67,16 +67,12 @@ impl E2eKeys {
     /// HMAC-SHA256, the first 16 bytes, then base64url with no padding, so
     /// `escape_segment` remains safe. `blind_key` is the molecule bundle's key.
     ///
-    /// The pure function is model code: `lastdb_model::atom::molecule_key_codec::blind_hash_key`.
+    /// The pure function is model code: `lastdb_model::molecule_key_codec::blind_hash_key`.
     pub fn blind_hash_key(
         blind_key: &[u8; 32],
         molecule_uuid: &str,
         plaintext_hash: &str,
     ) -> String {
-        lastdb_model::atom::molecule_key_codec::blind_hash_key(
-            blind_key,
-            molecule_uuid,
-            plaintext_hash,
-        )
+        lastdb_model::molecule_key_codec::blind_hash_key(blind_key, molecule_uuid, plaintext_hash)
     }
 }

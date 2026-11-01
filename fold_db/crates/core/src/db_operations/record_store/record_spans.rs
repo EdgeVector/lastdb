@@ -11,10 +11,10 @@
 
 use super::record_reads::decode;
 use super::RecordStore;
-use crate::atom::MoleculeKeyCodec;
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
+use lastdb_model::molecule_key_codec::MoleculeKeyCodec;
 use lastdb_model::record_space::{record_hash_prefix, record_space_uuid};
 use lastdb_model::record_value::StoredRecord;
 

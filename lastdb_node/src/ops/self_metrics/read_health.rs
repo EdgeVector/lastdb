@@ -33,18 +33,19 @@ impl Default for LimitsHealth {
                 Unit::Bytes,
             ),
             max_atom_content_bytes: g_instant(
-                fold_db::atom::max_atom_content_bytes() as u64,
+                fold_db::content_limit::max_atom_content_bytes() as u64,
                 Unit::Bytes,
             ),
             max_atom_content_bytes_default: g_instant(
-                fold_db::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES as u64,
+                fold_db::content_limit::DEFAULT_MAX_ATOM_CONTENT_BYTES as u64,
                 Unit::Bytes,
             ),
             max_atom_content_bytes_absolute_max: g_instant(
-                fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES as u64,
+                fold_db::content_limit::ABSOLUTE_MAX_ATOM_CONTENT_BYTES as u64,
                 Unit::Bytes,
             ),
-            max_atom_content_bytes_env: fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV.to_string(),
+            max_atom_content_bytes_env: fold_db::content_limit::MAX_ATOM_CONTENT_BYTES_ENV
+                .to_string(),
             max_record_bytes: g_instant(
                 fold_db::record_value::MAX_RECORD_BYTES as u64,
                 Unit::Bytes,

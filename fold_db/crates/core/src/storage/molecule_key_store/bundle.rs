@@ -1,6 +1,6 @@
 //! Molecule key material keeps the existing three-key wire form.
 
-use crate::atom::MoleculeKeyCodec;
+use lastdb_model::molecule_key_codec::MoleculeKeyCodec;
 use rand::{rngs::OsRng, RngCore};
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use serde::{Deserialize, Serialize};

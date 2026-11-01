@@ -93,7 +93,7 @@ pub enum SchemaError {
         actual: Option<String>,
     },
     /// Atom field content exceeded the hard size limit
-    /// (core's `fold_db::atom::max_atom_content_bytes`, default 256 KiB).
+    /// (core's `fold_db::content_limit::max_atom_content_bytes`, default 256 KiB).
     ///
     /// Carried as a distinct variant (not stringly-typed `InvalidData`) so the
     /// HTTP layer can render a discriminated `413 { error: "atom_content_too_large",
@@ -101,7 +101,7 @@ pub enum SchemaError {
     /// Measure is pre-encryption serialized JSON of the field payload.
     /// Raise (within 1 MiB absolute max) via env `LASTDB_MAX_ATOM_CONTENT_BYTES`.
     /// The right shape depends on the data: see
-    /// [`crate::atom::ATOM_CONTENT_TOO_LARGE_HINT`] and
+    /// [`crate::content_limit::ATOM_CONTENT_TOO_LARGE_HINT`] and
     /// `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
     AtomContentTooLarge {
         size: usize,
@@ -210,13 +210,13 @@ impl fmt::Display for SchemaError {
                 "atom content too large: {size} bytes exceeds hard limit of {limit} bytes \
                  (default {} KiB; env LASTDB_MAX_ATOM_CONTENT_BYTES, absolute max 1 MiB). \
                  {} See fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md.",
-                crate::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES / 1024,
-                crate::atom::ATOM_CONTENT_TOO_LARGE_HINT
+                crate::content_limit::DEFAULT_MAX_ATOM_CONTENT_BYTES / 1024,
+                crate::content_limit::ATOM_CONTENT_TOO_LARGE_HINT
             ),
             Self::RecordTooLarge { size, limit } => write!(
                 f,
                 "record too large: {size} bytes exceeds the record cap of {limit} bytes. {}",
-                crate::atom::RECORD_TOO_LARGE_HINT
+                crate::content_limit::RECORD_TOO_LARGE_HINT
             ),
             Self::StorageFull { detail } => write!(
                 f,

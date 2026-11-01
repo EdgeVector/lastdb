@@ -24,7 +24,7 @@ impl super::RecordStore {
             .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await
             .map_err(|e| crate::schema::SchemaError::InvalidData(e.to_string()))?;
-        Ok(marker.as_deref() == Some(crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT))
+        Ok(marker.as_deref() == Some(lastdb_model::molecule_key_codec::HISTORY_KEY_FORMAT))
     }
 }
 

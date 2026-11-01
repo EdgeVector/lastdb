@@ -32,7 +32,7 @@ use serde_json::Value;
 use crate::schema::types::SchemaError;
 
 /// The fixed numbers and text are model data; this module resolves and logs.
-pub use lastdb_model::atom::content_limit::{
+pub use lastdb_model::content_limit::{
     atom_content_byte_len, ABSOLUTE_MAX_ATOM_CONTENT_BYTES, ATOM_CONTENT_TOO_LARGE_HINT,
     DEFAULT_MAX_ATOM_CONTENT_BYTES, HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES_ENV,
     MIN_MAX_ATOM_CONTENT_BYTES,
@@ -54,7 +54,7 @@ fn resolve_effective_limit() -> usize {
     let limit = parse_max_atom_content_bytes(std::env::var(MAX_ATOM_CONTENT_BYTES_ENV).ok());
     if limit != DEFAULT_MAX_ATOM_CONTENT_BYTES {
         tracing::info!(
-            target: "fold_db::atom",
+            target: "fold_db::content_limit",
             limit,
             default = DEFAULT_MAX_ATOM_CONTENT_BYTES,
             absolute_max = ABSOLUTE_MAX_ATOM_CONTENT_BYTES,

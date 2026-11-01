@@ -1,7 +1,7 @@
 //! The fixed numbers and text of the atom content size limit.
 //!
 //! These are data. Core resolves the effective limit for a process from the
-//! environment and logs the write outcome (`fold_db::atom::size_limit`).
+//! environment and logs the write outcome (`fold_db::content_limit`).
 //!
 //! **Product default (Tom, 2026-10-12):** one global ceiling of 256 KiB for new
 //! writes. See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.

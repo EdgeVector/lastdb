@@ -28,7 +28,7 @@ impl RecordStore {
             .await?;
         if !stored
             .as_deref()
-            .is_some_and(crate::atom::molecule_key_codec::current_key_format)
+            .is_some_and(lastdb_model::molecule_key_codec::current_key_format)
         {
             return Err(StorageError::InvalidOperation(
                 "the logical key format does not match this node home".into(),

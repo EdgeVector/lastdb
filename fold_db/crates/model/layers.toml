@@ -18,10 +18,17 @@ modules = [
 
 [[layer]]
 name = "model"
-doc = "The key codecs and value limits (atom), schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
+doc = "The key codecs and value limits, schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
 modules = [
-  "atom",
+  "content_limit",
+  "file_pointer",
+  "molecule_key_codec",
+  "molecule_uuid",
+  "provenance",
+  "record_space",
+  "record_value",
   "schema",
+  "tombstone",
 ]
 
 [[layer]]

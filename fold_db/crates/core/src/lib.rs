@@ -5,7 +5,7 @@
 //!
 //! ## Core Components
 //!
-//! * `atom` - Atomic data storage units that form the foundation of the database
+//! * `content_limit` - The maximum size of one field value
 //! * `db_operations` - Database operation handlers
 //! * `error` - Error types and handling
 //! * `fold_db_core` - Core database functionality
@@ -23,8 +23,8 @@
 //! and the operations that can be performed on it.
 
 pub mod access;
-/// Atom and molecule model types from `lastdb_model`, plus core clock stamps.
-pub mod atom;
+/// The maximum size of one field value. The check reads the environment.
+pub mod content_limit;
 // Pure model modules. They moved to `lastdb_model`; the old paths stay.
 /// The stored record value of a format 7 home and its cap.
 pub use lastdb_model::record_value;

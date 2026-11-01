@@ -1,7 +1,7 @@
 use super::aggregate::AggregateSet;
 use super::cas::CasExpectation;
 use super::{key_value::KeyValue, operations::MutationType};
-use crate::atom::provenance::Provenance;
+use crate::provenance::Provenance;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

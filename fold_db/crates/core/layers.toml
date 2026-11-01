@@ -31,10 +31,10 @@ modules = [
 
 [[layer]]
 name = "model"
-doc = "The core side of the data model. atom and schema::types re-export lastdb_model and add the env-resolved content limit, mutation ids, and key order context that the model must not hold. Also the shared records, the access context, and the error kinds. No store and no I/O."
+doc = "The core side of the data model. content_limit and schema::types re-export lastdb_model and add the env-resolved content limit, mutation ids, and key order context that the model must not hold. Also the shared records, the access context, and the error kinds. No store and no I/O."
 modules = [
   "access",
-  "atom",
+  "content_limit",
   "durable_flush",
   "error",
   "records",

@@ -3,8 +3,8 @@
 use super::{
     CachedMoleculeContract, MoleculeKeyBundle, MoleculeKeyStore, StorageError, StorageResult,
 };
-use crate::atom::MoleculeKeyCodec;
 use crate::storage::disk_pack::transaction::publication;
+use lastdb_model::molecule_key_codec::MoleculeKeyCodec;
 use schema_types::molecule_range_profile::MoleculeRangeProfile;
 use std::sync::Arc;
 

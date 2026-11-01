@@ -161,7 +161,7 @@ pub struct Query {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total_count: Option<usize>,
     /// When `false` (default), tombstone atoms — see
-    /// [`crate::atom::tombstone`] — are filtered out at the molecule
+    /// [`crate::tombstone`] — are filtered out at the molecule
     /// resolution boundary. Set to `true` only for the historical
     /// population; live `Delete` does not mint these.
     #[serde(default)]

@@ -14,7 +14,7 @@ pub(crate) mod read;
 mod write;
 
 pub const MAX_ALTERNATE_ENTRIES: usize = 4096;
-pub(crate) const PREFIX: &str = crate::atom::molecule_uuid::ALTERNATE_ENTRY_PREFIX;
+pub(crate) const PREFIX: &str = lastdb_model::molecule_uuid::ALTERNATE_ENTRY_PREFIX;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,7 +27,7 @@ pub(crate) type RecordFields = BTreeMap<String, Value>;
 
 /// The stable identity of one named alternate in its exact declaration revision.
 /// The molecule key store names it too, so it lives in the molecule model.
-pub use crate::atom::molecule_uuid::alternate_molecule_uuid as molecule;
+pub use lastdb_model::molecule_uuid::alternate_molecule_uuid as molecule;
 
 pub(crate) fn derived(
     schema: &Schema,

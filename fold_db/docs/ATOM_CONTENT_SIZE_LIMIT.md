@@ -149,6 +149,6 @@ that runs a lower env override.
 
 ## Code pointers
 
-- `fold_db/crates/core/src/atom/size_limit.rs`
-- `crate::atom::max_atom_content_bytes()`
-- `crate::atom::ATOM_CONTENT_TOO_LARGE_HINT` (the 413 `hint` text)
+- `fold_db/crates/core/src/content_limit.rs`
+- `crate::content_limit::max_atom_content_bytes()`
+- `crate::content_limit::ATOM_CONTENT_TOO_LARGE_HINT` (the 413 `hint` text)

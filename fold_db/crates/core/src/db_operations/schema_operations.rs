@@ -22,7 +22,7 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
     fields.extend(schema.alternate_keys.keys().map(|name| MoleculeRefEdge {
-        molecule_uuid: crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
+        molecule_uuid: lastdb_model::molecule_uuid::alternate_molecule_uuid(schema, name),
         source: format!(
             "alternate:{}",
             serde_json::to_string(&(schema_name, name)).expect("alternate source serializes")

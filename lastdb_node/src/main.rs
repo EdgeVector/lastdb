@@ -52,10 +52,10 @@ fn log_startup_limits(worker_pool: &UdsWorkerPool) {
     // name: the private diagnostics log allowlists it by that name.
     // Docs: fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md
     tracing::info!(
-        max_atom_content_bytes = fold_db::atom::max_atom_content_bytes(),
-        default = fold_db::atom::DEFAULT_MAX_ATOM_CONTENT_BYTES,
-        absolute_max = fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
-        env = fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
+        max_atom_content_bytes = fold_db::content_limit::max_atom_content_bytes(),
+        default = fold_db::content_limit::DEFAULT_MAX_ATOM_CONTENT_BYTES,
+        absolute_max = fold_db::content_limit::ABSOLUTE_MAX_ATOM_CONTENT_BYTES,
+        env = fold_db::content_limit::MAX_ATOM_CONTENT_BYTES_ENV,
         "peer field value size limit (LASTDB_MAX_ATOM_CONTENT_BYTES; growing lists → one record per entry; large opaque bytes → file blob/CAS)"
     );
 }

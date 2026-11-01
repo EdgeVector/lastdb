@@ -7,7 +7,6 @@
 
 use super::inbox_fields::{inbox_value, searchable_fields};
 use super::sink::{IndexChange, IndexChangeBatch, IndexChangeKind};
-use crate::atom::is_tombstone_value;
 use crate::db_operations::record_store::WalkWindow;
 use crate::db_operations::search_index::resolve_search_inbox_dir_for_home;
 use crate::db_operations::DbOperations;
@@ -16,6 +15,7 @@ use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::PackNamespacedStore;
 use crate::storage::NamespacedStore;
+use lastdb_model::tombstone::is_tombstone_value;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;

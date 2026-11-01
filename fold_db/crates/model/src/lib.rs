@@ -1,6 +1,6 @@
 //! # LastDB model
 //!
-//! The data types of the LastDB core: atoms, molecules, records, schemas, keys,
+//! The data types of the LastDB core: records, schemas, keys, molecules,
 //! mutations, and the pure rules over them (canonical byte framing, key
 //! codecs, logical layout rules, JSON order).
 //!
@@ -11,12 +11,17 @@
 //! clock, signs, installs the key comparison context, and stores data.
 //! `scripts/ci/model-purity-lint.sh` enforces these rules in CI.
 
-pub mod atom;
 pub mod canonical;
 pub mod constants;
+pub mod content_limit;
+pub mod file_pointer;
 pub mod hex;
 pub mod json_order;
 pub mod kind_partition;
+pub mod molecule_key_codec;
+pub mod molecule_uuid;
+pub mod provenance;
 pub mod record_space;
 pub mod record_value;
 pub mod schema;
+pub mod tombstone;

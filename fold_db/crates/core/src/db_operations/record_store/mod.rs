@@ -204,7 +204,8 @@ impl RecordStore {
     pub(crate) fn key_codec_for_molecule(
         &self,
         molecule_uuid: &str,
-    ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
+    ) -> Result<lastdb_model::molecule_key_codec::MoleculeKeyCodec, crate::schema::SchemaError>
+    {
         let codec = self
             .molecule_keys
             .as_ref()

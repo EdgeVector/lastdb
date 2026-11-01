@@ -43,12 +43,12 @@
 
 use super::blob_counter::BlobDeltas;
 use super::{record_scope, RangeWalk, RecordStore};
-use crate::atom::molecule_uuid::{alternate_molecule_uuid, ALTERNATE_ENTRY_PREFIX};
 use crate::records::atom_history::RECORD_HISTORY_PREFIX;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use lastdb_model::kind_partition::exact_prefix_bounds;
+use lastdb_model::molecule_uuid::{alternate_molecule_uuid, ALTERNATE_ENTRY_PREFIX};
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
 
 /// Rows that one release batch reads and deletes, at most.

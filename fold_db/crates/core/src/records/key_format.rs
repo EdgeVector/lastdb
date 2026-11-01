@@ -30,7 +30,7 @@ pub(crate) fn validate_frozen_replay_floor(
     marker: Option<&[u8]>,
     cutoff: Option<&[u8]>,
 ) -> StorageResult<u64> {
-    if !marker.is_some_and(crate::atom::molecule_key_codec::current_key_format) {
+    if !marker.is_some_and(lastdb_model::molecule_key_codec::current_key_format) {
         return Err(invalid("the format marker is not the node format"));
     }
     let Some(bytes) = cutoff else {

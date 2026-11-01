@@ -95,6 +95,6 @@ impl RecordHistoryEntry {
 
     /// The blobs that the copied value names. Each holds one reference.
     pub(crate) fn blobs(&self) -> Vec<String> {
-        crate::atom::file_pointer::blob_refs_of_atom(&self.value, None)
+        lastdb_model::file_pointer::blob_refs_of_atom(&self.value, None)
     }
 }

@@ -249,7 +249,7 @@ pub(crate) fn schema_molecule_uuids(schema: &Schema, records: bool) -> Vec<Strin
         .iter()
         .map(|(field_name, field)| {
             field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&schema.name, field_name)
+                lastdb_model::molecule_uuid::deterministic_molecule_uuid(&schema.name, field_name)
             })
         })
         .collect::<Vec<_>>();
@@ -257,7 +257,7 @@ pub(crate) fn schema_molecule_uuids(schema: &Schema, records: bool) -> Vec<Strin
         schema
             .alternate_keys
             .keys()
-            .map(|name| crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name)),
+            .map(|name| lastdb_model::molecule_uuid::alternate_molecule_uuid(schema, name)),
     );
     if records {
         molecules.push(lastdb_model::record_space::record_space_uuid(&schema.name));
@@ -293,7 +293,7 @@ pub(crate) fn schema_molecule_profiles(
         .map(|(name, field)| {
             (
                 field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                    crate::atom::deterministic_molecule_uuid(&schema.name, name)
+                    lastdb_model::molecule_uuid::deterministic_molecule_uuid(&schema.name, name)
                 }),
                 primary,
             )
@@ -304,7 +304,7 @@ pub(crate) fn schema_molecule_profiles(
         let profile = MoleculeRangeProfile::for_field_type(field_type.as_ref())
             .map_err(StorageError::InvalidOperation)?;
         result.push((
-            crate::atom::molecule_uuid::alternate_molecule_uuid(schema, name),
+            lastdb_model::molecule_uuid::alternate_molecule_uuid(schema, name),
             profile,
         ));
     }

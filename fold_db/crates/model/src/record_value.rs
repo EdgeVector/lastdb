@@ -22,7 +22,7 @@
 //! floor: a field write at or below it does not bring the record back, and a
 //! newer write makes a new record. A tombstone is a value with no fields.
 
-use crate::atom::file_pointer::{blob_refs_of_atom, is_private_pointer_hash};
+use crate::file_pointer::{blob_refs_of_atom, is_private_pointer_hash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};

@@ -167,7 +167,11 @@ impl SchemaCore {
         if schema.field_molecule_uuids.as_ref().is_some_and(|ids| {
             ids.iter().any(|(field, id)| {
                 retained.and_then(|retained| retained.get(field)) != Some(id)
-                    && *id != crate::atom::deterministic_molecule_uuid(&schema.name, field)
+                    && *id
+                        != lastdb_model::molecule_uuid::deterministic_molecule_uuid(
+                            &schema.name,
+                            field,
+                        )
             })
         }) {
             return Err(SchemaError::InvalidData(

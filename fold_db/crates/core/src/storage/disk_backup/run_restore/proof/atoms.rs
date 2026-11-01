@@ -16,10 +16,19 @@ pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<u64> {
         let raw = native_routing::decode(&coordinate)?;
         let raw = std::str::from_utf8(&raw)
             .map_err(|_| invalid("run backup atom coordinate encoding"))?;
-        if crate::atom::atom_key_codec::uuid_of(raw).is_some() {
+        if format6_atom_uuid(raw).is_some() {
             return Err(invalid("run backup holds a format 6 atom row"));
         }
         files::validate_restored_atom_key(&coordinate)?;
     }
     Ok(0)
+}
+
+/// The uuid inside a format 6 body key or counter key: `atom:{uuid}\0b` or
+/// `atom:{uuid}\0c`, with or without a storage scope. A format 7 home has
+/// neither key.
+fn format6_atom_uuid(key: &str) -> Option<&str> {
+    let rest = lastdb_model::kind_partition::rest_of(key, "atom")?;
+    let (uuid, tag) = rest.split_once('\0')?;
+    (!uuid.is_empty() && matches!(tag, "b" | "c")).then_some(uuid)
 }

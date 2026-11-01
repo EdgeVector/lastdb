@@ -31,7 +31,7 @@ pub(crate) fn apply_storage_prefix_to_schema(schema: &mut Schema, storage_prefix
 /// this guards the WRITE path only. Mutations without `Provenance::Derived`
 /// (user writes with `Provenance::User { .. }` or `None`) are unchecked.
 pub(crate) fn validate_derived_provenance(mutation: &Mutation) -> Result<(), SchemaError> {
-    use crate::atom::provenance::Provenance;
+    use lastdb_model::provenance::Provenance;
     match &mutation.provenance {
         Some(Provenance::Derived { .. }) => Err(SchemaError::InvalidData(format!(
             "Derived mutation targets schema '{}' but derived provenance is \

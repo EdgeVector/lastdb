@@ -194,7 +194,7 @@ fn validate_digest_key(rest: &str, count: usize, reason: &str) -> StorageResult<
 }
 
 fn validate_suffix(suffix: &str) -> StorageResult<()> {
-    crate::atom::molecule_key_codec::decode_hash_range_suffix(suffix)
+    lastdb_model::molecule_key_codec::decode_hash_range_suffix(suffix)
         .ok_or_else(|| unsupported("retired molecule key layout"))?;
     Ok(())
 }
@@ -305,7 +305,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
 }
 
 fn validate_molecule(molecule: &str) -> StorageResult<()> {
-    if !crate::atom::molecule_uuid::is_canonical_molecule_uuid(molecule) {
+    if !lastdb_model::molecule_uuid::is_canonical_molecule_uuid(molecule) {
         return Err(unsupported("retired molecule identity spelling"));
     }
     Ok(())

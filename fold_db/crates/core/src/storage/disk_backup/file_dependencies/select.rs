@@ -1,8 +1,8 @@
 use super::*;
-use crate::atom::file_pointer;
 use crate::sharing::delivery_wire::{
     file_blob_access_from_atom_value, file_thumbnail_ref_from_atom_value,
 };
+use lastdb_model::file_pointer;
 use lastdb_model::record_value::StoredRecord;
 use serde_json::Value;
 

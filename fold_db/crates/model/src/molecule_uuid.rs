@@ -26,6 +26,12 @@ pub fn encode_molecule_uuid_bytes(digest: &[u8; 32]) -> String {
     URL_SAFE_NO_PAD.encode(digest)
 }
 
+/// The molecule id of one schema field. The spelling is the current base64url form.
+#[must_use]
+pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> String {
+    encode_molecule_uuid_bytes(&molecule_uuid_digest(schema_name, field_name))
+}
+
 /// Accept only the current unpadded base64url spelling of a 32-byte digest.
 #[must_use]
 pub fn is_canonical_molecule_uuid(molecule_uuid: &str) -> bool {

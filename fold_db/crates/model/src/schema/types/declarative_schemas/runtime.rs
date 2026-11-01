@@ -53,7 +53,7 @@ impl DeclarativeSchemaDefinition {
         let schema_name = self.name.clone();
         for (field_name, field) in &mut self.runtime_fields {
             let mol_uuid = persisted.get(field_name).cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&schema_name, field_name)
+                crate::molecule_uuid::deterministic_molecule_uuid(&schema_name, field_name)
             });
             field.common_mut().set_molecule_uuid(mol_uuid);
         }

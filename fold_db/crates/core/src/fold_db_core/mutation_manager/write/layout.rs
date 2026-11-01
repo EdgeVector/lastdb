@@ -26,7 +26,7 @@ impl MutationManager {
                 if let Some((field, _)) = mutation
                     .fields_and_values
                     .iter()
-                    .find(|(_, value)| crate::atom::is_tombstone_value(value))
+                    .find(|(_, value)| lastdb_model::tombstone::is_tombstone_value(value))
                 {
                     return Err(SchemaError::InvalidData(format!(
                         "schema '{}' field '{field}' rejects the reserved tombstone value on create or update; use Delete for record removal",

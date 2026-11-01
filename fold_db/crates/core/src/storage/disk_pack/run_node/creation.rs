@@ -1,10 +1,10 @@
 //! Commit the creation proofs before the clear node marker can publish.
 
 use super::{map, RunHome, StorageResult};
-use crate::atom::molecule_key_codec::TYPED_KEY_FORMAT;
 use crate::records::key_format::CURRENT_KEY_FORMAT_KEY;
 use crate::storage::content_key_proof;
 use crate::storage::disk_pack::{kv, run_admission::RECORD_NODE_BYTES};
+use lastdb_model::molecule_key_codec::TYPED_KEY_FORMAT;
 use laststore::disk_run::home::HomeMutation;
 
 /// Every new home is format 7 (the record model). The caller publishes the

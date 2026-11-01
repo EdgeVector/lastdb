@@ -45,7 +45,7 @@ impl RecordStore {
             if policy != FieldHistoryPolicy::Off {
                 writes.push(crate::storage::KvMutation::put(
                     Self::CURRENT_KEY_FORMAT_KEY.as_bytes().to_vec(),
-                    crate::atom::molecule_key_codec::HISTORY_KEY_FORMAT.to_vec(),
+                    lastdb_model::molecule_key_codec::HISTORY_KEY_FORMAT.to_vec(),
                 ));
             }
             self.main_store.inner().batch_mutate(writes).await?;
