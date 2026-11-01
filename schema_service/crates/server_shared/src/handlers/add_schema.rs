@@ -4,7 +4,7 @@ use super::*;
 
 mod cover;
 use cover::full_component_cover_response;
-use schema_service_core::state::{IdempotentRepostReply, SchemaAddReply};
+use schema_service_core::state::SchemaAddReply;
 use schema_service_core::types::SchemaRegistrationComposition;
 
 fn parse_add_schema_request(body: Value) -> Result<(AddSchemaRequest, Value), HttpResponse> {
@@ -63,12 +63,11 @@ async fn idempotent_repost_response(
     let existing = match state
         .idempotent_repost_reply(&request.schema, &request.mutation_mappers)
         .await
+        .into_http()
     {
-        IdempotentRepostReply::Hit(existing) => *existing,
-        IdempotentRepostReply::Miss => return None,
-        IdempotentRepostReply::Failed { body } => {
-            return Some(HttpResponse::InternalServerError().json(body));
-        }
+        Ok(Some(existing)) => *existing,
+        Ok(None) => return None,
+        Err((status, body)) => return Some(json_status(status, body)),
     };
     let system = state.is_system_schema(&existing.name);
     Some(HttpResponse::Ok().json(AddSchemaResponse {

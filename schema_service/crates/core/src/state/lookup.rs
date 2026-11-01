@@ -55,6 +55,20 @@ pub enum IdempotentRepostReply {
     Failed { body: Value },
 }
 
+impl IdempotentRepostReply {
+    /// The existing schema, or the HTTP error.
+    ///
+    /// `Ok(Some)` is a hit. `Ok(None)` is a miss and the add continues.
+    /// Failed is 500. Each router still writes the hit body.
+    pub fn into_http(self) -> Result<Option<Box<Schema>>, (u16, Value)> {
+        match self {
+            Self::Hit(existing) => Ok(Some(existing)),
+            Self::Miss => Ok(None),
+            Self::Failed { body } => Err((500, body)),
+        }
+    }
+}
+
 impl SchemaServiceState {
     /// Resolve public reposts against durable definitions, including expansions.
     /// A cached predecessor cannot establish which canonical is current.
