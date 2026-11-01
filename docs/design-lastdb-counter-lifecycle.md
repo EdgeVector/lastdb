@@ -581,8 +581,10 @@ S1 is the one large step. I could not split it, because the planner replaces the
 
 Sections 1 to 19 are the plan of 2026-10-19. This section records the build. All steps are merged to `main`.
 Questions Q1 to Q10 were accepted as recommended. The pages that describe current behavior are
-`docs/lastdb-atom-counter.md`, `docs/lastdb-molecule-counters.md`, `docs/lastdb-molecule-drain.md`,
 `docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md` and `docs/lastdb-ttl-sweep.md`.
+Format 7 retired the atom counter, the molecule counters and the drain. Their pages
+(`docs/lastdb-atom-counter.md`, `docs/lastdb-molecule-counters.md` and
+`docs/lastdb-molecule-drain.md`) say what remains.
 
 ### 20.1 The steps as merged
 

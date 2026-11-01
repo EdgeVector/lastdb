@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use fold_db::access::AccessContext;
 use fold_db::db_operations::atom_store::RecordFieldConflicts;
-use fold_db::db_operations::MoleculeConflictState;
+use fold_db::db_operations::RecordConflictState;
 use fold_db::schema::types::field::FieldKind;
 use fold_db::schema::types::{KeyValue, Schema};
 use serde::Deserialize;
@@ -27,8 +27,8 @@ impl SelectedConflictRequest {
         if !ctx.is_owner {
             return Err(HostError::new(403, "owner_required"));
         }
-        // This route has only a personal HashKey contract. Never fall through
-        // from a named org/DB scope to the unprefixed conflict namespace.
+        // This route reads only the personal scope. Never fall through from a
+        // named org/DB scope to the unprefixed personal records.
         if ctx.storage_prefix.is_some()
             || ctx
                 .db_locator
@@ -97,7 +97,7 @@ pub(super) fn record_key(
 
 /// One selected record: each field with its kept losing values.
 pub(super) fn record_result(fields: Vec<RecordFieldConflicts>) -> Value {
-    use MoleculeConflictState::{Clean, Conflict};
+    use RecordConflictState::{Clean, Conflict};
     let mut combined = Clean;
     let fields: Vec<_> = fields
         .into_iter()
@@ -128,10 +128,10 @@ pub(super) fn unknown_record_result(key: &SelectedConflictKey) -> Value {
         .map(|field| {
             serde_json::json!({
                 "field": field,
-                "state": MoleculeConflictState::Unknown,
+                "state": RecordConflictState::Unknown,
                 "conflicts": [],
             })
         })
         .collect();
-    serde_json::json!({ "state": MoleculeConflictState::Unknown, "fields": fields })
+    serde_json::json!({ "state": RecordConflictState::Unknown, "fields": fields })
 }

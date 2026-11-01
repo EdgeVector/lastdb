@@ -38,7 +38,7 @@ pub enum DataRoute {
     MutationBatch,
     /// `POST /api/queries/batch` — several independent `/api/query` bodies in one request (both sockets).
     QueryBatch,
-    /// `POST /api/conflicts/keys` — bounded value-free field-molecule conflict metadata (owner only).
+    /// `POST /api/conflicts/keys` — the kept conflicts of selected record fields (owner only).
     ConflictMetadata,
     /// `GET /api/schemas` — list the node's available schemas.
     ListSchemas,

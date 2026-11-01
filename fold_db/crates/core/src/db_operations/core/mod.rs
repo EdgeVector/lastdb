@@ -16,9 +16,9 @@ mod row_drops;
 mod unresolved;
 
 pub use row_drops::{
-    note_page_key_forms, note_page_resume, note_tombstoned_row, note_walk_positions,
-    page_can_resume, with_query_page_tally, with_query_row_drop_tally,
-    with_refilled_query_row_drops, KeyForm, PageEnd, PageResume, QueryRowDrops,
+    note_page_key_forms, note_page_resume, note_walk_positions, page_can_resume,
+    with_query_page_tally, with_query_row_drop_tally, with_refilled_query_row_drops, KeyForm,
+    PageEnd, PageResume, QueryRowDrops,
 };
 pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, UnresolvedDamage};
 

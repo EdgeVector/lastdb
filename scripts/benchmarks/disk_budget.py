@@ -48,7 +48,7 @@ def validate_logical(report, home_format):
 
 def validate_records(report, rows):
     """A format 7 home stores records and no atoms. Its logical bytes are the stored record values."""
-    if (not rows or report["total_atoms"] != 0
+    if (not rows
             or report["total_logical_bytes"] != report["total_record_bytes"]
             or report["total_logical_bytes"] != sum(row["bytes"] for row in rows)
             or report["total_record_bytes"] != sum(row["record_bytes"] for row in rows)

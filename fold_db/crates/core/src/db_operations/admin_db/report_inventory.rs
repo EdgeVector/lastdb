@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// One key-class in the `main` tree (atoms, history, indexes, …).
+/// One key-class in the `main` tree (records, alternate keys, history, …).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MainKeyClass {
     pub class: String,
@@ -11,22 +11,21 @@ pub struct MainKeyClass {
     pub bytes: u64,
 }
 
-/// Per-schema logical atom storage — the dedicated `lastdb db schemas` report.
+/// Per-schema logical record storage — the dedicated `lastdb db schemas` report.
 ///
-/// This is the atom-only walk (`storage_breakdown`). It does **not** scan
-/// history the way [`DbInventory`] does. A format 7 home has no atoms: its rows
-/// count live records and their stored value bytes instead.
+/// This is the record walk (`storage_breakdown`). It does **not** scan
+/// history the way [`DbInventory`] does. Its rows count the live records of
+/// each schema and their stored value bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaStorageReport {
     /// RFC 3339 timestamp when this walk finished.
     pub measured_at: DateTime<Utc>,
     /// Always `true`. This is an admin scan, not a cheap status gauge.
     pub heavy: bool,
-    /// One row per schema that has at least one atom, largest first.
+    /// One row per schema that has at least one live record, largest first.
     pub per_schema: Vec<SchemaStorage>,
     pub total_logical_bytes: u64,
-    pub total_atoms: u64,
-    /// Live records of a format 7 home. Zero in an atom home.
+    /// Live records of all schemas.
     #[serde(default)]
     pub total_records: u64,
     /// Stored value bytes of those records. They are part of
@@ -34,9 +33,6 @@ pub struct SchemaStorageReport {
     #[serde(default)]
     pub total_record_bytes: u64,
     pub schema_count: u64,
-    /// Atom-size histogram from the same walk (p50/p95/p99/max + ≥16/32/64 KiB).
-    #[serde(default)]
-    pub histogram: crate::db_operations::AtomHistogram,
 }
 
 /// Fast logical-current storage for one declared schema catalog.
@@ -130,7 +126,6 @@ impl SchemaCurrentStorageReport {
 
 impl SchemaStorageReport {
     pub fn from_breakdown(breakdown: StorageBreakdown) -> Self {
-        let total_atoms = breakdown.per_schema.iter().map(|s| s.atom_count).sum();
         let total_records = breakdown.per_schema.iter().map(|s| s.record_count).sum();
         let total_record_bytes = breakdown.per_schema.iter().map(|s| s.record_bytes).sum();
         let schema_count = breakdown.per_schema.len() as u64;
@@ -139,11 +134,9 @@ impl SchemaStorageReport {
             heavy: true,
             total_logical_bytes: breakdown.total_logical_bytes,
             per_schema: breakdown.per_schema,
-            total_atoms,
             total_records,
             total_record_bytes,
             schema_count,
-            histogram: breakdown.histogram,
         }
     }
 }

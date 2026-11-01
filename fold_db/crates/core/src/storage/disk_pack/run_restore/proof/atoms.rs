@@ -12,13 +12,14 @@ pub(super) fn verify(proof: &Proof<'_>) -> StorageResult<u64> {
     let mut rows = Rows::new(proof.main, read.as_mut(), "atoms")?;
     while let Some((coordinate, body)) = rows.next()? {
         drop(body);
-        files::validate_restored_atom_key(&coordinate)?;
+        // Name a format 6 atom row before the key law refuses its family.
         let raw = native_routing::decode(&coordinate)?;
         let raw = std::str::from_utf8(&raw)
             .map_err(|_| invalid("run backup atom coordinate encoding"))?;
         if crate::atom::atom_key_codec::uuid_of(raw).is_some() {
             return Err(invalid("run backup holds a format 6 atom row"));
         }
+        files::validate_restored_atom_key(&coordinate)?;
     }
     Ok(0)
 }

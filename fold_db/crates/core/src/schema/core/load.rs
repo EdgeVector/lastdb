@@ -34,16 +34,11 @@ impl SchemaCore {
         self.get_schema_resolved(schema_name, 0, false).await
     }
 
-    /// Read-path variant of [`Self::get_schema_following_supersession`] that
-    /// returns a schema whose `runtime_fields` carry NO in-memory molecule (each
-    /// is stripped to `None` via [`Schema::clone_for_read`]).
-    ///
-    /// The query executor takes ownership of the returned schema and re-hydrates
-    /// every field from storage before reading it, so handing it the registry's
-    /// hydrated molecule was pure waste — an O(field cardinality) deep clone per
-    /// query that re-introduced linear scaling on top of the O(1) keyed storage
-    /// read (#905). Use this whenever the result drives `resolve_value`; use the
-    /// plain variant when the caller needs the full hydrated molecule in memory.
+    /// Read-path variant of [`Self::get_schema_following_supersession`]. The
+    /// in-memory hit is a [`Schema::clone_for_read_shared`] copy taken under a
+    /// shared read lock, so concurrent queries resolve their schema in
+    /// parallel. A field holds no data, so the copy is small. Use this
+    /// whenever the result drives a query read.
     pub async fn get_schema_following_supersession_for_read(
         &self,
         schema_name: &str,
@@ -52,9 +47,9 @@ impl SchemaCore {
     }
 
     /// Internal helper that follows superseded-by chains with a hop counter.
-    /// When `for_read` is set, the in-memory hit is returned molecule-stripped
-    /// via [`Schema::clone_for_read`] (the hot query path); otherwise the full
-    /// hydrated schema is cloned.
+    /// When `for_read` is set, the in-memory hit is a
+    /// [`Schema::clone_for_read_shared`] copy under a shared read lock (the
+    /// hot query path); otherwise it comes from the metadata lookup.
     pub(super) fn get_schema_resolved(
         &self,
         schema_name: &str,
@@ -103,12 +98,10 @@ impl SchemaCore {
 
             // 1. Try exact match in memory
             if for_read {
-                // Hot query path: clone the cached schema's structure WITHOUT
-                // deep-copying its hydrated molecules (the executor re-hydrates
-                // from storage anyway). Uses the `&self` `clone_for_read_shared`
-                // so this runs under a SHARED read lock — N concurrent readers
+                // Hot query path: `clone_for_read_shared` takes `&self`, so
+                // this runs under a SHARED read lock — N concurrent readers
                 // resolve their schema in parallel instead of serializing
-                // through one exclusive lock (the convoy this card fixed).
+                // through one exclusive lock.
                 let stripped = self.cached_schema_for_read(schema_name)?;
                 if let Some(schema) = stripped {
                     return Ok(Some(schema));
@@ -132,10 +125,10 @@ impl SchemaCore {
                     cached_name
                 );
                 if for_read {
-                    // Return the molecule-stripped cached copy for consistency
-                    // with the in-memory hot path. `load_schema_internal`
-                    // populated runtime_fields on the cache entry. Shared read
-                    // lock + `&self` clone, same as the in-memory hot path above.
+                    // Return the cached copy, as the in-memory hot path does.
+                    // `load_schema_internal` populated runtime_fields on the
+                    // cache entry. Shared read lock + `&self` clone, same as
+                    // the in-memory hot path above.
                     let stripped = self.cached_schema_for_read(&cached_name)?;
                     if let Some(stripped) = stripped {
                         return Ok(Some(stripped));

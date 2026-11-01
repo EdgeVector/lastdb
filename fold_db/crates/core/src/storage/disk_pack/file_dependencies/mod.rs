@@ -4,7 +4,7 @@
 //! A format 7 record names its files in its field values. The restore proof
 //! and the byte backup derive each dependency from the value and copy and open
 //! its CAS body. The `fdep` directory rows of a format 6 atom are gone; the
-//! key law still names their family.
+//! key law refuses their family.
 
 mod budget_json;
 mod native;
@@ -93,18 +93,6 @@ impl FileDependency {
     pub fn expected_stored_bytes(&self) -> u64 {
         self.record.expected_stored_bytes
     }
-}
-
-pub fn is_directory_key(key: &str) -> bool {
-    key.strip_prefix("fdep:v1:")
-        .and_then(|tail| tail.split_once('\0'))
-        .is_some_and(|(atom, kind)| {
-            atom.len() == 64
-                && atom
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                && matches!(kind, "main" | "thumbnail" | "poster")
-        })
 }
 
 /// Check one offline atom-namespace coordinate with the normal current-key law.

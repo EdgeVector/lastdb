@@ -1,26 +1,22 @@
 use crate::schema::types::KeyValue;
 use std::cell::{Cell, RefCell};
 
-/// What one query dropped between "the index says this row exists" and "the
+/// What one query dropped between "the key list counts this row" and "the
 /// caller was handed this row".
 ///
 /// The integrity counters include internal candidate work. Only drops that
 /// remain unfilled consume output page slots — see `page_payload` /
 /// `cursor_payload` in `lastdb_host`.
 ///
-/// `tombstoned` exists because the key index and the row materializer disagree
-/// about what a deleted row is. `count_rows` gates on `KeyMetadata.tombstoned`;
-/// the read additionally drops a row whose *body* is a tombstone value, and that
-/// second gate runs after the window is taken. Such a row is counted by
-/// `total_count`, consumes a page slot, and is not `unresolved` (its atom
-/// resolved fine) — so before this it was invisible to both sides. Measured on
-/// the primary's `Papercut` partition 2026-08-09: `total_count` 1037, distinct
-/// rows reachable 606, `unresolved_rows` 0.
+/// A format 7 read takes each row from its stored record, and no read path
+/// counts an unresolved or a tombstoned row: `unresolved` and `tombstoned`
+/// stay zero. The `/api/query` reply keeps `unresolved_rows` and
+/// `tombstoned_rows` for its readers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct QueryRowDrops {
-    /// Rows whose tip pointed at an atom body that could not be resolved.
+    /// Counted rows whose record could not be read. Always zero today.
     pub unresolved: u64,
-    /// Rows whose atom body is a content tombstone.
+    /// Counted rows whose record is deleted. Always zero today.
     pub tombstoned: u64,
     /// Internal candidate drops already covered by a resolver's refill loop.
     /// These remain in the integrity counters but consume no output page slot.
@@ -99,15 +95,14 @@ impl KeyForm {
 }
 
 tokio::task_local! {
-    /// Per-query tally of rows the index counted and the caller never received.
+    /// Per-query tally of rows the key list counted and the caller never
+    /// received, plus the key form of each emitted page key.
     ///
-    /// The node-lifetime counter on `DbOperations` is shared, so a
-    /// before/after delta around one query would pick up skips from every
-    /// other query running concurrently — on a node with 28 UDS workers that
-    /// reports dangling edges against healthy requests. This is task-scoped,
-    /// and the read path is a plain `.await` chain with no `tokio::spawn`
-    /// between the handler and atom hydration, so the tally follows the one
-    /// request that installed it.
+    /// A node-lifetime counter would be shared, so a before/after delta around
+    /// one query would pick up the counts of every other query running
+    /// concurrently. This is task-scoped, and the read path is a plain
+    /// `.await` chain with no `tokio::spawn` between the handler and the
+    /// record read, so the tally follows the one request that installed it.
     ///
     /// **One task-local carrying both counters, deliberately.** Two nested
     /// `scope()` calls wrap the read future in one more layer of generic future
@@ -194,14 +189,6 @@ pub fn note_walk_positions(rows: Vec<(KeyValue, String)>) {
     let _ = QUERY_ROW_DROPS.try_with(|tally| tally.end.borrow_mut().walk = rows);
 }
 
-/// Note one row dropped for a content tombstone, if a tally is installed.
-///
-/// Free function rather than a `DbOperations` method: the drop happens in the
-/// field read path, which holds the resolved values but not always the handle.
-pub fn note_tombstoned_row() {
-    note_row_drop(|drops| drops.tombstoned = drops.tombstoned.saturating_add(1));
-}
-
 /// Note how many page keys a query emitted in each key form, if a tally is
 /// installed.
 ///
@@ -237,8 +224,7 @@ where
 /// Run `fut` with a fresh per-query row-drop tally.
 ///
 /// Returns the future's output plus the rows *this* query dropped after the
-/// index had counted them: unresolvable tip → atom edges, and content
-/// tombstones the window had already spent a slot on.
+/// key list had counted them, and the key form of its page keys.
 pub async fn with_query_row_drop_tally<F>(fut: F) -> (F::Output, QueryRowDrops)
 where
     F: std::future::Future,

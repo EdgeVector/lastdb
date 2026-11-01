@@ -3,7 +3,7 @@
 //! A format 7 home stores records (`rk:`), not atoms. The molecule key codec
 //! still names each alternate key and record range: a molecule identity, a
 //! blinded hash and a typed range. `atom_key_codec` recognizes a format 6
-//! atom row so that the restore proof and the key law can refuse it.
+//! atom row so that the restore proof can name it when it refuses it.
 
 pub mod atom_key_codec;
 pub mod content_limit;
