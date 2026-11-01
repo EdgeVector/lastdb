@@ -190,13 +190,13 @@ async fn check_generated_send(host: &Host) -> Result<usize, Box<dyn std::error::
     let share_prefix = activate_generated_send_rule(host).await?;
     let batches = [
         vec![
-            send_mutation("create", "a", send_record("a", "first"))?,
-            send_mutation("create", "b", send_record("b", "second"))?,
+            send_mutation("create", "a", &send_record("a", "first"))?,
+            send_mutation("create", "b", &send_record("b", "second"))?,
         ],
         vec![send_mutation(
             "update",
             "b",
-            json!({"title": "second-updated"}),
+            &json!({"title": "second-updated"}),
         )?],
     ];
     let mut count = 0;
@@ -238,7 +238,7 @@ fn send_record(range: &str, title: &str) -> Value {
 }
 
 /// One generated personal mutation of the send check under the send hash.
-fn send_mutation(action: &str, range: &str, fields: Value) -> Result<Mutation, serde_json::Error> {
+fn send_mutation(action: &str, range: &str, fields: &Value) -> Result<Mutation, serde_json::Error> {
     serde_json::from_value(json!({
         "uuid": uuid::Uuid::new_v4().to_string(),
         "schema_name": SEND_SCHEMA,
@@ -258,7 +258,7 @@ async fn read_send_hash(
 ) -> Result<BTreeMap<String, BTreeMap<String, Value>>, Box<dyn std::error::Error>> {
     let query = Query::new_with_filter(
         SEND_SCHEMA.to_string(),
-        SEND_FIELDS.iter().map(|field| field.to_string()).collect(),
+        SEND_FIELDS.iter().map(ToString::to_string).collect(),
         Some(HashRangeFilter::HashKey(SEND_HASH.to_string())),
     );
     let access = AccessContext::owner(host.user_hash.clone())
