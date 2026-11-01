@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use super::gauge::{Availability, Gauge, Unit, Window};
+use super::gauge::{Gauge, Unit, Window};
 
 #[macro_use]
 mod gauge_health;
