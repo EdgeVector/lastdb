@@ -53,7 +53,7 @@ jobs:
           done > "$output/content/VERSION"
           (cd "$output/content" && shasum -a 256 bin/lastdb bin/lastdbd > SHA256SUMS)
           tar -czf "$output/lastdb-native-dev-arm64.tar.gz" -C "$output/content" .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lastdb-native-dev-arm64-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/native-dev-client/lastdb-native-dev-arm64.tar.gz

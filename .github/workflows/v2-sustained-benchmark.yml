@@ -208,7 +208,7 @@ jobs:
       - name: Upload measurements and exact build metadata
         id: upload
         if: ${{ always() && env.SUSTAINED_OUTPUT != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-v2-sustained-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -239,7 +239,7 @@ jobs:
 
       - name: Retain the verified download receipt
         if: ${{ always() && steps.receipt.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lastdb-v2-sustained-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/v2-sustained-download-receipt-${{ github.run_id }}-${{ github.run_attempt }}/artifact.json

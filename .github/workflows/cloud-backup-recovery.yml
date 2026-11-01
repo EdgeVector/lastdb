@@ -122,7 +122,7 @@ jobs:
           LASTDB_CLOUD_DEV_BASELINE_SCOPE: ${{ vars.LASTDB_CLOUD_DEV_BASELINE_SCOPE }}
         run: |
           python3 -c 'import os; names=("LASTDB_CLOUD_DEV_API_KEY","LASTDB_CLOUD_DEV_RECOVERY_PHRASE","LASTDB_CLOUD_DEV_BASELINE","LASTDB_CLOUD_DEV_BASELINE_SCOPE"); missing=[n for n in names if not os.environ.get(n)]; raise SystemExit("Missing DEV inputs: "+", ".join(missing) if missing else 0)'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build-client.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client

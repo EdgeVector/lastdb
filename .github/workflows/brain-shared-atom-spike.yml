@@ -75,7 +75,7 @@ jobs:
           test "$(git -C brain rev-parse HEAD)" = "$BRAIN_CANDIDATE"
           test "$(git -C brain-baseline rev-parse HEAD)" = "$BRAIN_BASELINE"
           mkdir "$BENCH_OUTPUT"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/build
@@ -104,7 +104,7 @@ jobs:
           --candidate-daemon "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd"
           --baseline-core "$BASELINE_SHA" --candidate-core "$CANDIDATE_SHA"
           --output "$BENCH_OUTPUT/measurements" --repeats 3 --samples 5
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         id: upload
         with:

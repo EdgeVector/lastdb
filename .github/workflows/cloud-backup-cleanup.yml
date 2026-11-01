@@ -90,7 +90,7 @@ jobs:
           # The kept-snapshot format check reads commit ancestry on main only.
           fetch-depth: 0
           filter: tree:0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.kept-build.outputs.artifact }}
           path: ${{ runner.temp }}/cloud-backup-client

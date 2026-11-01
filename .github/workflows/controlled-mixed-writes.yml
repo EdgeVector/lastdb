@@ -54,7 +54,7 @@ jobs:
         with:
           path: driver
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/mixed-build
@@ -74,7 +74,7 @@ jobs:
       - name: Upload raw measurements, observations and fingerprints
         id: upload
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: controlled-mixed-writes-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.BENCH_OUTPUT }}/
@@ -92,7 +92,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/mixed-metadata.json"
           python3 driver/scripts/benchmarks/artifact.py \
             --metadata "$RUNNER_TEMP/mixed-metadata.json" --output "$RUNNER_TEMP/mixed-receipt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ always() && steps.receipt.outcome == 'success' }}
         with:
           name: controlled-mixed-receipt-${{ github.run_id }}-${{ github.run_attempt }}
