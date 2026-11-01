@@ -22,8 +22,8 @@
 //! the complete range (a count, a condition pass) fails with a read limit.
 
 use super::has_any;
-use crate::db_operations::atom_store::{
-    AtomStore, KeyedRecord, RecordBound, RecordSpan, SpanKey, PAGE_READ_KEYS,
+use crate::db_operations::record_store::{
+    KeyedRecord, RecordBound, RecordSpan, RecordStore, SpanKey, PAGE_READ_KEYS,
 };
 use crate::db_operations::{note_page_resume, page_can_resume, PageResume};
 use crate::fold_db_core::query::hash_range_query::HashRangeQueryProcessor;
@@ -60,7 +60,7 @@ impl ScopeKeys {
     /// read of at most `room` keys. Returns the number of records read.
     async fn fill(
         &mut self,
-        atoms: &AtomStore,
+        records: &RecordStore,
         wanted: usize,
         room: usize,
     ) -> Result<usize, SchemaError> {
@@ -71,7 +71,7 @@ impl ScopeKeys {
         if ask == 0 {
             return Ok(0);
         }
-        let page = atoms
+        let page = records
             .record_span_page(span, self.cursor.as_deref(), ask)
             .await?;
         let read = page.keys.len();
@@ -115,11 +115,11 @@ impl HashRangeQueryProcessor {
             Some(KeyWindow::After { after, limit }) => (Some(after), 0, limit),
             Some(KeyWindow::AfterRecord { .. }) => return Err(record_cursor_error()),
         };
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let from_range = after.as_ref().and_then(|after| after.range.as_deref());
         let mut sources = Vec::with_capacity(scopes.len());
         for scope in scopes {
-            let span = atoms.record_span(schema, hash, bound, from_range, scope.as_deref())?;
+            let span = records.record_span(schema, hash, bound, from_range, scope.as_deref())?;
             sources.push(ScopeKeys::new(span));
         }
         let mut rows = Vec::new();
@@ -135,7 +135,7 @@ impl HashRangeQueryProcessor {
             let read = futures::future::try_join_all(
                 sources
                     .iter_mut()
-                    .map(|source| source.fill(atoms, step, share)),
+                    .map(|source| source.fill(records, step, share)),
             )
             .await?;
             room = room.saturating_sub(read.into_iter().sum());
@@ -151,7 +151,7 @@ impl HashRangeQueryProcessor {
                         .as_ref()
                         .is_none_or(|after| stop.cmp_page_order(after).is_gt())
                 };
-                match stop_key(atoms, &sources)? {
+                match stop_key(records, &sources)? {
                     Some(stop) if resumable && skip == 0 && moved(&stop) => {
                         note_page_resume(PageResume::Key(stop));
                         break;
@@ -182,7 +182,7 @@ impl HashRangeQueryProcessor {
                 }
             }
             room = room.saturating_sub(kept.len());
-            rows.extend(read_kept(atoms, kept, selected).await?);
+            rows.extend(read_kept(records, kept, selected).await?);
             if (rows.len(), skip) == mark {
                 wide = wide.saturating_mul(2);
             }
@@ -235,7 +235,7 @@ fn next_keys(sources: &mut [ScopeKeys], step: usize) -> Option<Vec<SpanKey>> {
 /// enters memory. At each key the read gives the current record; a record
 /// that is no longer live or holds no selected field gives no row.
 async fn read_kept(
-    atoms: &AtomStore,
+    record_store: &RecordStore,
     kept: Vec<SpanKey>,
     selected: &[String],
 ) -> Result<Vec<KeyedRecord>, SchemaError> {
@@ -246,7 +246,7 @@ async fn read_kept(
         .into_iter()
         .map(|kept| (kept.key, kept.physical))
         .unzip();
-    let records = atoms.read_records(&physical).await?;
+    let records = record_store.read_records(&physical).await?;
     Ok(keys
         .into_iter()
         .zip(records)
@@ -260,7 +260,7 @@ async fn read_kept(
 
 /// The API key of the least key that a scope with unread keys examined last.
 /// `None` when such a scope examined no key.
-fn stop_key(atoms: &AtomStore, sources: &[ScopeKeys]) -> Result<Option<KeyValue>, SchemaError> {
+fn stop_key(records: &RecordStore, sources: &[ScopeKeys]) -> Result<Option<KeyValue>, SchemaError> {
     let mut least: Option<(&str, &RecordSpan, &str)> = None;
     for source in sources {
         let Some(span) = source.span.as_ref().filter(|_| !source.done) else {
@@ -275,7 +275,7 @@ fn stop_key(atoms: &AtomStore, sources: &[ScopeKeys]) -> Result<Option<KeyValue>
         }
     }
     least
-        .map(|(_, span, cursor)| atoms.span_key(span, cursor))
+        .map(|(_, span, cursor)| records.span_key(span, cursor))
         .transpose()
 }
 

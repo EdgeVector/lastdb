@@ -40,6 +40,8 @@ members = [
     "cloud_backup_protocol",
     # HTTPS client for that contract. The core does no network I/O.
     "cloud_backup_client",
+    # The one upload planner for snapshot and mutation log backups; no I/O.
+    "cloud_backup_plan",
     "lastdb_storage_policy",
 
     # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal
@@ -396,6 +398,7 @@ lastdb_uds = { path = "lastdb_uds" }
 lastdb_identity = { path = "lastdb_identity" }
 lastdb_host = { path = "lastdb_host" }
 cloud_backup_client = { path = "cloud_backup_client" }
+cloud_backup_plan = { path = "cloud_backup_plan" }
 laststore = { path = "vendor/laststore" }
 
 # External — copied verbatim from schema_service's workspace.dependencies

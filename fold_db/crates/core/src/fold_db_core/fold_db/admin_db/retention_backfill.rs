@@ -61,7 +61,7 @@ impl FoldDB {
             .collect();
         let count = self
             .db_ops()
-            .atoms()
+            .records()
             .in_background_scope(async {
                 let clocks = if range_keyed {
                     keys.into_iter().map(|key| (key, 0)).collect()

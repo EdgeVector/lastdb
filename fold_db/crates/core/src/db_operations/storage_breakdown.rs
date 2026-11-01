@@ -17,7 +17,7 @@
 
 mod record_rows;
 
-use crate::{db_operations::AtomStore, schema::SchemaError};
+use crate::{db_operations::RecordStore, schema::SchemaError};
 use serde::{Deserialize, Serialize};
 
 /// One schema's contribution to local logical storage.
@@ -53,7 +53,7 @@ pub struct StorageBreakdown {
     pub total_logical_bytes: u64,
 }
 
-impl AtomStore {
+impl RecordStore {
     /// The per-schema logical storage breakdown: the live records of each
     /// schema in `schema_names`, under `storage_prefix`. Rows are sorted by
     /// `bytes` descending.

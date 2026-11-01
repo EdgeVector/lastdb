@@ -21,7 +21,7 @@ impl FoldDB {
         let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
         let mut inventory = self
             .db_ops()
-            .atoms()
+            .records()
             .db_inventory(&names, None)
             .await
             .map_err(|e| FoldDbError::Database(format!("db_inventory: {e}")))?;
@@ -59,7 +59,7 @@ impl FoldDB {
         let names: Vec<String> = schemas.values().map(|schema| schema.name.clone()).collect();
         let mut breakdown = self
             .db_ops()
-            .atoms()
+            .records()
             .record_storage_breakdown(&names, None)
             .await
             .map_err(|e| FoldDbError::Database(format!("schema record storage: {e}")))?;
@@ -108,7 +108,7 @@ impl FoldDB {
 
     pub(super) fn schema_current_storage_for(&self, schema: &Schema) -> SchemaCurrentStorageReport {
         let molecules = field_molecule_uuids(schema);
-        let meters = self.db_ops().atoms().keep_small();
+        let meters = self.db_ops().records().keep_small();
         let mut report =
             SchemaCurrentStorageReport::new(schema.name.clone(), molecules.len() as u64);
         let trust = meters.trust();

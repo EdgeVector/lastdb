@@ -2,13 +2,14 @@
 //! The underlying SchemaStore remains the physical schema-record boundary.
 
 use super::core::DbOperations;
-use crate::db_operations::atom_store::MoleculeRefEdge;
 use crate::schema::{Schema, SchemaError, SchemaNameClaim, SchemaRetentionPolicy, SchemaState};
 use futures::{future::BoxFuture, FutureExt};
+use molecule_ref_edges::MoleculeRefEdge;
 use std::collections::HashMap;
 
 mod attribution;
 mod attribution_reports;
+mod molecule_ref_edges;
 
 pub use attribution_reports::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 
@@ -70,13 +71,13 @@ impl DbOperations {
             .await?;
         self.schemas().store_schema(schema_name, schema).await?;
         for edge in &schema_molecule_ref_edges(schema_name, schema) {
-            self.atoms()
+            self.records()
                 .keep_small()
                 .ensure_molecule_counter(&edge.molecule_uuid, schema_name);
         }
         // Debounced persist only. `store_schema` runs on every schema put and
         // a per-write flush here was one of the 2026-09-21 flush-storm sites.
-        let _ = self.atoms().persist_keep_small().await;
+        let _ = self.records().persist_keep_small().await;
         Ok(())
     }
 
@@ -166,7 +167,7 @@ impl DbOperations {
     /// behind the release walk.
     ///
     /// The release goes next, in bounded batches with one write scope each
-    /// (`AtomStore::release_schema_rows`): the records, their conflict rows,
+    /// (`RecordStore::release_schema_rows`): the records, their conflict rows,
     /// the field history and the alternate entries of the schema, with their
     /// blob counts. A schema installed again under the same name gets the same
     /// record space, so a record that the drop left would come back in it. A
@@ -179,7 +180,7 @@ impl DbOperations {
     ) -> BoxFuture<'a, Result<bool, SchemaError>> {
         async move {
             if let Some(schema) = self.block_schema_for_drop(schema_name).await? {
-                let released = self.atoms().release_schema_rows(&schema).await?;
+                let released = self.records().release_schema_rows(&schema).await?;
                 tracing::info!(
                     target: "fold_node::database",
                     schema = schema_name,

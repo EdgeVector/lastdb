@@ -41,7 +41,7 @@ pub(super) async fn read_leg(
     if !paged {
         return db.query_executor().query_with_access(query, access).await;
     }
-    let comparison = db.db_ops().atoms().key_comparison_context(schema).await?;
+    let comparison = db.db_ops().records().key_comparison_context(schema).await?;
     comparison.run(read_pages(db, query, access)).await
 }
 

@@ -2,9 +2,9 @@
 
 use super::inventory_key_classes::MAIN_KEY_CLASSES;
 use super::*;
-use crate::db_operations::atom_store::RangeWalk;
+use crate::db_operations::record_store::RangeWalk;
 
-impl AtomStore {
+impl RecordStore {
     /// Fold every row under `prefix` into `(keys, live key+value bytes)` while
     /// holding at most one bounded page.
     ///
@@ -69,7 +69,7 @@ impl AtomStore {
 
     /// Build a full inventory: the main key classes and the live records of
     /// each schema. `schema_names` names the record rows (see
-    /// [`AtomStore::add_record_storage`]).
+    /// [`RecordStore::add_record_storage`]).
     pub async fn db_inventory(
         &self,
         schema_names: &[String],

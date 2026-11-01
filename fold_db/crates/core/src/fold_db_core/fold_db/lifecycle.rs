@@ -58,7 +58,12 @@ impl FoldDB {
         // durability barrier, stamped as a clean stop so the next boot
         // hydrates it as exact. An unclean stop leaves the runtime stamp
         // behind and reopens as `stale_after_unclean_stop` (2026-09-21).
-        if let Err(e) = self.db_ops.atoms().flush_keep_small_for_clean_stop().await {
+        if let Err(e) = self
+            .db_ops
+            .records()
+            .flush_keep_small_for_clean_stop()
+            .await
+        {
             tracing::warn!(
                 target: "fold_node::database",
                 error = %e,

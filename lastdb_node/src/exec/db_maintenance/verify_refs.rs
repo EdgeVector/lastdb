@@ -29,7 +29,7 @@ pub(in crate::exec) async fn execute_db_verify_refs_route(
     };
     if request.cursor.is_none() {
         if let Err(error) =
-            fold_db::db_operations::AtomStore::validate_scope(request.scope.as_deref())
+            fold_db::db_operations::RecordStore::validate_scope(request.scope.as_deref())
         {
             return error_response(400, &error.to_string(), ctx);
         }

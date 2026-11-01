@@ -42,7 +42,7 @@ impl FoldDB {
     ) -> FoldDbResult<CatalogDeleteReclaimResult> {
         Ok(self
             .db_ops()
-            .atoms()
+            .records()
             .in_write_scope(self.delete_catalog_membership_in_scope(db_locator, schema_name))
             .await?)
     }
@@ -106,7 +106,7 @@ impl FoldDB {
         for group in rows.chunks(CATALOG_ROWS_PER_BATCH) {
             removed += self
                 .db_ops()
-                .atoms()
+                .records()
                 .in_write_scope(self.delete_catalog_rows_in_scope(schema_name, group))
                 .await?;
         }
@@ -153,7 +153,7 @@ impl FoldDB {
         for molecule_uuid in &molecule_uuids {
             guards.push(
                 self.db_ops()
-                    .atoms()
+                    .records()
                     .lock_molecule_commit(molecule_uuid, storage_prefix)
                     .await,
             );
@@ -191,7 +191,8 @@ impl FoldDB {
             .open_namespace("main")
             .await?;
         reclaim.rows =
-            drop_prefixed_rows_for_instance(self.db_ops().atoms(), main.as_ref(), instance).await?;
+            drop_prefixed_rows_for_instance(self.db_ops().records(), main.as_ref(), instance)
+                .await?;
         if let Some(batch) = search_changes.filter(|batch| !batch.changes.is_empty()) {
             self.publish_catalog_unshare_search(batch).await?;
         }

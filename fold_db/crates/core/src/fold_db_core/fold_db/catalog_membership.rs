@@ -14,7 +14,7 @@ impl FoldDB {
     /// Write one catalog row.
     pub async fn put_catalog_membership(&self, entry: &DbCatalogEntry) -> FoldDbResult<()> {
         self.db_ops()
-            .atoms()
+            .records()
             .in_write_scope(async {
                 self.db_ops().db_catalog().put(entry).await?;
                 Ok::<(), SchemaError>(())
@@ -35,7 +35,7 @@ impl FoldDB {
     ) -> FoldDbResult<DbCatalogEntry> {
         Ok(self
             .db_ops()
-            .atoms()
+            .records()
             .in_write_scope(async {
                 let catalog = self.db_ops().db_catalog();
                 if let Some(existing) = catalog.get(db_locator, schema_name).await? {

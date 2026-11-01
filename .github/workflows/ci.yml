@@ -121,6 +121,7 @@ jobs:
               - 'lastdb_uds/**'
               - 'lastdb_identity/**'
               - 'cloud_backup_client/**'
+              - 'cloud_backup_plan/**'
               - 'fold_db/**'
               - 'schema_service/**'
               - 'app_identity_crypto/**'

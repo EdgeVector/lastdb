@@ -8,7 +8,7 @@ impl FoldDB {
     #[must_use]
     pub fn atom_counter_report(&self) -> crate::db_operations::AtomCounterReport {
         crate::db_operations::AtomCounterReport {
-            verify_refs: Some(self.db_ops().atoms().verify_refs_summary()),
+            verify_refs: Some(self.db_ops().records().verify_refs_summary()),
         }
     }
 
@@ -19,7 +19,7 @@ impl FoldDB {
         request: crate::db_operations::VerifyRequest,
     ) -> Result<crate::db_operations::VerifyReport, FoldDbError> {
         self.db_ops()
-            .atoms()
+            .records()
             .verify_refs_step(request)
             .await
             .map_err(|error| admin_op_error("verify_refs", error))
@@ -28,7 +28,7 @@ impl FoldDB {
     /// The last complete verify run and the run in progress, from memory.
     #[must_use]
     pub fn verify_refs_summary(&self) -> crate::db_operations::VerifySummary {
-        self.db_ops().atoms().verify_refs_summary()
+        self.db_ops().records().verify_refs_summary()
     }
 
     /// The storage scope prefixes that the database catalog names, besides the
@@ -58,7 +58,7 @@ impl FoldDB {
     /// the dwell queue: the buckets by the directory, and the entries counted up
     /// to 1,000 with bounded reads (`queue_depth_capped`).
     pub async fn blob_counter_report(&self) -> crate::db_operations::BlobCounterReport {
-        self.db_ops().atoms().blob_counter_report_full().await
+        self.db_ops().records().blob_counter_report_full().await
     }
 
     /// The retention window of kept conflict records, the janitor's last run,
@@ -67,10 +67,10 @@ impl FoldDB {
     /// makes the entry count a lower bound (`queue_depth_capped`). Only a
     /// failure to read the directory leaves `queue_depth` empty.
     pub async fn conflict_retention_report(&self) -> crate::db_operations::ConflictRetentionReport {
-        let atoms = self.db_ops().atoms();
-        let mut report = atoms.retention_state().snapshot();
-        let queue = atoms.retention_state().queue();
-        if let Ok(stats) = atoms
+        let records = self.db_ops().records();
+        let mut report = records.retention_state().snapshot();
+        let queue = records.retention_state().queue();
+        if let Ok(stats) = records
             .time_queue_stats(&queue, CONFLICT_QUEUE_DEPTH_CAP)
             .await
         {

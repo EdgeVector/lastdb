@@ -1,9 +1,8 @@
 use super::super::{inventory::Inventory, RestoreError, RestoreSession, Result};
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::Digest;
-use fold_db::storage::disk_pack::byte_backup::{
-    run_backup_destination, ClientNativeFile, ClientRoot,
-};
+use fold_db::storage::disk_pack::byte_backup::{run_backup_destination, ClientRoot};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(in crate::byte_cloud_restore) struct Coverage {

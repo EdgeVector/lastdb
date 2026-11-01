@@ -4,9 +4,10 @@
 //! Version 3 remains readable with unknown logical coverage. Version 4 belongs
 //! to mutation-log roots; versions 1 and 2 described the retired disk format.
 use super::{invalid, protocol, StorageResult};
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::Begin;
 use cloud_backup_protocol::{
-    DecimalU64, Digest, ExternalFileDependency, NativeRoot, RecoveryDescriptor, RelativePath,
+    DecimalU64, Digest, ExternalFileDependency, NativeRoot, RecoveryDescriptor,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -17,52 +18,6 @@ pub const CLIENT_VERSION: u16 = 5;
 pub const LEGACY_CLIENT_VERSION: u16 = 3;
 pub const MAX_CLIENT_PAGES: usize = 1024;
 pub const MAX_PAGE_FILES: usize = 128;
-pub const MAX_FILE_EXTENTS: usize = 16384;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClientExtent {
-    pub receipt_id: Digest,
-    pub offset: DecimalU64,
-    pub length: DecimalU64,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClientNativeFile {
-    pub path: RelativePath,
-    pub native_sha256: Digest,
-    pub native_bytes: DecimalU64,
-    pub extents: Vec<ClientExtent>,
-}
-impl ClientNativeFile {
-    pub fn validate(&self) -> StorageResult<()> {
-        if self.native_bytes.get() == 0
-            || self.extents.is_empty()
-            || self.extents.len() > MAX_FILE_EXTENTS
-        {
-            return Err(invalid("byte native file extent count"));
-        }
-        let mut bytes = 0u64;
-        for extent in &self.extents {
-            if extent.length.get() == 0
-                || extent
-                    .offset
-                    .get()
-                    .checked_add(extent.length.get())
-                    .is_none()
-            {
-                return Err(invalid("byte native extent bounds"));
-            }
-            bytes = bytes
-                .checked_add(extent.length.get())
-                .ok_or_else(|| invalid("byte native extent overflow"))?;
-        }
-        if bytes != self.native_bytes.get() {
-            return Err(invalid("byte native file exact length"));
-        }
-        Ok(())
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

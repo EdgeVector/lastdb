@@ -1,11 +1,12 @@
 //! Client-only mutation-log manifests. The cloud never decodes these values.
 mod page;
 mod root;
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Destination};
 use cloud_backup_protocol::{Digest, RecoveryDescriptor};
 use fold_db::storage::disk_pack::byte_backup::{
-    ClientNativeFile, ClientPageReference, CODEC_ENVELOPE_MAX_BYTES, CODEC_PLAINTEXT_MAX_BYTES,
-    MAX_CLIENT_PAGES, MAX_PAGE_FILES,
+    ClientPageReference, CODEC_ENVELOPE_MAX_BYTES, CODEC_PLAINTEXT_MAX_BYTES, MAX_CLIENT_PAGES,
+    MAX_PAGE_FILES,
 };
 use fold_db::storage::disk_pack::mutation_log::{log_path, LogAnchor, LogEntry, LogPosition};
 pub use page::MutationLogPage;

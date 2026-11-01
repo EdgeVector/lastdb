@@ -4,15 +4,15 @@
 //! `rk:{S}:{esc(hash)}\0{range}`, where `S` is the record space of one schema
 //! (`record_space_uuid`). The logical size of a record is the length of that
 //! stored value: the encoded `StoredRecord` that the write path puts
-//! (`AtomStore::stage_records`).
+//! (`RecordStore::stage_records`).
 //!
 //! A tombstone is not counted. A delete leaves a tombstone at the record key,
 //! so the record count and bytes drop after a delete.
 
 use super::{sort_rows, SchemaStorage, StorageBreakdown};
 use crate::db_operations::admin_db::{inventory_next_page_rows, INVENTORY_PAGE_ROWS_MIN};
-use crate::db_operations::atom_store::RangeWalk;
-use crate::db_operations::AtomStore;
+use crate::db_operations::record_store::RangeWalk;
+use crate::db_operations::RecordStore;
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use lastdb_model::record_space::{record_space_uuid, RECORD_PREFIX};
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 /// Live records and their stored value bytes, by row name.
 type RecordTotals = HashMap<String, (u64, u64)>;
 
-impl AtomStore {
+impl RecordStore {
     /// Add the live records of a format 7 home to `breakdown`, one row per
     /// schema.
     ///

@@ -13,7 +13,7 @@
 //! scopes (`HashRangeQueryProcessor::sample_rows`), so it does not come here.
 
 use super::{bound, has_any};
-use crate::db_operations::atom_store::{KeyedRecord, RecordBound};
+use crate::db_operations::record_store::{KeyedRecord, RecordBound};
 use crate::fold_db_core::query::hash_range_query::HashRangeQueryProcessor;
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::field::{HashRangeFilter, KeyWindow};
@@ -86,13 +86,13 @@ impl HashRangeQueryProcessor {
         keys: &[KeyValue],
         scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let mut seen = HashSet::new();
         let mut candidates = Vec::with_capacity(keys.len());
         for key in keys.iter().filter(|key| seen.insert(*key)) {
             let physical = scopes
                 .iter()
-                .map(|scope| atoms.record_key(schema, key, scope.as_deref()))
+                .map(|scope| records.record_key(schema, key, scope.as_deref()))
                 .collect::<Result<Vec<_>, _>>()?;
             candidates.push((key.clone(), physical));
         }
@@ -109,7 +109,7 @@ impl HashRangeQueryProcessor {
             .iter()
             .flat_map(|(_, keys)| keys.iter().cloned())
             .collect();
-        let records = self.db_ops.atoms().read_records(&physical).await?;
+        let records = self.db_ops.records().read_records(&physical).await?;
         let mut rows = Vec::with_capacity(candidates.len());
         let mut at = 0;
         for (key, keys) in candidates {
@@ -137,10 +137,10 @@ impl HashRangeQueryProcessor {
             Some(HashRangeFilter::Page { offset, limit }) => (*offset, *limit),
             _ => (0, DEFAULT_UNFILTERED_PAGE_LIMIT),
         };
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let mut merged = HashMap::new();
         for scope in scopes {
-            for (key, record) in atoms
+            for (key, record) in records
                 .select_records(schema, comparison, Some(&walk), scope.as_deref())
                 .await?
             {

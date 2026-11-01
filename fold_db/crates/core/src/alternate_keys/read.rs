@@ -2,10 +2,10 @@
 //! An org database keeps its entries under its own storage scope prefix.
 
 use super::*;
-use crate::db_operations::atom_store::AtomStore;
+use crate::db_operations::record_store::RecordStore;
 use crate::schema::types::field::HashRangeFilter;
 
-impl AtomStore {
+impl RecordStore {
     pub(crate) async fn select_alternate_entries(
         &self,
         schema: &Schema,
@@ -56,16 +56,16 @@ impl AtomStore {
 }
 
 fn alternate_bounds(
-    atoms: &AtomStore,
+    records: &RecordStore,
     schema: &Schema,
     name: &str,
     filter: &HashRangeFilter,
 ) -> Result<(String, String), SchemaError> {
     let molecule = molecule(schema, name);
-    let codec = atoms.key_codec_for_molecule(&molecule)?;
+    let codec = records.key_codec_for_molecule(&molecule)?;
     let encode = |hash: &str, range: Option<&str>| {
         storage_key(
-            atoms,
+            records,
             schema,
             name,
             &KeyValue::new(Some(hash.to_string()), range.map(str::to_owned)),

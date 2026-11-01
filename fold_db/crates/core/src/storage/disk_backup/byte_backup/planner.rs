@@ -1,24 +1,20 @@
-//! Raw native file concatenation and client metadata planning. No network authority.
+//! The snapshot plan over the frozen run files. The shared planner
+//! (`cloud_backup_plan`) cuts the objects; this file keeps them in the job
+//! store, and `metadata` adds the client pages and root. No network authority.
 use super::{
     invalid,
     model::{ObjectRecord, Segment, State},
-    protocol, ClientExtent, ClientNativeFile, Inner, StorageResult,
+    protocol, Inner, StorageError, StorageResult,
 };
+use cloud_backup_plan::{PlanError, PlanFile, PlannedObject};
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Object, Version,
 };
-use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, RelativePath};
+use cloud_backup_protocol::{Id, RelativePath};
 use laststore::disk_run::home::SnapshotFile;
-use sha2::{Digest as _, Sha256};
-use std::io::Read;
 
-mod large;
 pub(super) mod metadata;
-/// Client chunk policy. This is not a V2 wire or native-file length limit.
-pub(super) const OBJECT_BYTES: u64 = lastdb_storage_policy::backup_transport::OBJECT_CHUNK_BYTES;
-const SMALL_FILE_BYTES: u64 = lastdb_storage_policy::backup_transport::SMALL_NATIVE_FILE_BYTES;
-const PACK_BYTES: u64 = lastdb_storage_policy::backup_transport::METADATA_PACK_BYTES;
 
 pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> StorageResult<()> {
     let inventory = inner.files()?;
@@ -30,39 +26,31 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
     state.metadata_pack_objects = 0;
     state.multi_file_pack_objects = 0;
     inner.store.write("job.json", state)?;
-    let mut index = 0;
-    let mut files = inventory.iter().peekable();
-    while let Some(first) = files.next() {
-        if first.bytes > OBJECT_BYTES {
-            large::plan(inner, state, &mut index, first)?;
-            continue;
-        }
-        let mut members = vec![first];
-        let mut bytes = first.bytes;
-        if first.bytes < SMALL_FILE_BYTES {
-            while let Some(next) = files.peek() {
-                if next.bytes >= SMALL_FILE_BYTES
-                    || inner.destination(&next.path)? != inner.destination(&first.path)?
-                    || members.len() >= lastdb_storage_policy::backup_transport::MAX_PACK_MEMBERS
-                    || bytes + next.bytes > PACK_BYTES
-                {
-                    break;
-                }
-                bytes += next.bytes;
-                members.push(
-                    files
-                        .next()
-                        .ok_or_else(|| invalid("byte native member missing"))?,
-                );
-            }
-        }
-        let object = group(inner, state, index, &members)?;
-        state.metadata_pack_objects += u64::from(object.metadata_pack);
-        state.multi_file_pack_objects += u64::from(object.metadata_pack && members.len() > 1);
-        save(inner, state, index, object)?;
-        index += 1;
-    }
-    metadata::finish(inner, state, key, index)?;
+    let files = inventory
+        .iter()
+        .enumerate()
+        .map(|(id, file)| {
+            Ok(PlanFile {
+                id,
+                path: native_relative_path(file)?,
+                bytes: file.bytes,
+                destination: inner.destination(&file.path)?,
+            })
+        })
+        .collect::<StorageResult<Vec<_>>>()?;
+    let scope = state.begin.job.stream.scope.clone();
+    let totals = cloud_backup_plan::plan(
+        &files,
+        &scope,
+        |file| inner.file_reader(&inventory[file.id].path),
+        |index, planned| {
+            state.metadata_pack_objects += u64::from(planned.pack);
+            state.multi_file_pack_objects += u64::from(planned.pack && planned.segments.len() > 1);
+            let object = record(inner, state, index, &files, planned)?;
+            save(inner, state, index, object)
+        },
+    )?;
+    metadata::finish(inner, state, key, totals.objects)?;
     state.ready = true;
     state.validate()?;
     inner.store.write("job.json", state)
@@ -79,70 +67,32 @@ fn native_relative_path(file: &SnapshotFile) -> StorageResult<RelativePath> {
     .map_err(protocol)
 }
 
-fn group(
+/// A snapshot segment names its file by path; the plan names it by id.
+fn record(
     inner: &Inner,
     state: &State,
     index: u64,
-    members: &[&SnapshotFile],
+    files: &[PlanFile],
+    planned: PlannedObject,
 ) -> StorageResult<ObjectRecord> {
-    let mut hash = Sha256::new();
-    let mut native_files = Vec::new();
-    let mut segments = Vec::new();
-    let mut bytes = 0;
-    let mut buffer = [0u8; 65536];
-    for file in members {
-        let mut reader = inner.file_reader(&file.path)?;
-        let mut file_hash = Sha256::new();
-        let mut length = 0u64;
-        loop {
-            let count = reader.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            hash.update(&buffer[..count]);
-            file_hash.update(&buffer[..count]);
-            length += count as u64;
-        }
-        if length != file.bytes {
-            return Err(invalid("byte native source length changed"));
-        }
-        let path = native_relative_path(file)?;
-        segments.push(Segment {
-            path: path.clone(),
-            offset: 0,
-            bytes: length,
-        });
-        native_files.push(ClientNativeFile {
-            path,
-            native_sha256: hex(file_hash.finalize().into())?,
-            native_bytes: DecimalU64::new(length),
-            extents: vec![ClientExtent {
-                receipt_id: bytes_sha256(b"unfrozen"),
-                offset: DecimalU64::new(bytes),
-                length: DecimalU64::new(length),
-            }],
-        });
-        bytes += length;
-    }
-    let input = input(
-        inner,
-        state,
-        index,
-        Object {
-            sha256: hex(hash.finalize().into())?,
-            bytes: DecimalU64::new(bytes),
-            destination: inner.destination(&members[0].path)?,
-        },
-    )?;
-    let receipt = expected_receipt(&input)?;
-    for file in &mut native_files {
-        file.extents[0].receipt_id = receipt.receipt_id.clone();
-    }
+    let segments = planned
+        .segments
+        .iter()
+        .map(|part| Segment {
+            path: files[part.file].path.clone(),
+            offset: part.offset,
+            bytes: part.bytes,
+        })
+        .collect();
     Ok(ObjectRecord {
-        input,
+        input: input(inner, state, index, planned.object)?,
         segments,
-        native_files,
-        metadata_pack: members[0].bytes < SMALL_FILE_BYTES,
+        native_files: planned
+            .native_files
+            .into_iter()
+            .map(|(_, file)| file)
+            .collect(),
+        metadata_pack: planned.pack,
         ciphertext: None,
         receipt: None,
     })
@@ -199,16 +149,17 @@ pub(super) fn save(
     inner.store.write("job.json", state)
 }
 pub(super) fn expected_receipt(input: &TransferInput) -> StorageResult<ObjectReceipt> {
-    let mut receipt = ObjectReceipt {
-        version: Version::V2,
-        receipt_id: input.object.sha256.clone(),
-        scope: input.job.stream.scope.clone(),
-        object: input.object.clone(),
-    };
-    receipt.receipt_id = receipt.identity_sha256().map_err(protocol)?;
-    receipt.validate().map_err(protocol)?;
-    Ok(receipt)
+    cloud_backup_plan::expected_receipt(input).map_err(protocol)
 }
-fn hex(value: [u8; 32]) -> StorageResult<Digest> {
-    Digest::try_from(lastdb_model::hex::hex_lower(value)).map_err(protocol)
+
+impl From<PlanError> for StorageError {
+    fn from(error: PlanError) -> Self {
+        match error {
+            PlanError::Invalid(reason) => invalid(reason),
+            PlanError::SourceLength => invalid("byte native source length changed"),
+            PlanError::ExtentBound => invalid("byte native file extent metadata bound"),
+            PlanError::Protocol(error) => protocol(error),
+            PlanError::Io(error) => Self::from(error),
+        }
+    }
 }

@@ -18,6 +18,7 @@ mod terminal;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 pub use adoption::{SnapshotAdoptionCandidate, SnapshotAdoptionPlan};
+use cloud_backup_plan::ClientNativeFile;
 use cloud_backup_protocol::v2::{
     transfer::{ObjectReceipt, TransferInput},
     Begin,

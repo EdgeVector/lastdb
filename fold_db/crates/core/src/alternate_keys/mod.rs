@@ -87,13 +87,13 @@ pub(crate) fn derive_key(
 }
 
 pub(crate) fn storage_key(
-    atoms: &crate::db_operations::atom_store::AtomStore,
+    records: &crate::db_operations::record_store::RecordStore,
     schema: &Schema,
     name: &str,
     key: &KeyValue,
 ) -> Result<String, SchemaError> {
     let molecule = molecule(schema, name);
-    let encoded = atoms
+    let encoded = records
         .key_codec_for_molecule(&molecule)?
         .api_hash_range_record_key(
             &molecule,

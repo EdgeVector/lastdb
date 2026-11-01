@@ -16,7 +16,7 @@ use super::condition_rules::{
     order_condition_keys,
 };
 use super::*;
-use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
+use crate::db_operations::record_store::{record_scope, KeyedRecord, WalkWindow, PAGE_READ_KEYS};
 use crate::db_operations::{note_page_resume, note_walk_positions, page_can_resume, PageResume};
 use crate::fold_db_core::query::{FieldMetadata, QueryRecords, Record};
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
@@ -105,7 +105,7 @@ impl HashRangeQueryProcessor {
     /// in bounded pages of each scope (`records/received_range.rs`), so the
     /// window ends the read in the own scope too. An unfiltered read walks
     /// the records of every scope in record key order, and its window is a
-    /// window of that walk (`atom_store/record_walk.rs`).
+    /// window of that walk (`record_store/record_walk.rs`).
     async fn select_rows(
         &self,
         schema: &Schema,
@@ -158,7 +158,7 @@ impl HashRangeQueryProcessor {
         let own = scopes.pop().flatten();
         let mut rows = self
             .db_ops
-            .atoms()
+            .records()
             .select_records(schema, comparison, filter, own.as_deref())
             .await?;
         rows.retain(|(_, record)| has_any(record, selected));
@@ -183,12 +183,12 @@ impl HashRangeQueryProcessor {
         selected: &[String],
         scopes: &[Option<String>],
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let atoms = self.db_ops.atoms();
+        let records = self.db_ops.records();
         let (after, skip, take) = match window {
             None => (None, 0, DEFAULT_UNFILTERED_PAGE_LIMIT),
             Some(KeyWindow::Offset { offset, limit }) => (None, *offset, *limit),
             Some(KeyWindow::After { after, limit }) => {
-                (Some(atoms.walk_position(schema, after)?), 0, *limit)
+                (Some(records.walk_position(schema, after)?), 0, *limit)
             }
             Some(KeyWindow::AfterRecord { record, limit }) => (Some(record.clone()), 0, *limit),
         };
@@ -199,7 +199,7 @@ impl HashRangeQueryProcessor {
             skip,
             take,
         };
-        let mut page = atoms
+        let mut page = records
             .walk_record_window(schema, comparison, walk, scopes, |record| {
                 has_any(record, selected)
             })
@@ -251,7 +251,7 @@ impl HashRangeQueryProcessor {
         };
         let mut page = self
             .db_ops
-            .atoms()
+            .records()
             .walk_record_window(schema, comparison, walk, scopes, |record| {
                 has_any(record, selected)
             })
