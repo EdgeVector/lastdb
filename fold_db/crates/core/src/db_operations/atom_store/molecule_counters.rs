@@ -8,16 +8,8 @@
 
 use super::counter::{counts_of_header, MoleculeCounts};
 use super::molecule_bindings::MoleculeBindings;
-use super::AtomStore;
-use crate::atom::molecule_key_codec::header_key;
-use crate::schema::types::field::build_storage_key;
-use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-/// Molecules in one call that get the read of a binding record. Each is a range
-/// read, and one call spends a budget of 4,096 metadata pages.
-const RECORD_CHECKS: usize = 256;
 
 /// The three counters of one molecule in one scope, for operators.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,68 +79,5 @@ pub fn molecule_view(
         suspect,
         state: state.to_string(),
         binding_records: None,
-    }
-}
-
-impl MoleculeCountersView {
-    /// Record whether a binding record exists. A binding record next to a zero
-    /// counter is a fault, so a view that looked `droppable` becomes `mismatch`.
-    #[must_use]
-    pub fn with_binding_records(mut self, present: bool) -> Self {
-        self.binding_records = Some(present);
-        if present && self.state == "droppable" {
-            self.state = "mismatch".to_string();
-        }
-        self
-    }
-}
-
-impl AtomStore {
-    /// The counters of each molecule in `storage_prefix`, in the order given.
-    /// Two reads by key, in batches. A molecule whose counters are all zero gets
-    /// one more read, of at most one binding record, up to [`RECORD_CHECKS`]
-    /// molecules in one call.
-    pub async fn molecule_counter_views(
-        &self,
-        molecules: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<MoleculeCountersView>, SchemaError> {
-        self.atom_read_scope(self.molecule_counter_views_captured(molecules, storage_prefix))
-            .await
-    }
-
-    async fn molecule_counter_views_captured(
-        &self,
-        molecules: &[String],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<MoleculeCountersView>, SchemaError> {
-        let keys: Vec<String> = molecules
-            .iter()
-            .map(|molecule| build_storage_key(storage_prefix, &header_key(molecule)))
-            .collect();
-        let headers = self
-            .read_stored_values::<Value>(&keys, "read molecule headers")
-            .await?;
-        let bindings = self
-            .read_binding_counters(molecules, storage_prefix)
-            .await?;
-        let mut views: Vec<MoleculeCountersView> = molecules
-            .iter()
-            .zip(headers.iter().zip(bindings.iter()))
-            .map(|(molecule, (header, bindings))| {
-                molecule_view(molecule, header.as_ref(), bindings.as_ref())
-            })
-            .collect();
-        for view in views
-            .iter_mut()
-            .filter(|view| view.droppable())
-            .take(RECORD_CHECKS)
-        {
-            let present = self
-                .binding_record_present(&view.molecule, storage_prefix)
-                .await?;
-            *view = view.clone().with_binding_records(present);
-        }
-        Ok(views)
     }
 }

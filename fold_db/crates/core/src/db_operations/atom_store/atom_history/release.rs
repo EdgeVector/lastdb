@@ -2,46 +2,10 @@ use super::*;
 use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
 use crate::db_operations::atom_store::retention::RetentionEntry;
 use crate::db_operations::atom_store::time_queue::QueueReader;
-use crate::db_operations::atom_store::{AtomStore, RecordSlot};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use serde_json::Value;
-type ArchiveRows = (Option<String>, Vec<(String, Value)>);
 
 impl AtomStore {
-    pub(crate) fn archive_retention_rows(
-        &self,
-        scope: Option<&str>,
-        key: &str,
-        slot: &RecordSlot<'_>,
-        created: u64,
-        expires: Option<u64>,
-    ) -> Result<ArchiveRows, SchemaError> {
-        let id = digest(key.as_bytes());
-        let dir = super::super::retention::archive_dir_key(scope, slot, &id);
-        let queue_key = expires.map(|at| queue().entry_key(at, &id));
-        let entry = RetentionEntry {
-            version: 1,
-            history: key.to_string(),
-            conflict: None,
-            dir: dir.clone(),
-            queue: queue_key.clone().unwrap_or_default(),
-            slot: crate::schema::types::field::build_storage_key(
-                scope,
-                &crate::atom::molecule_key_codec::hash_range_record_key(
-                    slot.molecule,
-                    slot.hash,
-                    slot.range,
-                ),
-            ),
-            created,
-        };
-        let value =
-            serde_json::to_value(entry).map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let mut rows = expires.map_or_else(Vec::new, |at| queue().rows(at, &id, &value));
-        rows.push((dir, value));
-        Ok((queue_key, rows))
-    }
-
     /// One bounded cleanup step. A failed step never advances the cursor.
     pub(crate) async fn atom_history_expire_step(
         &self,

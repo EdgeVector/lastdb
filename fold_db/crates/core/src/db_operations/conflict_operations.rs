@@ -1,6 +1,5 @@
 use crate::clock::unix_nanos_wide;
 use std::collections::{BTreeSet, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::core::DbOperations;
 use crate::schema::types::field::build_storage_key;
@@ -121,28 +120,6 @@ pub enum HomeConflictAnnotation {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HomeConflictEvent {
     molecule: String,
-}
-
-impl HomeConflictEvent {
-    pub(crate) fn named(molecule: &str) -> Self {
-        Self {
-            molecule: molecule.to_string(),
-        }
-    }
-}
-
-/// `{unix_nanos:020}:{pid}-{counter}`. The writer suffix keeps two appends in
-/// the same nanosecond from sharing a key. Compare the whole string. Do not
-/// compare it to a unix-seconds watermark: a seconds string sorts above every
-/// zero-padded nanos seq.
-pub(crate) fn next_home_conflict_event_seq() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{:020}:{}-{}", unix_nanos_wide(), std::process::id(), n)
-}
-
-pub(crate) fn home_conflict_event_key(seq: &str) -> String {
-    format!("{HOME_CONFLICT_EVENT_PREFIX}{seq}")
 }
 
 /// Exclusive end of the event partition. `hcu:evt\0` becomes `hcu:evt\u{1}`,

@@ -95,19 +95,6 @@ impl Atom {
         }
     }
 
-    /// Sets the source file name for atoms created from file uploads
-    #[must_use]
-    pub fn with_source_file_name(mut self, file_name: String) -> Self {
-        self.source_file_name = Some(file_name);
-        self
-    }
-
-    #[must_use]
-    pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata = Some(metadata);
-        self
-    }
-
     #[must_use]
     pub fn metadata(&self) -> Option<&HashMap<String, String>> {
         self.metadata.as_ref()
@@ -159,14 +146,5 @@ impl Atom {
     #[must_use]
     pub const fn created_at(&self) -> DateTime<Utc> {
         self.created_at
-    }
-
-    /// Returns `true` if this atom's content is the reserved tombstone
-    /// shape. See [`crate::atom::tombstone`] for the full predicate.
-    /// Filtered out at molecule resolution unless the caller asks for
-    /// `include_tombstones = true`.
-    #[must_use]
-    pub fn is_tombstone(&self) -> bool {
-        super::tombstone::is_tombstone_value(&self.content)
     }
 }

@@ -1,8 +1,5 @@
 //! Free helpers shared by MutationManager impl modules.
 
-use std::collections::{HashMap, HashSet};
-
-use crate::db_operations::ChangedKey;
 use crate::schema::types::{Mutation, Schema};
 use crate::schema::SchemaError;
 
@@ -11,9 +8,8 @@ use crate::schema::SchemaError;
 ///
 /// `None` leaves fields untouched (personal home — schemas default to no prefix).
 ///
-/// Request-scoped only: call [`clear_storage_prefix_on_schema`] before
-/// `store_schema` / `load_schema_internal` so the durable schema registry never
-/// permanently inherits an org DB prefix.
+/// Request-scoped only: stamp a clone, never the schema that the durable
+/// schema registry stores.
 pub(crate) fn apply_storage_prefix_to_schema(schema: &mut Schema, storage_prefix: Option<&str>) {
     let Some(prefix) = storage_prefix else {
         return;
@@ -24,21 +20,6 @@ pub(crate) fn apply_storage_prefix_to_schema(schema: &mut Schema, storage_prefix
             .set_storage_prefix(Some(prefix.to_string()));
     }
 }
-
-/// Drop request-scoped storage prefixes before persisting schema metadata.
-pub(crate) fn clear_storage_prefix_on_schema(schema: &mut Schema) {
-    for field in schema.runtime_fields.values_mut() {
-        if field.common().storage_prefix().is_some() {
-            field.common_mut().set_storage_prefix(None);
-        }
-    }
-}
-
-/// Per modified field, the set of keys touched in a write batch — the unit the
-/// O(changed) persist path uses to write only the changed `mk:` records. A
-/// field mapped to an empty set is `Single`: it has no per-key shape, and the
-/// per-key store path takes it with an empty changed set.
-pub(crate) type ModifiedFieldKeys = HashMap<String, HashSet<ChangedKey>>;
 
 /// Reject any mutation carrying `Provenance::Derived`.
 ///

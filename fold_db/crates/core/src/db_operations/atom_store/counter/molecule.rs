@@ -27,17 +27,6 @@ const SUSPECT: &str = "suspect";
 #[derive(Debug, Default)]
 pub(super) struct MoleculeRun {
     pub faults: Vec<(String, MoleculeFault)>,
-    /// Each header row this run writes, with its stored and written length.
-    pub headers: Vec<HeaderChange>,
-}
-
-/// One molecule header row a run writes, for the keep-small meters.
-#[derive(Debug, Clone)]
-pub(crate) struct HeaderChange {
-    pub molecule: String,
-    /// Length of the stored row, 0 when the run creates it.
-    pub old_bytes: u64,
-    pub new_bytes: u64,
 }
 
 /// The counters a header carries, or `None` when it carries none.
@@ -140,9 +129,6 @@ impl AtomStore {
                 counts: stored.as_ref().and_then(counts_of_header),
             };
             let after = plan_molecule(&before, &change);
-            let old_bytes = stored.as_ref().map_or(0, |value| {
-                crate::db_operations::keep_small::molecule_counter_row_bytes(value).unwrap_or(0)
-            });
             if let Some(fault) = after.fault {
                 run.faults.push((molecule.clone(), fault));
             }
@@ -159,12 +145,6 @@ impl AtomStore {
             };
             write_counts(&mut header, after.counts);
             let merged = Value::Object(header);
-            run.headers.push(HeaderChange {
-                molecule: molecule.clone(),
-                old_bytes,
-                new_bytes: crate::db_operations::keep_small::molecule_counter_row_bytes(&merged)
-                    .unwrap_or(0),
-            });
             match at {
                 Some(at) => {
                     for &at in at {

@@ -11,7 +11,6 @@
 use super::plan::{AtomPlan, SuspectKind};
 use super::read::Offer;
 use super::report::CounterEvent;
-use super::DeletedAtom;
 use super::{AtomCounter, TipCommit};
 use crate::atom::atom_key_codec;
 use crate::db_operations::atom_store::blob_counter::BlobDeltas;
@@ -49,22 +48,12 @@ pub(super) async fn build_mutations(
                     .expect("a created atom has an offered body");
                 puts.extend(create_puts(scope, &atom, &counter, &offer)?);
                 blob_deltas.atom_counter_created(&counter.blobs);
-                commit.created.push(offer.atom);
                 Some(CounterEvent::Created)
             }
-            AtomPlan::Delete {
-                blobs,
-                size,
-                source_schema,
-            } => {
+            AtomPlan::Delete { blobs, .. } => {
                 removals.extend(delete_removals(scope, &atom, !blobs.is_empty()));
                 blob_deltas.atom_counter_deleted(&blobs);
-                commit.deleted.push(DeletedAtom {
-                    uuid: atom.clone(),
-                    blobs,
-                    size,
-                    source_schema,
-                });
+                commit.deleted += 1;
                 Some(CounterEvent::Deleted)
             }
             AtomPlan::Suspect(counter, kind) => {

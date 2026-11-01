@@ -148,30 +148,20 @@ impl AppRegisterError {
     pub fn to_http(&self) -> (u16, Value) {
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::InvalidAppIdCharset(detail) => (
-                400,
-                json!({ "reason": "invalid_app_id_charset", "detail": detail }),
-            ),
-            Self::ReservedAppId => (400, json!({ "reason": "reserved_app_id" })),
-            Self::InvalidMetadata(detail) => (
-                400,
-                json!({ "reason": "invalid_metadata", "detail": detail }),
-            ),
-            Self::InvalidVersion(detail) => (
-                400,
-                json!({ "reason": "invalid_version", "detail": detail }),
-            ),
-            Self::InvalidCodeSignature(detail) => (
-                400,
-                json!({ "reason": "invalid_code_signature", "detail": detail }),
-            ),
-            Self::InvalidUses(detail) => {
-                (400, json!({ "reason": "invalid_uses", "detail": detail }))
+            Self::InvalidAppIdCharset(detail) => {
+                (400, reason_detail_body("invalid_app_id_charset", detail))
             }
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::NotAuthorizedPublisher => (403, json!({ "reason": "not_authorized_publisher" })),
+            Self::ReservedAppId => (400, reason_only_body("reserved_app_id")),
+            Self::InvalidMetadata(detail) => (400, reason_detail_body("invalid_metadata", detail)),
+            Self::InvalidVersion(detail) => (400, reason_detail_body("invalid_version", detail)),
+            Self::InvalidCodeSignature(detail) => {
+                (400, reason_detail_body("invalid_code_signature", detail))
+            }
+            Self::InvalidUses(detail) => (400, reason_detail_body("invalid_uses", detail)),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
             Self::QuotaExceeded => (
                 429,
                 json!({
@@ -196,7 +186,7 @@ impl AppRegisterError {
                 409,
                 json!({ "reason": "app_id_taken", "current_owner_dev_pubkey": current_owner_dev_pubkey }),
             ),
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
         }
     }
 }
@@ -247,18 +237,18 @@ impl SchemaClaimError {
 
     pub fn to_http(&self) -> (u16, Value) {
         match self {
-            Self::CertRequired => (401, json!({ "reason": "cert_required" })),
-            Self::NotAuthorizedPublisher => (403, json!({ "reason": "not_authorized_publisher" })),
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::CertForWrongApp => (401, json!({ "reason": "cert_for_wrong_app" })),
-            Self::AppNotRegistered => (403, json!({ "reason": "app_not_registered" })),
-            Self::DevRevoked => (403, json!({ "reason": "dev_revoked" })),
+            Self::CertRequired => (401, reason_only_body("cert_required")),
+            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::CertForWrongApp => (401, reason_only_body("cert_for_wrong_app")),
+            Self::AppNotRegistered => (403, reason_only_body("app_not_registered")),
+            Self::DevRevoked => (403, reason_only_body("dev_revoked")),
             Self::AppIdentityNotConfigured => {
-                (503, json!({ "reason": "app_identity_not_configured" }))
+                (503, reason_only_body("app_identity_not_configured"))
             }
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
         }
     }
 }

@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 mod certified;
 mod proof;
-pub(crate) use certified::{certified_atoms, CertifiedAtom};
 static SOURCE_CACHE: u8 = 0;
 
 /// True when one of the path's source coordinates is the body of `atom`.

@@ -116,22 +116,16 @@ impl AppUpdateError {
     pub fn to_http(&self) -> (u16, Value) {
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::InvalidMetadata(detail) => (
-                400,
-                json!({ "reason": "invalid_metadata", "detail": detail }),
-            ),
-            Self::InvalidCodeSignature(detail) => (
-                400,
-                json!({ "reason": "invalid_code_signature", "detail": detail }),
-            ),
-            Self::InvalidUses(detail) => {
-                (400, json!({ "reason": "invalid_uses", "detail": detail }))
+            Self::InvalidMetadata(detail) => (400, reason_detail_body("invalid_metadata", detail)),
+            Self::InvalidCodeSignature(detail) => {
+                (400, reason_detail_body("invalid_code_signature", detail))
             }
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::NotOwner => (401, json!({ "reason": "not_owner" })),
-            Self::AppNotRegistered => (404, json!({ "reason": "app_not_registered" })),
+            Self::InvalidUses(detail) => (400, reason_detail_body("invalid_uses", detail)),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::NotOwner => (401, reason_only_body("not_owner")),
+            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
             Self::DisplayNameImmutable {
                 current_display_name,
             } => (
@@ -141,7 +135,7 @@ impl AppUpdateError {
                     "current_display_name": current_display_name,
                 }),
             ),
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
         }
     }
 }
@@ -215,20 +209,20 @@ impl AppPromoteError {
     pub fn to_http(&self) -> (u16, Value) {
         match self {
             Self::InvalidAppId => (400, invalid_app_id_body()),
-            Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
-            Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
-            Self::EnvelopeInvalid => (401, json!({ "reason": "envelope_invalid" })),
-            Self::NotOwner => (401, json!({ "reason": "not_owner" })),
-            Self::AppNotRegistered => (404, json!({ "reason": "app_not_registered" })),
-            Self::NotAuthorizedPublisher => (403, json!({ "reason": "not_authorized_publisher" })),
+            Self::CertInvalid => (401, reason_only_body("cert_invalid")),
+            Self::CertExpired => (401, reason_only_body("cert_expired")),
+            Self::EnvelopeInvalid => (401, reason_only_body("envelope_invalid")),
+            Self::NotOwner => (401, reason_only_body("not_owner")),
+            Self::AppNotRegistered => (404, reason_only_body("app_not_registered")),
+            Self::NotAuthorizedPublisher => (403, reason_only_body("not_authorized_publisher")),
             Self::MissingInstallPointer => (
                 400,
-                json!({
-                    "reason": "missing_install_pointer",
-                    "detail": "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
-                }),
+                reason_detail_body(
+                    "missing_install_pointer",
+                    "promote to live requires a source checkout URL or artifact pointer so `lastdb app install` can fetch the app; re-publish or PUT with source/artifact first",
+                ),
             ),
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (500, reason_detail_body("internal", detail)),
         }
     }
 }

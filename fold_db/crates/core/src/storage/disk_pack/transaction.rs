@@ -5,7 +5,6 @@ mod accounting;
 pub(crate) mod blocked;
 mod effects;
 mod empty;
-mod leases;
 mod logical_capture;
 pub(crate) use logical_capture::mark_logical_capture;
 pub(super) use logical_capture::require_captured_changes;
@@ -13,12 +12,9 @@ mod record_layout;
 pub(super) use record_layout::require_record_layout;
 pub(crate) mod publication;
 mod request;
-mod resources;
 mod warm_records;
-pub(crate) use effects::{prepared_core_memory, stage_core_memory, stage_paths};
-pub(crate) use leases::lease;
+pub(crate) use effects::{prepared_core_memory, stage_core_memory};
 pub(crate) use request::{background_scope, request_scope};
-pub(crate) use resources::with_resource;
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
 /// One serialized operation in the existing private preparation and flush log.
@@ -41,15 +37,12 @@ pub(super) struct PendingBatch {
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
-    resources: Mutex<Vec<resources::Resource>>,
-    leases: Mutex<BTreeMap<String, std::sync::Weak<dyn std::any::Any + Send + Sync>>>,
     raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
     logical_capture_ready: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
-    paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
     source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
@@ -70,15 +63,12 @@ impl PendingBatch {
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
-            resources: Mutex::new(resources::capture(runtime)),
-            leases: Mutex::new(BTreeMap::new()),
             raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
             logical_capture_ready: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
-            paths: Mutex::new(Vec::new()),
             definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
@@ -240,17 +230,7 @@ impl PendingBatch {
 
     fn memory_quote(&self) -> u64 {
         let stored = self.data.lock().expect("native pending batch").bytes;
-        let paths = self
-            .paths
-            .lock()
-            .expect("native private paths")
-            .iter()
-            .fold(0u64, |sum, record| {
-                sum.saturating_add(record.retained_bytes() as u64)
-            });
-        stored
-            .saturating_mul(4)
-            .saturating_add(paths.saturating_mul(2))
+        stored.saturating_mul(4)
     }
 
     pub(super) fn finish_publications(&self) -> StorageResult<()> {

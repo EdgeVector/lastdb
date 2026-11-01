@@ -81,7 +81,6 @@ impl DbOperations {
             self.atoms().flush().await?;
         }
         self.schemas().store_schema(schema_name, schema).await?;
-        self.atoms().bind_history_schema(schema).await?;
         for edge in &new_edges {
             self.atoms()
                 .keep_small()
@@ -228,14 +227,13 @@ impl DbOperations {
 
     async fn drop_schema_in_scope(&self, schema_name: &str) -> Result<bool, SchemaError> {
         let old = self.schemas().get_schema(schema_name).await?;
-        if old.is_some() {
-            crate::db_operations::alternate_changes::require_finished(self, schema_name).await?;
-        }
         if old
             .as_ref()
             .is_some_and(|schema| !schema.alternate_keys.is_empty())
         {
-            return Err(SchemaError::InvalidData("remove the alternate declarations through the explicit change command before schema removal".into()));
+            return Err(SchemaError::InvalidData(
+                "LastDB does not remove a schema that declares alternate keys".into(),
+            ));
         }
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)

@@ -148,9 +148,9 @@ impl DeclarativeSchemaDefinition {
 
     /// Separate from schema identity: a layout change cannot remint record identity.
     ///
-    /// Only a node schema has a revision, and every node schema owns its
-    /// values. The leading `true` keeps the revision bytes that stored capture
-    /// outcomes and alternate-key change jobs already hold.
+    /// The leading `true` is a fixed hash input. Alternate molecule IDs and
+    /// stored capture outcomes already hold these revision bytes, so the input
+    /// stays.
     pub fn alternate_key_revision(&self) -> String {
         let bytes = serde_json::to_vec(&(true, &self.alternate_keys))
             .expect("alternate key declarations serialize");

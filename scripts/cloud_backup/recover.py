@@ -19,6 +19,7 @@ from node import OwnedNode
 from automatic import Automatic
 from cleanup_credentials import clear as clear_credentials
 from ci_control import Control
+from kept_recovery import legacy_format
 from ownership import run_identity
 from programs import Programs
 from retirement_status import Status
@@ -90,12 +91,18 @@ class Operation:
         require(isinstance(terminal, dict), "ci_preflight_retirement")
         status = Status(scope, self.baseline).validate(terminal, terminal.get("input"))
         bootstrap = status["phase"] == "bootstrap_headroom"
+        kept = None if bootstrap else status["kept_latest"]
+        if kept is not None and legacy_format(kept):
+            # Recomputed from the validated kept owner; the summary flag alone is not trusted.
+            kept_checked = ("kept_latest_recovery" not in value
+                            and value.get("kept_latest_legacy_format", {}).get("stream_id") == kept["stream_id"])
+        else:
+            kept_checked = kept is None or (
+                value.get("kept_latest_recovery", {}).get("restored_boots") == 2
+                and value["kept_latest_recovery"].get("strict_clean_stops") == 2)
         require((bootstrap and value.get("terminal_repeat_checked") is False) or (
                 status["phase"] == "complete" and value.get("terminal_repeat_checked") is True
-                and (status["kept_latest"] is None or (
-                    value.get("kept_latest_recovery", {}).get("restored_boots") == 2
-                    and value["kept_latest_recovery"].get("strict_clean_stops") == 2))),
-                "ci_preflight_finished")
+                and kept_checked), "ci_preflight_finished")
         self.summary["ci_preflight"] = {"request_id": status["request_id"],
             "plan_sha256": status["plan_sha256"], "phase": status["phase"],
             "released_bytes": status.get("released_bytes", 0),

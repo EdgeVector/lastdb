@@ -23,6 +23,7 @@ MAX_BODY = 2 * 1024 * 1024
 STEPS = ("Build the exact accepted client", "Package the exact client",
          "Run automatic snapshots, mutation logs, restart and both recoveries",
          "Retain successful CI stream ownership", "Save durable CI ownership before this run ends")
+BASELINE_STEP = "Make, upload and restore a new fixed CI baseline"
 
 
 class Refused(RuntimeError):
@@ -159,6 +160,12 @@ def successful_job(api, run, now):
     require(job.get("conclusion") == "success", "successful_run_has_failed_recovery_job")
     steps = job.get("steps")
     require(isinstance(steps, list) and len(steps) <= 100, "invalid_real_recovery_steps")
+    recovery = [step for step in steps if step.get("name") == STEPS[2]]
+    baseline = [step for step in steps if step.get("name") == BASELINE_STEP]
+    if (len(recovery) == 1 and recovery[0].get("conclusion") == "skipped"
+            and len(baseline) == 1 and baseline[0].get("conclusion") == "success"):
+        # A manual baseline move is not a recovery result. Look at older runs.
+        return None
     for name in STEPS:
         match = [step for step in steps if step.get("name") == name]
         require(len(match) == 1 and match[0].get("status") == "completed"

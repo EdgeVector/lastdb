@@ -3,14 +3,49 @@
 import copy
 import hashlib
 import json
+import os
+from pathlib import Path
 import re
+import subprocess
 
 from ci_control import decimal, digest
 from node import OwnedNode
 from ownership import REPOSITORY, WORKFLOW
 from recovery_recipe import ROLES, validate as validate_recipe
 from restore_receipts import NODE_V7, restored
-from support import canonical_uuid, require
+from support import OperationError, canonical_uuid, require
+
+# The first accepted main source whose client writes and restores only home
+# format 7 (#929). A kept stream from an older source holds a format 4 to 6
+# snapshot, which this client refuses by design. The service still keeps that
+# stream until a newer successful CI stream replaces it.
+FORMAT_SEVEN_SOURCE = "2cdc5531c1f056891ff17e16fbe25b52a5c4a201"
+MAIN = "refs/remotes/origin/main"
+
+
+def ancestor(older, newer):
+    # Commit ancestry only: the full-history checkout has every main commit.
+    root = Path(__file__).resolve().parents[2]
+    # No credential or product variable reaches git; a missing commit fails, never fetches.
+    environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
+                   "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
+    try:
+        result = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+                                env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise OperationError("ci_kept_source_history") from error
+    require(result.returncode in (0, 1), "ci_kept_source_history")
+    return result.returncode == 0
+
+
+def legacy_format(kept):
+    """True when the kept stream's exact main source precedes the format 7 client."""
+    owner = kept.get("owner") if isinstance(kept, dict) else None
+    source = owner.get("source") if isinstance(owner, dict) else None
+    require(isinstance(source, str) and re.fullmatch(r"[0-9a-f]{40}", source), "ci_kept_exact_owner")
+    require(ancestor(source, MAIN) and ancestor(FORMAT_SEVEN_SOURCE, MAIN), "ci_kept_source_on_main")
+    return not ancestor(FORMAT_SEVEN_SOURCE, source)
 
 
 def selected(kept, baseline):

@@ -1,47 +1,9 @@
 use super::*;
-use crate::db_operations::atom_store::{counter::TipChangeSet, AtomStore};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
-use crate::schema::{Schema, SchemaError};
-use serde_json::json;
+use crate::schema::SchemaError;
 
 impl AtomStore {
-    pub(crate) async fn bind_history_schema(&self, schema: &Schema) -> Result<(), SchemaError> {
-        self.bind_history_schemas(std::iter::once(schema)).await
-    }
-
-    pub(crate) async fn bind_history_schemas<'a>(
-        &self,
-        schemas: impl Iterator<Item = &'a Schema> + Send,
-    ) -> Result<(), SchemaError> {
-        let rows = schemas
-            .flat_map(|schema| {
-                schema
-                    .field_molecule_uuids
-                    .as_ref()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|(name, molecule)| {
-                        let field = schema.field_hashes.get(name)?;
-                        Some((
-                            format!("ahf:v1:{molecule}"),
-                            json!(HistoryBinding {
-                                schema: schema.name.clone(),
-                                field: field.clone(),
-                                name: name.clone(),
-                            }),
-                        ))
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        self.commit_tip_changes(TipChangeSet {
-            rows,
-            ..TipChangeSet::default()
-        })
-        .await?;
-        Ok(())
-    }
-
     pub async fn field_history_policy(
         &self,
         field: &str,

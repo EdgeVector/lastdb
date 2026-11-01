@@ -30,10 +30,7 @@ pub use lastdb_model::{canonical, constants, hex, json_order, kind_partition};
 
 /// Core logical memory, record retention, and background persist work.
 pub mod resident;
-pub use resident::{
-    PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneMetrics,
-    PersistLaneOccupancy, PersistLanePressure, PersistLaneSet, PersistReservation,
-};
+pub use resident::{PersistLaneMetrics, PersistLanePressure};
 pub mod clock;
 pub mod crypto;
 pub mod db_operations;

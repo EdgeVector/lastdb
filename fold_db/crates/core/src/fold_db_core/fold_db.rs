@@ -11,8 +11,6 @@ use crate::db_operations::DbOperations;
 use crate::schema::SchemaCore;
 
 mod accessors;
-pub(crate) mod alternate_key_changes;
-pub use alternate_key_changes::{AlternateKeyChange, AlternateKeyChangeReport};
 mod admin_db;
 mod catalog_gc;
 mod catalog_membership;
@@ -27,6 +25,7 @@ mod maintenance_admission;
 
 mod provenance;
 mod record_conflicts;
+mod record_walk;
 mod schema_drop;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;
@@ -63,7 +62,6 @@ impl Drop for FoldDB {
         // Request cancellation before the storage fields drop. Graceful
         // shutdown awaits this task; Drop cannot await from a synchronous
         // destructor and uses the best-effort fallback.
-        self.mutation_manager.persist_lanes().stop();
         self.background_conflict_janitor.stop();
         self.background_atom_history.abort();
         self.background_molecule_drain.stop();

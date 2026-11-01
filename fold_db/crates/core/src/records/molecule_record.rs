@@ -28,9 +28,7 @@ pub(crate) enum MoleculeRangeForm {
 
 // The slot layout values live in the molecule model so the schema field
 // types can name them without a dependency on this store.
-pub(crate) use crate::atom::molecule_slot::{
-    ChangedKey, FilterLayout, OneDSlot, EMPTY_KEY_COMPONENT,
-};
+pub(crate) use crate::atom::molecule_slot::{FilterLayout, OneDSlot, EMPTY_KEY_COMPONENT};
 
 /// One stored `mk:{M}:{key}` record: a key's atom entry plus its optional
 /// per-key metadata. The key itself is encoded into the storage key by

@@ -15,14 +15,6 @@ pub enum FieldHistoryPolicy {
     },
 }
 
-#[derive(Debug, Clone, Default, Copy)]
-pub(crate) enum HistoryMode {
-    #[default]
-    Ignore,
-    Capture,
-    Erase,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HistoryBinding {
     pub schema: String,

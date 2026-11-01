@@ -55,14 +55,6 @@ impl KeyValue {
         serde_json::to_string(self).expect("KeyValue is always JSON-serializable")
     }
 
-    /// Inverse of [`Self::to_storage_key`].
-    ///
-    /// Invalid stored coordinates cannot become a different, empty lookup.
-    pub fn from_storage_key(s: &str) -> Result<Self, super::SchemaError> {
-        serde_json::from_str(s)
-            .map_err(|_| super::SchemaError::InvalidData("invalid serialized record key".into()))
-    }
-
     /// The canonical **page order** for keyed reads: ascending `range`, then
     /// ascending `hash` as tiebreaker. Absent components sort as `""`.
     ///

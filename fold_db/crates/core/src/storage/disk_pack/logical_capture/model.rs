@@ -18,14 +18,20 @@ pub struct CaptureEvent {
     pub sequence: u64,
     pub previous_sha256: String,
     pub mutation_ids: Vec<String>,
-    /// Version 1: the field outcomes of a format 4 to 6 home.
-    pub outcomes: Vec<AcceptedFieldOutcome>,
-    /// Version 2: the record outcomes of a format 7 home.
+    /// The field outcomes of version 1. Version 2 keeps the wire field and
+    /// leaves it empty; no element decodes.
+    pub outcomes: Vec<RetiredFieldOutcome>,
+    /// The record outcomes of version 2.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub records: Vec<AcceptedRecordOutcome>,
     pub sha256: String,
     pub signature: String,
 }
+
+/// Version 1 field outcomes left with the format 6 field tips. The type has
+/// no value, so an event that carries one does not decode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RetiredFieldOutcome {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -108,29 +114,17 @@ impl EventMetadata {
     }
 }
 
-/// The authored effects of one request. A format 7 home writes records and
-/// authors version 2; another home writes field tips and authors version 1.
-pub(crate) enum Outcomes {
-    Fields(Vec<AcceptedFieldOutcome>),
-    Records(Vec<AcceptedRecordOutcome>),
-}
-
 impl CaptureEvent {
     pub(super) fn authored(
         identity: &identity::Identity,
         head: &Head,
         mutation_ids: &[String],
-        authored: Outcomes,
+        records: Vec<AcceptedRecordOutcome>,
     ) -> StorageResult<Self> {
         verify::mutation_ids(mutation_ids)?;
-        let (version, outcomes, records) = match authored {
-            Outcomes::Fields(outcomes) => (1, outcomes, Vec::new()),
-            Outcomes::Records(records) => (2, Vec::new(), records),
-        };
-        verify::outcomes(&outcomes, mutation_ids)?;
         verify::records(&records, mutation_ids)?;
         let mut entry = Self {
-            version,
+            version: 2,
             origin: identity.origin(),
             sequence: head
                 .position
@@ -139,7 +133,7 @@ impl CaptureEvent {
                 .ok_or_else(|| invalid("logical capture sequence exhausted"))?,
             previous_sha256: head.position.sha256.clone(),
             mutation_ids: mutation_ids.to_vec(),
-            outcomes,
+            outcomes: Vec::new(),
             records,
             sha256: String::new(),
             signature: String::new(),
@@ -153,31 +147,20 @@ impl CaptureEvent {
     }
 
     pub(super) fn signing_bytes(&self) -> StorageResult<Vec<u8>> {
-        if self.version == 2 {
-            return encode(&(
-                "lastdb-logical-device-capture-v2",
-                self.version,
-                &self.origin,
-                self.sequence,
-                &self.previous_sha256,
-                &self.mutation_ids,
-                &self.records,
-            ));
-        }
         encode(&(
-            "lastdb-logical-device-capture-v1",
+            "lastdb-logical-device-capture-v2",
             self.version,
             &self.origin,
             self.sequence,
             &self.previous_sha256,
             &self.mutation_ids,
-            &self.outcomes,
+            &self.records,
         ))
     }
 
-    /// The field outcomes of version 1, or the record outcomes of version 2.
+    /// The record outcomes of the event.
     pub(crate) fn outcome_count(&self) -> usize {
-        self.outcomes.len() + self.records.len()
+        self.records.len()
     }
 
     pub(super) fn position(&self) -> Position {

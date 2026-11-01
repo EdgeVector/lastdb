@@ -15,4 +15,4 @@ pub use size_limit::{
     ABSOLUTE_MAX_ATOM_CONTENT_BYTES, ATOM_CONTENT_TOO_LARGE_HINT, DEFAULT_MAX_ATOM_CONTENT_BYTES,
     HEADROOM_ALARM_FRACTION, MAX_ATOM_CONTENT_BYTES_ENV, MIN_MAX_ATOM_CONTENT_BYTES,
 };
-pub use stamp::{now_nanos, AtomClock, MoleculeClock};
+pub use stamp::{now_nanos, AtomClock};

@@ -134,30 +134,3 @@ impl AggregateSet {
         Ok(())
     }
 }
-
-/// Input to the node-local verified-repair finalize operation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct AggregateFinalize {
-    pub source_schema_name: String,
-    /// Hash-only source partition key. The range component must be absent.
-    pub source_partition_key_value: KeyValue,
-    pub target_schema_name: String,
-    pub target_key_value: KeyValue,
-    pub member_schema_name: String,
-    pub expected_guard_token: String,
-}
-
-/// Input to the node-local bounded-member repair operation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct AggregateRepair {
-    pub source_schema_name: String,
-    /// Hash-only source partition key. The range component must be absent.
-    pub source_partition_key_value: KeyValue,
-    pub target_schema_name: String,
-    pub target_key_value: KeyValue,
-    pub member_schema_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expected_guard_token: Option<String>,
-}

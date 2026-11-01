@@ -16,7 +16,8 @@ use super::condition_rules::{
     order_condition_keys,
 };
 use super::*;
-use crate::db_operations::atom_store::{record_scope, KeyedRecord};
+use crate::db_operations::atom_store::{record_scope, KeyedRecord, WalkWindow};
+use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::KeyValuePageOrder;
 use lastdb_model::record_value::StoredRecord;
@@ -107,7 +108,9 @@ impl HashRangeQueryProcessor {
     /// sender is active, the received scopes join the read; a node with no
     /// sender reads only its own scope. A range under one hash reads its keys
     /// in bounded pages of each scope (`records/received_range.rs`), so the
-    /// window ends the read in the own scope too.
+    /// window ends the read in the own scope too. An unfiltered read walks
+    /// the records of every scope in record key order, and its window is a
+    /// window of that walk (`atom_store/record_walk.rs`).
     async fn select_rows(
         &self,
         schema: &Schema,
@@ -126,6 +129,11 @@ impl HashRangeQueryProcessor {
             if !scopes.contains(&namespace) {
                 scopes.push(namespace);
             }
+        }
+        if filter.is_none() {
+            return self
+                .walk_rows(schema, comparison, window.as_ref(), selected, &scopes)
+                .await;
         }
         if let Some((hash, bound)) = received::range_under_hash(schema, filter) {
             return self
@@ -149,6 +157,35 @@ impl HashRangeQueryProcessor {
             Some(window) => bound(rows, window),
             None => rows,
         })
+    }
+}
+
+impl HashRangeQueryProcessor {
+    /// One window of the unfiltered walk over `scopes`, in record key order.
+    /// No window reads the first page of the default size.
+    async fn walk_rows(
+        &self,
+        schema: &Schema,
+        comparison: &KeyComparisonContext,
+        window: Option<&KeyWindow>,
+        selected: &[String],
+        scopes: &[Option<String>],
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
+        let (after, skip, take) = match window {
+            None => (None, 0, DEFAULT_UNFILTERED_PAGE_LIMIT),
+            Some(KeyWindow::Offset { offset, limit }) => (None, *offset, *limit),
+            Some(KeyWindow::After { after, limit }) => (Some(after), 0, *limit),
+        };
+        self.db_ops
+            .atoms()
+            .walk_record_window(
+                schema,
+                comparison,
+                WalkWindow { after, skip, take },
+                scopes,
+                |record| has_any(record, selected),
+            )
+            .await
     }
 }
 

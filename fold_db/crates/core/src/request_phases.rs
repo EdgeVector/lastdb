@@ -216,23 +216,3 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
         *slot = slot.saturating_add(us);
     });
 }
-
-/// Transfer purge work from a persist-lane task to the request that awaited it.
-/// Ordinary asynchronous deletes do not call this function.
-pub(crate) fn add_purge_totals(totals: &RequestPhaseTotals) {
-    for (phase, us) in [
-        (RequestPhase::PurgeBarrier, totals.purge_barrier_us),
-        (RequestPhase::PurgePlan, totals.purge_plan_us),
-        (RequestPhase::PurgeCommit, totals.purge_commit_us),
-        (RequestPhase::PurgeMaterialize, totals.purge_materialize_us),
-        (RequestPhase::PurgeTrace, totals.purge_trace_us),
-        (
-            RequestPhase::PurgeRetentionGuard,
-            totals.purge_retention_guard_us,
-        ),
-        (RequestPhase::PurgeDelete, totals.purge_delete_us),
-        (RequestPhase::PurgeFinalize, totals.purge_finalize_us),
-    ] {
-        add_phase_us(phase, us);
-    }
-}

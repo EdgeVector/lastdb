@@ -48,7 +48,7 @@ impl ReleaseError {
         match self {
             Self::InvalidManifest(detail) => (
                 400,
-                json!({ "reason": "invalid_manifest", "detail": detail }),
+                crate::app_identity::reason_detail_body("invalid_manifest", detail),
             ),
             Self::CertInvalid => (401, json!({ "reason": "cert_invalid" })),
             Self::CertExpired => (401, json!({ "reason": "cert_expired" })),
@@ -79,7 +79,10 @@ impl ReleaseError {
                     "window_secs": PUBLISH_RATE_WINDOW_SECS,
                 }),
             ),
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (
+                500,
+                crate::app_identity::reason_detail_body("internal", detail),
+            ),
         }
     }
 

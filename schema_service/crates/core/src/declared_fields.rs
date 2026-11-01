@@ -138,48 +138,52 @@ impl DeclaredFieldError {
     #[must_use]
     pub fn to_http(&self) -> (u16, Value) {
         match self {
-            Self::OwnerRequired(detail) => {
-                (400, json!({ "reason": "owner_required", "detail": detail }))
-            }
-            Self::InvalidHandle(detail) => {
-                (400, json!({ "reason": "invalid_handle", "detail": detail }))
-            }
-            Self::InvalidField(detail) => {
-                (400, json!({ "reason": "invalid_field", "detail": detail }))
-            }
+            Self::OwnerRequired(detail) => (
+                400,
+                crate::app_identity::reason_detail_body("owner_required", detail),
+            ),
+            Self::InvalidHandle(detail) => (
+                400,
+                crate::app_identity::reason_detail_body("invalid_handle", detail),
+            ),
+            Self::InvalidField(detail) => (
+                400,
+                crate::app_identity::reason_detail_body("invalid_field", detail),
+            ),
             Self::NotOwner {
                 declaration_id,
                 owner_app_id,
             } => (
                 403,
-                json!({
-                    "reason": "not_owner",
-                    "detail": format!(
-                        "declaration {declaration_id} is owned by {owner_app_id}"
-                    ),
-                }),
+                crate::app_identity::reason_detail_body(
+                    "not_owner",
+                    &format!("declaration {declaration_id} is owned by {owner_app_id}"),
+                ),
             ),
             Self::UnknownDeclaration(id) => (
                 404,
-                json!({
-                    "reason": "unknown_declaration",
-                    "detail": format!("no declaration {id}"),
-                }),
+                crate::app_identity::reason_detail_body(
+                    "unknown_declaration",
+                    &format!("no declaration {id}"),
+                ),
             ),
             Self::NotPermitted {
                 declaration_id,
                 app_id,
             } => (
                 403,
-                json!({
-                    "reason": "not_permitted",
-                    "detail": format!(
+                crate::app_identity::reason_detail_body(
+                    "not_permitted",
+                    &format!(
                         "app {app_id} may not reference declaration {declaration_id}; \
                          the owner must grant it"
                     ),
-                }),
+                ),
             ),
-            Self::Internal(detail) => (500, json!({ "reason": "internal", "detail": detail })),
+            Self::Internal(detail) => (
+                500,
+                crate::app_identity::reason_detail_body("internal", detail),
+            ),
         }
     }
 }

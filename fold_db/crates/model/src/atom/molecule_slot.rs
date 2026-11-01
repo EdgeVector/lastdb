@@ -57,16 +57,4 @@ impl ChangedKey {
             range: Some(range.into()),
         }
     }
-
-    /// Hash coordinate, unchanged; an absent component uses the empty slot.
-    #[must_use]
-    pub fn hash_or_empty(&self) -> &str {
-        self.hash.as_deref().unwrap_or(EMPTY_KEY_COMPONENT)
-    }
-
-    /// Range coordinate, unchanged; an absent component uses the empty slot.
-    #[must_use]
-    pub fn range_or_empty(&self) -> &str {
-        self.range.as_deref().unwrap_or(EMPTY_KEY_COMPONENT)
-    }
 }

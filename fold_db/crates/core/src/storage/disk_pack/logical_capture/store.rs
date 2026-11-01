@@ -126,17 +126,12 @@ impl PackRuntime {
     pub(crate) async fn stage_logical_capture(
         self: &Arc<Self>,
         mutation_ids: &[String],
-        outcomes: Outcomes,
+        records: Vec<AcceptedRecordOutcome>,
     ) -> StorageResult<Position> {
         let capture = self
             .logical_capture
             .as_ref()
             .ok_or_else(|| invalid("logical capture is disabled"))?;
-        if self.record_home() != matches!(outcomes, Outcomes::Records(_)) {
-            return Err(invalid(
-                "a format 7 home captures records; another home captures field tips",
-            ));
-        }
         let pending = transaction::PendingBatch::current(self).ok_or_else(|| {
             invalid("logical capture requires the data's active native transaction")
         })?;
@@ -149,7 +144,7 @@ impl PackRuntime {
                 .ok_or_else(|| invalid("logical capture head disappeared"))?;
         let mut head: Head = decode(&bytes)?;
         head.validate(&capture.identity)?;
-        let entry = CaptureEvent::authored(&capture.identity, &head, mutation_ids, outcomes)?;
+        let entry = CaptureEvent::authored(&capture.identity, &head, mutation_ids, records)?;
         let body = encode(&entry)?;
         let event_key = key("e", entry.sequence);
         let metadata_key = key("m", entry.sequence);

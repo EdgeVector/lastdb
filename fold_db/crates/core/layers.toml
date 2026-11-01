@@ -59,7 +59,7 @@ modules = [
 
 [[layer]]
 name = "runtime"
-doc = "Process-local runtime state with no store: the warm set and persist lanes (resident), the memory budget, request phase accounting, disk read receipts, write preparation counters, and the mutation admission fence."
+doc = "Process-local runtime state with no store: the warm set (resident), the memory budget, request phase accounting, disk read receipts, write preparation counters, and the mutation admission fence."
 modules = [
   "memory_budget",
   "read_receipts",

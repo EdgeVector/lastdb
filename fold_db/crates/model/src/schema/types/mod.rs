@@ -1,5 +1,4 @@
 pub mod aggregate;
-pub mod aggregate_state;
 pub mod author_clock;
 mod being_dropped;
 pub mod cas;
@@ -14,8 +13,7 @@ pub mod mutation;
 pub mod operations;
 pub mod query_cursor;
 pub mod schema;
-pub use aggregate::{AggregateFinalize, AggregateRepair, AggregateSet};
-pub use aggregate_state::{AggregateApply, AggregateGuard, AggregateMemberRecord, AggregateWinner};
+pub use aggregate::AggregateSet;
 pub use author_clock::{MutationAuthorClockState, MUTATION_AUTHOR_SIGNATURE_VERSION};
 pub use cas::CasExpectation;
 pub use data_classification::DataClassification;

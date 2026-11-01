@@ -102,22 +102,4 @@ impl<T> Slab<T> {
                     })
             })
     }
-
-    /// Allocate now what `additional` inserts need, so they cannot fail.
-    pub(super) fn try_reserve(
-        &mut self,
-        additional: usize,
-    ) -> Result<(), std::collections::TryReserveError> {
-        self.free.try_reserve(additional)?;
-        let fresh = additional.saturating_sub(self.free.len());
-        let ids = (self.next as usize).saturating_add(fresh);
-        let chunks = ids.div_ceil(CHUNK);
-        if chunks > self.chunks.len() {
-            self.chunks.try_reserve(chunks - self.chunks.len())?;
-            while self.chunks.len() < chunks {
-                self.chunks.push(new_chunk()?);
-            }
-        }
-        Ok(())
-    }
 }

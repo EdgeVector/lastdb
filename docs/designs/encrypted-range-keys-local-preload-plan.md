@@ -282,7 +282,7 @@ The initial key download remains visible as a separate cost from later exact fet
 | Complete key memory | `fold_db/crates/core/src/resident/core_keys.rs` and `resident/core_keys/` |
 | Load and publication | `fold_db/crates/core/src/storage/disk_pack/schema_keys.rs` and `storage/disk_pack/schema_keys/` |
 | Query selection | `fold_db/crates/core/src/db_operations/atom_store/schema_keys/`, `filter/`, `schema/types/field/filter_utils/` |
-| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/`, `fold_db_core/fold_db/alternate_key_changes/` |
+| Tip and control writers | `fold_db/crates/core/src/fold_db_core/mutation_manager/`, `db_operations/atom_store/` |
 | Format and recovery | `fold_db/crates/core/src/storage/current_keys.rs`, `mini_cutover/`, `storage/disk_pack/byte_backup/` |
 | Cloud contract and client | `cloud_backup_protocol/src/`, `fold_db/crates/core/src/sync/auth/`, `sync/engine/` |
 | Cloud service | `exemem_service/lambdas/storage_service/src/` in `exemem-infra` |
