@@ -157,14 +157,14 @@ impl DeclaredFieldError {
                 403,
                 crate::app_identity::reason_detail_body(
                     "not_owner",
-                    format!("declaration {declaration_id} is owned by {owner_app_id}"),
+                    &format!("declaration {declaration_id} is owned by {owner_app_id}"),
                 ),
             ),
             Self::UnknownDeclaration(id) => (
                 404,
                 crate::app_identity::reason_detail_body(
                     "unknown_declaration",
-                    format!("no declaration {id}"),
+                    &format!("no declaration {id}"),
                 ),
             ),
             Self::NotPermitted {
@@ -174,7 +174,7 @@ impl DeclaredFieldError {
                 403,
                 crate::app_identity::reason_detail_body(
                     "not_permitted",
-                    format!(
+                    &format!(
                         "app {app_id} may not reference declaration {declaration_id}; \
                          the owner must grant it"
                     ),
