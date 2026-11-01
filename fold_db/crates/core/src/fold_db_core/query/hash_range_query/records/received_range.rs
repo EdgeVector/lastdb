@@ -1,5 +1,6 @@
 //! A range read under one hash that merges the own scope with the received
-//! scopes.
+//! scopes. A node with no sender reads the own scope alone through the same
+//! pages.
 //!
 //! Each scope reads its record keys one bounded page at a time. The first `n`
 //! distinct keys of the merged order are among the first `n` keys of each

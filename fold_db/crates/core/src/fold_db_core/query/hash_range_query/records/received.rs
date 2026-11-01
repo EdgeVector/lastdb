@@ -29,7 +29,8 @@ pub(super) type Candidate = (KeyValue, Vec<String>);
 
 impl HashRangeQueryProcessor {
     /// The rows of one selector over `scopes` (the own scope first), in page
-    /// order and bounded by the window.
+    /// order and bounded by the window. The caller reads a range under one
+    /// hash through `received_range`.
     pub(super) async fn select_received(
         &self,
         schema: &Schema,
@@ -41,21 +42,6 @@ impl HashRangeQueryProcessor {
     ) -> Result<Vec<KeyedRecord>, SchemaError> {
         use HashRangeFilter as F;
         let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
-        let under_hash = match filter {
-            Some(F::HashKey(hash)) if ranged => Some((hash, RecordBound::All)),
-            Some(F::HashRangePrefix { hash, prefix }) if ranged => {
-                Some((hash, RecordBound::Prefix(prefix)))
-            }
-            Some(F::HashRangeRange { hash, start, end }) if ranged => {
-                Some((hash, RecordBound::Between(start, end)))
-            }
-            _ => None,
-        };
-        if let Some((hash, bound)) = under_hash {
-            return self
-                .received_range(schema, hash, bound, scopes, selected, window)
-                .await;
-        }
         let mut rows = match filter {
             Some(F::HashRangeKey { hash, range }) => {
                 self.received_at(schema, &[api_key(ranged, hash, range)], scopes)
@@ -181,4 +167,26 @@ fn whole_walk() -> HashRangeFilter {
 /// The API key of a keyed selector. A Hash schema has no range.
 fn api_key(ranged: bool, hash: &str, range: &str) -> KeyValue {
     KeyValue::new(Some(hash.to_owned()), ranged.then(|| range.to_owned()))
+}
+
+/// The API hash and the range bound of a selector that reads one range under
+/// one hash. A Hash schema has one record for each hash, so its selectors
+/// read by key.
+pub(super) fn range_under_hash<'a>(
+    schema: &Schema,
+    filter: Option<&'a HashRangeFilter>,
+) -> Option<(&'a str, RecordBound<'a>)> {
+    if schema.schema_type != DeclarativeSchemaType::HashRange {
+        return None;
+    }
+    match filter? {
+        HashRangeFilter::HashKey(hash) => Some((hash.as_str(), RecordBound::All)),
+        HashRangeFilter::HashRangePrefix { hash, prefix } => {
+            Some((hash.as_str(), RecordBound::Prefix(prefix)))
+        }
+        HashRangeFilter::HashRangeRange { hash, start, end } => {
+            Some((hash.as_str(), RecordBound::Between(start, end)))
+        }
+        _ => None,
+    }
 }

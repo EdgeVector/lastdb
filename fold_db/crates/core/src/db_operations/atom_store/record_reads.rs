@@ -1,10 +1,10 @@
-//! Record reads of a format 7 home: by key, by one range under one hash, or
-//! by one walk of the record space of a schema.
+//! Record reads of a format 7 home: by key, or by one walk of the record
+//! space of a schema. A range under one hash reads its keys in pages
+//! (`record_spans.rs`).
 //!
-//! A keyed selector echoes the caller's API hash. A range under one hash
-//! decodes each range from its stored key. A walk cannot decode a blinded
-//! hash, so it recovers each API key from the key fields of the record; the
-//! write path puts those fields in every record.
+//! A keyed selector echoes the caller's API hash. A walk cannot decode a
+//! blinded hash, so it recovers each API key from the key fields of the
+//! record; the write path puts those fields in every record.
 
 use super::AtomStore;
 use crate::schema::types::field::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
@@ -28,13 +28,6 @@ pub(crate) type KeyedRecord = (KeyValue, Arc<StoredRecord>);
 /// the next page, and whether more keys follow.
 pub(crate) type RecordKeyPage = (Vec<(String, String)>, Option<String>, bool);
 
-/// The ranges under one hash that one selector reads.
-enum RangeBound<'a> {
-    All,
-    Prefix(&'a str),
-    Between(&'a str, &'a str),
-}
-
 impl AtomStore {
     /// True when this store serves a format 7 home. The node routes the
     /// field history route by it.
@@ -46,7 +39,9 @@ impl AtomStore {
     }
 
     /// The live records that one canonical key selector names, in page
-    /// order. `None` reads the first page of the default size.
+    /// order. `None` reads the first page of the default size. A range under
+    /// one hash of a HashRange schema reads its keys in pages
+    /// (`record_spans.rs`), so this read refuses it.
     pub(crate) async fn select_records(
         &self,
         schema: &Schema,
@@ -74,18 +69,6 @@ impl AtomStore {
                 F::HashKey(hash) | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. },
             ) if !ranged => {
                 self.records_at(schema, &[KeyValue::new(Some(hash.clone()), None)], scope)
-                    .await?
-            }
-            Some(F::HashKey(hash)) => {
-                self.records_under_hash(schema, hash, RangeBound::All, scope)
-                    .await?
-            }
-            Some(F::HashRangePrefix { hash, prefix }) => {
-                self.records_under_hash(schema, hash, RangeBound::Prefix(prefix), scope)
-                    .await?
-            }
-            Some(F::HashRangeRange { hash, start, end }) => {
-                self.records_under_hash(schema, hash, RangeBound::Between(start, end), scope)
                     .await?
             }
             Some(F::SampleN(count)) => {
@@ -142,58 +125,6 @@ impl AtomStore {
             .zip(records)
             .filter_map(|(key, record)| record.map(|record| (key, record)))
             .collect())
-    }
-
-    /// One ordered range read of the records under one API hash.
-    async fn records_under_hash(
-        &self,
-        schema: &Schema,
-        hash: &str,
-        bound: RangeBound<'_>,
-        scope: Option<&str>,
-    ) -> Result<Vec<KeyedRecord>, SchemaError> {
-        let space = record_space_uuid(&schema.name);
-        let codec = self.key_codec_for_molecule(&space)?;
-        let storage_hash = codec.storage_hash(&space, hash).map_err(codec_error)?;
-        let base = build_storage_key(scope, &record_hash_prefix(&space, &storage_hash));
-        let store = self.main_store.inner();
-        let rows = match bound {
-            RangeBound::All => store.scan_prefix(base.as_bytes()).await,
-            RangeBound::Prefix(prefix) => {
-                codec.require_text_range_prefix().map_err(codec_error)?;
-                let prefix = codec.storage_range(&space, prefix).map_err(codec_error)?;
-                store
-                    .scan_prefix(format!("{base}{prefix}").as_bytes())
-                    .await
-            }
-            RangeBound::Between(start, end) => {
-                let start = codec.storage_range(&space, start).map_err(codec_error)?;
-                let end = codec.storage_range(&space, end).map_err(codec_error)?;
-                if start >= end {
-                    return Ok(Vec::new());
-                }
-                store
-                    .scan_range(
-                        format!("{base}{start}").as_bytes(),
-                        format!("{base}{end}").as_bytes(),
-                    )
-                    .await
-            }
-        }
-        .map_err(|error| SchemaError::InvalidData(format!("read records under a hash: {error}")))?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (key, value) in rows {
-            let stored = key
-                .get(base.len()..)
-                .and_then(|range| std::str::from_utf8(range).ok())
-                .ok_or_else(|| SchemaError::InvalidData("a record key has no range".into()))?;
-            let range = codec.api_range(stored).map_err(codec_error)?;
-            out.push((
-                KeyValue::new(Some(hash.to_owned()), Some(range)),
-                Arc::new(decode(&value)?),
-            ));
-        }
-        Ok(out)
     }
 
     /// One walk of the record space of a schema: every record, or the first
